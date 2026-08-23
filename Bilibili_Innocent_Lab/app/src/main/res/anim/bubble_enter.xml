@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 气泡进入动画：从长按位置（左上角 pivot）缩放 + 淡入，柔和回弹 -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@interpolator/soft_overshoot">
+    <alpha
+        android:fromAlpha="0.0"
+        android:toAlpha="1.0"
+        android:duration="220" />
+    <scale
+        android:fromXScale="0.55"
+        android:toXScale="1.0"
+        android:fromYScale="0.55"
+        android:toYScale="1.0"
+        android:pivotX="0%"
+        android:pivotY="0%"
+        android:duration="220" />
+</set>
