@@ -17,3 +17,6 @@
 **/*.aab
 **/LSPosed_*.zip
 Temp/
+
+# Local development notes
+AGENTS.md
