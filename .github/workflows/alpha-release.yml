@@ -12,10 +12,9 @@ on:
         type: boolean
         default: false
       release_tag:
-        description: Alpha tag, for example v1.0.5-alpha.2
+        description: Alpha tag, for example v1.0.6-alpha.1
         required: true
         type: string
-        default: v1.0.5-alpha.2
 
 concurrency:
   group: alpha-build-${{ github.ref }}
@@ -35,6 +34,31 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Validate Alpha release-note tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          test_dir="$RUNNER_TEMP/alpha-release-template-test"
+          mkdir -p "$test_dir"
+          python3 .github/release-templates/generate_alpha_changelog.py \
+            --repo-root . \
+            --repository-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --release-tag v0.0.0-alpha.0 \
+            --commit "$GITHUB_SHA" \
+            --output "$test_dir/ALPHA_CHANGELOG.md"
+          python3 .github/release-templates/render_release_template.py \
+            --template .github/release-templates/alpha.md \
+            --output "$test_dir/RELEASE_NOTES.md" \
+            --version v0.0.0-alpha.0 \
+            --commit "$GITHUB_SHA" \
+            --release-date "$(TZ=Asia/Shanghai date +%F)" \
+            --sha256 0000000000000000000000000000000000000000000000000000000000000000 \
+            --changelog-file "$test_dir/ALPHA_CHANGELOG.md"
+          if grep -Eq '\{\{[A-Z0-9_]+\}\}' "$test_dir/RELEASE_NOTES.md"; then
+            echo 'Alpha release-note tooling left unresolved template tokens'
+            exit 1
+          fi
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -82,6 +106,12 @@ jobs:
       contents: write
 
     steps:
+      - name: Check out source and release template
+        uses: actions/checkout@v4
+        with:
+          # 自动生成“自上一 Alpha 以来”的变更记录需要完整标签与提交历史。
+          fetch-depth: 0
+
       - name: Download verified build
         uses: actions/download-artifact@v4
         with:
@@ -95,7 +125,41 @@ jobs:
         run: |
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]; then
             echo "Invalid Alpha tag: $RELEASE_TAG"
-            echo "Expected format: v1.0.5-alpha.2"
+            echo "Expected format: v1.0.6-alpha.1"
+            exit 1
+          fi
+
+      - name: Render standardized Alpha release notes
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+
+          apk_sha256="$(awk '{print $1}' release-asset/SHA256SUMS.txt)"
+          release_apk="release-asset/Bilibili_Innocent_Lab-${RELEASE_TAG}.apk"
+          cp release-asset/Bilibili_Innocent_Lab-alpha.apk "$release_apk"
+          printf '%s  %s\n' "$apk_sha256" "$(basename "$release_apk")" > release-asset/SHA256SUMS.txt
+
+          changelog_file="release-asset/ALPHA_CHANGELOG.md"
+          python3 .github/release-templates/generate_alpha_changelog.py \
+            --repo-root . \
+            --repository-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --release-tag "$RELEASE_TAG" \
+            --commit "$GITHUB_SHA" \
+            --output "$changelog_file"
+
+          python3 .github/release-templates/render_release_template.py \
+            --template .github/release-templates/alpha.md \
+            --output release-asset/RELEASE_NOTES.md \
+            --version "$RELEASE_TAG" \
+            --commit "$GITHUB_SHA" \
+            --release-date "$(TZ=Asia/Shanghai date +%F)" \
+            --sha256 "$apk_sha256" \
+            --changelog-file "$changelog_file"
+
+          if grep -Eq '\{\{[A-Z0-9_]+\}\}' release-asset/RELEASE_NOTES.md; then
+            echo 'Rendered Alpha release notes still contain template tokens'
             exit 1
           fi
 
@@ -105,10 +169,10 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           gh release create "$RELEASE_TAG" \
-            release-asset/Bilibili_Innocent_Lab-alpha.apk \
+            "release-asset/Bilibili_Innocent_Lab-${RELEASE_TAG}.apk" \
             release-asset/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "$RELEASE_TAG" \
             --prerelease \
-            --notes "这是 $RELEASE_TAG Alpha 测试版本，基于通过构建、单元测试和 Lint 检查的最新提交生成。该版本用于兼容性、稳定性和性能验证，可能存在尚未发现的问题。请在合法合规并遵守相关服务条款的前提下使用。"
+            --notes-file release-asset/RELEASE_NOTES.md
