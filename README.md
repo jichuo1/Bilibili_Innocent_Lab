@@ -17,3 +17,5 @@ device-validation history are in [`AGENTS.md`](AGENTS.md).
 See [`docs/architecture.md`](docs/architecture.md) for runtime boundaries and
 [`docs/verification.md`](docs/verification.md) for the focused regression
 matrix.
+
+Powered by the YukiHook API / Innocent HookAdapter Engine / Lsposed
