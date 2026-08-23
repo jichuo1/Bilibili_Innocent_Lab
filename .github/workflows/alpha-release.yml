@@ -43,11 +43,11 @@ jobs:
 
       - name: Install Android SDK packages
         shell: bash
-        run: sdkmanager "platforms;android-37" "build-tools;35.0.0"
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Build, test and lint
         working-directory: Bilibili_Innocent_Lab
-        run: ./gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --no-daemon
+        run: ./gradlew -Pproject.android.compileSdk=35 assembleDebug testDebugUnitTest lintDebug --console=plain --no-daemon
 
       - name: Locate APK and calculate checksum
         id: apk
