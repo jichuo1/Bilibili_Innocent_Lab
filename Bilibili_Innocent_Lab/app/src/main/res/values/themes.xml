@@ -1,0 +1,34 @@
+<resources>
+    <!-- Base application theme. -->
+    <style name="Theme.AppDefault" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Primary brand color. -->
+        <item name="colorPrimary">@color/colorPrimaryAccent</item>
+        <item name="colorPrimaryVariant">@color/colorPrimaryAccent</item>
+        <item name="colorOnPrimary">@color/colorPrimaryAccent</item>
+        <!-- Secondary brand color. -->
+        <item name="colorSecondary">@color/colorPrimaryAccent</item>
+        <item name="colorSecondaryVariant">@color/colorPrimaryAccent</item>
+        <item name="colorOnSecondary">@color/colorPrimaryAccent</item>
+        <!-- Status bar color. -->
+        <item name="android:statusBarColor">@color/white</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <!-- Customize your theme here. -->
+    </style>
+
+    <!-- 自由复制气泡 Dialog：全屏透窗（非 floating），代码手动 setX/setY 定位气泡。
+         注意：不要用 windowIsFloating=true——部分 ROM（HyperOS/MIUI 实测）会按自己的
+         浮动窗口样式给窗口画默认背景/硬阴影（表现为圆角气泡外一圈黑色直角边框，
+         与亮色模式描边无关、暗色模式同样出现），且会干扰 setLayout(MATCH_PARENT)。
+         非浮动全屏透窗 + 显式透明背景 + 0 elevation 不经过任何浮动窗口美化路径。 -->
+    <style name="FreeCopyBubble" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:backgroundDimAmount">0.0</item>
+        <item name="android:windowFrame">@null</item>
+        <item name="android:windowElevation">0dp</item>
+        <!-- 让 window 绘制系统栏背景，颜色由代码动态设置（跟随 B 站白天/黑夜），遮挡品牌色粉色横条 -->
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+    </style>
+</resources>

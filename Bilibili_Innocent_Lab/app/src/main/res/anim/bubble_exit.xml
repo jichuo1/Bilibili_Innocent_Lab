@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 气泡退出动画：与进入配套的反向（缩放收拢 + 淡出，向长按位置收） -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:interpolator/accelerate_cubic">
+    <alpha
+        android:fromAlpha="1.0"
+        android:toAlpha="0.0"
+        android:duration="150" />
+    <scale
+        android:fromXScale="1.0"
+        android:toXScale="0.7"
+        android:fromYScale="1.0"
+        android:toYScale="0.7"
+        android:pivotX="0%"
+        android:pivotY="0%"
+        android:duration="150" />
+</set>

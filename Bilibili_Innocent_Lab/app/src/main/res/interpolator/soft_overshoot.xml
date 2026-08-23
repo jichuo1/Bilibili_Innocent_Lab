@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 柔和回弹：tension 1.3（默认 2.0 太生硬），气泡弹跳感但不过冲 -->
+<overshootInterpolator xmlns:android="http://schemas.android.com/apk/res/android"
+    android:tension="1.3" />

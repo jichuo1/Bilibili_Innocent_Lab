@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        漫游设置入口点击中转：本机 B 站进程对任何其他包都不可见（系统级包可见性
+        隔离），无法直接 startActivity 打开 me.iacn.biliroaming；改为 B 站点击 →
+        RoamingCompatProvider（本模块 App 代开漫游设置）。本声明使模块 App 对
+        me.iacn.biliroaming 可见（Android 11+ 包可见性）。
+    -->
+    <queries>
+        <package android:name="me.iacn.biliroaming" />
+    </queries>
+
+    <!--
+        仅模块 App 可以向运行在 B 站进程中的动态 Receiver 写入漫游开关。
+        Receiver 所在进程不需要持有该权限；系统校验的是广播发送者。
+    -->
+    <permission
+        android:name="Bilibili_Innocent_Lab.pro.permission.SET_ROAMING_COMPAT"
+        android:protectionLevel="signature" />
+
+    <uses-permission android:name="Bilibili_Innocent_Lab.pro.permission.SET_ROAMING_COMPAT" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <application
+        android:name=".application.DefaultApplication"
+        android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AppDefault"
+        tools:targetApi="31">
+
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposedscope"
+            android:resource="@array/module_scope" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="@string/xposed_desc" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="93" />
+
+        <!--
+            漫游版本支持扩展：跨进程开关读取。
+            目标进程（B 站）通过 content:// 查询本 Provider 读取模块 prefs 开关，
+            解决部分 LSPosed 构建下 XSharedPreferences 跨应用读取被 SELinux 拦截的问题。
+        -->
+        <provider
+            android:name=".provider.RoamingCompatProvider"
+            android:authorities="Bilibili.Innocent_Lab.pro.roaming"
+            android:exported="true" />
+
+        <!--
+            漫游设置入口点击中转：B 站进程对本模块不可见（无法用 Provider），
+            点击「哔哩漫游设置」时 B 站发送显式广播到本接收器，由模块 App
+            代开 me.iacn.biliroaming 的设置界面（见 RoamingOpenReceiver）。
+        -->
+        <receiver
+            android:name=".receiver.RoamingOpenReceiver"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="Bilibili.Innocent_Lab.pro.OPEN_ROAMING_SETTINGS" />
+            </intent-filter>
+        </receiver>
+
+        <activity
+            android:name=".ui.activity.MainActivity"
+            android:exported="true"
+            android:screenOrientation="behind">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            自由复制界面目前只供模块内部复用；实际长按交互使用 B 站进程内 Dialog，
+            因此不再暴露任意文本展示入口。
+        -->
+        <activity
+            android:name=".ui.activity.FreeCopyActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.AppDefault" />
+
+        <activity-alias
+            android:name=".Home"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:screenOrientation="behind"
+            android:targetActivity=".ui.activity.MainActivity">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+    </application>
+</manifest>
