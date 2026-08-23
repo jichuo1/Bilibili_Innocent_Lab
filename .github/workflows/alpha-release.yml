@@ -21,6 +21,10 @@ concurrency:
   group: alpha-build-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CI_COMPILE_SDK: '35'
+  CI_BUILD_TOOLS: '35.0.0'
+
 jobs:
   verify:
     name: Build, test and lint
@@ -43,11 +47,11 @@ jobs:
 
       - name: Install Android SDK packages
         shell: bash
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        run: sdkmanager "platforms;android-${CI_COMPILE_SDK}" "build-tools;${CI_BUILD_TOOLS}"
 
       - name: Build, test and lint
         working-directory: Bilibili_Innocent_Lab
-        run: ./gradlew -Pproject.android.compileSdk=35 assembleDebug testDebugUnitTest lintDebug --console=plain --no-daemon
+        run: ./gradlew "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" assembleDebug testDebugUnitTest lintDebug --console=plain --no-daemon
 
       - name: Locate APK and calculate checksum
         id: apk

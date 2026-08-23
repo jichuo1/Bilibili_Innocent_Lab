@@ -5,11 +5,13 @@ package Bilibili_Innocent_Lab.pro.ui.activity
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
+import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -18,6 +20,7 @@ import android.widget.Toast
 import android.text.TextUtils
 import android.text.util.Linkify
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup.MarginLayoutParams
 import android.view.animation.PathInterpolator
@@ -52,6 +55,7 @@ import com.highcapable.yukihookapi.hook.factory.prefs
 import Bilibili_Innocent_Lab.pro.hook.HookEntry
 import Bilibili_Innocent_Lab.pro.hook.VersionAdapter
 import Bilibili_Innocent_Lab.pro.hook.RoamingCompatHook
+import Bilibili_Innocent_Lab.pro.runtime.GitHubReleaseChecker
 import Bilibili_Innocent_Lab.pro.runtime.ShellCommandRunner
 import Bilibili_Innocent_Lab.pro.ui.PredictiveBack
 import Bilibili_Innocent_Lab.pro.ui.theme.MonetColors
@@ -67,8 +71,15 @@ import android.widget.TextView as NativeTextView
 import androidx.core.graphics.ColorUtils
 import android.R as Android_R
 import java.io.File
+import java.lang.ref.WeakReference
 
 class MainActivity : AppViewsActivity() {
+
+    private companion object {
+        const val UPDATE_PREFS_NAME = "github_release_updates"
+        const val PREF_LAST_SUCCESSFUL_UPDATE_CHECK = "last_successful_check_ms"
+        const val AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1_000L
+    }
 
     private val homeComponent by lazy { ComponentName(packageName, "${BuildConfig.APPLICATION_ID}.Home") } 
 
@@ -108,6 +119,10 @@ class MainActivity : AppViewsActivity() {
 
     /** 当前活动的确认弹窗：Activity 销毁时主动 dismiss，避免 WindowLeaked */
     private var activeConfirmDialog: Dialog? = null
+
+    /** GitHub 请求只允许单飞；自动检查与手动检查不会重复占用网络连接。 */
+    @Volatile
+    private var updateCheckRunning = false
 
     /** 日志详细度档位选择器的两个 pill 控件引用 + 滑动滑块 + 描述 TextView */
     private var logLevelMinimalPill: android.widget.TextView? = null
@@ -388,6 +403,436 @@ class MainActivity : AppViewsActivity() {
             ColorDrawable(Color.TRANSPARENT),
             mask
         )
+    }
+
+    /** 右上角 GitHub 图标的二级菜单。 */
+    private fun showGitHubMenuDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createGlassContainer()
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.github_menu_title)
+                setTextColor(getColor(R.color.colorTextDark))
+                textSize = 17f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (12 * density).toInt() }
+        )
+
+        container.addView(
+            createGitHubMenuRow(
+                titleRes = R.string.github_repository,
+                subtitleRes = R.string.github_repository_tip
+            ) {
+                dismissWithAnimation(dialog, container) {
+                    openExternalUrl(GitHubReleaseChecker.REPOSITORY_URL)
+                }
+            }
+        )
+        container.addView(
+            createGitHubMenuRow(
+                titleRes = R.string.check_updates,
+                subtitleRes = R.string.check_updates_tip
+            ) {
+                dismissWithAnimation(dialog, container) {
+                    checkForUpdates(manual = true)
+                }
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (6 * density).toInt() }
+        )
+
+        // 与“重新启动哔哩哔哩”确认弹窗一致的右下角文本按钮。
+        val buttonRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        buttonRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.dialog_close)
+                setTextColor(getColor(R.color.colorTextGray))
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(
+                    (20 * density).toInt(),
+                    (11 * density).toInt(),
+                    (20 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { dismissWithAnimation(dialog, container) {} }
+            }
+        )
+        container.addView(
+            buttonRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (22 * density).toInt() }
+        )
+
+        presentGlassDialog(dialog, container)
+    }
+
+    private fun createGitHubMenuRow(
+        @StringRes titleRes: Int,
+        @StringRes subtitleRes: Int,
+        onClick: () -> Unit
+    ): NativeLinearLayout {
+        val density = resources.displayMetrics.density
+        return NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.VERTICAL
+            setPadding(
+                (16 * density).toInt(),
+                (13 * density).toInt(),
+                (16 * density).toInt(),
+                (13 * density).toInt()
+            )
+            background = selfRippleBackground(14f)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+
+            addView(
+                NativeTextView(this@MainActivity).apply {
+                    text = getString(titleRes)
+                    setTextColor(getColor(R.color.colorTextGray))
+                    textSize = 16f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                },
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
+                NativeTextView(this@MainActivity).apply {
+                    text = getString(subtitleRes)
+                    setTextColor(getColor(R.color.colorTextDark))
+                    textSize = 12f
+                    alpha = 0.72f
+                    setLineSpacing(3 * density, 1f)
+                },
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = (4 * density).toInt() }
+            )
+        }
+    }
+
+    /**
+     * Checks only GitHub's latest stable Release. Automatic checks are throttled to once per
+     * successful 24-hour window; manual checks always run and report their result.
+     */
+    private fun checkForUpdates(manual: Boolean) {
+        val updatePrefs = applicationContext.getSharedPreferences(UPDATE_PREFS_NAME, MODE_PRIVATE)
+        if (!manual) {
+            val now = System.currentTimeMillis()
+            val lastCheck = updatePrefs.getLong(PREF_LAST_SUCCESSFUL_UPDATE_CHECK, 0L)
+            val elapsed = now - lastCheck
+            if (elapsed in 0 until AUTOMATIC_UPDATE_CHECK_INTERVAL_MS) return
+        }
+        if (updateCheckRunning) {
+            if (manual) Toast.makeText(this, R.string.update_checking, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        updateCheckRunning = true
+        if (manual) Toast.makeText(this, R.string.update_checking, Toast.LENGTH_SHORT).show()
+        val activityRef = WeakReference(this)
+        Thread({
+            val result = runCatching { GitHubReleaseChecker.fetchLatestStableRelease() }
+            Handler(Looper.getMainLooper()).post {
+                val activity = activityRef.get() ?: return@post
+                activity.updateCheckRunning = false
+                if (activity.isFinishing || activity.isDestroyed) return@post
+                result.fold(
+                    onSuccess = { release ->
+                        updatePrefs.edit()
+                            .putLong(PREF_LAST_SUCCESSFUL_UPDATE_CHECK, System.currentTimeMillis())
+                            .apply()
+                        if (GitHubReleaseChecker.isNewerVersion(
+                                remoteTag = release.tagName,
+                                localVersion = BuildConfig.VERSION_NAME
+                            )
+                        ) {
+                            activity.showUpdateDialogWhenIdle(release)
+                        } else if (manual) {
+                            Toast.makeText(
+                                activity,
+                                R.string.update_latest,
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    onFailure = { error ->
+                        Log.w("BilibiliInnocentLab", "stable release check failed", error)
+                        if (manual) {
+                            Toast.makeText(
+                                activity,
+                                R.string.update_check_failed,
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                )
+            }
+        }, "github-stable-release-check").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    /** Avoids replacing a confirmation dialog the user is already interacting with. */
+    private fun showUpdateDialogWhenIdle(
+        release: GitHubReleaseChecker.StableRelease,
+        retryCount: Int = 0
+    ) {
+        if (isFinishing || isDestroyed) return
+        if (activeConfirmDialog?.isShowing == true) {
+            if (retryCount < 20) {
+                findViewById<View>(Android_R.id.content).postDelayed(
+                    { showUpdateDialogWhenIdle(release, retryCount + 1) },
+                    500L
+                )
+            }
+            return
+        }
+        showUpdateAvailableDialog(release)
+    }
+
+    private fun showUpdateAvailableDialog(release: GitHubReleaseChecker.StableRelease) {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createGlassContainer()
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.update_available_title, release.displayName)
+                setTextColor(getColor(R.color.colorTextDark))
+                textSize = 19f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(
+                    R.string.update_available_message,
+                    BuildConfig.VERSION_NAME,
+                    release.tagName
+                )
+                setTextColor(getColor(R.color.colorTextGray))
+                textSize = 14f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (12 * density).toInt() }
+        )
+
+        if (release.releaseNotes.isNotEmpty()) {
+            container.addView(
+                NativeTextView(this).apply {
+                    text = release.releaseNotes
+                    setTextColor(getColor(R.color.colorTextDark))
+                    textSize = 12f
+                    alpha = 0.78f
+                    maxLines = 7
+                    ellipsize = TextUtils.TruncateAt.END
+                    setLineSpacing(3 * density, 1f)
+                },
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = (10 * density).toInt() }
+            )
+        }
+
+        val buttonRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        buttonRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.update_later)
+                setTextColor(getColor(R.color.colorTextGray))
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(
+                    (18 * density).toInt(),
+                    (11 * density).toInt(),
+                    (18 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { dismissWithAnimation(dialog, container) {} }
+            }
+        )
+        buttonRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.update_now)
+                setTextColor(monetColors.onPrimary)
+                textSize = 15f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(
+                    (20 * density).toInt(),
+                    (11 * density).toInt(),
+                    (20 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                val radius = 20 * density
+                val content = GradientDrawable().apply {
+                    cornerRadius = radius
+                    setColor(monetColors.primary)
+                }
+                val rippleMask = GradientDrawable().apply {
+                    cornerRadius = radius
+                    setColor(Color.WHITE)
+                }
+                background = RippleDrawable(
+                    ColorStateList.valueOf(
+                        ColorUtils.setAlphaComponent(monetColors.onPrimary, 0x33)
+                    ),
+                    content,
+                    rippleMask
+                )
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    dismissWithAnimation(dialog, container) {
+                        openExternalUrl(release.apkDownloadUrl ?: release.htmlUrl)
+                    }
+                }
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = (12 * density).toInt() }
+        )
+        container.addView(
+            buttonRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (20 * density).toInt() }
+        )
+
+        presentGlassDialog(dialog, container)
+    }
+
+    private fun createGlassContainer(): NativeLinearLayout {
+        val density = resources.displayMetrics.density
+        return NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.VERTICAL
+            minimumWidth = (292 * density).toInt()
+            setPadding(
+                (24 * density).toInt(),
+                (26 * density).toInt(),
+                (24 * density).toInt(),
+                (18 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                cornerRadius = 28 * density
+                setColor(monetColors.surface)
+                setStroke(
+                    (1 * density).toInt(),
+                    ColorUtils.setAlphaComponent(Color.WHITE, 0x18)
+                )
+            }
+            elevation = 12 * density
+            scaleX = 0.85f
+            scaleY = 0.85f
+            alpha = 0f
+        }
+    }
+
+    private fun presentGlassDialog(dialog: Dialog, container: NativeLinearLayout) {
+        activeConfirmDialog?.dismiss()
+        val density = resources.displayMetrics.density
+        val root = NativeFrameLayout(this).apply {
+            addView(
+                container,
+                NativeFrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.CENTER
+                    setMargins((32 * density).toInt(), 0, (32 * density).toInt(), 0)
+                }
+            )
+        }
+
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            setDimAmount(0f)
+        }
+        dialog.setContentView(root)
+        // 系统返回键也必须走项目统一的 180ms scale + fade 退场动画。
+        dialog.setOnKeyListener { _, keyCode, event ->
+            if (keyCode == KeyEvent.KEYCODE_BACK) {
+                if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) {
+                    dismissWithAnimation(dialog, container) {}
+                }
+                true
+            } else {
+                false
+            }
+        }
+        dialog.setOnDismissListener {
+            if (activeConfirmDialog === dialog) activeConfirmDialog = null
+        }
+        activeConfirmDialog = dialog
+        dialog.show()
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        )
+
+        container.post {
+            container.animate()
+                .scaleX(1f).scaleY(1f).alpha(1f)
+                .setDuration(260L)
+                .setInterpolator(emphasizedDecelerate)
+                .start()
+        }
+    }
+
+    private fun openExternalUrl(url: String) {
+        val uri = Uri.parse(url)
+        if (uri.scheme != "https") {
+            Toast.makeText(this, R.string.open_link_failed, Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            startActivity(
+                Intent(Intent.ACTION_VIEW, uri).apply {
+                    addCategory(Intent.CATEGORY_BROWSABLE)
+                }
+            )
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, R.string.open_link_failed, Toast.LENGTH_SHORT).show()
+        }
     }
 
     /**
@@ -996,10 +1441,8 @@ class MainActivity : AppViewsActivity() {
                         alpha = 0.85f
                         setImageResource(R.mipmap.ic_github)
                         imageTintList = stateColorResource(R.color.colorTextGray)
-                        setOnClickListener {
-                            // Do something, e.g., open GitHub page
-                            // 做点什么，比如打开 GitHub 页面
-                        }
+                        contentDescription = getString(R.string.github_menu_description)
+                        setOnClickListener { showGitHubMenuDialog() }
                     }
                 }
                 LinearLayout(
@@ -1937,6 +2380,11 @@ class MainActivity : AppViewsActivity() {
         findViewById<View>(Android_R.id.content).post {
             positionLogLevelThumb()
         }
+        // 进入模块界面后低频检查稳定 Release；失败静默，避免网络异常打扰用户。
+        findViewById<View>(Android_R.id.content).postDelayed(
+            { checkForUpdates(manual = false) },
+            800L
+        )
     }
 
     private fun createPromotionItem(
