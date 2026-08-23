@@ -248,10 +248,20 @@ class HookEntry : IYukiHookXposedInit {
          * 官方弹窗/复制抑制窗口（uptime ms）：我们的气泡弹出后的一段时间内，官方
          * 长按检测（已武装的 Runnable/监听器）可能延迟触发官方菜单/复制——此时触摸
          * 标志已被弹泡流程清空（必须清，否则拦截 hook 会误拦我们自己的气泡）， PopupWindow/
-         * Dialog 拦截与官方简介复制拦截按此时间窗兜底。弹泡即刷新。
+         * Dialog 拦截与官方简介复制拦截按此时间窗兜底。
+         *
+         * 注意：时间戳只是上限，实际抑制还必须属于当前正在显示的气泡会话；气泡关闭
+         * 后立即失效，不能继续误拦用户随后点击图片触发的预览 Dialog/PopupWindow。
          */
         @Volatile
         private var suppressOfficialUntilMs = 0L
+
+        /** 气泡会话序号：旧 Dialog 的延迟 onDismiss 不能清掉后来新气泡的抑制状态。 */
+        @Volatile
+        private var bubbleSessionSerial = 0L
+
+        @Volatile
+        private var activeBubbleSessionId = 0L
 
         /**
          * 最近一次气泡弹出时刻（uptime ms）：方案 A——批量绑定在「长按手势进行中」
@@ -269,6 +279,37 @@ class HookEntry : IYukiHookXposedInit {
          */
         @Volatile
         private var ourBubbleDialogRef: java.lang.ref.WeakReference<android.app.Dialog>? = null
+
+        /** 当前气泡会话是否仍处于官方行为抑制期。 */
+        private fun isOfficialSuppressionActive(): Boolean {
+            if (activeBubbleSessionId == 0L ||
+                android.os.SystemClock.uptimeMillis() >= suppressOfficialUntilMs
+            ) return false
+            return ourBubbleDialogRef?.get()?.isShowing == true
+        }
+
+        /** 在 show 前建立会话；自己的 Dialog 依靠身份比较在全局 Dialog hook 中放行。 */
+        private fun beginBubbleSession(dialog: android.app.Dialog): Long {
+            val sessionId = bubbleSessionSerial + 1L
+            bubbleSessionSerial = sessionId
+            activeBubbleSessionId = sessionId
+            ourBubbleDialogRef = java.lang.ref.WeakReference(dialog)
+            suppressOfficialUntilMs = android.os.SystemClock.uptimeMillis() + 1500L
+            return sessionId
+        }
+
+        /**
+         * 只结束仍然匹配的会话，避免旧气泡的动画取消/延迟 dismiss 破坏新气泡状态。
+         * 同时复位 handled，防止气泡关闭后继续误拦宿主的震动或复制行为。
+         */
+        private fun finishBubbleSession(dialog: android.app.Dialog, sessionId: Long) {
+            if (activeBubbleSessionId != sessionId || ourBubbleDialogRef?.get() !== dialog) return
+            suppressOfficialUntilMs = 0L
+            activeBubbleSessionId = 0L
+            ourBubbleDialogRef = null
+            commentLongPressHandled = false
+            descLongPressHandled = false
+        }
 
         /**
          * 全树共享的长按监听器单例（评论/简介通用）：
@@ -823,10 +864,8 @@ class HookEntry : IYukiHookXposedInit {
                 }
                 // 弹泡前置清长按窗口标志：避免 PopupWindow/Dialog 拦截 hook 误拦
                 // 我们自己的气泡（气泡弹出即接管，后续 UP 消费依赖 handled 标志）。
-                // 同时开启官方抑制窗口：弹泡后已武装的官方长按检测（官方 Runnable/
-                // 监听器）可能延迟触发官方菜单/复制——触摸标志已清，拦截 hook 按此
-                // 时间窗兜底（实测滑停后带图评论长按「先气泡后官方窗口」双弹窗）
-                suppressOfficialUntilMs = android.os.SystemClock.uptimeMillis() + 1500L
+                // 官方抑制会话在 show 前建立，并在本气泡 dismiss 时立即结束；避免原先
+                // 裸 1.5s 全局时间窗误拦气泡关闭后紧接着触发的图片预览窗口。
                 // 方案 A：记录弹泡时刻——入场动画期间（~320ms，取 500ms 余量）暂停
                 // 批量绑定，避免绑定批次撞弹泡动画帧
                 bubbleShownAtMs = android.os.SystemClock.uptimeMillis()
@@ -848,9 +887,16 @@ class HookEntry : IYukiHookXposedInit {
                     // 渲染成贴着窗口内容的黑色直角实心边框）
                     setElevation(0f)
                 }
-                // 标记「这是我们的气泡」：Dialog.show 拦截 hook 在抑制窗口内放行它
-                ourBubbleDialogRef = java.lang.ref.WeakReference(dialog)
-                dialog.show()
+                // 标记「这是我们的气泡」：Dialog.show 拦截 hook 在抑制窗口内放行它。
+                // 会话编号保证旧 Dialog 的延迟 dismiss 不会清掉后来新气泡的状态。
+                val bubbleSessionId = beginBubbleSession(dialog)
+                dialog.setOnDismissListener { finishBubbleSession(dialog, bubbleSessionId) }
+                try {
+                    dialog.show()
+                } catch (t: Throwable) {
+                    finishBubbleSession(dialog, bubbleSessionId)
+                    throw t
+                }
                 // show 后再次确认（部分 ROM 的 PhoneWindow 会在 show 流程里重置部分属性）
                 dialog.window?.apply {
                     clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
@@ -917,10 +963,29 @@ class HookEntry : IYukiHookXposedInit {
         private val COMMENT_DATE_PATTERN = java.util.regex.Pattern.compile("[0-9]{1,2}月[0-9]{1,2}日")
 
         /**
-         * 递归遍历 itemView 子树，给所有 View（含容器 ViewGroup，因 B 站长按监听器
-         * 挂在评论正文容器 F1() 上而非 TextView）覆盖长按监听器。
-         * 覆盖后长按评论任意位置弹自由复制界面（return true 消费，官方菜单不弹）；
-         * 三点按钮是 OnClickListener（非长按）不受影响。
+         * 清理复用 View 上由模块遗留的共享长按监听器。只按监听器身份清理，不会覆盖
+         * 宿主后来重新设置的监听器；用于 ViewHolder 从普通文本节点复用为图片/按钮节点时
+         * 还原短按触摸语义。
+         */
+        private fun clearModuleLongClickListener(v: View) {
+            runCatching {
+                val listenerInfo = XposedHelpers.getObjectField(v, "mListenerInfo") ?: return
+                val current = XposedHelpers.getObjectField(listenerInfo, "mOnLongClickListener")
+                if (current === sharedFreeCopyListener) {
+                    XposedHelpers.setObjectField(listenerInfo, "mOnLongClickListener", null)
+                    v.isLongClickable = false
+                }
+            }
+        }
+
+        /**
+         * 递归遍历 itemView 子树，给非交互文本分支的 View（含必要容器，因 B 站长按监听器
+         * 可能挂在评论正文容器 F1() 上而非 TextView）覆盖长按监听器。
+         *
+         * 图片、按钮及其他已有点击语义的 ViewGroup 连同其子树必须保留宿主行为：仅跳过
+         * ImageView 本身不够，带图评论的预览点击通常挂在图片外层容器上；把该容器强制
+         * longClickable 会改变触摸目标并导致图片无法打开。评论根 refs 与全局触摸兜底仍
+         * 覆盖这些区域之外的正文长按，不影响自由复制主链路。
          *
          * 文本优先用 rawText（评论数据对象的原始文本，含表情文字标记 [dog]、始终完整，
          * 不受「展开」折叠影响）；rawText 为空时兜底实时从 itemView 提取。
@@ -936,13 +1001,9 @@ class HookEntry : IYukiHookXposedInit {
             val views = java.util.ArrayList<View>(32)
             var hasReply = false
             var hasDate = false
-            fun collect(v: View) {
-                // 头像/图标类 ImageView 长按无意义且树中占比高，跳过（减少无谓监听设置）。
-                // 注意：嵌套 RecyclerView 不能跳过——评论区「回复列表」本身是嵌套 RV
-                // （且回复 item 不一定独立触发 holder hook，依赖主评论树遍历覆盖绑定，
-                // 跳过会导致回复区长按退回官方界面）
-                if (v is android.widget.ImageView) return
-                views.add(v)
+            fun collect(v: View): Boolean {
+                val subtreeStart = views.size
+                val isRecyclerView = v is androidx.recyclerview.widget.RecyclerView
                 if (v is android.widget.TextView) {
                     val t = v.text?.toString()
                     // 「回复」文字按钮（旧判据）
@@ -952,11 +1013,40 @@ class HookEntry : IYukiHookXposedInit {
                     // （实测「只在首条评论生效」的根因：首条有回复通过过滤，其余全灭）
                     if (!hasDate && COMMENT_DATE_PATTERN.matcher(t ?: "").find()) hasDate = true
                 }
+                var containsImage = v is android.widget.ImageView
                 if (v is android.view.ViewGroup) {
                     for (i in 0 until v.childCount) {
-                        collect(v.getChildAt(i) ?: continue)
+                        // RecyclerView 自身不绑定，但必须继续遍历其回复 item。
+                        if (collect(v.getChildAt(i) ?: continue)) containsImage = true
                     }
                 }
+                // 仅把「含图片且自身承担点击」的容器判为媒体交互分支；不能把所有可点击
+                // ViewGroup 都整支排除，否则评论正文容器可点击的版本会失去监听器路径。
+                val protectsMediaBranch = v !== root &&
+                    v is android.view.ViewGroup &&
+                    !isRecyclerView &&
+                    containsImage &&
+                    (v.isClickable || v.hasOnClickListeners())
+                if (protectsMediaBranch) {
+                    // 子节点是后序遍历前已经收集的候选：从当前分支起点移除并清掉可能
+                    // 因 ViewHolder 复用残留的模块监听器，整个图片点击分支交还宿主。
+                    for (i in subtreeStart until views.size) clearModuleLongClickListener(views[i])
+                    if (subtreeStart < views.size) views.subList(subtreeStart, views.size).clear()
+                    clearModuleLongClickListener(v)
+                } else {
+                    val bindable = v !is android.widget.ImageView &&
+                        !isRecyclerView &&
+                        !v.isClickable &&
+                        !v.hasOnClickListeners()
+                    if (bindable) {
+                        views.add(v)
+                    } else {
+                        // RecyclerView 复用时，节点可能保留上一次文本布局中的模块监听器；
+                        // 仅当当前监听器仍是模块单例时清理，宿主监听器一律不动。
+                        clearModuleLongClickListener(v)
+                    }
+                }
+                return containsImage
             }
             collect(root)
             // 评论判定：有「回复」按钮或有日期文本任一即可；两者皆无 → 视为视频卡片
@@ -2094,9 +2184,9 @@ class HookEntry : IYukiHookXposedInit {
                                     param(String::class.java, Boolean::class.javaPrimitiveType!!)
                                 }
                                 beforeHook {
-                                    if (descTouchedView != null ||
-                                        android.os.SystemClock.uptimeMillis() < suppressOfficialUntilMs
-                                    ) this.result = null // 简介触摸中或弹泡抑制窗口内，跳过官方复制全文
+                                    if (descTouchedView != null || isOfficialSuppressionActive()) {
+                                        this.result = null // 简介触摸中或当前气泡会话内，跳过官方复制全文
+                                    }
                                 }
                             }
                         }
@@ -2109,9 +2199,9 @@ class HookEntry : IYukiHookXposedInit {
                                     param(Boolean::class.javaPrimitiveType!!, String::class.java)
                                 }
                                 beforeHook {
-                                    if (descTouchedView != null ||
-                                        android.os.SystemClock.uptimeMillis() < suppressOfficialUntilMs
-                                    ) this.result = null // 简介触摸中或弹泡抑制窗口内，跳过官方复制全文
+                                    if (descTouchedView != null || isOfficialSuppressionActive()) {
+                                        this.result = null // 简介触摸中或当前气泡会话内，跳过官方复制全文
+                                    }
                                 }
                             }
                         }
@@ -2147,7 +2237,7 @@ class HookEntry : IYukiHookXposedInit {
                                     //    进行中）不受限时——按住期间不可能点工具栏，只可能是官方路径。
                                     val gestureActive = commentTouchedView != null
                                     val handledInSuppressWindow =
-                                        commentLongPressHandled && android.os.SystemClock.uptimeMillis() < suppressOfficialUntilMs
+                                        commentLongPressHandled && isOfficialSuppressionActive()
                                     if (gestureActive || handledInSuppressWindow) {
                                         val fromSystemSelection = runCatching {
                                             Throwable().stackTrace.any { frame ->
@@ -2195,8 +2285,9 @@ class HookEntry : IYukiHookXposedInit {
                                             // 下次 DOWN）覆盖官方 Runnable 延迟触发场景；
                                             // touch 标志覆盖长按进行中场景。我们的震动走
                                             // Vibrator 直震（见 hapticFeedback），不受影响。
-                                            if (commentLongPressHandled || descLongPressHandled
-                                                || commentTouchedView != null || descTouchedView != null
+                                            if (commentTouchedView != null || descTouchedView != null ||
+                                                ((commentLongPressHandled || descLongPressHandled) &&
+                                                    isOfficialSuppressionActive())
                                             ) {
                                                 param.result = true // 拦官方震动（返回 true=已处理）
                                             }
@@ -2244,7 +2335,7 @@ class HookEntry : IYukiHookXposedInit {
                                                 }.getOrNull()
                                                 if (popupContent?.javaClass?.name?.contains("HandleView") == true) return
                                                 if (commentTouchedView != null || descTouchedView != null ||
-                                                    android.os.SystemClock.uptimeMillis() < suppressOfficialUntilMs
+                                                    isOfficialSuppressionActive()
                                                 ) {
                                                     param.result = null // 评论/简介长按窗口内或弹泡抑制窗口内，拦官方菜单
                                                 }
@@ -2265,7 +2356,7 @@ class HookEntry : IYukiHookXposedInit {
                                     object : XC_MethodHook() {
                                         override fun beforeHookedMethod(param: MethodHookParam) {
                                             if (commentTouchedView != null || descTouchedView != null ||
-                                                android.os.SystemClock.uptimeMillis() < suppressOfficialUntilMs
+                                                isOfficialSuppressionActive()
                                             ) {
                                                 if (param.thisObject != null &&
                                                     param.thisObject === ourBubbleDialogRef?.get()

@@ -5,6 +5,7 @@
     android:background="@color/colorThemeBackground"
     android:orientation="vertical"
     tools:context=".ui.activity.MainActivity"
+    tools:viewBindingIgnore="true"
     tools:ignore="UselessParent,UseCompoundDrawables,ContentDescription">
 
     <LinearLayout
