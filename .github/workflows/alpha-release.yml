@@ -1,0 +1,110 @@
+name: Build and publish Alpha
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      publish_alpha:
+        description: Publish a GitHub Alpha pre-release after all checks pass
+        required: true
+        type: boolean
+        default: false
+      release_tag:
+        description: Alpha tag, for example v1.0.5-alpha.2
+        required: true
+        type: string
+        default: v1.0.5-alpha.2
+
+concurrency:
+  group: alpha-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Build, test and lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: sdkmanager "platforms;android-37" "build-tools;35.0.0"
+
+      - name: Build, test and lint
+        working-directory: Bilibili_Innocent_Lab
+        run: ./gradlew assembleDebug testDebugUnitTest lintDebug --console=plain --no-daemon
+
+      - name: Locate APK and calculate checksum
+        id: apk
+        shell: bash
+        run: |
+          apk="Bilibili_Innocent_Lab/app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$apk"
+          mkdir -p release-asset
+          cp "$apk" release-asset/Bilibili_Innocent_Lab-alpha.apk
+          echo "path=release-asset/Bilibili_Innocent_Lab-alpha.apk" >> "$GITHUB_OUTPUT"
+          sha256sum "$apk" | tee release-asset/SHA256SUMS.txt
+
+      - name: Upload verified build for optional publishing
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpha-release-asset
+          path: release-asset
+          if-no-files-found: error
+
+  publish:
+    name: Publish Alpha pre-release
+    needs: verify
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_alpha == true }}
+    runs-on: ubuntu-latest
+    environment:
+      name: alpha-release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download verified build
+        uses: actions/download-artifact@v4
+        with:
+          name: alpha-release-asset
+          path: release-asset
+
+      - name: Validate Alpha tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]; then
+            echo "Invalid Alpha tag: $RELEASE_TAG"
+            echo "Expected format: v1.0.5-alpha.2"
+            exit 1
+          fi
+
+      - name: Create GitHub Alpha Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            release-asset/Bilibili_Innocent_Lab-alpha.apk \
+            release-asset/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TAG" \
+            --prerelease \
+            --notes "这是 $RELEASE_TAG Alpha 测试版本，基于通过构建、单元测试和 Lint 检查的最新提交生成。该版本用于兼容性、稳定性和性能验证，可能存在尚未发现的问题。请在合法合规并遵守相关服务条款的前提下使用。"
