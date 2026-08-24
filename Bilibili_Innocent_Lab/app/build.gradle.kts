@@ -20,8 +20,8 @@ android {
         applicationId = gropify.project.app.packageName
         minSdk = gropify.project.android.minSdk
         targetSdk = gropify.project.android.targetSdk
-        // CI Alpha 发布会显式传入完整版本（如 1.0.6-alpha.2）。普通本地构建仍使用
-        // gradle.properties 中的稳定基础版本，避免 Release 标签与 APK 内部版本脱节。
+        // CI Alpha 发布会显式传入下一个补丁的完整版本（如稳定 1.0.6 对应
+        // 1.0.7-alpha.2）。普通本地构建仍使用 gradle.properties 中的稳定基础版本。
         versionName = releaseVersionNameOverride ?: gropify.project.app.versionName
         versionCode = gropify.project.app.versionCode
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
