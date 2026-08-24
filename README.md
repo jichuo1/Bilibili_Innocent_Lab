@@ -338,7 +338,6 @@ Bilibili_Innocent_Lab/app/build/outputs/apk/debug/app-debug.apk
 
 - [运行架构](docs/architecture.md)
 - [回归验证](docs/verification.md)
-- [开发经验主文档](docs/development_experience.md)
 
 ---
 
