@@ -88,6 +88,50 @@ class GitHubReleaseCheckerTest {
         }
     }
 
+    @Test
+    fun `release details use GitHub when official page is reachable`() {
+        val official = "https://github.com/jichuo1/Bilibili_Innocent_Lab/releases/tag/v1.0.6"
+        val probed = mutableListOf<String>()
+
+        val destination = GitHubReleaseChecker.resolveReleaseDetailsDestination(official) { url ->
+            probed += url
+        }
+
+        assertEquals(official, destination.url)
+        assertFalse(destination.usesMirror)
+        assertEquals(listOf(official), probed)
+    }
+
+    @Test
+    fun `release details switch to full page mirror after GitHub timeout`() {
+        val official = "https://github.com/jichuo1/Bilibili_Innocent_Lab/releases/tag/v1.0.6"
+
+        val destination = GitHubReleaseChecker.resolveReleaseDetailsDestination(official) {
+            throw SocketTimeoutException("simulated GitHub timeout")
+        }
+
+        assertEquals(
+            "https://kkgithub.com/jichuo1/Bilibili_Innocent_Lab/releases/tag/v1.0.6",
+            destination.url
+        )
+        assertTrue(destination.usesMirror)
+    }
+
+    @Test
+    fun `release details reject URLs outside this repository before probing`() {
+        var probed = false
+
+        assertThrows(IOException::class.java) {
+            GitHubReleaseChecker.resolveReleaseDetailsDestination(
+                "https://github.com/another-owner/another-repo/releases/tag/v9.9.9"
+            ) {
+                probed = true
+            }
+        }
+
+        assertFalse(probed)
+    }
+
     private fun endpoint(name: String, url: String) =
         GitHubReleaseChecker.ReleaseEndpoint(name, url, connectTimeoutMs = 1, readTimeoutMs = 1)
 
