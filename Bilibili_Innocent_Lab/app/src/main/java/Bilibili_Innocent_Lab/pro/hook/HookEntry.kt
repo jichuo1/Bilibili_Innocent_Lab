@@ -219,6 +219,10 @@ class HookEntry : IYukiHookXposedInit {
         @Volatile
         private var descTouchDownMs = 0L
 
+        /** 模块主线程实际开始处理本次 DOWN 的时刻；定时器不能直接用可能已积压的事件时间。 */
+        @Volatile
+        private var descTouchObservedAtMs = 0L
+
         @Volatile
         private var descTouchDownX = 0f
 
@@ -229,12 +233,55 @@ class HookEntry : IYukiHookXposedInit {
         @Volatile
         private var descLongPressHandled = false
 
+        /**
+         * 主线程调度器必须惰性创建：Yuki/LSPosed 会在 Zygote specialize 阶段触发
+         * HookEntry 的类初始化，此时 Looper.getMainLooper() 仍可能为 null。若在 companion
+         * 字段初始化中直接 new Handler，会令整个模块入口以 ExceptionInInitializerError
+         * 加载失败。可空惰性单例还能让未来误从 pre-Looper 路径调用时安全降级。
+         */
+        private val mainHandlerLock = Any()
+
+        @Volatile
+        private var mainHandlerRef: android.os.Handler? = null
+
+        private fun mainHandlerOrNull(): android.os.Handler? {
+            mainHandlerRef?.let { return it }
+            val looper = android.os.Looper.getMainLooper() ?: return null
+            return synchronized(mainHandlerLock) {
+                mainHandlerRef ?: android.os.Handler(looper).also { mainHandlerRef = it }
+            }
+        }
+
+        @Volatile
+        private var descTouchedViewRef: java.lang.ref.WeakReference<View>? = null
+
+        /** 触摸状态只持有弱引用，页面销毁且遗漏 UP/CANCEL 时也不会保活整棵 View 树。 */
+        private var descTouchedView: View?
+            get() = descTouchedViewRef?.get()
+            set(value) {
+                descTouchedViewRef = value?.let { java.lang.ref.WeakReference(it) }
+            }
+
+        private fun clearDescTouchSession(resetHandled: Boolean = true) {
+            mainHandlerRef?.removeCallbacks(descLongPressRunnable)
+            descTouchedView = null
+            descTouchDownMs = 0L
+            descTouchObservedAtMs = 0L
+            if (resetHandled) descLongPressHandled = false
+        }
+
         /** 简介长按判定（DOWN 后 500ms 触发，长按状态下弹气泡；MOVE/UP 时移除） */
         private val descLongPressRunnable = Runnable {
             if (descLongPressHandled) return@Runnable
-            val v = descTouchedView ?: return@Runnable
+            val v = descTouchedView ?: run {
+                clearDescTouchSession(resetHandled = true)
+                return@Runnable
+            }
             // 页面已销毁（触摸中断无 UP 事件）时不弹
-            if (!v.isAttachedToWindow) return@Runnable
+            if (!v.isAttachedToWindow || !v.isShown || v.windowVisibility != View.VISIBLE) {
+                clearDescTouchSession(resetHandled = true)
+                return@Runnable
+            }
             descLongPressHandled = true
             runCatching {
                 // 先弹泡（清 touch 标志）再 Vibrator 直震——官方震动由
@@ -288,6 +335,27 @@ class HookEntry : IYukiHookXposedInit {
             return ourBubbleDialogRef?.get()?.isShowing == true
         }
 
+        /**
+         * 触摸进行中只有跨过 300ms 才按“长按候选”拦宿主弹窗。评论操作栏的官方
+         * ComponentDialog 会由一次正常短点触发，过去仅凭 touchedView 非空就拦截，
+         * 会把 DOWN/performClick 期间的合法面板误杀；而宿主长按检测约 400ms 才触发，
+         * 300ms 提前武装仍给防双弹窗保留约 100ms 余量。
+         */
+        private fun isOfficialLongPressGestureActive(): Boolean {
+            val now = android.os.SystemClock.uptimeMillis()
+            val commentActive = commentTouchedView != null &&
+                commentTouchObservedAtMs > 0L &&
+                now - commentTouchObservedAtMs >= 300L
+            val descActive = descTouchedView != null &&
+                descTouchObservedAtMs > 0L &&
+                now - descTouchObservedAtMs >= 300L
+            return commentActive || descActive
+        }
+
+        /** 弹窗拦截统一判据：真实长按候选，或我们的气泡仍在显示的延迟回调窗口。 */
+        private fun shouldSuppressOfficialOverlay(): Boolean =
+            isOfficialLongPressGestureActive() || isOfficialSuppressionActive()
+
         /** 在 show 前建立会话；自己的 Dialog 依靠身份比较在全局 Dialog hook 中放行。 */
         private fun beginBubbleSession(dialog: android.app.Dialog): Long {
             val sessionId = bubbleSessionSerial + 1L
@@ -319,19 +387,21 @@ class HookEntry : IYukiHookXposedInit {
          */
         private val sharedFreeCopyListener = View.OnLongClickListener { view ->
             val isDesc = view.id == descViewId
-            if (isDesc) {
-                if (descLongPressHandled) return@OnLongClickListener true
-                descLongPressHandled = true
-            } else {
-                if (commentLongPressHandled) return@OnLongClickListener true
-                commentLongPressHandled = true
+            // ViewHolder 从评论复用为“热门评论/最新评论”头部后，旧共享监听器可能暂时
+            // 仍挂在 View 上。先验证评论身份，避免短点头部文本触发自由复制或吞掉点击。
+            if (!isDesc && !isRegisteredCommentTreeMember(view)) {
+                return@OnLongClickListener false
             }
+            if (isDesc && descLongPressHandled) return@OnLongClickListener true
+            if (!isDesc && commentLongPressHandled) return@OnLongClickListener true
             val text = if (isDesc) {
                 extractDescText(view)
             } else {
-                commentRootRawText(view) ?: extractCommentText(view)
-            } ?: return@OnLongClickListener true
-            if (text.length !in 2..3000) return@OnLongClickListener true
+                resolveCommentTextAtInteraction(view)
+            } ?: return@OnLongClickListener false
+            if (!isValidFreeCopyText(text)) return@OnLongClickListener false
+            // 文本与身份均已确认后才武装 handled；无效复用节点不能污染下一次手势。
+            if (isDesc) descLongPressHandled = true else commentLongPressHandled = true
             runCatching {
                 showFreeCopyPopup(view, text)
                 hapticFeedback(view)
@@ -359,17 +429,10 @@ class HookEntry : IYukiHookXposedInit {
             }
         }
 
-        /** 最近一次长按判定的目标 view（DOWN 时记录，避免 Runnable 捕获过期 view） */
-        @Volatile
-        private var descTouchedView: View? = null
-
         // ===== 评论长按检测状态（9.8.0 官方评论长按不走 OnLongClickListener，
         // 在触摸层自实现——dispatchTouchEvent 全局检测兜底，逻辑与简介同构）=====
         @Volatile
         private var commentLongPressHandled = false
-
-        @Volatile
-        private var commentTouchDownMs = 0L
 
         @Volatile
         private var commentTouchDownX = 0f
@@ -377,33 +440,342 @@ class HookEntry : IYukiHookXposedInit {
         @Volatile
         private var commentTouchDownY = 0f
 
-        private val commentLongPressRunnable = Runnable {
-            if (commentLongPressHandled) return@Runnable
-            val v = commentTouchedView ?: return@Runnable
-            if (!v.isAttachedToWindow) return@Runnable
+        /**
+         * 评论触摸会话身份。不能只靠 commentTouchedView：页面切换/父容器拦截时，旧
+         * ACTION_UP/CANCEL 可能不再落在 commentRootRefs 子树内，裸全局 View 会让上一
+         * 次 400ms Runnable 串到下一页。downTime 对应系统手势，sessionId 使已入队的旧
+         * Runnable 即使迟到也无法命中新会话。
+         */
+        @Volatile
+        private var commentTouchSessionSerial = 0L
+
+        @Volatile
+        private var activeCommentTouchSessionId = 0L
+
+        @Volatile
+        private var commentTouchDownEventTime = 0L
+
+        /** 模块主线程实际开始处理本次 DOWN 的时刻，避免积压事件把短点误判成长按。 */
+        @Volatile
+        private var commentTouchObservedAtMs = 0L
+
+        @Volatile
+        private var commentTouchTargetRef: java.lang.ref.WeakReference<View>? = null
+
+        @Volatile
+        private var commentTouchRootRef: java.lang.ref.WeakReference<View>? = null
+
+        /**
+         * 评论右下角官方“更多”按钮 id（运行时按资源名解析，跨 B 站版本不依赖数值）。
+         * 该按钮会在自己的触摸回调里直接打开 ComponentDialog；若让它进入评论长按
+         * 会话，Dialog.show 防双弹窗 hook 会把这次正常短点误认为官方长按面板并拦截。
+         */
+        @Volatile
+        private var commentMoreButtonId = View.NO_ID
+
+        /** 评论日期/回复/赞踩/更多所在操作栏；整支交还宿主，不参与自由复制监听绑定。 */
+        @Volatile
+        private var commentActionsContainerId = View.NO_ID
+
+        /** 评论正文/回复预览文本 id：作为版本无关的最后防线，绑定回调尚未登记根节点时，
+         * 宿主一设置官方长按监听就按资源身份立即夺回，不再等待 IdleHandler。 */
+        @Volatile
+        private var commentPrimaryMessageId = View.NO_ID
+
+        @Volatile
+        private var commentSecondaryMessageId = View.NO_ID
+
+        /**
+         * 一个 DOWN 会依次经过评论根、按钮容器和最深子 View。命中 more_button 后用
+         * downTime 标记整次手势为宿主直通，避免其子 View 又重新建立评论长按会话。
+         * 这里只保存 primitive，不持有 View/Context。
+         */
+        @Volatile
+        private var commentMoreButtonPassthroughDownTime = 0L
+
+        private fun isCommentMoreButton(view: View): Boolean {
+            var id = commentMoreButtonId
+            if (id == View.NO_ID) {
+                id = runCatching {
+                    view.resources.getIdentifier("more_button", "id", TARGET_PACKAGE)
+                }.getOrDefault(0)
+                // 0 也缓存：旧版本资源不存在时不能在每次 DOWN 的每层 View 上重复反射查询。
+                commentMoreButtonId = id
+            }
+            return id > 0 && view.id == id
+        }
+
+        private fun isCommentActionsContainer(view: View): Boolean {
+            var id = commentActionsContainerId
+            if (id == View.NO_ID) {
+                id = runCatching {
+                    view.resources.getIdentifier("item_include_actions", "id", TARGET_PACKAGE)
+                }.getOrDefault(0)
+                // 0 也缓存：资源缺失版本不能在每棵评论树的每个节点重复查询。
+                commentActionsContainerId = id
+            }
+            return id > 0 && view.id == id
+        }
+
+        private fun isCommentBodyTextView(view: View): Boolean {
+            if (view !is android.widget.TextView) return false
+            var primaryId = commentPrimaryMessageId
+            if (primaryId == View.NO_ID) {
+                primaryId = runCatching {
+                    view.resources.getIdentifier("primary_message", "id", TARGET_PACKAGE)
+                }.getOrDefault(0)
+                commentPrimaryMessageId = primaryId
+            }
+            var secondaryId = commentSecondaryMessageId
+            if (secondaryId == View.NO_ID) {
+                secondaryId = runCatching {
+                    view.resources.getIdentifier("secondary_message", "id", TARGET_PACKAGE)
+                }.getOrDefault(0)
+                commentSecondaryMessageId = secondaryId
+            }
+            return (primaryId > 0 && view.id == primaryId) ||
+                (secondaryId > 0 && view.id == secondaryId)
+        }
+
+        private fun clearCommentTouchSession(resetHandled: Boolean = true) {
+            mainHandlerRef?.removeCallbacks(commentLongPressRunnable)
+            activeCommentTouchSessionId = 0L
+            commentTouchDownEventTime = 0L
+            commentTouchObservedAtMs = 0L
+            commentTouchTargetRef = null
+            commentTouchRootRef = null
+            commentTouchedView = null
+            if (resetHandled) commentLongPressHandled = false
+        }
+
+        /** DOWN 在 dispatch 链上会依次经过祖先与子 View：同一 downTime 只更新目标并重排
+         * 同一个 Runnable，最终自然以最深层触摸 View 为锚点，不创建并行延迟任务。 */
+        private fun beginOrRetargetCommentTouch(v: View, root: View, ev: android.view.MotionEvent) {
+            if (activeCommentTouchSessionId == 0L || commentTouchDownEventTime != ev.downTime) {
+                clearCommentTouchSession(resetHandled = true)
+                val next = commentTouchSessionSerial + 1L
+                commentTouchSessionSerial = next
+                activeCommentTouchSessionId = next
+                commentTouchDownEventTime = ev.downTime
+                commentTouchObservedAtMs = android.os.SystemClock.uptimeMillis()
+                // raw 坐标不随 dispatch 到不同层级 View 而改变；用局部 x/y 会在祖先 MOVE
+                // 回调中与最深子 View 的 DOWN 坐标错位，产生假的“移动超阈值”。
+                commentTouchDownX = ev.rawX
+                commentTouchDownY = ev.rawY
+                commentLongPressHandled = false
+            }
+            commentTouchTargetRef = java.lang.ref.WeakReference(v)
+            commentTouchRootRef = java.lang.ref.WeakReference(root)
+            // 该变量仅表示“官方行为拦截窗口仍在触摸中”；弹泡前会清空，但独立的
+            // session/root/target 会保留到真正的 UP/CANCEL，以便可靠消费终止事件。
+            commentTouchedView = v
+            val handler = mainHandlerOrNull() ?: return
+            handler.removeCallbacks(commentLongPressRunnable)
+            // Handler 延时从模块真正看到 DOWN 的时刻计算；若输入事件已在主线程积压，
+            // 短点的 UP 会先得到处理并撤销任务，不会被 delay=0 的旧事件时间误弹气泡。
+            val dueAt = commentTouchObservedAtMs + 400L
+            val delay = (dueAt - android.os.SystemClock.uptimeMillis()).coerceAtLeast(0L)
+            handler.postDelayed(commentLongPressRunnable, delay)
+        }
+
+        private fun activeCommentTouchTarget(sessionId: Long): View? {
+            if (sessionId == 0L || sessionId != activeCommentTouchSessionId) return null
+            val target = commentTouchTargetRef?.get() ?: return null
+            val root = commentTouchRootRef?.get() ?: return null
+            if (!target.isAttachedToWindow || !root.isAttachedToWindow ||
+                !target.isShown || !root.isShown ||
+                target.windowVisibility != View.VISIBLE || root.windowVisibility != View.VISIBLE
+            ) return null
+            var cur: View? = target
+            var belongsToRoot = false
+            while (cur != null) {
+                if (cur === root) {
+                    belongsToRoot = true
+                    break
+                }
+                cur = cur.parent as? View
+            }
+            if (!belongsToRoot) return null
+            val rootStillRegistered = synchronized(commentRootLock) {
+                commentRootRefs.containsKey(root)
+            }
+            if (!rootStillRegistered) return null
+            // ViewPager 保留的旧页面仍可能 attached；全局可见矩形可排除已经滑出/被裁剪的页。
+            val visibleRect = android.graphics.Rect()
+            if (!target.getGlobalVisibleRect(visibleRect) || visibleRect.isEmpty) return null
+            return target
+        }
+
+        private fun tryHandleActiveCommentLongPress(sessionId: Long): Boolean {
+            if (sessionId == 0L || sessionId != activeCommentTouchSessionId) return false
+            if (commentLongPressHandled) return true
+            val v = activeCommentTouchTarget(sessionId) ?: return false
+            val text = resolveCommentTextAtInteraction(v) ?: return false
+            if (!isValidFreeCopyText(text)) return false
             commentLongPressHandled = true
             runCatching {
                 // 先弹泡（清 touch 标志）再触觉反馈（官方震动被 hook 拦，只保留这一次）
-                val raw = commentRootRawText(v)
-                showFreeCopyPopup(v, raw ?: extractCommentText(v) ?: "")
+                showFreeCopyPopup(v, text)
                 hapticFeedback(v)
+            }
+            return true
+        }
+
+        private val commentLongPressRunnable = Runnable {
+            val sessionId = activeCommentTouchSessionId
+            if (!tryHandleActiveCommentLongPress(sessionId)) {
+                clearCommentTouchSession(resetHandled = true)
             }
         }
 
-        /** 从评论树成员 view 沿祖先链取 refs 里的 rawText（refs 以评论根为 key） */
-        private fun commentRootRawText(v: View): String? {
+        /**
+         * 长按发生时重新以当前 View 树的可见正文校验绑定期 rawText。RecyclerView/Handler
+         * 都会复用：异步的旧绑定回调可能在新条目已显示后才把旧 CommentItem 写进 root refs；
+         * 若无校验，气泡锚点正确但文本会串到另一条评论。这里是低频长按路径，允许遍历一次
+         * 当前评论子树；raw 与可见正文属于同一条时仍返回 raw（保留完整正文/表情标记），
+         * 不一致时以眼前实际渲染的正文为准。
+         */
+        private fun resolveCommentTextAtInteraction(v: View): CharSequence? {
+            var registeredRoot: View? = null
+            var rawText: String? = null
             synchronized(commentRootLock) {
                 var cur: View? = v
                 while (cur != null) {
-                    commentRootRefs[cur]?.get()?.first?.let { return it }
+                    val state = commentRootRefs[cur]?.get()
+                    if (state != null) {
+                        registeredRoot = cur
+                        rawText = state.first
+                        break
+                    }
                     cur = cur.parent as? View
                 }
             }
-            return null
+            val visibleText = extractCommentText(registeredRoot ?: v)
+                ?.let(::snapshotCommentText)
+                ?.takeIf(::isValidFreeCopyText)
+            val raw = rawText?.trim()?.takeIf { it.length in 1..3000 && it.isNotBlank() }
+            if (visibleText == null) return raw
+            if (raw == null) return visibleText
+            return if (isSameRenderedComment(raw, visibleText)) {
+                mergeVisibleEmojiSpans(raw, visibleText)
+            } else {
+                visibleText
+            }
+        }
+
+        private fun isSameRenderedComment(raw: String, visible: CharSequence): Boolean {
+            if (raw == visible.toString()) return true
+            val rawKey = renderedCommentMatchKey(raw)
+            val visibleKey = renderedCommentMatchKey(visible)
+            if (rawKey == visibleKey && rawKey.any { it != CommentTextIdentity.EMOJI_SLOT }) return true
+            // 折叠长评的可见正文是 raw 的前缀/子串；至少 4 字符才接受包含关系，避免
+            // “哈哈”等短公共片段把两条不同评论误判成同一条。
+            val rawLiteralKey = rawKey.filter { it != CommentTextIdentity.EMOJI_SLOT }
+            val visibleLiteralKey = visibleKey.filter { it != CommentTextIdentity.EMOJI_SLOT }
+            if (minOf(rawLiteralKey.length, visibleLiteralKey.length) < 4) return false
+            return rawKey.contains(visibleKey) || visibleKey.contains(rawKey) ||
+                rawLiteralKey.contains(visibleLiteralKey) || visibleLiteralKey.contains(rawLiteralKey)
+        }
+
+        /**
+         * 将 raw 中的 [表情]、U+FFFC/Unicode emoji，以及可见 Spanned 中的 ReplacementSpan
+         * 统一为一个槽位；普通文字及 emoji 的数量/位置仍保留。相比直接删除 emoji，既能
+         * 兼容宿主的多种富文本编码，也不会把“同文字但 emoji 数量不同”的评论误判为同条。
+         */
+        private fun renderedCommentMatchKey(text: CharSequence): String {
+            val spanned = text as? android.text.Spanned
+            val replacementRanges = spanned
+                ?.getSpans(0, text.length, android.text.style.ReplacementSpan::class.java)
+                ?.mapNotNull { span ->
+                    val start = spanned.getSpanStart(span)
+                    val end = spanned.getSpanEnd(span)
+                    if (start >= 0 && end > start) start until end else null
+                }
+                ?.sortedBy { it.first }
+                .orEmpty()
+            return CommentTextIdentity.matchKey(text, replacementRanges)
+        }
+
+        /**
+         * 只快照绘制 emoji 所需的 ReplacementSpan；宿主 ClickableSpan/点击行为不带入弹窗。
+         * 快照不保存 View，也不进入静态集合，Dialog 关闭后即可与其 span 一同释放。
+         */
+        private fun snapshotCommentText(text: CharSequence): CharSequence {
+            var start = 0
+            var end = text.length
+            while (start < end && text[start].isWhitespace()) start++
+            while (end > start && text[end - 1].isWhitespace()) end--
+            val plain = text.subSequence(start, end).toString()
+            val spanned = text as? android.text.Spanned ?: return plain
+            val out = android.text.SpannableString(plain)
+            var copied = false
+            spanned.getSpans(start, end, android.text.style.ReplacementSpan::class.java).forEach { span ->
+                val spanStart = spanned.getSpanStart(span).coerceAtLeast(start)
+                val spanEnd = spanned.getSpanEnd(span).coerceAtMost(end)
+                if (spanEnd > spanStart) {
+                    out.setSpan(
+                        span,
+                        spanStart - start,
+                        spanEnd - start,
+                        spanned.getSpanFlags(span)
+                    )
+                    copied = true
+                }
+            }
+            return if (copied) android.text.SpannedString(out) else plain
+        }
+
+        private fun isValidFreeCopyText(text: CharSequence?): Boolean {
+            if (text == null || text.length !in 1..3000) return false
+            if (text.any { !it.isWhitespace() && it != '\uFFFC' }) return true
+            val spanned = text as? android.text.Spanned ?: return false
+            return spanned.getSpans(0, text.length, android.text.style.ReplacementSpan::class.java)
+                .any { spanned.getSpanStart(it) >= 0 && spanned.getSpanEnd(it) > spanned.getSpanStart(it) }
+        }
+
+        /**
+         * raw 相同/同源时仍保留完整评论，并把当前 View 中的 emoji 绘制 Span 映射回 raw；
+         * 映射不可靠时回退眼前 View 的快照，宁可显示当前折叠文本也不重新引入串评论。
+         */
+        private fun mergeVisibleEmojiSpans(raw: String, visible: CharSequence): CharSequence {
+            val spanned = visible as? android.text.Spanned ?: return raw
+            val spans = spanned.getSpans(0, visible.length, android.text.style.ReplacementSpan::class.java)
+                .filter { spanned.getSpanStart(it) >= 0 && spanned.getSpanEnd(it) > spanned.getSpanStart(it) }
+                .sortedBy { spanned.getSpanStart(it) }
+            if (spans.isEmpty()) return raw
+            val rawEmojiRanges = ArrayList<IntRange>()
+            var i = 0
+            while (i < raw.length) {
+                val end = CommentTextIdentity.emojiTokenEnd(raw, i)
+                when {
+                    end > i -> {
+                        rawEmojiRanges += i until end
+                        i = end
+                    }
+                    raw[i] == '\uFFFC' -> {
+                        rawEmojiRanges += i..i
+                        i++
+                    }
+                    else -> i++
+                }
+            }
+            if (rawEmojiRanges.size < spans.size) return snapshotCommentText(visible)
+            val out = android.text.SpannableString(raw)
+            spans.forEachIndexed { index, span ->
+                val range = rawEmojiRanges[index]
+                out.setSpan(span, range.first, range.last + 1, spanned.getSpanFlags(span))
+            }
+            return android.text.SpannedString(out)
         }
 
         @Volatile
-        private var commentTouchedView: View? = null
+        private var commentTouchedViewRef: java.lang.ref.WeakReference<View>? = null
+
+        private var commentTouchedView: View?
+            get() = commentTouchedViewRef?.get()
+            set(value) {
+                commentTouchedViewRef = value?.let { java.lang.ref.WeakReference(it) }
+            }
 
         /** desc view 常驻弱引用（setText 命中时更新；剪贴板兜底拦截用，不依赖触摸状态，
          *  弱引用避免泄漏，view 销毁后自动失效） */
@@ -411,10 +783,37 @@ class HookEntry : IYukiHookXposedInit {
         private var descCachedViewRef: java.lang.ref.WeakReference<View>? = null
 
         // ===== 评论绑定性能优化状态 =====
-        /** 全局列表滚动中标志（RecyclerView.onScrollStateChanged 维护）：
-         *  滚动中暂缓评论绑定，滑停后统一批量绑定可见评论 */
+        /** 当前仍在滚动的 RecyclerView 弱集合。多个嵌套列表并存时，不能让任一列表的
+         * IDLE 覆盖另一列表的滚动状态；弱 key + detach 清理避免页面销毁后永久卡在滚动中。 */
+        private val scrollingRecyclerViews = java.util.WeakHashMap<View, Boolean>()
+        private val scrollingRecyclerViewsLock = Any()
+
+        /** 全局派生快照：滚动中暂缓评论绑定，滑停后统一批量绑定可见评论。 */
         @Volatile
         private var rvScrolling = false
+
+        private fun updateRecyclerViewScrolling(view: View, scrolling: Boolean): Boolean {
+            synchronized(scrollingRecyclerViewsLock) {
+                val wasScrolling = rvScrolling
+                if (scrolling) scrollingRecyclerViews[view] = true
+                else scrollingRecyclerViews.remove(view)
+                rvScrolling = scrollingRecyclerViews.isNotEmpty()
+                return wasScrolling && !rvScrolling
+            }
+        }
+
+        /** drain 时主动剔除已 detach 的列表；即使某版本未回调 IDLE/onDetached，
+         * pending itemView 强持有旧 RecyclerView 也不会形成“滚动=true → 永不 drain”的环。 */
+        private fun isAnyRecyclerViewScrolling(): Boolean {
+            synchronized(scrollingRecyclerViewsLock) {
+                val iterator = scrollingRecyclerViews.keys.iterator()
+                while (iterator.hasNext()) {
+                    if (!iterator.next().isAttachedToWindow) iterator.remove()
+                }
+                rvScrolling = scrollingRecyclerViews.isNotEmpty()
+                return rvScrolling
+            }
+        }
 
         /** 最近一次滚动进入 IDLE 的时刻（0=尚未滚动过）：滑停后的「超出回弹动画
          *  静默期」判定——回弹通常持续 300~500ms，期间不执行批量绑定（全树遍历
@@ -430,11 +829,78 @@ class HookEntry : IYukiHookXposedInit {
         @Volatile
         private var bindDrainScheduled = false
 
+        /** 所有延迟重试都投递到单例 Handler，不再让任意 itemView 的 RunQueue 保活页面。 */
+        private val commentBindRetryRunnable = Runnable { drainCommentBinds() }
+
+        private fun scheduleCommentBindRetry(delayMs: Long) {
+            val hasPending = synchronized(pendingBindLock) { pendingCommentBinds.isNotEmpty() }
+            if (!hasPending) {
+                bindDrainScheduled = false
+                mainHandlerRef?.removeCallbacks(commentBindRetryRunnable)
+                return
+            }
+            val handler = mainHandlerOrNull()
+            if (handler == null) {
+                bindDrainScheduled = false
+                return
+            }
+            bindDrainScheduled = true
+            handler.removeCallbacks(commentBindRetryRunnable)
+            handler.postDelayed(commentBindRetryRunnable, delayMs.coerceAtLeast(0L))
+        }
+
+        private fun scheduleCommentBindIdle() {
+            val handler = mainHandlerOrNull()
+            if (handler == null) {
+                bindDrainScheduled = false
+                return
+            }
+            bindDrainScheduled = true
+            handler.looper.queue.addIdleHandler(
+                object : android.os.MessageQueue.IdleHandler {
+                    override fun queueIdle(): Boolean {
+                        drainCommentBinds()
+                        return false
+                    }
+                }
+            )
+        }
+
         /** 评论 itemView 根 → (rawText, checkReply) 引用（弱引用，回收自动清理）：
          *  供 setOnLongClickListener 全局 hook 在「官方设置监听」时识别评论树并立即
          *  夺回重绑——覆盖「滑停→绑定完成」延迟窗口内长按落到官方行为的场景 */
         private val commentRootRefs = java.util.WeakHashMap<View, java.util.concurrent.atomic.AtomicReference<Pair<String?, Boolean>>>()
         private val commentRootLock = Any()
+
+        /** 只在低频长按回调执行；确认共享监听器所属 View 仍处于已登记评论树内。 */
+        private fun isRegisteredCommentTreeMember(view: View): Boolean =
+            synchronized(commentRootLock) {
+                var current: View? = view
+                while (current != null) {
+                    if (commentRootRefs.containsKey(current)) return@synchronized true
+                    current = current.parent as? View
+                }
+                false
+            }
+
+        private fun registerCommentRoot(view: View, rawText: String?, checkReply: Boolean) {
+            synchronized(commentRootLock) {
+                commentRootRefs[view]?.set(rawText to checkReply) ?: run {
+                    commentRootRefs[view] = java.util.concurrent.atomic.AtomicReference(rawText to checkReply)
+                }
+            }
+        }
+
+        /** ViewHolder 被复用成头部/卡片时立即撤销评论身份；若它恰是当前触摸根，同时
+         * 取消尚未触发的会话。handled=true 表示气泡已接管，保留 handled 到 dismiss。 */
+        private fun unregisterCommentRoot(view: View) {
+            synchronized(commentRootLock) {
+                commentRootRefs.remove(view)
+            }
+            if (commentTouchRootRef?.get() === view) {
+                clearCommentTouchSession(resetHandled = !commentLongPressHandled)
+            }
+        }
 
         /** 评论夺回防重入（防止回退路径触发 hook 后再次夺回的死循环） */
         @Volatile
@@ -497,7 +963,7 @@ class HookEntry : IYukiHookXposedInit {
          * 类名匹配不到时兜底用「最长文本」。
          * 这样短评论（正文短于昵称/IP/时间）也能正确取到正文，不会偏移到 id/IP/日期。
          */
-        private fun extractCommentText(root: View): String? {
+        private fun extractCommentText(root: View): CharSequence? {
             findCommentBody(root)?.let { return it }
             return extractLongText(root)
         }
@@ -526,13 +992,13 @@ class HookEntry : IYukiHookXposedInit {
         }
 
         /** 按类名递归匹配评论正文 TextView（ExpandableTextView/RichTextView/CommentTextView） */
-        private fun findCommentBody(v: View, depth: Int = 0): String? {
+        private fun findCommentBody(v: View, depth: Int = 0): CharSequence? {
             if (depth > 12) return null
             if (v.visibility != View.VISIBLE) return null
             if (v is android.widget.TextView) {
                 val cls = v.javaClass.name
                 if (cls.contains("ExpandableTextView") || cls.contains("RichTextView") || cls.contains("CommentTextView")) {
-                    val t = v.text?.toString().orEmpty()
+                    val t = v.text ?: ""
                     if (t.isNotEmpty()) return t
                 }
             }
@@ -567,23 +1033,38 @@ class HookEntry : IYukiHookXposedInit {
          */
         private fun extractRawCommentTextV2(commentItem: Any?): String? {
             if (commentItem == null) return null
-            return runCatching {
+            // 新版链路：CommentItem.f() -> RichText.a。不同 B 站版本并不同构：
+            // 8.90.2 的 CommentItem 顶层没有 f()，正文仍是 z().e()；旧实现只尝试
+            // f().a，令 high handler 的 rawText 恒为 null，评论必须等 IdleHandler
+            // 完整遍历后才获得身份，快速滚动后立即长按便概率落回官方面板。
+            val newChain = runCatching {
                 val fMethod = cItemFMethod ?: commentItem.javaClass.getMethod("f").also { cItemFMethod = it }
                 val kObj = fMethod.invoke(commentItem) ?: return@runCatching null
                 val aField = cRichTextAField ?: kObj.javaClass.getField("a").also { cRichTextAField = it }
                 aField.get(kObj) as? String
             }.getOrNull()
+            if (!newChain.isNullOrBlank()) return newChain
+            // 8.90.2/旧版链路：CommentItem.z() -> RichText.e()。
+            return extractRawCommentText(commentItem)
         }
 
         /** 反射缓存：进程内目标类不卸载，可安全缓存 Method/Field，避免评论滚动时重复反射查找 */
         @Volatile private var cItemFMethod: java.lang.reflect.Method? = null        // CommentItem.f()（高版本取 raw）
         @Volatile private var cRichTextAField: java.lang.reflect.Field? = null     // k.a（高版本 raw 字段）
-        @Volatile private var cHandlerIField: java.lang.reflect.Field? = null      // handler 中 CommentItem 字段（字段名不限 i/h，动态定位后缓存）
-        @Volatile private var cHandlerIFieldName: String? = null                   // handler CommentItem 字段名（动态定位后缓存，避免反复反射）
         @Volatile private var cHandlerViewField: java.lang.reflect.Field? = null   // handler.<viewField>（高版本 itemView 根，缓存字段）
         @Volatile private var cHandlerViewFieldName: String? = null                // handler 中 View 实例字段名（动态定位后缓存）
-        @Volatile private var cViewBindingAField: java.lang.reflect.Field? = null  // Pj.J.a（高版本 itemView 根）
-        @Volatile private var cViewBindingArgIndex: Int = -1                       // 参数中 ViewBinding 实例的索引（0 为旧流，1 为 G(CommentItem, jv.u, ...)）
+        /** 优先从当前绑定方法实参取得 CommentItem；不同方法下标独立，杜绝读取 Handler
+         * 可变字段时被 RecyclerView 的下一条绑定覆盖。无 CommentItem 实参（9.8.0 d/e）
+         * 才回退 Handler 字段。 */
+        private val cCommentItemArgIndexByMethod =
+            java.util.concurrent.ConcurrentHashMap<java.lang.reflect.Member, Int>()
+        private val cHandlerCommentItemFieldByClass =
+            java.util.concurrent.ConcurrentHashMap<Class<*>, java.lang.reflect.Field>()
+        /** 同一 Handler 内 A0(binding) 与 G0(CommentItem,binding,...) 的 Binding 下标不同；
+         * 必须按具体 Method 缓存，不能由第一次回调污染整个类。条目数由已 hook 方法数
+         * 严格限制，且只持有进程生命周期内本就常驻的 Method/Class。 */
+        private val cViewBindingArgIndexByMethod =
+            java.util.concurrent.ConcurrentHashMap<java.lang.reflect.Member, Int>()
         @Volatile private var cItemZMethod: java.lang.reflect.Method? = null       // CommentItem.z()（低版本取 raw）
         @Volatile private var cRichTextEMethod: java.lang.reflect.Method? = null   // n.e()（低版本 raw getter）
 
@@ -626,7 +1107,7 @@ class HookEntry : IYukiHookXposedInit {
         }
 
         /**
-         * 剔除被 ReplacementSpan 覆盖的占位字符。B 站简介/评论文本中的图标、标签等
+         * 剔除被 ReplacementSpan 覆盖的占位字符。B 站简介文本中的图标、标签等
          * 特殊渲染用「占位字符 + ReplacementSpan」实现（如简介"资源参考"前的图标占位
          * 字符 'r'）——官方渲染时 span 覆盖占位符画成图标，屏幕上不可见；而气泡的
          * text.toString() 丢失 span 后占位字符显形（用户看到多余的 "r"）。此处把所有
@@ -647,17 +1128,46 @@ class HookEntry : IYukiHookXposedInit {
         }
 
         /**
+         * 弹窗文本快照：仅保留 ReplacementSpan，并在 SpannableStringBuilder 内归一化 CRLF，
+         * 让索引变化由 Android span 实现自动跟随。这里不持有原 TextView，也不复制可点击 span。
+         */
+        private fun normalizePopupText(rawText: CharSequence): CharSequence {
+            val safeText = snapshotCommentText(rawText)
+            if (!safeText.contains('\r')) return safeText
+            val builder = android.text.SpannableStringBuilder(safeText)
+            var i = 0
+            while (i < builder.length) {
+                if (builder[i] != '\r') {
+                    i++
+                    continue
+                }
+                if (i + 1 < builder.length && builder[i + 1] == '\n') {
+                    builder.delete(i, i + 1)
+                } else {
+                    builder.replace(i, i + 1, "\n")
+                    i++
+                }
+            }
+            val hasReplacementSpans = builder
+                .getSpans(0, builder.length, android.text.style.ReplacementSpan::class.java)
+                .isNotEmpty()
+            return if (hasReplacementSpans) android.text.SpannedString(builder) else builder.toString()
+        }
+
+        /**
          * 弹出「自由复制」气泡（Dialog + window 精确定位到长按评论下方，微信聊天气泡样式）。
          * 用 Dialog 而非 PopupWindow：PopupWindow 是独立 window，其内 TextView 的系统
          * 选择菜单（ActionMode）无法正常显示（导致无法自由复制）；Dialog 属于 Activity
          * 的 window 体系，文本选择正常。
          * 进出动画由 windowAnimations（@style/FreeCopyBubble）处理：柔和回弹进入 + 反向退出。
          */
-        private fun showFreeCopyPopup(anchor: View, rawText: String) {
+        private fun showFreeCopyPopup(anchor: View, rawText: CharSequence) {
             // 清理控制字符：B 站简介数据源换行为 \r\n（或含孤立 \r），官方渲染时 CR
             // 不可见，但气泡 TextView 会把 \r 显示成可见的 "r" 字形（实测每个视频简介
             // 都多出一个 "r"）。统一归一为 \n。
-            val text = stripSpanPlaceholderChars(rawText).replace("\r\n", "\n").replace("\r", "\n")
+            // 简介在 extractDescText() 中已清理不可见图标占位；评论则必须保留
+            // ReplacementSpan 才能绘制 B 站自定义 emoji。这里只归一化换行，不再统一删 span。
+            val text = normalizePopupText(rawText)
             // anchor.context 可能是 ContextThemeWrapper/ContextWrapper，向上找 Activity
             var act: android.app.Activity? = null
             var c: Context? = anchor.context
@@ -735,7 +1245,7 @@ class HookEntry : IYukiHookXposedInit {
                 }
                 // 透明占位文字：只为撑开 body 尺寸，alpha=0 不可见，外壳缩放时无可见重影
                 val spacer = TextView(act).apply {
-                    setText(text)
+                    setText(text, TextView.BufferType.SPANNABLE)
                     textSize = 15f
                     setLineSpacing(dp(3).toFloat(), 1f)
                     maxLines = 12
@@ -745,7 +1255,7 @@ class HookEntry : IYukiHookXposedInit {
                 body.addView(spacer)
                 // 真实文字：独立于缩放外壳，只做淡入淡出（不缩放，彻底无重影）
                 val content = TextView(act).apply {
-                    setText(text)
+                    setText(text, TextView.BufferType.SPANNABLE)
                     textSize = 15f
                     setTextColor(textColor)
                     setLineSpacing(dp(3).toFloat(), 1f)
@@ -821,6 +1331,43 @@ class HookEntry : IYukiHookXposedInit {
                 // 防 Activity 泄漏：将 dialog 关联到宿主 Activity，Activity 销毁时自动 dismiss，
                 // 释放 dialog 对 Activity 的强引用（否则 B 站页面销毁而气泡未关闭会泄漏 Activity + WindowLeaked）。
                 dialog.setOwnerActivity(act)
+                // setOwnerActivity 只记录归属，Android 并不保证 owner 销毁时自动 dismiss。
+                // 气泡显示期间注册会话级生命周期回调；dismiss/show 失败都立即注销，
+                // Application 不会长期持有 Activity/Dialog。
+                val ownerApplication = act.application
+                var ownerLifecycleCallbacks: android.app.Application.ActivityLifecycleCallbacks? = null
+                fun unregisterOwnerLifecycleCallbacks() {
+                    val callbacks = ownerLifecycleCallbacks ?: return
+                    ownerLifecycleCallbacks = null
+                    runCatching { ownerApplication.unregisterActivityLifecycleCallbacks(callbacks) }
+                }
+                val lifecycleCallbacks = object : android.app.Application.ActivityLifecycleCallbacks {
+                    override fun onActivityCreated(
+                        activity: android.app.Activity,
+                        savedInstanceState: android.os.Bundle?
+                    ) = Unit
+
+                    override fun onActivityStarted(activity: android.app.Activity) = Unit
+                    override fun onActivityResumed(activity: android.app.Activity) = Unit
+                    override fun onActivityPaused(activity: android.app.Activity) = Unit
+                    override fun onActivityStopped(activity: android.app.Activity) = Unit
+                    override fun onActivitySaveInstanceState(
+                        activity: android.app.Activity,
+                        outState: android.os.Bundle
+                    ) = Unit
+
+                    override fun onActivityDestroyed(activity: android.app.Activity) {
+                        if (activity !== act) return
+                        try {
+                            if (dialog.isShowing) dialog.dismiss()
+                        } finally {
+                            unregisterOwnerLifecycleCallbacks()
+                            clearDescTouchSession(resetHandled = true)
+                            clearCommentTouchSession(resetHandled = true)
+                        }
+                    }
+                }
+                ownerLifecycleCallbacks = lifecycleCallbacks
                 // 点气泡内部不关闭（消费点击）；点空白处 fullscreen 收到点击关闭（先播放退出动画）
                 body.setOnClickListener { /* 消费，避免冒泡关闭 */ }
                 content.setOnClickListener { /* 消费，避免冒泡关闭 */ }
@@ -869,7 +1416,7 @@ class HookEntry : IYukiHookXposedInit {
                 // 方案 A：记录弹泡时刻——入场动画期间（~320ms，取 500ms 余量）暂停
                 // 批量绑定，避免绑定批次撞弹泡动画帧
                 bubbleShownAtMs = android.os.SystemClock.uptimeMillis()
-                descTouchedView = null
+                clearDescTouchSession(resetHandled = false)
                 commentTouchedView = null
                 // 关键：窗口透明化必须在 show() 之前完成——部分 ROM（HyperOS 实测）在
                 // show 的首次布局就按自己的窗口样式绘制背景/硬阴影，事后清理无法完全
@@ -890,10 +1437,16 @@ class HookEntry : IYukiHookXposedInit {
                 // 标记「这是我们的气泡」：Dialog.show 拦截 hook 在抑制窗口内放行它。
                 // 会话编号保证旧 Dialog 的延迟 dismiss 不会清掉后来新气泡的状态。
                 val bubbleSessionId = beginBubbleSession(dialog)
-                dialog.setOnDismissListener { finishBubbleSession(dialog, bubbleSessionId) }
+                dialog.setOnDismissListener {
+                    unregisterOwnerLifecycleCallbacks()
+                    finishBubbleSession(dialog, bubbleSessionId)
+                }
+                // 尽量晚注册，确保注册后的每条异常路径都能由 onDismiss/catch 注销。
+                ownerApplication.registerActivityLifecycleCallbacks(lifecycleCallbacks)
                 try {
                     dialog.show()
                 } catch (t: Throwable) {
+                    unregisterOwnerLifecycleCallbacks()
                     finishBubbleSession(dialog, bubbleSessionId)
                     throw t
                 }
@@ -990,7 +1543,7 @@ class HookEntry : IYukiHookXposedInit {
          * 文本优先用 rawText（评论数据对象的原始文本，含表情文字标记 [dog]、始终完整，
          * 不受「展开」折叠影响）；rawText 为空时兜底实时从 itemView 提取。
          */
-        private fun applyFreeCopyListener(root: View, rawText: String?, checkReply: Boolean = true) {
+        private fun applyFreeCopyListener(root: View, rawText: String?, checkReply: Boolean = true): Boolean {
             // 性能优化：一次遍历同时完成「收集子树 view + 判断是否评论 item（含回复按钮）」，
             // 避免原方案 hasReplyButton 独立全树遍历 + applyFreeCopyListener 再全树遍历的
             // 双遍开销；且整棵树共享同一个 lambda 实例（原先每 view 各建一个闭包，快速滑动
@@ -1027,9 +1580,11 @@ class HookEntry : IYukiHookXposedInit {
                     !isRecyclerView &&
                     containsImage &&
                     (v.isClickable || v.hasOnClickListeners())
-                if (protectsMediaBranch) {
+                val protectsCommentActions = v !== root && isCommentActionsContainer(v)
+                if (protectsMediaBranch || protectsCommentActions) {
                     // 子节点是后序遍历前已经收集的候选：从当前分支起点移除并清掉可能
-                    // 因 ViewHolder 复用残留的模块监听器，整个图片点击分支交还宿主。
+                    // 因 ViewHolder 复用残留的模块监听器；媒体分支和整条评论操作栏都
+                    // 交还宿主，三点/回复/赞踩等点击控件不属于自由复制范围。
                     for (i in subtreeStart until views.size) clearModuleLongClickListener(views[i])
                     if (subtreeStart < views.size) views.subList(subtreeStart, views.size).clear()
                     clearModuleLongClickListener(v)
@@ -1051,11 +1606,18 @@ class HookEntry : IYukiHookXposedInit {
             collect(root)
             // 评论判定：有「回复」按钮或有日期文本任一即可；两者皆无 → 视为视频卡片
             // 等非评论 holder，跳过（t0 基类混排的过滤初衷保持不变）
-            if (checkReply && !hasReply && !hasDate) return
+            if (checkReply && !hasReply && !hasDate) {
+                // t0 是混排基类，会同时命中「热门评论/最新评论」头部、推荐卡等非评论
+                // Holder。验证失败时不仅要跳过绑定，还必须清理 ViewHolder 复用遗留的
+                // 模块监听器；评论根映射由调用方同步撤销。
+                for (v in views) clearModuleLongClickListener(v)
+                return false
+            }
             // 全树共享单实例监听器（点击时刻从 view 解析文本）
             for (v in views) {
                 setLongClickListenerNoHook(v, sharedFreeCopyListener)
             }
+            return true
         }
 
         /** 缓存 RecyclerView.ViewHolder.itemView 字段（所有 holder 均继承自同一基类，可安全缓存） */
@@ -1072,25 +1634,109 @@ class HookEntry : IYukiHookXposedInit {
          * 字段名漂移（jv.u 用 b 等）时遍历全部字段找第一个 View 实例。
          * @param binding ViewBinding 实例（参数扫描命中「声明 View 类型字段」的类）
          */
-        @Volatile private var cBindingRootField: java.lang.reflect.Field? = null
+        private val cBindingGetRootMethodByClass =
+            java.util.concurrent.ConcurrentHashMap<Class<*>, java.lang.reflect.Method>()
+        private val cBindingRootFieldByClass =
+            java.util.concurrent.ConcurrentHashMap<Class<*>, java.lang.reflect.Field>()
+
         private fun extractBindingRoot(binding: Any): View? {
-            val cachedField = cBindingRootField
-            if (cachedField != null && binding.javaClass.isAssignableFrom(cachedField.declaringClass)) {
-                return runCatching { cachedField.get(binding) as? View }.getOrNull()
+            if (binding is View) return binding
+            val bindingClass = binding.javaClass
+            cBindingGetRootMethodByClass[bindingClass]?.let { cached ->
+                runCatching { cached.invoke(binding) as? View }.getOrNull()?.let { return it }
+            }
+            // ViewBinding/DataBinding 生成类都有公开 getRoot()；它比猜字段名更稳定。
+            runCatching {
+                bindingClass.getMethod("getRoot")
+                    .takeIf { View::class.java.isAssignableFrom(it.returnType) }
+            }.getOrNull()?.let { method ->
+                cBindingGetRootMethodByClass[bindingClass] = method
+                runCatching { method.invoke(binding) as? View }.getOrNull()?.let { return it }
+            }
+            cBindingRootFieldByClass[bindingClass]?.let { cached ->
+                runCatching { cached.get(binding) as? View }.getOrNull()?.let { return it }
             }
             // 尝试惯例字段 a
             runCatching {
-                val f = binding.javaClass.getField("a")
+                val f = bindingClass.getField("a")
                 val v = f.get(binding) as? View
-                if (v != null) { cBindingRootField = f; return v }
+                if (v != null) { cBindingRootFieldByClass[bindingClass] = f; return v }
             }.getOrNull()
             // 字段名漂移：遍历找 View
-            for (fld in binding.javaClass.declaredFields) {
+            for (fld in bindingClass.declaredFields) {
                 val x = runCatching { fld.isAccessible = true; fld.get(binding) }.getOrNull()
                 if (x is View) {
-                    cBindingRootField = fld
+                    cBindingRootFieldByClass[bindingClass] = fld
                     return x
                 }
+            }
+            return null
+        }
+
+        /**
+         * 从某一次绑定方法的实参中定位 ViewBinding 根节点。绑定参数下标按 Method 独立缓存：
+         * 同一个 Handler 同时存在 A0(binding) 和 G0(CommentItem, binding, ...) 时不会互相
+         * 污染。缓存失效（复用/签名漂移）会立即撤销并重新扫描，不把一次失败固化到进程结束。
+         */
+        private fun extractBindingRootFromArgs(param: XC_MethodHook.MethodHookParam): View? {
+            val method = param.method
+            cViewBindingArgIndexByMethod[method]?.let { cachedIndex ->
+                val cachedRoot = param.args.getOrNull(cachedIndex)?.let { binding ->
+                    runCatching { extractBindingRoot(binding) }.getOrNull()
+                }
+                if (cachedRoot != null) return cachedRoot
+                cViewBindingArgIndexByMethod.remove(method, cachedIndex)
+            }
+
+            val parameterTypes = (method as? java.lang.reflect.Method)?.parameterTypes
+            for (i in param.args.indices) {
+                val binding = param.args[i] ?: continue
+                val type = parameterTypes?.getOrNull(i) ?: binding.javaClass
+                if (type.isPrimitive || type.isArray) continue
+                val looksLikeBinding = runCatching {
+                    type.methods.any {
+                        it.name == "getRoot" && it.parameterCount == 0 &&
+                            View::class.java.isAssignableFrom(it.returnType)
+                    } || type.declaredFields.any { View::class.java.isAssignableFrom(it.type) }
+                }.getOrDefault(false)
+                if (!looksLikeBinding) continue
+                val root = runCatching { extractBindingRoot(binding) }.getOrNull() ?: continue
+                cViewBindingArgIndexByMethod[method] = i
+                return root
+            }
+            return null
+        }
+
+        private fun extractCommentItemForBinding(
+            param: XC_MethodHook.MethodHookParam,
+            handler: Any
+        ): Any? {
+            val method = param.method
+            cCommentItemArgIndexByMethod[method]?.let { cachedIndex ->
+                val cached = param.args.getOrNull(cachedIndex)
+                if (cached != null && cached.javaClass.name.endsWith(".CommentItem")) return cached
+                cCommentItemArgIndexByMethod.remove(method, cachedIndex)
+            }
+            for (i in param.args.indices) {
+                val candidate = param.args[i] ?: continue
+                if (candidate.javaClass.name.endsWith(".CommentItem")) {
+                    cCommentItemArgIndexByMethod[method] = i
+                    return candidate
+                }
+            }
+
+            val handlerClass = handler.javaClass
+            cHandlerCommentItemFieldByClass[handlerClass]?.let { cachedField ->
+                runCatching { cachedField.get(handler) }.getOrNull()?.let { return it }
+            }
+            for (field in handlerClass.declaredFields) {
+                if (!field.type.name.endsWith(".CommentItem")) continue
+                val value = runCatching {
+                    field.isAccessible = true
+                    field.get(handler)
+                }.getOrNull() ?: continue
+                cHandlerCommentItemFieldByClass[handlerClass] = field
+                return value
             }
             return null
         }
@@ -1129,80 +1775,68 @@ class HookEntry : IYukiHookXposedInit {
         /** 评论绑定入队并调度批量 drain：用 IdleHandler 在主线程消息队列**空闲**时执行
          *  （动画/滚动/切页期间的帧任务忙，绑定被自然推迟到空闲间隙，不占动画帧预算） */
         private fun scheduleCommentBind(view: View, rawText: String?, checkReply: Boolean) {
-            synchronized(commentRootLock) {
-                commentRootRefs[view]?.set(rawText to checkReply) ?: run {
-                    commentRootRefs[view] = java.util.concurrent.atomic.AtomicReference(rawText to checkReply)
-                }
-            }
+            // 真实 CommentItem 能直接提取出正文时立即登记，保留“滑停后立刻长按”能力；
+            // raw 为空的 t0 混排节点不能提前获得评论身份，等 drain 的回复/日期结构验证。
+            // 这正是「热门评论/最新评论」误登记的根因收口点。
+            // high handler 本身只绑定 CommentItem（checkReply=false），即使某版本正文反射
+            // 暂时失败也可确认它是评论：立即登记 raw=null，长按时从已渲染 TextView 实时
+            // 提取。功能可用性不再依赖滚动停止后的 IdleHandler 完整树绑定。
+            val modelConfirmed = !checkReply || rawText?.let { it.length in 2..3000 } == true
+            if (modelConfirmed) registerCommentRoot(view, rawText, checkReply)
+            else unregisterCommentRoot(view)
             synchronized(pendingBindLock) {
+                // RecyclerView 会复用同一个 itemView；同一 View 的旧任务若留在队列，可能
+                // 在“评论 → 热门评论头部”重绑后又把旧 raw 写回来。按身份只保留最新任务，
+                // 同时限制队列长度，避免快速滚动积累已经离开视口的无效全树遍历。
+                for (i in pendingCommentBinds.lastIndex downTo 0) {
+                    if (pendingCommentBinds[i].first === view) pendingCommentBinds.removeAt(i)
+                }
                 pendingCommentBinds.add(Triple(view, rawText, checkReply))
+                while (pendingCommentBinds.size > 96) pendingCommentBinds.removeAt(0)
             }
             if (!bindDrainScheduled) {
-                bindDrainScheduled = true
-                android.os.Looper.getMainLooper().queue.addIdleHandler(
-                    object : android.os.MessageQueue.IdleHandler {
-                        override fun queueIdle(): Boolean {
-                            drainCommentBinds()
-                            return false // 一次性
-                        }
-                    }
-                )
+                scheduleCommentBindIdle()
             }
         }
 
-        /** 主线程分帧批量绑定：滚动中延迟 120ms 重试；每批最多处理 3 条（其余由 IdleHandler
+        /** 主线程分帧批量绑定：滚动中延迟 120ms 重试；每批最多处理 6 条（其余由 IdleHandler
          *  下一空闲间隙继续），避免展开回复列表时 N 条全树绑定集中在同一帧压爆动画帧预算
          *  （实测展开动画丢帧的来源）。LIFO 取尾部（最近入队的优先）：滑停后先绑定用户
          *  当前视口的评论，缩短「滑停→绑定完成」窗口——否则视口内评论长按会落到官方行为。 */
         private fun drainCommentBinds() {
-            if (rvScrolling) {
-                val anyView = synchronized(pendingBindLock) { pendingCommentBinds.lastOrNull()?.first }
-                if (anyView != null) {
-                    anyView.postDelayed({ drainCommentBinds() }, 120)
-                    return // bindDrainScheduled 保持 true，避免重复调度
-                }
-                bindDrainScheduled = false
+            if (isAnyRecyclerViewScrolling()) {
+                scheduleCommentBindRetry(120L)
                 return
             }
             // 方案 A：长按手势进行中 / 气泡入场动画期间，本周期不执行批量绑定——
             // 批量绑定（全树遍历+反射设监听）落在长按保持期（滑停后立即长按，drain
-            // 的 380ms 延迟恰好插在按下与 400ms 弹泡判定之间）或弹泡动画帧上会掉帧。
+            // 的延迟若恰好插在按下与 400ms 弹泡判定之间）或弹泡动画帧上会掉帧。
             // 触摸层长按检测不依赖绑定完成（refs 在入队时即注册，文本可直取），监听器
-            // 路径延迟 1~2 秒补齐无功能影响；条件解除后 80ms 重试。
+            // 路径稍后补齐无功能影响；条件解除后 80ms 重试。
             // 按住不动期间主线程近乎空闲，IdleHandler 会频繁触发本函数——判定必须
             // 放在函数内（与回弹静默期同理）。
             if (commentTouchedView != null || descTouchedView != null ||
                 (bubbleShownAtMs > 0L && android.os.SystemClock.uptimeMillis() - bubbleShownAtMs < 500L)
             ) {
-                val anyView = synchronized(pendingBindLock) { pendingCommentBinds.lastOrNull()?.first }
-                if (anyView != null) {
-                    anyView.postDelayed({ drainCommentBinds() }, 80L)
-                    return // bindDrainScheduled 保持 true，避免重复调度
-                }
-                bindDrainScheduled = false
+                scheduleCommentBindRetry(80L)
                 return
             }
-            // 滑停后的「超出回弹动画静默期」：回弹动画（滑到底/顶的 overscroll bounce）
-            // 通常持续 300~500ms，期间主线程有持续动画帧，批量绑定（全树遍历+反射设
-            // 监听）落在其中会掉帧（实测滑到底回弹卡顿）。静默期内推迟重试；IdleHandler
+            // 滑停后的短静默期：给回弹动画留出最初 120ms，随后优先补齐整树监听器。
+            // 用户选择功能即时性优先，允许这部分低频绑定占用少量帧预算；IdleHandler
             // 在动画帧间隙也可能触发本函数，故判定放在函数内而非仅调度处。
             // 长按不受影响：触摸层长按检测不依赖绑定完成（refs 在入队时即注册）
             if (rvIdleSinceMs > 0L) {
                 val quiet = android.os.SystemClock.uptimeMillis() - rvIdleSinceMs
-                if (quiet < 350L) {
-                    val anyView = synchronized(pendingBindLock) { pendingCommentBinds.lastOrNull()?.first }
-                    if (anyView != null) {
-                        anyView.postDelayed({ drainCommentBinds() }, 350L - quiet + 30L)
-                        return
-                    }
-                    bindDrainScheduled = false
+                if (quiet < 120L) {
+                    scheduleCommentBindRetry(120L - quiet + 20L)
                     return
                 }
             }
             bindDrainScheduled = false
-            // 每批最多 3 条（带图评论单条绑定成本高，控制每批开销保护动画帧）
+            // 用户选择功能即时性优先：每批从 3 提升到 6 条，缩短初次进入/滑停后完整
+            // 监听器覆盖窗口；触摸层与正文 id 直绑已先可用，本批处理负责补齐整棵评论树。
             val batch = synchronized(pendingBindLock) {
-                val take = minOf(pendingCommentBinds.size, 3)
+                val take = minOf(pendingCommentBinds.size, 6)
                 val b = java.util.ArrayList<Triple<View, String?, Boolean>>(take)
                 // 从尾部取：最近入队的评论（当前视口/滚动刚加载的）优先绑定
                 val start = pendingCommentBinds.size - take
@@ -1212,20 +1846,18 @@ class HookEntry : IYukiHookXposedInit {
             }
             for ((v, raw, checkReply) in batch) {
                 // 仅绑定仍挂载的 view（已滚出回收/销毁的跳过）
-                if (v.isAttachedToWindow) applyFreeCopyListener(v, raw, checkReply)
+                if (v.isAttachedToWindow) {
+                    val validComment = applyFreeCopyListener(v, raw, checkReply)
+                    if (validComment) registerCommentRoot(v, raw, checkReply)
+                    else unregisterCommentRoot(v)
+                } else {
+                    unregisterCommentRoot(v)
+                }
             }
             // 剩余排队 → 下一空闲间隙继续（分帧分摊，动画期间每批只多 2-6ms）
             val hasMore = synchronized(pendingBindLock) { pendingCommentBinds.isNotEmpty() }
             if (hasMore) {
-                bindDrainScheduled = true
-                android.os.Looper.getMainLooper().queue.addIdleHandler(
-                    object : android.os.MessageQueue.IdleHandler {
-                        override fun queueIdle(): Boolean {
-                            drainCommentBinds()
-                            return false
-                        }
-                    }
-                )
+                scheduleCommentBindIdle()
             }
         }
     }
@@ -1692,18 +2324,30 @@ class HookEntry : IYukiHookXposedInit {
                             }
                             afterHook {
                                 val st = args.getOrNull(0) as? Int ?: return@afterHook
-                                rvScrolling = st != androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE
-                                if (!rvScrolling) {
-                                    // 滑停后开始批量绑定，但避开「超出回弹动画」窗口：
-                                    // 滑到底/顶的 overscroll bounce 通常持续 300~500ms，
-                                    // 推迟 380ms（回弹结束后）再开始，由空闲间隙分帧绑定。
-                                    // 长按不受影响：触摸层长按检测不依赖绑定完成（refs 在
-                                    // 入队时即注册），且长按判定本身需 400ms
+                                val recyclerView = instance as? View ?: return@afterHook
+                                updateRecyclerViewScrolling(
+                                    recyclerView,
+                                    st != androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE
+                                )
+                                if (!isAnyRecyclerViewScrolling()) {
+                                    // 滑停后尽快补齐整棵评论树；短暂避开回弹动画开头，
+                                    // 120ms 后由空闲间隙分帧绑定。高版本模型入口和正文 id
+                                    // 已即时登记，用户无需等待本批处理才能长按正文。
                                     rvIdleSinceMs = android.os.SystemClock.uptimeMillis()
-                                    val anyView = synchronized(pendingBindLock) {
-                                        pendingCommentBinds.lastOrNull()?.first
-                                    }
-                                    anyView?.postDelayed({ drainCommentBinds() }, 380L)
+                                    scheduleCommentBindRetry(120L)
+                                }
+                            }
+                        }
+                        injectMember {
+                            method {
+                                name = "onDetachedFromWindow"
+                                paramCount(0)
+                            }
+                            afterHook {
+                                val recyclerView = instance as? View ?: return@afterHook
+                                if (updateRecyclerViewScrolling(recyclerView, false)) {
+                                    rvIdleSinceMs = android.os.SystemClock.uptimeMillis()
+                                    scheduleCommentBindRetry(120L)
                                 }
                             }
                         }
@@ -1764,50 +2408,17 @@ class HookEntry : IYukiHookXposedInit {
                         val bindHook = object : XC_MethodHook() {
                             override fun afterHookedMethod(param: MethodHookParam) {
                                 val handler = param.thisObject ?: return
-                                val commentItem = runCatching {
-                                    // 字段名不限（8.63.0 为 h、9.x 为 i）：遍历字段找第一个
-                                    // CommentItem 实例，首次定位后缓存字段名（热路径零反射）。
-                                    val cachedName = cHandlerIFieldName
-                                    if (cachedName != null) {
-                                        handler.javaClass.getField(cachedName).get(handler)
-                                    } else {
-                                        var found: Any? = null
-                                        var foundName: String? = null
-                                        for (fld in handler.javaClass.declaredFields) {
-                                            val v = runCatching { fld.isAccessible = true; fld.get(handler) }.getOrNull()
-                                            if (v != null && v.javaClass.name.contains("CommentItem")) {
-                                                found = v
-                                                foundName = fld.name
-                                                break
-                                            }
-                                        }
-                                        if (found != null) cHandlerIFieldName = foundName
-                                        found
-                                    }
-                                }.getOrNull() ?: return
+                                // 含 CommentItem 实参的方法（8.90.2 G0 等）必须取本次调用
+                                // 的实参；Handler.i 是可变字段，在 RecyclerView 快速复用时可能
+                                // 已被下一条评论覆盖。9.8.0 d/e 只有 Binding 参数，才回退字段。
+                                val commentItem = extractCommentItemForBinding(param, handler) ?: return
                                 val rawText = extractRawCommentTextV2(commentItem)
                                 // itemView 提取：扫描全部参数找 ViewBinding 实例
                                 //（8.63.0 的 G(CommentItem, jv.u, ...) 参数 1 才是 jv.u；
                                 //  9.x 的 b(Pj.J, boolean) 参数 0 为 Pj.J——索引不写死，
                                 //  首次命中缓存索引，热路径零反射）
                                 val itemView: View = run {
-                                    val fromArgs: View? = runCatching {
-                                        val cachedIndex = cViewBindingArgIndex
-                                        if (cachedIndex >= 0) {
-                                            val b = param.args.getOrNull(cachedIndex) ?: throw NoSuchElementException()
-                                            extractBindingRoot(b)
-                                        } else {
-                                            var v: View? = null
-                                            for (i in param.args.indices) {
-                                                val b = param.args[i] ?: continue
-                                                if (b.javaClass.declaredFields.any { android.view.View::class.java.isAssignableFrom(it.type) }) {
-                                                    v = extractBindingRoot(b)
-                                                    if (v != null) { cViewBindingArgIndex = i; break }
-                                                }
-                                            }
-                                            v
-                                        }
-                                    }.getOrNull()
+                                    val fromArgs = extractBindingRootFromArgs(param)
                                     fromArgs ?: run {
                                         val cachedName = cHandlerViewFieldName
                                         if (cachedName != null) {
@@ -1830,9 +2441,9 @@ class HookEntry : IYukiHookXposedInit {
                                 scheduleCommentBind(itemView, rawText, false)
                             }
                         }
-                        // 注册列表：缓存方法签名优先；再遍历补充所有「含 ViewBinding 参数
-                        // （参数类声明 View 字段）、1-2 参」的候选方法（9.8.0 的 h/d 双候选
-                        // 都挂——运行期哪个实际触发就生效，afterHook 幂等）
+                        // 注册列表：缓存方法签名优先；再遍历补充所有「含 ViewBinding 参数」
+                        // 的实例候选方法。static h(al.J) 只是 9.8.0 样式工具方法，必须排除；
+                        // d/e 等真实绑定分支都挂，运行期哪个触发就生效（afterHook 幂等）。
                         val registered = java.util.HashSet<String>()
                         val cacheParams = if (highPoint?.paramClassNames != null) {
                             highPoint.paramClassNames.map {
@@ -1857,6 +2468,7 @@ class HookEntry : IYukiHookXposedInit {
                         // bindHook 中 thisObject 为空会早退，无副作用。
                         for (m in handlerClass.declaredMethods) {
                             if (m.parameterCount < 1 || m.parameterCount > 5) continue
+                            if (Modifier.isStatic(m.modifiers)) continue
                             val sig = "${m.name}${m.parameterTypes.joinToString(",") { it.name }}"
                             if (registered.contains(sig)) continue
                             var isBinding = false
@@ -1996,15 +2608,12 @@ class HookEntry : IYukiHookXposedInit {
                         injectMember {
                             method { name = "setOnLongClickListener" }
                             afterHook {
-                                // 快路径：重入中 / 解析失败放弃后直接返回（全局热路径最小化开销）
-                                if (descStealInProgress || descViewId == View.NO_ID) {
-                                    if (descStealInProgress) return@afterHook
-                                    val v0 = instance as? View ?: return@afterHook
-                                    resolveDescViewId(v0.context)
-                                    if (descViewId == View.NO_ID) return@afterHook
-                                }
+                                // 简介与评论两条夺回链路彼此独立：简介 id 解析失败不能让评论
+                                // 分支提前返回（旧逻辑会使部分版本整个评论兜底失效）。
+                                if (descStealInProgress) return@afterHook
                                 val v = instance as? View ?: return@afterHook
-                                if (v.id == descViewId) {
+                                if (descViewId == View.NO_ID) resolveDescViewId(v.context)
+                                if (descViewId != View.NO_ID && v.id == descViewId) {
                                     descStealInProgress = true
                                     try {
                                         applyFreeCopyListener(v, null, false)
@@ -2017,6 +2626,22 @@ class HookEntry : IYukiHookXposedInit {
                                 // （如滑停后 drain 尚未轮到该评论），沿祖先链找评论根并立即重绑，
                                 // 保证用户长按时刻我们的监听器已就位（覆盖「滑停→绑定完成」窗口）。
                                 if (commentStealInProgress) return@afterHook
+                                // 最后防线：绑定回调尚未登记 itemView 时，宿主只要给评论正文/
+                                // 回复预览 TextView 设置官方长按监听，就立即把这个正文控件登记为
+                                // 独立弱引用根并夺回。只命中两个资源 id，不扫描整树、不影响三点
+                                // 操作栏；长按时从该 TextView 实时取文本。
+                                if (isCommentBodyTextView(v)) {
+                                    val raw = (v as android.widget.TextView).text?.toString()
+                                        ?.takeIf { it.length in 2..3000 }
+                                    registerCommentRoot(v, raw, false)
+                                    commentStealInProgress = true
+                                    try {
+                                        setLongClickListenerNoHook(v, sharedFreeCopyListener)
+                                    } finally {
+                                        commentStealInProgress = false
+                                    }
+                                    return@afterHook
+                                }
                                 // 快路径：尚无任何评论注册时直接返回——此 hook 对全 App 每次
                                 // 官方 setOnLongClickListener 都触发，评论区未进入前零开销
                                 if (commentRootRefs.isEmpty()) return@afterHook
@@ -2034,7 +2659,9 @@ class HookEntry : IYukiHookXposedInit {
                                     }
                                     commentStealInProgress = true
                                     try {
-                                        applyFreeCopyListener(root, raw, checkReply)
+                                        if (!applyFreeCopyListener(root, raw, checkReply)) {
+                                            unregisterCommentRoot(root)
+                                        }
                                     } finally {
                                         commentStealInProgress = false
                                     }
@@ -2066,104 +2693,165 @@ class HookEntry : IYukiHookXposedInit {
                                 beforeHook {
                                     val v = instance as? View ?: return@beforeHook
                                     val ev = args.getOrNull(0) as? android.view.MotionEvent ?: return@beforeHook
-                                    if (v.id != descViewId) {
-                                        // 性能快路径：非 DOWN 事件且无进行中的评论长按手势时
-                                        // 直接返回——超出回弹拖拽/快速滑动时每秒数千次 MOVE 事件
-                                        // 的带锁祖先链遍历是回弹卡顿主因。手势跟踪期间
-                                        // （DOWN 已记录 commentTouchedView）行为与原实现逐位
-                                        // 一致（MOVE 位移取消、UP 弹泡/消费拦截均不受影响）；
-                                        // 无手势时原实现对这些事件也只是幂等空操作
-                                        if (ev.actionMasked != android.view.MotionEvent.ACTION_DOWN && commentTouchedView == null) return@beforeHook
-                                        // 评论树长按检测：官方（9.8.0）评论长按不走
-                                        // OnLongClickListener（触摸层自实现），祖先链查
-                                        // commentRootRefs 识别评论树并自实现长按（与 desc 同构）
-                                        var isComment = false
-                                        var cur: View? = v
-                                        synchronized(commentRootLock) {
-                                            while (cur != null) {
-                                                if (commentRootRefs.containsKey(cur)) { isComment = true; break }
-                                                cur = cur.parent as? View
-                                            }
-                                        }
-                                        if (isComment) {
-                                            when (ev.actionMasked) {
-                                                android.view.MotionEvent.ACTION_DOWN -> {
-                                                    commentTouchDownMs = android.os.SystemClock.uptimeMillis()
-                                                    commentTouchDownX = ev.x
-                                                    commentTouchDownY = ev.y
-                                                    commentLongPressHandled = false
-                                                    commentTouchedView = v
-                                                    v.removeCallbacks(commentLongPressRunnable)
-                                                    v.postDelayed(commentLongPressRunnable, 400L)
-                                                }
-                                                android.view.MotionEvent.ACTION_MOVE -> {
-                                                    val moved = kotlin.math.abs(ev.x - commentTouchDownX) + kotlin.math.abs(ev.y - commentTouchDownY)
-                                                    if (moved >= 60f) {
-                                                        v.removeCallbacks(commentLongPressRunnable)
-                                                        commentTouchedView = null
-                                                    }
-                                                }
-                                                android.view.MotionEvent.ACTION_UP,
-                                                android.view.MotionEvent.ACTION_CANCEL -> {
-                                                    v.removeCallbacks(commentLongPressRunnable)
-                                                    val dur = android.os.SystemClock.uptimeMillis() - commentTouchDownMs
-                                                    val moved = kotlin.math.abs(ev.x - commentTouchDownX) + kotlin.math.abs(ev.y - commentTouchDownY)
-                                                    if (dur >= 400 && moved < 60f && !commentLongPressHandled) {
-                                                        commentLongPressHandled = true
-                                                        runCatching {
-                                                            val raw = commentRootRawText(v)
-                                                            showFreeCopyPopup(v, raw ?: extractCommentText(v) ?: "")
-                                                            hapticFeedback(v)
-                                                        }
-                                                        this.result = true
-                                                    } else if (commentLongPressHandled) {
-                                                        this.result = true
-                                                    }
-                                                    commentTouchedView = null
-                                                }
-                                            }
-                                            return@beforeHook
+                                    val action = ev.actionMasked
+                                    // more_button 属于宿主独立点击控件，不属于评论正文自由复制范围。
+                                    // 父 View 的 dispatch 会先建立评论会话；按钮本身到达 beforeHook
+                                    // 时撤销它，并让同一 downTime 的全部后续节点/UP 直接交还宿主。
+                                    if (action == android.view.MotionEvent.ACTION_DOWN &&
+                                        commentMoreButtonPassthroughDownTime != 0L &&
+                                        commentMoreButtonPassthroughDownTime != ev.downTime
+                                    ) {
+                                        commentMoreButtonPassthroughDownTime = 0L
+                                    }
+                                    if (commentMoreButtonPassthroughDownTime == ev.downTime) {
+                                        if (action == android.view.MotionEvent.ACTION_UP ||
+                                            action == android.view.MotionEvent.ACTION_CANCEL
+                                        ) {
+                                            commentMoreButtonPassthroughDownTime = 0L
                                         }
                                         return@beforeHook
                                     }
-                                    when (ev.actionMasked) {
+                                    if (v.id != descViewId) {
+                                        if (action == android.view.MotionEvent.ACTION_DOWN) {
+                                            // 新手势落在非简介 View 时终止旧简介会话。desc 自身的
+                                            // dispatch 之前也会经过祖先 View，此清理不会影响随后
+                                            // desc 分支建立的新会话。
+                                            if (descTouchedView != null) {
+                                                clearDescTouchSession(resetHandled = true)
+                                            }
+                                            // 任意新手势先终止旧会话。即使本次 DOWN 在页签/简介而
+                                            // 非评论树，也不能让上一页遗漏 UP/CANCEL 的 Runnable
+                                            // 继续存活并在页面切换后弹出。
+                                            if (activeCommentTouchSessionId != 0L &&
+                                                commentTouchDownEventTime != ev.downTime
+                                            ) {
+                                                clearCommentTouchSession(resetHandled = true)
+                                            }
+                                            // 祖先链查找仅在 DOWN 执行；MOVE 热路径不加锁、不遍历。
+                                            var root: View? = null
+                                            var cur: View? = v
+                                            synchronized(commentRootLock) {
+                                                while (cur != null) {
+                                                    if (commentRootRefs.containsKey(cur)) {
+                                                        root = cur
+                                                        break
+                                                    }
+                                                    cur = cur.parent as? View
+                                                }
+                                            }
+                                            if (root != null &&
+                                                (isCommentMoreButton(v) || isCommentActionsContainer(v))
+                                            ) {
+                                                clearCommentTouchSession(resetHandled = true)
+                                                commentMoreButtonPassthroughDownTime = ev.downTime
+                                                return@beforeHook
+                                            }
+                                            root?.let { beginOrRetargetCommentTouch(v, it, ev) }
+                                            return@beforeHook
+                                        }
+
+                                        // 没有活动会话时 MOVE/UP/CANCEL 仍是纯 O(1) 早退；有会话时
+                                        // 也不再重复评论根祖先遍历。终止事件按 downTime 清理，
+                                        // 不要求它仍落在原评论树内（父容器拦截/切页的关键修复）。
+                                        if (activeCommentTouchSessionId == 0L ||
+                                            commentTouchDownEventTime != ev.downTime
+                                        ) return@beforeHook
+                                        when (action) {
+                                            android.view.MotionEvent.ACTION_MOVE -> {
+                                                val moved = kotlin.math.abs(ev.rawX - commentTouchDownX) +
+                                                    kotlin.math.abs(ev.rawY - commentTouchDownY)
+                                                // 气泡已接管后保留 handled/session 到 UP，确保终止
+                                                // 事件仍被消费且官方延迟行为继续受抑制。
+                                                if (moved >= 60f && !commentLongPressHandled) {
+                                                    clearCommentTouchSession(resetHandled = true)
+                                                }
+                                            }
+                                            android.view.MotionEvent.ACTION_UP,
+                                            android.view.MotionEvent.ACTION_CANCEL -> {
+                                                val sessionId = activeCommentTouchSessionId
+                                                var handled = commentLongPressHandled
+                                                // 主线程拥堵时 400ms Runnable 可能排在 UP 后面；以
+                                                // MotionEvent 时间判定，避免短点被处理时延误判成长按。
+                                                if (action == android.view.MotionEvent.ACTION_UP && !handled) {
+                                                    val heldFor = (ev.eventTime - commentTouchDownEventTime)
+                                                        .coerceAtLeast(0L)
+                                                    if (heldFor >= 400L) {
+                                                        handled = tryHandleActiveCommentLongPress(sessionId)
+                                                    }
+                                                }
+                                                // 已弹泡时保留 handled 到气泡 dismiss，供官方延迟
+                                                // 复制/震动抑制使用；手势身份和 Runnable 仍立即清除。
+                                                clearCommentTouchSession(resetHandled = !handled)
+                                                if (handled && action == android.view.MotionEvent.ACTION_UP) {
+                                                    this.result = true
+                                                }
+                                            }
+                                        }
+                                        return@beforeHook
+                                    }
+                                    when (action) {
                                         android.view.MotionEvent.ACTION_DOWN -> {
-                                            descTouchDownMs = android.os.SystemClock.uptimeMillis()
-                                            descTouchDownX = ev.x
-                                            descTouchDownY = ev.y
+                                            if (activeCommentTouchSessionId != 0L &&
+                                                commentTouchDownEventTime != ev.downTime
+                                            ) {
+                                                clearCommentTouchSession(resetHandled = true)
+                                            }
+                                            clearDescTouchSession(resetHandled = true)
+                                            descTouchDownMs = ev.downTime
+                                            descTouchObservedAtMs = android.os.SystemClock.uptimeMillis()
+                                            descTouchDownX = ev.rawX
+                                            descTouchDownY = ev.rawY
                                             descLongPressHandled = false
                                             descTouchedView = v
                                             // 长按状态下弹气泡（500ms 后判定，不等松手）
-                                            v.removeCallbacks(descLongPressRunnable)
-                                            v.postDelayed(descLongPressRunnable, 400L)
+                                            val handler = mainHandlerOrNull()
+                                            if (handler != null) {
+                                                handler.removeCallbacks(descLongPressRunnable)
+                                                val delay = (descTouchObservedAtMs + 400L -
+                                                    android.os.SystemClock.uptimeMillis()).coerceAtLeast(0L)
+                                                handler.postDelayed(descLongPressRunnable, delay)
+                                            }
                                         }
                                         android.view.MotionEvent.ACTION_MOVE -> {
                                             // 位移超过阈值视为滑动/滚动，取消长按判定并解除官方复制拦截
-                                            val moved = kotlin.math.abs(ev.x - descTouchDownX) + kotlin.math.abs(ev.y - descTouchDownY)
-                                            if (moved >= 60f) {
-                                                v.removeCallbacks(descLongPressRunnable)
-                                                descTouchedView = null
+                                            val moved = kotlin.math.abs(ev.rawX - descTouchDownX) +
+                                                kotlin.math.abs(ev.rawY - descTouchDownY)
+                                            if (moved >= 60f && !descLongPressHandled) {
+                                                clearDescTouchSession(resetHandled = true)
                                             }
                                         }
                                         android.view.MotionEvent.ACTION_UP,
                                         android.view.MotionEvent.ACTION_CANCEL -> {
-                                            v.removeCallbacks(descLongPressRunnable)
-                                            val dur = android.os.SystemClock.uptimeMillis() - descTouchDownMs
-                                            val moved = kotlin.math.abs(ev.x - descTouchDownX) + kotlin.math.abs(ev.y - descTouchDownY)
+                                            mainHandlerRef?.removeCallbacks(descLongPressRunnable)
+                                            var handled = descLongPressHandled
+                                            // MOVE 超阈值/页面切换已清掉会话时，后续 UP 必须直接
+                                            // 放行；否则 downMs=0 会把任意松手误判为超长按。
+                                            if (!handled &&
+                                                (descTouchDownMs == 0L || descTouchedView !== v)
+                                            ) {
+                                                clearDescTouchSession(resetHandled = true)
+                                                return@beforeHook
+                                            }
+                                            val dur = (ev.eventTime - descTouchDownMs).coerceAtLeast(0L)
+                                            val moved = kotlin.math.abs(ev.rawX - descTouchDownX) +
+                                                kotlin.math.abs(ev.rawY - descTouchDownY)
                                             // 长按阈值内（≥400ms，官方长按判定线）松手：若气泡未弹
                                             // （500ms runnable 未触发，如 400-500ms 松手）立即弹，并消费
                                             // 事件阻止官方 UP 分支的长按复制（链接 span 的 b.b() 路径）。
-                                            if (dur >= 400 && moved < 60f && !descLongPressHandled) {
+                                            if (action == android.view.MotionEvent.ACTION_UP &&
+                                                dur >= 400L && moved < 60f && !handled
+                                            ) {
                                                 descLongPressHandled = true
+                                                handled = true
                                                 runCatching {
                                                     showFreeCopyPopup(v, extractDescText(v))
                                                     hapticFeedback(v)
                                                 }
-                                                this.result = true
-                                            } else if (descLongPressHandled) {
-                                                this.result = true // 长按已弹气泡则消费事件，阻止官方复制全文
                                             }
-                                            descTouchedView = null
+                                            clearDescTouchSession(resetHandled = !handled)
+                                            if (handled && action == android.view.MotionEvent.ACTION_UP) {
+                                                this.result = true // 阻止官方复制全文
+                                            }
                                         }
                                     }
                                 }
@@ -2334,10 +3022,24 @@ class HookEntry : IYukiHookXposedInit {
                                                     (param.thisObject as? android.widget.PopupWindow)?.contentView
                                                 }.getOrNull()
                                                 if (popupContent?.javaClass?.name?.contains("HandleView") == true) return
-                                                if (commentTouchedView != null || descTouchedView != null ||
-                                                    isOfficialSuppressionActive()
-                                                ) {
-                                                    param.result = null // 评论/简介长按窗口内或弹泡抑制窗口内，拦官方菜单
+                                                if (shouldSuppressOfficialOverlay()) {
+                                                    // 不可在 beforeHook 里直接 result=null：宿主已经把面板
+                                                    // 控制器标为“已打开”，跳过 show 会令 onDismiss 永远不来，
+                                                    // 此后每个评论的三点按钮都会因该脏状态而失效。允许窗口
+                                                    // 完成 show 生命周期，再在同一调用栈的 afterHook 立即
+                                                    // dismiss；尚未进入下一帧，不会与自由复制气泡同时可见，
+                                                    // 且宿主能正常收到 dismiss 并复位控制器。
+                                                    param.setObjectExtra("bil_suppress_popup_after_show", true)
+                                                }
+                                            }
+
+                                            override fun afterHookedMethod(param: MethodHookParam) {
+                                                if (param.getObjectExtra("bil_suppress_popup_after_show") == true) {
+                                                    runCatching {
+                                                        (param.thisObject as? android.widget.PopupWindow)
+                                                            ?.takeIf { it.isShowing }
+                                                            ?.dismiss()
+                                                    }
                                                 }
                                             }
                                         }
@@ -2355,13 +3057,23 @@ class HookEntry : IYukiHookXposedInit {
                                     dlgClass, "show", *m.parameterTypes,
                                     object : XC_MethodHook() {
                                         override fun beforeHookedMethod(param: MethodHookParam) {
-                                            if (commentTouchedView != null || descTouchedView != null ||
-                                                isOfficialSuppressionActive()
-                                            ) {
+                                            if (shouldSuppressOfficialOverlay()) {
                                                 if (param.thisObject != null &&
                                                     param.thisObject === ourBubbleDialogRef?.get()
                                                 ) return // 我们自己的气泡，放行
-                                                param.result = null // 长按窗口内或弹泡抑制窗口内，拦官方弹窗（菜单/面板）
+                                                // 与 PopupWindow 同理：不能截断宿主 Dialog.show，
+                                                // 否则官方控制器无法通过 onDismiss 清理“已显示”状态。
+                                                param.setObjectExtra("bil_suppress_dialog_after_show", true)
+                                            }
+                                        }
+
+                                        override fun afterHookedMethod(param: MethodHookParam) {
+                                            if (param.getObjectExtra("bil_suppress_dialog_after_show") == true) {
+                                                runCatching {
+                                                    (param.thisObject as? android.app.Dialog)
+                                                        ?.takeIf { it.isShowing }
+                                                        ?.dismiss()
+                                                }
                                             }
                                         }
                                     }
