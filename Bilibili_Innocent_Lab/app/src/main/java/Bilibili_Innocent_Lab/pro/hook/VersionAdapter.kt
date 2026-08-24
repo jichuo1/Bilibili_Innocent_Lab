@@ -82,7 +82,7 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 6
+    private const val SCHEMA_VERSION = 7
 
     /** 适配结果（各功能 hook 点） */
     data class AdaptResult(
@@ -296,7 +296,7 @@ object VersionAdapter {
      * 高版本评论 handler：候选类存在 + 有 CommentItem 字段 + 绑定方法。
      * 特征（版本无关、字段名/方法名/参数类名全部自适应，历史漂移全覆盖）：
      * - 8.63.0：CommentContentRichTextHandler（字段 h、绑定方法 G(CommentItem, jv.u, ...)）
-     * - 9.0.0 ：Pj.J / b、9.8.0：al.J / d/h——三者类名/字段名/方法名均不同
+     * - 9.0.0 ：Pj.J / b、9.8.0：al.J / d/e——三者类名/字段名/方法名均不同
      * 特征 1：存在「声明了 CommentItem 类型字段」的字段（字段名不限 i/h）。
      * 特征 2（绑定方法）：参数中存在「声明了 View 类型字段」的类（ViewBinding 特征，
      *   jv.u / Pj.J / al.J 均命中——含 View 字段即可，不依赖字段名 a），且参数个数 1-5
@@ -311,9 +311,14 @@ object VersionAdapter {
                 c.declaredFields.any { it.type.name.endsWith(".CommentItem") }
             }.getOrDefault(false)
             if (!hasCommentItemField) continue
-            // 特征 2：绑定方法 = 参数含 ViewBinding（View 字段）+ 参数 1-5
+            // 特征 2：绑定方法 = 非 static + 参数含 ViewBinding（View 字段）+ 参数 1-5。
+            // 9.8.0 的 static h(al.J) 只设置字号/颜色，旧定位器会误把它缓存成绑定入口。
+            // 候选中优先带 CommentItem 实参的方法（可避免 Handler 可变字段串项），否则
+            // 选参数更多的主绑定方法（9.8.0 为 d(al.J, boolean)，而 e(al.J) 是分支布局）。
+            val bindingCandidates = java.util.ArrayList<java.lang.reflect.Method>()
             for (m in c.declaredMethods) {
                 if (m.parameterCount < 1 || m.parameterCount > 5) continue
+                if (Modifier.isStatic(m.modifiers)) continue
                 var hasViewBinding = false
                 for (pt in m.parameterTypes) {
                     if (pt.isPrimitive || pt.isArray || pt.isInterface) continue
@@ -323,7 +328,15 @@ object VersionAdapter {
                     if (hasViewField) { hasViewBinding = true; break }
                 }
                 if (!hasViewBinding) continue
-                return HookPoint(cn, m.name, m.parameterTypes.map { it.name }, null)
+                bindingCandidates.add(m)
+            }
+            val best = bindingCandidates.maxWithOrNull(
+                compareBy<java.lang.reflect.Method> {
+                    if (it.parameterTypes.any { pt -> pt.name.endsWith(".CommentItem") }) 1 else 0
+                }.thenBy { it.parameterCount }
+            )
+            if (best != null) {
+                return HookPoint(cn, best.name, best.parameterTypes.map { it.name }, null)
             }
         }
         return null
