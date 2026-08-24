@@ -18,8 +18,11 @@ object GitHubReleaseChecker {
     private const val USER_AGENT = "Bilibili-Innocent-Lab-Android"
     private const val CONNECT_TIMEOUT_MS = 8_000
     private const val READ_TIMEOUT_MS = 8_000
+    private const val RELEASE_DETAILS_CONNECT_TIMEOUT_MS = 4_000
+    private const val RELEASE_DETAILS_READ_TIMEOUT_MS = 4_000
     private const val MAX_RESPONSE_LENGTH = 512 * 1024
     private const val MAX_RELEASE_NOTES_LENGTH = 1_200
+    private const val RELEASE_DETAILS_MIRROR_BASE = "https://kkgithub.com"
 
     /**
      * The official endpoint always wins. The mirror is contacted only after an I/O, HTTP,
@@ -47,6 +50,11 @@ object GitHubReleaseChecker {
         val apkDownloadUrl: String?
     )
 
+    data class ReleaseDetailsDestination(
+        val url: String,
+        val usesMirror: Boolean
+    )
+
     /**
      * GitHub's `/releases/latest` endpoint excludes drafts and prereleases, so Alpha builds
      * never reach normal users through this path.
@@ -54,6 +62,33 @@ object GitHubReleaseChecker {
     @Throws(IOException::class)
     fun fetchLatestStableRelease(): StableRelease =
         fetchWithFallback(RELEASE_ENDPOINTS, ::fetchReleaseFromEndpoint)
+
+    /**
+     * Opens the official Release page whenever GitHub is reachable. KGitHub is a full-page
+     * browsing mirror, unlike the API/asset proxy used by update checks, so it is only selected
+     * after the official page fails or times out.
+     */
+    @Throws(IOException::class)
+    fun resolveReleaseDetailsDestination(officialUrl: String): ReleaseDetailsDestination =
+        resolveReleaseDetailsDestination(officialUrl, ::probeGitHubReleasePage)
+
+    @Throws(IOException::class)
+    internal fun resolveReleaseDetailsDestination(
+        officialUrl: String,
+        probeOfficial: (String) -> Unit
+    ): ReleaseDetailsDestination {
+        val validatedOfficial = validateGitHubUrl(officialUrl, "release page")
+        return try {
+            probeOfficial(validatedOfficial)
+            ReleaseDetailsDestination(validatedOfficial, usesMirror = false)
+        } catch (_: IOException) {
+            val official = URL(validatedOfficial)
+            ReleaseDetailsDestination(
+                url = "$RELEASE_DETAILS_MIRROR_BASE${official.file}",
+                usesMirror = true
+            )
+        }
+    }
 
     /** Tries each endpoint in order and preserves every failure for diagnostics. */
     @Throws(IOException::class)
@@ -99,6 +134,28 @@ object GitHubReleaseChecker {
 
             val payload = connection.inputStream.bufferedReader(Charsets.UTF_8).use(::readLimited)
             return parseStableRelease(payload)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    @Throws(IOException::class)
+    private fun probeGitHubReleasePage(url: String) {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = RELEASE_DETAILS_CONNECT_TIMEOUT_MS
+            readTimeout = RELEASE_DETAILS_READ_TIMEOUT_MS
+            instanceFollowRedirects = true
+            useCaches = false
+            setRequestProperty("Accept", "text/html")
+            setRequestProperty("User-Agent", USER_AGENT)
+        }
+
+        try {
+            val status = connection.responseCode
+            if (status !in 200..399) {
+                throw IOException("GitHub release page returned HTTP $status")
+            }
         } finally {
             connection.disconnect()
         }

@@ -676,9 +676,9 @@ class MainActivity : AppViewsActivity() {
                 textSize = 15f
                 gravity = Gravity.CENTER
                 setPadding(
-                    (18 * density).toInt(),
+                    (12 * density).toInt(),
                     (11 * density).toInt(),
-                    (18 * density).toInt(),
+                    (12 * density).toInt(),
                     (11 * density).toInt()
                 )
                 background = selfRippleBackground(14f)
@@ -689,15 +689,42 @@ class MainActivity : AppViewsActivity() {
         )
         buttonRow.addView(
             NativeTextView(this).apply {
+                text = getString(R.string.update_details)
+                setTextColor(monetColors.primary)
+                textSize = 15f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(
+                    (10 * density).toInt(),
+                    (11 * density).toInt(),
+                    (10 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    dismissWithAnimation(dialog, container) {
+                        openReleaseDetailsWithFallback(release.htmlUrl)
+                    }
+                }
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = (4 * density).toInt() }
+        )
+        buttonRow.addView(
+            NativeTextView(this).apply {
                 text = getString(R.string.update_now)
                 setTextColor(monetColors.onPrimary)
                 textSize = 15f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 gravity = Gravity.CENTER
                 setPadding(
-                    (20 * density).toInt(),
+                    (14 * density).toInt(),
                     (11 * density).toInt(),
-                    (20 * density).toInt(),
+                    (14 * density).toInt(),
                     (11 * density).toInt()
                 )
                 val radius = 20 * density
@@ -727,7 +754,7 @@ class MainActivity : AppViewsActivity() {
             NativeLinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { marginStart = (12 * density).toInt() }
+            ).apply { marginStart = (8 * density).toInt() }
         )
         container.addView(
             buttonRow,
@@ -738,6 +765,43 @@ class MainActivity : AppViewsActivity() {
         )
 
         presentGlassDialog(dialog, container)
+    }
+
+    private fun openReleaseDetailsWithFallback(officialUrl: String) {
+        Toast.makeText(this, R.string.update_details_opening, Toast.LENGTH_SHORT).show()
+        val activityRef = WeakReference(this)
+        Thread({
+            val result = runCatching {
+                GitHubReleaseChecker.resolveReleaseDetailsDestination(officialUrl)
+            }
+            Handler(Looper.getMainLooper()).post {
+                val activity = activityRef.get() ?: return@post
+                if (activity.isFinishing || activity.isDestroyed) return@post
+                result.fold(
+                    onSuccess = { destination ->
+                        if (destination.usesMirror) {
+                            Toast.makeText(
+                                activity,
+                                R.string.update_details_using_mirror,
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                        activity.openExternalUrl(destination.url)
+                    },
+                    onFailure = { error ->
+                        Log.w("BilibiliInnocentLab", "release details resolution failed", error)
+                        Toast.makeText(
+                            activity,
+                            R.string.open_link_failed,
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                )
+            }
+        }, "github-release-details-probe").apply {
+            isDaemon = true
+            start()
+        }
     }
 
     private fun createGlassContainer(): NativeLinearLayout {

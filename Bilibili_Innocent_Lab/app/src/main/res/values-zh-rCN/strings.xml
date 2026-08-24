@@ -70,6 +70,9 @@
     <string name="update_available_title">发现新版本：%1$s</string>
     <string name="update_available_message">当前版本：%1$s\n最新版本：%2$s</string>
     <string name="update_later">稍后</string>
+    <string name="update_details">版本详细</string>
+    <string name="update_details_opening">正在连接版本详情…</string>
+    <string name="update_details_using_mirror">GitHub 连接失败，已切换到国内镜像</string>
     <string name="update_now">立即更新</string>
     <string name="open_link_failed">未找到可打开链接的浏览器</string>
     <string name="dialog_close">关闭</string>
