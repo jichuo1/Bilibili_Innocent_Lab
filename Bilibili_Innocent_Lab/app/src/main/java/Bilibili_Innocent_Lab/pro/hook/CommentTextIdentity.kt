@@ -6,6 +6,52 @@ internal object CommentTextIdentity {
     /** 身份比对专用 emoji 槽位，不会作为最终展示文本返回。 */
     const val EMOJI_SLOT = '\uE000'
 
+    /**
+     * B 站活动/联动表情名称可能显著长于普通 `[dog]`。原先 26 字符的窗口会让长名称
+     * 在身份校验和剪贴板映射两处同时失效。评论正文总长另有 3000 上限，这里放宽到
+     * 256 仍是严格有界扫描，并继续禁止跨行 token。
+     */
+    const val MAX_CUSTOM_EMOJI_TOKEN_LENGTH = 256
+
+    /**
+     * 宿主折叠控件追加的控制尾部很短；限制扫描窗口既避免把正文中间的省略号当成折叠
+     * 标记，也让长按路径的判断保持严格有界。
+     */
+    private const val MAX_FOLD_CONTROL_TAIL_LENGTH = 96
+
+    /**
+     * 返回宿主追加的折叠控制尾部（如 `... 展开`）起点，未识别时返回 null。
+     *
+     * decoratedRanges 来自原始 Spanned 中的非 ReplacementSpan 装饰。B 站的可展开控件会
+     * 分别给尾部省略标记和紧随其后的操作文案设置点击/着色 Span；用户正文中的普通
+     * `...` 没有这组相邻结构，因此不能只按固定文案或纯字符串删除。
+     */
+    fun foldControlStart(text: CharSequence, decoratedRanges: List<IntRange>): Int? {
+        if (text.length < 2 || decoratedRanges.size < 2) return null
+        val minStart = (text.length - MAX_FOLD_CONTROL_TAIL_LENGTH).coerceAtLeast(1)
+        val ranges = decoratedRanges
+            .filter { it.first >= 0 && it.last >= it.first && it.last < text.length }
+            .sortedBy { it.first }
+        if (ranges.size < 2) return null
+
+        for (marker in ranges.asReversed()) {
+            if (marker.first < minStart) continue
+            val markerText = text.subSequence(marker.first, marker.last + 1).toString().trim()
+            val isEllipsisMarker = markerText == "…" ||
+                (markerText.length >= 3 && markerText.all { it == '.' })
+            if (!isEllipsisMarker) continue
+
+            val markerEnd = marker.last + 1
+            val hasAdjacentActionDecoration = ranges.any { candidate ->
+                candidate !== marker &&
+                    candidate.first in markerEnd..minOf(text.length, markerEnd + 1) &&
+                    candidate.last >= candidate.first
+            }
+            if (hasAdjacentActionDecoration) return marker.first
+        }
+        return null
+    }
+
     fun matchKey(text: CharSequence, replacementRanges: List<IntRange> = emptyList()): String {
         val ranges = replacementRanges.sortedBy { it.first }
         val out = StringBuilder(text.length)
@@ -28,6 +74,10 @@ internal object CommentTextIdentity {
             }
             when {
                 text[i] == '\uFFFC' -> out.append(EMOJI_SLOT)
+                // B 站 9.8.0 富文本会在每段 ImageSpan 的 U+200B 之外，再在整段末尾
+                // 追加一个不带 Span 的 U+200B。前者已由 replacementRanges 转为槽位，
+                // 后者只是排版哨兵，不能参与评论身份或 Emoji 数量判断。
+                text[i] == '\u200B' -> Unit
                 text[i] == '…' -> Unit
                 i + 2 < text.length && text[i] == '.' && text[i + 1] == '.' && text[i + 2] == '.' -> {
                     i += 3
@@ -44,7 +94,7 @@ internal object CommentTextIdentity {
     fun emojiTokenEnd(text: CharSequence, start: Int): Int {
         if (start >= text.length) return start
         if (text[start] == '[') {
-            val close = (start + 1 until minOf(text.length, start + 26))
+            val close = (start + 1 until minOf(text.length, start + MAX_CUSTOM_EMOJI_TOKEN_LENGTH + 1))
                 .firstOrNull { text[it] == ']' }
             if (close != null && close > start + 1 &&
                 (start + 1 until close).none { text[it] == '\r' || text[it] == '\n' }
