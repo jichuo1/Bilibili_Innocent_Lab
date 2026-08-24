@@ -76,6 +76,10 @@ class HookEntry : IYukiHookXposedInit {
         const val CLASS_COMMENT_HANDLER_V2 = "com.bilibili.app.comment3.ui.nextholderexp3.handle.CommentNextExperiment3ContentRichTextHandler"
         const val METHOD_COMMENT_BIND_V2 = "b"
 
+        /** XC_MethodHook.MethodHookParam 内保存本次同步绑定快照的私有 key。 */
+        private const val COMMENT_BIND_SNAPSHOT_KEY =
+            "Bilibili_Innocent_Lab.free_copy.comment_binding_snapshot"
+
         // 视频提及游戏卡 — 渲染入口（非 suspend）
         const val CLASS_MENTIONED_COMPONENT = "com.bilibili.biligame.videocard.GameVideoMentionedComponent"
         const val METHOD_CREATE_VIEW_ENTRY = "createViewEntry"
@@ -327,6 +331,15 @@ class HookEntry : IYukiHookXposedInit {
         @Volatile
         private var ourBubbleDialogRef: java.lang.ref.WeakReference<android.app.Dialog>? = null
 
+        /**
+         * 仅标记当前线程由自由复制气泡主动发起的同步剪贴板写入。使用 ThreadLocal 而非
+         * 时间窗/全局布尔值，避免误放行宿主线程或气泡关闭后的官方复制；写入后 finally remove。
+         */
+        private val popupClipboardWriteInProgress = ThreadLocal<Boolean>()
+
+        private fun isOurBubbleShowing(): Boolean =
+            activeBubbleSessionId != 0L && ourBubbleDialogRef?.get()?.isShowing == true
+
         /** 当前气泡会话是否仍处于官方行为抑制期。 */
         private fun isOfficialSuppressionActive(): Boolean {
             if (activeBubbleSessionId == 0L ||
@@ -394,16 +407,16 @@ class HookEntry : IYukiHookXposedInit {
             }
             if (isDesc && descLongPressHandled) return@OnLongClickListener true
             if (!isDesc && commentLongPressHandled) return@OnLongClickListener true
-            val text = if (isDesc) {
-                extractDescText(view)
+            val resolved = if (isDesc) {
+                FreeCopyContent(extractDescText(view))
             } else {
                 resolveCommentTextAtInteraction(view)
             } ?: return@OnLongClickListener false
-            if (!isValidFreeCopyText(text)) return@OnLongClickListener false
+            if (!isValidFreeCopyText(resolved.displayText)) return@OnLongClickListener false
             // 文本与身份均已确认后才武装 handled；无效复用节点不能污染下一次手势。
             if (isDesc) descLongPressHandled = true else commentLongPressHandled = true
             runCatching {
-                showFreeCopyPopup(view, text)
+                showFreeCopyPopup(view, resolved)
                 hapticFeedback(view)
             }
             true // 消费：官方菜单不弹
@@ -611,7 +624,7 @@ class HookEntry : IYukiHookXposedInit {
             if (commentLongPressHandled) return true
             val v = activeCommentTouchTarget(sessionId) ?: return false
             val text = resolveCommentTextAtInteraction(v) ?: return false
-            if (!isValidFreeCopyText(text)) return false
+            if (!isValidFreeCopyText(text.displayText)) return false
             commentLongPressHandled = true
             runCatching {
                 // 先弹泡（清 touch 标志）再触觉反馈（官方震动被 hook 拦，只保留这一次）
@@ -628,6 +641,17 @@ class HookEntry : IYukiHookXposedInit {
             }
         }
 
+        /** 当前气泡的显示文本，以及每个绘制 Span 已确认的剪贴板语义文本。 */
+        private data class EmojiCopyValue(
+            val span: android.text.style.ReplacementSpan,
+            val copyText: String
+        )
+
+        private data class FreeCopyContent(
+            val displayText: CharSequence,
+            val emojiCopyValues: List<EmojiCopyValue> = emptyList()
+        )
+
         /**
          * 长按发生时重新以当前 View 树的可见正文校验绑定期 rawText。RecyclerView/Handler
          * 都会复用：异步的旧绑定回调可能在新条目已显示后才把旧 CommentItem 写进 root refs；
@@ -635,46 +659,156 @@ class HookEntry : IYukiHookXposedInit {
          * 当前评论子树；raw 与可见正文属于同一条时仍返回 raw（保留完整正文/表情标记），
          * 不一致时以眼前实际渲染的正文为准。
          */
-        private fun resolveCommentTextAtInteraction(v: View): CharSequence? {
+        private fun resolveCommentTextAtInteraction(v: View): FreeCopyContent? {
             var registeredRoot: View? = null
-            var rawText: String? = null
+            var semanticState: CommentRootState? = null
+            var fallbackState: CommentRootState? = null
             synchronized(commentRootLock) {
                 var cur: View? = v
                 while (cur != null) {
                     val state = commentRootRefs[cur]?.get()
                     if (state != null) {
-                        registeredRoot = cur
-                        rawText = state.first
-                        break
+                        // 正文 TextView 的最后防线可能先登记一个 raw=null 的子级弱根；它只
+                        // 负责手势可用性，不能遮蔽父 itemView 本次绑定保存的完整 RichText。
+                        if (registeredRoot == null) registeredRoot = cur
+                        if (!state.rawText.isNullOrBlank()) {
+                            if (fallbackState == null) fallbackState = state
+                            if (state.rawTrusted) {
+                                semanticState = state
+                                break
+                            }
+                        }
                     }
                     cur = cur.parent as? View
                 }
             }
-            val visibleText = extractCommentText(registeredRoot ?: v)
+            val state = semanticState ?: fallbackState
+            val renderedText = extractCommentText(registeredRoot ?: v)
+            val visibleText = renderedText
                 ?.let(::snapshotCommentText)
                 ?.takeIf(::isValidFreeCopyText)
-            val raw = rawText?.trim()?.takeIf { it.length in 1..3000 && it.isNotBlank() }
-            if (visibleText == null) return raw
-            if (raw == null) return visibleText
-            return if (isSameRenderedComment(raw, visibleText)) {
-                mergeVisibleEmojiSpans(raw, visibleText)
+            val raw = state?.rawText?.trim()?.takeIf { it.length in 1..3000 && it.isNotBlank() }
+            if (visibleText == null) return raw?.let(::FreeCopyContent)
+            if (raw == null) return FreeCopyContent(visibleText)
+            // 可展开评论在折叠态会把完整富文本截成前缀，再追加带独立点击/着色 Span 的
+            // `... 展开` 控制尾部。该尾部不是评论正文，只参与宿主 UI；若拿它与 raw 做
+            // 身份校验会误判为另一条评论，随后退回 U+200B 快照并令表情复制为空。
+            // 投影只用于本次长按的身份与 Emoji 映射，不修改宿主 TextView，也不把点击 Span
+            // 带进气泡。识别失败时仍使用原可见快照，保持防串评论的保守回退。
+            val identityText = renderedText
+                ?.let(::projectFoldedCommentBody)
+                ?.let(::snapshotCommentText)
+                ?.takeIf(::isValidFreeCopyText)
+                ?: visibleText
+            val visibleSpans = replacementSpans(identityText)
+            val emojiResolution = CommentEmojiAdapter.resolve(
+                state.commentItem,
+                raw,
+                visibleSpans.map { it as Any }
+            )
+            return if (isSameRenderedComment(
+                    raw,
+                    identityText,
+                    state.rawTrusted,
+                    emojiResolution,
+                    visibleSpans
+                )
+            ) {
+                mergeVisibleEmojiSpans(
+                    raw = raw,
+                    visible = identityText,
+                    spans = visibleSpans,
+                    emojiResolution = emojiResolution
+                )
             } else {
-                visibleText
+                FreeCopyContent(visibleText)
             }
         }
 
-        private fun isSameRenderedComment(raw: String, visible: CharSequence): Boolean {
+        private fun isSameRenderedComment(
+            raw: String,
+            visible: CharSequence,
+            rawTrusted: Boolean = false,
+            emojiResolution: CommentEmojiAdapter.Resolution? = null,
+            visibleSpans: List<android.text.style.ReplacementSpan> = replacementSpans(visible)
+        ): Boolean {
             if (raw == visible.toString()) return true
             val rawKey = renderedCommentMatchKey(raw)
             val visibleKey = renderedCommentMatchKey(visible)
-            if (rawKey == visibleKey && rawKey.any { it != CommentTextIdentity.EMOJI_SLOT }) return true
+            // 纯 emoji 评论没有普通文字可交叉校验。只有 raw 来自本次绑定方法的 CommentItem
+            // 实参时才接受槽位完全相等；Handler 可变字段/可见 TextView 回退仍禁止猜测，
+            // 保持 9.8.0 RecyclerView 复用下的防串评论边界。
+            if (rawKey == visibleKey &&
+                (rawTrusted || rawKey.any { it != CommentTextIdentity.EMOJI_SLOT })
+            ) return true
             // 折叠长评的可见正文是 raw 的前缀/子串；至少 4 字符才接受包含关系，避免
             // “哈哈”等短公共片段把两条不同评论误判成同一条。
             val rawLiteralKey = rawKey.filter { it != CommentTextIdentity.EMOJI_SLOT }
             val visibleLiteralKey = visibleKey.filter { it != CommentTextIdentity.EMOJI_SLOT }
-            if (minOf(rawLiteralKey.length, visibleLiteralKey.length) < 4) return false
-            return rawKey.contains(visibleKey) || visibleKey.contains(rawKey) ||
-                rawLiteralKey.contains(visibleLiteralKey) || visibleLiteralKey.contains(rawLiteralKey)
+            if (minOf(rawLiteralKey.length, visibleLiteralKey.length) >= 4 &&
+                (rawKey.contains(visibleKey) || visibleKey.contains(rawKey) ||
+                    rawLiteralKey.contains(visibleLiteralKey) || visibleLiteralKey.contains(rawLiteralKey))
+            ) return true
+
+            // 评论可能同时包含表情 ImageSpan 与卡片/图标 ReplacementSpan。旧身份键会把
+            // 所有 ReplacementSpan 都当作 Emoji 槽位，导致结构不等并退回 U+200B 快照。
+            // 只有本次同步绑定可信，且当前 Span URL 与同一 CommentItem 的 Emote 模型确切
+            // 命中时，才用“去掉绘制单元后的普通文字”做第二层校验；不放宽串评论边界。
+            if (rawTrusted && emojiResolution != null && emojiResolution.urlMatchedCount > 0) {
+                val rawModelKey = CommentTextIdentity.matchKey(
+                    raw,
+                    emojiResolution.emotes.map { it.rawStart until it.rawEnd }
+                ).filter { it != CommentTextIdentity.EMOJI_SLOT }
+                val visibleModelKey = CommentTextIdentity.matchKey(
+                    visible,
+                    visibleSpanRanges(visible, visibleSpans)
+                ).filter { it != CommentTextIdentity.EMOJI_SLOT }
+                val ordinaryTextMatches = visibleModelKey.isEmpty() ||
+                    (visibleModelKey.length >= 4 && rawModelKey.contains(visibleModelKey))
+                if (ordinaryTextMatches) return true
+            }
+            return false
+        }
+
+        private fun replacementSpans(text: CharSequence): List<android.text.style.ReplacementSpan> {
+            val spanned = text as? android.text.Spanned ?: return emptyList()
+            return spanned.getSpans(0, text.length, android.text.style.ReplacementSpan::class.java)
+                .filter { spanned.getSpanStart(it) >= 0 && spanned.getSpanEnd(it) > spanned.getSpanStart(it) }
+                .sortedBy { spanned.getSpanStart(it) }
+        }
+
+        /**
+         * 从原始 Spanned 中识别并剔除宿主折叠控制尾部。不能在 snapshotCommentText 之后做：
+         * 安全快照会主动丢弃 ClickableSpan/CharacterStyle，届时只剩本地化文案，既无法可靠
+         * 判断来源，也不能简单按“展开”字符串删除（用户正文可能合法包含该词）。
+         */
+        private fun projectFoldedCommentBody(text: CharSequence): CharSequence {
+            val spanned = text as? android.text.Spanned ?: return text
+            val decoratedRanges = spanned
+                .getSpans(0, text.length, Any::class.java)
+                .asSequence()
+                .filterNot { it is android.text.style.ReplacementSpan }
+                .mapNotNull { span ->
+                    val start = spanned.getSpanStart(span)
+                    val end = spanned.getSpanEnd(span)
+                    if (start >= 0 && end > start) start until end else null
+                }
+                .toList()
+            val controlStart = CommentTextIdentity.foldControlStart(text, decoratedRanges)
+                ?: return text
+            logInfo(
+                "free_copy_fold_projection_${text.length}_$controlStart",
+                "[BIL] 自由复制折叠投影: visible=${text.length} body=$controlStart"
+            )
+            return text.subSequence(0, controlStart)
+        }
+
+        private fun visibleSpanRanges(
+            text: CharSequence,
+            spans: List<android.text.style.ReplacementSpan>
+        ): List<IntRange> {
+            val spanned = text as? android.text.Spanned ?: return emptyList()
+            return spans.map { span -> spanned.getSpanStart(span) until spanned.getSpanEnd(span) }
         }
 
         /**
@@ -701,12 +835,22 @@ class HookEntry : IYukiHookXposedInit {
          * 快照不保存 View，也不进入静态集合，Dialog 关闭后即可与其 span 一同释放。
          */
         private fun snapshotCommentText(text: CharSequence): CharSequence {
+            val spanned = text as? android.text.Spanned
+            val replacementSpans = spanned
+                ?.getSpans(0, text.length, android.text.style.ReplacementSpan::class.java)
+                .orEmpty()
+            fun isUnspannedZeroWidth(index: Int): Boolean =
+                text[index] == '\u200B' && (spanned == null ||
+                    replacementSpans.none { span ->
+                        spanned.getSpanStart(span) <= index && spanned.getSpanEnd(span) > index
+                    })
+
             var start = 0
             var end = text.length
-            while (start < end && text[start].isWhitespace()) start++
-            while (end > start && text[end - 1].isWhitespace()) end--
+            while (start < end && (text[start].isWhitespace() || isUnspannedZeroWidth(start))) start++
+            while (end > start && (text[end - 1].isWhitespace() || isUnspannedZeroWidth(end - 1))) end--
             val plain = text.subSequence(start, end).toString()
-            val spanned = text as? android.text.Spanned ?: return plain
+            if (spanned == null) return plain
             val out = android.text.SpannableString(plain)
             var copied = false
             spanned.getSpans(start, end, android.text.style.ReplacementSpan::class.java).forEach { span ->
@@ -727,7 +871,7 @@ class HookEntry : IYukiHookXposedInit {
 
         private fun isValidFreeCopyText(text: CharSequence?): Boolean {
             if (text == null || text.length !in 1..3000) return false
-            if (text.any { !it.isWhitespace() && it != '\uFFFC' }) return true
+            if (text.any { !it.isWhitespace() && it != '\uFFFC' && it != '\u200B' }) return true
             val spanned = text as? android.text.Spanned ?: return false
             return spanned.getSpans(0, text.length, android.text.style.ReplacementSpan::class.java)
                 .any { spanned.getSpanStart(it) >= 0 && spanned.getSpanEnd(it) > spanned.getSpanStart(it) }
@@ -737,35 +881,68 @@ class HookEntry : IYukiHookXposedInit {
          * raw 相同/同源时仍保留完整评论，并把当前 View 中的 emoji 绘制 Span 映射回 raw；
          * 映射不可靠时回退眼前 View 的快照，宁可显示当前折叠文本也不重新引入串评论。
          */
-        private fun mergeVisibleEmojiSpans(raw: String, visible: CharSequence): CharSequence {
-            val spanned = visible as? android.text.Spanned ?: return raw
-            val spans = spanned.getSpans(0, visible.length, android.text.style.ReplacementSpan::class.java)
-                .filter { spanned.getSpanStart(it) >= 0 && spanned.getSpanEnd(it) > spanned.getSpanStart(it) }
-                .sortedBy { spanned.getSpanStart(it) }
-            if (spans.isEmpty()) return raw
-            val rawEmojiRanges = ArrayList<IntRange>()
-            var i = 0
-            while (i < raw.length) {
-                val end = CommentTextIdentity.emojiTokenEnd(raw, i)
-                when {
-                    end > i -> {
-                        rawEmojiRanges += i until end
-                        i = end
-                    }
-                    raw[i] == '\uFFFC' -> {
-                        rawEmojiRanges += i..i
-                        i++
-                    }
-                    else -> i++
-                }
-            }
-            if (rawEmojiRanges.size < spans.size) return snapshotCommentText(visible)
+        private fun mergeVisibleEmojiSpans(
+            raw: String,
+            visible: CharSequence,
+            spans: List<android.text.style.ReplacementSpan>,
+            emojiResolution: CommentEmojiAdapter.Resolution
+        ): FreeCopyContent {
+            val spanned = visible as? android.text.Spanned ?: return FreeCopyContent(raw)
+            if (spans.isEmpty()) return FreeCopyContent(raw)
+            val displayRanges = visibleSpanRanges(visible, spans)
+            val aligned = FreeCopySelectionMapper.alignCustomEmojiTokens(
+                rawText = raw,
+                displayText = visible,
+                displayReplacementRanges = displayRanges,
+                expectedTokens = emojiResolution.emotes.map { it.token }
+            ).orEmpty()
+            val structuralByDisplayRange = aligned.associateBy { it.displayStart to it.displayEnd }
+            val modelBySpan = java.util.IdentityHashMap<Any, CommentEmojiAdapter.EmoteDescriptor>()
+            emojiResolution.spanMatches.forEach { modelBySpan[it.span] = it.emote }
+
             val out = android.text.SpannableString(raw)
-            spans.forEachIndexed { index, span ->
-                val range = rawEmojiRanges[index]
-                out.setSpan(span, range.first, range.last + 1, spanned.getSpanFlags(span))
+            val copyValues = ArrayList<EmojiCopyValue>(spans.size)
+            val occupiedRawRanges = ArrayList<IntRange>()
+            var structuralApplied = 0
+            var urlApplied = 0
+            spans.forEach { span ->
+                val displayStart = spanned.getSpanStart(span)
+                val displayEnd = spanned.getSpanEnd(span)
+                val structural = structuralByDisplayRange[displayStart to displayEnd]
+                val model = modelBySpan[span]
+                val mapping = when {
+                    model != null && structural != null && structural.copyText == model.token ->
+                        Triple(structural.rawStart, structural.rawEnd, structural.copyText)
+                    model != null -> Triple(model.rawStart, model.rawEnd, model.token)
+                    // 只要本条评论已有 URL 精确命中，就不让未分类的卡片/图标 Span 通过
+                    // 结构猜测占用某个 Emote raw 区间；未知单元直接显示 raw 文本更安全。
+                    structural != null && emojiResolution.urlMatchedCount == 0 ->
+                        Triple(structural.rawStart, structural.rawEnd, structural.copyText)
+                    else -> null
+                } ?: return@forEach
+                val rawStart = mapping.first
+                val rawEnd = mapping.second
+                val copyText = mapping.third
+                if (rawStart !in 0 until rawEnd || rawEnd > raw.length ||
+                    raw.substring(rawStart, rawEnd) != copyText
+                ) return@forEach
+                if (occupiedRawRanges.any { it.first < rawEnd && it.last + 1 > rawStart }) return@forEach
+                occupiedRawRanges += rawStart until rawEnd
+                out.setSpan(span, rawStart, rawEnd, spanned.getSpanFlags(span))
+                copyValues += EmojiCopyValue(span, copyText)
+                if (structural != null) structuralApplied++ else urlApplied++
             }
-            return android.text.SpannedString(out)
+            val fallbackTextCount = (emojiResolution.emotes.size - copyValues.size).coerceAtLeast(0)
+            logInfo(
+                "emoji_map_${emojiResolution.emotes.size}_${spans.size}_${emojiResolution.urlMatchedCount}_${copyValues.size}",
+                "[BIL] 自由复制 Emoji 映射: model=${emojiResolution.emotes.size} " +
+                    "spans=${spans.size} url=${emojiResolution.urlMatchedCount} " +
+                    "structural=$structuralApplied urlFallback=$urlApplied applied=${copyValues.size} " +
+                    "textFallback=$fallbackTextCount"
+            )
+            // raw 已通过当前 View/绑定代次身份校验。未确认 Span 不再把整条评论降级为
+            // U+200B 快照，而是在 raw 中保留 `[表情名]`，保证最差也能复制出文本。
+            return FreeCopyContent(android.text.SpannedString(out), copyValues)
         }
 
         @Volatile
@@ -821,8 +998,32 @@ class HookEntry : IYukiHookXposedInit {
         @Volatile
         private var rvIdleSinceMs = 0L
 
-        /** 待绑定评论队列（(itemView, rawText, checkReply)），主线程 drain */
-        private val pendingCommentBinds = java.util.ArrayList<Triple<View, String?, Boolean>>()
+        private data class CommentRootState(
+            val rawText: String?,
+            val checkReply: Boolean,
+            /** true 表示数据与宿主本次同步绑定调用属于同一快照，可用于纯 emoji 身份校验。 */
+            val rawTrusted: Boolean,
+            /** 与 raw 同次捕获的 CommentItem；弱 key View 回收后状态整体释放。 */
+            val commentItem: Any?,
+            val generation: Long
+        )
+
+        private data class PendingCommentBind(
+            val view: View,
+            val rawText: String?,
+            val checkReply: Boolean,
+            val rawTrusted: Boolean,
+            val commentItem: Any?,
+            val generation: Long
+        )
+
+        private val commentBindingGenerationSerial = java.util.concurrent.atomic.AtomicLong(0L)
+
+        /** itemView → 最近绑定代次；弱 key，不延长 RecyclerView/ViewHolder 生命周期。 */
+        private val latestCommentBindingGeneration = java.util.WeakHashMap<View, Long>()
+
+        /** 待绑定评论队列，主线程 drain。 */
+        private val pendingCommentBinds = java.util.ArrayList<PendingCommentBind>()
         private val pendingBindLock = Any()
 
         /** drain 是否已调度（避免重复 post） */
@@ -866,10 +1067,10 @@ class HookEntry : IYukiHookXposedInit {
             )
         }
 
-        /** 评论 itemView 根 → (rawText, checkReply) 引用（弱引用，回收自动清理）：
+        /** 评论 itemView 根 → 绑定状态引用（弱引用，回收自动清理）：
          *  供 setOnLongClickListener 全局 hook 在「官方设置监听」时识别评论树并立即
          *  夺回重绑——覆盖「滑停→绑定完成」延迟窗口内长按落到官方行为的场景 */
-        private val commentRootRefs = java.util.WeakHashMap<View, java.util.concurrent.atomic.AtomicReference<Pair<String?, Boolean>>>()
+        private val commentRootRefs = java.util.WeakHashMap<View, java.util.concurrent.atomic.AtomicReference<CommentRootState>>()
         private val commentRootLock = Any()
 
         /** 只在低频长按回调执行；确认共享监听器所属 View 仍处于已登记评论树内。 */
@@ -883,20 +1084,48 @@ class HookEntry : IYukiHookXposedInit {
                 false
             }
 
-        private fun registerCommentRoot(view: View, rawText: String?, checkReply: Boolean) {
+        private fun registerCommentRoot(
+            view: View,
+            rawText: String?,
+            checkReply: Boolean,
+            rawTrusted: Boolean = false,
+            commentItem: Any? = null,
+            generation: Long = 0L
+        ) {
+            val state = CommentRootState(rawText, checkReply, rawTrusted, commentItem, generation)
             synchronized(commentRootLock) {
-                commentRootRefs[view]?.set(rawText to checkReply) ?: run {
-                    commentRootRefs[view] = java.util.concurrent.atomic.AtomicReference(rawText to checkReply)
+                if (generation > 0L) {
+                    val latest = latestCommentBindingGeneration[view]
+                    if (latest != null && latest != generation) return
+                    latestCommentBindingGeneration[view] = generation
+                } else if ((commentRootRefs[view]?.get()?.generation ?: 0L) > 0L) {
+                    // setOnLongClickListener 的正文兜底晚于绑定回调发生时，不能用一个
+                    // 无语义 generation=0 状态覆盖同一 View 已登记的同步绑定快照。
+                    return
+                }
+                commentRootRefs[view]?.set(state) ?: run {
+                    commentRootRefs[view] = java.util.concurrent.atomic.AtomicReference(state)
                 }
             }
         }
 
         /** ViewHolder 被复用成头部/卡片时立即撤销评论身份；若它恰是当前触摸根，同时
          * 取消尚未触发的会话。handled=true 表示气泡已接管，保留 handled 到 dismiss。 */
-        private fun unregisterCommentRoot(view: View) {
+        private fun unregisterCommentRoot(
+            view: View,
+            expectedGeneration: Long? = null,
+            preserveGeneration: Boolean = false
+        ) {
+            var removed = false
             synchronized(commentRootLock) {
+                if (expectedGeneration != null &&
+                    latestCommentBindingGeneration[view] != expectedGeneration
+                ) return@synchronized
                 commentRootRefs.remove(view)
+                if (!preserveGeneration) latestCommentBindingGeneration.remove(view)
+                removed = true
             }
+            if (!removed) return
             if (commentTouchRootRef?.get() === view) {
                 clearCommentTouchSession(resetHandled = !commentLongPressHandled)
             }
@@ -1131,9 +1360,9 @@ class HookEntry : IYukiHookXposedInit {
          * 弹窗文本快照：仅保留 ReplacementSpan，并在 SpannableStringBuilder 内归一化 CRLF，
          * 让索引变化由 Android span 实现自动跟随。这里不持有原 TextView，也不复制可点击 span。
          */
-        private fun normalizePopupText(rawText: CharSequence): CharSequence {
-            val safeText = snapshotCommentText(rawText)
-            if (!safeText.contains('\r')) return safeText
+        private fun normalizePopupText(rawContent: FreeCopyContent): FreeCopyContent {
+            val safeText = snapshotCommentText(rawContent.displayText)
+            if (!safeText.contains('\r')) return rawContent.copy(displayText = safeText)
             val builder = android.text.SpannableStringBuilder(safeText)
             var i = 0
             while (i < builder.length) {
@@ -1151,7 +1380,82 @@ class HookEntry : IYukiHookXposedInit {
             val hasReplacementSpans = builder
                 .getSpans(0, builder.length, android.text.style.ReplacementSpan::class.java)
                 .isNotEmpty()
-            return if (hasReplacementSpans) android.text.SpannedString(builder) else builder.toString()
+            val normalized = if (hasReplacementSpans) android.text.SpannedString(builder) else builder.toString()
+            return rawContent.copy(displayText = normalized)
+        }
+
+        /**
+         * 只接管当前气泡 TextView 选择菜单中的「复制」。显示仍使用原 ReplacementSpan；
+         * 写剪贴板时才按选区把绘制 Span 转回 `[表情名]` 等语义文本。其它菜单项继续由
+         * Android Editor 处理，不改变拖选手感或“全选”等系统行为。
+         */
+        private fun installSemanticCopyAction(
+            content: TextView,
+            popupContent: FreeCopyContent
+        ) {
+            val spanned = content.text as? android.text.Spanned ?: return
+            val spans = spanned
+                .getSpans(0, spanned.length, android.text.style.ReplacementSpan::class.java)
+                .filter { spanned.getSpanStart(it) >= 0 && spanned.getSpanEnd(it) > spanned.getSpanStart(it) }
+                .sortedBy { spanned.getSpanStart(it) }
+            if (spans.isEmpty()) return
+
+            val replacements = spans.mapNotNull { span ->
+                val start = spanned.getSpanStart(span)
+                val end = spanned.getSpanEnd(span)
+                val explicit = popupContent.emojiCopyValues
+                    .firstOrNull { it.span === span }
+                    ?.copyText
+                val backing = spanned.subSequence(start, end).toString()
+                // 显式映射来自已通过评论身份校验的 raw；没有显式映射时，仅接受底层本身
+                // 就是完整 emoji token 的情况，绝不从 U+FFFC/宿主占位符猜名称。
+                val inferred = backing.takeIf {
+                    val tokenEnd = CommentTextIdentity.emojiTokenEnd(it, 0)
+                    tokenEnd > 0 && tokenEnd == it.length && it.any { ch -> ch != '\uFFFC' }
+                }
+                val copyText = explicit ?: inferred ?: return@mapNotNull null
+                FreeCopySelectionMapper.Replacement(start, end, copyText)
+            }
+            if (replacements.isEmpty()) return
+
+            content.customSelectionActionModeCallback = object : android.view.ActionMode.Callback {
+                override fun onCreateActionMode(
+                    mode: android.view.ActionMode,
+                    menu: android.view.Menu
+                ): Boolean = true
+
+                override fun onPrepareActionMode(
+                    mode: android.view.ActionMode,
+                    menu: android.view.Menu
+                ): Boolean = false
+
+                override fun onActionItemClicked(
+                    mode: android.view.ActionMode,
+                    item: android.view.MenuItem
+                ): Boolean {
+                    if (item.itemId != android.R.id.copy || !isOurBubbleShowing()) return false
+                    val selected = FreeCopySelectionMapper.mapSelection(
+                        content.text,
+                        content.selectionStart,
+                        content.selectionEnd,
+                        replacements
+                    ) ?: return false
+                    return runCatching {
+                        val clipboard = content.context.getSystemService(Context.CLIPBOARD_SERVICE)
+                            as? android.content.ClipboardManager ?: return@runCatching false
+                        popupClipboardWriteInProgress.set(true)
+                        try {
+                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText(null, selected))
+                        } finally {
+                            popupClipboardWriteInProgress.remove()
+                        }
+                        mode.finish()
+                        true
+                    }.getOrDefault(false)
+                }
+
+                override fun onDestroyActionMode(mode: android.view.ActionMode) = Unit
+            }
         }
 
         /**
@@ -1161,13 +1465,17 @@ class HookEntry : IYukiHookXposedInit {
          * 的 window 体系，文本选择正常。
          * 进出动画由 windowAnimations（@style/FreeCopyBubble）处理：柔和回弹进入 + 反向退出。
          */
-        private fun showFreeCopyPopup(anchor: View, rawText: CharSequence) {
+        private fun showFreeCopyPopup(anchor: View, rawText: CharSequence) =
+            showFreeCopyPopup(anchor, FreeCopyContent(rawText))
+
+        private fun showFreeCopyPopup(anchor: View, rawContent: FreeCopyContent) {
             // 清理控制字符：B 站简介数据源换行为 \r\n（或含孤立 \r），官方渲染时 CR
             // 不可见，但气泡 TextView 会把 \r 显示成可见的 "r" 字形（实测每个视频简介
             // 都多出一个 "r"）。统一归一为 \n。
             // 简介在 extractDescText() 中已清理不可见图标占位；评论则必须保留
             // ReplacementSpan 才能绘制 B 站自定义 emoji。这里只归一化换行，不再统一删 span。
-            val text = normalizePopupText(rawText)
+            val popupContent = normalizePopupText(rawContent)
+            val text = popupContent.displayText
             // anchor.context 可能是 ContextThemeWrapper/ContextWrapper，向上找 Activity
             var act: android.app.Activity? = null
             var c: Context? = anchor.context
@@ -1263,6 +1571,7 @@ class HookEntry : IYukiHookXposedInit {
                     maxWidth = maxContentW // ★ 限宽，超长自动换行避免超出屏幕
                     setTextIsSelectable(true) // ★ 系统级文本选择（自由拖选复制）
                 }
+                installSemanticCopyAction(content, popupContent)
 
                 // measure body 实际高度（用于底部防超出）
                 body.measure(
@@ -1438,6 +1747,8 @@ class HookEntry : IYukiHookXposedInit {
                 // 会话编号保证旧 Dialog 的延迟 dismiss 不会清掉后来新气泡的状态。
                 val bubbleSessionId = beginBubbleSession(dialog)
                 dialog.setOnDismissListener {
+                    // 解除局部 ActionMode 回调，避免已关闭 Dialog 的 TextView 继续持有语义映射。
+                    content.customSelectionActionModeCallback = null
                     unregisterOwnerLifecycleCallbacks()
                     finishBubbleSession(dialog, bubbleSessionId)
                 }
@@ -1707,27 +2018,38 @@ class HookEntry : IYukiHookXposedInit {
             return null
         }
 
+        private data class BoundCommentItem(val value: Any, val fromCurrentArguments: Boolean)
+
+        private data class CapturedCommentBinding(
+            val commentItem: Any,
+            val rawText: String?
+        )
+
         private fun extractCommentItemForBinding(
             param: XC_MethodHook.MethodHookParam,
             handler: Any
-        ): Any? {
+        ): BoundCommentItem? {
             val method = param.method
             cCommentItemArgIndexByMethod[method]?.let { cachedIndex ->
                 val cached = param.args.getOrNull(cachedIndex)
-                if (cached != null && cached.javaClass.name.endsWith(".CommentItem")) return cached
+                if (cached != null && cached.javaClass.name.endsWith(".CommentItem")) {
+                    return BoundCommentItem(cached, true)
+                }
                 cCommentItemArgIndexByMethod.remove(method, cachedIndex)
             }
             for (i in param.args.indices) {
                 val candidate = param.args[i] ?: continue
                 if (candidate.javaClass.name.endsWith(".CommentItem")) {
                     cCommentItemArgIndexByMethod[method] = i
-                    return candidate
+                    return BoundCommentItem(candidate, true)
                 }
             }
 
             val handlerClass = handler.javaClass
             cHandlerCommentItemFieldByClass[handlerClass]?.let { cachedField ->
-                runCatching { cachedField.get(handler) }.getOrNull()?.let { return it }
+                runCatching { cachedField.get(handler) }.getOrNull()?.let {
+                    return BoundCommentItem(it, false)
+                }
             }
             for (field in handlerClass.declaredFields) {
                 if (!field.type.name.endsWith(".CommentItem")) continue
@@ -1736,7 +2058,7 @@ class HookEntry : IYukiHookXposedInit {
                     field.get(handler)
                 }.getOrNull() ?: continue
                 cHandlerCommentItemFieldByClass[handlerClass] = field
-                return value
+                return BoundCommentItem(value, false)
             }
             return null
         }
@@ -1774,7 +2096,17 @@ class HookEntry : IYukiHookXposedInit {
 
         /** 评论绑定入队并调度批量 drain：用 IdleHandler 在主线程消息队列**空闲**时执行
          *  （动画/滚动/切页期间的帧任务忙，绑定被自然推迟到空闲间隙，不占动画帧预算） */
-        private fun scheduleCommentBind(view: View, rawText: String?, checkReply: Boolean) {
+        private fun scheduleCommentBind(
+            view: View,
+            rawText: String?,
+            checkReply: Boolean,
+            rawTrusted: Boolean = false,
+            commentItem: Any? = null
+        ) {
+            val generation = commentBindingGenerationSerial.incrementAndGet()
+            synchronized(commentRootLock) {
+                latestCommentBindingGeneration[view] = generation
+            }
             // 真实 CommentItem 能直接提取出正文时立即登记，保留“滑停后立刻长按”能力；
             // raw 为空的 t0 混排节点不能提前获得评论身份，等 drain 的回复/日期结构验证。
             // 这正是「热门评论/最新评论」误登记的根因收口点。
@@ -1782,16 +2114,29 @@ class HookEntry : IYukiHookXposedInit {
             // 暂时失败也可确认它是评论：立即登记 raw=null，长按时从已渲染 TextView 实时
             // 提取。功能可用性不再依赖滚动停止后的 IdleHandler 完整树绑定。
             val modelConfirmed = !checkReply || rawText?.let { it.length in 2..3000 } == true
-            if (modelConfirmed) registerCommentRoot(view, rawText, checkReply)
-            else unregisterCommentRoot(view)
+            if (modelConfirmed) {
+                registerCommentRoot(
+                    view, rawText, checkReply, rawTrusted, commentItem, generation
+                )
+            } else {
+                unregisterCommentRoot(
+                    view,
+                    expectedGeneration = generation,
+                    preserveGeneration = true
+                )
+            }
             synchronized(pendingBindLock) {
                 // RecyclerView 会复用同一个 itemView；同一 View 的旧任务若留在队列，可能
                 // 在“评论 → 热门评论头部”重绑后又把旧 raw 写回来。按身份只保留最新任务，
                 // 同时限制队列长度，避免快速滚动积累已经离开视口的无效全树遍历。
                 for (i in pendingCommentBinds.lastIndex downTo 0) {
-                    if (pendingCommentBinds[i].first === view) pendingCommentBinds.removeAt(i)
+                    if (pendingCommentBinds[i].view === view) pendingCommentBinds.removeAt(i)
                 }
-                pendingCommentBinds.add(Triple(view, rawText, checkReply))
+                pendingCommentBinds.add(
+                    PendingCommentBind(
+                        view, rawText, checkReply, rawTrusted, commentItem, generation
+                    )
+                )
                 while (pendingCommentBinds.size > 96) pendingCommentBinds.removeAt(0)
             }
             if (!bindDrainScheduled) {
@@ -1837,21 +2182,30 @@ class HookEntry : IYukiHookXposedInit {
             // 监听器覆盖窗口；触摸层与正文 id 直绑已先可用，本批处理负责补齐整棵评论树。
             val batch = synchronized(pendingBindLock) {
                 val take = minOf(pendingCommentBinds.size, 6)
-                val b = java.util.ArrayList<Triple<View, String?, Boolean>>(take)
+                val b = java.util.ArrayList<PendingCommentBind>(take)
                 // 从尾部取：最近入队的评论（当前视口/滚动刚加载的）优先绑定
                 val start = pendingCommentBinds.size - take
                 for (i in start until pendingCommentBinds.size) b.add(pendingCommentBinds[i])
                 pendingCommentBinds.subList(start, pendingCommentBinds.size).clear()
                 b
             }
-            for ((v, raw, checkReply) in batch) {
+            for ((v, raw, checkReply, rawTrusted, commentItem, generation) in batch) {
+                val stillLatest = synchronized(commentRootLock) {
+                    latestCommentBindingGeneration[v] == generation
+                }
+                if (!stillLatest) continue
                 // 仅绑定仍挂载的 view（已滚出回收/销毁的跳过）
                 if (v.isAttachedToWindow) {
                     val validComment = applyFreeCopyListener(v, raw, checkReply)
-                    if (validComment) registerCommentRoot(v, raw, checkReply)
-                    else unregisterCommentRoot(v)
+                    if (validComment) {
+                        registerCommentRoot(
+                            v, raw, checkReply, rawTrusted, commentItem, generation
+                        )
+                    } else {
+                        unregisterCommentRoot(v, expectedGeneration = generation)
+                    }
                 } else {
-                    unregisterCommentRoot(v)
+                    unregisterCommentRoot(v, expectedGeneration = generation)
                 }
             }
             // 剩余排队 → 下一空闲间隙继续（分帧分摊，动画期间每批只多 2-6ms）
@@ -2369,13 +2723,21 @@ class HookEntry : IYukiHookXposedInit {
                                 }.getOrNull() ?: return@afterHook
                                 // 从 o0 参数 args[0]（t0<CommentItem> 的 DATA 实参）拿评论数据对象，
                                 // 提取 RichText.raw 原始文本（含表情文字标记如 [dog]，且始终完整不受展开折叠影响）
-                                val rawText = extractRawCommentText(args.getOrNull(0))
+                                val commentItem = args.getOrNull(0)
+                                val rawText = extractRawCommentText(commentItem)
                                  // 关键：super.o0 之后 j0.o0 还会 U1()/r() 填充评论正文并重新设置监听器
                                  //（覆盖我们的）。用 post 延迟到绑定流程完全结束后，再提取文本 + 覆盖监听器，
                                  // 此时评论文本已填充（避免误取布局静态文案「登录后查看更多评论」），且最后覆盖必胜。
                                  // 性能：入队批量 drain（滚动中延迟，滑停统一绑定，见 scheduleCommentBind）
                                  // checkReply=true：t0 基类含视频信息等非评论 holder，需「回复」按钮过滤
-                                 scheduleCommentBind(itemView, rawText, true)
+                                 // o0 的 CommentItem 是本次调用实参，可安全用于纯 emoji 身份校验。
+                                 scheduleCommentBind(
+                                     itemView,
+                                     rawText,
+                                     true,
+                                     rawTrusted = true,
+                                     commentItem = commentItem
+                                 )
                             }
                         }
                     }
@@ -2406,13 +2768,35 @@ class HookEntry : IYukiHookXposedInit {
                         // （参数 ViewBinding → 字段 a / 遍历 View 字段；否则 handler 字段找
                         // View 实例，首次缓存字段名）
                         val bindHook = object : XC_MethodHook() {
+                            override fun beforeHookedMethod(param: MethodHookParam) {
+                                val handler = param.thisObject ?: return
+                                // 9.8.0 d/e 没有 CommentItem 实参，但宿主马上会从同一个 handler
+                                // 字段读取并渲染。必须在方法执行前同步快照；afterHook 再读字段
+                                // 可能已经被下一次复用覆盖，不能作为纯 Emoji 的可信来源。
+                                val boundItem = extractCommentItemForBinding(param, handler) ?: return
+                                param.setObjectExtra(
+                                    COMMENT_BIND_SNAPSHOT_KEY,
+                                    CapturedCommentBinding(
+                                        boundItem.value,
+                                        extractRawCommentTextV2(boundItem.value)
+                                    )
+                                )
+                            }
+
                             override fun afterHookedMethod(param: MethodHookParam) {
                                 val handler = param.thisObject ?: return
                                 // 含 CommentItem 实参的方法（8.90.2 G0 等）必须取本次调用
                                 // 的实参；Handler.i 是可变字段，在 RecyclerView 快速复用时可能
                                 // 已被下一条评论覆盖。9.8.0 d/e 只有 Binding 参数，才回退字段。
-                                val commentItem = extractCommentItemForBinding(param, handler) ?: return
-                                val rawText = extractRawCommentTextV2(commentItem)
+                                val captured = param.getObjectExtra(COMMENT_BIND_SNAPSHOT_KEY)
+                                    as? CapturedCommentBinding
+                                val boundItem = if (captured == null) {
+                                    extractCommentItemForBinding(param, handler) ?: return
+                                } else {
+                                    BoundCommentItem(captured.commentItem, true)
+                                }
+                                val rawText = captured?.rawText
+                                    ?: extractRawCommentTextV2(boundItem.value)
                                 // itemView 提取：扫描全部参数找 ViewBinding 实例
                                 //（8.63.0 的 G(CommentItem, jv.u, ...) 参数 1 才是 jv.u；
                                 //  9.x 的 b(Pj.J, boolean) 参数 0 为 Pj.J——索引不写死，
@@ -2438,7 +2822,13 @@ class HookEntry : IYukiHookXposedInit {
                                     }
                                 } ?: return
                                 // 入队批量 drain（滚动中延迟，滑停统一绑定，见 scheduleCommentBind）
-                                scheduleCommentBind(itemView, rawText, false)
+                                scheduleCommentBind(
+                                    itemView,
+                                    rawText,
+                                    false,
+                                    rawTrusted = captured != null || boundItem.fromCurrentArguments,
+                                    commentItem = boundItem.value
+                                )
                             }
                         }
                         // 注册列表：缓存方法签名优先；再遍历补充所有「含 ViewBinding 参数」
@@ -2631,9 +3021,10 @@ class HookEntry : IYukiHookXposedInit {
                                 // 独立弱引用根并夺回。只命中两个资源 id，不扫描整树、不影响三点
                                 // 操作栏；长按时从该 TextView 实时取文本。
                                 if (isCommentBodyTextView(v)) {
-                                    val raw = (v as android.widget.TextView).text?.toString()
-                                        ?.takeIf { it.length in 2..3000 }
-                                    registerCommentRoot(v, raw, false)
+                                    // 这里只负责在主绑定 hook 尚未登记时保证长按可用。TextView
+                                    // backing 对 9.8.0 Emoji 只是 U+200B，绝不能冒充 raw；解析
+                                    // 时会继续向祖先寻找本次绑定保存的完整 RichText 状态。
+                                    registerCommentRoot(v, null, false)
                                     commentStealInProgress = true
                                     try {
                                         setLongClickListenerNoHook(v, sharedFreeCopyListener)
@@ -2654,12 +3045,12 @@ class HookEntry : IYukiHookXposedInit {
                                     }
                                 }
                                 if (root != null) {
-                                    val (raw, checkReply) = synchronized(commentRootLock) {
-                                        commentRootRefs[root]?.get() ?: (null to true)
-                                    }
+                                    val state = synchronized(commentRootLock) {
+                                        commentRootRefs[root]?.get()
+                                    } ?: CommentRootState(null, true, false, null, 0L)
                                     commentStealInProgress = true
                                     try {
-                                        if (!applyFreeCopyListener(root, raw, checkReply)) {
+                                        if (!applyFreeCopyListener(root, state.rawText, state.checkReply)) {
                                             unregisterCommentRoot(root)
                                         }
                                     } finally {
@@ -2905,6 +3296,12 @@ class HookEntry : IYukiHookXposedInit {
                             injectMember {
                                 method { name = "setPrimaryClip" }
                                 beforeHook {
+                                    // 自由复制气泡已按当前 TextView 选区完成语义转换；仅同步放行
+                                    // 当前线程、当前仍显示气泡中的这一笔写入。ThreadLocal 在调用方
+                                    // finally remove，不扩大官方复制豁免范围。
+                                    if (popupClipboardWriteInProgress.get() == true && isOurBubbleShowing()) {
+                                        return@beforeHook
+                                    }
                                     val clip = args.getOrNull(0) as? android.content.ClipData ?: return@beforeHook
                                     val clipText = runCatching {
                                         clip.getItemAt(0).coerceToText(null)?.toString()
