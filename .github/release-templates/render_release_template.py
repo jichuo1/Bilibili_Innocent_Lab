@@ -17,6 +17,10 @@ def main() -> None:
     parser.add_argument("--release-date", required=True)
     parser.add_argument("--sha256", required=True)
     parser.add_argument(
+        "--apk-filename",
+        help="Published APK filename; defaults to Bilibili_Innocent_Lab-<version>.apk",
+    )
+    parser.add_argument(
         "--changelog-file",
         type=Path,
         help="Markdown changelog inserted when the template contains {{CHANGELOG}}",
@@ -29,6 +33,8 @@ def main() -> None:
         "{{COMMIT_SHA}}": args.commit,
         "{{RELEASE_DATE}}": args.release_date,
         "{{APK_SHA256}}": args.sha256.lower(),
+        "{{APK_FILENAME}}": args.apk_filename
+        or f"Bilibili_Innocent_Lab-{args.version}.apk",
     }
     if "{{CHANGELOG}}" in content:
         if args.changelog_file is None:

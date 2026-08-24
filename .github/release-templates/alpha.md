@@ -52,8 +52,9 @@
 
 | 文件 | 用途 | SHA-256 |
 | --- | --- | --- |
-| `Bilibili_Innocent_Lab-{{VERSION}}.apk` | Alpha 测试安装包 | `{{APK_SHA256}}` |
+| `{{APK_FILENAME}}` | Alpha 测试安装包 | `{{APK_SHA256}}` |
 | `SHA256SUMS.txt` | 文件校验清单 | 以附件内容为准 |
+| `BUILD_INFO.txt` | 构建源码、APK 内部版本与哈希溯源 | 以附件内容为准 |
 
 ## 反馈格式
 
