@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
       release_tag:
-        description: Alpha tag, for example v1.0.6-alpha.1
+        description: Alpha tag; its base version must match gradle.properties, for example v1.0.6-alpha.2
         required: true
         type: string
 
@@ -30,15 +30,58 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      release_tag: ${{ steps.identity.outputs.release_tag }}
+      base_version: ${{ steps.identity.outputs.base_version }}
+      build_version_name: ${{ steps.identity.outputs.build_version_name }}
+      version_code: ${{ steps.identity.outputs.version_code }}
+      apk_filename: ${{ steps.apk.outputs.apk_filename }}
+      apk_sha256: ${{ steps.apk.outputs.apk_sha256 }}
 
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          # 始终构建触发事件记录的精确提交，禁止 checkout 随分支移动而漂移。
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require the latest main source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Alpha builds must be triggered from main; selected ref is $GITHUB_REF"
+            exit 1
+          fi
+
+          checked_out_sha="$(git rev-parse HEAD)"
+          git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+          remote_main_sha="$(git rev-parse refs/remotes/origin/main)"
+          if [[ "$checked_out_sha" != "$GITHUB_SHA" ]]; then
+            echo "Checked-out commit $checked_out_sha does not match event commit $GITHUB_SHA"
+            exit 1
+          fi
+          if [[ "$remote_main_sha" != "$GITHUB_SHA" ]]; then
+            echo "Refusing stale build: event commit is $GITHUB_SHA but remote main is $remote_main_sha"
+            echo "Push the intended source and trigger the latest main commit again."
+            exit 1
+          fi
+
+          {
+            echo "### Build source"
+            echo "- Ref: \`$GITHUB_REF\`"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Subject: $(git log -1 --format=%s)"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Validate Alpha release-note tooling
         shell: bash
         run: |
           set -euo pipefail
+          python3 -m unittest discover \
+            -s .github/release-templates \
+            -p 'test_*.py'
           test_dir="$RUNNER_TEMP/alpha-release-template-test"
           mkdir -p "$test_dir"
           python3 .github/release-templates/generate_alpha_changelog.py \
@@ -54,11 +97,24 @@ jobs:
             --commit "$GITHUB_SHA" \
             --release-date "$(TZ=Asia/Shanghai date +%F)" \
             --sha256 0000000000000000000000000000000000000000000000000000000000000000 \
+            --apk-filename Bilibili_Innocent_Lab-v0.0.0-alpha.0-00000000.apk \
             --changelog-file "$test_dir/ALPHA_CHANGELOG.md"
           if grep -Eq '\{\{[A-Z0-9_]+\}\}' "$test_dir/RELEASE_NOTES.md"; then
             echo 'Alpha release-note tooling left unresolved template tokens'
             exit 1
           fi
+
+      - name: Resolve source-controlled build identity
+        id: identity
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || '' }}
+        run: |
+          set -euo pipefail
+          python3 .github/release-templates/validate_alpha_build.py \
+            --gradle-properties Bilibili_Innocent_Lab/gradle.properties \
+            --release-tag "$RELEASE_TAG" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -75,30 +131,91 @@ jobs:
 
       - name: Build, test and lint
         working-directory: Bilibili_Innocent_Lab
-        run: ./gradlew "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" assembleDebug testDebugUnitTest lintDebug --console=plain --no-daemon
+        shell: bash
+        env:
+          EXPECTED_VERSION_NAME: ${{ steps.identity.outputs.build_version_name }}
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
+            "-PinnocentLab.releaseVersionName=${EXPECTED_VERSION_NAME}" \
+            assembleDebug testDebugUnitTest lintDebug \
+            --console=plain --no-daemon
 
-      - name: Locate APK and calculate checksum
+      - name: Verify APK identity and generate provenance
         id: apk
         shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.identity.outputs.release_tag }}
+          BASE_VERSION: ${{ steps.identity.outputs.base_version }}
+          EXPECTED_VERSION_NAME: ${{ steps.identity.outputs.build_version_name }}
+          EXPECTED_VERSION_CODE: ${{ steps.identity.outputs.version_code }}
         run: |
+          set -euo pipefail
           apk="Bilibili_Innocent_Lab/app/build/outputs/apk/debug/app-debug.apk"
           test -f "$apk"
+          aapt_bin="$ANDROID_SDK_ROOT/build-tools/$CI_BUILD_TOOLS/aapt"
+          test -x "$aapt_bin"
+          package_line="$("$aapt_bin" dump badging "$apk" | sed -n '1p')"
+          actual_version_name="$(printf '%s\n' "$package_line" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
+          actual_version_code="$(printf '%s\n' "$package_line" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+          test -n "$actual_version_name"
+          test -n "$actual_version_code"
+          if [[ "$actual_version_name" != "$EXPECTED_VERSION_NAME" ]]; then
+            echo "APK versionName mismatch: expected $EXPECTED_VERSION_NAME, found $actual_version_name"
+            exit 1
+          fi
+          if [[ "$actual_version_code" != "$EXPECTED_VERSION_CODE" ]]; then
+            echo "APK versionCode mismatch: expected $EXPECTED_VERSION_CODE, found $actual_version_code"
+            exit 1
+          fi
+
+          short_sha="${GITHUB_SHA:0:8}"
+          if [[ -n "$RELEASE_TAG" ]]; then
+            artifact_version="$RELEASE_TAG"
+          else
+            artifact_version="v${BASE_VERSION}-ci"
+          fi
+          apk_filename="Bilibili_Innocent_Lab-${artifact_version}-${short_sha}.apk"
           mkdir -p release-asset
-          cp "$apk" release-asset/Bilibili_Innocent_Lab-alpha.apk
-          echo "path=release-asset/Bilibili_Innocent_Lab-alpha.apk" >> "$GITHUB_OUTPUT"
-          sha256sum "$apk" | tee release-asset/SHA256SUMS.txt
+          cp "$apk" "release-asset/$apk_filename"
+          apk_sha256="$(sha256sum "release-asset/$apk_filename" | awk '{print $1}')"
+          {
+            printf 'release_tag=%s\n' "${RELEASE_TAG:-none}"
+            printf 'source_ref=%s\n' "$GITHUB_REF"
+            printf 'source_commit=%s\n' "$GITHUB_SHA"
+            printf 'project_base_version=%s\n' "$BASE_VERSION"
+            printf 'apk_version_name=%s\n' "$actual_version_name"
+            printf 'apk_version_code=%s\n' "$actual_version_code"
+            printf 'apk_filename=%s\n' "$apk_filename"
+            printf 'apk_sha256=%s\n' "$apk_sha256"
+          } > release-asset/BUILD_INFO.txt
+          (
+            cd release-asset
+            sha256sum "$apk_filename" BUILD_INFO.txt > SHA256SUMS.txt
+          )
+
+          echo "apk_filename=$apk_filename" >> "$GITHUB_OUTPUT"
+          echo "apk_sha256=$apk_sha256" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Verified APK"
+            echo "- File: \`$apk_filename\`"
+            echo "- versionName: \`$actual_version_name\`"
+            echo "- versionCode: \`$actual_version_code\`"
+            echo "- SHA-256: \`$apk_sha256\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload verified build for optional publishing
         uses: actions/upload-artifact@v4
         with:
-          name: alpha-release-asset
+          name: alpha-release-asset-${{ github.sha }}
           path: release-asset
           if-no-files-found: error
 
   publish:
     name: Publish Alpha pre-release
     needs: verify
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_alpha == true }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_alpha == true && needs.verify.outputs.release_tag == inputs.release_tag }}
     runs-on: ubuntu-latest
     environment:
       name: alpha-release
@@ -109,37 +226,52 @@ jobs:
       - name: Check out source and release template
         uses: actions/checkout@v4
         with:
-          # 自动生成“自上一 Alpha 以来”的变更记录需要完整标签与提交历史。
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Download verified build
         uses: actions/download-artifact@v4
         with:
-          name: alpha-release-asset
+          name: alpha-release-asset-${{ github.sha }}
           path: release-asset
 
-      - name: Validate Alpha tag
+      - name: Verify downloaded build provenance
         shell: bash
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
+          APK_FILENAME: ${{ needs.verify.outputs.apk_filename }}
+          EXPECTED_VERSION_NAME: ${{ needs.verify.outputs.build_version_name }}
+          EXPECTED_VERSION_CODE: ${{ needs.verify.outputs.version_code }}
         run: |
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]; then
-            echo "Invalid Alpha tag: $RELEASE_TAG"
-            echo "Expected format: v1.0.6-alpha.1"
+          set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+          remote_main_sha="$(git rev-parse refs/remotes/origin/main)"
+          if [[ "$remote_main_sha" != "$GITHUB_SHA" ]]; then
+            echo "Refusing stale publish: verified commit is $GITHUB_SHA but remote main is $remote_main_sha"
+            echo "Run the workflow again from the latest main commit."
             exit 1
           fi
+          test -f "release-asset/$APK_FILENAME"
+          test -f release-asset/BUILD_INFO.txt
+          test -f release-asset/SHA256SUMS.txt
+          grep -Fx "release_tag=$RELEASE_TAG" release-asset/BUILD_INFO.txt
+          grep -Fx "source_commit=$GITHUB_SHA" release-asset/BUILD_INFO.txt
+          grep -Fx "apk_version_name=$EXPECTED_VERSION_NAME" release-asset/BUILD_INFO.txt
+          grep -Fx "apk_version_code=$EXPECTED_VERSION_CODE" release-asset/BUILD_INFO.txt
+          grep -Fx "apk_filename=$APK_FILENAME" release-asset/BUILD_INFO.txt
+          (
+            cd release-asset
+            sha256sum -c SHA256SUMS.txt
+          )
 
       - name: Render standardized Alpha release notes
         shell: bash
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
+          APK_FILENAME: ${{ needs.verify.outputs.apk_filename }}
+          APK_SHA256: ${{ needs.verify.outputs.apk_sha256 }}
         run: |
           set -euo pipefail
-
-          apk_sha256="$(awk '{print $1}' release-asset/SHA256SUMS.txt)"
-          release_apk="release-asset/Bilibili_Innocent_Lab-${RELEASE_TAG}.apk"
-          cp release-asset/Bilibili_Innocent_Lab-alpha.apk "$release_apk"
-          printf '%s  %s\n' "$apk_sha256" "$(basename "$release_apk")" > release-asset/SHA256SUMS.txt
 
           changelog_file="release-asset/ALPHA_CHANGELOG.md"
           python3 .github/release-templates/generate_alpha_changelog.py \
@@ -155,7 +287,8 @@ jobs:
             --version "$RELEASE_TAG" \
             --commit "$GITHUB_SHA" \
             --release-date "$(TZ=Asia/Shanghai date +%F)" \
-            --sha256 "$apk_sha256" \
+            --sha256 "$APK_SHA256" \
+            --apk-filename "$APK_FILENAME" \
             --changelog-file "$changelog_file"
 
           if grep -Eq '\{\{[A-Z0-9_]+\}\}' release-asset/RELEASE_NOTES.md; then
@@ -167,9 +300,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.release_tag }}
+          APK_FILENAME: ${{ needs.verify.outputs.apk_filename }}
         run: |
           gh release create "$RELEASE_TAG" \
-            "release-asset/Bilibili_Innocent_Lab-${RELEASE_TAG}.apk" \
+            "release-asset/$APK_FILENAME" \
+            release-asset/BUILD_INFO.txt \
             release-asset/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
