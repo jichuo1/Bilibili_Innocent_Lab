@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
       release_tag:
-        description: Alpha tag; its base version must match gradle.properties, for example v1.0.6-alpha.2
+        description: Alpha tag; use the next patch after the stable base, for example 1.0.6 -> v1.0.7-alpha.2
         required: true
         type: string
 

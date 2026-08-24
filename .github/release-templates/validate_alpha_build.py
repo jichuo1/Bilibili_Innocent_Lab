@@ -41,6 +41,11 @@ def unquote(value: str) -> str:
     return value
 
 
+def next_patch_version(stable_version: str) -> str:
+    major, minor, patch = stable_version.split(".")
+    return f"{major}.{minor}.{int(patch) + 1}"
+
+
 def resolve_build_identity(properties_path: Path, release_tag: str = "") -> BuildIdentity:
     properties = read_gradle_properties(properties_path)
     try:
@@ -69,10 +74,11 @@ def resolve_build_identity(properties_path: Path, release_tag: str = "") -> Buil
             f"Invalid Alpha tag {release_tag!r}; expected vMAJOR.MINOR.PATCH-alpha.NUMBER"
         )
     tag_base_version = ".".join(match.groups()[:3])
-    if tag_base_version != base_version:
+    expected_alpha_base = next_patch_version(base_version)
+    if tag_base_version != expected_alpha_base:
         raise ValueError(
-            f"Alpha tag base version {tag_base_version!r} does not match "
-            f"project.app.versionName {base_version!r}. Commit the intended base version first."
+            f"Alpha tag base version {tag_base_version!r} must be the next patch after "
+            f"project.app.versionName {base_version!r}; expected {expected_alpha_base!r}."
         )
     return BuildIdentity(
         release_tag,
