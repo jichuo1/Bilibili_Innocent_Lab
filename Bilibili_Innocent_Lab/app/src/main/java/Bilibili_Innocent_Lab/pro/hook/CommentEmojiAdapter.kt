@@ -1,8 +1,11 @@
 package Bilibili_Innocent_Lab.pro.hook
 
+import Bilibili_Innocent_Lab.pro.runtime.KavaMemberLookup
+import com.highcapable.kavaref.extension.classOf
+import com.highcapable.kavaref.extension.isStatic
+import com.highcapable.kavaref.extension.isSubclassOf
 import java.lang.reflect.Field
 import java.lang.reflect.Method
-import java.lang.reflect.Modifier
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -79,7 +82,6 @@ internal object CommentEmojiAdapter {
 
         for (method in richTextCandidates(commentClass)) {
             val richText = runCatching {
-                method.isAccessible = true
                 method.invoke(commentItem)
             }.getOrNull() ?: continue
             val emotes = extractFromRichText(richText, raw)
@@ -93,27 +95,30 @@ internal object CommentEmojiAdapter {
 
     private fun richTextCandidates(commentClass: Class<*>): List<Method> {
         val out = LinkedHashSet<Method>()
+        val hierarchyMethods = KavaMemberLookup.methods(
+            commentClass,
+            includeSuperclasses = true,
+            makeAccessible = true
+        )
         // 已知版本入口只用于排序加速；是否接受仍由返回对象的 contents/Emote 结构决定。
         for (name in listOf("f", "z")) {
-            commentClass.methods.filterTo(out) { it.name == name && it.parameterCount == 0 }
-            commentClass.declaredMethods.filterTo(out) { it.name == name && it.parameterCount == 0 }
+            hierarchyMethods
+                .filter { it.name == name && it.parameterCount == 0 }
+                .forEach(out::add)
         }
-        commentClass.declaredMethods
-            .asSequence()
-            .filter { method ->
+        KavaMemberLookup.declaredMethods(commentClass, makeAccessible = true) { method ->
                 method.parameterCount == 0 &&
                     !method.returnType.isPrimitive &&
-                    method.returnType != String::class.java &&
+                    method.returnType != classOf<String>() &&
                     hasIterableField(method.returnType)
-            }
-            .forEach(out::add)
+            }.forEach(out::add)
         return out.toList()
     }
 
     private fun hasIterableField(type: Class<*>): Boolean =
         classHierarchy(type).any { cls ->
-            cls.declaredFields.any { field ->
-                !Modifier.isStatic(field.modifiers) && Iterable::class.java.isAssignableFrom(field.type)
+            KavaMemberLookup.declaredFields(cls).any { field ->
+                !field.isStatic && field.type isSubclassOf classOf<Iterable<*>>()
             }
         }
 
@@ -169,21 +174,19 @@ internal object CommentEmojiAdapter {
 
     private fun findContentsFields(type: Class<*>): List<Field> =
         classHierarchy(type)
-            .flatMap { it.declaredFields.asSequence() }
+            .flatMap { KavaMemberLookup.declaredFields(it, makeAccessible = true).asSequence() }
             .filter { field ->
-                !Modifier.isStatic(field.modifiers) && Iterable::class.java.isAssignableFrom(field.type)
+                !field.isStatic && field.type isSubclassOf classOf<Iterable<*>>()
             }
-            .onEach { it.isAccessible = true }
             .toList()
 
     private fun readStringValues(instance: Any): Set<String> {
         val fields = stringFieldsByClass[instance.javaClass]
             ?: classHierarchy(instance.javaClass)
-                .flatMap { it.declaredFields.asSequence() }
+                .flatMap { KavaMemberLookup.declaredFields(it, makeAccessible = true).asSequence() }
                 .filter { field ->
-                    !Modifier.isStatic(field.modifiers) && field.type == String::class.java
+                    !field.isStatic && field.type == classOf<String>()
                 }
-                .onEach { it.isAccessible = true }
                 .toList()
                 .also { stringFieldsByClass[instance.javaClass] = it }
         if (fields.isEmpty()) return emptySet()
@@ -206,6 +209,6 @@ internal object CommentEmojiAdapter {
                 value.startsWith("//") || value.startsWith("bfs://", ignoreCase = true))
 
     private fun classHierarchy(type: Class<*>): Sequence<Class<*>> = generateSequence(type) {
-        it.superclass?.takeUnless { parent -> parent == Any::class.java }
+        it.superclass?.takeUnless { parent -> parent == classOf<Any>() }
     }
 }
