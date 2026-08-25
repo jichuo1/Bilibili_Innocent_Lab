@@ -1,5 +1,8 @@
 package Bilibili_Innocent_Lab.pro.ui
 
+import Bilibili_Innocent_Lab.pro.runtime.KavaMemberLookup
+import com.highcapable.kavaref.extension.classOf
+
 /**
  * 预见式返回（Predictive Back）运行时应用。
  *
@@ -33,11 +36,11 @@ object PredictiveBack {
         if (android.os.Build.VERSION.SDK_INT < 34 || window == null) return
         // 通道 1：当前 window 即时生效
         val wm = windowMethod ?: if (!windowMethodResolved) {
-            runCatching {
-                android.view.Window::class.java.getDeclaredMethod(
-                    "setEnableOnBackInvokedCallback", java.lang.Boolean.TYPE
-                ).apply { isAccessible = true }
-            }.getOrNull().also {
+            KavaMemberLookup.methodOrNull(
+                classOf<android.view.Window>(),
+                "setEnableOnBackInvokedCallback",
+                java.lang.Boolean.TYPE
+            ).also {
                 windowMethod = it
                 windowMethodResolved = true
             }
@@ -46,11 +49,11 @@ object PredictiveBack {
         // 通道 2：此后新建的 window（重开界面后完全生效）
         val appInfo = runCatching { window.context?.applicationInfo }.getOrNull() ?: return
         val am = appInfoMethod ?: if (!appInfoMethodResolved) {
-            runCatching {
-                android.content.pm.ApplicationInfo::class.java.getDeclaredMethod(
-                    "setEnableOnBackInvokedCallback", java.lang.Boolean.TYPE
-                ).apply { isAccessible = true }
-            }.getOrNull().also {
+            KavaMemberLookup.methodOrNull(
+                classOf<android.content.pm.ApplicationInfo>(),
+                "setEnableOnBackInvokedCallback",
+                java.lang.Boolean.TYPE
+            ).also {
                 appInfoMethod = it
                 appInfoMethodResolved = true
             }

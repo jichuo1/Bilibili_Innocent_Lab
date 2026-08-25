@@ -8,8 +8,11 @@ import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.highcapable.kavaref.extension.classOf
+import com.highcapable.kavaref.extension.isStatic
+import com.highcapable.kavaref.extension.isSubclassOf
 import com.highcapable.yukihookapi.annotation.xposed.InjectYukiHookWithXposed
-import com.highcapable.yukihookapi.hook.core.YukiMemberHookCreator.MemberHookCreator.LegacyCreator
+import com.highcapable.yukihookapi.hook.core.YukiMemberHookCreator.MemberHookCreator
 import com.highcapable.yukihookapi.hook.factory.configs
 import com.highcapable.yukihookapi.hook.factory.encase
 import com.highcapable.yukihookapi.hook.xposed.proxy.IYukiHookXposedInit
@@ -17,8 +20,8 @@ import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import java.lang.reflect.Constructor
-import java.lang.reflect.Modifier
 import java.util.Collections
+import Bilibili_Innocent_Lab.pro.runtime.KavaMemberLookup
 import Bilibili_Innocent_Lab.pro.runtime.TargetProcess
 import Bilibili_Innocent_Lab.pro.ui.widget.BubbleDrawable
 
@@ -772,7 +775,7 @@ class HookEntry : IYukiHookXposedInit {
 
         private fun replacementSpans(text: CharSequence): List<android.text.style.ReplacementSpan> {
             val spanned = text as? android.text.Spanned ?: return emptyList()
-            return spanned.getSpans(0, text.length, android.text.style.ReplacementSpan::class.java)
+            return spanned.getSpans(0, text.length, classOf<android.text.style.ReplacementSpan>())
                 .filter { spanned.getSpanStart(it) >= 0 && spanned.getSpanEnd(it) > spanned.getSpanStart(it) }
                 .sortedBy { spanned.getSpanStart(it) }
         }
@@ -785,7 +788,7 @@ class HookEntry : IYukiHookXposedInit {
         private fun projectFoldedCommentBody(text: CharSequence): CharSequence {
             val spanned = text as? android.text.Spanned ?: return text
             val decoratedRanges = spanned
-                .getSpans(0, text.length, Any::class.java)
+                .getSpans(0, text.length, classOf<Any>())
                 .asSequence()
                 .filterNot { it is android.text.style.ReplacementSpan }
                 .mapNotNull { span ->
@@ -819,7 +822,7 @@ class HookEntry : IYukiHookXposedInit {
         private fun renderedCommentMatchKey(text: CharSequence): String {
             val spanned = text as? android.text.Spanned
             val replacementRanges = spanned
-                ?.getSpans(0, text.length, android.text.style.ReplacementSpan::class.java)
+                ?.getSpans(0, text.length, classOf<android.text.style.ReplacementSpan>())
                 ?.mapNotNull { span ->
                     val start = spanned.getSpanStart(span)
                     val end = spanned.getSpanEnd(span)
@@ -837,7 +840,7 @@ class HookEntry : IYukiHookXposedInit {
         private fun snapshotCommentText(text: CharSequence): CharSequence {
             val spanned = text as? android.text.Spanned
             val replacementSpans = spanned
-                ?.getSpans(0, text.length, android.text.style.ReplacementSpan::class.java)
+                ?.getSpans(0, text.length, classOf<android.text.style.ReplacementSpan>())
                 .orEmpty()
             fun isUnspannedZeroWidth(index: Int): Boolean =
                 text[index] == '\u200B' && (spanned == null ||
@@ -853,7 +856,7 @@ class HookEntry : IYukiHookXposedInit {
             if (spanned == null) return plain
             val out = android.text.SpannableString(plain)
             var copied = false
-            spanned.getSpans(start, end, android.text.style.ReplacementSpan::class.java).forEach { span ->
+            spanned.getSpans(start, end, classOf<android.text.style.ReplacementSpan>()).forEach { span ->
                 val spanStart = spanned.getSpanStart(span).coerceAtLeast(start)
                 val spanEnd = spanned.getSpanEnd(span).coerceAtMost(end)
                 if (spanEnd > spanStart) {
@@ -873,7 +876,7 @@ class HookEntry : IYukiHookXposedInit {
             if (text == null || text.length !in 1..3000) return false
             if (text.any { !it.isWhitespace() && it != '\uFFFC' && it != '\u200B' }) return true
             val spanned = text as? android.text.Spanned ?: return false
-            return spanned.getSpans(0, text.length, android.text.style.ReplacementSpan::class.java)
+            return spanned.getSpans(0, text.length, classOf<android.text.style.ReplacementSpan>())
                 .any { spanned.getSpanStart(it) >= 0 && spanned.getSpanEnd(it) > spanned.getSpanStart(it) }
         }
 
@@ -1146,6 +1149,9 @@ class HookEntry : IYukiHookXposedInit {
         @Volatile
         private var mOnLongClickListenerField: java.lang.reflect.Field? = null
 
+        @Volatile
+        private var getListenerInfoMethod: java.lang.reflect.Method? = null
+
         /** 精简档也输出的显著错误日志（每次 key 只打印一次） */
         private fun logError(key: String, msg: String) {
             if (logEnabled && onceLogged.add(key)) XposedBridge.log(msg)
@@ -1159,9 +1165,10 @@ class HookEntry : IYukiHookXposedInit {
         /** 获取（并缓存）UIComponent.b 的空 ViewEntry 构造器 */
         private fun uiComponentBCtor(context: Context): Constructor<*> =
             uiComponentBCtor ?: run {
-                val c = context.classLoader.loadClass(CLASS_UI_COMPONENT_B)
-                    .getDeclaredConstructor(View::class.java)
-                c.isAccessible = true
+                val owner = KavaMemberLookup.classOrNull(context.classLoader, CLASS_UI_COMPONENT_B)
+                    ?: throw ClassNotFoundException(CLASS_UI_COMPONENT_B)
+                val c = KavaMemberLookup.constructorOrNull(owner, classOf<View>())
+                    ?: throw NoSuchMethodException("$CLASS_UI_COMPONENT_B(android.view.View)")
                 uiComponentBCtor = c
                 c
             }
@@ -1248,9 +1255,15 @@ class HookEntry : IYukiHookXposedInit {
         private fun extractRawCommentText(commentItem: Any?): String? {
             if (commentItem == null) return null
             return runCatching {
-                val zMethod = cItemZMethod ?: commentItem.javaClass.getMethod("z").also { cItemZMethod = it }
+                val zMethod = cItemZMethod
+                    ?: KavaMemberLookup.inheritedMethodOrNull(commentItem.javaClass, "z")
+                        ?.also { cItemZMethod = it }
+                    ?: return@runCatching null
                 val zObj = zMethod.invoke(commentItem) ?: return@runCatching null
-                val eMethod = cRichTextEMethod ?: zObj.javaClass.getMethod("e").also { cRichTextEMethod = it }
+                val eMethod = cRichTextEMethod
+                    ?: KavaMemberLookup.inheritedMethodOrNull(zObj.javaClass, "e")
+                        ?.also { cRichTextEMethod = it }
+                    ?: return@runCatching null
                 eMethod.invoke(zObj) as? String
             }.getOrNull()
         }
@@ -1267,9 +1280,15 @@ class HookEntry : IYukiHookXposedInit {
             // f().a，令 high handler 的 rawText 恒为 null，评论必须等 IdleHandler
             // 完整遍历后才获得身份，快速滚动后立即长按便概率落回官方面板。
             val newChain = runCatching {
-                val fMethod = cItemFMethod ?: commentItem.javaClass.getMethod("f").also { cItemFMethod = it }
+                val fMethod = cItemFMethod
+                    ?: KavaMemberLookup.inheritedMethodOrNull(commentItem.javaClass, "f")
+                        ?.also { cItemFMethod = it }
+                    ?: return@runCatching null
                 val kObj = fMethod.invoke(commentItem) ?: return@runCatching null
-                val aField = cRichTextAField ?: kObj.javaClass.getField("a").also { cRichTextAField = it }
+                val aField = cRichTextAField
+                    ?: KavaMemberLookup.fieldOrNull(kObj.javaClass, "a", includeSuperclasses = true)
+                        ?.also { cRichTextAField = it }
+                    ?: return@runCatching null
                 aField.get(kObj) as? String
             }.getOrNull()
             if (!newChain.isNullOrBlank()) return newChain
@@ -1280,8 +1299,8 @@ class HookEntry : IYukiHookXposedInit {
         /** 反射缓存：进程内目标类不卸载，可安全缓存 Method/Field，避免评论滚动时重复反射查找 */
         @Volatile private var cItemFMethod: java.lang.reflect.Method? = null        // CommentItem.f()（高版本取 raw）
         @Volatile private var cRichTextAField: java.lang.reflect.Field? = null     // k.a（高版本 raw 字段）
-        @Volatile private var cHandlerViewField: java.lang.reflect.Field? = null   // handler.<viewField>（高版本 itemView 根，缓存字段）
-        @Volatile private var cHandlerViewFieldName: String? = null                // handler 中 View 实例字段名（动态定位后缓存）
+        private val cHandlerViewFieldByClass =
+            java.util.concurrent.ConcurrentHashMap<Class<*>, java.lang.reflect.Field>()
         /** 优先从当前绑定方法实参取得 CommentItem；不同方法下标独立，杜绝读取 Handler
          * 可变字段时被 RecyclerView 的下一条绑定覆盖。无 CommentItem 实参（9.8.0 d/e）
          * 才回退 Handler 字段。 */
@@ -1302,10 +1321,10 @@ class HookEntry : IYukiHookXposedInit {
          * 关键：YukiHook 的 findClass(name).hook {} 在类不存在时【不抛异常】，
          * 只打印 "[YukiHookAPI][E] HookClass [...] not found" 并静默跳过，
          * 导致 try-catch「低版本失败则 try 高版本」的判断完全失效（freeCopyOk 恒为 true）。
-         * 必须用 Class.forName 显式判断类是否存在。
+         * 必须用显式 ClassLoader 探测判断类是否存在。
          */
         private fun classExists(name: String, loader: ClassLoader?): Boolean =
-            if (loader == null) false else runCatching { Class.forName(name, false, loader) }.isSuccess
+            if (loader == null) false else KavaMemberLookup.hasClass(loader, name)
 
         /**
          * 判断目标类是否声明了指定方法。用于「类存在但方法签名漂移」的版本分流：
@@ -1314,9 +1333,8 @@ class HookEntry : IYukiHookXposedInit {
          */
         private fun methodExists(className: String, methodName: String, loader: ClassLoader?): Boolean {
             if (loader == null) return false
-            return runCatching {
-                Class.forName(className, false, loader).declaredMethods.any { it.name == methodName }
-            }.getOrDefault(false)
+            val owner = KavaMemberLookup.classOrNull(loader, className) ?: return false
+            return KavaMemberLookup.declaredMethods(owner) { it.name == methodName }.isNotEmpty()
         }
 
         /**
@@ -1344,7 +1362,7 @@ class HookEntry : IYukiHookXposedInit {
          */
         private fun stripSpanPlaceholderChars(cs: CharSequence): String {
             val spanned = cs as? android.text.Spanned ?: return cs.toString()
-            val spans = spanned.getSpans(0, spanned.length, android.text.style.ReplacementSpan::class.java)
+            val spans = spanned.getSpans(0, spanned.length, classOf<android.text.style.ReplacementSpan>())
             if (spans.isEmpty()) return spanned.toString()
             val sb = StringBuilder(spanned)
             // 从后往前删，避免删除时索引位移
@@ -1378,7 +1396,7 @@ class HookEntry : IYukiHookXposedInit {
                 }
             }
             val hasReplacementSpans = builder
-                .getSpans(0, builder.length, android.text.style.ReplacementSpan::class.java)
+                .getSpans(0, builder.length, classOf<android.text.style.ReplacementSpan>())
                 .isNotEmpty()
             val normalized = if (hasReplacementSpans) android.text.SpannedString(builder) else builder.toString()
             return rawContent.copy(displayText = normalized)
@@ -1395,7 +1413,7 @@ class HookEntry : IYukiHookXposedInit {
         ) {
             val spanned = content.text as? android.text.Spanned ?: return
             val spans = spanned
-                .getSpans(0, spanned.length, android.text.style.ReplacementSpan::class.java)
+                .getSpans(0, spanned.length, classOf<android.text.style.ReplacementSpan>())
                 .filter { spanned.getSpanStart(it) >= 0 && spanned.getSpanEnd(it) > spanned.getSpanStart(it) }
                 .sortedBy { spanned.getSpanStart(it) }
             if (spans.isEmpty()) return
@@ -1833,10 +1851,18 @@ class HookEntry : IYukiHookXposedInit {
          */
         private fun clearModuleLongClickListener(v: View) {
             runCatching {
-                val listenerInfo = XposedHelpers.getObjectField(v, "mListenerInfo") ?: return
-                val current = XposedHelpers.getObjectField(listenerInfo, "mOnLongClickListener")
+                val listenerInfoField = mListenerInfoField
+                    ?: KavaMemberLookup.fieldOrNull(classOf<View>(), "mListenerInfo")
+                        ?.also { mListenerInfoField = it }
+                    ?: return
+                val listenerInfo = listenerInfoField.get(v) ?: return
+                val listenerField = mOnLongClickListenerField
+                    ?: KavaMemberLookup.fieldOrNull(listenerInfo.javaClass, "mOnLongClickListener")
+                        ?.also { mOnLongClickListenerField = it }
+                    ?: return
+                val current = listenerField.get(listenerInfo)
                 if (current === sharedFreeCopyListener) {
-                    XposedHelpers.setObjectField(listenerInfo, "mOnLongClickListener", null)
+                    listenerField.set(listenerInfo, null)
                     v.isLongClickable = false
                 }
             }
@@ -1936,7 +1962,12 @@ class HookEntry : IYukiHookXposedInit {
 
         private fun holderItemView(holder: Any): View? {
             val f = cHolderItemViewField
-                ?: holder.javaClass.getField("itemView").also { cHolderItemViewField = it }
+                ?: KavaMemberLookup.fieldOrNull(
+                    holder.javaClass,
+                    "itemView",
+                    includeSuperclasses = true
+                )?.also { cHolderItemViewField = it }
+                ?: return null
             return f.get(holder) as? View
         }
 
@@ -1957,10 +1988,9 @@ class HookEntry : IYukiHookXposedInit {
                 runCatching { cached.invoke(binding) as? View }.getOrNull()?.let { return it }
             }
             // ViewBinding/DataBinding 生成类都有公开 getRoot()；它比猜字段名更稳定。
-            runCatching {
-                bindingClass.getMethod("getRoot")
-                    .takeIf { View::class.java.isAssignableFrom(it.returnType) }
-            }.getOrNull()?.let { method ->
+            KavaMemberLookup.inheritedMethodOrNull(bindingClass, "getRoot")
+                ?.takeIf { it.returnType isSubclassOf classOf<View>() }
+                ?.let { method ->
                 cBindingGetRootMethodByClass[bindingClass] = method
                 runCatching { method.invoke(binding) as? View }.getOrNull()?.let { return it }
             }
@@ -1969,13 +1999,17 @@ class HookEntry : IYukiHookXposedInit {
             }
             // 尝试惯例字段 a
             runCatching {
-                val f = bindingClass.getField("a")
+                val f = KavaMemberLookup.fieldOrNull(
+                    bindingClass,
+                    "a",
+                    includeSuperclasses = true
+                ) ?: return@runCatching
                 val v = f.get(binding) as? View
                 if (v != null) { cBindingRootFieldByClass[bindingClass] = f; return v }
             }.getOrNull()
             // 字段名漂移：遍历找 View
-            for (fld in bindingClass.declaredFields) {
-                val x = runCatching { fld.isAccessible = true; fld.get(binding) }.getOrNull()
+            for (fld in KavaMemberLookup.declaredFields(bindingClass, makeAccessible = true)) {
+                val x = runCatching { fld.get(binding) }.getOrNull()
                 if (x is View) {
                     cBindingRootFieldByClass[bindingClass] = fld
                     return x
@@ -2004,12 +2038,13 @@ class HookEntry : IYukiHookXposedInit {
                 val binding = param.args[i] ?: continue
                 val type = parameterTypes?.getOrNull(i) ?: binding.javaClass
                 if (type.isPrimitive || type.isArray) continue
-                val looksLikeBinding = runCatching {
-                    type.methods.any {
+                val looksLikeBinding =
+                    KavaMemberLookup.methods(type, includeSuperclasses = true) {
                         it.name == "getRoot" && it.parameterCount == 0 &&
-                            View::class.java.isAssignableFrom(it.returnType)
-                    } || type.declaredFields.any { View::class.java.isAssignableFrom(it.type) }
-                }.getOrDefault(false)
+                            it.returnType isSubclassOf classOf<View>()
+                    }.isNotEmpty() || KavaMemberLookup.declaredFields(type) {
+                        it.type isSubclassOf classOf<View>()
+                    }.isNotEmpty()
                 if (!looksLikeBinding) continue
                 val root = runCatching { extractBindingRoot(binding) }.getOrNull() ?: continue
                 cViewBindingArgIndexByMethod[method] = i
@@ -2051,10 +2086,11 @@ class HookEntry : IYukiHookXposedInit {
                     return BoundCommentItem(it, false)
                 }
             }
-            for (field in handlerClass.declaredFields) {
-                if (!field.type.name.endsWith(".CommentItem")) continue
+            for (field in KavaMemberLookup.declaredFields(
+                handlerClass,
+                makeAccessible = true
+            ) { it.type.name.endsWith(".CommentItem") }) {
                 val value = runCatching {
-                    field.isAccessible = true
                     field.get(handler)
                 }.getOrNull() ?: continue
                 cHandlerCommentItemFieldByClass[handlerClass] = field
@@ -2064,8 +2100,8 @@ class HookEntry : IYukiHookXposedInit {
         }
 
         /**
-         * 评论路径直设长按监听器：反射写 View.ListenerInfo.mOnLongClickListener（经
-         * XposedHelpers 绕过 hidden API 限制），绕开我们全局 setOnLongClickListener hook
+         * 评论路径直设长按监听器：通过 KavaRef 一次解析并缓存
+         * View.ListenerInfo.mOnLongClickListener，绕开我们全局 setOnLongClickListener hook
          * 的 bridge 开销——快速加载/展开回复时每条评论数十个 view，逐一走 hook 是主要卡顿
          * 来源之一。mListenerInfo 为空（首次）或反射失败时回退正常 setOnLongClickListener
          * （行为一致，仅性能回落）。desc 的夺回仍走 hook 路径不受影响。
@@ -2074,18 +2110,26 @@ class HookEntry : IYukiHookXposedInit {
             runCatching {
                 // 直接读 View.mListenerInfo 字段（Field.get 远快于 getListenerInfo() 的
                 // Method.invoke），再写 ListenerInfo.mOnLongClickListener——均经
-                // XposedHelpers 反射缓存，绕开 hidden API 限制与全局 hook 的 bridge 开销。
-                val mliField = mListenerInfoField ?: View::class.java
-                    .getDeclaredField("mListenerInfo").also { mListenerInfoField = it }
+                // KavaRef 只在缓存未命中时解析；热路径仍直接 Field.get/set。
+                val mliField = mListenerInfoField
+                    ?: KavaMemberLookup.fieldOrNull(classOf<View>(), "mListenerInfo")
+                        ?.also { mListenerInfoField = it }
+                    ?: error("View.mListenerInfo unavailable")
                 var li = mliField.get(v)
                 if (li == null) {
-                    // mListenerInfo 尚未创建：用 getListenerInfo() 创建（Xposed 桥绕
-                    // hidden API）。绝不能回退 setOnLongClickListener——会触发我们
+                    // mListenerInfo 尚未创建：直接调用已缓存的 getListenerInfo() 创建。
+                    // 绝不能回退 setOnLongClickListener——会触发我们
                     // 自己的全局 hook 造成「夺回→重绑→再触发」无限递归（实测 ANR）
-                    li = XposedHelpers.callMethod(v, "getListenerInfo")
+                    val method = getListenerInfoMethod
+                        ?: KavaMemberLookup.methodOrNull(classOf<View>(), "getListenerInfo")
+                            ?.also { getListenerInfoMethod = it }
+                        ?: error("View.getListenerInfo unavailable")
+                    li = method.invoke(v)
                 }
-                val field = mOnLongClickListenerField ?: li.javaClass
-                    .getDeclaredField("mOnLongClickListener").also { mOnLongClickListenerField = it }
+                val field = mOnLongClickListenerField
+                    ?: KavaMemberLookup.fieldOrNull(li.javaClass, "mOnLongClickListener")
+                        ?.also { mOnLongClickListenerField = it }
+                    ?: error("ListenerInfo.mOnLongClickListener unavailable")
                 field.set(li, l)
                 if (l != null && !v.isLongClickable) v.isLongClickable = true
             }.onFailure {
@@ -2232,6 +2276,48 @@ class HookEntry : IYukiHookXposedInit {
             // 注意：不能用 replaceAny 回调里的 instance（static 工厂方法的 instance 为 null，会 NPE）。
             val biliClassLoader = appClassLoader
 
+            /**
+             * KavaRef → Yuki Member Hook 的统一边界。成员定位失败直接抛出，让各功能原有的
+             * runCatching/try-catch 正确记录未命中；Hook 回调本身不经过额外包装。
+             */
+            fun hookFirstMethod(
+                className: String,
+                methodName: String,
+                block: MemberHookCreator.() -> Unit
+            ) {
+                val owner = KavaMemberLookup.classOrNull(biliClassLoader, className)
+                    ?: throw ClassNotFoundException(className)
+                val method = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                    it.name == methodName
+                }.firstOrNull() ?: throw NoSuchMethodException("$className#$methodName")
+                method.hook { block() }
+            }
+
+            fun hookExactMethod(
+                owner: Class<*>,
+                methodName: String,
+                vararg parameterTypes: Class<*>,
+                block: MemberHookCreator.() -> Unit
+            ) {
+                val method = KavaMemberLookup.methodOrNull(owner, methodName, *parameterTypes)
+                    ?: throw NoSuchMethodException("${owner.name}#$methodName")
+                method.hook { block() }
+            }
+
+            fun hookAllNamedMethods(
+                className: String,
+                methodName: String,
+                block: MemberHookCreator.() -> Unit
+            ) {
+                val owner = KavaMemberLookup.classOrNull(biliClassLoader, className)
+                    ?: throw ClassNotFoundException(className)
+                val methods = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                    it.name == methodName
+                }
+                if (methods.isEmpty()) throw NoSuchMethodException("$className#$methodName")
+                methods.hookAll { block() }
+            }
+
             // 读取日志开关 + 详细度档位（默认：开启 + 完整）
             logEnabled = prefs.getBoolean(PREF_LOG_ENABLED, true)
             logVerbose = prefs.getString(PREF_LOG_LEVEL, LOG_LEVEL_COMPLETE) != LOG_LEVEL_MINIMAL
@@ -2261,10 +2347,12 @@ class HookEntry : IYukiHookXposedInit {
             // → provider 同步（隔离下可能失败，留作兜底）。
             val roamingCompatPrefs = prefs
             runCatching {
-                findClass(name = "android.app.Application").hook {
-                    injectMember {
-                        method { name = "attach" }
-                        beforeHook {
+                hookExactMethod(
+                    classOf<android.app.Application>(),
+                    "attach",
+                    classOf<Context>()
+                ) {
+                        before {
                             val attachCtx = args.firstOrNull() as? Context
                             RoamingCompatHook.onApplicationAttach(
                                 attachCtx,
@@ -2312,17 +2400,18 @@ class HookEntry : IYukiHookXposedInit {
                                 }
                             }
                         }
-                    }
                 }
             }.onFailure { t ->
                 logError("roaming_compat_attach_err", "[BIL] Application.attach 钩子注册失败: $t")
             }
             // 兜底 + 诊断：callApplicationOnCreate 阶段。若 attach 回调无 Context 或
             // 动态 Receiver 注册失败，此处会再次进入统一初始化；已有成功状态时幂等跳过。
-            findClass(name = "android.app.Instrumentation").hook {
-                injectMember {
-                    method { name = "callApplicationOnCreate" }
-                    beforeHook {
+            hookExactMethod(
+                classOf<android.app.Instrumentation>(),
+                "callApplicationOnCreate",
+                classOf<android.app.Application>()
+            ) {
+                    before {
                         val onCreateCtx = args.firstOrNull() as? Context
                         RoamingCompatHook.onApplicationAttach(
                             onCreateCtx,
@@ -2363,13 +2452,12 @@ class HookEntry : IYukiHookXposedInit {
                             )
                         }
                     }
-                    afterHook {
+                    after {
                         RoamingCompatHook.reportScanResult(
                             args.firstOrNull() as? Context,
                             biliClassLoader
                         )
                     }
-                }
             }
 
             // ====== 1. 暂停页广告 ======
@@ -2380,21 +2468,15 @@ class HookEntry : IYukiHookXposedInit {
                 // 注意：9.0.0 里 ui.g 变成 Compose 渲染类（方法 a），类仍在但 invoke 没了，
                 // 必须用 methodExists 判断（仅 classExists 会误判走低版本而 NoSuchMethod 静默失效）。
                 if (methodExists(TARGET_PAUSED_CLASS, TARGET_PAUSED_METHOD, biliClassLoader)) {
-                    findClass(name = TARGET_PAUSED_CLASS).hook {
-                        injectMember {
-                            method { name = TARGET_PAUSED_METHOD }
-                            beforeHook { result = null }
-                        }
+                    hookFirstMethod(TARGET_PAUSED_CLASS, TARGET_PAUSED_METHOD) {
+                        before { result = null }
                     }
                     pausedOk = true
                 }
                 // 高版本（9.x）：Compose 重构，广告经 requestPausedPage 请求；invokeSuspend 返回 null 跳过
                 if (!pausedOk && classExists(TARGET_PAUSED_CLASS_V2, biliClassLoader)) {
-                    findClass(name = TARGET_PAUSED_CLASS_V2).hook {
-                        injectMember {
-                            method { name = TARGET_PAUSED_METHOD_V2 }
-                            beforeHook { result = null }
-                        }
+                    hookFirstMethod(TARGET_PAUSED_CLASS_V2, TARGET_PAUSED_METHOD_V2) {
+                        before { result = null }
                     }
                     pausedOk = true
                 }
@@ -2409,14 +2491,9 @@ class HookEntry : IYukiHookXposedInit {
                 val results = LinkedHashMap<String, Boolean>()
 
                 // 局部 helper：hook 一个简单方法并记录结果（减少重复模板，单点失败互不影响）
-                fun hookMethod(key: String, className: String, methodName: String, block: LegacyCreator.() -> Unit) {
+                fun hookMethod(key: String, className: String, methodName: String, block: MemberHookCreator.() -> Unit) {
                     try {
-                        findClass(name = className).hook {
-                            injectMember {
-                                method { name = methodName }
-                                block()
-                            }
-                        }
+                        hookFirstMethod(className, methodName, block)
                         results[key] = true
                     } catch (t: Throwable) {
                         results[key] = false
@@ -2432,16 +2509,17 @@ class HookEntry : IYukiHookXposedInit {
 
                 // ---- 第零管补充：工厂方法拦截（返回空 section，整个"视频提及"区彻底不构建） ----
                 try {
-                    findClass(name = CLASS_MENTION_FACTORY).hook {
-                        injectMember {
-                            method { name = METHOD_MENTION_FACTORY }
-                            replaceAny {
+                    hookFirstMethod(CLASS_MENTION_FACTORY, METHOD_MENTION_FACTORY) {
+                        replaceAny {
                                 try {
                                     // 缓存构造器（修复：用目标 app ClassLoader，而非 instance——static 方法 instance 为 null）
                                     val ctor = mentionedSectionItemCtor ?: run {
-                                        val c = Class.forName(CLASS_MENTIONED_SECTION, false, biliClassLoader)
-                                            .getDeclaredConstructor()
-                                        c.isAccessible = true
+                                        val owner = KavaMemberLookup.classOrNull(
+                                            biliClassLoader,
+                                            CLASS_MENTIONED_SECTION
+                                        ) ?: throw ClassNotFoundException(CLASS_MENTIONED_SECTION)
+                                        val c = KavaMemberLookup.constructorOrNull(owner)
+                                            ?: throw NoSuchMethodException("$CLASS_MENTIONED_SECTION()")
                                         mentionedSectionItemCtor = c
                                         c
                                     }
@@ -2453,7 +2531,6 @@ class HookEntry : IYukiHookXposedInit {
                                 }
                             }
                         }
-                    }
                     results["yx3.a.c(工厂)"] = true
                 } catch (t: Throwable) {
                     results["yx3.a.c(工厂)"] = false
@@ -2468,10 +2545,8 @@ class HookEntry : IYukiHookXposedInit {
                 // ---- 第二管：渲染拦截（UI 层） ----
                 // 4. createViewEntry() 返回空 ViewEntry（★核心，非 suspend；构造器已缓存）
                 try {
-                    findClass(name = CLASS_MENTIONED_COMPONENT).hook {
-                        injectMember {
-                            method { name = METHOD_CREATE_VIEW_ENTRY }
-                            beforeHook {
+                    hookFirstMethod(CLASS_MENTIONED_COMPONENT, METHOD_CREATE_VIEW_ENTRY) {
+                            before {
                                 val context = args[0] as? Context
                                 if (context != null) {
                                     try {
@@ -2483,7 +2558,6 @@ class HookEntry : IYukiHookXposedInit {
                                     }
                                 }
                             }
-                        }
                     }
                     results["createViewEntry"] = true
                 } catch (t: Throwable) { results["createViewEntry"] = false }
@@ -2491,17 +2565,23 @@ class HookEntry : IYukiHookXposedInit {
                 // 4b. header 组件：标题来自构造器字段 a（渲染时直接读字段），hook 构造器清空标题；
                 //     同时 allMethods 兜底拦截所有 createViewEntry 重载（含泛型桥接方法）
                 try {
-                    findClass(name = CLASS_MENTIONED_HEADER_COMPONENT).hook {
-                        injectMember {
-                            constructor { paramCount(1) }
-                            beforeHook {
+                    val headerClass = KavaMemberLookup.classOrNull(
+                        biliClassLoader,
+                        CLASS_MENTIONED_HEADER_COMPONENT
+                    ) ?: throw ClassNotFoundException(CLASS_MENTIONED_HEADER_COMPONENT)
+                    val headerConstructor = KavaMemberLookup.declaredConstructors(
+                        headerClass,
+                        makeAccessible = true
+                    ) { it.parameterCount == 1 }.firstOrNull()
+                        ?: throw NoSuchMethodException("$CLASS_MENTIONED_HEADER_COMPONENT#<init>(1)")
+                    headerConstructor.hook {
+                            before {
                                 args[0] = ""
                                 logInfo("header_ctor", "[BIL] 已清空视频提及 header 标题")
                             }
-                        }
-                        injectMember {
-                            allMethods(METHOD_CREATE_VIEW_ENTRY)
-                            beforeHook {
+                    }
+                    hookAllNamedMethods(CLASS_MENTIONED_HEADER_COMPONENT, METHOD_CREATE_VIEW_ENTRY) {
+                            before {
                                 val context = args[0] as? Context
                                 if (context != null) {
                                     try {
@@ -2513,7 +2593,6 @@ class HookEntry : IYukiHookXposedInit {
                                     }
                                 }
                             }
-                        }
                     }
                     results["headerComponent"] = true
                 } catch (t: Throwable) {
@@ -2546,14 +2625,9 @@ class HookEntry : IYukiHookXposedInit {
                 val bannerResults = LinkedHashMap<String, Boolean>()
 
                 // 局部 helper（复用 gamecard 分支的同款模板）
-                fun hookMethod(key: String, className: String, methodName: String, block: LegacyCreator.() -> Unit) {
+                fun hookMethod(key: String, className: String, methodName: String, block: MemberHookCreator.() -> Unit) {
                     try {
-                        findClass(name = className).hook {
-                            injectMember {
-                                method { name = methodName }
-                                block()
-                            }
-                        }
+                        hookFirstMethod(className, methodName, block)
                         bannerResults[key] = true
                     } catch (t: Throwable) {
                         bannerResults[key] = false
@@ -2563,11 +2637,8 @@ class HookEntry : IYukiHookXposedInit {
                 // ---- 双保险·第一层：数据容器层 ----
                 // xm3.d.l() 返回 banner item 列表 → 返回空列表，整个大卡（广告+static+番剧）都不渲染
                 try {
-                    findClass(name = CLASS_BANNER_CONTAINER).hook {
-                        injectMember {
-                            method { name = METHOD_BANNER_ITEMS }
-                            replaceTo(Collections.emptyList<Any>())
-                        }
+                    hookFirstMethod(CLASS_BANNER_CONTAINER, METHOD_BANNER_ITEMS) {
+                        replaceTo(Collections.emptyList<Any>())
                     }
                     bannerResults["bannerContainer.items"] = true
                 } catch (t: Throwable) {
@@ -2604,10 +2675,11 @@ class HookEntry : IYukiHookXposedInit {
             val merchEnabled = prefs.getBoolean(PREF_MERCH_ENABLED, true)
             if (merchEnabled && classExists(CLASS_MERCH_COMPONENT, biliClassLoader)) {
                 runCatching {
-                    val mercCls = Class.forName(CLASS_MERCH_COMPONENT, false, biliClassLoader)
+                    val mercCls = KavaMemberLookup.classOrNull(biliClassLoader, CLASS_MERCH_COMPONENT)
+                        ?: throw ClassNotFoundException(CLASS_MERCH_COMPONENT)
                     XposedHelpers.findAndHookMethod(
                         mercCls, "createViewEntry",
-                        Context::class.java, android.view.ViewGroup::class.java,
+                        classOf<Context>(), classOf<android.view.ViewGroup>(),
                         object : XC_MethodHook() {
                             override fun afterHookedMethod(param: MethodHookParam) {
                                 // 官方构造的 ViewEntry → 根 View → GONE（整块隐藏，标题+卡+去看看）
@@ -2670,39 +2742,36 @@ class HookEntry : IYukiHookXposedInit {
                 // 滑停（SCROLL_STATE_IDLE）后由 drainCommentBinds 统一批量绑定可见评论，
                 // 避免滚动中逐条全树绑定的卡顿（滚动状态回调本身低频，开销可忽略）。
                 runCatching {
-                    findClass(name = "androidx.recyclerview.widget.RecyclerView").hook {
-                        injectMember {
-                            method {
-                                name = "onScrollStateChanged"
-                                param(Int::class.javaPrimitiveType!!)
-                            }
-                            afterHook {
-                                val st = args.getOrNull(0) as? Int ?: return@afterHook
-                                val recyclerView = instance as? View ?: return@afterHook
-                                updateRecyclerViewScrolling(
-                                    recyclerView,
-                                    st != androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE
-                                )
-                                if (!isAnyRecyclerViewScrolling()) {
-                                    // 滑停后尽快补齐整棵评论树；短暂避开回弹动画开头，
-                                    // 120ms 后由空闲间隙分帧绑定。高版本模型入口和正文 id
-                                    // 已即时登记，用户无需等待本批处理才能长按正文。
-                                    rvIdleSinceMs = android.os.SystemClock.uptimeMillis()
-                                    scheduleCommentBindRetry(120L)
-                                }
+                    hookExactMethod(
+                        classOf<androidx.recyclerview.widget.RecyclerView>(),
+                        "onScrollStateChanged",
+                        classOf<Int>()
+                    ) {
+                        after {
+                            val st = args.getOrNull(0) as? Int ?: return@after
+                            val recyclerView = instance as? View ?: return@after
+                            updateRecyclerViewScrolling(
+                                recyclerView,
+                                st != androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE
+                            )
+                            if (!isAnyRecyclerViewScrolling()) {
+                                // 滑停后尽快补齐整棵评论树；短暂避开回弹动画开头，
+                                // 120ms 后由空闲间隙分帧绑定。高版本模型入口和正文 id
+                                // 已即时登记，用户无需等待本批处理才能长按正文。
+                                rvIdleSinceMs = android.os.SystemClock.uptimeMillis()
+                                scheduleCommentBindRetry(120L)
                             }
                         }
-                        injectMember {
-                            method {
-                                name = "onDetachedFromWindow"
-                                paramCount(0)
-                            }
-                            afterHook {
-                                val recyclerView = instance as? View ?: return@afterHook
-                                if (updateRecyclerViewScrolling(recyclerView, false)) {
-                                    rvIdleSinceMs = android.os.SystemClock.uptimeMillis()
-                                    scheduleCommentBindRetry(120L)
-                                }
+                    }
+                    hookExactMethod(
+                        classOf<androidx.recyclerview.widget.RecyclerView>(),
+                        "onDetachedFromWindow"
+                    ) {
+                        after {
+                            val recyclerView = instance as? View ?: return@after
+                            if (updateRecyclerViewScrolling(recyclerView, false)) {
+                                rvIdleSinceMs = android.os.SystemClock.uptimeMillis()
+                                scheduleCommentBindRetry(120L)
                             }
                         }
                     }
@@ -2713,14 +2782,12 @@ class HookEntry : IYukiHookXposedInit {
                 val lowHolderCls = adaptResult?.commentLow?.className ?: "com.bilibili.app.comment3.ui.holder.t0"
                 val lowHolderMethod = adaptResult?.commentLow?.methodName ?: "o0"
                 if (classExists(lowHolderCls, biliClassLoader)) {
-                    findClass(name = lowHolderCls).hook {
-                        injectMember {
-                            method { name = lowHolderMethod }
-                            afterHook {
-                                val holder = instance ?: return@afterHook
+                    hookFirstMethod(lowHolderCls, lowHolderMethod) {
+                            after {
+                                val holder = instance ?: return@after
                                 val itemView = runCatching {
                                     holderItemView(holder)
-                                }.getOrNull() ?: return@afterHook
+                                }.getOrNull() ?: return@after
                                 // 从 o0 参数 args[0]（t0<CommentItem> 的 DATA 实参）拿评论数据对象，
                                 // 提取 RichText.raw 原始文本（含表情文字标记如 [dog]，且始终完整不受展开折叠影响）
                                 val commentItem = args.getOrNull(0)
@@ -2739,7 +2806,6 @@ class HookEntry : IYukiHookXposedInit {
                                      commentItem = commentItem
                                  )
                             }
-                        }
                     }
                     freeCopyOk = true
                 }
@@ -2763,7 +2829,8 @@ class HookEntry : IYukiHookXposedInit {
                     val highCls = highPoint?.className ?: CLASS_COMMENT_HANDLER_V2
                     val highMethod = highPoint?.methodName ?: METHOD_COMMENT_BIND_V2
                     runCatching {
-                        val handlerClass = Class.forName(highCls, false, biliClassLoader)
+                        val handlerClass = KavaMemberLookup.classOrNull(biliClassLoader, highCls)
+                            ?: throw ClassNotFoundException(highCls)
                         // 共享绑定回调：从 handler 字段 i 取 CommentItem + 动态定位 itemView
                         // （参数 ViewBinding → 字段 a / 遍历 View 字段；否则 handler 字段找
                         // View 实例，首次缓存字段名）
@@ -2804,16 +2871,22 @@ class HookEntry : IYukiHookXposedInit {
                                 val itemView: View = run {
                                     val fromArgs = extractBindingRootFromArgs(param)
                                     fromArgs ?: run {
-                                        val cachedName = cHandlerViewFieldName
-                                        if (cachedName != null) {
-                                            runCatching { handler.javaClass.getField(cachedName).get(handler) as? View }.getOrNull()
+                                        val handlerClassNow = handler.javaClass
+                                        val cachedField = cHandlerViewFieldByClass[handlerClassNow]
+                                        if (cachedField != null) {
+                                            runCatching {
+                                                cachedField.get(handler) as? View
+                                            }.getOrNull()
                                         } else {
                                             var found: View? = null
-                                            for (fld in handler.javaClass.declaredFields) {
-                                                val v = runCatching { fld.isAccessible = true; fld.get(handler) }.getOrNull()
+                                            for (fld in KavaMemberLookup.declaredFields(
+                                                handlerClassNow,
+                                                makeAccessible = true
+                                            )) {
+                                                val v = runCatching { fld.get(handler) }.getOrNull()
                                                 if (v is View) {
                                                     found = v
-                                                    cHandlerViewFieldName = fld.name
+                                                    cHandlerViewFieldByClass[handlerClassNow] = fld
                                                     break
                                                 }
                                             }
@@ -2838,13 +2911,18 @@ class HookEntry : IYukiHookXposedInit {
                         val cacheParams = if (highPoint?.paramClassNames != null) {
                             highPoint.paramClassNames.map {
                                 when (it) {
-                                    "long" -> Long::class.javaPrimitiveType!!
-                                    "boolean" -> Boolean::class.javaPrimitiveType!!
-                                    else -> Class.forName(it, false, biliClassLoader)
+                                    "long" -> classOf<Long>()
+                                    "boolean" -> classOf<Boolean>()
+                                    else -> KavaMemberLookup.classOrNull(biliClassLoader, it)
+                                        ?: throw ClassNotFoundException(it)
                                 }
                             }.toTypedArray()
                         } else {
-                            arrayOf(Class.forName("Pj.J", false, biliClassLoader), Boolean::class.javaPrimitiveType!!)
+                            arrayOf(
+                                KavaMemberLookup.classOrNull(biliClassLoader, "Pj.J")
+                                    ?: throw ClassNotFoundException("Pj.J"),
+                                classOf<Boolean>()
+                            )
                         }
                         runCatching {
                             XposedHelpers.findAndHookMethod(handlerClass, highMethod, *cacheParams, bindHook)
@@ -2856,17 +2934,17 @@ class HookEntry : IYukiHookXposedInit {
                         // 参数上限 5（8.63.0 的 G 有 5 参）——含 ViewBinding 参数的方法
                         // 注册后 afterHook 幂等（多个触发也只绑定一次）；静态工具方法
                         // bindHook 中 thisObject 为空会早退，无副作用。
-                        for (m in handlerClass.declaredMethods) {
+                        for (m in KavaMemberLookup.declaredMethods(handlerClass)) {
                             if (m.parameterCount < 1 || m.parameterCount > 5) continue
-                            if (Modifier.isStatic(m.modifiers)) continue
+                            if (m.isStatic) continue
                             val sig = "${m.name}${m.parameterTypes.joinToString(",") { it.name }}"
                             if (registered.contains(sig)) continue
                             var isBinding = false
                             for (pt in m.parameterTypes) {
                                 if (pt.isPrimitive || pt.isArray || pt.isInterface) continue
-                                val hasViewField = runCatching {
-                                    pt.declaredFields.any { android.view.View::class.java.isAssignableFrom(it.type) }
-                                }.getOrDefault(false)
+                                val hasViewField = KavaMemberLookup.declaredFields(pt) {
+                                    it.type isSubclassOf classOf<android.view.View>()
+                                }.isNotEmpty()
                                 if (hasViewField) { isBinding = true; break }
                             }
                             if (!isBinding) continue
@@ -2893,19 +2971,20 @@ class HookEntry : IYukiHookXposedInit {
             // 弹泡回退手动开关逻辑（logError 一次性告警，不静默失效）。
             if (freeCopyAutoLight && classExists(DETAIL_ACTIVITY_CLASS, biliClassLoader)) {
                 runCatching {
-                    findClass(name = DETAIL_ACTIVITY_CLASS).hook {
-                        injectMember {
-                            method { name = "onCreate" }
-                            beforeHook {
+                    hookFirstMethod(DETAIL_ACTIVITY_CLASS, "onCreate") {
+                            before {
                                 val ctx = runCatching {
                                     val act = instance
                                     when (act) {
                                         is android.content.Context -> act
                                         else -> null
                                     }
-                                }.getOrNull() ?: return@beforeHook
+                                }.getOrNull() ?: return@before
                                 val night = runCatching {
-                                    val c = Class.forName("com.bilibili.lib.ui.util.NightTheme", false, biliClassLoader)
+                                    val c = KavaMemberLookup.classOrNull(
+                                        biliClassLoader,
+                                        "com.bilibili.lib.ui.util.NightTheme"
+                                    ) ?: return@runCatching null
                                     XposedHelpers.callStaticMethod(c, "isNightTheme", ctx) as? Boolean
                                 }.getOrNull()
                                 if (night != null) {
@@ -2915,7 +2994,6 @@ class HookEntry : IYukiHookXposedInit {
                                     logError("auto_light_theme_err", "[BIL] NightTheme 判定失败，气泡跟随回退手动开关")
                                 }
                             }
-                        }
                     }
                 }.onFailure { t ->
                     logError("auto_light_hook_err", "[BIL] 气泡亮暗色跟随详情页钩子注册失败: $t")
@@ -2959,34 +3037,35 @@ class HookEntry : IYukiHookXposedInit {
                     for (cn in listOf(
                         "tv.danmaku.bili.videopage.common.widget.view.ExpandableTextView",
                         "com.mall.videodetail.vd.videopage.common.widget.view.ExpandableTextView"
-                    )) {
+                        )) {
                         runCatching {
+                            val owner = KavaMemberLookup.classOrNull(biliClassLoader, cn)
+                                ?: return@runCatching
                             XposedHelpers.findAndHookMethod(
-                                Class.forName(cn, false, biliClassLoader),
-                                "setText", CharSequence::class.java, TextView.BufferType::class.java,
+                                owner,
+                                "setText", classOf<CharSequence>(), classOf<TextView.BufferType>(),
                                 descTextHook
                             )
                             narrowed = true
                         }
                     }
                     if (!narrowed) {
-                        findClass(name = "android.widget.TextView").hook {
-                            injectMember {
-                                method {
-                                    name = "setText"
-                                    param(CharSequence::class.java, TextView.BufferType::class.java)
+                        hookExactMethod(
+                            classOf<TextView>(),
+                            "setText",
+                            classOf<CharSequence>(),
+                            classOf<TextView.BufferType>()
+                        ) {
+                            after {
+                                if (descViewId == View.NO_ID) {
+                                    val v0 = instance as? View ?: return@after
+                                    resolveDescViewId(v0.context)
+                                    if (descViewId == View.NO_ID) return@after
                                 }
-                                afterHook {
-                                    if (descViewId == View.NO_ID) {
-                                        val v0 = instance as? View ?: return@afterHook
-                                        resolveDescViewId(v0.context)
-                                        if (descViewId == View.NO_ID) return@afterHook
-                                    }
-                                    val v = instance as? View ?: return@afterHook
-                                    if (v.id != descViewId) return@afterHook
-                                    descCachedViewRef = java.lang.ref.WeakReference(v)
-                                    v.post { applyFreeCopyListener(v, null, false) }
-                                }
+                                val v = instance as? View ?: return@after
+                                if (v.id != descViewId) return@after
+                                descCachedViewRef = java.lang.ref.WeakReference(v)
+                                v.post { applyFreeCopyListener(v, null, false) }
                             }
                         }
                     }
@@ -2994,14 +3073,16 @@ class HookEntry : IYukiHookXposedInit {
                     // 在 afterHook 立即用我们的监听器夺回，保证我们必胜。
                     // 注意：夺回会再次调用 setOnLongClickListener → 再次进入本 hook，
                     // 必须用 descStealInProgress 防重入（否则无限递归 ANR 卡死）。
-                    findClass(name = "android.view.View").hook {
-                        injectMember {
-                            method { name = "setOnLongClickListener" }
-                            afterHook {
+                    hookExactMethod(
+                        classOf<View>(),
+                        "setOnLongClickListener",
+                        classOf<View.OnLongClickListener>()
+                    ) {
+                            after {
                                 // 简介与评论两条夺回链路彼此独立：简介 id 解析失败不能让评论
                                 // 分支提前返回（旧逻辑会使部分版本整个评论兜底失效）。
-                                if (descStealInProgress) return@afterHook
-                                val v = instance as? View ?: return@afterHook
+                                if (descStealInProgress) return@after
+                                val v = instance as? View ?: return@after
                                 if (descViewId == View.NO_ID) resolveDescViewId(v.context)
                                 if (descViewId != View.NO_ID && v.id == descViewId) {
                                     descStealInProgress = true
@@ -3010,12 +3091,12 @@ class HookEntry : IYukiHookXposedInit {
                                     } finally {
                                         descStealInProgress = false
                                     }
-                                    return@afterHook
+                                    return@after
                                 }
                                 // 评论树夺回：官方对「待绑定/已注册」的评论 itemView 设置长按监听时
                                 // （如滑停后 drain 尚未轮到该评论），沿祖先链找评论根并立即重绑，
                                 // 保证用户长按时刻我们的监听器已就位（覆盖「滑停→绑定完成」窗口）。
-                                if (commentStealInProgress) return@afterHook
+                                if (commentStealInProgress) return@after
                                 // 最后防线：绑定回调尚未登记 itemView 时，宿主只要给评论正文/
                                 // 回复预览 TextView 设置官方长按监听，就立即把这个正文控件登记为
                                 // 独立弱引用根并夺回。只命中两个资源 id，不扫描整树、不影响三点
@@ -3031,11 +3112,11 @@ class HookEntry : IYukiHookXposedInit {
                                     } finally {
                                         commentStealInProgress = false
                                     }
-                                    return@afterHook
+                                    return@after
                                 }
                                 // 快路径：尚无任何评论注册时直接返回——此 hook 对全 App 每次
                                 // 官方 setOnLongClickListener 都触发，评论区未进入前零开销
-                                if (commentRootRefs.isEmpty()) return@afterHook
+                                if (commentRootRefs.isEmpty()) return@after
                                 var cur: View? = v
                                 var root: View? = null
                                 synchronized(commentRootLock) {
@@ -3058,7 +3139,6 @@ class HookEntry : IYukiHookXposedInit {
                                     }
                                 }
                             }
-                        }
                     }
                     // 简介触摸长按检测：desc 主体是 ExpandableTextView（9.0.0 与 8.90.2 均是，但父类
                     // 混淆名不同：9.0.0 = Rg1.a，8.90.2 = com.mall.videodetail.vd.videopage.
@@ -3078,12 +3158,14 @@ class HookEntry : IYukiHookXposedInit {
                     // 同构）。本 hook 常驻全版本——不做版本门控/自卸载（该方案曾导致
                     // 自由复制功能异常，已回滚）。
                     runCatching {
-                        findClass(name = "android.view.View").hook {
-                            injectMember {
-                                method { name = "dispatchTouchEvent" }
-                                beforeHook {
-                                    val v = instance as? View ?: return@beforeHook
-                                    val ev = args.getOrNull(0) as? android.view.MotionEvent ?: return@beforeHook
+                        hookExactMethod(
+                            classOf<View>(),
+                            "dispatchTouchEvent",
+                            classOf<android.view.MotionEvent>()
+                        ) {
+                                before {
+                                    val v = instance as? View ?: return@before
+                                    val ev = args.getOrNull(0) as? android.view.MotionEvent ?: return@before
                                     val action = ev.actionMasked
                                     // more_button 属于宿主独立点击控件，不属于评论正文自由复制范围。
                                     // 父 View 的 dispatch 会先建立评论会话；按钮本身到达 beforeHook
@@ -3100,7 +3182,7 @@ class HookEntry : IYukiHookXposedInit {
                                         ) {
                                             commentMoreButtonPassthroughDownTime = 0L
                                         }
-                                        return@beforeHook
+                                        return@before
                                     }
                                     if (v.id != descViewId) {
                                         if (action == android.view.MotionEvent.ACTION_DOWN) {
@@ -3135,10 +3217,10 @@ class HookEntry : IYukiHookXposedInit {
                                             ) {
                                                 clearCommentTouchSession(resetHandled = true)
                                                 commentMoreButtonPassthroughDownTime = ev.downTime
-                                                return@beforeHook
+                                        return@before
                                             }
                                             root?.let { beginOrRetargetCommentTouch(v, it, ev) }
-                                            return@beforeHook
+                                        return@before
                                         }
 
                                         // 没有活动会话时 MOVE/UP/CANCEL 仍是纯 O(1) 早退；有会话时
@@ -3146,7 +3228,7 @@ class HookEntry : IYukiHookXposedInit {
                                         // 不要求它仍落在原评论树内（父容器拦截/切页的关键修复）。
                                         if (activeCommentTouchSessionId == 0L ||
                                             commentTouchDownEventTime != ev.downTime
-                                        ) return@beforeHook
+                                        ) return@before
                                         when (action) {
                                             android.view.MotionEvent.ACTION_MOVE -> {
                                                 val moved = kotlin.math.abs(ev.rawX - commentTouchDownX) +
@@ -3178,7 +3260,7 @@ class HookEntry : IYukiHookXposedInit {
                                                 }
                                             }
                                         }
-                                        return@beforeHook
+                                        return@before
                                     }
                                     when (action) {
                                         android.view.MotionEvent.ACTION_DOWN -> {
@@ -3221,7 +3303,7 @@ class HookEntry : IYukiHookXposedInit {
                                                 (descTouchDownMs == 0L || descTouchedView !== v)
                                             ) {
                                                 clearDescTouchSession(resetHandled = true)
-                                                return@beforeHook
+                                        return@before
                                             }
                                             val dur = (ev.eventTime - descTouchDownMs).coerceAtLeast(0L)
                                             val moved = kotlin.math.abs(ev.rawX - descTouchDownX) +
@@ -3246,7 +3328,6 @@ class HookEntry : IYukiHookXposedInit {
                                         }
                                     }
                                 }
-                            }
                         }
                     }
                     // 拦截官方「复制简介全文」实现（9.0.0：UgcHeadlineService$b.c(String,
@@ -3256,33 +3337,29 @@ class HookEntry : IYukiHookXposedInit {
                     // UP/未滑动）无条件拦截官方复制，由我们的气泡接管。双版本分别注册，
                     // 类/方法不存在时静默跳过（runCatching + findClass 静默）。
                     runCatching {
-                        findClass(name = "com.bilibili.ship.theseus.ugc.intro.ugcheadline.UgcHeadlineService\$b").hook {
-                            injectMember {
-                                method {
-                                    name = "c"
-                                    param(String::class.java, Boolean::class.javaPrimitiveType!!)
-                                }
-                                beforeHook {
+                        val owner = KavaMemberLookup.classOrNull(
+                            biliClassLoader,
+                            "com.bilibili.ship.theseus.ugc.intro.ugcheadline.UgcHeadlineService\$b"
+                        ) ?: return@runCatching
+                        hookExactMethod(owner, "c", classOf<String>(), classOf<Boolean>()) {
+                                before {
                                     if (descTouchedView != null || isOfficialSuppressionActive()) {
                                         this.result = null // 简介触摸中或当前气泡会话内，跳过官方复制全文
                                     }
                                 }
-                            }
                         }
                     }
                     runCatching {
-                        findClass(name = "com.bilibili.ship.theseus.ugc.intro.ugcheadline.UgcHeadlineService\$c").hook {
-                            injectMember {
-                                method {
-                                    name = "w"
-                                    param(Boolean::class.javaPrimitiveType!!, String::class.java)
-                                }
-                                beforeHook {
+                        val owner = KavaMemberLookup.classOrNull(
+                            biliClassLoader,
+                            "com.bilibili.ship.theseus.ugc.intro.ugcheadline.UgcHeadlineService\$c"
+                        ) ?: return@runCatching
+                        hookExactMethod(owner, "w", classOf<Boolean>(), classOf<String>()) {
+                                before {
                                     if (descTouchedView != null || isOfficialSuppressionActive()) {
                                         this.result = null // 简介触摸中或当前气泡会话内，跳过官方复制全文
                                     }
                                 }
-                            }
                         }
                     }
                     descHookOk = true
@@ -3292,21 +3369,23 @@ class HookEntry : IYukiHookXposedInit {
                     // 反射失败（非 ExpandableTextView 的低版本）回退 view.text。气泡内的
                     // 自由选择复制是部分文本（≠全文），不受影响。
                     runCatching {
-                        findClass(name = "android.content.ClipboardManager").hook {
-                            injectMember {
-                                method { name = "setPrimaryClip" }
-                                beforeHook {
+                        hookExactMethod(
+                            classOf<android.content.ClipboardManager>(),
+                            "setPrimaryClip",
+                            classOf<android.content.ClipData>()
+                        ) {
+                                before {
                                     // 自由复制气泡已按当前 TextView 选区完成语义转换；仅同步放行
                                     // 当前线程、当前仍显示气泡中的这一笔写入。ThreadLocal 在调用方
                                     // finally remove，不扩大官方复制豁免范围。
                                     if (popupClipboardWriteInProgress.get() == true && isOurBubbleShowing()) {
-                                        return@beforeHook
+                                        return@before
                                     }
-                                    val clip = args.getOrNull(0) as? android.content.ClipData ?: return@beforeHook
+                                    val clip = args.getOrNull(0) as? android.content.ClipData ?: return@before
                                     val clipText = runCatching {
                                         clip.getItemAt(0).coerceToText(null)?.toString()
-                                    }.getOrNull() ?: return@beforeHook
-                                    if (clipText.isEmpty()) return@beforeHook
+                                    }.getOrNull() ?: return@before
+                                    if (clipText.isEmpty()) return@before
                                     // 评论长按窗口内（我们已弹气泡）的官方复制拦截：9.8.0
                                     // 官方长按检测可能触发官方复制/菜单操作，剪贴板写入兜底拦下。
                                     // 两个修正（气泡内选中复制失效的修复）：
@@ -3334,22 +3413,25 @@ class HookEntry : IYukiHookXposedInit {
                                         }.getOrDefault(false)
                                         if (!fromSystemSelection) {
                                             this.result = null
-                                            return@beforeHook
+                                        return@before
                                         }
                                     }
-                                    val desc = descCachedViewRef?.get() ?: return@beforeHook
+                                    val desc = descCachedViewRef?.get() ?: return@before
                                     // 优先取原文字段 l（ExpandableTextView 保存的完整原文，
                                     // 9.0.0 与 8.90.2 字段名一致；收起状态下 view.text 是截断文本）
                                     val descText = runCatching {
-                                        desc.javaClass.getField("l").get(desc) as? CharSequence
+                                        KavaMemberLookup.fieldOrNull(
+                                            desc.javaClass,
+                                            "l",
+                                            includeSuperclasses = true
+                                        )?.get(desc) as? CharSequence
                                     }.getOrNull()?.toString()
                                         ?: runCatching { (desc as? android.widget.TextView)?.text?.toString() }.getOrNull()
-                                        ?: return@beforeHook
+                                        ?: return@before
                                     if (descText.isNotEmpty() && clipText == descText) {
                                         this.result = null // 官方复制简介全文，拦截（由我们的气泡接管）
                                     }
                                 }
-                            }
                         }
                     }
                     logInfo("free_copy_desc_ok", "[BIL] 简介自由复制 hook 已注册(YukiHookAPI setText+steal+touch)")
@@ -3358,8 +3440,8 @@ class HookEntry : IYukiHookXposedInit {
                     // 连续两次马达震动。长按窗口内（touch 标志非空）拦官方震动，只保留
                     // 我们的那一次（我们弹泡前置清 touch 标志，自身震动不被拦）。
                     runCatching {
-                        val viewClass = Class.forName("android.view.View", false, biliClassLoader)
-                        for (m in viewClass.declaredMethods) {
+                        val viewClass = classOf<View>()
+                        for (m in KavaMemberLookup.declaredMethods(viewClass)) {
                             if (m.name != "performHapticFeedback") continue
                             runCatching {
                                 XposedHelpers.findAndHookMethod(
@@ -3388,9 +3470,9 @@ class HookEntry : IYukiHookXposedInit {
                     // 系列：评论长按进行中（commentTouchedView 非空）一律拦截（低频 API，
                     // 开销可忽略）。短按/滑动放行（commentTouchedView 已清）。
                     runCatching {
-                        val pwClass = Class.forName("android.widget.PopupWindow", false, biliClassLoader)
+                        val pwClass = classOf<android.widget.PopupWindow>()
                         for (mn in listOf("showAsDropDown", "showAtLocation")) {
-                            for (m in pwClass.declaredMethods) {
+                            for (m in KavaMemberLookup.declaredMethods(pwClass)) {
                                 if (m.name != mn) continue
                                 runCatching {
                                     XposedHelpers.findAndHookMethod(
@@ -3446,8 +3528,8 @@ class HookEntry : IYukiHookXposedInit {
                         }
                     }
                     runCatching {
-                        val dlgClass = Class.forName("android.app.Dialog", false, biliClassLoader)
-                        for (m in dlgClass.declaredMethods) {
+                        val dlgClass = classOf<android.app.Dialog>()
+                        for (m in KavaMemberLookup.declaredMethods(dlgClass)) {
                             if (m.name != "show") continue
                             runCatching {
                                 XposedHelpers.findAndHookMethod(
@@ -3496,22 +3578,25 @@ class HookEntry : IYukiHookXposedInit {
         loadSystem {
             runCatching {
                 val cl = appClassLoader
-                val starterClass = Class.forName("com.android.server.wm.ActivityStarter", false, cl)
-                val wpcClass = Class.forName("com.android.server.wm.WindowProcessController", false, cl)
-                val pirClass = Class.forName("com.android.server.am.PendingIntentRecord", false, cl)
+                val starterClass = KavaMemberLookup.classOrNull(cl, "com.android.server.wm.ActivityStarter")
+                    ?: throw ClassNotFoundException("com.android.server.wm.ActivityStarter")
+                val wpcClass = KavaMemberLookup.classOrNull(cl, "com.android.server.wm.WindowProcessController")
+                    ?: throw ClassNotFoundException("com.android.server.wm.WindowProcessController")
+                val pirClass = KavaMemberLookup.classOrNull(cl, "com.android.server.am.PendingIntentRecord")
+                    ?: throw ClassNotFoundException("com.android.server.am.PendingIntentRecord")
                 de.robv.android.xposed.XposedHelpers.findAndHookMethod(
                     starterClass,
                     "shouldAbortBackgroundActivityStart",
-                    Int::class.javaPrimitiveType,
-                    Int::class.javaPrimitiveType,
-                    String::class.java,
-                    Int::class.javaPrimitiveType,
-                    Int::class.javaPrimitiveType,
+                    classOf<Int>(),
+                    classOf<Int>(),
+                    classOf<String>(),
+                    classOf<Int>(),
+                    classOf<Int>(),
                     wpcClass,
                     pirClass,
-                    Boolean::class.javaPrimitiveType,
-                    android.content.Intent::class.java,
-                    android.app.ActivityOptions::class.java,
+                    classOf<Boolean>(),
+                    classOf<android.content.Intent>(),
+                    classOf<android.app.ActivityOptions>(),
                     object : de.robv.android.xposed.XC_MethodHook() {
                         override fun beforeHookedMethod(param: MethodHookParam) {
                             // 仅对本模块包放行（其接收器代开漫游设置界面时处于后台）
@@ -3529,13 +3614,16 @@ class HookEntry : IYukiHookXposedInit {
             // 未通过时把启动重定向到安全中心的确认弹窗（wakepath）。同样仅对本模块包放行。
             runCatching {
                 val cl = appClassLoader
-                val starterImplClass = Class.forName("com.android.server.wm.ActivityStarterImpl", false, cl)
+                val starterImplClass = KavaMemberLookup.classOrNull(
+                    cl,
+                    "com.android.server.wm.ActivityStarterImpl"
+                ) ?: throw ClassNotFoundException("com.android.server.wm.ActivityStarterImpl")
                 de.robv.android.xposed.XposedHelpers.findAndHookMethod(
                     starterImplClass,
                     "isAllowedStartActivity",
-                    Int::class.javaPrimitiveType,
-                    Int::class.javaPrimitiveType,
-                    String::class.java,
+                    classOf<Int>(),
+                    classOf<Int>(),
+                    classOf<String>(),
                     object : de.robv.android.xposed.XC_MethodHook() {
                         override fun beforeHookedMethod(param: MethodHookParam) {
                             if (param.args.getOrNull(2) == "Bilibili_Innocent_Lab.pro") {

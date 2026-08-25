@@ -4,8 +4,7 @@ kotlin = "2.3.10"
 ksp = "2.3.10"
 rovo89-xposed-api = "82"
 yukihookapi = "1.3.1"
-kavaref-core = "1.0.2"
-kavaref-extension = "1.0.1"
+kavaref = "1.1.0"
 hikage-core = "1.0.2"
 hikage-compiler = "1.0.1"
 hikage-extension = "1.0.1"
@@ -36,8 +35,10 @@ kotlin-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 rovo89-xposed-api = { group = "de.robv.android.xposed", name = "api", version.ref = "rovo89-xposed-api" }
 yukihookapi = { group = "com.highcapable.yukihookapi", name = "api", version.ref = "yukihookapi" }
 yukihookapi-ksp-xposed = { group = "com.highcapable.yukihookapi", name = "ksp-xposed", version.ref = "yukihookapi" }
-kavaref-core = { group = "com.highcapable.kavaref", name = "kavaref-core", version.ref = "kavaref-core" }
-kavaref-extension = { group = "com.highcapable.kavaref", name = "kavaref-extension", version.ref = "kavaref-extension" }
+kavaref-bom = { group = "com.highcapable.kavaref", name = "kavaref-bom", version.ref = "kavaref" }
+kavaref-core = { group = "com.highcapable.kavaref", name = "kavaref-core" }
+kavaref-android = { group = "com.highcapable.kavaref", name = "kavaref-android" }
+kavaref-extension = { group = "com.highcapable.kavaref", name = "kavaref-extension" }
 hikage-core = { group = "com.highcapable.hikage", name = "hikage-core", version.ref = "hikage-core" }
 hikage-compiler = { group = "com.highcapable.hikage", name = "hikage-compiler", version.ref = "hikage-compiler" }
 hikage-extension = { group = "com.highcapable.hikage", name = "hikage-extension", version.ref = "hikage-extension" }
