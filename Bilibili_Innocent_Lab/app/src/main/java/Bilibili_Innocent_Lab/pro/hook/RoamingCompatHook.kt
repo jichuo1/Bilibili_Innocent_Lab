@@ -10,8 +10,10 @@ import android.net.Uri
 import android.view.View
 import androidx.core.content.ContextCompat
 import Bilibili_Innocent_Lab.pro.provider.RoamingCompatProvider
+import Bilibili_Innocent_Lab.pro.runtime.KavaMemberLookup
 import Bilibili_Innocent_Lab.pro.runtime.TargetAppStorage
 import Bilibili_Innocent_Lab.pro.runtime.TargetProcess
+import com.highcapable.kavaref.extension.classOf
 import com.highcapable.yukihookapi.hook.xposed.prefs.YukiHookPrefsBridge
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
@@ -250,7 +252,7 @@ object RoamingCompatHook {
         return runCatching {
             // BiliRoaming 的类由 LSPosed 以独立的模块 ClassLoader 加载，不在 B 站
             // appClassLoader 的父链上（本机 DirectAccessService 分支实测
-            // Class.forName(appClassLoader) 抛 CNFE）。取模块 ClassLoader 的可靠
+            // 目标 App ClassLoader 无法解析该类）。取模块 ClassLoader 的可靠
             // 途径：LSPosed 将旧式模块包装进 IXposedHookLoadPackage.Wrapper 并注册在
             // XposedBridge.sLoadedPackageCallbacks（公开静态字段），Wrapper.instance
             // 即模块的 XposedInit 实例，其类加载器即模块类加载器。
@@ -258,15 +260,15 @@ object RoamingCompatHook {
             XposedHelpers.findAndHookMethod(
                 dexHelperClass,
                 "findMethodInvoked",
-                Long::class.javaPrimitiveType,
-                Long::class.javaPrimitiveType,
-                Short::class.javaPrimitiveType,
-                String::class.java,
-                Long::class.javaPrimitiveType,
-                LongArray::class.java,
-                LongArray::class.java,
-                IntArray::class.java,
-                Boolean::class.javaPrimitiveType,
+                classOf<Long>(),
+                classOf<Long>(),
+                classOf<Short>(),
+                classOf<String>(),
+                classOf<Long>(),
+                classOf<LongArray>(),
+                classOf<LongArray>(),
+                classOf<IntArray>(),
+                classOf<Boolean>(),
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         runCatching { filterCommentLongClickResults(param) }
@@ -276,16 +278,16 @@ object RoamingCompatHook {
             XposedHelpers.findAndHookMethod(
                 dexHelperClass,
                 "findMethodUsingString",
-                String::class.java,
-                Boolean::class.javaPrimitiveType,
-                Long::class.javaPrimitiveType,
-                Short::class.javaPrimitiveType,
-                String::class.java,
-                Long::class.javaPrimitiveType,
-                LongArray::class.java,
-                LongArray::class.java,
-                IntArray::class.java,
-                Boolean::class.javaPrimitiveType,
+                classOf<String>(),
+                classOf<Boolean>(),
+                classOf<Long>(),
+                classOf<Short>(),
+                classOf<String>(),
+                classOf<Long>(),
+                classOf<LongArray>(),
+                classOf<LongArray>(),
+                classOf<IntArray>(),
+                classOf<Boolean>(),
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         runCatching { filterOnOperateClickResults(param) }
@@ -310,18 +312,22 @@ object RoamingCompatHook {
      */
     private fun resolveRoamingClass(name: String): Class<*>? {
         val callbacks = runCatching {
-            XposedHelpers.getStaticObjectField(XposedBridge::class.java, "sLoadedPackageCallbacks")
+            KavaMemberLookup.fieldOrNull(classOf<XposedBridge>(), "sLoadedPackageCallbacks")
+                ?.get(null)
         }.getOrNull() as? Iterable<*> ?: return null
         for (callback in callbacks) {
             if (callback == null) continue
             val instance = runCatching {
-                val field = callback.javaClass.getDeclaredField("instance")
-                field.isAccessible = true
+                val field = KavaMemberLookup.fieldOrNull(
+                    callback.javaClass,
+                    "instance",
+                    includeSuperclasses = true
+                ) ?: return@runCatching null
                 field.get(callback)
             }.getOrNull() ?: continue
             if (instance.javaClass.name != "$BILIROAMING_PACKAGE.XposedInit") continue
-            val moduleLoader = instance.javaClass.classLoader
-            return runCatching { Class.forName(name, false, moduleLoader) }.getOrNull()
+            val moduleLoader = instance.javaClass.classLoader ?: continue
+            return KavaMemberLookup.classOrNull(moduleLoader, name)
         }
         return null
     }
@@ -341,7 +347,7 @@ object RoamingCompatHook {
         val params = args[5] as? LongArray ?: return
         if (params.size != 2 || params[1] != -1L) return
         val viewIndex = runCatching {
-            XposedHelpers.callMethod(param.thisObject, "encodeClassIndex", View::class.java)
+            XposedHelpers.callMethod(param.thisObject, "encodeClassIndex", classOf<View>())
         }.getOrNull() as? Long ?: return
         if (params[0] != viewIndex) return
         dropSmallParamCandidates(param, "br_clc_filtered", "commentLongClick")
@@ -440,8 +446,10 @@ object RoamingCompatHook {
         if (mineEntryPatched) return true
         if (appClassLoader == null) return false
         return runCatching {
-            val fragmentClass = Class.forName(MINE_FRAGMENT_CLASS, false, appClassLoader)
-            val accountMineClass = Class.forName(ACCOUNT_MINE_CLASS, false, appClassLoader)
+            val fragmentClass = KavaMemberLookup.classOrNull(appClassLoader, MINE_FRAGMENT_CLASS)
+                ?: throw ClassNotFoundException(MINE_FRAGMENT_CLASS)
+            val accountMineClass = KavaMemberLookup.classOrNull(appClassLoader, ACCOUNT_MINE_CLASS)
+                ?: throw ClassNotFoundException(ACCOUNT_MINE_CLASS)
             XposedHelpers.findAndHookMethod(
                 fragmentClass, "pf", fragmentClass, accountMineClass,
                 object : XC_MethodHook() {
@@ -450,8 +458,10 @@ object RoamingCompatHook {
                     }
                 }
             )
-            val clickClass = Class.forName(MINE_CLICK_CLASS, false, appClassLoader)
-            val itemClass = Class.forName(MENU_GROUP_ITEM_CLASS, false, appClassLoader)
+            val clickClass = KavaMemberLookup.classOrNull(appClassLoader, MINE_CLICK_CLASS)
+                ?: throw ClassNotFoundException(MINE_CLICK_CLASS)
+            val itemClass = KavaMemberLookup.classOrNull(appClassLoader, MENU_GROUP_ITEM_CLASS)
+                ?: throw ClassNotFoundException(MENU_GROUP_ITEM_CLASS)
             XposedHelpers.findAndHookMethod(
                 clickClass, "a", itemClass,
                 object : XC_MethodHook() {
@@ -502,7 +512,9 @@ object RoamingCompatHook {
         }
         if (exists) return
         val item = runCatching {
-            Class.forName(MENU_GROUP_ITEM_CLASS, false, appClassLoader).getDeclaredConstructor().newInstance()
+            val itemClass = KavaMemberLookup.classOrNull(appClassLoader, MENU_GROUP_ITEM_CLASS)
+                ?: return@runCatching null
+            KavaMemberLookup.constructorOrNull(itemClass)?.newInstance()
         }.getOrNull() ?: return
         XposedHelpers.setLongField(item, "id", ROAMING_ENTRY_ID)
         XposedHelpers.setObjectField(item, "title", ROAMING_ENTRY_TITLE)
@@ -1055,7 +1067,7 @@ object RoamingCompatHook {
      * 确定已安装 BiliRoaming 的版本号/版本名（按可信度降序）：
      * 1. 进程内 BuildConfig 反射（最可靠，与 BiliRoaming 自身校验一致）——注意
      *    Application.attach 阶段模块类可能尚未可加载（本机实测 XposedInit 在该
-     *    阶段 Class.forName 失败），callApplicationOnCreate 阶段则可加载；
+     *    阶段目标 ClassLoader 解析失败），callApplicationOnCreate 阶段则可加载；
      * 2. 包管理器读取 me.iacn.biliroaming 的 versionCode/versionName（普通设备上
      *    的最终事实来源：漫游升级后此处即新版本号，缓存字段一律不可信；本机隔离
      *    设备上 B 站进程对该包 getPackageInfo 抛异常 → 落到下一步）；
@@ -1069,9 +1081,13 @@ object RoamingCompatHook {
     private fun moduleVersionInfo(context: Context, appClassLoader: ClassLoader?, cacheFile: File): Pair<Int, String> {
         if (appClassLoader != null) {
             val fromBuildConfig = runCatching {
-                val c = Class.forName("$BILIROAMING_PACKAGE.BuildConfig", false, appClassLoader)
-                val vc = c.getField("VERSION_CODE").getInt(null)
-                val vn = c.getField("VERSION_NAME").get(null) as? String ?: ""
+                val c = KavaMemberLookup.classOrNull(
+                    appClassLoader,
+                    "$BILIROAMING_PACKAGE.BuildConfig"
+                ) ?: return@runCatching null
+                val vc = KavaMemberLookup.fieldOrNull(c, "VERSION_CODE")?.getInt(null)
+                    ?: return@runCatching null
+                val vn = KavaMemberLookup.fieldOrNull(c, "VERSION_NAME")?.get(null) as? String ?: ""
                 vc to vn
             }.getOrNull()
             if (fromBuildConfig != null) {

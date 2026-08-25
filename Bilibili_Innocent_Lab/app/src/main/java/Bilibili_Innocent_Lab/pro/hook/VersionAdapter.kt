@@ -2,11 +2,14 @@ package Bilibili_Innocent_Lab.pro.hook
 
 import android.content.Context
 import android.widget.Toast
+import Bilibili_Innocent_Lab.pro.runtime.KavaMemberLookup
 import Bilibili_Innocent_Lab.pro.runtime.TargetAppStorage
+import com.highcapable.kavaref.extension.classOf
+import com.highcapable.kavaref.extension.isStatic
+import com.highcapable.kavaref.extension.isSubclassOf
 import de.robv.android.xposed.XposedBridge
 import org.json.JSONArray
 import org.json.JSONObject
-import java.lang.reflect.Modifier
 
 /**
  * 哔哩哔哩版本适配器（学 BiliRoaming 的 hook 点自动定位思路，轻量实现）。
@@ -16,7 +19,7 @@ import java.lang.reflect.Modifier
  *   自动定位各功能 hook 点并缓存；适配完成后每次启动走快路径（仅读缓存），不影响
  *   冷启动与运行期性能。
  * - **智能定位**：不在手机上反编译（性能/时间不允许），而是运行时对「内置候选类名」
- *   做 `Class.forName` 验证 + 方法签名特征匹配（如 ViewBinding 参数类含 View 字段 a），
+ *   通过 KavaRef 验证类 + 匹配方法签名特征（如 ViewBinding 参数类含 View 字段 a），
  *   自动适配 hook 点漂移（方法重载变化、签名变化）。
  * - **手动重适配**：UI 提供「重新适配」按钮，清除缓存后重启即重新定位。
  *
@@ -211,7 +214,7 @@ object VersionAdapter {
         // 防止旧缓存（sv 同但 high 缺失——如 8.63.0 早期 low-only 结果）被快路径
         // 复用而跳过重定位（曾有 01:04 prefs 旧结果导致 9.8.0 一直 low-only 的回归）。
         val highCandidateExists = COMMENT_HIGH_CANDIDATES.any {
-            runCatching { Class.forName(it, false, classLoader) }.isSuccess
+            KavaMemberLookup.hasClass(classLoader, it)
         }
         if (cached != null && cached.biliVersionCode == vc &&
             (cached.commentHigh != null || !highCandidateExists)) {
@@ -260,7 +263,7 @@ object VersionAdapter {
     }
 
     /** 智能定位核心：对内置候选类做存在性验证 + 方法签名特征匹配。
-     * 全部在内存中完成（Class.forName + 反射），无任何反编译/文件解压开销。
+     * 全部在内存中完成（KavaRef ClassLoader/成员解析），无任何反编译/文件解压开销。
      * 成功标准放宽：任一候选类存在即算成功——运行期注册有 classExists 双路径回退，
      * 适配结果主要用于快路径签名（定位不到签名不影响运行期内置候选注册），
      * 避免「功能可用但报适配失败」的误导（8.90.2 实测）。
@@ -269,8 +272,8 @@ object VersionAdapter {
         val vc = biliVersionCode(context)
         val low = locateCommentLow(loader)
         val high = locateCommentHigh(loader)
-        val anyClassExists = COMMENT_LOW_CANDIDATES.any { runCatching { Class.forName(it, false, loader) }.isSuccess }
-            || COMMENT_HIGH_CANDIDATES.any { runCatching { Class.forName(it, false, loader) }.isSuccess }
+        val anyClassExists = COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         if (low == null && high == null && !anyClassExists) return null
         return AdaptResult(vc, System.currentTimeMillis(), low, high)
     }
@@ -282,9 +285,10 @@ object VersionAdapter {
     private fun locateCommentLow(loader: ClassLoader): HookPoint? {
         val methodCandidates = listOf("o0", "q0")
         for (cn in COMMENT_LOW_CANDIDATES) {
-            val c = runCatching { Class.forName(cn, false, loader) }.getOrNull() ?: continue
+            val c = KavaMemberLookup.classOrNull(loader, cn) ?: continue
+            val declaredMethods = KavaMemberLookup.declaredMethods(c)
             for (mn in methodCandidates) {
-                if (c.declaredMethods.any { it.name == mn }) {
+                if (declaredMethods.any { it.name == mn }) {
                     return HookPoint(cn, mn)
                 }
             }
@@ -305,26 +309,26 @@ object VersionAdapter {
      */
     private fun locateCommentHigh(loader: ClassLoader): HookPoint? {
         for (cn in COMMENT_HIGH_CANDIDATES) {
-            val c = runCatching { Class.forName(cn, false, loader) }.getOrNull() ?: continue
+            val c = KavaMemberLookup.classOrNull(loader, cn) ?: continue
             // 特征 1：任一字段声明 CommentItem（字段名不限；8.63.0 为 h、9.x 为 i）
-            val hasCommentItemField = runCatching {
-                c.declaredFields.any { it.type.name.endsWith(".CommentItem") }
-            }.getOrDefault(false)
+            val hasCommentItemField = KavaMemberLookup.declaredFields(c) {
+                it.type.name.endsWith(".CommentItem")
+            }.isNotEmpty()
             if (!hasCommentItemField) continue
             // 特征 2：绑定方法 = 非 static + 参数含 ViewBinding（View 字段）+ 参数 1-5。
             // 9.8.0 的 static h(al.J) 只设置字号/颜色，旧定位器会误把它缓存成绑定入口。
             // 候选中优先带 CommentItem 实参的方法（可避免 Handler 可变字段串项），否则
             // 选参数更多的主绑定方法（9.8.0 为 d(al.J, boolean)，而 e(al.J) 是分支布局）。
             val bindingCandidates = java.util.ArrayList<java.lang.reflect.Method>()
-            for (m in c.declaredMethods) {
+            for (m in KavaMemberLookup.declaredMethods(c)) {
                 if (m.parameterCount < 1 || m.parameterCount > 5) continue
-                if (Modifier.isStatic(m.modifiers)) continue
+                if (m.isStatic) continue
                 var hasViewBinding = false
                 for (pt in m.parameterTypes) {
                     if (pt.isPrimitive || pt.isArray || pt.isInterface) continue
-                    val hasViewField = runCatching {
-                        pt.declaredFields.any { android.view.View::class.java.isAssignableFrom(it.type) }
-                    }.getOrDefault(false)
+                    val hasViewField = KavaMemberLookup.declaredFields(pt) {
+                        it.type isSubclassOf classOf<android.view.View>()
+                    }.isNotEmpty()
                     if (hasViewField) { hasViewBinding = true; break }
                 }
                 if (!hasViewBinding) continue

@@ -64,8 +64,10 @@ dependencies {
     ksp(libs.yukihookapi.ksp.xposed)
     implementation(libs.yukihookapi)
 
-    // Optional: KavaRef (https://github.com/HighCapable/KavaRef)
+    // KavaRef (https://github.com/HighCapable/KavaRef)
+    implementation(platform(libs.kavaref.bom))
     implementation(libs.kavaref.core)
+    implementation(libs.kavaref.android)
     implementation(libs.kavaref.extension)
 
     // Optional: Hikage (https://github.com/BetterAndroid/Hikage)
