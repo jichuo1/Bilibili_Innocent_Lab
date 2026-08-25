@@ -186,7 +186,7 @@
                         android:textSize="12sp" />
                 </LinearLayout>
 
-                <Bilibili_Innocent_Lab.pro.ui.view.MaterialSwitch
+                <com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch
                     android:id="@+id/hide_icon_in_launcher_switch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

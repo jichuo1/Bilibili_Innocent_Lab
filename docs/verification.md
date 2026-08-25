@@ -19,7 +19,7 @@ cache-path derivation and bounded, merged-output command execution.
    the app is running. The module App broadcast must update the local cache.
 2. Send the same action from an unrelated package. Android must reject it
    because the sender lacks
-   `Bilibili_Innocent_Lab.pro.permission.SET_ROAMING_COMPAT`.
+   `com.Bilibili_Innocent_Lab.xposedmodule.permission.SET_ROAMING_COMPAT`.
 3. Test cold start, `web`, `download`, and `ijkservice` processes with the
    module process both alive and stopped.
 4. Test Bilibili 8.63, 8.90, 9.0, and 9.8 targets where available, including a

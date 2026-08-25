@@ -17,10 +17,10 @@
         Receiver 所在进程不需要持有该权限；系统校验的是广播发送者。
     -->
     <permission
-        android:name="Bilibili_Innocent_Lab.pro.permission.SET_ROAMING_COMPAT"
+        android:name="${applicationId}.permission.SET_ROAMING_COMPAT"
         android:protectionLevel="signature" />
 
-    <uses-permission android:name="Bilibili_Innocent_Lab.pro.permission.SET_ROAMING_COMPAT" />
+    <uses-permission android:name="${applicationId}.permission.SET_ROAMING_COMPAT" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
@@ -55,7 +55,7 @@
         -->
         <provider
             android:name=".provider.RoamingCompatProvider"
-            android:authorities="Bilibili.Innocent_Lab.pro.roaming"
+            android:authorities="${applicationId}.roaming"
             android:exported="true" />
 
         <!--
@@ -68,7 +68,7 @@
             android:exported="true">
 
             <intent-filter>
-                <action android:name="Bilibili.Innocent_Lab.pro.OPEN_ROAMING_SETTINGS" />
+                <action android:name="${applicationId}.OPEN_ROAMING_SETTINGS" />
             </intent-filter>
         </receiver>
 
