@@ -11,9 +11,8 @@
     <string name="hide_app_icon_on_launcher">在桌面隐藏模块图标</string>
     <string name="hide_app_icon_on_launcher_tip">隐藏模块图标后界面可能会被关闭，将不会再在桌面显示，你可以在 EdXposed、LSPosed 中找到模块设置并打开。</string>
     <string name="hide_app_icon_on_launcher_notice">注意：请务必在 LSPosed 中关闭“强制显示桌面图标”功能</string>
-    <string name="adskip_settings">广告跳过</string>
-    <string name="adskip_enable">启用跳过暂停页广告</string>
-    <string name="adskip_status_tip">实验性功能，效果未知，不推荐开启</string>
+    <string name="paused_page_ad_enable">隐藏视频暂停页广告</string>
+    <string name="paused_page_ad_tip">开启后不再展示某些视频暂停后可能弹出的推广广告</string>
     <string name="roaming_compat_enable">漫游版本支持扩展</string>
     <string name="roaming_compat_tip">为漫游提供更高版本兼容支持，开启后需要重启两次哔哩哔哩生效</string>
     <string name="gamecard_ad_settings">视频详细页广告</string>
@@ -23,7 +22,7 @@
     <string name="banner_ad_enable">隐藏首页大卡轮播推荐</string>
     <string name="banner_ad_tip">开启后补全漫游失效的首页轮播净化</string>
     <string name="merch_ad_enable">隐藏UP主分享好物推广</string>
-    <string name="merch_ad_tip">开启后视频详情页的UP主分享好物推广不再展示</string>
+    <string name="merch_ad_tip">开启后不再展示某些视频详细页的UP主分享好物推广</string>
     <string name="purify_settings">净化</string>
     <string name="free_copy_enable">长按评论以自由复制文本</string>
     <string name="free_copy_tip">开启后补全漫游失效的长按评论自由复制文本</string>

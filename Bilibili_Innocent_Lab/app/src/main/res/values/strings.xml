@@ -10,9 +10,8 @@
     <string name="hide_app_icon_on_launcher">Hide app icons on launcher</string>
     <string name="hide_app_icon_on_launcher_tip">After hiding the app icon, the interface may be closed and will no longer be displayed on the launcher. You can find and open the module settings in EdXposed or LSPosed.</string>
     <string name="hide_app_icon_on_launcher_notice">Note: Be sure to turn off the \"Force apps to show launcher icons\" feature in LSPosed</string>
-    <string name="adskip_settings">Ad skip</string>
-    <string name="adskip_enable">Enable skipping paused-page ad</string>
-    <string name="adskip_status_tip">Experimental feature, effect unknown, not recommended</string>
+    <string name="paused_page_ad_enable">Hide paused-page video ads</string>
+    <string name="paused_page_ad_tip">When enabled, promo ads that may pop up after pausing some videos are not displayed</string>
     <string name="roaming_compat_enable">Roaming version support extension</string>
     <string name="roaming_compat_tip">Provides higher-version compatibility support for the roaming module; requires restarting Bilibili twice to take effect</string>
     <string name="gamecard_ad_settings">Video detail page ads</string>
@@ -22,7 +21,7 @@
     <string name="banner_ad_enable">Hide home banner carousel</string>
     <string name="banner_ad_tip">Cleans up the home banner carousel that BiliRoaming can no longer handle</string>
     <string name="merch_ad_enable">Hide UP merchandise promotions</string>
-    <string name="merch_ad_tip">Hides the "UP merchandise" product ad block on video detail pages</string>
+    <string name="merch_ad_tip">When enabled, "UP merchandise" promotions on some video detail pages are no longer shown</string>
     <string name="purify_settings">Purify</string>
     <string name="purify_ad_subtitle">Video mentions ads · Home carousel</string>
     <string name="free_copy_enable">Free copy on long-press</string>
