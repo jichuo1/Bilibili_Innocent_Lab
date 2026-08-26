@@ -56,4 +56,16 @@ class FeatureStatusInstallerTest {
         assertEquals(FeatureInstallResult.Skipped("disabled"), result)
         assertEquals(listOf("home_top_bar_status" to "disabled"), statuses)
     }
+
+    @Test
+    fun `dynamic tabs reports disabled without resolving hook points`() {
+        val result = DynamicTabsFeatureInstaller(
+            hideCity = false,
+            hideSchool = false,
+            point = null
+        ).install(environment)
+
+        assertEquals(FeatureInstallResult.Skipped("disabled"), result)
+        assertEquals(listOf("dynamic_tabs_status" to "disabled"), statuses)
+    }
 }

@@ -25,6 +25,7 @@ import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BlockUpdateFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DynamicTabsFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.GamePromotionFeatureInstaller
@@ -2738,6 +2739,22 @@ class HookEntry : IYukiHookXposedInit {
                     BlockUpdateFeatureInstaller(
                         enabled = prefs.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false),
                         point = hostAdaptResult?.blockUpdate
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    DynamicTabsFeatureInstaller(
+                        hideCity = prefs.getBoolean(
+                            FeaturePreferences.HIDE_DYNAMIC_CITY_TAB,
+                            false
+                        ),
+                        hideSchool = prefs.getBoolean(
+                            FeaturePreferences.HIDE_DYNAMIC_SCHOOL_TAB,
+                            false
+                        ),
+                        point = hostAdaptResult?.dynamicTabs
                     )
                 )
             )

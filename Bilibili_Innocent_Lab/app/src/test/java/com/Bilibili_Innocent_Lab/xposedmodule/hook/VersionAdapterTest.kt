@@ -62,7 +62,24 @@ class VersionAdapterTest {
             "c",
             listOf("android.content.Context")
         ),
-        hostFingerprint = "host|9090300|rules=4",
+        dynamicTabs = VersionAdapter.DynamicTabsPoint(
+            listGetter = VersionAdapter.HookPoint("dynamic.Mediator", "tabs", emptyList()),
+            addTab = VersionAdapter.HookPoint(
+                "com.google.android.material.tabs.TabLayout",
+                "addTab",
+                listOf("com.google.android.material.tabs.TabLayout\$Tab", "boolean")
+            ),
+            tabCustomViewGetter = VersionAdapter.HookPoint(
+                "com.google.android.material.tabs.TabLayout\$Tab",
+                "getCustomView",
+                emptyList()
+            ),
+            mediatorTabClassName = "dynamic.MediatorTabLayout",
+            itemClassName = "dynamic.TabItem",
+            itemTitleField = "a",
+            itemNameField = "b"
+        ),
+        hostFingerprint = "host|9090300|rules=5",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",

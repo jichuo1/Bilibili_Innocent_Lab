@@ -101,6 +101,8 @@ class MainActivity : AppViewsActivity() {
     private var hideHomeSearchDefaultWord = false
     private var hideMineVip = false
     private var blockAppUpdate = false
+    private var hideDynamicCityTab = false
+    private var hideDynamicSchoolTab = false
     private var freeCopyEnabled = true
     private var freeCopyDescEnabled = true
     private var freeCopyLightMode = false
@@ -1679,6 +1681,16 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read block app update prefs failed", t)
         }.getOrDefault(false)
+        hideDynamicCityTab = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.HIDE_DYNAMIC_CITY_TAB, false) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read dynamic city tab prefs failed", t)
+        }.getOrDefault(false)
+        hideDynamicSchoolTab = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.HIDE_DYNAMIC_SCHOOL_TAB, false) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read dynamic school tab prefs failed", t)
+        }.getOrDefault(false)
         merchAdEnabled = runCatching {
             modulePrefs?.getBoolean(HookEntry.PREF_MERCH_ENABLED, true) ?: true
         }.onFailure { t ->
@@ -2402,7 +2414,103 @@ class MainActivity : AppViewsActivity() {
                                     setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x40))
                                 }
                             )
-                            // 子项 6：评论区长按自由复制
+                            // 子项 6：动态页标签净化（新功能默认关闭）
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.7f
+                                isSingleLine = true
+                                text = stringResource(R.string.dynamic_page_settings)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 11f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.hide_dynamic_city_tab)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = hideDynamicCityTab
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    hideDynamicCityTab = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.HIDE_DYNAMIC_CITY_TAB,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write dynamic city tab prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.hide_dynamic_city_tab_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.hide_dynamic_school_tab)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = hideDynamicSchoolTab
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    hideDynamicSchoolTab = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.HIDE_DYNAMIC_SCHOOL_TAB,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write dynamic school tab prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.hide_dynamic_school_tab_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            FrameLayout(
+                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 14.dp
+                                },
+                                init = {
+                                    setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x40))
+                                }
+                            )
+                            // 子项 7：评论区长按自由复制
                             TextView(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     bottomMargin = 4.dp
