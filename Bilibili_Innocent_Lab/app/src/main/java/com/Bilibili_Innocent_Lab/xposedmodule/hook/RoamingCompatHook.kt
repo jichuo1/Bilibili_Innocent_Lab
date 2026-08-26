@@ -19,6 +19,7 @@ import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import java.io.File
+import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.util.ArrayList
 import java.util.Collections
@@ -70,10 +71,9 @@ import java.util.Collections
  * 6. 「我的」页入口注入（方案 B）：fork 的 settings 链第二处断点在 addSetting
  *    （9.0.0 上「bilibili://main/scan」等查询串已消失且运行时注入用 setIntField
  *    写 long 型 id 会失败），漫游设置入口无法经 fork 自身注入。本扩展直接 hook
- *    HomeUserCenterFragment.pf（菜单构造完成）往「设置」所在 MenuGroup 的 itemList
- *    追加「哔哩漫游设置」MenuGroup.Item（uri=bilibili://biliroaming），并 hook
- *    HomeUserCenterFragment$e.a（菜单项点击分发）命中该 uri 时打开漫游设置
- *    （见 patchMineEntry）。点击打开漫游设置的跨进程细节见 openRoamingSettings。
+ *    VersionAdapter 按静态回调参数、List<MenuGroup> 字段与 RecyclerView.Adapter 字段
+ *    结构定位菜单构建链，再往「设置」所在 MenuGroup.itemList 追加入口；点击分发同样
+ *    按 MenuGroup.Item 参数结构定位，避免 pf/l1/k1 等 R8 名称漂移。
  *
  * 版本判定：优先 BuildConfig 反射与包管理器查询 me.iacn.biliroaming（普通设备上
  * 可靠，是「已装漫游版本」的唯一事实来源），已知装机版本常量兜底（本机隔离设备
@@ -116,10 +116,7 @@ object RoamingCompatHook {
     /** BiliRoaming 的 DexKit 封装类（官方 1.7.0 与社区版 1430 均未混淆此类名） */
     private const val DEX_HELPER_CLASS = "me.iacn.biliroaming.utils.DexHelper"
 
-    /** 本扩展注入「哔哩漫游」设置入口所需的 B 站 9.0.0 类与方法（见 [patchMineEntry]） */
-    private const val MINE_FRAGMENT_CLASS = "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment"
-    private const val MINE_CLICK_CLASS = "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment\$e"
-    private const val ACCOUNT_MINE_CLASS = "tv.danmaku.bili.ui.main2.api.AccountMine"
+    /** 本扩展注入「哔哩漫游」设置入口所需的稳定数据类型（方法/字段由 VersionAdapter 定位）。 */
     private const val MENU_GROUP_ITEM_CLASS = "com.bilibili.lib.homepage.mine.MenuGroup\$Item"
 
     /** 注入的「哔哩漫游设置」入口的 uri / id / 标题 / 图标（与 fork 的 case 9 注入保持一致） */
@@ -433,9 +430,10 @@ object RoamingCompatHook {
      * 即便放宽到能解析出方法，fork 的 case 9 运行时钩子仍会用
      * setIntField("id", 114514) 写 id——而 9.0.0 的 MenuGroup.Item.id 已是 long，
      * setIntField 对 long 字段抛 IllegalArgumentException，注入被静默吞掉。
-     * 因此本扩展自己注入入口：hook 我的页菜单构造方法 pf（菜单构建完成后），
+     * 因此本扩展自己注入入口：由 VersionAdapter 按 Fragment/AccountMine 参数签名定位
+     * 我的页全部菜单构造回调（菜单构建完成后），
      * 往「设置」所在 MenuGroup 的 itemList 追加一个 uri="bilibili://biliroaming"
-     * 的 MenuGroup.Item；并 hook 菜单项点击分发 HomeUserCenterFragment$e.a，命中该
+     * 的 MenuGroup.Item；再按 MenuGroup.Item 参数签名定位 `$e`/`$i` 点击分发，命中该
      * uri 时直接打开 me.iacn.biliroaming 的 MainActivity。
      * 幂等：每进程只注册一次；重复构建菜单时按 id 去重。
      *
@@ -446,51 +444,96 @@ object RoamingCompatHook {
         if (mineEntryPatched) return true
         if (appClassLoader == null) return false
         return runCatching {
-            val fragmentClass = KavaMemberLookup.classOrNull(appClassLoader, MINE_FRAGMENT_CLASS)
-                ?: throw ClassNotFoundException(MINE_FRAGMENT_CLASS)
-            val accountMineClass = KavaMemberLookup.classOrNull(appClassLoader, ACCOUNT_MINE_CLASS)
-                ?: throw ClassNotFoundException(ACCOUNT_MINE_CLASS)
-            XposedHelpers.findAndHookMethod(
-                fragmentClass, "pf", fragmentClass, accountMineClass,
-                object : XC_MethodHook() {
+            val point = VersionAdapter.locateMineEntry(appClassLoader)
+                ?: throw NoSuchMethodException("HomeUserCenterFragment menu structure")
+            val firstBuild = point.buildMethods.firstOrNull()
+                ?: throw NoSuchMethodException("HomeUserCenterFragment menu callbacks")
+            val fragmentClass = KavaMemberLookup.classOrNull(
+                appClassLoader,
+                firstBuild.className
+            ) ?: throw ClassNotFoundException(firstBuild.className)
+            val groupField = KavaMemberLookup.fieldOrNull(
+                fragmentClass,
+                point.groupListField
+            ) ?: throw NoSuchFieldException(point.groupListField)
+            val adapterField = point.adapterField?.let {
+                KavaMemberLookup.fieldOrNull(fragmentClass, it)
+            }
+            point.buildMethods.forEach { buildPoint ->
+                val buildParams = buildPoint.paramClassNames.orEmpty().map {
+                    KavaMemberLookup.classOrNull(appClassLoader, it)
+                        ?: throw ClassNotFoundException(it)
+                }.toTypedArray()
+                val buildMethod = KavaMemberLookup.methodOrNull(
+                    fragmentClass,
+                    buildPoint.methodName,
+                    *buildParams
+                ) ?: throw NoSuchMethodException(buildPoint.methodName)
+                XposedBridge.hookMethod(buildMethod, object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
-                        runCatching { injectMineEntry(param.args.getOrNull(0), appClassLoader) }
+                        runCatching {
+                            injectMineEntry(
+                                param.args.getOrNull(0),
+                                appClassLoader,
+                                groupField,
+                                adapterField
+                            )
+                        }
                     }
-                }
-            )
-            val clickClass = KavaMemberLookup.classOrNull(appClassLoader, MINE_CLICK_CLASS)
-                ?: throw ClassNotFoundException(MINE_CLICK_CLASS)
-            val itemClass = KavaMemberLookup.classOrNull(appClassLoader, MENU_GROUP_ITEM_CLASS)
-                ?: throw ClassNotFoundException(MENU_GROUP_ITEM_CLASS)
-            XposedHelpers.findAndHookMethod(
-                clickClass, "a", itemClass,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val item = param.args.getOrNull(0)
-                        val uri = item?.let { runCatching { XposedHelpers.getObjectField(it, "uri") as? String }.getOrNull() }
-                        if (uri != ROAMING_URI) return
-                        val ctx = mineClickContext(param.thisObject) ?: return
-                        openRoamingSettings(ctx)
-                        param.result = null
+                })
+            }
+
+            val clickClass = KavaMemberLookup.classOrNull(
+                appClassLoader,
+                point.clickMethod.className
+            ) ?: throw ClassNotFoundException(point.clickMethod.className)
+            val clickParams = point.clickMethod.paramClassNames.orEmpty().map {
+                KavaMemberLookup.classOrNull(appClassLoader, it)
+                    ?: throw ClassNotFoundException(it)
+            }.toTypedArray()
+            val clickMethod = KavaMemberLookup.methodOrNull(
+                clickClass,
+                point.clickMethod.methodName,
+                *clickParams
+            ) ?: throw NoSuchMethodException(point.clickMethod.methodName)
+            XposedBridge.hookMethod(clickMethod, object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    val item = param.args.getOrNull(0)
+                    val uri = item?.let {
+                        runCatching { XposedHelpers.getObjectField(it, "uri") as? String }.getOrNull()
                     }
+                    if (uri != ROAMING_URI) return
+                    val ctx = mineClickContext(param.thisObject) ?: return
+                    openRoamingSettings(ctx)
+                    param.result = null
                 }
-            )
+            })
             mineEntryPatched = true
-            logInfo("br_mine_patched", "$LOG_PREFIX 已注册「我的」页入口注入钩子（方案 B）")
+            logInfo(
+                "br_mine_patched",
+                "$LOG_PREFIX 已注册「我的」页入口注入钩子 " +
+                    "(${point.buildMethods.joinToString("+") { it.methodName }}/" +
+                    "${point.groupListField}/${point.adapterField})"
+            )
             true
         }.onFailure { t ->
             logError("br_mine_patch_err", "$LOG_PREFIX 「我的」页入口注入钩子注册失败: $t")
         }.getOrDefault(false)
     }
 
-    /** 往我的页菜单注入「哔哩漫游设置」入口。在菜单构造方法 pf 之后调用，
-     * 此时 fragment.l1（ArrayList<MenuGroup>）已就绪；找到「设置」所在
+    /** 往我的页菜单注入「哔哩漫游设置」入口。在 Adapter 定位的菜单构造方法之后调用；
+     * 此时 MenuGroup 列表已就绪；找到「设置」所在
      * MenuGroup（含 uri="activity://main/preference" 的 itemList，兜底取第一个
      * 非空 itemList）并追加 MenuGroup.Item。按 id 去重，重复构建不追加第二次。 */
-    private fun injectMineEntry(fragment: Any?, appClassLoader: ClassLoader) {
+    private fun injectMineEntry(
+        fragment: Any?,
+        appClassLoader: ClassLoader,
+        groupField: Field,
+        adapterField: Field?
+    ) {
         if (fragment == null) return
         val groups = runCatching {
-            XposedHelpers.getObjectField(fragment, "l1") as? List<*>
+            groupField.get(fragment) as? List<*>
         }.getOrNull() ?: return
         if (groups.isEmpty()) return
         var targetList: MutableList<Any>? = null
@@ -523,7 +566,7 @@ object RoamingCompatHook {
         XposedHelpers.setIntField(item, "visible", 1)
         targetList.add(item)
         runCatching {
-            val adapter = XposedHelpers.getObjectField(fragment, "k1")
+            val adapter = adapterField?.get(fragment) ?: return@runCatching
             XposedHelpers.callMethod(adapter, "notifyDataSetChanged")
         }
         logInfo("br_mine_injected", "$LOG_PREFIX 已注入「哔哩漫游设置」入口到我的页菜单")
@@ -532,7 +575,7 @@ object RoamingCompatHook {
     /** 解析点击回调处的可用 Context（仅用 Application 兜底；启动路径都带 NEW_TASK，足够） */
     private fun mineClickContext(clickInstance: Any?): Context? {
         if (clickInstance != null) {
-            // e 为 static 内部类（无 this$0），此处仅作防御性兜底
+            // 新版 `$e` 常为 static，8.90.2 的 `$i` 可能保留 this$0；两种结构均兼容。
             val outer = runCatching {
                 XposedHelpers.getObjectField(clickInstance, "this\$0")
             }.getOrNull()
