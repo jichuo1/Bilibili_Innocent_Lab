@@ -103,6 +103,7 @@ class MainActivity : AppViewsActivity() {
     private var blockAppUpdate = false
     private var hideDynamicCityTab = false
     private var hideDynamicSchoolTab = false
+    private var preferDynamicVideoTab = false
     private var showFullNumbers = false
     private var freeCopyEnabled = true
     private var freeCopyDescEnabled = true
@@ -1692,6 +1693,11 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read dynamic school tab prefs failed", t)
         }.getOrDefault(false)
+        preferDynamicVideoTab = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB, false) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read preferred dynamic video prefs failed", t)
+        }.getOrDefault(false)
         showFullNumbers = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.SHOW_FULL_NUMBERS, false) ?: false
         }.onFailure { t ->
@@ -2504,6 +2510,44 @@ class MainActivity : AppViewsActivity() {
                                 alpha = 0.6f
                                 setLineSpacing(6f, 1f)
                                 text = stringResource(R.string.hide_dynamic_school_tab_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.prefer_dynamic_video_tab)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = preferDynamicVideoTab
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    preferDynamicVideoTab = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write preferred dynamic video prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.prefer_dynamic_video_tab_tip)
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }

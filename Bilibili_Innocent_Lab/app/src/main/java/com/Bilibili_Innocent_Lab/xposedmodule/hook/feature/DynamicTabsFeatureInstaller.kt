@@ -12,13 +12,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class DynamicTabsFeatureInstaller(
     private val hideCity: Boolean,
     private val hideSchool: Boolean,
+    private val preferVideo: Boolean,
     private val point: VersionAdapter.DynamicTabsPoint?
 ) : FeatureInstaller {
 
     override val id: String = ID
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
-        if (!hideCity && !hideSchool) {
+        if (!hideCity && !hideSchool && !preferVideo) {
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
@@ -44,21 +45,26 @@ internal class DynamicTabsFeatureInstaller(
         ) ?: return missing(environment, "missing-custom-view-getter")
 
         val forcedVisibleKinds = ConcurrentHashMap.newKeySet<HiddenKind>()
+        val videoAvailable = AtomicBoolean(false)
         val cityLogged = AtomicBoolean(false)
         val schoolLogged = AtomicBoolean(false)
+        val videoPreferredLogged = AtomicBoolean(false)
         var installedCount = 0
 
         val listInstalled = runCatching {
             environment.registrar.adapted("dynamic.tabs.list", adapted.listGetter) {
                 after {
                     val source = result as? List<*> ?: return@after
+                    var hasVideo = false
                     val filtered = source.filterNot { item ->
                         if (item == null) return@filterNot false
                         val title = runCatching { titleField.get(item) as? String }.getOrNull()
                         val name = runCatching { nameField.get(item) as? String }.getOrNull()
+                        if (isVideoTab(title, name)) hasVideo = true
                         val hidden = hiddenKind(title, name, hideCity, hideSchool)
                         hidden != null && hidden !in forcedVisibleKinds
                     }
+                    if (preferVideo) videoAvailable.set(hasVideo)
                     if (filtered.isNotEmpty() && filtered.size != source.size) {
                         result = filtered
                     }
@@ -76,6 +82,22 @@ internal class DynamicTabsFeatureInstaller(
                         customViewGetter.invoke(tab) as? View
                     }.getOrNull() ?: return@before
                     val label = findTabLabel(customView) ?: return@before
+                    val originalSelected = args.getOrNull(1) as? Boolean ?: false
+                    val preferredSelected = selectedForVideoPreference(
+                        label = label,
+                        videoAvailable = videoAvailable.get(),
+                        preferVideo = preferVideo,
+                        originalSelected = originalSelected
+                    )
+                    if (preferredSelected != originalSelected) args[1] = preferredSelected
+                    if (preferredSelected && preferVideo && isVideoTab(label, null) &&
+                        videoPreferredLogged.compareAndSet(false, true)
+                    ) {
+                        environment.logInfo(
+                            "dynamic_tab_preferred_video",
+                            "[BIL] 动态页已将“视频”设为初始选中标签"
+                        )
+                    }
                     val hidden = hiddenKind(label, null, hideCity, hideSchool) ?: return@before
                     val selected = args.getOrNull(1) as? Boolean ?: false
                     if (selected) {
@@ -157,6 +179,20 @@ internal class DynamicTabsFeatureInstaller(
                 return HiddenKind.SCHOOL
             }
             return null
+        }
+
+        internal fun isVideoTab(title: String?, name: String?): Boolean =
+            title?.trim() == "视频" || name?.trim()?.lowercase() == "video"
+
+        internal fun selectedForVideoPreference(
+            label: String?,
+            videoAvailable: Boolean,
+            preferVideo: Boolean,
+            originalSelected: Boolean
+        ): Boolean = if (preferVideo && videoAvailable) {
+            isVideoTab(label, null)
+        } else {
+            originalSelected
         }
 
         private fun findTabLabel(root: View): String? {

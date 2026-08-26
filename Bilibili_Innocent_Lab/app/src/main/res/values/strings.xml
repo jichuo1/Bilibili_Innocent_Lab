@@ -36,6 +36,8 @@
     <string name="hide_dynamic_city_tab_tip">Removes only the City filter tab and preserves the remaining tab order. Restart Bilibili to apply.</string>
     <string name="hide_dynamic_school_tab">Hide the Campus tab</string>
     <string name="hide_dynamic_school_tab_tip">Removes only the Campus filter tab and preserves the remaining tab order. Restart Bilibili to apply.</string>
+    <string name="prefer_dynamic_video_tab">Prefer the Video tab</string>
+    <string name="prefer_dynamic_video_tab_tip">Selects Video when the Dynamic page builds its tabs, without scanning or simulating UI clicks. Restart Bilibili to apply.</string>
     <string name="number_display_settings">Number display</string>
     <string name="show_full_numbers">Show full numbers</string>
     <string name="show_full_numbers_tip">Displays non-negative integer counts without ten-thousand or hundred-million abbreviations. Restart Bilibili to apply.</string>
