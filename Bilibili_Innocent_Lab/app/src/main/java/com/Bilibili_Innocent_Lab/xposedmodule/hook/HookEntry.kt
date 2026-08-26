@@ -20,6 +20,7 @@ import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import java.lang.reflect.Constructor
+import java.lang.reflect.Method
 import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
@@ -2379,6 +2380,23 @@ class HookEntry : IYukiHookXposedInit {
             // 目标 app（B 站）的 ClassLoader，用于加载其私有类构造空 section。
             // 注意：不能用 replaceAny 回调里的 instance（static 工厂方法的 instance 为 null，会 NPE）。
             val biliClassLoader = appClassLoader
+            val hookPointRegistry = HookPointRegistry(biliClassLoader)
+
+            fun installResolvedHook(
+                id: String,
+                method: Method,
+                block: MemberHookCreator.() -> Unit
+            ) {
+                try {
+                    // 存量 Hook 暂不启用去重：保持评论自由复制的多层兜底语义不变。
+                    // 新功能安装器会在调用此边界前显式 claim 逻辑 Hook 点。
+                    method.hook { block() }
+                    hookPointRegistry.markInstalled(id, method)
+                } catch (throwable: Throwable) {
+                    hookPointRegistry.markFailed(id, method, throwable)
+                    throw throwable
+                }
+            }
 
             /**
              * KavaRef → Yuki Member Hook 的统一边界。成员定位失败直接抛出，让各功能原有的
@@ -2389,12 +2407,10 @@ class HookEntry : IYukiHookXposedInit {
                 methodName: String,
                 block: MemberHookCreator.() -> Unit
             ) {
-                val owner = KavaMemberLookup.classOrNull(biliClassLoader, className)
-                    ?: throw ClassNotFoundException(className)
-                val method = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
-                    it.name == methodName
-                }.firstOrNull() ?: throw NoSuchMethodException("$className#$methodName")
-                method.hook { block() }
+                val id = "legacy:$className#$methodName:first"
+                val method = hookPointRegistry.resolveFirst(id, className, methodName)
+                    ?: throw NoSuchMethodException("$className#$methodName")
+                installResolvedHook(id, method, block)
             }
 
             fun hookExactMethod(
@@ -2403,9 +2419,10 @@ class HookEntry : IYukiHookXposedInit {
                 vararg parameterTypes: Class<*>,
                 block: MemberHookCreator.() -> Unit
             ) {
-                val method = KavaMemberLookup.methodOrNull(owner, methodName, *parameterTypes)
+                val id = "legacy:${owner.name}#$methodName:exact"
+                val method = hookPointRegistry.resolveExact(id, owner, methodName, *parameterTypes)
                     ?: throw NoSuchMethodException("${owner.name}#$methodName")
-                method.hook { block() }
+                installResolvedHook(id, method, block)
             }
 
             fun hookAllNamedMethods(
@@ -2413,43 +2430,30 @@ class HookEntry : IYukiHookXposedInit {
                 methodName: String,
                 block: MemberHookCreator.() -> Unit
             ) {
-                val owner = KavaMemberLookup.classOrNull(biliClassLoader, className)
-                    ?: throw ClassNotFoundException(className)
-                val methods = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
-                    it.name == methodName
-                }
+                val id = "legacy:$className#$methodName:all"
+                val methods = hookPointRegistry.resolveAll(id, className, methodName)
                 if (methods.isEmpty()) throw NoSuchMethodException("$className#$methodName")
-                methods.hookAll { block() }
-            }
-
-            fun resolveParamClass(name: String): Class<*> = when (name) {
-                "boolean" -> Boolean::class.javaPrimitiveType!!
-                "byte" -> Byte::class.javaPrimitiveType!!
-                "char" -> Char::class.javaPrimitiveType!!
-                "short" -> Short::class.javaPrimitiveType!!
-                "int" -> Int::class.javaPrimitiveType!!
-                "long" -> Long::class.javaPrimitiveType!!
-                "float" -> Float::class.javaPrimitiveType!!
-                "double" -> Double::class.javaPrimitiveType!!
-                else -> KavaMemberLookup.classOrNull(biliClassLoader, name)
-                    ?: throw ClassNotFoundException(name)
+                try {
+                    methods.hookAll { block() }
+                    methods.forEach { hookPointRegistry.markInstalled(id, it) }
+                } catch (throwable: Throwable) {
+                    methods.forEach { hookPointRegistry.markFailed(id, it, throwable) }
+                    throw throwable
+                }
             }
 
             fun hookAdaptedMethod(
                 point: VersionAdapter.HookPoint,
                 block: MemberHookCreator.() -> Unit
             ) {
-                val owner = KavaMemberLookup.classOrNull(biliClassLoader, point.className)
-                    ?: throw ClassNotFoundException(point.className)
-                val method = if (point.paramClassNames == null) {
-                    KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
-                        it.name == point.methodName
-                    }.singleOrNull()
-                } else {
-                    val params = point.paramClassNames.map(::resolveParamClass).toTypedArray()
-                    KavaMemberLookup.methodOrNull(owner, point.methodName, *params)
-                } ?: throw NoSuchMethodException("${point.className}#${point.methodName}")
-                method.hook { block() }
+                val id = "adapter:${point.className}#${point.methodName}"
+                val method = hookPointRegistry.resolveAdapted(
+                    id = id,
+                    className = point.className,
+                    methodName = point.methodName,
+                    parameterClassNames = point.paramClassNames
+                ) ?: throw NoSuchMethodException("${point.className}#${point.methodName}")
+                installResolvedHook(id, method, block)
             }
 
             // 每个宿主进程只做一次实时结构探测。优先实时结果，避免版本升级后的旧文件缓存
@@ -3996,6 +4000,14 @@ class HookEntry : IYukiHookXposedInit {
             if (runtimeCommentFreeCopyEnabled || runtimeDescriptionFreeCopyEnabled) {
                 installDescriptionFreeCopyHooks()
             }
+            val kavaDiagnostics = KavaMemberLookup.diagnostics()
+            logInfo(
+                "hook_registry_summary",
+                "[BIL] Hook 点诊断: ${hookPointRegistry.summary()}; " +
+                    "Kava cache hit=${kavaDiagnostics.cacheHits}, " +
+                    "miss=${kavaDiagnostics.cacheMisses}, " +
+                    "failure=${kavaDiagnostics.lookupFailures}"
+            )
         }
         // ====== system_server：允许模块 App 在后台启动界面（代开漫游设置） ======
         // 背景：本机 MIUI 上 B 站进程对任何其他包都不可见（系统级包可见性隔离），
