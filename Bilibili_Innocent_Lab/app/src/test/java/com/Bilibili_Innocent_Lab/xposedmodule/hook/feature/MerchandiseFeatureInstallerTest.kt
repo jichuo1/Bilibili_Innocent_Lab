@@ -12,7 +12,8 @@ class MerchandiseFeatureInstallerTest {
         hookPoints = HookPointRegistry(javaClass.classLoader),
         registrar = TestHookRegistrar,
         logInfo = { _, _ -> },
-        logError = { _, _ -> }
+        logError = { _, _ -> },
+        reportStatus = { _, _ -> }
     )
 
     @Test

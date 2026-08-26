@@ -47,7 +47,8 @@ internal data class HookEnvironment(
     val hookPoints: HookPointRegistry,
     val registrar: HookRegistrar,
     val logInfo: (String, String) -> Unit,
-    val logError: (String, String) -> Unit
+    val logError: (String, String) -> Unit,
+    val reportStatus: (String, String) -> Unit
 )
 
 internal sealed interface FeatureInstallResult {
