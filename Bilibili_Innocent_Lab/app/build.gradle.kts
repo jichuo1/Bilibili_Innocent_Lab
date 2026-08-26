@@ -1,5 +1,7 @@
+import org.gradle.api.tasks.compile.JavaCompile
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
+import java.io.File
 
 plugins {
     alias(libs.plugins.android.application)
@@ -64,6 +66,19 @@ tasks.withType<KotlinJvmCompile>().configureEach {
             "-Xno-call-assertions",
             "-Xno-receiver-assertions"
         )
+    }
+}
+
+// Gradle 9 在部分受限 Windows 环境会因 Worker 的本地 AF_UNIX/loopback 通道
+// 无法建立而中断 javac。显式使用当前 JDK 的命令行编译器，Linux CI 保持默认策略。
+val windowsJavac = File(System.getProperty("java.home"), "bin/javac.exe")
+if (
+    System.getProperty("os.name").startsWith("Windows", ignoreCase = true) &&
+    windowsJavac.isFile
+) {
+    tasks.withType<JavaCompile>().configureEach {
+        options.isFork = true
+        options.forkOptions.executable = windowsJavac.absolutePath
     }
 }
 
