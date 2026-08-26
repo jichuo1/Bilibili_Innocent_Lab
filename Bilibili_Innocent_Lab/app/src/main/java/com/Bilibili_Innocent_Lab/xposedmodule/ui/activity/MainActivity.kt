@@ -106,6 +106,7 @@ class MainActivity : AppViewsActivity() {
     private var preferDynamicVideoTab = false
     private var showFullNumbers = false
     private var hidePlayerPortraitControl = false
+    private var removeCommentSearchLinks = false
     private var freeCopyEnabled = true
     private var freeCopyDescEnabled = true
     private var freeCopyLightMode = false
@@ -1712,6 +1713,14 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read player portrait prefs failed", t)
         }.getOrDefault(false)
+        removeCommentSearchLinks = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read comment search prefs failed", t)
+        }.getOrDefault(false)
         merchAdEnabled = runCatching {
             modulePrefs?.getBoolean(HookEntry.PREF_MERCH_ENABLED, true) ?: true
         }.onFailure { t ->
@@ -2695,7 +2704,70 @@ class MainActivity : AppViewsActivity() {
                                     )
                                 }
                             )
-                            // 子项 9：评论区长按自由复制
+                            // 子项 9：评论区搜索跳转净化（新功能默认关闭）
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.7f
+                                isSingleLine = true
+                                text = stringResource(R.string.comment_purify_settings)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 11f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_comment_search_links)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeCommentSearchLinks
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    removeCommentSearchLinks = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write comment search prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.remove_comment_search_links_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            FrameLayout(
+                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 14.dp
+                                },
+                                init = {
+                                    setBackgroundColor(
+                                        ColorUtils.setAlphaComponent(
+                                            colorResource(R.color.colorTextGray),
+                                            0x40
+                                        )
+                                    )
+                                }
+                            )
+                            // 子项 10：评论区长按自由复制
                             TextView(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     bottomMargin = 4.dp

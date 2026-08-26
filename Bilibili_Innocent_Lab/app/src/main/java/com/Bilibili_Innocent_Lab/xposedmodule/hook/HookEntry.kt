@@ -25,6 +25,7 @@ import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BlockUpdateFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DynamicTabsFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
@@ -2785,6 +2786,18 @@ class HookEntry : IYukiHookXposedInit {
                             false
                         ),
                         points = hostAdaptResult?.playerPortrait
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    CommentPurifyFeatureInstaller(
+                        removeSearchLinks = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS,
+                            false
+                        ),
+                        points = hostAdaptResult?.commentPurify
                     )
                 )
             )
