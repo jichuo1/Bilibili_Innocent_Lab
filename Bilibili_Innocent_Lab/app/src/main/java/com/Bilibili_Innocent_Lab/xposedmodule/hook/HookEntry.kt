@@ -24,6 +24,10 @@ import java.lang.reflect.Method
 import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallCoordinator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MerchandiseFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.BubbleDrawable
 
@@ -98,12 +102,6 @@ class HookEntry : IYukiHookXposedInit {
 
         // 视频提及 header 组件（★关键：渲染"视频提及"标题本身，不 hook 它 header 文字永远在）
         const val CLASS_MENTIONED_HEADER_COMPONENT = "com.bilibili.biligame.videocard.GameVideoMentionedHeaderComponent"
-
-        // ===== UP主分享好物（简介区商品广告）=====
-        // 模块：intro.module.merchandise——MerchandiseService implements AdMerchandiseBridge
-        // （广告性质）；MerchandiseComponent.createViewEntry(Context, ViewGroup) 渲染入口。
-        // 拦截采用 afterHook GONE（见 3b 块注释）——不依赖空包装类名，跨版本稳定。
-        const val CLASS_MERCH_COMPONENT = "com.bilibili.ship.theseus.united.page.intro.module.merchandise.MerchandiseComponent"
 
         /** 视频详情页 Activity（8.90.2/9.0.0/9.8.0 同类名，跨版本稳定——气泡自动跟随的主题缓存时机） */
         const val DETAIL_ACTIVITY_CLASS = "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity"
@@ -2398,6 +2396,15 @@ class HookEntry : IYukiHookXposedInit {
                 }
             }
 
+            fun installClaimedHook(
+                id: String,
+                method: Method,
+                block: MemberHookCreator.() -> Unit
+            ) {
+                if (!hookPointRegistry.claim(id, method)) return
+                installResolvedHook(id, method, block)
+            }
+
             /**
              * KavaRef → Yuki Member Hook 的统一边界。成员定位失败直接抛出，让各功能原有的
              * runCatching/try-catch 正确记录未命中；Hook 回调本身不经过额外包装。
@@ -2456,6 +2463,56 @@ class HookEntry : IYukiHookXposedInit {
                 installResolvedHook(id, method, block)
             }
 
+            val featureHookRegistrar = object : HookRegistrar {
+                override fun first(
+                    id: String,
+                    className: String,
+                    methodName: String,
+                    block: MemberHookCreator.() -> Unit
+                ) {
+                    val method = hookPointRegistry.resolveFirst(id, className, methodName)
+                        ?: throw NoSuchMethodException("$className#$methodName")
+                    installClaimedHook(id, method, block)
+                }
+
+                override fun all(
+                    id: String,
+                    className: String,
+                    methodName: String,
+                    block: MemberHookCreator.() -> Unit
+                ) {
+                    val methods = hookPointRegistry.resolveAll(id, className, methodName)
+                    if (methods.isEmpty()) throw NoSuchMethodException("$className#$methodName")
+                    methods.forEach { installClaimedHook(id, it, block) }
+                }
+
+                override fun exact(
+                    id: String,
+                    owner: Class<*>,
+                    methodName: String,
+                    vararg parameterTypes: Class<*>,
+                    block: MemberHookCreator.() -> Unit
+                ) {
+                    val method = hookPointRegistry.resolveExact(id, owner, methodName, *parameterTypes)
+                        ?: throw NoSuchMethodException("${owner.name}#$methodName")
+                    installClaimedHook(id, method, block)
+                }
+
+                override fun adapted(
+                    id: String,
+                    point: VersionAdapter.HookPoint,
+                    block: MemberHookCreator.() -> Unit
+                ) {
+                    val method = hookPointRegistry.resolveAdapted(
+                        id,
+                        point.className,
+                        point.methodName,
+                        point.paramClassNames
+                    ) ?: throw NoSuchMethodException("${point.className}#${point.methodName}")
+                    installClaimedHook(id, method, block)
+                }
+            }
+
             // 每个宿主进程只做一次实时结构探测。优先实时结果，避免版本升级后的旧文件缓存
             // 在 Application.attach 写入新缓存前误导 loadApp 阶段的 Hook 注册。
             val hostAdaptResult by lazy(LazyThreadSafetyMode.NONE) {
@@ -2474,6 +2531,15 @@ class HookEntry : IYukiHookXposedInit {
             val initialDescriptionFreeCopyEnabled = prefs.getBoolean(PREF_FREE_COPY_DESC_ENABLED, true)
             runtimeCommentFreeCopyEnabled = initialCommentFreeCopyEnabled
             runtimeDescriptionFreeCopyEnabled = initialDescriptionFreeCopyEnabled
+            val hookEnvironment = HookEnvironment(
+                processName = TARGET_PACKAGE,
+                classLoader = biliClassLoader,
+                hookPoints = hookPointRegistry,
+                registrar = featureHookRegistrar,
+                logInfo = { key, message -> logInfo(key, message) },
+                logError = { key, message -> logError(key, message) }
+            )
+            val featureInstallCoordinator = FeatureInstallCoordinator(hookEnvironment)
 
             // 自由复制配置同步必须先于可选功能注册建立：即使后续某个广告/状态上报
             // 初始化异常，也不能让评论与简介自由复制永远失去 attach 后的权威配置同步。
@@ -3015,68 +3081,13 @@ class HookEntry : IYukiHookXposedInit {
                 logError("banner_feature_init_err", "[BIL] Banner 功能初始化失败，已隔离并继续: $t")
             }
 
-            runCatching {
-            // ====== 3b. 同款好物/UP主分享好物（简介区商品广告）=====
-            // 定位（8.90.2 实测探针）：MerchandiseComponent implements UIComponent，
-            // 渲染入口 createViewEntry(Context, ViewGroup)——数据流经 MerchandiseService
-            // （implements AdMerchandiseBridge，广告性质）。
-            // 拦截（版本无关·afterHook 隐藏）：不构造任何空包装（8.90.2 曾依赖官方空兜底
-            // 类 a82.a，9.8.0 漂移为 v00.a——见 §5i 教训），而是 afterHook 拿到官方构造好的
-            // ViewEntry，直接隐藏其根 View（GONE）——无需知道任何实现类名，createViewEntry
-            // 签名跨版本稳定（8.90.2/9.8.0 实测），未来版本适配概率高。
-            val merchEnabled = prefs.getBoolean(PREF_MERCH_ENABLED, true)
-            if (merchEnabled && classExists(CLASS_MERCH_COMPONENT, biliClassLoader)) {
-                runCatching {
-                    val mercCls = KavaMemberLookup.classOrNull(biliClassLoader, CLASS_MERCH_COMPONENT)
-                        ?: throw ClassNotFoundException(CLASS_MERCH_COMPONENT)
-                    XposedHelpers.findAndHookMethod(
-                        mercCls, "createViewEntry",
-                        classOf<Context>(), classOf<android.view.ViewGroup>(),
-                        object : XC_MethodHook() {
-                            override fun afterHookedMethod(param: MethodHookParam) {
-                                // 官方构造的 ViewEntry → 根 View → GONE（整块隐藏，标题+卡+去看看）
-                                // 同时高度清零 + 父容器 GONE（防父级按固定尺寸占位留空）
-                                val root = runCatching {
-                                    val ve = param.result ?: return@afterHookedMethod
-                                    XposedHelpers.callMethod(ve, "getRoot") as? View
-                                }.getOrNull() ?: return@afterHookedMethod
-                                runCatching {
-                                    root.visibility = View.GONE
-                                    root.layoutParams?.let {
-                                        if (it.height != 0) {
-                                            it.height = 0
-                                            root.requestLayout()
-                                        }
-                                    }
-                                    // 父链：好物模块通常由专有壳容器承载，GONE + 高度清零
-                                    var p = root.parent as? View
-                                    var depth = 0
-                                    while (p != null && depth < 2) {
-                                        // 安全：仅当父容器无可见文本内容（纯壳）才处理——
-                                        // 保守起见先尝试父级 GONE（好物模块 shell 无兄弟内容）
-                                        p.visibility = View.GONE
-                                        p.layoutParams?.let {
-                                            if (it.height != 0) {
-                                                it.height = 0
-                                                p.requestLayout()
-                                            }
-                                        }
-                                        p = p.parent as? View
-                                        depth++
-                                    }
-                                }
-                                logInfo("merch_blocked", "[BIL] 已隐藏UP主分享好物 createViewEntry")
-                            }
-                        }
+            featureInstallCoordinator.installAll(
+                listOf(
+                    MerchandiseFeatureInstaller(
+                        enabled = prefs.getBoolean(PREF_MERCH_ENABLED, true)
                     )
-                }.onFailure { t ->
-                    logError("merch_hook_err", "[BIL] UP主分享好物 hook 注册失败: $t")
-                }
-            }
-
-            }.onFailure { t ->
-                logError("merch_feature_init_err", "[BIL] 商品卡片功能初始化失败，已隔离并继续: $t")
-            }
+                )
+            )
 
             // ====== 4. 评论区长按自由复制 ======
             // 关键经验：R8 混淆后方法名被 jadx 重命名（e1/v 等非真实名），

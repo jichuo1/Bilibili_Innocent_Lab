@@ -16,7 +16,9 @@ class FeatureInstallCoordinatorTest {
             processName = "test",
             classLoader = javaClass.classLoader,
             hookPoints = HookPointRegistry(javaClass.classLoader),
-            log = { message, _ -> loggedFailures += message }
+            registrar = TestHookRegistrar,
+            logInfo = { _, _ -> },
+            logError = { _, message -> loggedFailures += message }
         )
         val records = FeatureInstallCoordinator(environment).installAll(
             listOf(
@@ -40,6 +42,7 @@ class FeatureInstallCoordinatorTest {
         assertNull(records[0].failure)
         assertNotNull(records[1].failure)
         assertEquals(FeatureInstallResult.Skipped("disabled"), records[2].result)
-        assertEquals(listOf("Feature installer failed: broken"), loggedFailures)
+        assertEquals(1, loggedFailures.size)
+        assertEquals(true, loggedFailures.single().contains("broken"))
     }
 }
