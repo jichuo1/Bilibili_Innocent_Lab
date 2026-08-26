@@ -37,6 +37,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MerchandiseFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineVipFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PausedAdFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPortraitFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.BubbleDrawable
 
@@ -2772,6 +2773,18 @@ class HookEntry : IYukiHookXposedInit {
                             false
                         ),
                         points = hostAdaptResult?.fullNumbers
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    PlayerPortraitFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.HIDE_PLAYER_PORTRAIT_CONTROL,
+                            false
+                        ),
+                        points = hostAdaptResult?.playerPortrait
                     )
                 )
             )

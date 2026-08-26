@@ -88,7 +88,16 @@ class VersionAdapterTest {
                 )
             )
         ),
-        hostFingerprint = "host|9090300|rules=6",
+        playerPortrait = VersionAdapter.PlayerPortraitPoints(
+            listOf(
+                VersionAdapter.HookPoint(
+                    "com.bilibili.app.gemini.player.widget.story.GeminiPlayerFullStoryWidget",
+                    "setVisibility",
+                    listOf("int")
+                )
+            )
+        ),
+        hostFingerprint = "host|9090300|rules=7",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -177,5 +186,19 @@ class VersionAdapterTest {
         })
         assertTrue(points.any { it.methodName == "formatNumber" })
         assertTrue(points.any { it.methodName == "format\$default" })
+    }
+
+    @Test
+    fun `locates player portrait control by its exact visibility override`() {
+        val points = VersionAdapter.locatePlayerPortrait(requireNotNull(javaClass.classLoader))
+            ?.visibilityMethods.orEmpty()
+
+        assertEquals(1, points.size)
+        assertEquals(
+            "com.bilibili.app.gemini.player.widget.story.GeminiPlayerFullStoryWidget",
+            points.single().className
+        )
+        assertEquals("setVisibility", points.single().methodName)
+        assertEquals(listOf("int"), points.single().paramClassNames)
     }
 }
