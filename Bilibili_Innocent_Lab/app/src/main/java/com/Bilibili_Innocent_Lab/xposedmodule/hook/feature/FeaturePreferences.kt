@@ -8,5 +8,6 @@ internal object FeaturePreferences {
     const val BLOCK_APP_UPDATE = "block_app_update"
     const val HIDE_DYNAMIC_CITY_TAB = "hide_dynamic_city_tab"
     const val HIDE_DYNAMIC_SCHOOL_TAB = "hide_dynamic_school_tab"
+    const val PREFER_DYNAMIC_VIDEO_TAB = "prefer_dynamic_video_tab"
     const val SHOW_FULL_NUMBERS = "show_full_numbers"
 }

@@ -37,6 +37,8 @@
     <string name="hide_dynamic_city_tab_tip">仅移除“同城”筛选标签并保持其余标签顺序；重启哔哩哔哩后生效</string>
     <string name="hide_dynamic_school_tab">隐藏动态页“校园”标签</string>
     <string name="hide_dynamic_school_tab_tip">仅移除“校园”筛选标签并保持其余标签顺序；重启哔哩哔哩后生效</string>
+    <string name="prefer_dynamic_video_tab">首选打开动态页“视频”标签</string>
+    <string name="prefer_dynamic_video_tab_tip">在动态页构建标签时直接选中“视频”，不扫描界面或模拟点击；重启哔哩哔哩后生效</string>
     <string name="number_display_settings">数字显示</string>
     <string name="show_full_numbers">显示完整数字</string>
     <string name="show_full_numbers_tip">让非负整数计数直接显示完整数值，不再使用“万/亿”缩写；重启哔哩哔哩后生效</string>

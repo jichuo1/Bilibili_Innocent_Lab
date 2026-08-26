@@ -2755,6 +2755,10 @@ class HookEntry : IYukiHookXposedInit {
                             FeaturePreferences.HIDE_DYNAMIC_SCHOOL_TAB,
                             false
                         ),
+                        preferVideo = prefs.getBoolean(
+                            FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB,
+                            false
+                        ),
                         point = hostAdaptResult?.dynamicTabs
                     )
                 )
