@@ -97,8 +97,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 13
-    private const val ADAPTER_RULE_VERSION = 5
+    private const val SCHEMA_VERSION = 14
+    private const val ADAPTER_RULE_VERSION = 6
 
     enum class AdaptState {
         FOUND,
@@ -294,6 +294,26 @@ object VersionAdapter {
         }
     }
 
+    /** 原生 Java 与 Kotlin 本地化层的数字缩写格式化入口。 */
+    data class FullNumberPoints(
+        val formatterMethods: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("methods", JSONArray().apply { formatterMethods.forEach { put(it.toJson()) } })
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): FullNumberPoints {
+                val methods = o.getJSONArray("methods")
+                return FullNumberPoints(
+                    (0 until methods.length()).map {
+                        HookPoint.fromJson(methods.getJSONObject(it))
+                    }
+                )
+            }
+        }
+    }
+
     /** 适配结果（各功能 hook 点） */
     data class AdaptResult(
         val biliVersionCode: Int,
@@ -317,6 +337,8 @@ object VersionAdapter {
         val blockUpdate: HookPoint?,
         /** 动态页筛选标签渲染与位置映射入口。 */
         val dynamicTabs: DynamicTabsPoint?,
+        /** 完整数字显示的所有格式化入口。 */
+        val fullNumbers: FullNumberPoints?,
         /** 宿主 APK + 适配规则指纹，防止只凭 versionCode 复用陈旧缓存。 */
         val hostFingerprint: String,
         /** 每个逻辑 Hook 点的定位结果，供日志/UI 诊断。 */
@@ -335,6 +357,7 @@ object VersionAdapter {
             mineVip?.let { put("mine_vip", it.toJson()) }
             blockUpdate?.let { put("block_update", it.toJson()) }
             dynamicTabs?.let { put("dynamic_tabs", it.toJson()) }
+            fullNumbers?.let { put("full_numbers", it.toJson()) }
             put("fp", hostFingerprint)
             put("diag", JSONArray().apply { diagnostics.forEach { put(it.toJson()) } })
         }
@@ -390,6 +413,9 @@ object VersionAdapter {
                         value.itemClassName.isNotBlank() &&
                         value.itemTitleField.isNotBlank() && value.itemNameField.isNotBlank()
                 } != false &&
+                fullNumbers?.formatterMethods?.let { methods ->
+                    methods.isNotEmpty() && methods.all { it.isValid() }
+                } != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
         companion object {
@@ -412,6 +438,7 @@ object VersionAdapter {
                     mineVip = o.optJSONObject("mine_vip")?.let(MineVipPoint::fromJson),
                     blockUpdate = o.optJSONObject("block_update")?.let(HookPoint::fromJson),
                     dynamicTabs = o.optJSONObject("dynamic_tabs")?.let(DynamicTabsPoint::fromJson),
+                    fullNumbers = o.optJSONObject("full_numbers")?.let(FullNumberPoints::fromJson),
                     hostFingerprint = o.optString("fp"),
                     diagnostics = diagnostics
                 ).takeIf { it.isStructurallyValid() }
@@ -468,6 +495,15 @@ object VersionAdapter {
         // 9.6.0；9.7.0；9.8.0；9.9.0（按已核验版本顺序）。
         "vd6.c", "ih1.c", "kh1.c", "Ch1.c", "Uj1.c",
         "dl1.c", "wm1.c", "Wm1.c", "Sn1.c", "Ro1.c"
+    )
+    private const val KNTR_NUMBER_FORMAT_CLASS =
+        "kntr.base.localization.NumberFormat_androidKt"
+    private val FULL_NUMBER_CLASS_CANDIDATES = listOf(
+        "com.bilibili.base.util.NumberFormat",
+        "com.bilibili.p4566base.p4568util.NumberFormat",
+        "com.bilibili.n9.util.NumberFormat",
+        "com.bilibili.lib.utils.NumberFormat",
+        KNTR_NUMBER_FORMAT_CLASS
     )
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
@@ -667,11 +703,12 @@ object VersionAdapter {
         val mineVip = locateMineVip(loader)
         val blockUpdate = locateBlockUpdate(loader)
         val dynamicTabs = locateDynamicTabs(loader)
+        val fullNumbers = locateFullNumbers(loader)
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
-            dynamicTabs == null) return null
+            dynamicTabs == null && fullNumbers == null) return null
         return AdaptResult(
             biliVersionCode = 0,
             ts = 0L,
@@ -684,10 +721,11 @@ object VersionAdapter {
             mineVip = mineVip,
             blockUpdate = blockUpdate,
             dynamicTabs = dynamicTabs,
+            fullNumbers = fullNumbers,
             hostFingerprint = "runtime-no-context|rules=$ADAPTER_RULE_VERSION",
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
-                dynamicTabs
+                dynamicTabs, fullNumbers
             )
         )
     }
@@ -709,17 +747,19 @@ object VersionAdapter {
         val mineVip = locateMineVip(loader)
         val blockUpdate = locateBlockUpdate(loader)
         val dynamicTabs = locateDynamicTabs(loader)
+        val fullNumbers = locateFullNumbers(loader)
         val anyClassExists = COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || HOME_TOP_BAR_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || KavaMemberLookup.hasClass(loader, MINE_FRAGMENT_CLASS)
             || KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS)
+            || FULL_NUMBER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
-            dynamicTabs == null &&
+            dynamicTabs == null && fullNumbers == null &&
             !anyClassExists) return null
         return AdaptResult(
             biliVersionCode = vc,
@@ -733,10 +773,11 @@ object VersionAdapter {
             mineVip = mineVip,
             blockUpdate = blockUpdate,
             dynamicTabs = dynamicTabs,
+            fullNumbers = fullNumbers,
             hostFingerprint = buildHostFingerprint(context),
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
-                dynamicTabs
+                dynamicTabs, fullNumbers
             )
         )
     }
@@ -762,7 +803,8 @@ object VersionAdapter {
         homeTopBar: HomeTopBarPoints?,
         mineVip: MineVipPoint?,
         blockUpdate: HookPoint?,
-        dynamicTabs: DynamicTabsPoint?
+        dynamicTabs: DynamicTabsPoint?,
+        fullNumbers: FullNumberPoints?
     ): List<AdaptDiagnostic> {
         fun stateFor(pointFound: Boolean, candidateExists: Boolean): AdaptState = when {
             pointFound -> AdaptState.FOUND
@@ -785,6 +827,9 @@ object VersionAdapter {
         val dynamicTabsCandidateExists =
             KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS) &&
                 KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_TAB_CLASS)
+        val fullNumbersCandidateExists = FULL_NUMBER_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
         val pauseCandidateClasses = listOf(
             "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$2",
             "com.bilibili.ship.theseus.united.page.pausedpage." +
@@ -880,6 +925,11 @@ object VersionAdapter {
                     "list=${it.listGetter.label()},item=${it.itemClassName}#" +
                         "${it.itemTitleField}/${it.itemNameField}"
                 }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "number.full",
+                stateFor(fullNumbers != null, fullNumbersCandidateExists),
+                fullNumbers?.formatterMethods?.joinToString("|") { it.label() }.orEmpty()
             )
         )
     }
@@ -1092,6 +1142,43 @@ object VersionAdapter {
             itemTitleField = titleField.name,
             itemNameField = nameField.name
         )
+    }.getOrNull()
+
+    /**
+     * 定位数字缩写格式化器。8.90.2、9.1.0 与 9.9.0 均同时保留 Java NumberFormat；
+     * “我的”页则直接调用 kntr 的 Kotlin 顶层函数。只接受 static、String 返回值且首参
+     * 为 int/long（含装箱）或 kntr 的数字字符串重载，避免碰触时间/小数格式化方法。
+     */
+    fun locateFullNumbers(loader: ClassLoader): FullNumberPoints? = runCatching {
+        val acceptedNames = setOf(
+            "format",
+            "formatWithComma",
+            "formatNumber",
+            "format\$default",
+            "formatNumber\$default"
+        )
+        val numericTypes = setOf(
+            classOf<Int>(),
+            classOf<Long>(),
+            classOf<Int>(primitiveType = false),
+            classOf<Long>(primitiveType = false)
+        )
+        val methods = FULL_NUMBER_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    val firstType = method.parameterTypes.firstOrNull()
+                    method.isStatic && method.returnType == classOf<String>() &&
+                        method.name in acceptedNames && method.parameterCount in 1..5 &&
+                        (firstType in numericTypes ||
+                            (firstType == classOf<String>() &&
+                                owner.name == KNTR_NUMBER_FORMAT_CLASS))
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        methods.takeIf { it.isNotEmpty() }?.let(::FullNumberPoints)
     }.getOrNull()
 
     /** 暂停页请求入口并行探测；仅零参数 invoke 才允许被识别为旧 Function0。 */
