@@ -41,7 +41,9 @@ import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.betterandroid.ui.extension.view.updateMargins
 import com.highcapable.betterandroid.ui.extension.view.updatePadding
 import com.highcapable.betterandroid.ui.extension.view.updateTypeface
-import com.highcapable.hikage.core.base.Hikageable
+import com.highcapable.hikage.core.base.Hikagable
+import com.highcapable.hikage.core.layout.Layout
+import com.highcapable.hikage.core.layout.LayoutParams
 import com.highcapable.hikage.extension.setContentView
 import com.highcapable.hikage.widget.android.widget.ImageView
 import com.highcapable.hikage.widget.android.widget.LinearLayout
@@ -2488,7 +2490,7 @@ class MainActivity : AppViewsActivity() {
     private fun createPromotionItem(
         @StringRes stringResource: Int,
         @DrawableRes imageResource: Int
-    ) = Hikageable<MarginLayoutParams> {
+    ) = Hikagable<MarginLayoutParams> {
         LinearLayout(
             lparams = LayoutParams(widthMatchParent = true) {
                 updateMargins(left = 15.dp, right = 15.dp)

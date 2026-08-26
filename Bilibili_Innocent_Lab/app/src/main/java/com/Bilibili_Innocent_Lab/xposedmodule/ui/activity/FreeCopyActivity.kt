@@ -22,6 +22,7 @@ import android.widget.LinearLayout
 import androidx.core.view.updatePadding
 import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
 import com.highcapable.betterandroid.ui.extension.view.textColor
+import com.highcapable.hikage.core.layout.LayoutParams
 import com.highcapable.hikage.extension.setContentView
 import com.highcapable.hikage.widget.android.widget.LinearLayout as HikageLinearLayout
 import com.highcapable.hikage.widget.android.widget.TextView
