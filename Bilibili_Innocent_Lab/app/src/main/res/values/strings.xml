@@ -25,6 +25,9 @@
     <string name="hide_home_game_menu_tip">Only blocks the game-center menu item; search, scan, and other entries remain available. Restart Bilibili to apply.</string>
     <string name="hide_home_search_default_word">Hide the default search suggestion</string>
     <string name="hide_home_search_default_word_tip">Keeps search and its click behavior available while clearing only the suggested text. Restart Bilibili to apply.</string>
+    <string name="mine_page_settings">Mine page</string>
+    <string name="hide_mine_vip">Hide the VIP card on the Mine page</string>
+    <string name="hide_mine_vip_tip">Hides only the VIP card and removes its space; other Mine-page entries remain unchanged. Restart Bilibili to apply.</string>
     <string name="merch_ad_enable">Hide UP merchandise promotions</string>
     <string name="merch_ad_tip">When enabled, "UP merchandise" promotions on some video detail pages are no longer shown</string>
     <string name="purify_settings">Purify</string>
