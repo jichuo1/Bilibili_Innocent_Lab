@@ -85,6 +85,18 @@ class KavaMemberLookupTest {
     }
 
     @Test
+    fun `enumerates inherited fields through cached Kava boundary`() {
+        val fields = KavaMemberLookup.fields(
+            HiddenMethods::class.java,
+            includeSuperclasses = true,
+            makeAccessible = true
+        ) { it.name == "inheritedText" }
+
+        assertEquals(1, fields.size)
+        assertEquals("base", fields.single().get(HiddenMethods.create()))
+    }
+
+    @Test
     fun `resolves private constructor and declared member collections`() {
         val constructor = KavaMemberLookup.constructorOrNull(
             HiddenMethods::class.java,
