@@ -2,6 +2,11 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook
 
 import android.content.Context
 import android.os.Build
+import android.os.Bundle
+import android.view.Menu
+import android.view.MenuInflater
+import android.view.View
+import android.widget.TextView
 import android.widget.Toast
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetAppStorage
@@ -62,7 +67,7 @@ object VersionAdapter {
         val methodName: String,
         /** 参数类型类名列表（精确签名用；null = 不限制参数） */
         val paramClassNames: List<String>? = null,
-        /** itemView 来源字段名（handler 内 ViewGroup 类型字段；null = 从方法参数拿） */
+        /** Hook 点关联的已验证字段名（无关联字段时为 null）。 */
         val viewField: String? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
@@ -91,8 +96,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 9
-    private const val ADAPTER_RULE_VERSION = 1
+    private const val SCHEMA_VERSION = 10
+    private const val ADAPTER_RULE_VERSION = 2
 
     enum class AdaptState {
         FOUND,
@@ -203,6 +208,36 @@ object VersionAdapter {
         }
     }
 
+    /** 首页顶部栏游戏入口与搜索默认词的结构化入口。 */
+    data class HomeTopBarPoints(
+        val gameMenu: HookPoint?,
+        val baseOnViewCreated: HookPoint?,
+        val defaultWordMethods: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            gameMenu?.let { put("game", it.toJson()) }
+            baseOnViewCreated?.let { put("view", it.toJson()) }
+            put(
+                "words",
+                JSONArray().apply { defaultWordMethods.forEach { put(it.toJson()) } }
+            )
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): HomeTopBarPoints {
+                val words = o.optJSONArray("words")
+                return HomeTopBarPoints(
+                    gameMenu = o.optJSONObject("game")?.let(HookPoint::fromJson),
+                    baseOnViewCreated = o.optJSONObject("view")?.let(HookPoint::fromJson),
+                    defaultWordMethods = if (words == null) emptyList() else
+                        (0 until words.length()).map {
+                            HookPoint.fromJson(words.getJSONObject(it))
+                        }
+                )
+            }
+        }
+    }
+
     /** 适配结果（各功能 hook 点） */
     data class AdaptResult(
         val biliVersionCode: Int,
@@ -218,6 +253,8 @@ object VersionAdapter {
         val pause: PausePoints,
         /** 首页 V8Banner 稳定视图入口。 */
         val banner: BannerPoint?,
+        /** 首页顶部栏游戏入口/搜索默认词入口。 */
+        val homeTopBar: HomeTopBarPoints?,
         /** 宿主 APK + 适配规则指纹，防止只凭 versionCode 复用陈旧缓存。 */
         val hostFingerprint: String,
         /** 每个逻辑 Hook 点的定位结果，供日志/UI 诊断。 */
@@ -232,6 +269,7 @@ object VersionAdapter {
             mineEntry?.let { put("mine", it.toJson()) }
             put("pause", pause.toJson())
             banner?.let { put("banner", it.toJson()) }
+            homeTopBar?.let { put("home_top", it.toJson()) }
             put("fp", hostFingerprint)
             put("diag", JSONArray().apply { diagnostics.forEach { put(it.toJson()) } })
         }
@@ -266,6 +304,15 @@ object VersionAdapter {
                 banner?.let { value ->
                     value.bannerClassName.isNotBlank() && value.lifecycleMethods.all { it.isValid() }
                 } != false &&
+                homeTopBar?.let { value ->
+                    value.gameMenu?.let { point ->
+                        point.isValid() && !point.viewField.isNullOrBlank()
+                    } != false &&
+                        value.baseOnViewCreated?.let { point ->
+                            point.isValid() && !point.viewField.isNullOrBlank()
+                        } != false &&
+                        value.defaultWordMethods.all { it.isValid() }
+                } != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
         companion object {
@@ -284,6 +331,7 @@ object VersionAdapter {
                     pause = o.optJSONObject("pause")?.let(PausePoints::fromJson)
                         ?: PausePoints(emptyList(), null, null, null),
                     banner = o.optJSONObject("banner")?.let(BannerPoint::fromJson),
+                    homeTopBar = o.optJSONObject("home_top")?.let(HomeTopBarPoints::fromJson),
                     hostFingerprint = o.optString("fp"),
                     diagnostics = diagnostics
                 ).takeIf { it.isStructurallyValid() }
@@ -306,6 +354,25 @@ object VersionAdapter {
         // 字段 h 存 CommentItem——特征定位自动覆盖，候选仅提供类名入口）
         "com.bilibili.app.comment3.ui.holder.handle.CommentContentRichTextHandler"
     )
+
+    private const val HOME_MENU_ITEM_CLASS =
+        "com.bilibili.lib.homepage.startdust.menu.a"
+    private val HOME_BASE_FRAGMENT_CANDIDATES = listOf(
+        "tv.danmaku.bili.ui.main2.basic.BaseMainFrameFragment",
+        "tv.danmaku.p9138bili.p9228ui.main2.basic.BaseMainFrameFragment"
+    )
+    private val HOME_MAIN_FRAGMENT_CANDIDATES = listOf(
+        "tv.danmaku.bili.ui.main2.MainFragment",
+        "tv.danmaku.p9138bili.p9228ui.main2.MainFragment"
+    )
+    private val HOME_DEFAULT_WORD_CLASS_CANDIDATES = setOf(
+        // 8.90.2
+        "com.bilibili.app.comm.list.common.api.d",
+        // 9.1.0–9.9.0
+        "com.bilibili.app.comm.list.common.api.b"
+    )
+    private val HOME_TOP_BAR_CANDIDATES = listOf(HOME_MENU_ITEM_CLASS) +
+        HOME_BASE_FRAGMENT_CANDIDATES + HOME_MAIN_FRAGMENT_CANDIDATES
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
 
@@ -478,7 +545,8 @@ object VersionAdapter {
                 "[BIL] 版本适配${if (result != null) "完成" else "失败"} " +
                     "v=${result?.biliVersionCode} low=${result?.commentLow} high=${result?.commentHigh} " +
                     "mine=${result?.mineEntry != null} pause=${result?.pause?.requestMethods?.size ?: 0} " +
-                    "banner=${result?.banner != null} diag=${result?.diagnosticSummary()}"
+                    "banner=${result?.banner != null} homeTop=${result?.homeTopBar != null} " +
+                    "diag=${result?.diagnosticSummary()}"
             )
         }, "BIL-VersionAdapter").apply {
             isDaemon = true
@@ -496,9 +564,11 @@ object VersionAdapter {
         val mine = locateMineEntry(loader)
         val pause = locatePausePoints(loader)
         val banner = locateBanner(loader)
+        val homeTopBar = locateHomeTopBar(loader)
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
-            pause.panelShow == null && pause.countdown == null && banner == null) return null
+            pause.panelShow == null && pause.countdown == null && banner == null &&
+            homeTopBar == null) return null
         return AdaptResult(
             biliVersionCode = 0,
             ts = 0L,
@@ -507,8 +577,9 @@ object VersionAdapter {
             mineEntry = mine,
             pause = pause,
             banner = banner,
+            homeTopBar = homeTopBar,
             hostFingerprint = "runtime-no-context|rules=$ADAPTER_RULE_VERSION",
-            diagnostics = buildDiagnostics(loader, low, high, mine, pause, banner)
+            diagnostics = buildDiagnostics(loader, low, high, mine, pause, banner, homeTopBar)
         )
     }
 
@@ -525,11 +596,14 @@ object VersionAdapter {
         val mine = locateMineEntry(loader)
         val pause = locatePausePoints(loader)
         val banner = locateBanner(loader)
+        val homeTopBar = locateHomeTopBar(loader)
         val anyClassExists = COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || HOME_TOP_BAR_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
+            homeTopBar == null &&
             !anyClassExists) return null
         return AdaptResult(
             biliVersionCode = vc,
@@ -539,8 +613,9 @@ object VersionAdapter {
             mineEntry = mine,
             pause = pause,
             banner = banner,
+            homeTopBar = homeTopBar,
             hostFingerprint = buildHostFingerprint(context),
-            diagnostics = buildDiagnostics(loader, low, high, mine, pause, banner)
+            diagnostics = buildDiagnostics(loader, low, high, mine, pause, banner, homeTopBar)
         )
     }
 
@@ -561,7 +636,8 @@ object VersionAdapter {
         high: HookPoint?,
         mine: MineEntryPoint?,
         pause: PausePoints,
-        banner: BannerPoint?
+        banner: BannerPoint?,
+        homeTopBar: HomeTopBarPoints?
     ): List<AdaptDiagnostic> {
         fun stateFor(pointFound: Boolean, candidateExists: Boolean): AdaptState = when {
             pointFound -> AdaptState.FOUND
@@ -600,6 +676,12 @@ object VersionAdapter {
             loader,
             "com.bilibili.pegasus.holders.bannerv8.V8Banner"
         )
+        val gameMenuCandidateExists = KavaMemberLookup.hasClass(loader, HOME_MENU_ITEM_CLASS)
+        val searchCandidateExists = HOME_MAIN_FRAGMENT_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val searchReady = homeTopBar?.baseOnViewCreated != null &&
+            homeTopBar.defaultWordMethods.isNotEmpty()
         return listOf(
             AdaptDiagnostic(
                 "comment.low",
@@ -635,6 +717,18 @@ object VersionAdapter {
                 "home.banner",
                 stateFor(banner != null, bannerCandidateExists),
                 banner?.let { "${it.bannerClassName},hooks=${it.lifecycleMethods.size}" }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "home.top_bar.game",
+                stateFor(homeTopBar?.gameMenu != null, gameMenuCandidateExists),
+                homeTopBar?.gameMenu?.label().orEmpty()
+            ),
+            AdaptDiagnostic(
+                "home.top_bar.search",
+                stateFor(searchReady, searchCandidateExists),
+                homeTopBar?.let {
+                    "view=${it.baseOnViewCreated?.label().orEmpty()},words=${it.defaultWordMethods.size}"
+                }.orEmpty()
             )
         )
     }
@@ -770,6 +864,80 @@ object VersionAdapter {
         }.map { it.toHookPoint() }
         if (hooks.none { it.methodName == "onAttachedToWindow" }) return@runCatching null
         BannerPoint(bannerName, hooks)
+    }.getOrNull()
+
+    /**
+     * 首页顶部栏结构化定位：
+     * - 游戏菜单构建方法在 8.90.2 为 c(Menu, MenuInflater)，9.1.0–9.9.0 为 b(...)；
+     * - 默认搜索词模型在 8.90.2 为 api.d，9.1.0–9.9.0 为 api.b。
+     * 因此只依赖参数/返回类型与 SwitchTextView 字段特征，不缓存宿主实例。
+     */
+    fun locateHomeTopBar(loader: ClassLoader): HomeTopBarPoints? = runCatching {
+        val menuOwner = KavaMemberLookup.classOrNull(loader, HOME_MENU_ITEM_CLASS)
+        val gameMenu = menuOwner?.let { owner ->
+            val method = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                !it.isStatic && it.returnType == Void.TYPE &&
+                    it.parameterTypes.contentEquals(
+                        arrayOf(Menu::class.java, MenuInflater::class.java)
+                    )
+            }.singleOrNull() ?: return@let null
+            val configField = KavaMemberLookup.declaredFields(
+                owner,
+                makeAccessible = true
+            ) { field ->
+                !java.lang.reflect.Modifier.isStatic(field.modifiers) &&
+                    field.type.enclosingClass == owner &&
+                    KavaMemberLookup.declaredFields(field.type) {
+                        it.type == String::class.java
+                    }.isNotEmpty()
+            }.singleOrNull() ?: return@let null
+            method.toHookPoint().copy(viewField = configField.name)
+        }
+
+        val baseOnViewCreated = HOME_BASE_FRAGMENT_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .mapNotNull { owner ->
+                val searchFields = KavaMemberLookup.declaredFields(
+                    owner,
+                    makeAccessible = true
+                ) {
+                    TextView::class.java.isAssignableFrom(it.type) &&
+                        it.type.simpleName == "SwitchTextView"
+                }
+                val searchField = searchFields.singleOrNull() ?: return@mapNotNull null
+                val method = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                    !it.isStatic && it.returnType == Void.TYPE &&
+                        it.name == "onViewCreated" &&
+                        it.parameterTypes.contentEquals(
+                            arrayOf(View::class.java, Bundle::class.java)
+                        )
+                }.singleOrNull() ?: return@mapNotNull null
+                method.toHookPoint().copy(viewField = searchField.name)
+            }
+            .firstOrNull()
+
+        val defaultWordMethods = if (baseOnViewCreated == null) {
+            emptyList()
+        } else {
+            HOME_MAIN_FRAGMENT_CANDIDATES.asSequence()
+                .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+                .map { owner ->
+                    KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                        !it.isStatic && !java.lang.reflect.Modifier.isAbstract(it.modifiers) &&
+                            it.returnType == Void.TYPE && it.parameterCount == 1 &&
+                            it.parameterTypes[0].name in HOME_DEFAULT_WORD_CLASS_CANDIDATES
+                    }.distinctBy(Method::toGenericString)
+                }
+                .firstOrNull { it.isNotEmpty() }
+                .orEmpty()
+                .map { it.toHookPoint() }
+        }
+
+        if (gameMenu == null && baseOnViewCreated == null && defaultWordMethods.isEmpty()) {
+            null
+        } else {
+            HomeTopBarPoints(gameMenu, baseOnViewCreated, defaultWordMethods)
+        }
     }.getOrNull()
 
     /**

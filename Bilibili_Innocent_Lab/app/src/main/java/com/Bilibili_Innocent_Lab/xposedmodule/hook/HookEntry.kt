@@ -25,8 +25,10 @@ import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallCoordinator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.GamePromotionFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeBannerFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeTopBarFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MerchandiseFeatureInstaller
@@ -2478,7 +2480,7 @@ class HookEntry : IYukiHookXposedInit {
             }
 
             val hookEnvironment = HookEnvironment(
-                processName = TARGET_PACKAGE,
+                processName = processName,
                 classLoader = biliClassLoader,
                 hookPoints = hookPointRegistry,
                 registrar = featureHookRegistrar,
@@ -2700,6 +2702,22 @@ class HookEntry : IYukiHookXposedInit {
                         enabled = prefs.getBoolean(PREF_BANNER_ENABLED, true),
                         point = hostAdaptResult?.banner,
                         collapseBanner = ::collapseHomeBanner
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    HomeTopBarFeatureInstaller(
+                        hideGameMenu = prefs.getBoolean(
+                            FeaturePreferences.HIDE_HOME_GAME_MENU,
+                            false
+                        ),
+                        hideSearchDefaultWord = prefs.getBoolean(
+                            FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD,
+                            false
+                        ),
+                        points = hostAdaptResult?.homeTopBar
                     )
                 )
             )
