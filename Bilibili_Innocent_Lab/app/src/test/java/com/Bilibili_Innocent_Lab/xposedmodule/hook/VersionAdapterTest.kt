@@ -43,7 +43,21 @@ class VersionAdapterTest {
                 VersionAdapter.HookPoint("home.Main", "setWord", listOf("word.Model"))
             )
         ),
-        hostFingerprint = "host|9090300|rules=2",
+        mineVip = VersionAdapter.MineVipPoint(
+            onResume = VersionAdapter.HookPoint(
+                "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment",
+                "onResume",
+                emptyList(),
+                viewField = "vipManager"
+            ),
+            bindingField = "stableBinding",
+            rootGetter = VersionAdapter.HookPoint(
+                "tv.danmaku.bili.ui.main2.mine.modularvip.TestVipBinding",
+                "getRoot",
+                emptyList()
+            )
+        ),
+        hostFingerprint = "host|9090300|rules=3",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -93,5 +107,16 @@ class VersionAdapterTest {
         assertTrue(points?.defaultWordMethods.orEmpty().all {
             it.paramClassNames == listOf("com.bilibili.app.comm.list.common.api.b")
         })
+    }
+
+    @Test
+    fun `locates mine vip through manager and view binding structure`() {
+        val point = VersionAdapter.locateMineVip(requireNotNull(javaClass.classLoader))
+
+        assertEquals("onResume", point?.onResume?.methodName)
+        assertEquals("vipManager", point?.onResume?.viewField)
+        assertEquals("stableBinding", point?.bindingField)
+        assertEquals("getRoot", point?.rootGetter?.methodName)
+        assertEquals(emptyList<String>(), point?.rootGetter?.paramClassNames)
     }
 }

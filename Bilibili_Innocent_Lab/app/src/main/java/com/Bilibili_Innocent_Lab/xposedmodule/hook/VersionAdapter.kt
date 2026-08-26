@@ -96,8 +96,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 10
-    private const val ADAPTER_RULE_VERSION = 2
+    private const val SCHEMA_VERSION = 11
+    private const val ADAPTER_RULE_VERSION = 3
 
     enum class AdaptState {
         FOUND,
@@ -238,6 +238,28 @@ object VersionAdapter {
         }
     }
 
+    /** “我的”页 VIP 卡片：Fragment → 管理器 → ViewBinding → 根视图的稳定成员链。 */
+    data class MineVipPoint(
+        /** onResume 的 [HookPoint.viewField] 保存 Fragment 中的管理器字段名。 */
+        val onResume: HookPoint,
+        val bindingField: String,
+        val rootGetter: HookPoint
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("resume", onResume.toJson())
+            put("binding", bindingField)
+            put("root", rootGetter.toJson())
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): MineVipPoint = MineVipPoint(
+                onResume = HookPoint.fromJson(o.getJSONObject("resume")),
+                bindingField = o.getString("binding"),
+                rootGetter = HookPoint.fromJson(o.getJSONObject("root"))
+            )
+        }
+    }
+
     /** 适配结果（各功能 hook 点） */
     data class AdaptResult(
         val biliVersionCode: Int,
@@ -255,6 +277,8 @@ object VersionAdapter {
         val banner: BannerPoint?,
         /** 首页顶部栏游戏入口/搜索默认词入口。 */
         val homeTopBar: HomeTopBarPoints?,
+        /** “我的”页 VIP 卡片成员链。 */
+        val mineVip: MineVipPoint?,
         /** 宿主 APK + 适配规则指纹，防止只凭 versionCode 复用陈旧缓存。 */
         val hostFingerprint: String,
         /** 每个逻辑 Hook 点的定位结果，供日志/UI 诊断。 */
@@ -270,6 +294,7 @@ object VersionAdapter {
             put("pause", pause.toJson())
             banner?.let { put("banner", it.toJson()) }
             homeTopBar?.let { put("home_top", it.toJson()) }
+            mineVip?.let { put("mine_vip", it.toJson()) }
             put("fp", hostFingerprint)
             put("diag", JSONArray().apply { diagnostics.forEach { put(it.toJson()) } })
         }
@@ -313,6 +338,10 @@ object VersionAdapter {
                         } != false &&
                         value.defaultWordMethods.all { it.isValid() }
                 } != false &&
+                mineVip?.let { value ->
+                    value.onResume.isValid() && !value.onResume.viewField.isNullOrBlank() &&
+                        value.bindingField.isNotBlank() && value.rootGetter.isValid()
+                } != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
         companion object {
@@ -332,6 +361,7 @@ object VersionAdapter {
                         ?: PausePoints(emptyList(), null, null, null),
                     banner = o.optJSONObject("banner")?.let(BannerPoint::fromJson),
                     homeTopBar = o.optJSONObject("home_top")?.let(HomeTopBarPoints::fromJson),
+                    mineVip = o.optJSONObject("mine_vip")?.let(MineVipPoint::fromJson),
                     hostFingerprint = o.optString("fp"),
                     diagnostics = diagnostics
                 ).takeIf { it.isStructurallyValid() }
@@ -373,6 +403,10 @@ object VersionAdapter {
     )
     private val HOME_TOP_BAR_CANDIDATES = listOf(HOME_MENU_ITEM_CLASS) +
         HOME_BASE_FRAGMENT_CANDIDATES + HOME_MAIN_FRAGMENT_CANDIDATES
+    private const val MINE_FRAGMENT_CLASS =
+        "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment"
+    private const val MINE_VIP_MANAGER_CLASS =
+        "tv.danmaku.bili.ui.main2.mine.modularvip.MineVipModuleManager"
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
 
@@ -546,6 +580,7 @@ object VersionAdapter {
                     "v=${result?.biliVersionCode} low=${result?.commentLow} high=${result?.commentHigh} " +
                     "mine=${result?.mineEntry != null} pause=${result?.pause?.requestMethods?.size ?: 0} " +
                     "banner=${result?.banner != null} homeTop=${result?.homeTopBar != null} " +
+                    "mineVip=${result?.mineVip != null} " +
                     "diag=${result?.diagnosticSummary()}"
             )
         }, "BIL-VersionAdapter").apply {
@@ -565,10 +600,11 @@ object VersionAdapter {
         val pause = locatePausePoints(loader)
         val banner = locateBanner(loader)
         val homeTopBar = locateHomeTopBar(loader)
+        val mineVip = locateMineVip(loader)
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
-            homeTopBar == null) return null
+            homeTopBar == null && mineVip == null) return null
         return AdaptResult(
             biliVersionCode = 0,
             ts = 0L,
@@ -578,8 +614,11 @@ object VersionAdapter {
             pause = pause,
             banner = banner,
             homeTopBar = homeTopBar,
+            mineVip = mineVip,
             hostFingerprint = "runtime-no-context|rules=$ADAPTER_RULE_VERSION",
-            diagnostics = buildDiagnostics(loader, low, high, mine, pause, banner, homeTopBar)
+            diagnostics = buildDiagnostics(
+                loader, low, high, mine, pause, banner, homeTopBar, mineVip
+            )
         )
     }
 
@@ -597,13 +636,15 @@ object VersionAdapter {
         val pause = locatePausePoints(loader)
         val banner = locateBanner(loader)
         val homeTopBar = locateHomeTopBar(loader)
+        val mineVip = locateMineVip(loader)
         val anyClassExists = COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || HOME_TOP_BAR_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || KavaMemberLookup.hasClass(loader, MINE_FRAGMENT_CLASS)
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
-            homeTopBar == null &&
+            homeTopBar == null && mineVip == null &&
             !anyClassExists) return null
         return AdaptResult(
             biliVersionCode = vc,
@@ -614,8 +655,11 @@ object VersionAdapter {
             pause = pause,
             banner = banner,
             homeTopBar = homeTopBar,
+            mineVip = mineVip,
             hostFingerprint = buildHostFingerprint(context),
-            diagnostics = buildDiagnostics(loader, low, high, mine, pause, banner, homeTopBar)
+            diagnostics = buildDiagnostics(
+                loader, low, high, mine, pause, banner, homeTopBar, mineVip
+            )
         )
     }
 
@@ -637,7 +681,8 @@ object VersionAdapter {
         mine: MineEntryPoint?,
         pause: PausePoints,
         banner: BannerPoint?,
-        homeTopBar: HomeTopBarPoints?
+        homeTopBar: HomeTopBarPoints?,
+        mineVip: MineVipPoint?
     ): List<AdaptDiagnostic> {
         fun stateFor(pointFound: Boolean, candidateExists: Boolean): AdaptState = when {
             pointFound -> AdaptState.FOUND
@@ -651,10 +696,9 @@ object VersionAdapter {
         val highCandidateExists = COMMENT_HIGH_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
-        val mineCandidateExists = KavaMemberLookup.hasClass(
-            loader,
-            "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment"
-        )
+        val mineCandidateExists = KavaMemberLookup.hasClass(loader, MINE_FRAGMENT_CLASS)
+        val mineVipCandidateExists = mineCandidateExists &&
+            KavaMemberLookup.hasClass(loader, MINE_VIP_MANAGER_CLASS)
         val pauseCandidateClasses = listOf(
             "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$2",
             "com.bilibili.ship.theseus.united.page.pausedpage." +
@@ -729,6 +773,14 @@ object VersionAdapter {
                 homeTopBar?.let {
                     "view=${it.baseOnViewCreated?.label().orEmpty()},words=${it.defaultWordMethods.size}"
                 }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "mine.vip",
+                stateFor(mineVip != null, mineVipCandidateExists),
+                mineVip?.let {
+                    "resume=${it.onResume.label()},binding=${it.bindingField}," +
+                        "root=${it.rootGetter.label()}"
+                }.orEmpty()
             )
         )
     }
@@ -752,13 +804,30 @@ object VersionAdapter {
         return false
     }
 
+    /** 通过类名遍历接口层级，避免宿主 AndroidX 与模块 ClassLoader 身份差异。 */
+    private fun Class<*>.implementsInterfaceNamed(expectedName: String): Boolean {
+        val pending = java.util.ArrayDeque<Class<*>>()
+        val visited = HashSet<Class<*>>()
+        pending.add(this)
+        while (pending.isNotEmpty()) {
+            val current = pending.removeFirst()
+            if (!visited.add(current)) continue
+            current.interfaces.forEach { implemented ->
+                if (implemented.name == expectedName) return true
+                pending.addLast(implemented)
+            }
+            current.superclass?.let(pending::addLast)
+        }
+        return false
+    }
+
     /**
      * 结构化定位“我的”页入口。已确认的字段漂移：
      * 8.90.2/9.8.0 由运行时结构匹配；9.1.1=of+n1/m1、9.2.0=pf+m1/l1、
      * 9.3.0=nf+u0/t0。只依赖方法参数、List 和 RecyclerView.Adapter 类型。
      */
     fun locateMineEntry(loader: ClassLoader): MineEntryPoint? = runCatching {
-        val fragmentName = "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment"
+        val fragmentName = MINE_FRAGMENT_CLASS
         val accountMineName = "tv.danmaku.bili.ui.main2.api.AccountMine"
         val itemName = "com.bilibili.lib.homepage.mine.MenuGroup\$Item"
         val fragment = KavaMemberLookup.classOrNull(loader, fragmentName)
@@ -797,6 +866,42 @@ object VersionAdapter {
             .firstOrNull() ?: return@runCatching null
 
         MineEntryPoint(builds.map { it.toHookPoint() }, groups.name, adapter?.name, click.toHookPoint())
+    }.getOrNull()
+
+    /**
+     * 结构化定位“我的”页 VIP 卡片。8.90.2、9.1.0 与 9.9.0 的混淆字段名不同，
+     * 但 Fragment 持有唯一 MineVipModuleManager、管理器持有唯一 ViewBinding，且
+     * ViewBinding 暴露无参 getRoot。只在适配期扫描并缓存精确成员描述。
+     */
+    fun locateMineVip(loader: ClassLoader): MineVipPoint? = runCatching {
+        val fragment = KavaMemberLookup.classOrNull(loader, MINE_FRAGMENT_CLASS)
+            ?: return@runCatching null
+        val manager = KavaMemberLookup.classOrNull(loader, MINE_VIP_MANAGER_CLASS)
+            ?: return@runCatching null
+        val onResume = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
+            !it.isStatic && it.name == "onResume" && it.parameterCount == 0 &&
+                it.returnType == Void.TYPE
+        }.singleOrNull() ?: return@runCatching null
+        val managerField = KavaMemberLookup.declaredFields(fragment, makeAccessible = true) {
+            !java.lang.reflect.Modifier.isStatic(it.modifiers) && manager.isAssignableFrom(it.type)
+        }.singleOrNull() ?: return@runCatching null
+        val bindingField = KavaMemberLookup.declaredFields(manager, makeAccessible = true) {
+            !java.lang.reflect.Modifier.isStatic(it.modifiers) &&
+                it.type.implementsInterfaceNamed("androidx.viewbinding.ViewBinding")
+        }.singleOrNull() ?: return@runCatching null
+        val rootGetter = KavaMemberLookup.declaredMethods(
+            bindingField.type,
+            makeAccessible = true
+        ) {
+            !it.isStatic && !it.isBridge && it.name == "getRoot" &&
+                it.parameterCount == 0 && View::class.java.isAssignableFrom(it.returnType)
+        }.singleOrNull() ?: return@runCatching null
+
+        MineVipPoint(
+            onResume = onResume.toHookPoint().copy(viewField = managerField.name),
+            bindingField = bindingField.name,
+            rootGetter = rootGetter.toHookPoint()
+        )
     }.getOrNull()
 
     /** 暂停页请求入口并行探测；仅零参数 invoke 才允许被识别为旧 Function0。 */

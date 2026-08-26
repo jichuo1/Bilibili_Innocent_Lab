@@ -32,6 +32,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeTopBarFeatureInst
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MerchandiseFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineVipFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PausedAdFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.BubbleDrawable
@@ -2718,6 +2719,15 @@ class HookEntry : IYukiHookXposedInit {
                             false
                         ),
                         points = hostAdaptResult?.homeTopBar
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    MineVipFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.HIDE_MINE_VIP, false),
+                        point = hostAdaptResult?.mineVip
                     )
                 )
             )
