@@ -87,4 +87,13 @@ class FeatureStatusInstallerTest {
         assertEquals(FeatureInstallResult.Skipped("disabled"), result)
         assertEquals(listOf("player_portrait_status" to "disabled"), statuses)
     }
+
+    @Test
+    fun `comment purify reports disabled without resolving hook points`() {
+        val result = CommentPurifyFeatureInstaller(removeSearchLinks = false, points = null)
+            .install(environment)
+
+        assertEquals(FeatureInstallResult.Skipped("disabled"), result)
+        assertEquals(listOf("comment_purify_status" to "disabled"), statuses)
+    }
 }
