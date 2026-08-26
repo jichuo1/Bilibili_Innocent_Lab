@@ -105,6 +105,7 @@ class MainActivity : AppViewsActivity() {
     private var hideDynamicSchoolTab = false
     private var preferDynamicVideoTab = false
     private var showFullNumbers = false
+    private var hidePlayerPortraitControl = false
     private var freeCopyEnabled = true
     private var freeCopyDescEnabled = true
     private var freeCopyLightMode = false
@@ -1703,6 +1704,14 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read full number prefs failed", t)
         }.getOrDefault(false)
+        hidePlayerPortraitControl = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.HIDE_PLAYER_PORTRAIT_CONTROL,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read player portrait prefs failed", t)
+        }.getOrDefault(false)
         merchAdEnabled = runCatching {
             modulePrefs?.getBoolean(HookEntry.PREF_MERCH_ENABLED, true) ?: true
         }.onFailure { t ->
@@ -2623,7 +2632,70 @@ class MainActivity : AppViewsActivity() {
                                     )
                                 }
                             )
-                            // 子项 8：评论区长按自由复制
+                            // 子项 8：播放器竖屏切换控件（新功能默认关闭）
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.7f
+                                isSingleLine = true
+                                text = stringResource(R.string.player_control_settings)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 11f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.hide_player_portrait_control)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = hidePlayerPortraitControl
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    hidePlayerPortraitControl = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.HIDE_PLAYER_PORTRAIT_CONTROL,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write player portrait prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.hide_player_portrait_control_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            FrameLayout(
+                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 14.dp
+                                },
+                                init = {
+                                    setBackgroundColor(
+                                        ColorUtils.setAlphaComponent(
+                                            colorResource(R.color.colorTextGray),
+                                            0x40
+                                        )
+                                    )
+                                }
+                            )
+                            // 子项 9：评论区长按自由复制
                             TextView(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     bottomMargin = 4.dp

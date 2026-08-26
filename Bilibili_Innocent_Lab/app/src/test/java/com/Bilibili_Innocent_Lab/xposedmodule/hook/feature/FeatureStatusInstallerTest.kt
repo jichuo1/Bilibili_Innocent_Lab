@@ -78,4 +78,13 @@ class FeatureStatusInstallerTest {
         assertEquals(FeatureInstallResult.Skipped("disabled"), result)
         assertEquals(listOf("full_number_status" to "disabled"), statuses)
     }
+
+    @Test
+    fun `player portrait control reports disabled without resolving hook points`() {
+        val result = PlayerPortraitFeatureInstaller(enabled = false, points = null)
+            .install(environment)
+
+        assertEquals(FeatureInstallResult.Skipped("disabled"), result)
+        assertEquals(listOf("player_portrait_status" to "disabled"), statuses)
+    }
 }

@@ -97,8 +97,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 14
-    private const val ADAPTER_RULE_VERSION = 6
+    private const val SCHEMA_VERSION = 15
+    private const val ADAPTER_RULE_VERSION = 7
 
     enum class AdaptState {
         FOUND,
@@ -314,6 +314,26 @@ object VersionAdapter {
         }
     }
 
+    /** 播放器竖屏切换控件自身的可见性入口；不使用全局 View Hook。 */
+    data class PlayerPortraitPoints(
+        val visibilityMethods: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("methods", JSONArray().apply { visibilityMethods.forEach { put(it.toJson()) } })
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): PlayerPortraitPoints {
+                val methods = o.getJSONArray("methods")
+                return PlayerPortraitPoints(
+                    (0 until methods.length()).map {
+                        HookPoint.fromJson(methods.getJSONObject(it))
+                    }
+                )
+            }
+        }
+    }
+
     /** 适配结果（各功能 hook 点） */
     data class AdaptResult(
         val biliVersionCode: Int,
@@ -339,6 +359,8 @@ object VersionAdapter {
         val dynamicTabs: DynamicTabsPoint?,
         /** 完整数字显示的所有格式化入口。 */
         val fullNumbers: FullNumberPoints?,
+        /** 播放器竖屏切换控件自身的可见性入口。 */
+        val playerPortrait: PlayerPortraitPoints?,
         /** 宿主 APK + 适配规则指纹，防止只凭 versionCode 复用陈旧缓存。 */
         val hostFingerprint: String,
         /** 每个逻辑 Hook 点的定位结果，供日志/UI 诊断。 */
@@ -358,6 +380,7 @@ object VersionAdapter {
             blockUpdate?.let { put("block_update", it.toJson()) }
             dynamicTabs?.let { put("dynamic_tabs", it.toJson()) }
             fullNumbers?.let { put("full_numbers", it.toJson()) }
+            playerPortrait?.let { put("player_portrait", it.toJson()) }
             put("fp", hostFingerprint)
             put("diag", JSONArray().apply { diagnostics.forEach { put(it.toJson()) } })
         }
@@ -416,6 +439,9 @@ object VersionAdapter {
                 fullNumbers?.formatterMethods?.let { methods ->
                     methods.isNotEmpty() && methods.all { it.isValid() }
                 } != false &&
+                playerPortrait?.visibilityMethods?.let { methods ->
+                    methods.isNotEmpty() && methods.all { it.isValid() }
+                } != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
         companion object {
@@ -439,6 +465,8 @@ object VersionAdapter {
                     blockUpdate = o.optJSONObject("block_update")?.let(HookPoint::fromJson),
                     dynamicTabs = o.optJSONObject("dynamic_tabs")?.let(DynamicTabsPoint::fromJson),
                     fullNumbers = o.optJSONObject("full_numbers")?.let(FullNumberPoints::fromJson),
+                    playerPortrait = o.optJSONObject("player_portrait")
+                        ?.let(PlayerPortraitPoints::fromJson),
                     hostFingerprint = o.optString("fp"),
                     diagnostics = diagnostics
                 ).takeIf { it.isStructurallyValid() }
@@ -504,6 +532,9 @@ object VersionAdapter {
         "com.bilibili.n9.util.NumberFormat",
         "com.bilibili.lib.utils.NumberFormat",
         KNTR_NUMBER_FORMAT_CLASS
+    )
+    private val PLAYER_PORTRAIT_CLASS_CANDIDATES = listOf(
+        "com.bilibili.app.gemini.player.widget.story.GeminiPlayerFullStoryWidget"
     )
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
@@ -681,6 +712,7 @@ object VersionAdapter {
                     "mineVip=${result?.mineVip != null} " +
                     "blockUpdate=${result?.blockUpdate != null} " +
                     "dynamicTabs=${result?.dynamicTabs != null} " +
+                    "playerPortrait=${result?.playerPortrait != null} " +
                     "diag=${result?.diagnosticSummary()}"
             )
         }, "BIL-VersionAdapter").apply {
@@ -704,11 +736,12 @@ object VersionAdapter {
         val blockUpdate = locateBlockUpdate(loader)
         val dynamicTabs = locateDynamicTabs(loader)
         val fullNumbers = locateFullNumbers(loader)
+        val playerPortrait = locatePlayerPortrait(loader)
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
-            dynamicTabs == null && fullNumbers == null) return null
+            dynamicTabs == null && fullNumbers == null && playerPortrait == null) return null
         return AdaptResult(
             biliVersionCode = 0,
             ts = 0L,
@@ -722,10 +755,11 @@ object VersionAdapter {
             blockUpdate = blockUpdate,
             dynamicTabs = dynamicTabs,
             fullNumbers = fullNumbers,
+            playerPortrait = playerPortrait,
             hostFingerprint = "runtime-no-context|rules=$ADAPTER_RULE_VERSION",
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
-                dynamicTabs, fullNumbers
+                dynamicTabs, fullNumbers, playerPortrait
             )
         )
     }
@@ -748,18 +782,20 @@ object VersionAdapter {
         val blockUpdate = locateBlockUpdate(loader)
         val dynamicTabs = locateDynamicTabs(loader)
         val fullNumbers = locateFullNumbers(loader)
+        val playerPortrait = locatePlayerPortrait(loader)
         val anyClassExists = COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || HOME_TOP_BAR_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || KavaMemberLookup.hasClass(loader, MINE_FRAGMENT_CLASS)
             || KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS)
             || FULL_NUMBER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || PLAYER_PORTRAIT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
-            dynamicTabs == null && fullNumbers == null &&
+            dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
             !anyClassExists) return null
         return AdaptResult(
             biliVersionCode = vc,
@@ -774,10 +810,11 @@ object VersionAdapter {
             blockUpdate = blockUpdate,
             dynamicTabs = dynamicTabs,
             fullNumbers = fullNumbers,
+            playerPortrait = playerPortrait,
             hostFingerprint = buildHostFingerprint(context),
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
-                dynamicTabs, fullNumbers
+                dynamicTabs, fullNumbers, playerPortrait
             )
         )
     }
@@ -804,7 +841,8 @@ object VersionAdapter {
         mineVip: MineVipPoint?,
         blockUpdate: HookPoint?,
         dynamicTabs: DynamicTabsPoint?,
-        fullNumbers: FullNumberPoints?
+        fullNumbers: FullNumberPoints?,
+        playerPortrait: PlayerPortraitPoints?
     ): List<AdaptDiagnostic> {
         fun stateFor(pointFound: Boolean, candidateExists: Boolean): AdaptState = when {
             pointFound -> AdaptState.FOUND
@@ -828,6 +866,9 @@ object VersionAdapter {
             KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS) &&
                 KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_TAB_CLASS)
         val fullNumbersCandidateExists = FULL_NUMBER_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val playerPortraitCandidateExists = PLAYER_PORTRAIT_CLASS_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
         val pauseCandidateClasses = listOf(
@@ -930,6 +971,11 @@ object VersionAdapter {
                 "number.full",
                 stateFor(fullNumbers != null, fullNumbersCandidateExists),
                 fullNumbers?.formatterMethods?.joinToString("|") { it.label() }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "player.portrait",
+                stateFor(playerPortrait != null, playerPortraitCandidateExists),
+                playerPortrait?.visibilityMethods?.joinToString("|") { it.label() }.orEmpty()
             )
         )
     }
@@ -1179,6 +1225,30 @@ object VersionAdapter {
             .map { it.toHookPoint() }
             .toList()
         methods.takeIf { it.isNotEmpty() }?.let(::FullNumberPoints)
+    }.getOrNull()
+
+    /**
+     * 定位播放器“进入看一看”竖屏切换控件。8.90.2、9.1.0 与 9.9.0 的布局和 dex
+     * 交叉验证表明该控件均由 GeminiPlayerFullStoryWidget 自身覆写 setVisibility(int)。
+     * 只缓存控件自身声明的精确方法，不安装全局 View 可见性 Hook，也不扫描界面树。
+     */
+    fun locatePlayerPortrait(loader: ClassLoader): PlayerPortraitPoints? = runCatching {
+        val methods = PLAYER_PORTRAIT_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .filter { it.hasSuperclassNamed("android.view.View") }
+            .mapNotNull { owner ->
+                KavaMemberLookup.methodOrNull(
+                    owner,
+                    "setVisibility",
+                    classOf<Int>()
+                )?.takeIf { method ->
+                    method.declaringClass == owner && method.returnType == Void.TYPE
+                }
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        methods.takeIf { it.isNotEmpty() }?.let(::PlayerPortraitPoints)
     }.getOrNull()
 
     /** 暂停页请求入口并行探测；仅零参数 invoke 才允许被识别为旧 Function0。 */

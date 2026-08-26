@@ -10,4 +10,5 @@ internal object FeaturePreferences {
     const val HIDE_DYNAMIC_SCHOOL_TAB = "hide_dynamic_school_tab"
     const val PREFER_DYNAMIC_VIDEO_TAB = "prefer_dynamic_video_tab"
     const val SHOW_FULL_NUMBERS = "show_full_numbers"
+    const val HIDE_PLAYER_PORTRAIT_CONTROL = "hide_player_portrait_control"
 }
