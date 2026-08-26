@@ -5,12 +5,20 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.ksp)
+    alias(libs.plugins.hikage)
 }
 
 val releaseVersionNameOverride = providers.gradleProperty("innocentLab.releaseVersionName")
     .orNull
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
+
+hikage {
+    compiler {
+        // 本项目已为 YukiHookAPI 显式管理 Kotlin/KSP 版本，禁止插件启用内置 KSP 兜底。
+        useEmbeddedKsp = false
+    }
+}
 
 android {
     namespace = gropify.project.app.packageName
@@ -70,8 +78,9 @@ dependencies {
     implementation(libs.kavaref.android)
     implementation(libs.kavaref.extension)
 
-    // Optional: Hikage (https://github.com/BetterAndroid/Hikage)
-    ksp(libs.hikage.compiler)
+    // Hikage via BOM (https://betterandroid.github.io/Hikage/zh-cn/library/hikage-bom.html)
+    // 插件已自动装配 KSP 与 hikage-compiler，无需手动 ksp 声明
+    implementation(platform(libs.hikage.bom))
     implementation(libs.hikage.core)
     implementation(libs.hikage.extension)
     implementation(libs.hikage.widget.androidx)

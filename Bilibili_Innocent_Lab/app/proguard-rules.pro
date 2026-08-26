@@ -37,3 +37,6 @@
     <init>();
     *** inflate(android.view.LayoutInflater);
 }
+
+# Hikage 的运行时 XML 属性能力为可选模块；本项目未使用，因此不引入其反射实现。
+-dontwarn com.highcapable.hikage.runtime.attribute.**
