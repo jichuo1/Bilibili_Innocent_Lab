@@ -97,7 +97,16 @@ class VersionAdapterTest {
                 )
             )
         ),
-        hostFingerprint = "host|9090300|rules=7",
+        commentPurify = VersionAdapter.CommentPurifyPoints(
+            listOf(
+                VersionAdapter.HookPoint(
+                    "com.bapis.bilibili.main.community.reply.v1.Content",
+                    "getUrlsMap",
+                    emptyList()
+                )
+            )
+        ),
+        hostFingerprint = "host|9090300|rules=8",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -200,5 +209,17 @@ class VersionAdapterTest {
         )
         assertEquals("setVisibility", points.single().methodName)
         assertEquals(listOf("int"), points.single().paramClassNames)
+    }
+
+    @Test
+    fun `locates public comment url map getters without touching message getter`() {
+        val points = VersionAdapter.locateCommentPurify(requireNotNull(javaClass.classLoader))
+            ?.urlMapGetters.orEmpty()
+
+        assertEquals(setOf("getUrls", "getUrlsMap"), points.map { it.methodName }.toSet())
+        assertTrue(points.all {
+            it.className == "com.bapis.bilibili.main.community.reply.v1.Content" &&
+                it.paramClassNames == emptyList<String>()
+        })
     }
 }

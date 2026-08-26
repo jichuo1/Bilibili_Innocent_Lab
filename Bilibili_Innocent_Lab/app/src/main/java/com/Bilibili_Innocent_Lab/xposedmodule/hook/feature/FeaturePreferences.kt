@@ -11,4 +11,5 @@ internal object FeaturePreferences {
     const val PREFER_DYNAMIC_VIDEO_TAB = "prefer_dynamic_video_tab"
     const val SHOW_FULL_NUMBERS = "show_full_numbers"
     const val HIDE_PLAYER_PORTRAIT_CONTROL = "hide_player_portrait_control"
+    const val REMOVE_COMMENT_SEARCH_LINKS = "remove_comment_search_links"
 }

@@ -97,8 +97,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 15
-    private const val ADAPTER_RULE_VERSION = 7
+    private const val SCHEMA_VERSION = 16
+    private const val ADAPTER_RULE_VERSION = 8
 
     enum class AdaptState {
         FOUND,
@@ -334,6 +334,26 @@ object VersionAdapter {
         }
     }
 
+    /** 评论 protobuf 中对外暴露的 URL 映射入口；不触碰正文、emoji 或评论视图。 */
+    data class CommentPurifyPoints(
+        val urlMapGetters: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("urls", JSONArray().apply { urlMapGetters.forEach { put(it.toJson()) } })
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): CommentPurifyPoints {
+                val urls = o.getJSONArray("urls")
+                return CommentPurifyPoints(
+                    (0 until urls.length()).map {
+                        HookPoint.fromJson(urls.getJSONObject(it))
+                    }
+                )
+            }
+        }
+    }
+
     /** 适配结果（各功能 hook 点） */
     data class AdaptResult(
         val biliVersionCode: Int,
@@ -361,6 +381,8 @@ object VersionAdapter {
         val fullNumbers: FullNumberPoints?,
         /** 播放器竖屏切换控件自身的可见性入口。 */
         val playerPortrait: PlayerPortraitPoints?,
+        /** 评论区净化所需的 protobuf 数据边界。 */
+        val commentPurify: CommentPurifyPoints?,
         /** 宿主 APK + 适配规则指纹，防止只凭 versionCode 复用陈旧缓存。 */
         val hostFingerprint: String,
         /** 每个逻辑 Hook 点的定位结果，供日志/UI 诊断。 */
@@ -381,6 +403,7 @@ object VersionAdapter {
             dynamicTabs?.let { put("dynamic_tabs", it.toJson()) }
             fullNumbers?.let { put("full_numbers", it.toJson()) }
             playerPortrait?.let { put("player_portrait", it.toJson()) }
+            commentPurify?.let { put("comment_purify", it.toJson()) }
             put("fp", hostFingerprint)
             put("diag", JSONArray().apply { diagnostics.forEach { put(it.toJson()) } })
         }
@@ -442,6 +465,9 @@ object VersionAdapter {
                 playerPortrait?.visibilityMethods?.let { methods ->
                     methods.isNotEmpty() && methods.all { it.isValid() }
                 } != false &&
+                commentPurify?.urlMapGetters?.let { methods ->
+                    methods.isNotEmpty() && methods.all { it.isValid() }
+                } != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
         companion object {
@@ -467,6 +493,8 @@ object VersionAdapter {
                     fullNumbers = o.optJSONObject("full_numbers")?.let(FullNumberPoints::fromJson),
                     playerPortrait = o.optJSONObject("player_portrait")
                         ?.let(PlayerPortraitPoints::fromJson),
+                    commentPurify = o.optJSONObject("comment_purify")
+                        ?.let(CommentPurifyPoints::fromJson),
                     hostFingerprint = o.optString("fp"),
                     diagnostics = diagnostics
                 ).takeIf { it.isStructurallyValid() }
@@ -535,6 +563,10 @@ object VersionAdapter {
     )
     private val PLAYER_PORTRAIT_CLASS_CANDIDATES = listOf(
         "com.bilibili.app.gemini.player.widget.story.GeminiPlayerFullStoryWidget"
+    )
+    private val COMMENT_CONTENT_CLASS_CANDIDATES = listOf(
+        "com.bapis.bilibili.main.community.reply.v1.Content",
+        "com.bapis.bilibili.p4311main.community.reply.p4312v1.Content"
     )
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
@@ -713,6 +745,7 @@ object VersionAdapter {
                     "blockUpdate=${result?.blockUpdate != null} " +
                     "dynamicTabs=${result?.dynamicTabs != null} " +
                     "playerPortrait=${result?.playerPortrait != null} " +
+                    "commentPurify=${result?.commentPurify != null} " +
                     "diag=${result?.diagnosticSummary()}"
             )
         }, "BIL-VersionAdapter").apply {
@@ -737,11 +770,13 @@ object VersionAdapter {
         val dynamicTabs = locateDynamicTabs(loader)
         val fullNumbers = locateFullNumbers(loader)
         val playerPortrait = locatePlayerPortrait(loader)
+        val commentPurify = locateCommentPurify(loader)
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
-            dynamicTabs == null && fullNumbers == null && playerPortrait == null) return null
+            dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
+            commentPurify == null) return null
         return AdaptResult(
             biliVersionCode = 0,
             ts = 0L,
@@ -756,10 +791,11 @@ object VersionAdapter {
             dynamicTabs = dynamicTabs,
             fullNumbers = fullNumbers,
             playerPortrait = playerPortrait,
+            commentPurify = commentPurify,
             hostFingerprint = "runtime-no-context|rules=$ADAPTER_RULE_VERSION",
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
-                dynamicTabs, fullNumbers, playerPortrait
+                dynamicTabs, fullNumbers, playerPortrait, commentPurify
             )
         )
     }
@@ -783,6 +819,7 @@ object VersionAdapter {
         val dynamicTabs = locateDynamicTabs(loader)
         val fullNumbers = locateFullNumbers(loader)
         val playerPortrait = locatePlayerPortrait(loader)
+        val commentPurify = locateCommentPurify(loader)
         val anyClassExists = COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || HOME_TOP_BAR_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
@@ -790,12 +827,14 @@ object VersionAdapter {
             || KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS)
             || FULL_NUMBER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || PLAYER_PORTRAIT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || COMMENT_CONTENT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
+            commentPurify == null &&
             !anyClassExists) return null
         return AdaptResult(
             biliVersionCode = vc,
@@ -811,10 +850,11 @@ object VersionAdapter {
             dynamicTabs = dynamicTabs,
             fullNumbers = fullNumbers,
             playerPortrait = playerPortrait,
+            commentPurify = commentPurify,
             hostFingerprint = buildHostFingerprint(context),
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
-                dynamicTabs, fullNumbers, playerPortrait
+                dynamicTabs, fullNumbers, playerPortrait, commentPurify
             )
         )
     }
@@ -842,7 +882,8 @@ object VersionAdapter {
         blockUpdate: HookPoint?,
         dynamicTabs: DynamicTabsPoint?,
         fullNumbers: FullNumberPoints?,
-        playerPortrait: PlayerPortraitPoints?
+        playerPortrait: PlayerPortraitPoints?,
+        commentPurify: CommentPurifyPoints?
     ): List<AdaptDiagnostic> {
         fun stateFor(pointFound: Boolean, candidateExists: Boolean): AdaptState = when {
             pointFound -> AdaptState.FOUND
@@ -869,6 +910,9 @@ object VersionAdapter {
             KavaMemberLookup.hasClass(loader, it)
         }
         val playerPortraitCandidateExists = PLAYER_PORTRAIT_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val commentPurifyCandidateExists = COMMENT_CONTENT_CLASS_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
         val pauseCandidateClasses = listOf(
@@ -976,6 +1020,11 @@ object VersionAdapter {
                 "player.portrait",
                 stateFor(playerPortrait != null, playerPortraitCandidateExists),
                 playerPortrait?.visibilityMethods?.joinToString("|") { it.label() }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.purify.search",
+                stateFor(commentPurify != null, commentPurifyCandidateExists),
+                commentPurify?.urlMapGetters?.joinToString("|") { it.label() }.orEmpty()
             )
         )
     }
@@ -1249,6 +1298,26 @@ object VersionAdapter {
             .map { it.toHookPoint() }
             .toList()
         methods.takeIf { it.isNotEmpty() }?.let(::PlayerPortraitPoints)
+    }.getOrNull()
+
+    /**
+     * 定位评论内容的公开 URL Map getter。8.90.2、9.1.0 与 9.9.0 均保留 getUrls/
+     * getUrlsMap；只接管 Map 返回边界，避免修改 protobuf 内部 MapFieldLite 的可变状态。
+     */
+    fun locateCommentPurify(loader: ClassLoader): CommentPurifyPoints? = runCatching {
+        val methods = COMMENT_CONTENT_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    !method.isStatic && method.parameterCount == 0 &&
+                        method.name in setOf("getUrls", "getUrlsMap") &&
+                        method.returnType isSubclassOf classOf<Map<*, *>>()
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        methods.takeIf { it.isNotEmpty() }?.let(::CommentPurifyPoints)
     }.getOrNull()
 
     /** 暂停页请求入口并行探测；仅零参数 invoke 才允许被识别为旧 Function0。 */

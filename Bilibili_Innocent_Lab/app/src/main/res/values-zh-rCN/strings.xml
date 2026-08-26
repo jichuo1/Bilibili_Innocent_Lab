@@ -45,6 +45,9 @@
     <string name="player_control_settings">播放器控件</string>
     <string name="hide_player_portrait_control">隐藏播放器竖屏切换控件</string>
     <string name="hide_player_portrait_control_tip">隐藏 Gemini 播放器中的“进入看一看”竖屏切换控件，保留全屏等其他控件；重启哔哩哔哩后生效</string>
+    <string name="comment_purify_settings">评论区净化</string>
+    <string name="remove_comment_search_links">移除评论区关键词高亮搜索</string>
+    <string name="remove_comment_search_links_tip">保留评论正文与 emoji，仅禁用点击关键词后跳转哔哩哔哩搜索的链接；重启哔哩哔哩后生效</string>
     <string name="merch_ad_enable">隐藏UP主分享好物推广</string>
     <string name="merch_ad_tip">开启后不再展示某些视频详细页的UP主分享好物推广</string>
     <string name="purify_settings">净化</string>
