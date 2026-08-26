@@ -103,6 +103,7 @@ class MainActivity : AppViewsActivity() {
     private var blockAppUpdate = false
     private var hideDynamicCityTab = false
     private var hideDynamicSchoolTab = false
+    private var showFullNumbers = false
     private var freeCopyEnabled = true
     private var freeCopyDescEnabled = true
     private var freeCopyLightMode = false
@@ -1691,6 +1692,11 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read dynamic school tab prefs failed", t)
         }.getOrDefault(false)
+        showFullNumbers = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.SHOW_FULL_NUMBERS, false) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read full number prefs failed", t)
+        }.getOrDefault(false)
         merchAdEnabled = runCatching {
             modulePrefs?.getBoolean(HookEntry.PREF_MERCH_ENABLED, true) ?: true
         }.onFailure { t ->
@@ -2510,7 +2516,70 @@ class MainActivity : AppViewsActivity() {
                                     setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x40))
                                 }
                             )
-                            // 子项 7：评论区长按自由复制
+                            // 子项 7：完整数字显示（新功能默认关闭）
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.7f
+                                isSingleLine = true
+                                text = stringResource(R.string.number_display_settings)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 11f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.show_full_numbers)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = showFullNumbers
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    showFullNumbers = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.SHOW_FULL_NUMBERS,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write full number prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.show_full_numbers_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            FrameLayout(
+                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 14.dp
+                                },
+                                init = {
+                                    setBackgroundColor(
+                                        ColorUtils.setAlphaComponent(
+                                            colorResource(R.color.colorTextGray),
+                                            0x40
+                                        )
+                                    )
+                                }
+                            )
+                            // 子项 8：评论区长按自由复制
                             TextView(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     bottomMargin = 4.dp

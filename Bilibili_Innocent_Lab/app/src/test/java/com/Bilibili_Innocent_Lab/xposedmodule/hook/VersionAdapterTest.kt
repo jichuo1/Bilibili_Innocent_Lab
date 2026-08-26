@@ -79,7 +79,16 @@ class VersionAdapterTest {
             itemTitleField = "a",
             itemNameField = "b"
         ),
-        hostFingerprint = "host|9090300|rules=5",
+        fullNumbers = VersionAdapter.FullNumberPoints(
+            listOf(
+                VersionAdapter.HookPoint(
+                    "kntr.base.localization.NumberFormat_androidKt",
+                    "format",
+                    listOf("java.lang.Long")
+                )
+            )
+        ),
+        hostFingerprint = "host|9090300|rules=6",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -149,5 +158,24 @@ class VersionAdapterTest {
         assertEquals("vd6.c", point?.className)
         assertEquals("c", point?.methodName)
         assertEquals(listOf("android.content.Context"), point?.paramClassNames)
+    }
+
+    @Test
+    fun `locates full number overloads and rejects unrelated signatures`() {
+        val points = VersionAdapter.locateFullNumbers(requireNotNull(javaClass.classLoader))
+            ?.formatterMethods.orEmpty()
+
+        assertEquals(4, points.size)
+        assertTrue(points.all {
+            it.className == "kntr.base.localization.NumberFormat_androidKt"
+        })
+        assertTrue(points.any {
+            it.methodName == "format" && it.paramClassNames == listOf("java.lang.Long")
+        })
+        assertTrue(points.any {
+            it.methodName == "format" && it.paramClassNames == listOf("java.lang.String")
+        })
+        assertTrue(points.any { it.methodName == "formatNumber" })
+        assertTrue(points.any { it.methodName == "format\$default" })
     }
 }
