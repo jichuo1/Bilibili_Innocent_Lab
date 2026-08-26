@@ -60,6 +60,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.RoamingCompatHook
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.GitHubReleaseChecker
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ShellCommandRunner
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateCheckCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
 import android.app.Dialog
@@ -128,9 +129,8 @@ class MainActivity : AppViewsActivity() {
     /** 当前活动的确认弹窗：Activity 销毁时主动 dismiss，避免 WindowLeaked */
     private var activeConfirmDialog: Dialog? = null
 
-    /** GitHub 请求只允许单飞；自动检查与手动检查不会重复占用网络连接。 */
-    @Volatile
-    private var updateCheckRunning = false
+    /** GitHub 请求只允许单飞；切换渠道时保留最后一次手动请求并抑制过期结果。 */
+    private val updateCheckCoordinator = UpdateCheckCoordinator()
 
     /** 日志详细度档位选择器的两个 pill 控件引用 + 滑动滑块 + 描述 TextView */
     private var logLevelMinimalPill: android.widget.TextView? = null
@@ -715,38 +715,65 @@ class MainActivity : AppViewsActivity() {
             val elapsed = now - lastCheck
             if (elapsed in 0 until AUTOMATIC_UPDATE_CHECK_INTERVAL_MS) return
         }
-        if (updateCheckRunning) {
+        val request = UpdateCheckCoordinator.Request(channel, manual)
+        val requestToStart = updateCheckCoordinator.submit(request)
+        if (requestToStart == null) {
             if (manual) Toast.makeText(this, checkingToastRes(channel), Toast.LENGTH_SHORT).show()
             return
         }
+        startUpdateCheck(requestToStart, updatePrefs)
+    }
 
-        updateCheckRunning = true
-        if (manual) Toast.makeText(this, checkingToastRes(channel), Toast.LENGTH_SHORT).show()
+    /** 启动协调器已接受的请求；完成后会自动接续渠道切换期间排队的最后一次手动检查。 */
+    private fun startUpdateCheck(
+        request: UpdateCheckCoordinator.Request,
+        updatePrefs: android.content.SharedPreferences
+    ) {
+        val channel = request.channel
+        if (request.manual) {
+            Toast.makeText(this, checkingToastRes(channel), Toast.LENGTH_SHORT).show()
+        }
         val activityRef = WeakReference(this)
         Thread({
             val result = runCatching { GitHubReleaseChecker.fetchLatestRelease(channel) }
             Handler(Looper.getMainLooper()).post {
                 val activity = activityRef.get() ?: return@post
-                activity.updateCheckRunning = false
                 if (activity.isFinishing || activity.isDestroyed) return@post
-                result.fold(
-                    onSuccess = { release ->
-                        updatePrefs.edit()
-                            .putLong(lastCheckKey(updatePrefs, channel), System.currentTimeMillis())
-                            .apply()
-                        activity.handleReleaseCheckResult(channel, release, manual)
-                    },
-                    onFailure = { error ->
-                        Log.w("BilibiliInnocentLab", "release check failed", error)
-                        if (manual) {
-                            Toast.makeText(
-                                activity,
-                                activity.failedToastRes(channel),
-                                Toast.LENGTH_SHORT
-                            ).show()
+                val selectedChannel = activity.readUpdateChannel(updatePrefs)
+                val completion = activity.updateCheckCoordinator.complete(channel, selectedChannel)
+                result.onSuccess {
+                    updatePrefs.edit()
+                        .putLong(activity.lastCheckKey(updatePrefs, channel), System.currentTimeMillis())
+                        .apply()
+                }
+                if (completion.shouldDeliverResult) {
+                    result.fold(
+                        onSuccess = { release ->
+                            activity.handleReleaseCheckResult(channel, release, request.manual)
+                        },
+                        onFailure = { error ->
+                            Log.w("BilibiliInnocentLab", "release check failed", error)
+                            if (request.manual) {
+                                Toast.makeText(
+                                    activity,
+                                    activity.failedToastRes(channel),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
                         }
+                    )
+                } else {
+                    result.exceptionOrNull()?.let { error ->
+                        Log.w(
+                            "BilibiliInnocentLab",
+                            "stale release check failed for " + channel.storageValue,
+                            error
+                        )
                     }
-                )
+                }
+                completion.nextRequest?.let { next ->
+                    activity.startUpdateCheck(next, updatePrefs)
+                }
             }
         }, "github-release-check").apply {
             isDaemon = true
@@ -767,7 +794,8 @@ class MainActivity : AppViewsActivity() {
         manual: Boolean
     ) {
         when (GitHubReleaseChecker.compareVersions(release.tagName, BuildConfig.VERSION_NAME)) {
-            GitHubReleaseChecker.VersionRelation.REMOTE_NEWER -> showUpdateDialogWhenIdle(release)
+            GitHubReleaseChecker.VersionRelation.REMOTE_NEWER ->
+                showUpdateDialogWhenIdle(channel, release)
             GitHubReleaseChecker.VersionRelation.LOCAL_NEWER -> {
                 if (manual) {
                     val resId = if (channel == GitHubReleaseChecker.UpdateChannel.STABLE) {
@@ -790,14 +818,17 @@ class MainActivity : AppViewsActivity() {
 
     /** Avoids replacing a confirmation dialog the user is already interacting with. */
     private fun showUpdateDialogWhenIdle(
+        channel: GitHubReleaseChecker.UpdateChannel,
         release: GitHubReleaseChecker.ReleaseInfo,
         retryCount: Int = 0
     ) {
         if (isFinishing || isDestroyed) return
+        val updatePrefs = applicationContext.getSharedPreferences(UPDATE_PREFS_NAME, MODE_PRIVATE)
+        if (readUpdateChannel(updatePrefs) != channel) return
         if (activeConfirmDialog?.isShowing == true) {
             if (retryCount < 20) {
                 findViewById<View>(Android_R.id.content).postDelayed(
-                    { showUpdateDialogWhenIdle(release, retryCount + 1) },
+                    { showUpdateDialogWhenIdle(channel, release, retryCount + 1) },
                     500L
                 )
             }

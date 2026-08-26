@@ -9,6 +9,7 @@
         me.iacn.biliroaming 可见（Android 11+ 包可见性）。
     -->
     <queries>
+        <package android:name="tv.danmaku.bili" />
         <package android:name="me.iacn.biliroaming" />
     </queries>
 
@@ -65,12 +66,7 @@
         -->
         <receiver
             android:name=".receiver.RoamingOpenReceiver"
-            android:exported="true">
-
-            <intent-filter>
-                <action android:name="${applicationId}.OPEN_ROAMING_SETTINGS" />
-            </intent-filter>
-        </receiver>
+            android:exported="true" />
 
         <activity
             android:name=".ui.activity.MainActivity"

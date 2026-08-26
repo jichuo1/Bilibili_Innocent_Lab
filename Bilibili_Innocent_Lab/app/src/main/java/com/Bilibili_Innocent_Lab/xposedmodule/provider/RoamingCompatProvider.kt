@@ -6,6 +6,8 @@ import android.content.Context
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
+import android.os.Binder
+import android.os.Process
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 
@@ -45,6 +47,7 @@ class RoamingCompatProvider : ContentProvider() {
         sortOrder: String?
     ): Cursor? {
         if (uri.authority != AUTHORITY) return null
+        enforceTrustedCaller()
         if (uri.pathSegments == listOf(PATH_FREE_COPY_CONFIG)) {
             val snapshot = context?.let(FreeCopyConfigStore::read)
             return MatrixCursor(
@@ -86,4 +89,21 @@ class RoamingCompatProvider : ContentProvider() {
         selection: String?,
         selectionArgs: Array<out String>?
     ): Int = 0
+
+    /**
+     * Provider 必须导出给 B 站进程作为 prefs 降级通道，但不应向任意第三方应用暴露
+     * 功能开关或允许其反复冷启动模块进程。Shell 保留用于 ADB 诊断。
+     */
+    private fun enforceTrustedCaller() {
+        val callerUid = Binder.getCallingUid()
+        if (
+            callerUid == Process.myUid() ||
+            callerUid == Process.ROOT_UID ||
+            callerUid == Process.SYSTEM_UID ||
+            callerUid == Process.SHELL_UID
+        ) return
+        val callerPackages = context?.packageManager?.getPackagesForUid(callerUid).orEmpty()
+        if (callerPackages.any { it == HookEntry.TARGET_PACKAGE }) return
+        throw SecurityException("Caller uid $callerUid is not allowed to query $AUTHORITY")
+    }
 }

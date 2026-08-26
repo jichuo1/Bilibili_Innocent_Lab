@@ -15,6 +15,12 @@ The roaming switch has two channels:
 The receiver requires the module's signature permission. Package targeting is
 kept for routing only and is not treated as an authorization mechanism.
 
+The exported compatibility provider validates the Binder caller uid and accepts
+only the module itself, trusted system/ADB callers, or tv.danmaku.bili.
+The settings-opening receiver has no discoverable intent filter; Bilibili uses
+an explicit component together with a short-lived request timestamp. Android
+14+ additionally validates the framework-reported sender package.
+
 ## Shared runtime helpers
 
 `runtime/TargetAppStorage` centralizes Bilibili cache path construction and

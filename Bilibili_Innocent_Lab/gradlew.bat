@@ -33,8 +33,15 @@ set APP_HOME=%DIRNAME%
 for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
 
 @rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
-set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
-
+@rem Keep the Windows-only writable temp path in this launcher so Unix CI never
+@rem receives a Windows absolute path from the shared gradle.properties file.
+set "BIL_GRADLE_TMP=%TEMP%"
+if not defined BIL_GRADLE_TMP set "BIL_GRADLE_TMP=%SystemRoot%\Temp"
+if not exist "%BIL_GRADLE_TMP%" set "BIL_GRADLE_TMP=%SystemRoot%\Temp"
+for %%i in ("%BIL_GRADLE_TMP%") do set "BIL_GRADLE_TMP=%%~fsi"
+@rem Match org.gradle.jvmargs so --no-daemon can reuse this JVM instead of
+@rem forking a single-use Daemon and opening a local selector/AF_UNIX pipe.
+set DEFAULT_JVM_OPTS="-Xmx2048m" "-Dfile.encoding=UTF-8" "-Djava.io.tmpdir=%BIL_GRADLE_TMP%"
 @rem Find java.exe
 if defined JAVA_HOME goto findJavaFromJavaHome
 

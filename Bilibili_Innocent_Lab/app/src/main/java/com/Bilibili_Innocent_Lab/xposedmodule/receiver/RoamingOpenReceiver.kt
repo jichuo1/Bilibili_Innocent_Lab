@@ -4,7 +4,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.SystemClock
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * 代开哔哩漫游设置的接收器（B 站进程 → 本模块 App 的跨进程通道）。
@@ -22,16 +24,27 @@ class RoamingOpenReceiver : BroadcastReceiver() {
     companion object {
         /** B 站进程发送的广播 action（RoamingCompatHook 中点击入口时发送） */
         const val ACTION_OPEN_ROAMING_SETTINGS = "com.Bilibili_Innocent_Lab.xposedmodule.OPEN_ROAMING_SETTINGS"
+        const val EXTRA_REQUEST_ELAPSED_REALTIME = "request_elapsed_realtime"
+        private const val MAX_REQUEST_AGE_MS = 5_000L
+        private const val MIN_REQUEST_INTERVAL_MS = 1_000L
+        private val lastAcceptedRequestMs = AtomicLong(0L)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION_OPEN_ROAMING_SETTINGS) return
+        val now = SystemClock.elapsedRealtime()
+        val requestedAt = intent.getLongExtra(EXTRA_REQUEST_ELAPSED_REALTIME, -1L)
+        if (requestedAt <= 0L || now - requestedAt !in 0L..MAX_REQUEST_AGE_MS) return
         // Android 14+ 可取得真实发送方身份；只接受由注入代码所在的 B 站进程
-        // 发起的请求。Android 13 及以下没有对应公开 API，仍依赖显式包路由，
-        // 且该接收器只执行无参数的设置页跳转，不处理状态写入或外部数据。
+        // 发起的请求。Android 13 及以下没有对应公开 API，因此 Manifest 不再声明
+        // Intent Filter，发送方必须知道并显式指定组件，同时还需通过短时效与节流检查。
+        // 接收器只执行无参数的设置页跳转，不处理状态写入或外部数据。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
             sentFromPackage != HookEntry.TARGET_PACKAGE
         ) return
+        val previous = lastAcceptedRequestMs.get()
+        if (previous > 0L && now - previous < MIN_REQUEST_INTERVAL_MS) return
+        lastAcceptedRequestMs.set(now)
         runCatching {
             val launch = Intent().apply {
                 setClassName("me.iacn.biliroaming", "me.iacn.biliroaming.MainActivityAlias")
