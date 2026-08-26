@@ -68,4 +68,13 @@ class FeatureStatusInstallerTest {
         assertEquals(FeatureInstallResult.Skipped("disabled"), result)
         assertEquals(listOf("dynamic_tabs_status" to "disabled"), statuses)
     }
+
+    @Test
+    fun `full numbers reports disabled without resolving hook points`() {
+        val result = FullNumberFeatureInstaller(enabled = false, points = null)
+            .install(environment)
+
+        assertEquals(FeatureInstallResult.Skipped("disabled"), result)
+        assertEquals(listOf("full_number_status" to "disabled"), statuses)
+    }
 }

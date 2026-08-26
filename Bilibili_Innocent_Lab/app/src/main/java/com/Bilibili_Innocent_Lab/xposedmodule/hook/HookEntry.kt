@@ -28,6 +28,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BlockUpdateFeatureIns
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DynamicTabsFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FullNumberFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.GamePromotionFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeBannerFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeTopBarFeatureInstaller
@@ -2755,6 +2756,18 @@ class HookEntry : IYukiHookXposedInit {
                             false
                         ),
                         point = hostAdaptResult?.dynamicTabs
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    FullNumberFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.SHOW_FULL_NUMBERS,
+                            false
+                        ),
+                        points = hostAdaptResult?.fullNumbers
                     )
                 )
             )
