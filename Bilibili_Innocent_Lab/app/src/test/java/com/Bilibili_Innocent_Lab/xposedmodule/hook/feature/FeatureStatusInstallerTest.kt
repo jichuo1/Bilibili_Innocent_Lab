@@ -62,6 +62,7 @@ class FeatureStatusInstallerTest {
         val result = DynamicTabsFeatureInstaller(
             hideCity = false,
             hideSchool = false,
+            preferVideo = false,
             point = null
         ).install(environment)
 
