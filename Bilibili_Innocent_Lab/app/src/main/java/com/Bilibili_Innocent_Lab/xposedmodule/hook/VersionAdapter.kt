@@ -10,6 +10,7 @@ import com.highcapable.kavaref.extension.isSubclassOf
 import de.robv.android.xposed.XposedBridge
 import org.json.JSONArray
 import org.json.JSONObject
+import java.lang.reflect.Method
 
 /**
  * 哔哩哔哩版本适配器（学 BiliRoaming 的 hook 点自动定位思路，轻量实现）。
@@ -85,7 +86,87 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 7
+    private const val SCHEMA_VERSION = 8
+
+    /** “我的”页菜单注入所需的整组结构化入口。字段名会随 R8 漂移，必须和方法一起缓存。 */
+    data class MineEntryPoint(
+        val buildMethods: List<HookPoint>,
+        val groupListField: String,
+        val adapterField: String?,
+        val clickMethod: HookPoint
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("build", JSONArray().apply { buildMethods.forEach { put(it.toJson()) } })
+            put("groups", groupListField)
+            adapterField?.let { put("adapter", it) }
+            put("click", clickMethod.toJson())
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): MineEntryPoint {
+                val build = o.getJSONArray("build")
+                return MineEntryPoint(
+                    buildMethods = (0 until build.length()).map {
+                        HookPoint.fromJson(build.getJSONObject(it))
+                    },
+                    groupListField = o.getString("groups"),
+                    adapterField = o.optString("adapter").takeIf { it.isNotEmpty() },
+                    clickMethod = HookPoint.fromJson(o.getJSONObject("click"))
+                )
+            }
+        }
+    }
+
+    /** 暂停页采用多入口并行注册；类存在不代表当前版本真的走该链路。 */
+    data class PausePoints(
+        val requestMethods: List<HookPoint>,
+        val legacyCallback: HookPoint?,
+        val panelShow: HookPoint?,
+        val countdown: HookPoint?
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("requests", JSONArray().apply { requestMethods.forEach { put(it.toJson()) } })
+            legacyCallback?.let { put("legacy", it.toJson()) }
+            panelShow?.let { put("panel", it.toJson()) }
+            countdown?.let { put("countdown", it.toJson()) }
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): PausePoints {
+                val requests = o.optJSONArray("requests")
+                return PausePoints(
+                    requestMethods = if (requests == null) emptyList() else
+                        (0 until requests.length()).map { HookPoint.fromJson(requests.getJSONObject(it)) },
+                    legacyCallback = o.optJSONObject("legacy")?.let(HookPoint::fromJson),
+                    panelShow = o.optJSONObject("panel")?.let(HookPoint::fromJson),
+                    countdown = o.optJSONObject("countdown")?.let(HookPoint::fromJson)
+                )
+            }
+        }
+    }
+
+    /** 首页 V8Banner 的稳定视图类型与其父类低频生命周期入口。 */
+    data class BannerPoint(
+        val bannerClassName: String,
+        val lifecycleMethods: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("cls", bannerClassName)
+            put("hooks", JSONArray().apply { lifecycleMethods.forEach { put(it.toJson()) } })
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): BannerPoint {
+                val hooks = o.getJSONArray("hooks")
+                return BannerPoint(
+                    bannerClassName = o.getString("cls"),
+                    lifecycleMethods = (0 until hooks.length()).map {
+                        HookPoint.fromJson(hooks.getJSONObject(it))
+                    }
+                )
+            }
+        }
+    }
 
     /** 适配结果（各功能 hook 点） */
     data class AdaptResult(
@@ -95,7 +176,13 @@ object VersionAdapter {
         /** 评论 holder 低版本路径（t0.o0 体系） */
         val commentLow: HookPoint?,
         /** 评论 handler 高版本路径（V2 体系） */
-        val commentHigh: HookPoint?
+        val commentHigh: HookPoint?,
+        /** “我的”页菜单构建、字段和点击分发入口。 */
+        val mineEntry: MineEntryPoint?,
+        /** 暂停页所有可用请求/渲染兜底入口。 */
+        val pause: PausePoints,
+        /** 首页 V8Banner 稳定视图入口。 */
+        val banner: BannerPoint?
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("sv", SCHEMA_VERSION)
@@ -103,6 +190,9 @@ object VersionAdapter {
             put("ts", ts)
             commentLow?.let { put("low", it.toJson()) }
             commentHigh?.let { put("high", it.toJson()) }
+            mineEntry?.let { put("mine", it.toJson()) }
+            put("pause", pause.toJson())
+            banner?.let { put("banner", it.toJson()) }
         }
 
         companion object {
@@ -112,7 +202,11 @@ object VersionAdapter {
                     biliVersionCode = o.getInt("v"),
                     ts = o.optLong("ts", 0L),
                     commentLow = if (o.has("low")) HookPoint.fromJson(o.getJSONObject("low")) else null,
-                    commentHigh = if (o.has("high")) HookPoint.fromJson(o.getJSONObject("high")) else null
+                    commentHigh = if (o.has("high")) HookPoint.fromJson(o.getJSONObject("high")) else null,
+                    mineEntry = o.optJSONObject("mine")?.let(MineEntryPoint::fromJson),
+                    pause = o.optJSONObject("pause")?.let(PausePoints::fromJson)
+                        ?: PausePoints(emptyList(), null, null, null),
+                    banner = o.optJSONObject("banner")?.let(BannerPoint::fromJson)
                 )
             }
         }
@@ -244,7 +338,12 @@ object VersionAdapter {
                 }
             }
             callback?.onAdaptFinished(result != null)
-            XposedBridge.log("[BIL] 版本适配${if (result != null) "完成" else "失败"} v=${result?.biliVersionCode} low=${result?.commentLow} high=${result?.commentHigh}")
+            XposedBridge.log(
+                "[BIL] 版本适配${if (result != null) "完成" else "失败"} " +
+                    "v=${result?.biliVersionCode} low=${result?.commentLow} high=${result?.commentHigh} " +
+                    "mine=${result?.mineEntry != null} pause=${result?.pause?.requestMethods?.size ?: 0} " +
+                    "banner=${result?.banner != null}"
+            )
         }, "BIL-VersionAdapter").apply {
             isDaemon = true
             start()
@@ -258,8 +357,13 @@ object VersionAdapter {
     fun quickLocate(loader: ClassLoader): AdaptResult? {
         val low = locateCommentLow(loader)
         val high = locateCommentHigh(loader)
-        if (low == null && high == null) return null
-        return AdaptResult(0, 0L, low, high)
+        val mine = locateMineEntry(loader)
+        val pause = locatePausePoints(loader)
+        val banner = locateBanner(loader)
+        if (low == null && high == null && mine == null &&
+            pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
+            pause.panelShow == null && pause.countdown == null && banner == null) return null
+        return AdaptResult(0, 0L, low, high, mine, pause, banner)
     }
 
     /** 智能定位核心：对内置候选类做存在性验证 + 方法签名特征匹配。
@@ -272,11 +376,150 @@ object VersionAdapter {
         val vc = biliVersionCode(context)
         val low = locateCommentLow(loader)
         val high = locateCommentHigh(loader)
+        val mine = locateMineEntry(loader)
+        val pause = locatePausePoints(loader)
+        val banner = locateBanner(loader)
         val anyClassExists = COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-        if (low == null && high == null && !anyClassExists) return null
-        return AdaptResult(vc, System.currentTimeMillis(), low, high)
+        if (low == null && high == null && mine == null &&
+            pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
+            pause.panelShow == null && pause.countdown == null && banner == null &&
+            !anyClassExists) return null
+        return AdaptResult(vc, System.currentTimeMillis(), low, high, mine, pause, banner)
     }
+
+    private fun Method.toHookPoint() = HookPoint(
+        className = declaringClass.name,
+        methodName = name,
+        paramClassNames = parameterTypes.map { it.name }
+    )
+
+    /**
+     * 按宿主类层级名称判断类型，避免模块与宿主各自打包 AndroidX 时 Class 身份不同。
+     * 仅用于一次性版本探测，不进入任何 Hook 回调热路径。
+     */
+    private fun Class<*>.hasSuperclassNamed(expectedName: String): Boolean {
+        var current: Class<*>? = this
+        while (current != null) {
+            if (current.name == expectedName) return true
+            current = current.superclass
+        }
+        return false
+    }
+
+    /**
+     * 结构化定位“我的”页入口。已确认的字段漂移：
+     * 8.90.2/9.8.0 由运行时结构匹配；9.1.1=of+n1/m1、9.2.0=pf+m1/l1、
+     * 9.3.0=nf+u0/t0。只依赖方法参数、List 和 RecyclerView.Adapter 类型。
+     */
+    fun locateMineEntry(loader: ClassLoader): MineEntryPoint? = runCatching {
+        val fragmentName = "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment"
+        val accountMineName = "tv.danmaku.bili.ui.main2.api.AccountMine"
+        val itemName = "com.bilibili.lib.homepage.mine.MenuGroup\$Item"
+        val fragment = KavaMemberLookup.classOrNull(loader, fragmentName)
+            ?: return@runCatching null
+        val accountMine = KavaMemberLookup.classOrNull(loader, accountMineName)
+            ?: return@runCatching null
+        val itemClass = KavaMemberLookup.classOrNull(loader, itemName)
+            ?: return@runCatching null
+
+        val builds = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
+            it.isStatic && it.returnType == Void.TYPE &&
+                it.parameterTypes.contentEquals(arrayOf(fragment, accountMine))
+        }
+        if (builds.isEmpty()) return@runCatching null
+
+        val listFields = KavaMemberLookup.declaredFields(fragment, makeAccessible = true) {
+            !java.lang.reflect.Modifier.isStatic(it.modifiers) &&
+                List::class.java.isAssignableFrom(it.type)
+        }
+        val groups = listFields.singleOrNull() ?: return@runCatching null
+
+        val adapter = KavaMemberLookup.declaredFields(fragment, makeAccessible = true) {
+            !java.lang.reflect.Modifier.isStatic(it.modifiers) &&
+                it.type.hasSuperclassNamed("androidx.recyclerview.widget.RecyclerView\$Adapter")
+        }.singleOrNull()
+
+        val click = listOf("$fragmentName\$e", "$fragmentName\$i")
+            .asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .mapNotNull { clickClass ->
+                KavaMemberLookup.declaredMethods(clickClass, makeAccessible = true) {
+                    !it.isStatic && it.returnType == Void.TYPE &&
+                        it.parameterTypes.contentEquals(arrayOf(itemClass))
+                }.singleOrNull()
+            }
+            .firstOrNull() ?: return@runCatching null
+
+        MineEntryPoint(builds.map { it.toHookPoint() }, groups.name, adapter?.name, click.toHookPoint())
+    }.getOrNull()
+
+    /** 暂停页请求入口并行探测；仅零参数 invoke 才允许被识别为旧 Function0。 */
+    private fun locatePausePoints(loader: ClassLoader): PausePoints {
+        fun method(className: String, name: String, predicate: (Method) -> Boolean): HookPoint? {
+            val owner = KavaMemberLookup.classOrNull(loader, className) ?: return null
+            return KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                it.name == name && predicate(it)
+            }.singleOrNull()?.toHookPoint()
+        }
+
+        val requests = listOfNotNull(
+            method(
+                "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$2",
+                "invokeSuspend"
+            ) { !it.isStatic && it.parameterCount == 1 },
+            method(
+                "com.bilibili.ship.theseus.united.page.pausedpage." +
+                    "PausedPageService\$requestPausedPageData\$2",
+                "invokeSuspend"
+            ) { !it.isStatic && it.parameterCount == 1 }
+        )
+        val legacy = method(
+            "kntr.app.ad.biz.videodetail.pausedpage.ui.g",
+            "invoke"
+        ) { !it.isStatic && it.parameterCount == 0 }
+        val panel = method(
+            "com.bilibili.ship.theseus.united.page.ad.AdPanelRepository",
+            "showPanel"
+        ) { !it.isStatic && it.parameterCount >= 2 }
+        val countdown = method(
+            "com.bilibili.ship.theseus.united.page.pausedpage." +
+                "PausedPageService\$showPauseBarCountdownToast\$3",
+            "invokeSuspend"
+        ) { !it.isStatic && it.parameterCount == 1 }
+        return PausePoints(requests, legacy, panel, countdown)
+    }
+
+    /**
+     * V8Banner 从 8.90.2 到 9.9.0 均继承 SwiperBanner；父类的 attach、setAdapter 与
+     * visibility 回调是稳定低频入口。Hook 时仍按 V8Banner 实例过滤，不影响其它轮播控件。
+     */
+    private fun locateBanner(loader: ClassLoader): BannerPoint? = runCatching {
+        val bannerName = "com.bilibili.pegasus.holders.bannerv8.V8Banner"
+        val banner = KavaMemberLookup.classOrNull(loader, bannerName)
+            ?: return@runCatching null
+        var currentOwner: Class<*>? = banner.superclass
+        while (
+            currentOwner != null &&
+            currentOwner.name != "com.bilibili.app.comm.list.widget.swiper.SwiperBanner"
+        ) {
+            currentOwner = currentOwner.superclass
+        }
+        val owner = currentOwner ?: return@runCatching null
+        val hooks = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+            when (it.name) {
+                "onAttachedToWindow" -> it.parameterCount == 0
+                "setAdapter" -> it.parameterCount == 1 &&
+                    it.parameterTypes[0].name.endsWith(".SwiperBannerAdapter")
+                "onVisibilityChanged" -> it.parameterTypes.contentEquals(
+                    arrayOf(android.view.View::class.java, Integer.TYPE)
+                )
+                else -> false
+            }
+        }.map { it.toHookPoint() }
+        if (hooks.none { it.methodName == "onAttachedToWindow" }) return@runCatching null
+        BannerPoint(bannerName, hooks)
+    }.getOrNull()
 
     /**
      * 低版本评论 holder：候选类存在 + 有绑定方法（方法名漂移自适应：8.90.2 为 o0、

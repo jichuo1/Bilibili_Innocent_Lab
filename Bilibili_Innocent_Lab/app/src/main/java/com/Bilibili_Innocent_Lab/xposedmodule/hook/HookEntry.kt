@@ -23,14 +23,15 @@ import java.lang.reflect.Constructor
 import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
+import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.BubbleDrawable
 
 /**
  * Bilibili 广告 / 推广内容 Hook 入口。
  *
  * # 1. 暂停页广告跳过 (Paused Page Ad)
- *   class  : kntr.app.ad.biz.videodetail.pausedpage.ui.g
- *   method : invoke  （Function0 lambda，倒计时结束后的"展示广告"回调）
+ *   由 VersionAdapter 区分零参数旧 Function0 与新版请求 SuspendLambda；请求入口并行注册，
+ *   不再用“第一个存在的类”判断活跃链路。
  *
  * # 2. 视频提及区游戏广告 (Video Mentioned Game Ad) —— 双管齐下
  *
@@ -67,9 +68,6 @@ class HookEntry : IYukiHookXposedInit {
     companion object {
         const val TARGET_PACKAGE = "tv.danmaku.bili"
 
-        // 暂停页广告（低版本：ui.g 混淆类，Function0 倒计时结束展示回调）
-        const val TARGET_PAUSED_CLASS = "kntr.app.ad.biz.videodetail.pausedpage.ui.g"
-        const val TARGET_PAUSED_METHOD = "invoke"
         // 暂停页广告（9.0.0：Compose 重构，广告经 requestPausedPage 请求，
         // invokeSuspend 是请求执行点，返回 null 跳过广告）
         const val TARGET_PAUSED_CLASS_V2 = "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$2"
@@ -142,17 +140,10 @@ class HookEntry : IYukiHookXposedInit {
         const val METHOD_GET_FOLD_COUNT = "getFoldCount"
 
         // ===== 首页顶部大卡轮播（banner_v8） =====
-        // banner 数据容器（R8 混淆包 xm3，但类名/方法名稳定，jadx 反编译确认）
-        // xm3.d = banner 数据容器（getCardType()="banner_v8"），xm3.d.l() = 子 banner item 列表
+        // 8.90.2-9.9.0 的稳定入口由 VersionAdapter 定位为 V8Banner → SwiperBanner；
+        // xm3.d 仅保留给更早版本做静默兜底，不参与 9.x 的成功判定。
         const val CLASS_BANNER_CONTAINER = "xm3.d"
         const val METHOD_BANNER_ITEMS = "l"
-        // banner 广告类型判断工具（com.bilibili.pegasus.holders.bannerv8.g）
-        // g.b(str)=g.d||g.c（广告类型组合），hook d+c 即覆盖 b 的组合逻辑（b 无需单独 hook）
-        // g.d="ad"/"ad_inline"/"ad_inline_live"/"ad_inline_av"，g.c="ad_compose"
-        const val CLASS_BANNER_TYPE_JUDGE = "com.bilibili.pegasus.holders.bannerv8.g"
-        const val METHOD_IS_AD_TYPE_D = "d"
-        const val METHOD_IS_AD_TYPE_C = "c"
-
         /** 模块 UI 写入的配置 key */
         const val PREF_ENABLED = "adskip_enabled"
         const val PREF_GAMECARD_ENABLED = "gamecard_ad_enabled"
@@ -164,6 +155,8 @@ class HookEntry : IYukiHookXposedInit {
         const val PREF_FREE_COPY_DESC_ENABLED = "free_copy_desc_enabled"
         const val PREF_FREE_COPY_LIGHT_MODE = "free_copy_light_mode"
         const val PREF_FREE_COPY_AUTO_LIGHT = "free_copy_auto_light"
+        /** 自由复制两项开关镜像的修订时间，用于识别可被信任的完整配置快照。 */
+        const val PREF_FREE_COPY_CONFIG_REVISION = "free_copy_config_revision"
         const val PREF_ROAMING_COMPAT_ENABLED = "roaming_compat_enabled"
         /** 模块 UI 预见式返回动画（Android 14+ Window#setEnableOnBackInvokedCallback） */
         const val PREF_PREDICTIVE_BACK_ENABLED = "predictive_back_enabled"
@@ -204,6 +197,16 @@ class HookEntry : IYukiHookXposedInit {
         /** 气泡亮暗色自动跟随开关（实验性功能；true=跟随 B 站主题，手动开关被覆盖） */
         @Volatile
         private var freeCopyAutoLight = false
+
+        /**
+         * 运行期自由复制开关。Hook 可能先按 LSPosed 早期快照注册，再由 Application.attach
+         * 后的 Provider 权威值校正；回调只增加一次 volatile 读取，不改变已启用时的算法。
+         */
+        @Volatile
+        private var runtimeCommentFreeCopyEnabled = true
+
+        @Volatile
+        private var runtimeDescriptionFreeCopyEnabled = true
 
         /**
          * B 站当前是否为亮色主题的缓存（仅自动跟随开启时使用）。
@@ -266,6 +269,76 @@ class HookEntry : IYukiHookXposedInit {
             return synchronized(mainHandlerLock) {
                 mainHandlerRef ?: android.os.Handler(looper).also { mainHandlerRef = it }
             }
+        }
+
+        private data class FreeCopyRuntimeConfig(
+            val commentEnabled: Boolean,
+            val descriptionEnabled: Boolean,
+            val revision: Long,
+            val source: String
+        )
+
+        private const val FREE_COPY_CACHE_PREFS = "innocent_lab_free_copy_config"
+        private const val FREE_COPY_CACHE_VALID = "valid"
+        private const val FREE_COPY_CACHE_COMMENT = "comment_enabled"
+        private const val FREE_COPY_CACHE_DESCRIPTION = "description_enabled"
+        private const val FREE_COPY_CACHE_REVISION = "revision"
+
+        /**
+         * 在后台线程读取模块 Provider；失败时使用 B 站进程上次成功同步的本地缓存。
+         * 两处均无值代表 UNKNOWN，由调用方按功能默认值（开启）处理，避免一次早期
+         * XSharedPreferences 失真永久跳过 Hook。
+         */
+        private fun queryFreeCopyRuntimeConfig(context: Context): FreeCopyRuntimeConfig? {
+            val appContext = context.applicationContext ?: context
+            val providerConfig = runCatching {
+                appContext.contentResolver.query(
+                    RoamingCompatProvider.FREE_COPY_CONFIG_URI,
+                    null,
+                    null,
+                    null,
+                    null
+                )?.use { cursor ->
+                    if (!cursor.moveToFirst()) return@use null
+                    val valid = cursor.getInt(cursor.getColumnIndexOrThrow("valid")) == 1
+                    val revision = cursor.getLong(cursor.getColumnIndexOrThrow("revision"))
+                    if (!valid || revision <= 0L) return@use null
+                    FreeCopyRuntimeConfig(
+                        commentEnabled = cursor.getInt(
+                            cursor.getColumnIndexOrThrow("comment_enabled")
+                        ) == 1,
+                        descriptionEnabled = cursor.getInt(
+                            cursor.getColumnIndexOrThrow("description_enabled")
+                        ) == 1,
+                        revision = revision,
+                        source = "provider"
+                    )
+                }
+            }.getOrNull()
+            if (providerConfig != null) {
+                runCatching {
+                    appContext.getSharedPreferences(FREE_COPY_CACHE_PREFS, Context.MODE_PRIVATE)
+                        .edit()
+                        .putBoolean(FREE_COPY_CACHE_VALID, true)
+                        .putBoolean(FREE_COPY_CACHE_COMMENT, providerConfig.commentEnabled)
+                        .putBoolean(FREE_COPY_CACHE_DESCRIPTION, providerConfig.descriptionEnabled)
+                        .putLong(FREE_COPY_CACHE_REVISION, providerConfig.revision)
+                        .apply()
+                }
+                return providerConfig
+            }
+            return runCatching {
+                val cache = appContext.getSharedPreferences(FREE_COPY_CACHE_PREFS, Context.MODE_PRIVATE)
+                if (!cache.getBoolean(FREE_COPY_CACHE_VALID, false)) return@runCatching null
+                val revision = cache.getLong(FREE_COPY_CACHE_REVISION, 0L)
+                if (revision <= 0L) return@runCatching null
+                FreeCopyRuntimeConfig(
+                    commentEnabled = cache.getBoolean(FREE_COPY_CACHE_COMMENT, true),
+                    descriptionEnabled = cache.getBoolean(FREE_COPY_CACHE_DESCRIPTION, true),
+                    revision = revision,
+                    source = "target-cache"
+                )
+            }.getOrNull()
         }
 
         @Volatile
@@ -411,7 +484,9 @@ class HookEntry : IYukiHookXposedInit {
          * - 防双重弹窗（触摸层 runnable/UP/监听器三源互斥）与消费语义与原实现一致。
          */
         private val sharedFreeCopyListener = View.OnLongClickListener { view ->
-            val isDesc = view.id == descViewId
+            val isDesc = descViewId != View.NO_ID && view.id == descViewId
+            if (isDesc && !runtimeDescriptionFreeCopyEnabled) return@OnLongClickListener false
+            if (!isDesc && !runtimeCommentFreeCopyEnabled) return@OnLongClickListener false
             // ViewHolder 从评论复用为“热门评论/最新评论”头部后，旧共享监听器可能暂时
             // 仍挂在 View 上。先验证评论身份，避免短点头部文本触发自由复制或吞掉点击。
             if (!isDesc && !isRegisteredCommentTreeMember(view)) {
@@ -1336,14 +1411,30 @@ class HookEntry : IYukiHookXposedInit {
             if (loader == null) false else KavaMemberLookup.hasClass(loader, name)
 
         /**
-         * 判断目标类是否声明了指定方法。用于「类存在但方法签名漂移」的版本分流：
-         * 例如 9.0.0 里 pausedpage.ui.g 从 Function0 lambda（有 invoke）变成了 Compose 渲染类
-         * （无 invoke），仅靠 classExists 会误判为低版本而静默失效（NoSuchMethod）。
+         * 收起首页 V8Banner。只在 Adapter 已确认的 V8Banner 实例低频生命周期回调中执行，
+         * 不注册全局 View Hook；无 Runnable/Listener，也不保存 View 引用。
          */
-        private fun methodExists(className: String, methodName: String, loader: ClassLoader?): Boolean {
-            if (loader == null) return false
-            val owner = KavaMemberLookup.classOrNull(loader, className) ?: return false
-            return KavaMemberLookup.declaredMethods(owner) { it.name == methodName }.isNotEmpty()
+        private fun collapseHomeBanner(view: View) {
+            if (view.visibility != View.GONE) view.visibility = View.GONE
+            view.minimumHeight = 0
+            view.layoutParams?.let { params ->
+                if (params.height != 0) {
+                    params.height = 0
+                    view.layoutParams = params
+                }
+            }
+            val parent = view.parent as? android.view.ViewGroup ?: return
+            // 仅处理“只承载 V8Banner”的专用壳，绝不隐藏含其它首页内容的共享父容器。
+            if (parent.childCount == 1) {
+                parent.visibility = View.GONE
+                parent.minimumHeight = 0
+                parent.layoutParams?.let { params ->
+                    if (params.height != 0) {
+                        params.height = 0
+                        parent.layoutParams = params
+                    }
+                }
+            }
         }
 
         /**
@@ -1890,6 +1981,9 @@ class HookEntry : IYukiHookXposedInit {
          * 不受「展开」折叠影响）；rawText 为空时兜底实时从 itemView 提取。
          */
         private fun applyFreeCopyListener(root: View, rawText: String?, checkReply: Boolean = true): Boolean {
+            val isDescription = descViewId != View.NO_ID && root.id == descViewId
+            if (isDescription && !runtimeDescriptionFreeCopyEnabled) return false
+            if (!isDescription && !runtimeCommentFreeCopyEnabled) return false
             // 性能优化：一次遍历同时完成「收集子树 view + 判断是否评论 item（含回复按钮）」，
             // 避免原方案 hasReplyButton 独立全树遍历 + applyFreeCopyListener 再全树遍历的
             // 双遍开销；且整棵树共享同一个 lambda 实例（原先每 view 各建一个闭包，快速滑动
@@ -2156,6 +2250,7 @@ class HookEntry : IYukiHookXposedInit {
             rawTrusted: Boolean = false,
             commentItem: Any? = null
         ) {
+            if (!runtimeCommentFreeCopyEnabled) return
             val generation = commentBindingGenerationSerial.incrementAndGet()
             synchronized(commentRootLock) {
                 latestCommentBindingGeneration[view] = generation
@@ -2327,6 +2422,43 @@ class HookEntry : IYukiHookXposedInit {
                 methods.hookAll { block() }
             }
 
+            fun resolveParamClass(name: String): Class<*> = when (name) {
+                "boolean" -> Boolean::class.javaPrimitiveType!!
+                "byte" -> Byte::class.javaPrimitiveType!!
+                "char" -> Char::class.javaPrimitiveType!!
+                "short" -> Short::class.javaPrimitiveType!!
+                "int" -> Int::class.javaPrimitiveType!!
+                "long" -> Long::class.javaPrimitiveType!!
+                "float" -> Float::class.javaPrimitiveType!!
+                "double" -> Double::class.javaPrimitiveType!!
+                else -> KavaMemberLookup.classOrNull(biliClassLoader, name)
+                    ?: throw ClassNotFoundException(name)
+            }
+
+            fun hookAdaptedMethod(
+                point: VersionAdapter.HookPoint,
+                block: MemberHookCreator.() -> Unit
+            ) {
+                val owner = KavaMemberLookup.classOrNull(biliClassLoader, point.className)
+                    ?: throw ClassNotFoundException(point.className)
+                val method = if (point.paramClassNames == null) {
+                    KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                        it.name == point.methodName
+                    }.singleOrNull()
+                } else {
+                    val params = point.paramClassNames.map(::resolveParamClass).toTypedArray()
+                    KavaMemberLookup.methodOrNull(owner, point.methodName, *params)
+                } ?: throw NoSuchMethodException("${point.className}#${point.methodName}")
+                method.hook { block() }
+            }
+
+            // 每个宿主进程只做一次实时结构探测。优先实时结果，避免版本升级后的旧文件缓存
+            // 在 Application.attach 写入新缓存前误导 loadApp 阶段的 Hook 注册。
+            val hostAdaptResult by lazy(LazyThreadSafetyMode.NONE) {
+                biliClassLoader?.let { VersionAdapter.quickLocate(it) }
+                    ?: VersionAdapter.loadCached(null, null)
+            }
+
             // 读取日志开关 + 详细度档位（默认：开启 + 完整）
             logEnabled = prefs.getBoolean(PREF_LOG_ENABLED, true)
             logVerbose = prefs.getString(PREF_LOG_LEVEL, LOG_LEVEL_COMPLETE) != LOG_LEVEL_MINIMAL
@@ -2334,6 +2466,15 @@ class HookEntry : IYukiHookXposedInit {
             // 读取自由复制亮色模式开关（默认：暗色）
             freeCopyLightMode = prefs.getBoolean(PREF_FREE_COPY_LIGHT_MODE, false)
             freeCopyAutoLight = prefs.getBoolean(PREF_FREE_COPY_AUTO_LIGHT, false)
+            val initialCommentFreeCopyEnabled = prefs.getBoolean(PREF_FREE_COPY_ENABLED, true)
+            val initialDescriptionFreeCopyEnabled = prefs.getBoolean(PREF_FREE_COPY_DESC_ENABLED, true)
+            runtimeCommentFreeCopyEnabled = initialCommentFreeCopyEnabled
+            runtimeDescriptionFreeCopyEnabled = initialDescriptionFreeCopyEnabled
+
+            // attach hook 在下方先注册，真正的同步实现会在自由复制安装器定义完成后再注入。
+            // loadApp 必定先完整返回，宿主随后才创建 Application，因此运行时不会看到半成品。
+            val freeCopyConfigOnAttach =
+                java.util.concurrent.atomic.AtomicReference<((Context) -> Unit)?>(null)
 
             // ====== 0. 漫游版本支持扩展（BiliRoaming 兼容底座，默认关闭） ======
             // 仅做 hookinfo 缓存健康检查与修复，不改动 BiliRoaming 任何功能逻辑；
@@ -2368,6 +2509,7 @@ class HookEntry : IYukiHookXposedInit {
                                 biliClassLoader,
                                 roamingCompatPrefs
                             )
+                            if (attachCtx != null) freeCopyConfigOnAttach.get()?.invoke(attachCtx)
                             // 版本适配检测：B 站版本变化/全新版本/首次安装时后台自动
                             // 定位 hook 点并缓存（toast 提示等待）；已适配则零开销跳过。
                             // 仅 main 进程执行：attach 钩子会在 system_server/子进程也
@@ -2427,6 +2569,7 @@ class HookEntry : IYukiHookXposedInit {
                             biliClassLoader,
                             roamingCompatPrefs
                         )
+                        if (onCreateCtx != null) freeCopyConfigOnAttach.get()?.invoke(onCreateCtx)
                         // 版本适配兜底（attach 钩子若未触发/异常则此处执行；幂等；仅 main 进程）
                         if (onCreateCtx != null && biliClassLoader != null
                             && TargetProcess.isMainProcess(onCreateCtx, TARGET_PACKAGE)
@@ -2472,41 +2615,56 @@ class HookEntry : IYukiHookXposedInit {
             // ====== 1. 暂停页广告 ======
             val pausedAdEnabled = prefs.getBoolean(PREF_ENABLED, true)
             if (pausedAdEnabled) {
-                var pausedOk = false
-                // 低版本（8.x）：ui.g.invoke —— Function0 lambda，倒计时结束后的展示广告回调。
-                // 注意：9.0.0 里 ui.g 变成 Compose 渲染类（方法 a），类仍在但 invoke 没了，
-                // 必须用 methodExists 判断（仅 classExists 会误判走低版本而 NoSuchMethod 静默失效）。
-                if (methodExists(TARGET_PAUSED_CLASS, TARGET_PAUSED_METHOD, biliClassLoader)) {
-                    hookFirstMethod(TARGET_PAUSED_CLASS, TARGET_PAUSED_METHOD) {
-                        before { result = null }
+                val pausePoints = hostAdaptResult?.pause
+                var primaryCount = 0
+                // 请求链不是互斥的：多个类可同时留在 dex 中，类存在不等于当前产品路径活跃。
+                // 全部是低频 SuspendLambda，逐个精确签名注册不会增加播放/滚动热路径开销。
+                pausePoints?.requestMethods.orEmpty().forEachIndexed { index, point ->
+                    runCatching {
+                        hookAdaptedMethod(point) { before { result = null } }
+                        primaryCount++
+                        logInfo(
+                            "paused_request_$index",
+                            "[BIL] 已注册暂停页请求拦截 ${point.className}#${point.methodName}"
+                        )
+                    }.onFailure { t ->
+                        logInfo("paused_request_${index}_err", "[BIL] 暂停页请求入口注册失败: $t")
                     }
-                    pausedOk = true
                 }
-                // 高版本（9.x）：Compose 重构，广告经 requestPausedPage 请求；invokeSuspend 返回 null 跳过
-                if (!pausedOk && classExists(TARGET_PAUSED_CLASS_V2, biliClassLoader)) {
-                    hookFirstMethod(TARGET_PAUSED_CLASS_V2, TARGET_PAUSED_METHOD_V2) {
-                        before { result = null }
+                // 只有真正的零参数 Function0.invoke 才属于 8.x 旧回调。9.1/9.2 的
+                // invoke(Object,Object) 是 Compose Function2，Adapter 会排除，避免误吞整个暂停栏。
+                pausePoints?.legacyCallback?.let { point ->
+                    runCatching {
+                        hookAdaptedMethod(point) { before { result = null } }
+                        primaryCount++
+                        logInfo("paused_legacy", "[BIL] 已注册旧版暂停页 Function0 拦截")
+                    }.onFailure { t ->
+                        logInfo("paused_legacy_err", "[BIL] 旧版暂停页入口注册失败: $t")
                     }
-                    pausedOk = true
                 }
-                // 9.8.0 漂移：kntr 广告 SDK pausedpage 包已消失，宿主侧请求 lambda
-                // 成为唯一请求出口——invokeSuspend 返回 null 跳过网络请求本身。
-                if (!pausedOk && classExists(TARGET_PAUSED_CLASS_V3, biliClassLoader)) {
-                    hookFirstMethod(TARGET_PAUSED_CLASS_V3, TARGET_PAUSED_METHOD_V2) {
-                        before { result = null }
+                // 极旧缓存/探测失败兜底：只尝试语义明确的请求入口，不再按 invoke 名称猜测。
+                if (pausePoints == null) {
+                    listOf(TARGET_PAUSED_CLASS_V2, TARGET_PAUSED_CLASS_V3).forEachIndexed { index, cn ->
+                        if (classExists(cn, biliClassLoader)) runCatching {
+                            hookFirstMethod(cn, TARGET_PAUSED_METHOD_V2) { before { result = null } }
+                            primaryCount++
+                            logInfo("paused_fallback_$index", "[BIL] 已注册暂停页请求兜底 $cn")
+                        }
                     }
-                    logInfo("paused_v3", "[BIL] 已注册暂停页广告请求拦截（9.8.0 宿主 requestPausedPageData\$2）")
-                    pausedOk = true
                 }
                 // P2 渲染层兜底（与 P1 并行注册，未命中静默）：主钩子失效时，
                 // 允许宿主 showPanel 完成生命周期（控制器已置"已打开"，beforeHook
                 // 截断会令 onPanelDismiss 永不回调、后续暂停页流程失效——三点面板
                 // 教训），再在同一调用栈用宿主自身 dismissPanel 关闭。只处理暂停页
                 // 面板数据（AdPausedPagePanelData），详情页其它广告面板不受影响。
+                var panelRegistered = false
                 runCatching {
-                    hookAllNamedMethods(CLASS_AD_PANEL_REPOSITORY, "showPanel") {
+                    val panelPoint = pausePoints?.panelShow
+                    if (panelPoint != null) hookAdaptedMethod(panelPoint) {
                         after {
-                            val data = args.getOrNull(1)
+                            val data = args.firstOrNull {
+                                it?.javaClass?.name?.contains("AdPausedPagePanelData") == true
+                            }
                             if (data?.javaClass?.name?.contains("AdPausedPagePanelData") == true) {
                                 runCatching {
                                     XposedHelpers.callMethod(instance, "dismissPanel")
@@ -2515,7 +2673,17 @@ class HookEntry : IYukiHookXposedInit {
                                 }
                             }
                         }
+                    } else hookAllNamedMethods(CLASS_AD_PANEL_REPOSITORY, "showPanel") {
+                        after {
+                            val data = args.firstOrNull {
+                                it?.javaClass?.name?.contains("AdPausedPagePanelData") == true
+                            }
+                            if (data != null) runCatching {
+                                XposedHelpers.callMethod(instance, "dismissPanel")
+                            }
+                        }
                     }
+                    panelRegistered = true
                     logInfo("paused_p2", "[BIL] 已注册暂停页广告面板拦截兜底（AdPanelRepository.showPanel）")
                 }.onFailure { t ->
                     logInfo("paused_p2_reg_err", "[BIL] 暂停页广告 P2 兜底注册失败: $t")
@@ -2524,16 +2692,22 @@ class HookEntry : IYukiHookXposedInit {
                 // 该 toast（PlayerToast）由 showPauseBarCountdownToast$3 协程唯一发射，是
                 // showPanel 的前置门闩——短接协程后宿主立即走到面板展示，正好由 P2 在
                 // 同一调用栈关闭（未进下一帧，无闪帧）；数据层 P1 生效时本协程不会被
-                // 实例化，零开销。不改变 pausedOk 语义（仅体验层净化）。
+                // 实例化，零开销；仅清理倒计时提示，不参与主请求能力判定。
                 runCatching {
-                    hookFirstMethod(TARGET_PAUSED_COUNTDOWN_CLASS, TARGET_PAUSED_METHOD_V2) {
+                    val countdownPoint = pausePoints?.countdown
+                    if (countdownPoint != null) hookAdaptedMethod(countdownPoint) {
+                        before { result = null }
+                    } else hookFirstMethod(TARGET_PAUSED_COUNTDOWN_CLASS, TARGET_PAUSED_METHOD_V2) {
                         before { result = null }
                     }
                     logInfo("paused_p3", "[BIL] 已屏蔽暂停页「3 秒后展示广告」倒计时 toast")
                 }.onFailure { t ->
                     logInfo("paused_p3_reg_err", "[BIL] 暂停页倒计时 toast 屏蔽注册失败: $t")
                 }
-                dataChannel.put(key = CHANNEL_STATUS, value = if (pausedOk) "success" else "failed")
+                dataChannel.put(
+                    key = CHANNEL_STATUS,
+                    value = if (primaryCount > 0 || panelRegistered) "success" else "failed"
+                )
             } else {
                 dataChannel.put(key = CHANNEL_STATUS, value = "disabled")
             }
@@ -2561,7 +2735,7 @@ class HookEntry : IYukiHookXposedInit {
                 }
 
                 // ---- 第零管补充：工厂方法拦截（返回空 section，整个"视频提及"区彻底不构建） ----
-                try {
+                if (classExists(CLASS_MENTION_FACTORY, biliClassLoader)) try {
                     hookFirstMethod(CLASS_MENTION_FACTORY, METHOD_MENTION_FACTORY) {
                         replaceAny {
                                 try {
@@ -2588,6 +2762,9 @@ class HookEntry : IYukiHookXposedInit {
                 } catch (t: Throwable) {
                     results["yx3.a.c(工厂)"] = false
                     logError("factory_hook_err", "[BIL] 工厂方法 hook 失败: $t")
+                } else {
+                    // 9.1.1+ 已移除该历史混淆工厂；其它数据/渲染层仍构成完整拦截链。
+                    results["yx3.a.c(工厂)"] = false
                 }
 
                 // ---- 第一管：源头拦截（数据判断层） ----
@@ -2660,8 +2837,21 @@ class HookEntry : IYukiHookXposedInit {
                 hookMethod("getHeader", CLASS_MENTIONED_SECTION, METHOD_GET_HEADER) { intercept() }
                 hookMethod("getFoldCount", CLASS_MENTIONED_SECTION, METHOD_GET_FOLD_COUNT) { intercept() }
 
-                val allOk = results.values.all { it }
-                val summary = if (allOk) "success" else "partial:" + results.entries.filter { !it.value }.joinToString(",") { it.key }
+                // 多层 hook 是互为替代的能力组，不要求已经从宿主移除的历史锚点全部存在。
+                // 正文卡片与标题各有任一数据层/渲染层入口生效，即具备完整净化能力。
+                val bodyBlocked = listOf(
+                    "Mention.getCardsList", "hidden", "createViewEntry", "getCards"
+                ).any { results[it] == true }
+                val headerBlocked = listOf(
+                    "VideoMentions.getTitle", "Mention.getTitle", "headerComponent", "getHeader"
+                ).any { results[it] == true }
+                val allOk = bodyBlocked && headerBlocked
+                val summary = if (allOk) "success" else buildString {
+                    append("partial:")
+                    if (!bodyBlocked) append("body")
+                    if (!bodyBlocked && !headerBlocked) append(',')
+                    if (!headerBlocked) append("header")
+                }
                 dataChannel.put(key = CHANNEL_GAMECARD_STATUS, value = summary)
                 if (!allOk) {
                     logError("gamecard_partial", "[BIL] gamecard 部分 hook 未命中: $summary")
@@ -2676,42 +2866,51 @@ class HookEntry : IYukiHookXposedInit {
             val bannerEnabled = prefs.getBoolean(PREF_BANNER_ENABLED, true)
             if (bannerEnabled) {
                 val bannerResults = LinkedHashMap<String, Boolean>()
-
-                // 局部 helper（复用 gamecard 分支的同款模板）
-                fun hookMethod(key: String, className: String, methodName: String, block: MemberHookCreator.() -> Unit) {
-                    try {
-                        hookFirstMethod(className, methodName, block)
-                        bannerResults[key] = true
-                    } catch (t: Throwable) {
-                        bannerResults[key] = false
+                val bannerPoint = hostAdaptResult?.banner
+                if (bannerPoint != null) {
+                    val bannerClass = KavaMemberLookup.classOrNull(
+                        biliClassLoader,
+                        bannerPoint.bannerClassName
+                    )
+                    bannerPoint.lifecycleMethods.forEach { point ->
+                        val key = "${point.className}#${point.methodName}"
+                        runCatching {
+                            hookAdaptedMethod(point) {
+                                after {
+                                    val banner = instance as? View ?: return@after
+                                    if (bannerClass?.isInstance(banner) != true) return@after
+                                    if (point.methodName == "onVisibilityChanged" &&
+                                        (args.getOrNull(1) as? Int) != View.VISIBLE) return@after
+                                    collapseHomeBanner(banner)
+                                }
+                            }
+                            bannerResults[key] = true
+                        }.onFailure { t ->
+                            bannerResults[key] = false
+                            logInfo("banner_adapter_${point.methodName}_err", "[BIL] Banner Adapter 入口失败: $t")
+                        }
                     }
+                } else {
+                    // 极旧版本兜底。9.1.1+ 的 xm3.d / g.c / g.d 已被移除，不再将其
+                    // 缺失误报为当前版本适配失败；仅当 V8Banner 结构不存在时尝试。
+                    runCatching {
+                        hookFirstMethod(CLASS_BANNER_CONTAINER, METHOD_BANNER_ITEMS) {
+                            replaceTo(Collections.emptyList<Any>())
+                        }
+                        bannerResults["legacyContainer"] = true
+                    }.onFailure { bannerResults["legacyContainer"] = false }
                 }
 
-                // ---- 双保险·第一层：数据容器层 ----
-                // xm3.d.l() 返回 banner item 列表 → 返回空列表，整个大卡（广告+static+番剧）都不渲染
-                try {
-                    hookFirstMethod(CLASS_BANNER_CONTAINER, METHOD_BANNER_ITEMS) {
-                        replaceTo(Collections.emptyList<Any>())
-                    }
-                    bannerResults["bannerContainer.items"] = true
-                } catch (t: Throwable) {
-                    bannerResults["bannerContainer.items"] = false
-                    logError("banner_container_err", "[BIL] banner 容器 hook 失败: $t")
+                // attach 是强制要求；setAdapter/visibility 是宿主后续重新展示时的低频兜底。
+                val bannerAllOk = bannerResults.any { (key, ok) ->
+                    ok && (key.endsWith("#onAttachedToWindow") || key == "legacyContainer")
                 }
-
-                // ---- 双保险·第二层：类型判断层 ----
-                // g.d() 判断广告 type，返回 false → 广告 banner 不被当作广告
-                hookMethod("bannerJudge.d", CLASS_BANNER_TYPE_JUDGE, METHOD_IS_AD_TYPE_D) { replaceToFalse() }
-                // g.c() 判断 ad_compose，返回 false
-                hookMethod("bannerJudge.c", CLASS_BANNER_TYPE_JUDGE, METHOD_IS_AD_TYPE_C) { replaceToFalse() }
-
-                val bannerAllOk = bannerResults.values.all { it }
-                val bannerSummary = if (bannerAllOk) "success" else "partial:" + bannerResults.entries.filter { !it.value }.joinToString(",") { it.key }
+                val bannerSummary = if (bannerAllOk) "success" else "failed"
                 dataChannel.put(key = CHANNEL_BANNER_STATUS, value = bannerSummary)
                 if (!bannerAllOk) {
-                    logError("banner_partial", "[BIL] banner 部分 hook 未命中: $bannerSummary")
+                    logError("banner_failed", "[BIL] Banner Adapter 未找到可用入口")
                 } else {
-                    logInfo("banner_ok", "[BIL] banner summary: success")
+                    logInfo("banner_ok", "[BIL] Banner Adapter 已注册 V8Banner 收起入口")
                 }
             } else {
                 dataChannel.put(key = CHANNEL_BANNER_STATUS, value = "disabled")
@@ -2782,15 +2981,16 @@ class HookEntry : IYukiHookXposedInit {
             // 递归遍历 itemView 子 View，给「评论文本 TextView」覆盖长按监听器，
             // 长按 → 弹模块自由复制界面 + return true 消费（官方菜单不弹）。
             // 三点按钮是 OnClickListener（非长按），头像/昵称等非 TextView 不受影响。
-            val freeCopyEnabled = prefs.getBoolean(PREF_FREE_COPY_ENABLED, true)
-            if (freeCopyEnabled) {
+            val commentFreeCopyHooksInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
+            val installCommentFreeCopyHooks: () -> Unit = installCommentHooks@{
+                if (!commentFreeCopyHooksInstalled.compareAndSet(false, true)) return@installCommentHooks
+                try {
                 // 读版本适配缓存（loadApp 阶段读 B 站 cache 文件，快路径零开销）；
                 // 缓存缺失（首次启动/版本变化后 attach 适配尚未写入）时即时快速定位
                 // （纯内存反射 ~1ms），避免「首次启动评论 hook 用失效签名」。
                 // 注：quickLocate 结果不持久化（AdaptResult 无真实 vc，写文件会被
                 // loadCached 拒绝）；attach 阶段 ensureAdapted 会重跑适配线程写正确缓存
-                val adaptResult = VersionAdapter.loadCached(null, null)
-                    ?: biliClassLoader?.let { VersionAdapter.quickLocate(it) }
+                val adaptResult = hostAdaptResult
                 // 性能：全局维护「列表滚动中」标志——快速滑动/惯性滚动期间暂缓评论绑定，
                 // 滑停（SCROLL_STATE_IDLE）后由 drainCommentBinds 统一批量绑定可见评论，
                 // 避免滚动中逐条全树绑定的卡顿（滚动状态回调本身低频，开销可忽略）。
@@ -2801,6 +3001,7 @@ class HookEntry : IYukiHookXposedInit {
                         classOf<Int>()
                     ) {
                         after {
+                            if (!runtimeCommentFreeCopyEnabled) return@after
                             val st = args.getOrNull(0) as? Int ?: return@after
                             val recyclerView = instance as? View ?: return@after
                             updateRecyclerViewScrolling(
@@ -2821,6 +3022,7 @@ class HookEntry : IYukiHookXposedInit {
                         "onDetachedFromWindow"
                     ) {
                         after {
+                            if (!runtimeCommentFreeCopyEnabled) return@after
                             val recyclerView = instance as? View ?: return@after
                             if (updateRecyclerViewScrolling(recyclerView, false)) {
                                 rvIdleSinceMs = android.os.SystemClock.uptimeMillis()
@@ -2835,8 +3037,10 @@ class HookEntry : IYukiHookXposedInit {
                 val lowHolderCls = adaptResult?.commentLow?.className ?: "com.bilibili.app.comment3.ui.holder.t0"
                 val lowHolderMethod = adaptResult?.commentLow?.methodName ?: "o0"
                 if (classExists(lowHolderCls, biliClassLoader)) {
-                    hookFirstMethod(lowHolderCls, lowHolderMethod) {
+                    runCatching {
+                        hookFirstMethod(lowHolderCls, lowHolderMethod) {
                             after {
+                                if (!runtimeCommentFreeCopyEnabled) return@after
                                 val holder = instance ?: return@after
                                 val itemView = runCatching {
                                     holderItemView(holder)
@@ -2859,8 +3063,17 @@ class HookEntry : IYukiHookXposedInit {
                                      commentItem = commentItem
                                  )
                             }
+                        }
+                    }.onSuccess {
+                        freeCopyOk = true
+                    }.onFailure { t ->
+                        // 高版本常保留旧 t0 类但删除旧绑定方法；这是残留结构，不应阻断
+                        // 后续 CommentNextExperiment3 Handler 的独立注册。
+                        logInfo(
+                            "free_copy_low_skip",
+                            "[BIL] 低版本评论入口不可用，继续尝试高版本 Handler: $t"
+                        )
                     }
-                    freeCopyOk = true
                 }
                 // 高版本（9.x）：CommentNextExperiment3ContentRichTextHandler.b（绑定方法，
                 // 持有 CommentItem i + ViewBinding Pj.J），从 CommentItem.f().a 拿 raw。
@@ -2889,6 +3102,7 @@ class HookEntry : IYukiHookXposedInit {
                         // View 实例，首次缓存字段名）
                         val bindHook = object : XC_MethodHook() {
                             override fun beforeHookedMethod(param: MethodHookParam) {
+                                if (!runtimeCommentFreeCopyEnabled) return
                                 val handler = param.thisObject ?: return
                                 // 9.8.0 d/e 没有 CommentItem 实参，但宿主马上会从同一个 handler
                                 // 字段读取并渲染。必须在方法执行前同步快照；afterHook 再读字段
@@ -2904,6 +3118,7 @@ class HookEntry : IYukiHookXposedInit {
                             }
 
                             override fun afterHookedMethod(param: MethodHookParam) {
+                                if (!runtimeCommentFreeCopyEnabled) return
                                 val handler = param.thisObject ?: return
                                 // 含 CommentItem 实参的方法（8.90.2 G0 等）必须取本次调用
                                 // 的实参；Handler.i 是可变字段，在 RecyclerView 快速复用时可能
@@ -3012,9 +3227,18 @@ class HookEntry : IYukiHookXposedInit {
                     }
                     freeCopyOk = true
                 }
-                if (freeCopyOk) logInfo("free_copy_ok", "[BIL] 自由复制 hook 已注册")
-                else logError("free_copy_hook_err", "[BIL] 自由复制 hook 失败：低版本 t0 和高版本 handler 类都不存在")
+                if (freeCopyOk) {
+                    logInfo("free_copy_ok", "[BIL] 自由复制 hook 已注册")
+                } else {
+                    commentFreeCopyHooksInstalled.set(false)
+                    logError("free_copy_hook_err", "[BIL] 自由复制 hook 失败：低版本 t0 和高版本 handler 类都不存在")
+                }
+                } catch (t: Throwable) {
+                    commentFreeCopyHooksInstalled.set(false)
+                    logError("free_copy_hook_err", "[BIL] 自由复制 hook 注册异常: $t")
+                }
             }
+            if (initialCommentFreeCopyEnabled) installCommentFreeCopyHooks()
 
             // ====== 4a. 气泡亮暗色自动跟随：详情页主题缓存 ======
             // 自动跟随开启时，进入视频详情页判定一次 B 站主题并缓存（详情页会话内 B 站
@@ -3064,8 +3288,11 @@ class HookEntry : IYukiHookXposedInit {
             // - 文本在长按瞬间从 view 实时读取（折叠由 maxLines 渲染层实现，getText()
             //   始终是完整原文），复用评论区同一 showFreeCopyPopup 气泡链路，样式与
             //   「亮色模式气泡」开关天然统一。
-            val freeCopyDescEnabled = prefs.getBoolean(PREF_FREE_COPY_DESC_ENABLED, true)
-            if (freeCopyDescEnabled) {
+            val descriptionFreeCopyHooksInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
+            val installDescriptionFreeCopyHooks: () -> Unit = installDescriptionHooks@{
+                if (!descriptionFreeCopyHooksInstalled.compareAndSet(false, true)) {
+                    return@installDescriptionHooks
+                }
                 var descHookOk = false
                 runCatching {
                     // desc view 发现 hook：优先收窄到两个已知版本的 ExpandableTextView 类
@@ -3075,6 +3302,7 @@ class HookEntry : IYukiHookXposedInit {
                     // 不存在/未声明时回退全局 TextView.setText（未知版本兼容）。
                     val descTextHook = object : XC_MethodHook() {
                         override fun afterHookedMethod(param: MethodHookParam) {
+                            if (!runtimeDescriptionFreeCopyEnabled) return
                             if (descViewId == View.NO_ID) {
                                 val v0 = param.thisObject as? View ?: return
                                 resolveDescViewId(v0.context)
@@ -3110,6 +3338,7 @@ class HookEntry : IYukiHookXposedInit {
                             classOf<TextView.BufferType>()
                         ) {
                             after {
+                                if (!runtimeDescriptionFreeCopyEnabled) return@after
                                 if (descViewId == View.NO_ID) {
                                     val v0 = instance as? View ?: return@after
                                     resolveDescViewId(v0.context)
@@ -3132,12 +3361,17 @@ class HookEntry : IYukiHookXposedInit {
                         classOf<View.OnLongClickListener>()
                     ) {
                             after {
+                                if (!runtimeDescriptionFreeCopyEnabled &&
+                                    !runtimeCommentFreeCopyEnabled
+                                ) return@after
                                 // 简介与评论两条夺回链路彼此独立：简介 id 解析失败不能让评论
                                 // 分支提前返回（旧逻辑会使部分版本整个评论兜底失效）。
                                 if (descStealInProgress) return@after
                                 val v = instance as? View ?: return@after
                                 if (descViewId == View.NO_ID) resolveDescViewId(v.context)
-                                if (descViewId != View.NO_ID && v.id == descViewId) {
+                                if (runtimeDescriptionFreeCopyEnabled &&
+                                    descViewId != View.NO_ID && v.id == descViewId
+                                ) {
                                     descStealInProgress = true
                                     try {
                                         applyFreeCopyListener(v, null, false)
@@ -3146,6 +3380,7 @@ class HookEntry : IYukiHookXposedInit {
                                     }
                                     return@after
                                 }
+                                if (!runtimeCommentFreeCopyEnabled) return@after
                                 // 评论树夺回：官方对「待绑定/已注册」的评论 itemView 设置长按监听时
                                 // （如滑停后 drain 尚未轮到该评论），沿祖先链找评论根并立即重绑，
                                 // 保证用户长按时刻我们的监听器已就位（覆盖「滑停→绑定完成」窗口）。
@@ -3217,6 +3452,9 @@ class HookEntry : IYukiHookXposedInit {
                             classOf<android.view.MotionEvent>()
                         ) {
                                 before {
+                                    if (!runtimeDescriptionFreeCopyEnabled &&
+                                        !runtimeCommentFreeCopyEnabled
+                                    ) return@before
                                     val v = instance as? View ?: return@before
                                     val ev = args.getOrNull(0) as? android.view.MotionEvent ?: return@before
                                     val action = ev.actionMasked
@@ -3237,7 +3475,9 @@ class HookEntry : IYukiHookXposedInit {
                                         }
                                         return@before
                                     }
-                                    if (v.id != descViewId) {
+                                    if (!runtimeDescriptionFreeCopyEnabled ||
+                                        descViewId == View.NO_ID || v.id != descViewId
+                                    ) {
                                         if (action == android.view.MotionEvent.ACTION_DOWN) {
                                             // 新手势落在非简介 View 时终止旧简介会话。desc 自身的
                                             // dispatch 之前也会经过祖先 View，此清理不会影响随后
@@ -3245,6 +3485,7 @@ class HookEntry : IYukiHookXposedInit {
                                             if (descTouchedView != null) {
                                                 clearDescTouchSession(resetHandled = true)
                                             }
+                                            if (!runtimeCommentFreeCopyEnabled) return@before
                                             // 任意新手势先终止旧会话。即使本次 DOWN 在页签/简介而
                                             // 非评论树，也不能让上一页遗漏 UP/CANCEL 的 Runnable
                                             // 继续存活并在页面切换后弹出。
@@ -3276,6 +3517,7 @@ class HookEntry : IYukiHookXposedInit {
                                         return@before
                                         }
 
+                                        if (!runtimeCommentFreeCopyEnabled) return@before
                                         // 没有活动会话时 MOVE/UP/CANCEL 仍是纯 O(1) 早退；有会话时
                                         // 也不再重复评论根祖先遍历。终止事件按 downTime 清理，
                                         // 不要求它仍落在原评论树内（父容器拦截/切页的关键修复）。
@@ -3396,7 +3638,9 @@ class HookEntry : IYukiHookXposedInit {
                         ) ?: return@runCatching
                         hookExactMethod(owner, "c", classOf<String>(), classOf<Boolean>()) {
                                 before {
-                                    if (descTouchedView != null || isOfficialSuppressionActive()) {
+                                    if (runtimeDescriptionFreeCopyEnabled &&
+                                        (descTouchedView != null || isOfficialSuppressionActive())
+                                    ) {
                                         this.result = null // 简介触摸中或当前气泡会话内，跳过官方复制全文
                                     }
                                 }
@@ -3409,7 +3653,9 @@ class HookEntry : IYukiHookXposedInit {
                         ) ?: return@runCatching
                         hookExactMethod(owner, "w", classOf<Boolean>(), classOf<String>()) {
                                 before {
-                                    if (descTouchedView != null || isOfficialSuppressionActive()) {
+                                    if (runtimeDescriptionFreeCopyEnabled &&
+                                        (descTouchedView != null || isOfficialSuppressionActive())
+                                    ) {
                                         this.result = null // 简介触摸中或当前气泡会话内，跳过官方复制全文
                                     }
                                 }
@@ -3428,6 +3674,9 @@ class HookEntry : IYukiHookXposedInit {
                             classOf<android.content.ClipData>()
                         ) {
                                 before {
+                                    if (!runtimeCommentFreeCopyEnabled &&
+                                        !runtimeDescriptionFreeCopyEnabled
+                                    ) return@before
                                     // 自由复制气泡已按当前 TextView 选区完成语义转换；仅同步放行
                                     // 当前线程、当前仍显示气泡中的这一笔写入。ThreadLocal 在调用方
                                     // finally remove，不扩大官方复制豁免范围。
@@ -3452,9 +3701,11 @@ class HookEntry : IYukiHookXposedInit {
                                     //    B 站内其它官方复制——限定在官方抑制窗口（弹泡后 1.5s，武装的
                                     //    官方 Runnable 触发期）内才拦。commentTouchedView 非空（手势
                                     //    进行中）不受限时——按住期间不可能点工具栏，只可能是官方路径。
-                                    val gestureActive = commentTouchedView != null
+                                    val gestureActive = runtimeCommentFreeCopyEnabled &&
+                                        commentTouchedView != null
                                     val handledInSuppressWindow =
-                                        commentLongPressHandled && isOfficialSuppressionActive()
+                                        runtimeCommentFreeCopyEnabled && commentLongPressHandled &&
+                                            isOfficialSuppressionActive()
                                     if (gestureActive || handledInSuppressWindow) {
                                         val fromSystemSelection = runCatching {
                                             Throwable().stackTrace.any { frame ->
@@ -3469,6 +3720,7 @@ class HookEntry : IYukiHookXposedInit {
                                         return@before
                                         }
                                     }
+                                    if (!runtimeDescriptionFreeCopyEnabled) return@before
                                     val desc = descCachedViewRef?.get() ?: return@before
                                     // 优先取原文字段 l（ExpandableTextView 保存的完整原文，
                                     // 9.0.0 与 8.90.2 字段名一致；收起状态下 view.text 是截断文本）
@@ -3505,9 +3757,12 @@ class HookEntry : IYukiHookXposedInit {
                                             // 下次 DOWN）覆盖官方 Runnable 延迟触发场景；
                                             // touch 标志覆盖长按进行中场景。我们的震动走
                                             // Vibrator 直震（见 hapticFeedback），不受影响。
-                                            if (commentTouchedView != null || descTouchedView != null ||
-                                                ((commentLongPressHandled || descLongPressHandled) &&
-                                                    isOfficialSuppressionActive())
+                                            if ((runtimeCommentFreeCopyEnabled &&
+                                                    (commentTouchedView != null ||
+                                                        (commentLongPressHandled && isOfficialSuppressionActive()))) ||
+                                                (runtimeDescriptionFreeCopyEnabled &&
+                                                    (descTouchedView != null ||
+                                                        (descLongPressHandled && isOfficialSuppressionActive())))
                                             ) {
                                                 param.result = true // 拦官方震动（返回 true=已处理）
                                             }
@@ -3532,6 +3787,9 @@ class HookEntry : IYukiHookXposedInit {
                                         pwClass, mn, *m.parameterTypes,
                                         object : XC_MethodHook() {
                                             override fun beforeHookedMethod(param: MethodHookParam) {
+                                                if (!runtimeCommentFreeCopyEnabled &&
+                                                    !runtimeDescriptionFreeCopyEnabled
+                                                ) return
                                                 // 豁免：宿主在「我们自己的气泡 Dialog 窗口内」的弹窗一律放行——
                                                 // 气泡内长按拖选时系统选择句柄/浮动工具栏是 PopupWindow，宿主
                                                 // view 在我们的 dialog 里。若拦截，句柄 PopupWindow 的内部
@@ -3589,6 +3847,9 @@ class HookEntry : IYukiHookXposedInit {
                                     dlgClass, "show", *m.parameterTypes,
                                     object : XC_MethodHook() {
                                         override fun beforeHookedMethod(param: MethodHookParam) {
+                                            if (!runtimeCommentFreeCopyEnabled &&
+                                                !runtimeDescriptionFreeCopyEnabled
+                                            ) return
                                             if (shouldSuppressOfficialOverlay()) {
                                                 if (param.thisObject != null &&
                                                     param.thisObject === ourBubbleDialogRef?.get()
@@ -3616,7 +3877,69 @@ class HookEntry : IYukiHookXposedInit {
                 }.onFailure { t ->
                     logError("free_copy_desc_reg_err", "[BIL] 简介自由复制 hook 注册失败: $t")
                 }
-                if (!descHookOk) logError("free_copy_desc_reg_err", "[BIL] 简介自由复制 hook 注册失败")
+                if (!descHookOk) {
+                    descriptionFreeCopyHooksInstalled.set(false)
+                    logError("free_copy_desc_reg_err", "[BIL] 简介自由复制 hook 注册失败")
+                }
+            }
+            // 评论触摸兜底、三点按钮豁免和官方面板抑制与简介共用这一组低频基础 hook；
+            // 任一自由复制功能开启时安装，具体行为仍由各自 runtime flag 独立控制。
+            if (initialCommentFreeCopyEnabled || initialDescriptionFreeCopyEnabled) {
+                installDescriptionFreeCopyHooks()
+            }
+
+            // package-load 阶段若读到 LSPosed 的旧 false 快照，不再永久跳过注册：attach 后
+            // 由 Provider/目标本地缓存异步给出权威状态，并在主线程幂等补注册。Provider 与
+            // 缓存都不可用时属于 UNKNOWN；自由复制本来默认开启，故回退 true，避免升级后
+            // 9.9.0 首次启动出现两项功能同时全灭。同步只在主进程执行一次。
+            val freeCopyConfigSyncStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+            freeCopyConfigOnAttach.set syncFreeCopyConfig@{ attachedContext ->
+                val appContext = attachedContext.applicationContext ?: attachedContext
+                if (!TargetProcess.isMainProcess(appContext, TARGET_PACKAGE) ||
+                    !freeCopyConfigSyncStarted.compareAndSet(false, true)
+                ) return@syncFreeCopyConfig
+                // 只需一次同步；清掉桥接 lambda，避免 Application.attach hook 在进程全寿命
+                // 间接持有两个安装器闭包。后台任务/主线程消息会持有到本次同步完成。
+                freeCopyConfigOnAttach.set(null)
+                Thread({
+                    val providerOrCache = queryFreeCopyRuntimeConfig(appContext)
+                    // Provider 不可见且尚无目标缓存时，只有带修订号的完整 prefs 快照才
+                    // 可作为权威值；旧版本没有修订号的 false 正是本次 9.9.0 失效来源，
+                    // 继续归为 UNKNOWN，而不是再次永久关闭功能。
+                    val latePrefs = if (providerOrCache == null) runCatching {
+                        val revision = roamingCompatPrefs.getLong(PREF_FREE_COPY_CONFIG_REVISION, 0L)
+                        if (revision <= 0L) null else FreeCopyRuntimeConfig(
+                            commentEnabled = roamingCompatPrefs.getBoolean(PREF_FREE_COPY_ENABLED, true),
+                            descriptionEnabled = roamingCompatPrefs.getBoolean(
+                                PREF_FREE_COPY_DESC_ENABLED,
+                                true
+                            ),
+                            revision = revision,
+                            source = "late-prefs"
+                        )
+                    }.getOrNull() else null
+                    val resolved = providerOrCache ?: latePrefs
+                    val commentEnabled = resolved?.commentEnabled ?: true
+                    val descriptionEnabled = resolved?.descriptionEnabled ?: true
+                    val source = resolved?.source ?: "default-on"
+                    val revision = resolved?.revision ?: 0L
+                    val applyConfig = {
+                        runtimeCommentFreeCopyEnabled = commentEnabled
+                        runtimeDescriptionFreeCopyEnabled = descriptionEnabled
+                        if (commentEnabled) installCommentFreeCopyHooks()
+                        if (commentEnabled || descriptionEnabled) installDescriptionFreeCopyHooks()
+                        logInfo(
+                            "free_copy_config_sync",
+                            "[BIL] 自由复制配置已同步(source=$source, revision=$revision, " +
+                                "comment=$commentEnabled, desc=$descriptionEnabled)"
+                        )
+                    }
+                    val handler = mainHandlerOrNull()
+                    if (handler != null) handler.post(applyConfig) else applyConfig()
+                }, "BIL-free-copy-config").apply {
+                    isDaemon = true
+                    start()
+                }
             }
         }
         // ====== system_server：允许模块 App 在后台启动界面（代开漫游设置） ======

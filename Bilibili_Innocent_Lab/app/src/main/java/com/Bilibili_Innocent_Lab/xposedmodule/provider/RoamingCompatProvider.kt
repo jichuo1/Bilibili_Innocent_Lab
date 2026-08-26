@@ -7,6 +7,7 @@ import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 
 /**
  * 漫游版本支持扩展的跨进程开关读取入口。
@@ -28,8 +29,10 @@ class RoamingCompatProvider : ContentProvider() {
         const val AUTHORITY = "com.Bilibili_Innocent_Lab.xposedmodule.roaming"
 
         const val PATH_ENABLED = "roaming_compat_enabled"
+        const val PATH_FREE_COPY_CONFIG = "free_copy_config"
 
         val CONTENT_URI: Uri = Uri.parse("content://$AUTHORITY/$PATH_ENABLED")
+        val FREE_COPY_CONFIG_URI: Uri = Uri.parse("content://$AUTHORITY/$PATH_FREE_COPY_CONFIG")
     }
 
     override fun onCreate(): Boolean = true
@@ -41,7 +44,23 @@ class RoamingCompatProvider : ContentProvider() {
         selectionArgs: Array<out String>?,
         sortOrder: String?
     ): Cursor? {
-        if (uri.authority != AUTHORITY || uri.pathSegments != listOf(PATH_ENABLED)) return null
+        if (uri.authority != AUTHORITY) return null
+        if (uri.pathSegments == listOf(PATH_FREE_COPY_CONFIG)) {
+            val snapshot = context?.let(FreeCopyConfigStore::read)
+            return MatrixCursor(
+                arrayOf("valid", "comment_enabled", "description_enabled", "revision")
+            ).apply {
+                addRow(
+                    arrayOf(
+                        if (snapshot != null) 1 else 0,
+                        if (snapshot?.commentEnabled == true) 1 else 0,
+                        if (snapshot?.descriptionEnabled == true) 1 else 0,
+                        snapshot?.revision ?: 0L
+                    )
+                )
+            }
+        }
+        if (uri.pathSegments != listOf(PATH_ENABLED)) return null
         // 读取模块 App 自身 prefs（与 MainActivity 开关写入的是同一份文件：
         // YukiHookAPI 默认 prefs 名 = 模块包名 + "_preferences"）。
         val prefsName = "${context?.packageName}_preferences"
@@ -53,7 +72,9 @@ class RoamingCompatProvider : ContentProvider() {
     }
 
     override fun getType(uri: Uri): String? =
-        if (uri.authority == AUTHORITY && uri.pathSegments == listOf(PATH_ENABLED)) "text/plain" else null
+        if (uri.authority == AUTHORITY &&
+            (uri.pathSegments == listOf(PATH_ENABLED) || uri.pathSegments == listOf(PATH_FREE_COPY_CONFIG))
+        ) "text/plain" else null
 
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
 
