@@ -36,4 +36,12 @@ class FeatureStatusInstallerTest {
         assertEquals(FeatureInstallResult.Skipped("disabled"), result)
         assertEquals(listOf("banner_ad_status" to "disabled"), statuses)
     }
+
+    @Test
+    fun `game promotion reports disabled without resolving hook points`() {
+        val result = GamePromotionFeatureInstaller(enabled = false).install(environment)
+
+        assertEquals(FeatureInstallResult.Skipped("disabled"), result)
+        assertEquals(listOf("gamecard_ad_status" to "disabled"), statuses)
+    }
 }
