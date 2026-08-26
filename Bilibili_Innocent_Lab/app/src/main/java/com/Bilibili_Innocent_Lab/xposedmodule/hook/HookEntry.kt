@@ -25,9 +25,11 @@ import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallCoordinator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeBannerFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MerchandiseFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PausedAdFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.BubbleDrawable
 
@@ -72,20 +74,6 @@ class HookEntry : IYukiHookXposedInit {
 
     companion object {
         const val TARGET_PACKAGE = "tv.danmaku.bili"
-
-        // 暂停页广告（9.0.0：Compose 重构，广告经 requestPausedPage 请求，
-        // invokeSuspend 是请求执行点，返回 null 跳过广告）
-        const val TARGET_PAUSED_CLASS_V2 = "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$2"
-        const val TARGET_PAUSED_METHOD_V2 = "invokeSuspend"
-        // 暂停页广告（9.8.0 漂移）：kntr 广告 SDK 的 pausedpage 包已整体消失，请求改由
-        // 宿主 theseus 侧 PausedPageService$requestPausedPageData$2（SuspendLambda）经
-        // gripper IVDPausedPage.requestPausedPage 发起；invokeSuspend 返回 null = 无广告
-        // 数据 → 宿主走 FlowState.IDLE，面板/倒计时均不出现（P1 主钩子）。
-        const val TARGET_PAUSED_CLASS_V3 = "com.bilibili.ship.theseus.united.page.pausedpage.PausedPageService\$requestPausedPageData\$2"
-        /** P2 兜底（9.8.0）：页面广告面板仓库（统一 show 入口）；dismissPanel 为宿主自身复位 API */
-        const val CLASS_AD_PANEL_REPOSITORY = "com.bilibili.ship.theseus.united.page.ad.AdPanelRepository"
-        /** P3 兜底（9.8.0）：暂停页「3 秒后展示广告」倒计时 toast 协程（PlayerToast 唯一发射点） */
-        const val TARGET_PAUSED_COUNTDOWN_CLASS = "com.bilibili.ship.theseus.united.page.pausedpage.PausedPageService\$showPauseBarCountdownToast\$3"
 
         // 自由复制（高版本 9.x：评论正文渲染 handler，持有 CommentItem + 评论正文 TextView）
         const val CLASS_COMMENT_HANDLER_V2 = "com.bilibili.app.comment3.ui.nextholderexp3.handle.CommentNextExperiment3ContentRichTextHandler"
@@ -138,11 +126,6 @@ class HookEntry : IYukiHookXposedInit {
         const val METHOD_GET_HEADER = "getHeader"
         const val METHOD_GET_FOLD_COUNT = "getFoldCount"
 
-        // ===== 首页顶部大卡轮播（banner_v8） =====
-        // 8.90.2-9.9.0 的稳定入口由 VersionAdapter 定位为 V8Banner → SwiperBanner；
-        // xm3.d 仅保留给更早版本做静默兜底，不参与 9.x 的成功判定。
-        const val CLASS_BANNER_CONTAINER = "xm3.d"
-        const val METHOD_BANNER_ITEMS = "l"
         /** 模块 UI 写入的配置 key */
         const val PREF_ENABLED = "adskip_enabled"
         const val PREF_GAMECARD_ENABLED = "gamecard_ad_enabled"
@@ -167,9 +150,7 @@ class HookEntry : IYukiHookXposedInit {
         const val LOG_LEVEL_COMPLETE = "complete"  // 完整：所有日志
 
         /** 数据通道 key */
-        const val CHANNEL_STATUS = "adskip_status"
         const val CHANNEL_GAMECARD_STATUS = "gamecard_ad_status"
-        const val CHANNEL_BANNER_STATUS = "banner_ad_status"
 
         /** 缓存的反射构造器：同一进程内目标类不会卸载，可安全缓存（避免高频拦截里重复反射查找） */
         @Volatile
@@ -2449,20 +2430,6 @@ class HookEntry : IYukiHookXposedInit {
                 }
             }
 
-            fun hookAdaptedMethod(
-                point: VersionAdapter.HookPoint,
-                block: MemberHookCreator.() -> Unit
-            ) {
-                val id = "adapter:${point.className}#${point.methodName}"
-                val method = hookPointRegistry.resolveAdapted(
-                    id = id,
-                    className = point.className,
-                    methodName = point.methodName,
-                    parameterClassNames = point.paramClassNames
-                ) ?: throw NoSuchMethodException("${point.className}#${point.methodName}")
-                installResolvedHook(id, method, block)
-            }
-
             val featureHookRegistrar = object : HookRegistrar {
                 override fun first(
                     id: String,
@@ -2531,15 +2498,6 @@ class HookEntry : IYukiHookXposedInit {
             val initialDescriptionFreeCopyEnabled = prefs.getBoolean(PREF_FREE_COPY_DESC_ENABLED, true)
             runtimeCommentFreeCopyEnabled = initialCommentFreeCopyEnabled
             runtimeDescriptionFreeCopyEnabled = initialDescriptionFreeCopyEnabled
-            val hookEnvironment = HookEnvironment(
-                processName = TARGET_PACKAGE,
-                classLoader = biliClassLoader,
-                hookPoints = hookPointRegistry,
-                registrar = featureHookRegistrar,
-                logInfo = { key, message -> logInfo(key, message) },
-                logError = { key, message -> logError(key, message) }
-            )
-            val featureInstallCoordinator = FeatureInstallCoordinator(hookEnvironment)
 
             // 自由复制配置同步必须先于可选功能注册建立：即使后续某个广告/状态上报
             // 初始化异常，也不能让评论与简介自由复制永远失去 attach 后的权威配置同步。
@@ -2572,6 +2530,17 @@ class HookEntry : IYukiHookXposedInit {
                     )
                 }
             }
+
+            val hookEnvironment = HookEnvironment(
+                processName = TARGET_PACKAGE,
+                classLoader = biliClassLoader,
+                hookPoints = hookPointRegistry,
+                registrar = featureHookRegistrar,
+                logInfo = { key, message -> logInfo(key, message) },
+                logError = { key, message -> logError(key, message) },
+                reportStatus = { channel, status -> reportChannelStatus(channel, status) }
+            )
+            val featureInstallCoordinator = FeatureInstallCoordinator(hookEnvironment)
 
             val roamingCompatPrefs = prefs
             val freeCopyConfigSyncStarted = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -2762,110 +2731,14 @@ class HookEntry : IYukiHookXposedInit {
                     }
             }
 
-            runCatching {
-            // ====== 1. 暂停页广告 ======
-            val pausedAdEnabled = prefs.getBoolean(PREF_ENABLED, true)
-            if (pausedAdEnabled) {
-                val pausePoints = hostAdaptResult?.pause
-                var primaryCount = 0
-                // 请求链不是互斥的：多个类可同时留在 dex 中，类存在不等于当前产品路径活跃。
-                // 全部是低频 SuspendLambda，逐个精确签名注册不会增加播放/滚动热路径开销。
-                pausePoints?.requestMethods.orEmpty().forEachIndexed { index, point ->
-                    runCatching {
-                        hookAdaptedMethod(point) { before { result = null } }
-                        primaryCount++
-                        logInfo(
-                            "paused_request_$index",
-                            "[BIL] 已注册暂停页请求拦截 ${point.className}#${point.methodName}"
-                        )
-                    }.onFailure { t ->
-                        logInfo("paused_request_${index}_err", "[BIL] 暂停页请求入口注册失败: $t")
-                    }
-                }
-                // 只有真正的零参数 Function0.invoke 才属于 8.x 旧回调。9.1/9.2 的
-                // invoke(Object,Object) 是 Compose Function2，Adapter 会排除，避免误吞整个暂停栏。
-                pausePoints?.legacyCallback?.let { point ->
-                    runCatching {
-                        hookAdaptedMethod(point) { before { result = null } }
-                        primaryCount++
-                        logInfo("paused_legacy", "[BIL] 已注册旧版暂停页 Function0 拦截")
-                    }.onFailure { t ->
-                        logInfo("paused_legacy_err", "[BIL] 旧版暂停页入口注册失败: $t")
-                    }
-                }
-                // 极旧缓存/探测失败兜底：只尝试语义明确的请求入口，不再按 invoke 名称猜测。
-                if (pausePoints == null) {
-                    listOf(TARGET_PAUSED_CLASS_V2, TARGET_PAUSED_CLASS_V3).forEachIndexed { index, cn ->
-                        if (classExists(cn, biliClassLoader)) runCatching {
-                            hookFirstMethod(cn, TARGET_PAUSED_METHOD_V2) { before { result = null } }
-                            primaryCount++
-                            logInfo("paused_fallback_$index", "[BIL] 已注册暂停页请求兜底 $cn")
-                        }
-                    }
-                }
-                // P2 渲染层兜底（与 P1 并行注册，未命中静默）：主钩子失效时，
-                // 允许宿主 showPanel 完成生命周期（控制器已置"已打开"，beforeHook
-                // 截断会令 onPanelDismiss 永不回调、后续暂停页流程失效——三点面板
-                // 教训），再在同一调用栈用宿主自身 dismissPanel 关闭。只处理暂停页
-                // 面板数据（AdPausedPagePanelData），详情页其它广告面板不受影响。
-                var panelRegistered = false
-                runCatching {
-                    val panelPoint = pausePoints?.panelShow
-                    if (panelPoint != null) hookAdaptedMethod(panelPoint) {
-                        after {
-                            val data = args.firstOrNull {
-                                it?.javaClass?.name?.contains("AdPausedPagePanelData") == true
-                            }
-                            if (data?.javaClass?.name?.contains("AdPausedPagePanelData") == true) {
-                                runCatching {
-                                    XposedHelpers.callMethod(instance, "dismissPanel")
-                                }.onSuccess {
-                                    logInfo("paused_p2_dismiss", "[BIL] 已丢弃暂停页广告面板（P2 兜底）")
-                                }
-                            }
-                        }
-                    } else hookAllNamedMethods(CLASS_AD_PANEL_REPOSITORY, "showPanel") {
-                        after {
-                            val data = args.firstOrNull {
-                                it?.javaClass?.name?.contains("AdPausedPagePanelData") == true
-                            }
-                            if (data != null) runCatching {
-                                XposedHelpers.callMethod(instance, "dismissPanel")
-                            }
-                        }
-                    }
-                    panelRegistered = true
-                    logInfo("paused_p2", "[BIL] 已注册暂停页广告面板拦截兜底（AdPanelRepository.showPanel）")
-                }.onFailure { t ->
-                    logInfo("paused_p2_reg_err", "[BIL] 暂停页广告 P2 兜底注册失败: $t")
-                }
-                // P3 兜底（与 P1/P2 并行注册，未命中静默）：「3 秒后展示广告」倒计时 toast。
-                // 该 toast（PlayerToast）由 showPauseBarCountdownToast$3 协程唯一发射，是
-                // showPanel 的前置门闩——短接协程后宿主立即走到面板展示，正好由 P2 在
-                // 同一调用栈关闭（未进下一帧，无闪帧）；数据层 P1 生效时本协程不会被
-                // 实例化，零开销；仅清理倒计时提示，不参与主请求能力判定。
-                runCatching {
-                    val countdownPoint = pausePoints?.countdown
-                    if (countdownPoint != null) hookAdaptedMethod(countdownPoint) {
-                        before { result = null }
-                    } else hookFirstMethod(TARGET_PAUSED_COUNTDOWN_CLASS, TARGET_PAUSED_METHOD_V2) {
-                        before { result = null }
-                    }
-                    logInfo("paused_p3", "[BIL] 已屏蔽暂停页「3 秒后展示广告」倒计时 toast")
-                }.onFailure { t ->
-                    logInfo("paused_p3_reg_err", "[BIL] 暂停页倒计时 toast 屏蔽注册失败: $t")
-                }
-                reportChannelStatus(
-                    CHANNEL_STATUS,
-                    if (primaryCount > 0 || panelRegistered) "success" else "failed"
+            featureInstallCoordinator.installAll(
+                listOf(
+                    PausedAdFeatureInstaller(
+                        enabled = prefs.getBoolean(PREF_ENABLED, true),
+                        points = hostAdaptResult?.pause
+                    )
                 )
-            } else {
-                reportChannelStatus(CHANNEL_STATUS, "disabled")
-            }
-
-            }.onFailure { t ->
-                logError("paused_feature_init_err", "[BIL] 暂停页功能初始化失败，已隔离并继续: $t")
-            }
+            )
 
             runCatching {
             // ====== 2. 视频提及区游戏广告（双管齐下） ======
@@ -3022,64 +2895,15 @@ class HookEntry : IYukiHookXposedInit {
                 logError("gamecard_feature_init_err", "[BIL] 游戏卡片功能初始化失败，已隔离并继续: $t")
             }
 
-            runCatching {
-            // ====== 3. 首页顶部大卡轮播（banner_v8，含广告/运营活动/番剧推荐） ======
-            val bannerEnabled = prefs.getBoolean(PREF_BANNER_ENABLED, true)
-            if (bannerEnabled) {
-                val bannerResults = LinkedHashMap<String, Boolean>()
-                val bannerPoint = hostAdaptResult?.banner
-                if (bannerPoint != null) {
-                    val bannerClass = KavaMemberLookup.classOrNull(
-                        biliClassLoader,
-                        bannerPoint.bannerClassName
+            featureInstallCoordinator.installAll(
+                listOf(
+                    HomeBannerFeatureInstaller(
+                        enabled = prefs.getBoolean(PREF_BANNER_ENABLED, true),
+                        point = hostAdaptResult?.banner,
+                        collapseBanner = ::collapseHomeBanner
                     )
-                    bannerPoint.lifecycleMethods.forEach { point ->
-                        val key = "${point.className}#${point.methodName}"
-                        runCatching {
-                            hookAdaptedMethod(point) {
-                                after {
-                                    val banner = instance as? View ?: return@after
-                                    if (bannerClass?.isInstance(banner) != true) return@after
-                                    if (point.methodName == "onVisibilityChanged" &&
-                                        (args.getOrNull(1) as? Int) != View.VISIBLE) return@after
-                                    collapseHomeBanner(banner)
-                                }
-                            }
-                            bannerResults[key] = true
-                        }.onFailure { t ->
-                            bannerResults[key] = false
-                            logInfo("banner_adapter_${point.methodName}_err", "[BIL] Banner Adapter 入口失败: $t")
-                        }
-                    }
-                } else {
-                    // 极旧版本兜底。9.1.1+ 的 xm3.d / g.c / g.d 已被移除，不再将其
-                    // 缺失误报为当前版本适配失败；仅当 V8Banner 结构不存在时尝试。
-                    runCatching {
-                        hookFirstMethod(CLASS_BANNER_CONTAINER, METHOD_BANNER_ITEMS) {
-                            replaceTo(Collections.emptyList<Any>())
-                        }
-                        bannerResults["legacyContainer"] = true
-                    }.onFailure { bannerResults["legacyContainer"] = false }
-                }
-
-                // attach 是强制要求；setAdapter/visibility 是宿主后续重新展示时的低频兜底。
-                val bannerAllOk = bannerResults.any { (key, ok) ->
-                    ok && (key.endsWith("#onAttachedToWindow") || key == "legacyContainer")
-                }
-                val bannerSummary = if (bannerAllOk) "success" else "failed"
-                reportChannelStatus(CHANNEL_BANNER_STATUS, bannerSummary)
-                if (!bannerAllOk) {
-                    logError("banner_failed", "[BIL] Banner Adapter 未找到可用入口")
-                } else {
-                    logInfo("banner_ok", "[BIL] Banner Adapter 已注册 V8Banner 收起入口")
-                }
-            } else {
-                reportChannelStatus(CHANNEL_BANNER_STATUS, "disabled")
-            }
-
-            }.onFailure { t ->
-                logError("banner_feature_init_err", "[BIL] Banner 功能初始化失败，已隔离并继续: $t")
-            }
+                )
+            )
 
             featureInstallCoordinator.installAll(
                 listOf(

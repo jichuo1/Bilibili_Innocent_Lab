@@ -18,7 +18,8 @@ class FeatureInstallCoordinatorTest {
             hookPoints = HookPointRegistry(javaClass.classLoader),
             registrar = TestHookRegistrar,
             logInfo = { _, _ -> },
-            logError = { _, message -> loggedFailures += message }
+            logError = { _, message -> loggedFailures += message },
+            reportStatus = { _, _ -> }
         )
         val records = FeatureInstallCoordinator(environment).installAll(
             listOf(
