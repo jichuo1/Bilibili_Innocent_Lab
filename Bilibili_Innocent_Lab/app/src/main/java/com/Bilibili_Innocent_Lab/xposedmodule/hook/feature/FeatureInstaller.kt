@@ -1,6 +1,38 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.highcapable.yukihookapi.hook.core.YukiMemberHookCreator.MemberHookCreator
+
+internal interface HookRegistrar {
+    fun first(
+        id: String,
+        className: String,
+        methodName: String,
+        block: MemberHookCreator.() -> Unit
+    )
+
+    fun all(
+        id: String,
+        className: String,
+        methodName: String,
+        block: MemberHookCreator.() -> Unit
+    )
+
+    fun exact(
+        id: String,
+        owner: Class<*>,
+        methodName: String,
+        vararg parameterTypes: Class<*>,
+        block: MemberHookCreator.() -> Unit
+    )
+
+    fun adapted(
+        id: String,
+        point: VersionAdapter.HookPoint,
+        block: MemberHookCreator.() -> Unit
+    )
+}
 
 /** 每个功能安装器的最小边界；安装失败不影响后续功能。 */
 internal interface FeatureInstaller {
@@ -13,7 +45,9 @@ internal data class HookEnvironment(
     val processName: String,
     val classLoader: ClassLoader?,
     val hookPoints: HookPointRegistry,
-    val log: (String, Throwable?) -> Unit
+    val registrar: HookRegistrar,
+    val logInfo: (String, String) -> Unit,
+    val logError: (String, String) -> Unit
 )
 
 internal sealed interface FeatureInstallResult {
@@ -39,7 +73,10 @@ internal class FeatureInstallCoordinator(
                         FeatureInstallRecord(installer.id, result, failure = null)
                     },
                     onFailure = { throwable ->
-                        environment.log("Feature installer failed: ${installer.id}", throwable)
+                        environment.logError(
+                            "feature_installer_${installer.id}",
+                            "[BIL] 功能安装器 ${installer.id} 失败，已隔离并继续: $throwable"
+                        )
                         FeatureInstallRecord(installer.id, result = null, failure = throwable)
                     }
                 )
