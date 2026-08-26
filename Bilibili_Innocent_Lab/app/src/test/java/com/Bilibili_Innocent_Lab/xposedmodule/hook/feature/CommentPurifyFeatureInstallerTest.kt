@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -47,10 +49,39 @@ class CommentPurifyFeatureInstallerTest {
 
     @Test
     fun `detects search uri from cached private text fields only`() {
-        val installer = CommentPurifyFeatureInstaller(removeSearchLinks = true, points = null)
+        val installer = CommentPurifyFeatureInstaller(
+            removeSearchLinks = true,
+            removeEmptyGuide = false,
+            points = null
+        )
 
         assertTrue(installer.isSearchUrlValue(UrlFixture("bilibili://search?q=test", "test")))
         assertFalse(installer.isSearchUrlValue(UrlFixture("bilibili://video/BV1", "search")))
         assertFalse(installer.isSearchUrlValue(null))
+    }
+
+    @Test
+    fun `resolves empty page defaults once and registers both protobuf versions`() {
+        val loader = requireNotNull(javaClass.classLoader)
+        val points = requireNotNull(VersionAdapter.locateCommentPurify(loader))
+        val statuses = linkedMapOf<String, String>()
+        val environment = HookEnvironment(
+            processName = "tv.danmaku.bili",
+            classLoader = loader,
+            hookPoints = HookPointRegistry(loader),
+            registrar = TestHookRegistrar,
+            logInfo = { _, _ -> },
+            logError = { _, _ -> },
+            reportStatus = { channel, status -> statuses[channel] = status }
+        )
+
+        val result = CommentPurifyFeatureInstaller(
+            removeSearchLinks = false,
+            removeEmptyGuide = true,
+            points = points
+        ).install(environment)
+
+        assertEquals(FeatureInstallResult.Installed(2), result)
+        assertEquals("success", statuses["comment_purify_status"])
     }
 }

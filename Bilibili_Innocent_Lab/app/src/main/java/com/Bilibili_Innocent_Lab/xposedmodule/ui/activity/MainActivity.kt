@@ -107,6 +107,7 @@ class MainActivity : AppViewsActivity() {
     private var showFullNumbers = false
     private var hidePlayerPortraitControl = false
     private var removeCommentSearchLinks = false
+    private var removeCommentEmptyGuide = false
     private var freeCopyEnabled = true
     private var freeCopyDescEnabled = true
     private var freeCopyLightMode = false
@@ -1721,6 +1722,14 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read comment search prefs failed", t)
         }.getOrDefault(false)
+        removeCommentEmptyGuide = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read comment empty guide prefs failed", t)
+        }.getOrDefault(false)
         merchAdEnabled = runCatching {
             modulePrefs?.getBoolean(HookEntry.PREF_MERCH_ENABLED, true) ?: true
         }.onFailure { t ->
@@ -2750,6 +2759,44 @@ class MainActivity : AppViewsActivity() {
                                 alpha = 0.6f
                                 setLineSpacing(6f, 1f)
                                 text = stringResource(R.string.remove_comment_search_links_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_comment_empty_guide)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeCommentEmptyGuide
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    removeCommentEmptyGuide = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write comment empty guide prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.remove_comment_empty_guide_tip)
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }

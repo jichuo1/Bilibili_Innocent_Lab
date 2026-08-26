@@ -2797,6 +2797,10 @@ class HookEntry : IYukiHookXposedInit {
                             FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS,
                             false
                         ),
+                        removeEmptyGuide = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE,
+                            false
+                        ),
                         points = hostAdaptResult?.commentPurify
                     )
                 )

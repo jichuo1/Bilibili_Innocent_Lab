@@ -97,8 +97,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 16
-    private const val ADAPTER_RULE_VERSION = 8
+    private const val SCHEMA_VERSION = 17
+    private const val ADAPTER_RULE_VERSION = 9
 
     enum class AdaptState {
         FOUND,
@@ -334,12 +334,35 @@ object VersionAdapter {
         }
     }
 
-    /** 评论 protobuf 中对外暴露的 URL 映射入口；不触碰正文、emoji 或评论视图。 */
+    /** 空评论区引导 getter 与对应 protobuf 默认实例 getter。 */
+    data class CommentEmptyPagePoint(
+        val contentGetter: HookPoint,
+        val defaultInstanceGetter: HookPoint
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("content", contentGetter.toJson())
+            put("default", defaultInstanceGetter.toJson())
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): CommentEmptyPagePoint = CommentEmptyPagePoint(
+                contentGetter = HookPoint.fromJson(o.getJSONObject("content")),
+                defaultInstanceGetter = HookPoint.fromJson(o.getJSONObject("default"))
+            )
+        }
+    }
+
+    /** 评论 protobuf 的净化边界；不触碰正文、emoji 或评论视图。 */
     data class CommentPurifyPoints(
-        val urlMapGetters: List<HookPoint>
+        val urlMapGetters: List<HookPoint>,
+        val emptyPageGetters: List<CommentEmptyPagePoint>
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("urls", JSONArray().apply { urlMapGetters.forEach { put(it.toJson()) } })
+            put(
+                "empty_pages",
+                JSONArray().apply { emptyPageGetters.forEach { put(it.toJson()) } }
+            )
         }
 
         companion object {
@@ -348,6 +371,11 @@ object VersionAdapter {
                 return CommentPurifyPoints(
                     (0 until urls.length()).map {
                         HookPoint.fromJson(urls.getJSONObject(it))
+                    },
+                    o.getJSONArray("empty_pages").let { emptyPages ->
+                        (0 until emptyPages.length()).map {
+                            CommentEmptyPagePoint.fromJson(emptyPages.getJSONObject(it))
+                        }
                     }
                 )
             }
@@ -465,8 +493,12 @@ object VersionAdapter {
                 playerPortrait?.visibilityMethods?.let { methods ->
                     methods.isNotEmpty() && methods.all { it.isValid() }
                 } != false &&
-                commentPurify?.urlMapGetters?.let { methods ->
-                    methods.isNotEmpty() && methods.all { it.isValid() }
+                commentPurify?.let { value ->
+                    (value.urlMapGetters.isNotEmpty() || value.emptyPageGetters.isNotEmpty()) &&
+                        value.urlMapGetters.all { it.isValid() } &&
+                        value.emptyPageGetters.all {
+                            it.contentGetter.isValid() && it.defaultInstanceGetter.isValid()
+                        }
                 } != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
@@ -567,6 +599,12 @@ object VersionAdapter {
     private val COMMENT_CONTENT_CLASS_CANDIDATES = listOf(
         "com.bapis.bilibili.main.community.reply.v1.Content",
         "com.bapis.bilibili.p4311main.community.reply.p4312v1.Content"
+    )
+    private val COMMENT_EMPTY_PAGE_OWNER_CANDIDATES = listOf(
+        "com.bapis.bilibili.main.community.reply.v1.SubjectControl",
+        "com.bapis.bilibili.main.community.reply.v2.SubjectDescriptionReply",
+        "com.bapis.bilibili.p4311main.community.reply.p4312v1.SubjectControl",
+        "com.bapis.bilibili.p4311main.community.reply.p4313v2.SubjectDescriptionReply"
     )
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
@@ -828,6 +866,7 @@ object VersionAdapter {
             || FULL_NUMBER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || PLAYER_PORTRAIT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_CONTENT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
@@ -913,6 +952,9 @@ object VersionAdapter {
             KavaMemberLookup.hasClass(loader, it)
         }
         val commentPurifyCandidateExists = COMMENT_CONTENT_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val commentEmptyPageCandidateExists = COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
         val pauseCandidateClasses = listOf(
@@ -1023,8 +1065,21 @@ object VersionAdapter {
             ),
             AdaptDiagnostic(
                 "comment.purify.search",
-                stateFor(commentPurify != null, commentPurifyCandidateExists),
+                stateFor(
+                    commentPurify?.urlMapGetters?.isNotEmpty() == true,
+                    commentPurifyCandidateExists
+                ),
                 commentPurify?.urlMapGetters?.joinToString("|") { it.label() }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.purify.empty_page",
+                stateFor(
+                    commentPurify?.emptyPageGetters?.isNotEmpty() == true,
+                    commentEmptyPageCandidateExists
+                ),
+                commentPurify?.emptyPageGetters?.joinToString("|") {
+                    "${it.contentGetter.label()}->${it.defaultInstanceGetter.label()}"
+                }.orEmpty()
             )
         )
     }
@@ -1305,7 +1360,7 @@ object VersionAdapter {
      * getUrlsMap；只接管 Map 返回边界，避免修改 protobuf 内部 MapFieldLite 的可变状态。
      */
     fun locateCommentPurify(loader: ClassLoader): CommentPurifyPoints? = runCatching {
-        val methods = COMMENT_CONTENT_CLASS_CANDIDATES.asSequence()
+        val urlMethods = COMMENT_CONTENT_CLASS_CANDIDATES.asSequence()
             .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
             .flatMap { owner ->
                 KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
@@ -1317,7 +1372,33 @@ object VersionAdapter {
             .distinctBy(Method::toGenericString)
             .map { it.toHookPoint() }
             .toList()
-        methods.takeIf { it.isNotEmpty() }?.let(::CommentPurifyPoints)
+        val emptyPageGetters = COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .mapNotNull { owner ->
+                val contentGetter = KavaMemberLookup.methodOrNull(owner, "getEmptyPage")
+                    ?.takeIf { method ->
+                        !method.isStatic && method.parameterCount == 0 &&
+                            method.returnType.simpleName == "EmptyPage"
+                    } ?: return@mapNotNull null
+                val defaultInstanceGetter = KavaMemberLookup.methodOrNull(
+                    contentGetter.returnType,
+                    "getDefaultInstance"
+                )?.takeIf { method ->
+                    method.isStatic && method.parameterCount == 0 &&
+                        method.returnType == contentGetter.returnType
+                } ?: return@mapNotNull null
+                CommentEmptyPagePoint(
+                    contentGetter.toHookPoint(),
+                    defaultInstanceGetter.toHookPoint()
+                )
+            }
+            .distinctBy { it.contentGetter.label() }
+            .toList()
+        if (urlMethods.isEmpty() && emptyPageGetters.isEmpty()) {
+            null
+        } else {
+            CommentPurifyPoints(urlMethods, emptyPageGetters)
+        }
     }.getOrNull()
 
     /** 暂停页请求入口并行探测；仅零参数 invoke 才允许被识别为旧 Function0。 */
