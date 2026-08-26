@@ -12,6 +12,8 @@ import org.junit.Test
 
 class HookPointRegistryTest {
 
+    private class FixtureException(message: String) : RuntimeException(message)
+
     private class Fixture {
         @Suppress("unused")
         private val stableField: String = "value"
@@ -113,6 +115,30 @@ class HookPointRegistryTest {
         assertEquals(
             HookPointRegistry.State.MISSING_FIELD,
             diagnostics["fixture.field.missing"]?.state
+        )
+    }
+
+    @Test
+    fun `resolves constructor and reports missing signature`() {
+        val constructor = registry.resolveConstructor(
+            "fixture.exception",
+            FixtureException::class.java.name,
+            listOf(String::class.java.name)
+        )
+        val missing = registry.resolveConstructor(
+            "fixture.exception.missing",
+            FixtureException::class.java.name,
+            listOf("int")
+        )
+
+        assertNotNull(constructor)
+        assertTrue(requireNotNull(constructor).newInstance("blocked") is FixtureException)
+        assertNull(missing)
+        val diagnostics = registry.snapshot().associateBy { it.id }
+        assertEquals(HookPointRegistry.State.RESOLVED, diagnostics["fixture.exception"]?.state)
+        assertEquals(
+            HookPointRegistry.State.MISSING_CONSTRUCTOR,
+            diagnostics["fixture.exception.missing"]?.state
         )
     }
 }
