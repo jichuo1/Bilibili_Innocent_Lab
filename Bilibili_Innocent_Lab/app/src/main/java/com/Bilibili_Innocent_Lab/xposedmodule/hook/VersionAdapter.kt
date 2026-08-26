@@ -96,8 +96,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 11
-    private const val ADAPTER_RULE_VERSION = 3
+    private const val SCHEMA_VERSION = 12
+    private const val ADAPTER_RULE_VERSION = 4
 
     enum class AdaptState {
         FOUND,
@@ -279,6 +279,8 @@ object VersionAdapter {
         val homeTopBar: HomeTopBarPoints?,
         /** “我的”页 VIP 卡片成员链。 */
         val mineVip: MineVipPoint?,
+        /** 客户端更新信息同步入口。 */
+        val blockUpdate: HookPoint?,
         /** 宿主 APK + 适配规则指纹，防止只凭 versionCode 复用陈旧缓存。 */
         val hostFingerprint: String,
         /** 每个逻辑 Hook 点的定位结果，供日志/UI 诊断。 */
@@ -295,6 +297,7 @@ object VersionAdapter {
             banner?.let { put("banner", it.toJson()) }
             homeTopBar?.let { put("home_top", it.toJson()) }
             mineVip?.let { put("mine_vip", it.toJson()) }
+            blockUpdate?.let { put("block_update", it.toJson()) }
             put("fp", hostFingerprint)
             put("diag", JSONArray().apply { diagnostics.forEach { put(it.toJson()) } })
         }
@@ -342,6 +345,7 @@ object VersionAdapter {
                     value.onResume.isValid() && !value.onResume.viewField.isNullOrBlank() &&
                         value.bindingField.isNotBlank() && value.rootGetter.isValid()
                 } != false &&
+                blockUpdate?.isValid() != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
         companion object {
@@ -362,6 +366,7 @@ object VersionAdapter {
                     banner = o.optJSONObject("banner")?.let(BannerPoint::fromJson),
                     homeTopBar = o.optJSONObject("home_top")?.let(HomeTopBarPoints::fromJson),
                     mineVip = o.optJSONObject("mine_vip")?.let(MineVipPoint::fromJson),
+                    blockUpdate = o.optJSONObject("block_update")?.let(HookPoint::fromJson),
                     hostFingerprint = o.optString("fp"),
                     diagnostics = diagnostics
                 ).takeIf { it.isStructurallyValid() }
@@ -407,6 +412,14 @@ object VersionAdapter {
         "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment"
     private const val MINE_VIP_MANAGER_CLASS =
         "tv.danmaku.bili.ui.main2.mine.modularvip.MineVipModuleManager"
+    private const val BILI_UPGRADE_INFO_CLASS =
+        "tv.danmaku.bili.update.model.BiliUpgradeInfo"
+    private val BLOCK_UPDATE_OWNER_CANDIDATES = listOf(
+        // 8.90.2；9.1.0/9.1.1；9.2.0；9.3.0；9.4.0；9.5.0；
+        // 9.6.0；9.7.0；9.8.0；9.9.0（按已核验版本顺序）。
+        "vd6.c", "ih1.c", "kh1.c", "Ch1.c", "Uj1.c",
+        "dl1.c", "wm1.c", "Wm1.c", "Sn1.c", "Ro1.c"
+    )
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
 
@@ -581,6 +594,7 @@ object VersionAdapter {
                     "mine=${result?.mineEntry != null} pause=${result?.pause?.requestMethods?.size ?: 0} " +
                     "banner=${result?.banner != null} homeTop=${result?.homeTopBar != null} " +
                     "mineVip=${result?.mineVip != null} " +
+                    "blockUpdate=${result?.blockUpdate != null} " +
                     "diag=${result?.diagnosticSummary()}"
             )
         }, "BIL-VersionAdapter").apply {
@@ -601,10 +615,11 @@ object VersionAdapter {
         val banner = locateBanner(loader)
         val homeTopBar = locateHomeTopBar(loader)
         val mineVip = locateMineVip(loader)
+        val blockUpdate = locateBlockUpdate(loader)
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
-            homeTopBar == null && mineVip == null) return null
+            homeTopBar == null && mineVip == null && blockUpdate == null) return null
         return AdaptResult(
             biliVersionCode = 0,
             ts = 0L,
@@ -615,9 +630,10 @@ object VersionAdapter {
             banner = banner,
             homeTopBar = homeTopBar,
             mineVip = mineVip,
+            blockUpdate = blockUpdate,
             hostFingerprint = "runtime-no-context|rules=$ADAPTER_RULE_VERSION",
             diagnostics = buildDiagnostics(
-                loader, low, high, mine, pause, banner, homeTopBar, mineVip
+                loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate
             )
         )
     }
@@ -637,14 +653,16 @@ object VersionAdapter {
         val banner = locateBanner(loader)
         val homeTopBar = locateHomeTopBar(loader)
         val mineVip = locateMineVip(loader)
+        val blockUpdate = locateBlockUpdate(loader)
         val anyClassExists = COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || HOME_TOP_BAR_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || KavaMemberLookup.hasClass(loader, MINE_FRAGMENT_CLASS)
+            || BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
-            homeTopBar == null && mineVip == null &&
+            homeTopBar == null && mineVip == null && blockUpdate == null &&
             !anyClassExists) return null
         return AdaptResult(
             biliVersionCode = vc,
@@ -656,9 +674,10 @@ object VersionAdapter {
             banner = banner,
             homeTopBar = homeTopBar,
             mineVip = mineVip,
+            blockUpdate = blockUpdate,
             hostFingerprint = buildHostFingerprint(context),
             diagnostics = buildDiagnostics(
-                loader, low, high, mine, pause, banner, homeTopBar, mineVip
+                loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate
             )
         )
     }
@@ -682,7 +701,8 @@ object VersionAdapter {
         pause: PausePoints,
         banner: BannerPoint?,
         homeTopBar: HomeTopBarPoints?,
-        mineVip: MineVipPoint?
+        mineVip: MineVipPoint?,
+        blockUpdate: HookPoint?
     ): List<AdaptDiagnostic> {
         fun stateFor(pointFound: Boolean, candidateExists: Boolean): AdaptState = when {
             pointFound -> AdaptState.FOUND
@@ -699,6 +719,9 @@ object VersionAdapter {
         val mineCandidateExists = KavaMemberLookup.hasClass(loader, MINE_FRAGMENT_CLASS)
         val mineVipCandidateExists = mineCandidateExists &&
             KavaMemberLookup.hasClass(loader, MINE_VIP_MANAGER_CLASS)
+        val blockUpdateCandidateExists = BLOCK_UPDATE_OWNER_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
         val pauseCandidateClasses = listOf(
             "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$2",
             "com.bilibili.ship.theseus.united.page.pausedpage." +
@@ -781,6 +804,11 @@ object VersionAdapter {
                     "resume=${it.onResume.label()},binding=${it.bindingField}," +
                         "root=${it.rootGetter.label()}"
                 }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "update.block",
+                stateFor(blockUpdate != null, blockUpdateCandidateExists),
+                blockUpdate?.label().orEmpty()
             )
         )
     }
@@ -902,6 +930,37 @@ object VersionAdapter {
             bindingField = bindingField.name,
             rootGetter = rootGetter.toHookPoint()
         )
+    }.getOrNull()
+
+    /**
+     * 定位官方客户端更新信息同步入口。候选类来自 8.90.2 与 9.1.0–9.9.0 的离线字符串/
+     * 签名交叉验证；运行期仍要求精确的 (Context) -> BiliUpgradeInfo 结构。
+     * 8.90.2 同时存在接口桥接 a(Context) 与真实网络实现 c(Context)，优先选择没有被接口
+     * 声明的叶子方法；新版本只有一个实现时直接采用唯一候选。
+     */
+    fun locateBlockUpdate(loader: ClassLoader): HookPoint? = runCatching {
+        val upgradeInfo = KavaMemberLookup.classOrNull(loader, BILI_UPGRADE_INFO_CLASS)
+            ?: return@runCatching null
+        for (ownerName in BLOCK_UPDATE_OWNER_CANDIDATES) {
+            val owner = KavaMemberLookup.classOrNull(loader, ownerName) ?: continue
+            val candidates = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                !it.isStatic && !java.lang.reflect.Modifier.isAbstract(it.modifiers) &&
+                    it.returnType == upgradeInfo &&
+                    it.parameterTypes.contentEquals(arrayOf(Context::class.java))
+            }
+            if (candidates.isEmpty()) continue
+            val interfaceSignatures = owner.interfaces.flatMap { contract ->
+                KavaMemberLookup.declaredMethods(contract).map { method ->
+                    method.name to method.parameterTypes.toList()
+                }
+            }.toSet()
+            val leafCandidates = candidates.filter { method ->
+                (method.name to method.parameterTypes.toList()) !in interfaceSignatures
+            }
+            val selected = leafCandidates.singleOrNull() ?: candidates.singleOrNull() ?: continue
+            return@runCatching selected.toHookPoint()
+        }
+        null
     }.getOrNull()
 
     /** 暂停页请求入口并行探测；仅零参数 invoke 才允许被识别为旧 Function0。 */

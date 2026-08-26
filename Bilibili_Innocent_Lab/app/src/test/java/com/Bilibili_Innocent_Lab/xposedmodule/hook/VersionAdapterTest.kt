@@ -57,7 +57,12 @@ class VersionAdapterTest {
                 emptyList()
             )
         ),
-        hostFingerprint = "host|9090300|rules=3",
+        blockUpdate = VersionAdapter.HookPoint(
+            "vd6.c",
+            "c",
+            listOf("android.content.Context")
+        ),
+        hostFingerprint = "host|9090300|rules=4",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -118,5 +123,14 @@ class VersionAdapterTest {
         assertEquals("stableBinding", point?.bindingField)
         assertEquals("getRoot", point?.rootGetter?.methodName)
         assertEquals(emptyList<String>(), point?.rootGetter?.paramClassNames)
+    }
+
+    @Test
+    fun `locates update leaf implementation instead of interface bridge`() {
+        val point = VersionAdapter.locateBlockUpdate(requireNotNull(javaClass.classLoader))
+
+        assertEquals("vd6.c", point?.className)
+        assertEquals("c", point?.methodName)
+        assertEquals(listOf("android.content.Context"), point?.paramClassNames)
     }
 }

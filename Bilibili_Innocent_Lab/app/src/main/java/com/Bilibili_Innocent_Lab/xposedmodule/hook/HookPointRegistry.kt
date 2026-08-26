@@ -23,6 +23,7 @@ internal class HookPointRegistry(
         MISSING_PARAMETER_CLASS,
         MISSING_METHOD,
         MISSING_FIELD,
+        MISSING_CONSTRUCTOR,
         AMBIGUOUS_METHOD,
         INSTALLED,
         DUPLICATE,
@@ -181,6 +182,46 @@ internal class HookPointRegistry(
         }
         record(Diagnostic(id, State.RESOLVED, memberLabel(field)))
         return field
+    }
+
+    /** 解析需要在 Hook 回调中直接调用的构造器，并统一记录参数类/构造器缺失。 */
+    fun resolveConstructor(
+        id: String,
+        className: String,
+        parameterClassNames: List<String>
+    ): Constructor<*>? {
+        val owner = resolveOwner(id, className) ?: return null
+        val parameterTypes = ArrayList<Class<*>>(parameterClassNames.size)
+        for (parameterClassName in parameterClassNames) {
+            val parameterType = resolveParameterClass(parameterClassName)
+            if (parameterType == null) {
+                record(
+                    Diagnostic(
+                        id,
+                        State.MISSING_PARAMETER_CLASS,
+                        detail = parameterClassName
+                    )
+                )
+                return null
+            }
+            parameterTypes += parameterType
+        }
+        val constructor = KavaMemberLookup.constructorOrNull(
+            owner,
+            *parameterTypes.toTypedArray()
+        )
+        if (constructor == null) {
+            record(
+                Diagnostic(
+                    id,
+                    State.MISSING_CONSTRUCTOR,
+                    detail = "$className(${parameterClassNames.joinToString(",")})"
+                )
+            )
+            return null
+        }
+        record(Diagnostic(id, State.RESOLVED, memberLabel(constructor)))
+        return constructor
     }
 
     private fun resolveOwner(id: String, className: String): Class<*>? {
