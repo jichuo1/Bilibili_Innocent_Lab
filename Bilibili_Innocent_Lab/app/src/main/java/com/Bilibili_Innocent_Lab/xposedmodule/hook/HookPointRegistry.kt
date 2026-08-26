@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.reflect.Constructor
+import java.lang.reflect.Field
 import java.lang.reflect.Member
 import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
@@ -21,6 +22,7 @@ internal class HookPointRegistry(
         MISSING_CLASS,
         MISSING_PARAMETER_CLASS,
         MISSING_METHOD,
+        MISSING_FIELD,
         AMBIGUOUS_METHOD,
         INSTALLED,
         DUPLICATE,
@@ -49,14 +51,16 @@ internal class HookPointRegistry(
         append(member.declaringClass.name)
         append('#')
         append(if (member is Constructor<*>) "<init>" else member.name)
-        append('(')
-        val parameterTypes = when (member) {
-            is Method -> member.parameterTypes
-            is Constructor<*> -> member.parameterTypes
-            else -> emptyArray()
+        if (member !is Field) {
+            append('(')
+            val parameterTypes = when (member) {
+                is Method -> member.parameterTypes
+                is Constructor<*> -> member.parameterTypes
+                else -> emptyArray()
+            }
+            append(parameterTypes.joinToString(",") { it.name })
+            append(')')
         }
-        append(parameterTypes.joinToString(",") { it.name })
-        append(')')
     }
 
     fun resolveFirst(id: String, className: String, methodName: String): Method? {
@@ -148,6 +152,35 @@ internal class HookPointRegistry(
             parameterTypes += parameterType
         }
         return resolveExact(id, owner, methodName, *parameterTypes.toTypedArray())
+    }
+
+    /**
+     * 统一解析适配结果中缓存的字段名，并把缺失原因写入同一诊断表。
+     * 返回的 [Field] 由 KavaMemberLookup 按 Class/字段名缓存，不持有宿主实例。
+     */
+    fun resolveField(
+        id: String,
+        className: String,
+        fieldName: String,
+        includeSuperclasses: Boolean = false
+    ): Field? {
+        val owner = resolveOwner(id, className) ?: return null
+        return resolveField(id, owner, fieldName, includeSuperclasses)
+    }
+
+    fun resolveField(
+        id: String,
+        owner: Class<*>,
+        fieldName: String,
+        includeSuperclasses: Boolean = false
+    ): Field? {
+        val field = KavaMemberLookup.fieldOrNull(owner, fieldName, includeSuperclasses)
+        if (field == null) {
+            record(Diagnostic(id, State.MISSING_FIELD, detail = "${owner.name}#$fieldName"))
+            return null
+        }
+        record(Diagnostic(id, State.RESOLVED, memberLabel(field)))
+        return field
     }
 
     private fun resolveOwner(id: String, className: String): Class<*>? {

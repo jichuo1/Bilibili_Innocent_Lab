@@ -14,6 +14,9 @@ class HookPointRegistryTest {
 
     private class Fixture {
         @Suppress("unused")
+        private val stableField: String = "value"
+
+        @Suppress("unused")
         private fun exact(value: Int): String = value.toString()
 
         @Suppress("unused")
@@ -86,5 +89,30 @@ class HookPointRegistryTest {
         val states = registry.snapshot().associate { it.id to it.state }
         assertEquals(HookPointRegistry.State.AMBIGUOUS_METHOD, states["fixture.ambiguous"])
         assertEquals(HookPointRegistry.State.MISSING_CLASS, states["fixture.missing"])
+    }
+
+    @Test
+    fun `resolves fields through unified diagnostics`() {
+        val field = registry.resolveField(
+            "fixture.field",
+            Fixture::class.java.name,
+            "stableField"
+        )
+        val missing = registry.resolveField(
+            "fixture.field.missing",
+            Fixture::class.java,
+            "absent"
+        )
+
+        assertNotNull(field)
+        assertEquals("value", requireNotNull(field).get(Fixture()))
+        assertNull(missing)
+        val diagnostics = registry.snapshot().associateBy { it.id }
+        assertEquals(HookPointRegistry.State.RESOLVED, diagnostics["fixture.field"]?.state)
+        assertTrue(diagnostics["fixture.field"]?.member.orEmpty().endsWith("#stableField"))
+        assertEquals(
+            HookPointRegistry.State.MISSING_FIELD,
+            diagnostics["fixture.field.missing"]?.state
+        )
     }
 }

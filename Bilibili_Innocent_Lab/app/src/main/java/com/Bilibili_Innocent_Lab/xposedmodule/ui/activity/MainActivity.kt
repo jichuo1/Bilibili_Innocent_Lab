@@ -99,6 +99,7 @@ class MainActivity : AppViewsActivity() {
     private var merchAdEnabled = true
     private var hideHomeGameMenu = false
     private var hideHomeSearchDefaultWord = false
+    private var hideMineVip = false
     private var freeCopyEnabled = true
     private var freeCopyDescEnabled = true
     private var freeCopyLightMode = false
@@ -1667,6 +1668,11 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read home search word prefs failed", t)
         }.getOrDefault(false)
+        hideMineVip = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.HIDE_MINE_VIP, false) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read mine vip prefs failed", t)
+        }.getOrDefault(false)
         merchAdEnabled = runCatching {
             modulePrefs?.getBoolean(HookEntry.PREF_MERCH_ENABLED, true) ?: true
         }.onFailure { t ->
@@ -2274,7 +2280,65 @@ class MainActivity : AppViewsActivity() {
                                     setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x40))
                                 }
                             )
-                            // 子项 4：评论区长按自由复制
+                            // 子项 4：“我的”页净化（新功能默认关闭）
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.7f
+                                isSingleLine = true
+                                text = stringResource(R.string.mine_page_settings)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 11f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.hide_mine_vip)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = hideMineVip
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    hideMineVip = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.HIDE_MINE_VIP,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write mine vip prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.hide_mine_vip_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            FrameLayout(
+                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 14.dp
+                                },
+                                init = {
+                                    setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x40))
+                                }
+                            )
+                            // 子项 5：评论区长按自由复制
                             TextView(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     bottomMargin = 4.dp
