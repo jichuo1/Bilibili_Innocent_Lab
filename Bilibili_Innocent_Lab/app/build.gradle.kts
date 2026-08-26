@@ -104,6 +104,8 @@ dependencies {
     implementation(libs.material)
 
     testImplementation(libs.junit)
+    // android.jar 的 org.json 是抛异常的 stub；单测需要真实实现解析 GitHub 响应。
+    testImplementation(libs.test.org.json)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.espresso.core)
 }
