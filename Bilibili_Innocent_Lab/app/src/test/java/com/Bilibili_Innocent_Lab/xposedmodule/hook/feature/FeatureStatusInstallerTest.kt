@@ -44,4 +44,16 @@ class FeatureStatusInstallerTest {
         assertEquals(FeatureInstallResult.Skipped("disabled"), result)
         assertEquals(listOf("gamecard_ad_status" to "disabled"), statuses)
     }
+
+    @Test
+    fun `home top bar reports disabled without resolving hook points`() {
+        val result = HomeTopBarFeatureInstaller(
+            hideGameMenu = false,
+            hideSearchDefaultWord = false,
+            points = null
+        ).install(environment)
+
+        assertEquals(FeatureInstallResult.Skipped("disabled"), result)
+        assertEquals(listOf("home_top_bar_status" to "disabled"), statuses)
+    }
 }

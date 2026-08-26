@@ -21,6 +21,11 @@
     <string name="banner_ad_settings">首页大卡轮播</string>
     <string name="banner_ad_enable">隐藏首页大卡轮播推荐</string>
     <string name="banner_ad_tip">开启后补全漫游失效的首页轮播净化</string>
+    <string name="home_top_bar_settings">首页顶部栏</string>
+    <string name="hide_home_game_menu">隐藏顶部游戏中心入口</string>
+    <string name="hide_home_game_menu_tip">只拦截指向游戏中心的菜单项，不影响搜索、扫一扫等其他入口；重启哔哩哔哩后生效</string>
+    <string name="hide_home_search_default_word">隐藏搜索框默认推荐词</string>
+    <string name="hide_home_search_default_word_tip">保留搜索入口与点击行为，仅清空搜索框内的推荐文案；重启哔哩哔哩后生效</string>
     <string name="merch_ad_enable">隐藏UP主分享好物推广</string>
     <string name="merch_ad_tip">开启后不再展示某些视频详细页的UP主分享好物推广</string>
     <string name="purify_settings">净化</string>

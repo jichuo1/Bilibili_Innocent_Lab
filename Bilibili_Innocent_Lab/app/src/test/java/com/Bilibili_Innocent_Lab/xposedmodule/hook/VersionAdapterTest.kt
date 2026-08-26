@@ -26,7 +26,24 @@ class VersionAdapterTest {
             countdown = null
         ),
         banner = null,
-        hostFingerprint = "host|9090300|rules=1",
+        homeTopBar = VersionAdapter.HomeTopBarPoints(
+            gameMenu = VersionAdapter.HookPoint(
+                "home.Menu",
+                "bind",
+                listOf("android.view.Menu", "android.view.MenuInflater"),
+                viewField = "config"
+            ),
+            baseOnViewCreated = VersionAdapter.HookPoint(
+                "home.Base",
+                "onViewCreated",
+                listOf("android.view.View", "android.os.Bundle"),
+                viewField = "searchText"
+            ),
+            defaultWordMethods = listOf(
+                VersionAdapter.HookPoint("home.Main", "setWord", listOf("word.Model"))
+            )
+        ),
+        hostFingerprint = "host|9090300|rules=2",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -55,12 +72,26 @@ class VersionAdapterTest {
 
     @Test
     fun `rejects stale schema and structurally invalid hook point`() {
-        val stale = JSONObject(result().toJson().toString()).put("sv", 8)
+        val stale = JSONObject(result().toJson().toString()).put("sv", 9)
         val invalid = JSONObject(result().toJson().toString()).apply {
             getJSONObject("low").put("m", "")
         }
 
         assertNull(VersionAdapter.AdaptResult.fromJson(stale))
         assertNull(VersionAdapter.AdaptResult.fromJson(invalid))
+    }
+
+    @Test
+    fun `locates home top bar by signatures instead of obfuscated method names`() {
+        val points = VersionAdapter.locateHomeTopBar(requireNotNull(javaClass.classLoader))
+
+        assertEquals("c", points?.gameMenu?.methodName)
+        assertEquals("config", points?.gameMenu?.viewField)
+        assertEquals("onViewCreated", points?.baseOnViewCreated?.methodName)
+        assertEquals("searchText", points?.baseOnViewCreated?.viewField)
+        assertEquals(2, points?.defaultWordMethods?.size)
+        assertTrue(points?.defaultWordMethods.orEmpty().all {
+            it.paramClassNames == listOf("com.bilibili.app.comm.list.common.api.b")
+        })
     }
 }

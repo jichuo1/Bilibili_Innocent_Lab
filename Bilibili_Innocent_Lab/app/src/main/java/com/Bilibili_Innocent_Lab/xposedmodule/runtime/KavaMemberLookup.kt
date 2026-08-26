@@ -49,13 +49,17 @@ internal object KavaMemberLookup {
         val declaringClass: Class<*>,
         val includeSuperclasses: Boolean
     )
+    private data class FieldCollectionKey(
+        val declaringClass: Class<*>,
+        val includeSuperclasses: Boolean
+    )
 
     private val classCache = ConcurrentHashMap<ClassKey, CachedValue<Class<*>>>()
     private val methodCache = ConcurrentHashMap<MethodKey, CachedValue<Method>>()
     private val fieldCache = ConcurrentHashMap<FieldKey, CachedValue<Field>>()
     private val constructorCache = ConcurrentHashMap<ConstructorKey, CachedValue<Constructor<*>>>()
     private val methodCollectionCache = ConcurrentHashMap<MethodCollectionKey, List<Method>>()
-    private val fieldCollectionCache = ConcurrentHashMap<Class<*>, List<Field>>()
+    private val fieldCollectionCache = ConcurrentHashMap<FieldCollectionKey, List<Field>>()
     private val constructorCollectionCache = ConcurrentHashMap<Class<*>, List<Constructor<*>>>()
 
     private val cacheHits = AtomicLong()
@@ -212,11 +216,34 @@ internal object KavaMemberLookup {
         declaringClass: Class<*>,
         makeAccessible: Boolean = false,
         predicate: (Field) -> Boolean = { true }
-    ): List<Field> = cachedList(fieldCollectionCache, declaringClass) {
-        declaringClass.resolve()
-            .optional(silent = true)
-            .field { }
-            .map { it.self }
+    ): List<Field> = fields(
+        declaringClass = declaringClass,
+        includeSuperclasses = false,
+        makeAccessible = makeAccessible,
+        predicate = predicate
+    )
+
+    /** 解析字段集合；[includeSuperclasses] 为 true 时由 KavaRef 统一遍历父类。 */
+    fun fields(
+        declaringClass: Class<*>,
+        includeSuperclasses: Boolean,
+        makeAccessible: Boolean = false,
+        predicate: (Field) -> Boolean = { true }
+    ): List<Field> = cachedList(
+        fieldCollectionCache,
+        FieldCollectionKey(declaringClass, includeSuperclasses)
+    ) {
+        val owners = if (includeSuperclasses) {
+            generateSequence(declaringClass) { it.superclass }.toList()
+        } else {
+            listOf(declaringClass)
+        }
+        owners.flatMap { owner ->
+            owner.resolve()
+                .optional(silent = true)
+                .field { }
+                .map { it.self }
+        }
     }.asSequence()
         .filter(predicate)
         .filter { !makeAccessible || it.makeAccessible() }
