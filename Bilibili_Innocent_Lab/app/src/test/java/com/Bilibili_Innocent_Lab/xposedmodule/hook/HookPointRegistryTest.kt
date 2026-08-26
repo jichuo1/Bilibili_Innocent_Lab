@@ -53,6 +53,19 @@ class HookPointRegistryTest {
     }
 
     @Test
+    fun `prevents duplicate constructor registration`() {
+        val constructor = Fixture::class.java.getDeclaredConstructor()
+
+        assertTrue(registry.claim("fixture.constructor", constructor))
+        registry.markInstalled("fixture.constructor", constructor)
+        assertFalse(registry.claim("fixture.constructor", constructor))
+
+        val diagnostic = registry.snapshot().single()
+        assertEquals(HookPointRegistry.State.DUPLICATE, diagnostic.state)
+        assertTrue(diagnostic.member.orEmpty().contains("#<init>()"))
+    }
+
+    @Test
     fun `reports ambiguous and missing hook points without throwing`() {
         assertNull(
             registry.resolveAdapted(

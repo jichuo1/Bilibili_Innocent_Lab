@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.highcapable.yukihookapi.hook.core.YukiMemberHookCreator.MemberHookCreator
+import java.lang.reflect.Constructor
 
 internal interface HookRegistrar {
     fun first(
@@ -30,6 +31,12 @@ internal interface HookRegistrar {
     fun adapted(
         id: String,
         point: VersionAdapter.HookPoint,
+        block: MemberHookCreator.() -> Unit
+    )
+
+    fun constructor(
+        id: String,
+        constructor: Constructor<*>,
         block: MemberHookCreator.() -> Unit
     )
 }

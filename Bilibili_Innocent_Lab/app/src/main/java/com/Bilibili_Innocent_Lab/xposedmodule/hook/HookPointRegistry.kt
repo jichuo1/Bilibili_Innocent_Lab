@@ -1,13 +1,15 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import java.lang.reflect.Constructor
+import java.lang.reflect.Member
 import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 运行期 Hook 点注册与诊断边界。
  *
- * 它只保存逻辑 Hook 点 ID 和 [Method]，不保存 Activity/View/宿主业务实例。
+ * 它只保存逻辑 Hook 点 ID 和反射 [Member]，不保存 Activity/View/宿主业务实例。
  * 成员枚举与负查询缓存由 [KavaMemberLookup] 统一承担。
  */
 internal class HookPointRegistry(
@@ -32,7 +34,7 @@ internal class HookPointRegistry(
         val detail: String? = null
     )
 
-    private data class RegistrationKey(val id: String, val method: Method)
+    private data class RegistrationKey(val id: String, val member: Member)
 
     private val diagnostics = LinkedHashMap<String, Diagnostic>()
     private val registrations = ConcurrentHashMap.newKeySet<RegistrationKey>()
@@ -43,12 +45,17 @@ internal class HookPointRegistry(
         }
     }
 
-    private fun memberLabel(method: Method): String = buildString {
-        append(method.declaringClass.name)
+    private fun memberLabel(member: Member): String = buildString {
+        append(member.declaringClass.name)
         append('#')
-        append(method.name)
+        append(if (member is Constructor<*>) "<init>" else member.name)
         append('(')
-        append(method.parameterTypes.joinToString(",") { it.name })
+        val parameterTypes = when (member) {
+            is Method -> member.parameterTypes
+            is Constructor<*> -> member.parameterTypes
+            else -> emptyArray()
+        }
+        append(parameterTypes.joinToString(",") { it.name })
         append(')')
     }
 
@@ -162,23 +169,23 @@ internal class HookPointRegistry(
         else -> KavaMemberLookup.classOrNull(classLoader, name)
     }
 
-    /** 同一逻辑 ID + 同一 Method 只允许安装一次，避免重适配回调重复注册。 */
-    fun claim(id: String, method: Method): Boolean {
-        val claimed = registrations.add(RegistrationKey(id, method))
-        if (!claimed) record(Diagnostic(id, State.DUPLICATE, memberLabel(method)))
+    /** 同一逻辑 ID + 同一反射成员只允许安装一次，避免重适配回调重复注册。 */
+    fun claim(id: String, member: Member): Boolean {
+        val claimed = registrations.add(RegistrationKey(id, member))
+        if (!claimed) record(Diagnostic(id, State.DUPLICATE, memberLabel(member)))
         return claimed
     }
 
-    fun markInstalled(id: String, method: Method) {
-        record(Diagnostic(id, State.INSTALLED, memberLabel(method)))
+    fun markInstalled(id: String, member: Member) {
+        record(Diagnostic(id, State.INSTALLED, memberLabel(member)))
     }
 
-    fun markFailed(id: String, method: Method?, throwable: Throwable) {
+    fun markFailed(id: String, member: Member?, throwable: Throwable) {
         record(
             Diagnostic(
                 id,
                 State.FAILED,
-                method?.let(::memberLabel),
+                member?.let(::memberLabel),
                 "${throwable.javaClass.simpleName}: ${throwable.message.orEmpty()}".trim()
             )
         )
