@@ -24,6 +24,7 @@ import java.lang.reflect.Method
 import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BlockUpdateFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.GamePromotionFeatureInstaller
@@ -2728,6 +2729,15 @@ class HookEntry : IYukiHookXposedInit {
                     MineVipFeatureInstaller(
                         enabled = prefs.getBoolean(FeaturePreferences.HIDE_MINE_VIP, false),
                         point = hostAdaptResult?.mineVip
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    BlockUpdateFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false),
+                        point = hostAdaptResult?.blockUpdate
                     )
                 )
             )
