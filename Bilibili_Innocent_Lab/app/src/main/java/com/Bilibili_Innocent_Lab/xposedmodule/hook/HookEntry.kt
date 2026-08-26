@@ -2471,10 +2471,89 @@ class HookEntry : IYukiHookXposedInit {
             runtimeCommentFreeCopyEnabled = initialCommentFreeCopyEnabled
             runtimeDescriptionFreeCopyEnabled = initialDescriptionFreeCopyEnabled
 
-            // attach hook 在下方先注册，真正的同步实现会在自由复制安装器定义完成后再注入。
-            // loadApp 必定先完整返回，宿主随后才创建 Application，因此运行时不会看到半成品。
+            // 自由复制配置同步必须先于可选功能注册建立：即使后续某个广告/状态上报
+            // 初始化异常，也不能让评论与简介自由复制永远失去 attach 后的权威配置同步。
+            // 安装器通过原子引用稍后注入；极端情况下同步先完成，安装器注入时会根据
+            // runtime flag 立即补注册，两个时序均保持幂等。
+            val commentFreeCopyInstallerRef =
+                java.util.concurrent.atomic.AtomicReference<(() -> Unit)?>(null)
+            val descriptionFreeCopyInstallerRef =
+                java.util.concurrent.atomic.AtomicReference<(() -> Unit)?>(null)
+            val freeCopyHookRetryOnAdapt =
+                java.util.concurrent.atomic.AtomicReference<(() -> Unit)?>(null)
             val freeCopyConfigOnAttach =
                 java.util.concurrent.atomic.AtomicReference<((Context) -> Unit)?>(null)
+
+            fun retryFreeCopyHooksAfterAdapt() {
+                val retry = freeCopyHookRetryOnAdapt.getAndSet(null) ?: return
+                val handler = mainHandlerOrNull()
+                if (handler != null) handler.post(retry) else retry()
+            }
+
+            fun reportChannelStatus(key: String, value: String) {
+                runCatching {
+                    dataChannel.put(key = key, value = value)
+                }.onFailure { t ->
+                    // DataChannel 只服务模块界面状态展示，不是宿主 Hook 的功能依赖。
+                    // 上报失败必须 fail-open，避免截断后续自由复制等核心注册链路。
+                    logError(
+                        "channel_status_$key",
+                        "[BIL] 状态通道上报失败(key=$key, value=$value): $t"
+                    )
+                }
+            }
+
+            val roamingCompatPrefs = prefs
+            val freeCopyConfigSyncStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+            freeCopyConfigOnAttach.set syncFreeCopyConfig@{ attachedContext ->
+                val appContext = attachedContext.applicationContext ?: attachedContext
+                if (!TargetProcess.isMainProcess(appContext, TARGET_PACKAGE) ||
+                    !freeCopyConfigSyncStarted.compareAndSet(false, true)
+                ) return@syncFreeCopyConfig
+                // 只需一次同步；清掉桥接 lambda，避免 Application.attach hook 在进程全寿命
+                // 间接持有 Context。后台任务只持 applicationContext。
+                freeCopyConfigOnAttach.set(null)
+                Thread({
+                    val providerOrCache = queryFreeCopyRuntimeConfig(appContext)
+                    // Provider 不可见且尚无目标缓存时，只有带修订号的完整 prefs 快照才
+                    // 可作为权威值；旧版本没有修订号的 false 继续归为 UNKNOWN。
+                    val latePrefs = if (providerOrCache == null) runCatching {
+                        val revision = roamingCompatPrefs.getLong(PREF_FREE_COPY_CONFIG_REVISION, 0L)
+                        if (revision <= 0L) null else FreeCopyRuntimeConfig(
+                            commentEnabled = roamingCompatPrefs.getBoolean(PREF_FREE_COPY_ENABLED, true),
+                            descriptionEnabled = roamingCompatPrefs.getBoolean(
+                                PREF_FREE_COPY_DESC_ENABLED,
+                                true
+                            ),
+                            revision = revision,
+                            source = "late-prefs"
+                        )
+                    }.getOrNull() else null
+                    val resolved = providerOrCache ?: latePrefs
+                    val commentEnabled = resolved?.commentEnabled ?: true
+                    val descriptionEnabled = resolved?.descriptionEnabled ?: true
+                    val source = resolved?.source ?: "default-on"
+                    val revision = resolved?.revision ?: 0L
+                    val applyConfig = {
+                        runtimeCommentFreeCopyEnabled = commentEnabled
+                        runtimeDescriptionFreeCopyEnabled = descriptionEnabled
+                        if (commentEnabled) commentFreeCopyInstallerRef.get()?.invoke()
+                        if (commentEnabled || descriptionEnabled) {
+                            descriptionFreeCopyInstallerRef.get()?.invoke()
+                        }
+                        logInfo(
+                            "free_copy_config_sync",
+                            "[BIL] 自由复制配置已同步(source=$source, revision=$revision, " +
+                                "comment=$commentEnabled, desc=$descriptionEnabled)"
+                        )
+                    }
+                    val handler = mainHandlerOrNull()
+                    if (handler != null) handler.post(applyConfig) else applyConfig()
+                }, "BIL-free-copy-config").apply {
+                    isDaemon = true
+                    start()
+                }
+            }
 
             // ====== 0. 漫游版本支持扩展（BiliRoaming 兼容底座，默认关闭） ======
             // 仅做 hookinfo 缓存健康检查与修复，不改动 BiliRoaming 任何功能逻辑；
@@ -2495,7 +2574,6 @@ class HookEntry : IYukiHookXposedInit {
             // 开关解析顺序为：YukiHookAPI prefs（DirectAccessService，模块 App 进程
             // 存活时可靠——用户刚在模块界面切换过开关时正是此状态）→ B 站本地缓存
             // → provider 同步（隔离下可能失败，留作兜底）。
-            val roamingCompatPrefs = prefs
             runCatching {
                 hookExactMethod(
                     classOf<android.app.Application>(),
@@ -2533,6 +2611,7 @@ class HookEntry : IYukiHookXposedInit {
 
                                             override fun onAdaptFinished(ok: Boolean) {
                                                 if (ok) {
+                                                    retryFreeCopyHooksAfterAdapt()
                                                     VersionAdapter.showAdaptToast(
                                                         attachCtx,
                                                         "版本适配完成，功能已就绪"
@@ -2589,6 +2668,7 @@ class HookEntry : IYukiHookXposedInit {
 
                                     override fun onAdaptFinished(ok: Boolean) {
                                         if (ok) {
+                                            retryFreeCopyHooksAfterAdapt()
                                             VersionAdapter.showAdaptToast(
                                                 onCreateCtx,
                                                 "版本适配完成，功能已就绪"
@@ -2612,6 +2692,7 @@ class HookEntry : IYukiHookXposedInit {
                     }
             }
 
+            runCatching {
             // ====== 1. 暂停页广告 ======
             val pausedAdEnabled = prefs.getBoolean(PREF_ENABLED, true)
             if (pausedAdEnabled) {
@@ -2704,14 +2785,19 @@ class HookEntry : IYukiHookXposedInit {
                 }.onFailure { t ->
                     logInfo("paused_p3_reg_err", "[BIL] 暂停页倒计时 toast 屏蔽注册失败: $t")
                 }
-                dataChannel.put(
-                    key = CHANNEL_STATUS,
-                    value = if (primaryCount > 0 || panelRegistered) "success" else "failed"
+                reportChannelStatus(
+                    CHANNEL_STATUS,
+                    if (primaryCount > 0 || panelRegistered) "success" else "failed"
                 )
             } else {
-                dataChannel.put(key = CHANNEL_STATUS, value = "disabled")
+                reportChannelStatus(CHANNEL_STATUS, "disabled")
             }
 
+            }.onFailure { t ->
+                logError("paused_feature_init_err", "[BIL] 暂停页功能初始化失败，已隔离并继续: $t")
+            }
+
+            runCatching {
             // ====== 2. 视频提及区游戏广告（双管齐下） ======
             val gamecardEnabled = prefs.getBoolean(PREF_GAMECARD_ENABLED, true)
             if (gamecardEnabled) {
@@ -2852,16 +2938,21 @@ class HookEntry : IYukiHookXposedInit {
                     if (!bodyBlocked && !headerBlocked) append(',')
                     if (!headerBlocked) append("header")
                 }
-                dataChannel.put(key = CHANNEL_GAMECARD_STATUS, value = summary)
+                reportChannelStatus(CHANNEL_GAMECARD_STATUS, summary)
                 if (!allOk) {
                     logError("gamecard_partial", "[BIL] gamecard 部分 hook 未命中: $summary")
                 } else {
                     logInfo("gamecard_ok", "[BIL] gamecard summary: success")
                 }
             } else {
-                dataChannel.put(key = CHANNEL_GAMECARD_STATUS, value = "disabled")
+                reportChannelStatus(CHANNEL_GAMECARD_STATUS, "disabled")
             }
 
+            }.onFailure { t ->
+                logError("gamecard_feature_init_err", "[BIL] 游戏卡片功能初始化失败，已隔离并继续: $t")
+            }
+
+            runCatching {
             // ====== 3. 首页顶部大卡轮播（banner_v8，含广告/运营活动/番剧推荐） ======
             val bannerEnabled = prefs.getBoolean(PREF_BANNER_ENABLED, true)
             if (bannerEnabled) {
@@ -2906,16 +2997,21 @@ class HookEntry : IYukiHookXposedInit {
                     ok && (key.endsWith("#onAttachedToWindow") || key == "legacyContainer")
                 }
                 val bannerSummary = if (bannerAllOk) "success" else "failed"
-                dataChannel.put(key = CHANNEL_BANNER_STATUS, value = bannerSummary)
+                reportChannelStatus(CHANNEL_BANNER_STATUS, bannerSummary)
                 if (!bannerAllOk) {
                     logError("banner_failed", "[BIL] Banner Adapter 未找到可用入口")
                 } else {
                     logInfo("banner_ok", "[BIL] Banner Adapter 已注册 V8Banner 收起入口")
                 }
             } else {
-                dataChannel.put(key = CHANNEL_BANNER_STATUS, value = "disabled")
+                reportChannelStatus(CHANNEL_BANNER_STATUS, "disabled")
             }
 
+            }.onFailure { t ->
+                logError("banner_feature_init_err", "[BIL] Banner 功能初始化失败，已隔离并继续: $t")
+            }
+
+            runCatching {
             // ====== 3b. 同款好物/UP主分享好物（简介区商品广告）=====
             // 定位（8.90.2 实测探针）：MerchandiseComponent implements UIComponent，
             // 渲染入口 createViewEntry(Context, ViewGroup)——数据流经 MerchandiseService
@@ -2974,6 +3070,10 @@ class HookEntry : IYukiHookXposedInit {
                 }
             }
 
+            }.onFailure { t ->
+                logError("merch_feature_init_err", "[BIL] 商品卡片功能初始化失败，已隔离并继续: $t")
+            }
+
             // ====== 4. 评论区长按自由复制 ======
             // 关键经验：R8 混淆后方法名被 jadx 重命名（e1/v 等非真实名），
             // 只有 t0.o0（基类方法，已真机验证命中）是可靠 hook 点。
@@ -2991,6 +3091,7 @@ class HookEntry : IYukiHookXposedInit {
                 // 注：quickLocate 结果不持久化（AdaptResult 无真实 vc，写文件会被
                 // loadCached 拒绝）；attach 阶段 ensureAdapted 会重跑适配线程写正确缓存
                 val adaptResult = hostAdaptResult
+                    ?: biliClassLoader?.let { VersionAdapter.quickLocate(it) }
                 // 性能：全局维护「列表滚动中」标志——快速滑动/惯性滚动期间暂缓评论绑定，
                 // 滑停（SCROLL_STATE_IDLE）后由 drainCommentBinds 统一批量绑定可见评论，
                 // 避免滚动中逐条全树绑定的卡顿（滚动状态回调本身低频，开销可忽略）。
@@ -3238,7 +3339,8 @@ class HookEntry : IYukiHookXposedInit {
                     logError("free_copy_hook_err", "[BIL] 自由复制 hook 注册异常: $t")
                 }
             }
-            if (initialCommentFreeCopyEnabled) installCommentFreeCopyHooks()
+            commentFreeCopyInstallerRef.set(installCommentFreeCopyHooks)
+            if (runtimeCommentFreeCopyEnabled) installCommentFreeCopyHooks()
 
             // ====== 4a. 气泡亮暗色自动跟随：详情页主题缓存 ======
             // 自动跟随开启时，进入视频详情页判定一次 B 站主题并缓存（详情页会话内 B 站
@@ -3884,62 +3986,15 @@ class HookEntry : IYukiHookXposedInit {
             }
             // 评论触摸兜底、三点按钮豁免和官方面板抑制与简介共用这一组低频基础 hook；
             // 任一自由复制功能开启时安装，具体行为仍由各自 runtime flag 独立控制。
-            if (initialCommentFreeCopyEnabled || initialDescriptionFreeCopyEnabled) {
-                installDescriptionFreeCopyHooks()
-            }
-
-            // package-load 阶段若读到 LSPosed 的旧 false 快照，不再永久跳过注册：attach 后
-            // 由 Provider/目标本地缓存异步给出权威状态，并在主线程幂等补注册。Provider 与
-            // 缓存都不可用时属于 UNKNOWN；自由复制本来默认开启，故回退 true，避免升级后
-            // 9.9.0 首次启动出现两项功能同时全灭。同步只在主进程执行一次。
-            val freeCopyConfigSyncStarted = java.util.concurrent.atomic.AtomicBoolean(false)
-            freeCopyConfigOnAttach.set syncFreeCopyConfig@{ attachedContext ->
-                val appContext = attachedContext.applicationContext ?: attachedContext
-                if (!TargetProcess.isMainProcess(appContext, TARGET_PACKAGE) ||
-                    !freeCopyConfigSyncStarted.compareAndSet(false, true)
-                ) return@syncFreeCopyConfig
-                // 只需一次同步；清掉桥接 lambda，避免 Application.attach hook 在进程全寿命
-                // 间接持有两个安装器闭包。后台任务/主线程消息会持有到本次同步完成。
-                freeCopyConfigOnAttach.set(null)
-                Thread({
-                    val providerOrCache = queryFreeCopyRuntimeConfig(appContext)
-                    // Provider 不可见且尚无目标缓存时，只有带修订号的完整 prefs 快照才
-                    // 可作为权威值；旧版本没有修订号的 false 正是本次 9.9.0 失效来源，
-                    // 继续归为 UNKNOWN，而不是再次永久关闭功能。
-                    val latePrefs = if (providerOrCache == null) runCatching {
-                        val revision = roamingCompatPrefs.getLong(PREF_FREE_COPY_CONFIG_REVISION, 0L)
-                        if (revision <= 0L) null else FreeCopyRuntimeConfig(
-                            commentEnabled = roamingCompatPrefs.getBoolean(PREF_FREE_COPY_ENABLED, true),
-                            descriptionEnabled = roamingCompatPrefs.getBoolean(
-                                PREF_FREE_COPY_DESC_ENABLED,
-                                true
-                            ),
-                            revision = revision,
-                            source = "late-prefs"
-                        )
-                    }.getOrNull() else null
-                    val resolved = providerOrCache ?: latePrefs
-                    val commentEnabled = resolved?.commentEnabled ?: true
-                    val descriptionEnabled = resolved?.descriptionEnabled ?: true
-                    val source = resolved?.source ?: "default-on"
-                    val revision = resolved?.revision ?: 0L
-                    val applyConfig = {
-                        runtimeCommentFreeCopyEnabled = commentEnabled
-                        runtimeDescriptionFreeCopyEnabled = descriptionEnabled
-                        if (commentEnabled) installCommentFreeCopyHooks()
-                        if (commentEnabled || descriptionEnabled) installDescriptionFreeCopyHooks()
-                        logInfo(
-                            "free_copy_config_sync",
-                            "[BIL] 自由复制配置已同步(source=$source, revision=$revision, " +
-                                "comment=$commentEnabled, desc=$descriptionEnabled)"
-                        )
-                    }
-                    val handler = mainHandlerOrNull()
-                    if (handler != null) handler.post(applyConfig) else applyConfig()
-                }, "BIL-free-copy-config").apply {
-                    isDaemon = true
-                    start()
+            descriptionFreeCopyInstallerRef.set(installDescriptionFreeCopyHooks)
+            freeCopyHookRetryOnAdapt.set {
+                if (runtimeCommentFreeCopyEnabled) installCommentFreeCopyHooks()
+                if (runtimeCommentFreeCopyEnabled || runtimeDescriptionFreeCopyEnabled) {
+                    installDescriptionFreeCopyHooks()
                 }
+            }
+            if (runtimeCommentFreeCopyEnabled || runtimeDescriptionFreeCopyEnabled) {
+                installDescriptionFreeCopyHooks()
             }
         }
         // ====== system_server：允许模块 App 在后台启动界面（代开漫游设置） ======
