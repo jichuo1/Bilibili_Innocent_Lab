@@ -3839,6 +3839,8 @@ class HookEntry : IYukiHookXposedInit {
             logInfo(
                 "hook_registry_summary",
                 "[BIL] Hook 点诊断: ${hookPointRegistry.summary()}; " +
+                    "Adapter=${hostAdaptResult?.diagnosticSummary() ?: "unavailable"}, " +
+                    "cache=${VersionAdapter.cacheStatus()}; " +
                     "Kava cache hit=${kavaDiagnostics.cacheHits}, " +
                     "miss=${kavaDiagnostics.cacheMisses}, " +
                     "failure=${kavaDiagnostics.lookupFailures}"

@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook
 
 import android.content.Context
+import android.os.Build
 import android.widget.Toast
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetAppStorage
@@ -10,6 +11,7 @@ import com.highcapable.kavaref.extension.isSubclassOf
 import de.robv.android.xposed.XposedBridge
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.lang.reflect.Method
 
 /**
@@ -34,6 +36,9 @@ object VersionAdapter {
     private const val KEY_ADAPTED_VERSION = "adapted_bili_version"
     private const val KEY_ADAPT_RESULT = "adapt_result"
     private const val KEY_RESET_TS = "adapt_reset_ts"
+
+    @Volatile
+    private var lastCacheStatus = "not-read"
 
     /**
      * 二级缓存文件（B 站自身 cache 目录，loadApp 阶段无 Context 也可同步读；
@@ -86,7 +91,37 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 8
+    private const val SCHEMA_VERSION = 9
+    private const val ADAPTER_RULE_VERSION = 1
+
+    enum class AdaptState {
+        FOUND,
+        MISSING,
+        NOT_APPLICABLE
+    }
+
+    data class AdaptDiagnostic(
+        val id: String,
+        val state: AdaptState,
+        val detail: String = ""
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("id", id)
+            put("state", state.name)
+            if (detail.isNotBlank()) put("detail", detail)
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): AdaptDiagnostic? = runCatching {
+                AdaptDiagnostic(
+                    id = o.getString("id").takeIf { it.isNotBlank() }
+                        ?: return@runCatching null,
+                    state = AdaptState.valueOf(o.getString("state")),
+                    detail = o.optString("detail")
+                )
+            }.getOrNull()
+        }
+    }
 
     /** “我的”页菜单注入所需的整组结构化入口。字段名会随 R8 漂移，必须和方法一起缓存。 */
     data class MineEntryPoint(
@@ -182,7 +217,11 @@ object VersionAdapter {
         /** 暂停页所有可用请求/渲染兜底入口。 */
         val pause: PausePoints,
         /** 首页 V8Banner 稳定视图入口。 */
-        val banner: BannerPoint?
+        val banner: BannerPoint?,
+        /** 宿主 APK + 适配规则指纹，防止只凭 versionCode 复用陈旧缓存。 */
+        val hostFingerprint: String,
+        /** 每个逻辑 Hook 点的定位结果，供日志/UI 诊断。 */
+        val diagnostics: List<AdaptDiagnostic>
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("sv", SCHEMA_VERSION)
@@ -193,11 +232,49 @@ object VersionAdapter {
             mineEntry?.let { put("mine", it.toJson()) }
             put("pause", pause.toJson())
             banner?.let { put("banner", it.toJson()) }
+            put("fp", hostFingerprint)
+            put("diag", JSONArray().apply { diagnostics.forEach { put(it.toJson()) } })
         }
+
+        fun isUsableWith(expectedFingerprint: String): Boolean =
+            hostFingerprint == expectedFingerprint && isStructurallyValid()
+
+        fun diagnosticSummary(): String = diagnostics
+            .groupingBy { it.state }
+            .eachCount()
+            .let { counts ->
+                AdaptState.entries.joinToString(",") { state ->
+                    "${state.name.lowercase()}=${counts[state] ?: 0}"
+                }
+            }
+
+        private fun HookPoint.isValid(): Boolean =
+            className.isNotBlank() && methodName.isNotBlank() &&
+                paramClassNames?.all { it.isNotBlank() } != false
+
+        private fun isStructurallyValid(): Boolean =
+            biliVersionCode >= 0 && hostFingerprint.isNotBlank() &&
+                commentLow?.isValid() != false && commentHigh?.isValid() != false &&
+                mineEntry?.let { mine ->
+                    mine.groupListField.isNotBlank() && mine.buildMethods.all { it.isValid() } &&
+                        mine.clickMethod.isValid()
+                } != false &&
+                pause.requestMethods.all { it.isValid() } &&
+                pause.legacyCallback?.isValid() != false &&
+                pause.panelShow?.isValid() != false &&
+                pause.countdown?.isValid() != false &&
+                banner?.let { value ->
+                    value.bannerClassName.isNotBlank() && value.lifecycleMethods.all { it.isValid() }
+                } != false &&
+                diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
         companion object {
             fun fromJson(o: JSONObject): AdaptResult? {
                 if (o.optInt("sv", 0) != SCHEMA_VERSION) return null
+                val diagnosticsArray = o.optJSONArray("diag") ?: return null
+                val diagnostics = (0 until diagnosticsArray.length()).map { index ->
+                    AdaptDiagnostic.fromJson(diagnosticsArray.getJSONObject(index)) ?: return null
+                }
                 return AdaptResult(
                     biliVersionCode = o.getInt("v"),
                     ts = o.optLong("ts", 0L),
@@ -206,8 +283,10 @@ object VersionAdapter {
                     mineEntry = o.optJSONObject("mine")?.let(MineEntryPoint::fromJson),
                     pause = o.optJSONObject("pause")?.let(PausePoints::fromJson)
                         ?: PausePoints(emptyList(), null, null, null),
-                    banner = o.optJSONObject("banner")?.let(BannerPoint::fromJson)
-                )
+                    banner = o.optJSONObject("banner")?.let(BannerPoint::fromJson),
+                    hostFingerprint = o.optString("fp"),
+                    diagnostics = diagnostics
+                ).takeIf { it.isStructurallyValid() }
             }
         }
     }
@@ -235,32 +314,84 @@ object VersionAdapter {
         context.packageManager.getPackageInfo("tv.danmaku.bili", 0).versionCode
     }.getOrDefault(0)
 
+    @Suppress("DEPRECATION")
+    private fun buildHostFingerprint(context: Context): String = runCatching {
+        val info = context.packageManager.getPackageInfo("tv.danmaku.bili", 0)
+        val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.longVersionCode
+        } else {
+            info.versionCode.toLong()
+        }
+        val source = File(info.applicationInfo?.sourceDir.orEmpty())
+        listOf(
+            "tv.danmaku.bili",
+            versionCode.toString(),
+            info.versionName.orEmpty(),
+            source.length().toString(),
+            source.lastModified().toString(),
+            ADAPTER_RULE_VERSION.toString()
+        ).joinToString("|")
+    }.getOrElse {
+        "tv.danmaku.bili|${biliVersionCode(context)}|rules=$ADAPTER_RULE_VERSION"
+    }
+
+    fun cacheStatus(): String = lastCacheStatus
+
     /** 读缓存适配结果（二级文件缓存优先；手动重置标记/版本不符返回 null）
      *  @param yukiPrefs YukiHookAPI prefs（DirectAccessService 跨进程读模块 App 的
      *   apexdata prefs；手动重适配的 reset_ts 由模块 UI 写入该处——原生 SharedPreferences
      *   在 B 站进程读的是 B 站自己的内部存储，读不到模块侧的 reset 标记） */
     fun loadCached(context: Context?, yukiPrefs: com.highcapable.yukihookapi.hook.xposed.prefs.YukiHookPrefsBridge?): AdaptResult? {
         val resetTs = yukiPrefs?.getLong(KEY_RESET_TS, 0L) ?: 0L
-        // 文件缓存（loadApp 阶段可读）
-        runCatching {
-            val f = cacheFile()
-            if (f.exists()) {
-                val r = AdaptResult.fromJson(JSONObject(f.readText())) ?: return@runCatching
-                if (r.ts >= resetTs) { // 手动重置标记晚于缓存则作废
-                    val vc = context?.let { biliVersionCode(it) } ?: 0
-                    if (vc == 0 || r.biliVersionCode == vc) return r
-                }
+        val expectedFingerprint = context?.let(::buildHostFingerprint)
+
+        fun accepted(result: AdaptResult, source: String): AdaptResult? {
+            if (result.ts < resetTs) {
+                lastCacheStatus = "$source-stale-reset"
+                return null
             }
+            if (expectedFingerprint != null && !result.isUsableWith(expectedFingerprint)) {
+                lastCacheStatus = "$source-fingerprint-mismatch"
+                return null
+            }
+            val versionCode = context?.let(::biliVersionCode) ?: 0
+            if (versionCode != 0 && result.biliVersionCode != versionCode) {
+                lastCacheStatus = "$source-version-mismatch"
+                return null
+            }
+            lastCacheStatus = "$source-hit"
+            return result
+        }
+
+        // 文件缓存（loadApp 阶段可读）
+        val fileResult = runCatching {
+            val f = cacheFile()
+            if (!f.exists()) return@runCatching null
+            AdaptResult.fromJson(JSONObject(f.readText()))
+                ?: run {
+                    lastCacheStatus = "file-invalid"
+                    null
+                }
+        }.onFailure {
+            lastCacheStatus = "file-read-failed:${it.javaClass.simpleName}"
         }.getOrNull()
+        fileResult?.let { accepted(it, "file") }?.let { return it }
+
         // prefs 缓存（兜底；同样检查手动重置标记）
         if (context != null) {
             runCatching {
                 val p = prefs(context)
                 val v = p.getInt(KEY_ADAPTED_VERSION, 0)
-                val json = p.getString(KEY_ADAPT_RESULT, null) ?: return null
-                val r = AdaptResult.fromJson(JSONObject(json)) ?: return null
-                if (r.ts >= resetTs && r.biliVersionCode == v) r else null
-            }.getOrNull()?.let { return it }
+                val json = p.getString(KEY_ADAPT_RESULT, null) ?: return@runCatching null
+                val r = AdaptResult.fromJson(JSONObject(json)) ?: return@runCatching null
+                if (r.biliVersionCode == v) r else null
+            }.onFailure {
+                lastCacheStatus = "prefs-read-failed:${it.javaClass.simpleName}"
+            }.getOrNull()?.let { accepted(it, "prefs") }?.let { return it }
+        }
+        if (!lastCacheStatus.contains("invalid") && !lastCacheStatus.contains("mismatch") &&
+            !lastCacheStatus.contains("failed") && !lastCacheStatus.contains("stale")) {
+            lastCacheStatus = "miss"
         }
         return null
     }
@@ -303,6 +434,7 @@ object VersionAdapter {
         callback: AdaptCallback?
     ) {
         val vc = biliVersionCode(context)
+        val expectedFingerprint = buildHostFingerprint(context)
         val cached = loadCached(context, yukiPrefs)
         // 快路径有效性：版本匹配 且（high 已定位 或 当前版本无 high 候选类）。
         // 防止旧缓存（sv 同但 high 缺失——如 8.63.0 早期 low-only 结果）被快路径
@@ -311,6 +443,7 @@ object VersionAdapter {
             KavaMemberLookup.hasClass(classLoader, it)
         }
         if (cached != null && cached.biliVersionCode == vc &&
+            cached.isUsableWith(expectedFingerprint) &&
             (cached.commentHigh != null || !highCandidateExists)) {
             // 快路径命中：确保文件缓存存在（loadApp 阶段无 context 只读文件缓存；
             // prefs 命中但文件缺失时补写，避免下次启动 loadApp 回退内置候选）
@@ -319,7 +452,10 @@ object VersionAdapter {
             }
             return // 快路径：已适配
         }
-        XposedBridge.log("[BIL] 版本适配启动 vc=$vc cached=${cached != null}")
+        XposedBridge.log(
+            "[BIL] 版本适配启动 vc=$vc cached=${cached != null} " +
+                "cacheStatus=$lastCacheStatus"
+        )
         // 后台执行（不阻塞启动；toast 提示用户等待）
         callback?.onAdaptStarted()
         Thread({
@@ -342,7 +478,7 @@ object VersionAdapter {
                 "[BIL] 版本适配${if (result != null) "完成" else "失败"} " +
                     "v=${result?.biliVersionCode} low=${result?.commentLow} high=${result?.commentHigh} " +
                     "mine=${result?.mineEntry != null} pause=${result?.pause?.requestMethods?.size ?: 0} " +
-                    "banner=${result?.banner != null}"
+                    "banner=${result?.banner != null} diag=${result?.diagnosticSummary()}"
             )
         }, "BIL-VersionAdapter").apply {
             isDaemon = true
@@ -363,7 +499,17 @@ object VersionAdapter {
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null) return null
-        return AdaptResult(0, 0L, low, high, mine, pause, banner)
+        return AdaptResult(
+            biliVersionCode = 0,
+            ts = 0L,
+            commentLow = low,
+            commentHigh = high,
+            mineEntry = mine,
+            pause = pause,
+            banner = banner,
+            hostFingerprint = "runtime-no-context|rules=$ADAPTER_RULE_VERSION",
+            diagnostics = buildDiagnostics(loader, low, high, mine, pause, banner)
+        )
     }
 
     /** 智能定位核心：对内置候选类做存在性验证 + 方法签名特征匹配。
@@ -385,7 +531,112 @@ object VersionAdapter {
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
             !anyClassExists) return null
-        return AdaptResult(vc, System.currentTimeMillis(), low, high, mine, pause, banner)
+        return AdaptResult(
+            biliVersionCode = vc,
+            ts = System.currentTimeMillis(),
+            commentLow = low,
+            commentHigh = high,
+            mineEntry = mine,
+            pause = pause,
+            banner = banner,
+            hostFingerprint = buildHostFingerprint(context),
+            diagnostics = buildDiagnostics(loader, low, high, mine, pause, banner)
+        )
+    }
+
+    private fun HookPoint.label(): String = buildString {
+        append(className)
+        append('#')
+        append(methodName)
+        paramClassNames?.let { params ->
+            append('(')
+            append(params.joinToString(","))
+            append(')')
+        }
+    }
+
+    private fun buildDiagnostics(
+        loader: ClassLoader,
+        low: HookPoint?,
+        high: HookPoint?,
+        mine: MineEntryPoint?,
+        pause: PausePoints,
+        banner: BannerPoint?
+    ): List<AdaptDiagnostic> {
+        fun stateFor(pointFound: Boolean, candidateExists: Boolean): AdaptState = when {
+            pointFound -> AdaptState.FOUND
+            candidateExists -> AdaptState.MISSING
+            else -> AdaptState.NOT_APPLICABLE
+        }
+
+        val lowCandidateExists = COMMENT_LOW_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val highCandidateExists = COMMENT_HIGH_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val mineCandidateExists = KavaMemberLookup.hasClass(
+            loader,
+            "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment"
+        )
+        val pauseCandidateClasses = listOf(
+            "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$2",
+            "com.bilibili.ship.theseus.united.page.pausedpage." +
+                "PausedPageService\$requestPausedPageData\$2"
+        )
+        val pauseCandidateExists = pauseCandidateClasses.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val panelCandidateExists = KavaMemberLookup.hasClass(
+            loader,
+            "com.bilibili.ship.theseus.united.page.ad.AdPanelRepository"
+        )
+        val countdownCandidateExists = KavaMemberLookup.hasClass(
+            loader,
+            "com.bilibili.ship.theseus.united.page.pausedpage." +
+                "PausedPageService\$showPauseBarCountdownToast\$3"
+        )
+        val bannerCandidateExists = KavaMemberLookup.hasClass(
+            loader,
+            "com.bilibili.pegasus.holders.bannerv8.V8Banner"
+        )
+        return listOf(
+            AdaptDiagnostic(
+                "comment.low",
+                stateFor(low != null, lowCandidateExists),
+                low?.label().orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.high",
+                stateFor(high != null, highCandidateExists),
+                high?.label().orEmpty()
+            ),
+            AdaptDiagnostic(
+                "mine.entry",
+                stateFor(mine != null, mineCandidateExists),
+                mine?.let { "build=${it.buildMethods.size},groups=${it.groupListField}" }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "paused.request",
+                stateFor(pause.requestMethods.isNotEmpty(), pauseCandidateExists),
+                pause.requestMethods.joinToString("|") { it.label() }
+            ),
+            AdaptDiagnostic(
+                "paused.panel",
+                stateFor(pause.panelShow != null, panelCandidateExists),
+                pause.panelShow?.label().orEmpty()
+            ),
+            AdaptDiagnostic(
+                "paused.countdown",
+                stateFor(pause.countdown != null, countdownCandidateExists),
+                pause.countdown?.label().orEmpty()
+            ),
+            AdaptDiagnostic(
+                "home.banner",
+                stateFor(banner != null, bannerCandidateExists),
+                banner?.let { "${it.bannerClassName},hooks=${it.lifecycleMethods.size}" }.orEmpty()
+            )
+        )
     }
 
     private fun Method.toHookPoint() = HookPoint(
