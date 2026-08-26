@@ -25,6 +25,7 @@ import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallCoordinator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.GamePromotionFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeBannerFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar
@@ -83,48 +84,8 @@ class HookEntry : IYukiHookXposedInit {
         private const val COMMENT_BIND_SNAPSHOT_KEY =
             "Bilibili_Innocent_Lab.free_copy.comment_binding_snapshot"
 
-        // 视频提及游戏卡 — 渲染入口（非 suspend）
-        const val CLASS_MENTIONED_COMPONENT = "com.bilibili.biligame.videocard.GameVideoMentionedComponent"
-        const val METHOD_CREATE_VIEW_ENTRY = "createViewEntry"
-        const val CLASS_UI_COMPONENT_B = "com.bilibili.app.gemini.ui.UIComponent\$b"
-
-        // 视频提及 header 组件（★关键：渲染"视频提及"标题本身，不 hook 它 header 文字永远在）
-        const val CLASS_MENTIONED_HEADER_COMPONENT = "com.bilibili.biligame.videocard.GameVideoMentionedHeaderComponent"
-
         /** 视频详情页 Activity（8.90.2/9.0.0/9.8.0 同类名，跨版本稳定——气泡自动跟随的主题缓存时机） */
         const val DETAIL_ACTIVITY_CLASS = "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity"
-
-        // ★最根本：构建"视频提及"section 的工厂方法（yx3.a.c(Mention, int) -> MentionedSectionItem）
-        const val CLASS_MENTION_FACTORY = "yx3.a"
-        const val METHOD_MENTION_FACTORY = "c"
-
-        // ★数据源头：Mention protobuf 类（游戏 mention 的标题/卡片）
-        const val CLASS_MENTION = "com.bapis.bilibili.app.viewunite.common.Mention"
-        const val METHOD_GET_TITLE = "getTitle"
-        const val METHOD_GET_CARDS_LIST = "getCardsList"
-
-        // ★真正的标题源头：VideoMentions（"视频提及"标题来自这个 protobuf 类的 getTitle()）
-        const val CLASS_VIDEO_MENTIONS = "com.bapis.bilibili.app.viewunite.common.VideoMentions"
-
-        // 视频提及游戏卡数据 — 隐藏标志
-        const val CLASS_GAME_CARD_DATA = "com.bilibili.biligame.videocard.GameVideoMentionCardData"
-        const val METHOD_HIDDEN = "hidden"
-
-        // 游戏 feed item — 源头判断字段
-        const val CLASS_GAME_FEED_ITEM = "com.bilibili.biligame.ui.feed.bean.GameFeedItem"
-        const val METHOD_GET_BENEFIT_GROUP = "getBottomBenefitTipGroup"
-        const val METHOD_GET_SHOW_WIDGET = "getShowBenefitWidget"
-
-        // 游戏福利 Compose 渲染（未混淆类名）
-        const val CLASS_BOTTOM_BENEFIT_KT = "com.bilibili.biligame.ui.feed.widget.bottomtip.BottomGameBenefitWidgetKt"
-        const val METHOD_GAME_BOTTOM_BENEFIT_TIP = "I"
-
-        // 视频提及 section 容器
-        const val CLASS_MENTIONED_SECTION = "com.bilibili.playerbizcommonv2.videomentioned.MentionedSectionItem"
-        const val METHOD_GET_CARDS = "getCards"
-        const val METHOD_GET_HEIGHT = "getHeight"
-        const val METHOD_GET_HEADER = "getHeader"
-        const val METHOD_GET_FOLD_COUNT = "getFoldCount"
 
         /** 模块 UI 写入的配置 key */
         const val PREF_ENABLED = "adskip_enabled"
@@ -148,16 +109,6 @@ class HookEntry : IYukiHookXposedInit {
         /** 日志详细度档位 */
         const val LOG_LEVEL_MINIMAL = "minimal"    // 精简：仅显著错误/运行问题
         const val LOG_LEVEL_COMPLETE = "complete"  // 完整：所有日志
-
-        /** 数据通道 key */
-        const val CHANNEL_GAMECARD_STATUS = "gamecard_ad_status"
-
-        /** 缓存的反射构造器：同一进程内目标类不会卸载，可安全缓存（避免高频拦截里重复反射查找） */
-        @Volatile
-        private var uiComponentBCtor: Constructor<*>? = null
-
-        @Volatile
-        private var mentionedSectionItemCtor: Constructor<*>? = null
 
         /** 已打印日志的 hook 标记集：高频 hook 只在首次拦截打印，降低频繁磁盘 I/O */
         private val onceLogged = Collections.synchronizedSet(HashSet<String>())
@@ -1225,17 +1176,6 @@ class HookEntry : IYukiHookXposedInit {
         private fun logInfo(key: String, msg: String) {
             if (logEnabled && logVerbose && onceLogged.add(key)) XposedBridge.log(msg)
         }
-
-        /** 获取（并缓存）UIComponent.b 的空 ViewEntry 构造器 */
-        private fun uiComponentBCtor(context: Context): Constructor<*> =
-            uiComponentBCtor ?: run {
-                val owner = KavaMemberLookup.classOrNull(context.classLoader, CLASS_UI_COMPONENT_B)
-                    ?: throw ClassNotFoundException(CLASS_UI_COMPONENT_B)
-                val c = KavaMemberLookup.constructorOrNull(owner, classOf<View>())
-                    ?: throw NoSuchMethodException("$CLASS_UI_COMPONENT_B(android.view.View)")
-                uiComponentBCtor = c
-                c
-            }
 
         /**
          * 从 View 自身或其子树中提取最长文本（评论正文特征）。
@@ -2386,6 +2326,21 @@ class HookEntry : IYukiHookXposedInit {
                 installResolvedHook(id, method, block)
             }
 
+            fun installClaimedConstructor(
+                id: String,
+                constructor: Constructor<*>,
+                block: MemberHookCreator.() -> Unit
+            ) {
+                if (!hookPointRegistry.claim(id, constructor)) return
+                try {
+                    constructor.hook { block() }
+                    hookPointRegistry.markInstalled(id, constructor)
+                } catch (throwable: Throwable) {
+                    hookPointRegistry.markFailed(id, constructor, throwable)
+                    throw throwable
+                }
+            }
+
             /**
              * KavaRef → Yuki Member Hook 的统一边界。成员定位失败直接抛出，让各功能原有的
              * runCatching/try-catch 正确记录未命中；Hook 回调本身不经过额外包装。
@@ -2411,23 +2366,6 @@ class HookEntry : IYukiHookXposedInit {
                 val method = hookPointRegistry.resolveExact(id, owner, methodName, *parameterTypes)
                     ?: throw NoSuchMethodException("${owner.name}#$methodName")
                 installResolvedHook(id, method, block)
-            }
-
-            fun hookAllNamedMethods(
-                className: String,
-                methodName: String,
-                block: MemberHookCreator.() -> Unit
-            ) {
-                val id = "legacy:$className#$methodName:all"
-                val methods = hookPointRegistry.resolveAll(id, className, methodName)
-                if (methods.isEmpty()) throw NoSuchMethodException("$className#$methodName")
-                try {
-                    methods.hookAll { block() }
-                    methods.forEach { hookPointRegistry.markInstalled(id, it) }
-                } catch (throwable: Throwable) {
-                    methods.forEach { hookPointRegistry.markFailed(id, it, throwable) }
-                    throw throwable
-                }
             }
 
             val featureHookRegistrar = object : HookRegistrar {
@@ -2477,6 +2415,14 @@ class HookEntry : IYukiHookXposedInit {
                         point.paramClassNames
                     ) ?: throw NoSuchMethodException("${point.className}#${point.methodName}")
                     installClaimedHook(id, method, block)
+                }
+
+                override fun constructor(
+                    id: String,
+                    constructor: Constructor<*>,
+                    block: MemberHookCreator.() -> Unit
+                ) {
+                    installClaimedConstructor(id, constructor, block)
                 }
             }
 
@@ -2740,160 +2686,13 @@ class HookEntry : IYukiHookXposedInit {
                 )
             )
 
-            runCatching {
-            // ====== 2. 视频提及区游戏广告（双管齐下） ======
-            val gamecardEnabled = prefs.getBoolean(PREF_GAMECARD_ENABLED, true)
-            if (gamecardEnabled) {
-                val results = LinkedHashMap<String, Boolean>()
-
-                // 局部 helper：hook 一个简单方法并记录结果（减少重复模板，单点失败互不影响）
-                fun hookMethod(key: String, className: String, methodName: String, block: MemberHookCreator.() -> Unit) {
-                    try {
-                        hookFirstMethod(className, methodName, block)
-                        results[key] = true
-                    } catch (t: Throwable) {
-                        results[key] = false
-                    }
-                }
-
-                // ---- 第零管：★最根本·数据源头拦截 ----
-                hookMethod("VideoMentions.getTitle", CLASS_VIDEO_MENTIONS, METHOD_GET_TITLE) { replaceTo("") }
-                hookMethod("Mention.getTitle", CLASS_MENTION, METHOD_GET_TITLE) { replaceTo("") }
-                hookMethod("Mention.getCardsList", CLASS_MENTION, METHOD_GET_CARDS_LIST) {
-                    replaceTo(Collections.emptyList<Any>())
-                }
-
-                // ---- 第零管补充：工厂方法拦截（返回空 section，整个"视频提及"区彻底不构建） ----
-                if (classExists(CLASS_MENTION_FACTORY, biliClassLoader)) try {
-                    hookFirstMethod(CLASS_MENTION_FACTORY, METHOD_MENTION_FACTORY) {
-                        replaceAny {
-                                try {
-                                    // 缓存构造器（修复：用目标 app ClassLoader，而非 instance——static 方法 instance 为 null）
-                                    val ctor = mentionedSectionItemCtor ?: run {
-                                        val owner = KavaMemberLookup.classOrNull(
-                                            biliClassLoader,
-                                            CLASS_MENTIONED_SECTION
-                                        ) ?: throw ClassNotFoundException(CLASS_MENTIONED_SECTION)
-                                        val c = KavaMemberLookup.constructorOrNull(owner)
-                                            ?: throw NoSuchMethodException("$CLASS_MENTIONED_SECTION()")
-                                        mentionedSectionItemCtor = c
-                                        c
-                                    }
-                                    logInfo("factory", "[BIL] 已拦截视频提及 section 工厂方法 yx3.a.c")
-                                    ctor.newInstance()
-                                } catch (e: Throwable) {
-                                    logError("factory_err", "[BIL] 空 section 构造失败: $e")
-                                    null
-                                }
-                            }
-                        }
-                    results["yx3.a.c(工厂)"] = true
-                } catch (t: Throwable) {
-                    results["yx3.a.c(工厂)"] = false
-                    logError("factory_hook_err", "[BIL] 工厂方法 hook 失败: $t")
-                } else {
-                    // 9.1.1+ 已移除该历史混淆工厂；其它数据/渲染层仍构成完整拦截链。
-                    results["yx3.a.c(工厂)"] = false
-                }
-
-                // ---- 第一管：源头拦截（数据判断层） ----
-                hookMethod("hidden", CLASS_GAME_CARD_DATA, METHOD_HIDDEN) { replaceToTrue() }
-                hookMethod("getBottomBenefitTipGroup", CLASS_GAME_FEED_ITEM, METHOD_GET_BENEFIT_GROUP) { replaceTo(0) }
-                hookMethod("getShowBenefitWidget", CLASS_GAME_FEED_ITEM, METHOD_GET_SHOW_WIDGET) { replaceToFalse() }
-
-                // ---- 第二管：渲染拦截（UI 层） ----
-                // 4. createViewEntry() 返回空 ViewEntry（★核心，非 suspend；构造器已缓存）
-                try {
-                    hookFirstMethod(CLASS_MENTIONED_COMPONENT, METHOD_CREATE_VIEW_ENTRY) {
-                            before {
-                                val context = args[0] as? Context
-                                if (context != null) {
-                                    try {
-                                        result = uiComponentBCtor(context).newInstance(View(context))
-                                        logInfo("createViewEntry", "[BIL] 已拦截视频提及游戏卡 createViewEntry")
-                                    } catch (e: Throwable) {
-                                        result = null
-                                        logError("createViewEntry_err", "[BIL] createViewEntry 拦截失败: $e")
-                                    }
-                                }
-                            }
-                    }
-                    results["createViewEntry"] = true
-                } catch (t: Throwable) { results["createViewEntry"] = false }
-
-                // 4b. header 组件：标题来自构造器字段 a（渲染时直接读字段），hook 构造器清空标题；
-                //     同时 allMethods 兜底拦截所有 createViewEntry 重载（含泛型桥接方法）
-                try {
-                    val headerClass = KavaMemberLookup.classOrNull(
-                        biliClassLoader,
-                        CLASS_MENTIONED_HEADER_COMPONENT
-                    ) ?: throw ClassNotFoundException(CLASS_MENTIONED_HEADER_COMPONENT)
-                    val headerConstructor = KavaMemberLookup.declaredConstructors(
-                        headerClass,
-                        makeAccessible = true
-                    ) { it.parameterCount == 1 }.firstOrNull()
-                        ?: throw NoSuchMethodException("$CLASS_MENTIONED_HEADER_COMPONENT#<init>(1)")
-                    headerConstructor.hook {
-                            before {
-                                args[0] = ""
-                                logInfo("header_ctor", "[BIL] 已清空视频提及 header 标题")
-                            }
-                    }
-                    hookAllNamedMethods(CLASS_MENTIONED_HEADER_COMPONENT, METHOD_CREATE_VIEW_ENTRY) {
-                            before {
-                                val context = args[0] as? Context
-                                if (context != null) {
-                                    try {
-                                        result = uiComponentBCtor(context).newInstance(View(context))
-                                        logInfo("header_cve", "[BIL] 已拦截视频提及 header createViewEntry")
-                                    } catch (e: Throwable) {
-                                        result = null
-                                        logError("header_cve_err", "[BIL] header createViewEntry 拦截失败: $e")
-                                    }
-                                }
-                            }
-                    }
-                    results["headerComponent"] = true
-                } catch (t: Throwable) {
-                    results["headerComponent"] = false
-                    logError("header_err", "[BIL] header 组件 hook 失败: $t")
-                }
-
-                // 5/6. 简单渲染/容器层 hook
-                hookMethod("GameBottomBenefitTip", CLASS_BOTTOM_BENEFIT_KT, METHOD_GAME_BOTTOM_BENEFIT_TIP) { intercept() }
-                hookMethod("getCards", CLASS_MENTIONED_SECTION, METHOD_GET_CARDS) { intercept() }
-                hookMethod("getHeight", CLASS_MENTIONED_SECTION, METHOD_GET_HEIGHT) { intercept() }
-                hookMethod("getHeader", CLASS_MENTIONED_SECTION, METHOD_GET_HEADER) { intercept() }
-                hookMethod("getFoldCount", CLASS_MENTIONED_SECTION, METHOD_GET_FOLD_COUNT) { intercept() }
-
-                // 多层 hook 是互为替代的能力组，不要求已经从宿主移除的历史锚点全部存在。
-                // 正文卡片与标题各有任一数据层/渲染层入口生效，即具备完整净化能力。
-                val bodyBlocked = listOf(
-                    "Mention.getCardsList", "hidden", "createViewEntry", "getCards"
-                ).any { results[it] == true }
-                val headerBlocked = listOf(
-                    "VideoMentions.getTitle", "Mention.getTitle", "headerComponent", "getHeader"
-                ).any { results[it] == true }
-                val allOk = bodyBlocked && headerBlocked
-                val summary = if (allOk) "success" else buildString {
-                    append("partial:")
-                    if (!bodyBlocked) append("body")
-                    if (!bodyBlocked && !headerBlocked) append(',')
-                    if (!headerBlocked) append("header")
-                }
-                reportChannelStatus(CHANNEL_GAMECARD_STATUS, summary)
-                if (!allOk) {
-                    logError("gamecard_partial", "[BIL] gamecard 部分 hook 未命中: $summary")
-                } else {
-                    logInfo("gamecard_ok", "[BIL] gamecard summary: success")
-                }
-            } else {
-                reportChannelStatus(CHANNEL_GAMECARD_STATUS, "disabled")
-            }
-
-            }.onFailure { t ->
-                logError("gamecard_feature_init_err", "[BIL] 游戏卡片功能初始化失败，已隔离并继续: $t")
-            }
+            featureInstallCoordinator.installAll(
+                listOf(
+                    GamePromotionFeatureInstaller(
+                        enabled = prefs.getBoolean(PREF_GAMECARD_ENABLED, true)
+                    )
+                )
+            )
 
             featureInstallCoordinator.installAll(
                 listOf(
