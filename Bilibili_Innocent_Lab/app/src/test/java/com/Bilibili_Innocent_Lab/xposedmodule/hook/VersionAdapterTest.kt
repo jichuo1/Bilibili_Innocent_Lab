@@ -104,9 +104,23 @@ class VersionAdapterTest {
                     "getUrlsMap",
                     emptyList()
                 )
+            ),
+            listOf(
+                VersionAdapter.CommentEmptyPagePoint(
+                    contentGetter = VersionAdapter.HookPoint(
+                        "com.bapis.bilibili.main.community.reply.v1.SubjectControl",
+                        "getEmptyPage",
+                        emptyList()
+                    ),
+                    defaultInstanceGetter = VersionAdapter.HookPoint(
+                        "com.bapis.bilibili.main.community.reply.v1.EmptyPage",
+                        "getDefaultInstance",
+                        emptyList()
+                    )
+                )
             )
         ),
-        hostFingerprint = "host|9090300|rules=8",
+        hostFingerprint = "host|9090300|rules=9",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -220,6 +234,24 @@ class VersionAdapterTest {
         assertTrue(points.all {
             it.className == "com.bapis.bilibili.main.community.reply.v1.Content" &&
                 it.paramClassNames == emptyList<String>()
+        })
+    }
+
+    @Test
+    fun `locates empty comment guides with matching protobuf default getters`() {
+        val points = VersionAdapter.locateCommentPurify(requireNotNull(javaClass.classLoader))
+            ?.emptyPageGetters.orEmpty()
+
+        assertEquals(2, points.size)
+        assertEquals(
+            setOf("SubjectControl", "SubjectDescriptionReply"),
+            points.map { it.contentGetter.className.substringAfterLast('.') }.toSet()
+        )
+        assertTrue(points.all {
+            it.contentGetter.methodName == "getEmptyPage" &&
+                it.defaultInstanceGetter.methodName == "getDefaultInstance" &&
+                it.contentGetter.paramClassNames == emptyList<String>() &&
+                it.defaultInstanceGetter.paramClassNames == emptyList<String>()
         })
     }
 }

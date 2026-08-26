@@ -47,6 +47,8 @@
     <string name="comment_purify_settings">Comment purification</string>
     <string name="remove_comment_search_links">Remove highlighted search links</string>
     <string name="remove_comment_search_links_tip">Keeps comment text and emoji intact while disabling only keyword links that open Bilibili search. Restart Bilibili to apply.</string>
+    <string name="remove_comment_empty_guide">Hide the empty-comment prompt</string>
+    <string name="remove_comment_empty_guide_tip">Removes only the one-tap posting guide shown when a comment section is empty; the comment tab remains available. Restart Bilibili to apply.</string>
     <string name="merch_ad_enable">Hide UP merchandise promotions</string>
     <string name="merch_ad_tip">When enabled, "UP merchandise" promotions on some video detail pages are no longer shown</string>
     <string name="purify_settings">Purify</string>

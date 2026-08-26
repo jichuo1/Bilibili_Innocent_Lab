@@ -90,7 +90,11 @@ class FeatureStatusInstallerTest {
 
     @Test
     fun `comment purify reports disabled without resolving hook points`() {
-        val result = CommentPurifyFeatureInstaller(removeSearchLinks = false, points = null)
+        val result = CommentPurifyFeatureInstaller(
+            removeSearchLinks = false,
+            removeEmptyGuide = false,
+            points = null
+        )
             .install(environment)
 
         assertEquals(FeatureInstallResult.Skipped("disabled"), result)
