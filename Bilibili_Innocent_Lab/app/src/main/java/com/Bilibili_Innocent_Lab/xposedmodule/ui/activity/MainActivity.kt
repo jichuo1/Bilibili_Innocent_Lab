@@ -56,6 +56,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.RoamingCompatHook
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.GitHubReleaseChecker
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ShellCommandRunner
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
@@ -1420,6 +1421,22 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read free copy desc prefs failed", t)
         }.getOrDefault(true)
+        // 跨进程权威镜像：避开 LSPosed API 93+ 对默认 SharedPreferences 的重定向。
+        // 文件很小且只在模块 UI 启动/切换时写入，不进入 B 站启动或滚动热路径。
+        runCatching {
+            val revision = System.currentTimeMillis().coerceAtLeast(1L)
+            modulePrefs?.edit { putLong(HookEntry.PREF_FREE_COPY_CONFIG_REVISION, revision) }
+            check(
+                FreeCopyConfigStore.write(
+                    applicationContext,
+                    freeCopyEnabled,
+                    freeCopyDescEnabled,
+                    revision
+                )
+            ) { "atomic mirror write returned false" }
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "write free copy config mirror failed", t)
+        }
         freeCopyLightMode = runCatching {
             modulePrefs?.getBoolean(HookEntry.PREF_FREE_COPY_LIGHT_MODE, false) ?: false
         }.onFailure { t ->
@@ -1925,7 +1942,15 @@ class MainActivity : AppViewsActivity() {
                                 setOnCheckedChangeListener { _, isChecked ->
                                     freeCopyEnabled = isChecked
                                     runCatching {
-                                        prefs().edit { putBoolean(HookEntry.PREF_FREE_COPY_ENABLED, isChecked) }
+                                        val revision = System.currentTimeMillis().coerceAtLeast(1L)
+                                        prefs().edit {
+                                            putBoolean(HookEntry.PREF_FREE_COPY_ENABLED, isChecked)
+                                            putLong(HookEntry.PREF_FREE_COPY_CONFIG_REVISION, revision)
+                                        }
+                                        check(FreeCopyConfigStore.write(
+                                            applicationContext, freeCopyEnabled,
+                                            freeCopyDescEnabled, revision
+                                        )) { "atomic mirror write returned false" }
                                     }.onFailure { t ->
                                         Log.e("BilibiliInnocentLab", "write free copy prefs failed", t)
                                     }
@@ -1957,7 +1982,15 @@ class MainActivity : AppViewsActivity() {
                                 setOnCheckedChangeListener { _, isChecked ->
                                     freeCopyDescEnabled = isChecked
                                     runCatching {
-                                        prefs().edit { putBoolean(HookEntry.PREF_FREE_COPY_DESC_ENABLED, isChecked) }
+                                        val revision = System.currentTimeMillis().coerceAtLeast(1L)
+                                        prefs().edit {
+                                            putBoolean(HookEntry.PREF_FREE_COPY_DESC_ENABLED, isChecked)
+                                            putLong(HookEntry.PREF_FREE_COPY_CONFIG_REVISION, revision)
+                                        }
+                                        check(FreeCopyConfigStore.write(
+                                            applicationContext, freeCopyEnabled,
+                                            freeCopyDescEnabled, revision
+                                        )) { "atomic mirror write returned false" }
                                     }.onFailure { t ->
                                         Log.e("BilibiliInnocentLab", "write free copy desc prefs failed", t)
                                     }
