@@ -11,6 +11,7 @@ import java.util.concurrent.ConcurrentHashMap
 /** 评论净化：在 protobuf 的公开 URL 映射边界移除关键词搜索跳转。 */
 internal class CommentPurifyFeatureInstaller(
     private val removeSearchLinks: Boolean,
+    private val removeEmptyGuide: Boolean,
     private val points: VersionAdapter.CommentPurifyPoints?
 ) : FeatureInstaller {
 
@@ -19,54 +20,94 @@ internal class CommentPurifyFeatureInstaller(
     private val textFields = ConcurrentHashMap<Class<*>, List<Field>>()
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
-        if (!removeSearchLinks) {
+        if (!removeSearchLinks && !removeEmptyGuide) {
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
         if (environment.processName != TARGET_PACKAGE) {
             return FeatureInstallResult.Skipped("non-main-process")
         }
-        val adapted = points?.urlMapGetters?.takeIf { it.isNotEmpty() }
-            ?: return missing(environment, "missing-adapter-point")
+        val adapted = points ?: return missing(environment, "missing-adapter-point")
 
         var installedCount = 0
-        adapted.forEachIndexed { index, point ->
-            runCatching {
-                environment.registrar.adapted("comment.purify.urls.$index", point) {
-                    after {
-                        val source = result as? Map<*, *> ?: return@after
-                        val filtered = withoutSearchUrls(source) { value ->
-                            isSearchUrlValue(value)
+        var expectedCount = 0
+        val missingGroups = mutableListOf<String>()
+        if (removeSearchLinks) {
+            val urlPoints = adapted.urlMapGetters
+            if (urlPoints.isEmpty()) missingGroups += "search"
+            expectedCount += urlPoints.size
+            urlPoints.forEachIndexed { index, point ->
+                runCatching {
+                    environment.registrar.adapted("comment.purify.urls.$index", point) {
+                        after {
+                            val source = result as? Map<*, *> ?: return@after
+                            val filtered = withoutSearchUrls(source) { value ->
+                                isSearchUrlValue(value)
+                            }
+                            if (filtered !== source) result = filtered
                         }
-                        if (filtered !== source) result = filtered
                     }
+                    installedCount += 1
+                }.onFailure { throwable ->
+                    environment.logError(
+                        "comment_purify_search_$index",
+                        "[BIL] 评论搜索跳转净化 Hook 注册失败(" +
+                            "${point.className}#${point.methodName}): $throwable"
+                    )
                 }
-                installedCount += 1
-            }.onFailure { throwable ->
-                environment.logError(
-                    "comment_purify_search_$index",
-                    "[BIL] 评论搜索跳转净化 Hook 注册失败(" +
-                        "${point.className}#${point.methodName}): $throwable"
-                )
+            }
+        }
+        if (removeEmptyGuide) {
+            val emptyPoints = adapted.emptyPageGetters
+            if (emptyPoints.isEmpty()) missingGroups += "empty-page"
+            expectedCount += emptyPoints.size
+            emptyPoints.forEachIndexed { index, point ->
+                runCatching {
+                    val defaultGetter = environment.hookPoints.resolveAdapted(
+                        "comment.purify.empty.default.$index",
+                        point.defaultInstanceGetter.className,
+                        point.defaultInstanceGetter.methodName,
+                        point.defaultInstanceGetter.paramClassNames
+                    ) ?: error("missing-default-instance-getter")
+                    val defaultInstance = defaultGetter.invoke(null)
+                        ?: error("null-default-instance")
+                    environment.registrar.adapted(
+                        "comment.purify.empty.content.$index",
+                        point.contentGetter
+                    ) {
+                        after { result = defaultInstance }
+                    }
+                    installedCount += 1
+                }.onFailure { throwable ->
+                    environment.logError(
+                        "comment_purify_empty_$index",
+                        "[BIL] 空评论区引导净化 Hook 注册失败(" +
+                            "${point.contentGetter.className}#" +
+                            "${point.contentGetter.methodName}): $throwable"
+                    )
+                }
             }
         }
 
         if (installedCount == 0) return missing(environment, "registration-failed")
-        val status = if (installedCount == adapted.size) {
+        val status = if (missingGroups.isEmpty() && installedCount == expectedCount) {
             "success"
         } else {
-            "partial:$installedCount/${adapted.size}"
+            "partial:$installedCount/$expectedCount" +
+                missingGroups.takeIf { it.isNotEmpty() }
+                    ?.joinToString(prefix = ";missing=", separator = ",")
+                    .orEmpty()
         }
         environment.reportStatus(CHANNEL_STATUS, status)
-        if (installedCount != adapted.size) {
+        if (status != "success") {
             environment.logError(
                 "comment_purify_partial",
-                "[BIL] 评论搜索跳转净化部分安装，hooks=$installedCount/${adapted.size}"
+                "[BIL] 评论净化部分安装，status=$status"
             )
         } else {
             environment.logInfo(
                 "comment_purify_ok",
-                "[BIL] 评论搜索跳转净化已安装，hooks=$installedCount"
+                "[BIL] 评论净化已安装，hooks=$installedCount"
             )
         }
         return FeatureInstallResult.Installed(installedCount)
@@ -93,7 +134,7 @@ internal class CommentPurifyFeatureInstaller(
         environment.reportStatus(CHANNEL_STATUS, reason)
         environment.logError(
             "comment_purify_missing",
-            "[BIL] 评论搜索跳转净化适配不完整: $reason"
+            "[BIL] 评论净化适配不完整: $reason"
         )
         return FeatureInstallResult.Skipped(reason)
     }
