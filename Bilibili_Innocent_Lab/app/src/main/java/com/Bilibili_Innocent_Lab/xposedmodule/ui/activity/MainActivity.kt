@@ -80,7 +80,12 @@ class MainActivity : AppViewsActivity() {
 
     private companion object {
         const val UPDATE_PREFS_NAME = "github_release_updates"
+        /** 旧版本共用的成功检查时间（升级后作为稳定版渠道的历史时间迁移读取）。 */
         const val PREF_LAST_SUCCESSFUL_UPDATE_CHECK = "last_successful_check_ms"
+        /** 各渠道独立的成功检查时间，避免切换渠道后 24 小时节流误跳过新渠道检查。 */
+        const val PREF_LAST_CHECK_STABLE = "last_successful_check_ms_stable"
+        const val PREF_LAST_CHECK_PREVIEW = "last_successful_check_ms_preview"
+        const val PREF_UPDATE_CHANNEL = "update_channel"
         const val AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1_000L
     }
 
@@ -439,6 +444,21 @@ class MainActivity : AppViewsActivity() {
         )
         container.addView(
             createGitHubMenuRow(
+                title = getString(R.string.update_channel),
+                subtitle = getString(channelSubtitleRes()),
+                highlight = false
+            ) {
+                dismissWithAnimation(dialog, container) {
+                    showUpdateChannelDialog()
+                }
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (6 * density).toInt() }
+        )
+        container.addView(
+            createGitHubMenuRow(
                 titleRes = R.string.check_updates,
                 subtitleRes = R.string.check_updates_tip
             ) {
@@ -490,6 +510,18 @@ class MainActivity : AppViewsActivity() {
         @StringRes titleRes: Int,
         @StringRes subtitleRes: Int,
         onClick: () -> Unit
+    ): NativeLinearLayout = createGitHubMenuRow(
+        title = getString(titleRes),
+        subtitle = getString(subtitleRes),
+        highlight = false,
+        onClick = onClick
+    )
+
+    private fun createGitHubMenuRow(
+        title: CharSequence,
+        subtitle: CharSequence,
+        highlight: Boolean,
+        onClick: () -> Unit
     ): NativeLinearLayout {
         val density = resources.displayMetrics.density
         return NativeLinearLayout(this).apply {
@@ -507,8 +539,11 @@ class MainActivity : AppViewsActivity() {
 
             addView(
                 NativeTextView(this@MainActivity).apply {
-                    text = getString(titleRes)
-                    setTextColor(getColor(R.color.colorTextGray))
+                    text = title
+                    setTextColor(
+                        if (highlight) monetColors.primary
+                        else getColor(R.color.colorTextGray)
+                    )
                     textSize = 16f
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 },
@@ -519,7 +554,7 @@ class MainActivity : AppViewsActivity() {
             )
             addView(
                 NativeTextView(this@MainActivity).apply {
-                    text = getString(subtitleRes)
+                    text = subtitle
                     setTextColor(getColor(R.color.colorTextDark))
                     textSize = 12f
                     alpha = 0.72f
@@ -533,28 +568,163 @@ class MainActivity : AppViewsActivity() {
         }
     }
 
+    /** 「更新渠道」选择弹窗：稳定版 / 预览版（含 Alpha），风格与 GitHub 二级界面统一。 */
+    private fun showUpdateChannelDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createGlassContainer()
+        val updatePrefs = applicationContext.getSharedPreferences(UPDATE_PREFS_NAME, MODE_PRIVATE)
+        val current = readUpdateChannel(updatePrefs)
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.update_channel)
+                setTextColor(getColor(R.color.colorTextDark))
+                textSize = 17f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (12 * density).toInt() }
+        )
+
+        container.addView(
+            createGitHubMenuRow(
+                title = getString(R.string.update_channel_stable_title),
+                subtitle = getString(R.string.update_channel_stable_desc),
+                highlight = current == GitHubReleaseChecker.UpdateChannel.STABLE
+            ) {
+                dismissWithAnimation(dialog, container) {
+                    applyUpdateChannel(GitHubReleaseChecker.UpdateChannel.STABLE)
+                }
+            }
+        )
+        container.addView(
+            createGitHubMenuRow(
+                title = getString(R.string.update_channel_preview_title),
+                subtitle = getString(R.string.update_channel_preview_desc) + "\n" +
+                    getString(R.string.update_channel_preview_warning),
+                highlight = current == GitHubReleaseChecker.UpdateChannel.PREVIEW
+            ) {
+                dismissWithAnimation(dialog, container) {
+                    applyUpdateChannel(GitHubReleaseChecker.UpdateChannel.PREVIEW)
+                }
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (6 * density).toInt() }
+        )
+
+        // 与 GitHub 二级界面一致的关闭按钮。
+        val buttonRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        buttonRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.dialog_close)
+                setTextColor(getColor(R.color.colorTextGray))
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(
+                    (20 * density).toInt(),
+                    (11 * density).toInt(),
+                    (20 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { dismissWithAnimation(dialog, container) {} }
+            }
+        )
+        container.addView(
+            buttonRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (22 * density).toInt() }
+        )
+
+        presentGlassDialog(dialog, container)
+    }
+
+    /** 保存渠道选择并立即按新渠道检查一次；检查失败保留渠道，下次可继续。 */
+    private fun applyUpdateChannel(channel: GitHubReleaseChecker.UpdateChannel) {
+        val updatePrefs = applicationContext.getSharedPreferences(UPDATE_PREFS_NAME, MODE_PRIVATE)
+        if (readUpdateChannel(updatePrefs) == channel) return
+        updatePrefs.edit()
+            .putString(PREF_UPDATE_CHANNEL, channel.storageValue)
+            .apply()
+        checkForUpdates(manual = true)
+    }
+
+    /** 读取当前更新渠道（未知/损坏值回退稳定版，兼容旧版本升级）。 */
+    private fun readUpdateChannel(
+        prefs: android.content.SharedPreferences
+    ): GitHubReleaseChecker.UpdateChannel =
+        GitHubReleaseChecker.UpdateChannel.fromStorageValue(prefs.getString(PREF_UPDATE_CHANNEL, null))
+
+    /** 渠道对应的成功检查时间 key；稳定版优先新 key，缺失时迁移读取旧版本共用时间。 */
+    private fun lastCheckKey(
+        prefs: android.content.SharedPreferences,
+        channel: GitHubReleaseChecker.UpdateChannel
+    ): String = when (channel) {
+        GitHubReleaseChecker.UpdateChannel.STABLE ->
+            if (prefs.contains(PREF_LAST_CHECK_STABLE)) PREF_LAST_CHECK_STABLE
+            else PREF_LAST_SUCCESSFUL_UPDATE_CHECK
+        GitHubReleaseChecker.UpdateChannel.PREVIEW -> PREF_LAST_CHECK_PREVIEW
+    }
+
+    private fun checkingToastRes(channel: GitHubReleaseChecker.UpdateChannel): Int = when (channel) {
+        GitHubReleaseChecker.UpdateChannel.STABLE -> R.string.update_checking_stable
+        GitHubReleaseChecker.UpdateChannel.PREVIEW -> R.string.update_checking_preview
+    }
+
+    private fun latestToastRes(channel: GitHubReleaseChecker.UpdateChannel): Int = when (channel) {
+        GitHubReleaseChecker.UpdateChannel.STABLE -> R.string.update_latest_stable
+        GitHubReleaseChecker.UpdateChannel.PREVIEW -> R.string.update_latest_preview
+    }
+
+    private fun failedToastRes(channel: GitHubReleaseChecker.UpdateChannel): Int = when (channel) {
+        GitHubReleaseChecker.UpdateChannel.STABLE -> R.string.update_check_failed_stable
+        GitHubReleaseChecker.UpdateChannel.PREVIEW -> R.string.update_check_failed_preview
+    }
+
+    /** GitHub 二级菜单中「更新渠道」行下方动态显示的当前选择。 */
+    private fun channelSubtitleRes(): Int {
+        val prefs = applicationContext.getSharedPreferences(UPDATE_PREFS_NAME, MODE_PRIVATE)
+        return when (readUpdateChannel(prefs)) {
+            GitHubReleaseChecker.UpdateChannel.STABLE -> R.string.update_channel_current_stable
+            GitHubReleaseChecker.UpdateChannel.PREVIEW -> R.string.update_channel_current_preview
+        }
+    }
+
     /**
-     * Checks only GitHub's latest stable Release. Automatic checks are throttled to once per
-     * successful 24-hour window; manual checks always run and report their result.
+     * 按当前渠道检查更新。自动检查按渠道各自节流（24 小时窗口，仅成功后计时）；
+     * 手动检查始终执行并反馈结果。切换渠道后会自动发起一次新渠道检查。
      */
     private fun checkForUpdates(manual: Boolean) {
         val updatePrefs = applicationContext.getSharedPreferences(UPDATE_PREFS_NAME, MODE_PRIVATE)
+        val channel = readUpdateChannel(updatePrefs)
         if (!manual) {
             val now = System.currentTimeMillis()
-            val lastCheck = updatePrefs.getLong(PREF_LAST_SUCCESSFUL_UPDATE_CHECK, 0L)
+            val lastCheck = updatePrefs.getLong(lastCheckKey(updatePrefs, channel), 0L)
             val elapsed = now - lastCheck
             if (elapsed in 0 until AUTOMATIC_UPDATE_CHECK_INTERVAL_MS) return
         }
         if (updateCheckRunning) {
-            if (manual) Toast.makeText(this, R.string.update_checking, Toast.LENGTH_SHORT).show()
+            if (manual) Toast.makeText(this, checkingToastRes(channel), Toast.LENGTH_SHORT).show()
             return
         }
 
         updateCheckRunning = true
-        if (manual) Toast.makeText(this, R.string.update_checking, Toast.LENGTH_SHORT).show()
+        if (manual) Toast.makeText(this, checkingToastRes(channel), Toast.LENGTH_SHORT).show()
         val activityRef = WeakReference(this)
         Thread({
-            val result = runCatching { GitHubReleaseChecker.fetchLatestStableRelease() }
+            val result = runCatching { GitHubReleaseChecker.fetchLatestRelease(channel) }
             Handler(Looper.getMainLooper()).post {
                 val activity = activityRef.get() ?: return@post
                 activity.updateCheckRunning = false
@@ -562,43 +732,65 @@ class MainActivity : AppViewsActivity() {
                 result.fold(
                     onSuccess = { release ->
                         updatePrefs.edit()
-                            .putLong(PREF_LAST_SUCCESSFUL_UPDATE_CHECK, System.currentTimeMillis())
+                            .putLong(lastCheckKey(updatePrefs, channel), System.currentTimeMillis())
                             .apply()
-                        if (GitHubReleaseChecker.isNewerVersion(
-                                remoteTag = release.tagName,
-                                localVersion = BuildConfig.VERSION_NAME
-                            )
-                        ) {
-                            activity.showUpdateDialogWhenIdle(release)
-                        } else if (manual) {
-                            Toast.makeText(
-                                activity,
-                                R.string.update_latest,
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
+                        activity.handleReleaseCheckResult(channel, release, manual)
                     },
                     onFailure = { error ->
-                        Log.w("BilibiliInnocentLab", "stable release check failed", error)
+                        Log.w("BilibiliInnocentLab", "release check failed", error)
                         if (manual) {
                             Toast.makeText(
                                 activity,
-                                R.string.update_check_failed,
+                                activity.failedToastRes(channel),
                                 Toast.LENGTH_SHORT
                             ).show()
                         }
                     }
                 )
             }
-        }, "github-stable-release-check").apply {
+        }, "github-release-check").apply {
             isDaemon = true
             start()
         }
     }
 
+    /**
+     * 按渠道处理检查结果的三态比较：
+     * - 远端更高 → 弹更新窗（Alpha 带预发布标识）；
+     * - 本地更高：稳定版渠道明确提示"本地高于最新稳定版"，避免误报"已是最新"
+     *   或提示降级；预览渠道远端已是最高可选版本，按"无更新"处理；
+     * - 相等 → 手动检查时提示该渠道已是最新。
+     */
+    private fun handleReleaseCheckResult(
+        channel: GitHubReleaseChecker.UpdateChannel,
+        release: GitHubReleaseChecker.ReleaseInfo,
+        manual: Boolean
+    ) {
+        when (GitHubReleaseChecker.compareVersions(release.tagName, BuildConfig.VERSION_NAME)) {
+            GitHubReleaseChecker.VersionRelation.REMOTE_NEWER -> showUpdateDialogWhenIdle(release)
+            GitHubReleaseChecker.VersionRelation.LOCAL_NEWER -> {
+                if (manual) {
+                    val resId = if (channel == GitHubReleaseChecker.UpdateChannel.STABLE) {
+                        R.string.update_local_ahead_stable
+                    } else {
+                        latestToastRes(channel)
+                    }
+                    Toast.makeText(this, resId, Toast.LENGTH_SHORT).show()
+                }
+            }
+            GitHubReleaseChecker.VersionRelation.EQUAL -> {
+                if (manual) Toast.makeText(this, latestToastRes(channel), Toast.LENGTH_SHORT).show()
+            }
+            null -> {
+                // 两侧标签应已被解析器保证合法；异常到达时按无更新处理，不打扰用户。
+                if (manual) Toast.makeText(this, latestToastRes(channel), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     /** Avoids replacing a confirmation dialog the user is already interacting with. */
     private fun showUpdateDialogWhenIdle(
-        release: GitHubReleaseChecker.StableRelease,
+        release: GitHubReleaseChecker.ReleaseInfo,
         retryCount: Int = 0
     ) {
         if (isFinishing || isDestroyed) return
@@ -614,14 +806,19 @@ class MainActivity : AppViewsActivity() {
         showUpdateAvailableDialog(release)
     }
 
-    private fun showUpdateAvailableDialog(release: GitHubReleaseChecker.StableRelease) {
+    private fun showUpdateAvailableDialog(release: GitHubReleaseChecker.ReleaseInfo) {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
         val container = createGlassContainer()
 
         container.addView(
             NativeTextView(this).apply {
-                text = getString(R.string.update_available_title, release.displayName)
+                // Alpha 预发布使用独立标题，明确标识"预览版本"。
+                text = if (release.prerelease) {
+                    getString(R.string.update_available_prerelease_title, release.displayName)
+                } else {
+                    getString(R.string.update_available_title, release.displayName)
+                }
                 setTextColor(getColor(R.color.colorTextDark))
                 textSize = 19f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -632,6 +829,21 @@ class MainActivity : AppViewsActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
         )
+
+        if (release.prerelease) {
+            container.addView(
+                NativeTextView(this).apply {
+                    text = getString(R.string.update_available_prerelease_note)
+                    setTextColor(0xFFFF5722.toInt())
+                    textSize = 12f
+                    setLineSpacing(3 * density, 1f)
+                },
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = (8 * density).toInt() }
+            )
+        }
 
         container.addView(
             NativeTextView(this).apply {
