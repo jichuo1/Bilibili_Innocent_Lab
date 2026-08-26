@@ -6,4 +6,6 @@ internal object FeaturePreferences {
     const val HIDE_HOME_SEARCH_DEFAULT_WORD = "hide_home_search_default_word"
     const val HIDE_MINE_VIP = "hide_mine_vip"
     const val BLOCK_APP_UPDATE = "block_app_update"
+    const val HIDE_DYNAMIC_CITY_TAB = "hide_dynamic_city_tab"
+    const val HIDE_DYNAMIC_SCHOOL_TAB = "hide_dynamic_school_tab"
 }

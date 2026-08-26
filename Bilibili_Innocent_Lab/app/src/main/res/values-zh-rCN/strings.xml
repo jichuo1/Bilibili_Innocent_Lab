@@ -32,6 +32,11 @@
     <string name="client_update_settings">客户端更新</string>
     <string name="block_app_update">屏蔽哔哩哔哩客户端更新提示</string>
     <string name="block_app_update_tip">让官方更新器将检查视为“已是最新版”，不影响本模块自身的更新检查；重启哔哩哔哩后生效</string>
+    <string name="dynamic_page_settings">动态页面</string>
+    <string name="hide_dynamic_city_tab">隐藏动态页“同城”标签</string>
+    <string name="hide_dynamic_city_tab_tip">仅移除“同城”筛选标签并保持其余标签顺序；重启哔哩哔哩后生效</string>
+    <string name="hide_dynamic_school_tab">隐藏动态页“校园”标签</string>
+    <string name="hide_dynamic_school_tab_tip">仅移除“校园”筛选标签并保持其余标签顺序；重启哔哩哔哩后生效</string>
     <string name="merch_ad_enable">隐藏UP主分享好物推广</string>
     <string name="merch_ad_tip">开启后不再展示某些视频详细页的UP主分享好物推广</string>
     <string name="purify_settings">净化</string>

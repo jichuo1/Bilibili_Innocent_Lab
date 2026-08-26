@@ -17,6 +17,7 @@ import de.robv.android.xposed.XposedBridge
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.lang.reflect.ParameterizedType
 import java.lang.reflect.Method
 
 /**
@@ -96,8 +97,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 12
-    private const val ADAPTER_RULE_VERSION = 4
+    private const val SCHEMA_VERSION = 13
+    private const val ADAPTER_RULE_VERSION = 5
 
     enum class AdaptState {
         FOUND,
@@ -260,6 +261,39 @@ object VersionAdapter {
         }
     }
 
+    /** 动态页筛选标签：宿主列表位置映射 + Material Tab 添加入口。 */
+    data class DynamicTabsPoint(
+        val listGetter: HookPoint,
+        val addTab: HookPoint,
+        val tabCustomViewGetter: HookPoint,
+        val mediatorTabClassName: String,
+        val itemClassName: String,
+        val itemTitleField: String,
+        val itemNameField: String
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("list", listGetter.toJson())
+            put("add", addTab.toJson())
+            put("custom", tabCustomViewGetter.toJson())
+            put("tab", mediatorTabClassName)
+            put("item", itemClassName)
+            put("title", itemTitleField)
+            put("name", itemNameField)
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): DynamicTabsPoint = DynamicTabsPoint(
+                listGetter = HookPoint.fromJson(o.getJSONObject("list")),
+                addTab = HookPoint.fromJson(o.getJSONObject("add")),
+                tabCustomViewGetter = HookPoint.fromJson(o.getJSONObject("custom")),
+                mediatorTabClassName = o.getString("tab"),
+                itemClassName = o.getString("item"),
+                itemTitleField = o.getString("title"),
+                itemNameField = o.getString("name")
+            )
+        }
+    }
+
     /** 适配结果（各功能 hook 点） */
     data class AdaptResult(
         val biliVersionCode: Int,
@@ -281,6 +315,8 @@ object VersionAdapter {
         val mineVip: MineVipPoint?,
         /** 客户端更新信息同步入口。 */
         val blockUpdate: HookPoint?,
+        /** 动态页筛选标签渲染与位置映射入口。 */
+        val dynamicTabs: DynamicTabsPoint?,
         /** 宿主 APK + 适配规则指纹，防止只凭 versionCode 复用陈旧缓存。 */
         val hostFingerprint: String,
         /** 每个逻辑 Hook 点的定位结果，供日志/UI 诊断。 */
@@ -298,6 +334,7 @@ object VersionAdapter {
             homeTopBar?.let { put("home_top", it.toJson()) }
             mineVip?.let { put("mine_vip", it.toJson()) }
             blockUpdate?.let { put("block_update", it.toJson()) }
+            dynamicTabs?.let { put("dynamic_tabs", it.toJson()) }
             put("fp", hostFingerprint)
             put("diag", JSONArray().apply { diagnostics.forEach { put(it.toJson()) } })
         }
@@ -346,6 +383,13 @@ object VersionAdapter {
                         value.bindingField.isNotBlank() && value.rootGetter.isValid()
                 } != false &&
                 blockUpdate?.isValid() != false &&
+                dynamicTabs?.let { value ->
+                    value.listGetter.isValid() && value.addTab.isValid() &&
+                        value.tabCustomViewGetter.isValid() &&
+                        value.mediatorTabClassName.isNotBlank() &&
+                        value.itemClassName.isNotBlank() &&
+                        value.itemTitleField.isNotBlank() && value.itemNameField.isNotBlank()
+                } != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
         companion object {
@@ -367,6 +411,7 @@ object VersionAdapter {
                     homeTopBar = o.optJSONObject("home_top")?.let(HomeTopBarPoints::fromJson),
                     mineVip = o.optJSONObject("mine_vip")?.let(MineVipPoint::fromJson),
                     blockUpdate = o.optJSONObject("block_update")?.let(HookPoint::fromJson),
+                    dynamicTabs = o.optJSONObject("dynamic_tabs")?.let(DynamicTabsPoint::fromJson),
                     hostFingerprint = o.optString("fp"),
                     diagnostics = diagnostics
                 ).takeIf { it.isStructurallyValid() }
@@ -414,6 +459,10 @@ object VersionAdapter {
         "tv.danmaku.bili.ui.main2.mine.modularvip.MineVipModuleManager"
     private const val BILI_UPGRADE_INFO_CLASS =
         "tv.danmaku.bili.update.model.BiliUpgradeInfo"
+    private const val DYNAMIC_MEDIATOR_FRAGMENT_CLASS =
+        "com.bilibili.bplus.followinglist.home.mediator.MediatorFragment"
+    private const val DYNAMIC_MEDIATOR_TAB_CLASS =
+        "com.bilibili.bplus.followinglist.home.mediator.MediatorTabLayout"
     private val BLOCK_UPDATE_OWNER_CANDIDATES = listOf(
         // 8.90.2；9.1.0/9.1.1；9.2.0；9.3.0；9.4.0；9.5.0；
         // 9.6.0；9.7.0；9.8.0；9.9.0（按已核验版本顺序）。
@@ -595,6 +644,7 @@ object VersionAdapter {
                     "banner=${result?.banner != null} homeTop=${result?.homeTopBar != null} " +
                     "mineVip=${result?.mineVip != null} " +
                     "blockUpdate=${result?.blockUpdate != null} " +
+                    "dynamicTabs=${result?.dynamicTabs != null} " +
                     "diag=${result?.diagnosticSummary()}"
             )
         }, "BIL-VersionAdapter").apply {
@@ -616,10 +666,12 @@ object VersionAdapter {
         val homeTopBar = locateHomeTopBar(loader)
         val mineVip = locateMineVip(loader)
         val blockUpdate = locateBlockUpdate(loader)
+        val dynamicTabs = locateDynamicTabs(loader)
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
-            homeTopBar == null && mineVip == null && blockUpdate == null) return null
+            homeTopBar == null && mineVip == null && blockUpdate == null &&
+            dynamicTabs == null) return null
         return AdaptResult(
             biliVersionCode = 0,
             ts = 0L,
@@ -631,9 +683,11 @@ object VersionAdapter {
             homeTopBar = homeTopBar,
             mineVip = mineVip,
             blockUpdate = blockUpdate,
+            dynamicTabs = dynamicTabs,
             hostFingerprint = "runtime-no-context|rules=$ADAPTER_RULE_VERSION",
             diagnostics = buildDiagnostics(
-                loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate
+                loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
+                dynamicTabs
             )
         )
     }
@@ -654,15 +708,18 @@ object VersionAdapter {
         val homeTopBar = locateHomeTopBar(loader)
         val mineVip = locateMineVip(loader)
         val blockUpdate = locateBlockUpdate(loader)
+        val dynamicTabs = locateDynamicTabs(loader)
         val anyClassExists = COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || HOME_TOP_BAR_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || KavaMemberLookup.hasClass(loader, MINE_FRAGMENT_CLASS)
+            || KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS)
             || BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
+            dynamicTabs == null &&
             !anyClassExists) return null
         return AdaptResult(
             biliVersionCode = vc,
@@ -675,9 +732,11 @@ object VersionAdapter {
             homeTopBar = homeTopBar,
             mineVip = mineVip,
             blockUpdate = blockUpdate,
+            dynamicTabs = dynamicTabs,
             hostFingerprint = buildHostFingerprint(context),
             diagnostics = buildDiagnostics(
-                loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate
+                loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
+                dynamicTabs
             )
         )
     }
@@ -702,7 +761,8 @@ object VersionAdapter {
         banner: BannerPoint?,
         homeTopBar: HomeTopBarPoints?,
         mineVip: MineVipPoint?,
-        blockUpdate: HookPoint?
+        blockUpdate: HookPoint?,
+        dynamicTabs: DynamicTabsPoint?
     ): List<AdaptDiagnostic> {
         fun stateFor(pointFound: Boolean, candidateExists: Boolean): AdaptState = when {
             pointFound -> AdaptState.FOUND
@@ -722,6 +782,9 @@ object VersionAdapter {
         val blockUpdateCandidateExists = BLOCK_UPDATE_OWNER_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
+        val dynamicTabsCandidateExists =
+            KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS) &&
+                KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_TAB_CLASS)
         val pauseCandidateClasses = listOf(
             "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$2",
             "com.bilibili.ship.theseus.united.page.pausedpage." +
@@ -809,6 +872,14 @@ object VersionAdapter {
                 "update.block",
                 stateFor(blockUpdate != null, blockUpdateCandidateExists),
                 blockUpdate?.label().orEmpty()
+            ),
+            AdaptDiagnostic(
+                "dynamic.tabs",
+                stateFor(dynamicTabs != null, dynamicTabsCandidateExists),
+                dynamicTabs?.let {
+                    "list=${it.listGetter.label()},item=${it.itemClassName}#" +
+                        "${it.itemTitleField}/${it.itemNameField}"
+                }.orEmpty()
             )
         )
     }
@@ -961,6 +1032,66 @@ object VersionAdapter {
             return@runCatching selected.toHookPoint()
         }
         null
+    }.getOrNull()
+
+    /**
+     * 动态页页签定位。8.90.2、9.1.x 与 9.9.0 的渲染方法可能被 R8 内联，不能依赖
+     * 某个混淆方法名；位置映射始终通过 MediatorFragment 唯一的无参 List getter，
+     * 页签添加始终落到 TabLayout.addTab(Tab, boolean)。页签模型由 getter 泛型签名取得，
+     * 再验证 title/name 两个 String 字段；任一结构不唯一即不安装，避免位置错配。
+     */
+    fun locateDynamicTabs(loader: ClassLoader): DynamicTabsPoint? = runCatching {
+        val fragment = KavaMemberLookup.classOrNull(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS)
+            ?: return@runCatching null
+        val mediatorTab = KavaMemberLookup.classOrNull(loader, DYNAMIC_MEDIATOR_TAB_CLASS)
+            ?: return@runCatching null
+        if (!mediatorTab.hasSuperclassNamed("com.google.android.material.tabs.TabLayout")) {
+            return@runCatching null
+        }
+        val listGetter = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
+            !it.isStatic && it.parameterCount == 0 && List::class.java == it.returnType
+        }.singleOrNull() ?: return@runCatching null
+        val itemClass = (listGetter.genericReturnType as? ParameterizedType)
+            ?.actualTypeArguments
+            ?.singleOrNull() as? Class<*>
+            ?: return@runCatching null
+        val titleField = KavaMemberLookup.declaredFields(itemClass, makeAccessible = true) {
+            !java.lang.reflect.Modifier.isStatic(it.modifiers) &&
+                it.type == String::class.java && it.name == "a"
+        }.singleOrNull() ?: return@runCatching null
+        val nameField = KavaMemberLookup.declaredFields(itemClass, makeAccessible = true) {
+            !java.lang.reflect.Modifier.isStatic(it.modifiers) &&
+                it.type == String::class.java && it.name == "b"
+        }.singleOrNull() ?: return@runCatching null
+        val tabLayout = mediatorTab.superclass?.let { current ->
+            generateSequence(current) { it.superclass }
+                .firstOrNull { it.name == "com.google.android.material.tabs.TabLayout" }
+        } ?: return@runCatching null
+        val tabClass = KavaMemberLookup.classOrNull(
+            loader,
+            "com.google.android.material.tabs.TabLayout\$Tab"
+        ) ?: return@runCatching null
+        val addTab = KavaMemberLookup.methodOrNull(
+            tabLayout,
+            "addTab",
+            tabClass,
+            Boolean::class.javaPrimitiveType ?: return@runCatching null
+        ) ?: return@runCatching null
+        val customViewGetter = KavaMemberLookup.methodOrNull(
+            tabClass,
+            "getCustomView"
+        )?.takeIf { View::class.java.isAssignableFrom(it.returnType) }
+            ?: return@runCatching null
+
+        DynamicTabsPoint(
+            listGetter = listGetter.toHookPoint(),
+            addTab = addTab.toHookPoint(),
+            tabCustomViewGetter = customViewGetter.toHookPoint(),
+            mediatorTabClassName = mediatorTab.name,
+            itemClassName = itemClass.name,
+            itemTitleField = titleField.name,
+            itemNameField = nameField.name
+        )
     }.getOrNull()
 
     /** 暂停页请求入口并行探测；仅零参数 invoke 才允许被识别为旧 Function0。 */
