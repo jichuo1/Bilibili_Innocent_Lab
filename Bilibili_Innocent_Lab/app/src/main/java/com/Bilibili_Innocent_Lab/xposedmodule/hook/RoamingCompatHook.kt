@@ -609,8 +609,17 @@ object RoamingCompatHook {
         // authority）。改用显式广播到本模块 App（广播投递不受包可见性过滤），
         // 由 RoamingOpenReceiver 以模块 App 身份代开漫游设置。
         runCatching {
-            val intent = Intent(com.Bilibili_Innocent_Lab.xposedmodule.receiver.RoamingOpenReceiver.ACTION_OPEN_ROAMING_SETTINGS)
-                .setPackage("com.Bilibili_Innocent_Lab.xposedmodule")
+            val modulePackage = "com.Bilibili_Innocent_Lab.xposedmodule"
+            val receiverClass = "$modulePackage.receiver.RoamingOpenReceiver"
+            val intent = Intent(
+                com.Bilibili_Innocent_Lab.xposedmodule.receiver.RoamingOpenReceiver.ACTION_OPEN_ROAMING_SETTINGS
+            )
+                .setComponent(android.content.ComponentName(modulePackage, receiverClass))
+                .putExtra(
+                    com.Bilibili_Innocent_Lab.xposedmodule.receiver.RoamingOpenReceiver
+                        .EXTRA_REQUEST_ELAPSED_REALTIME,
+                    android.os.SystemClock.elapsedRealtime()
+                )
             context.sendBroadcast(intent)
             logInfo("br_mine_click", "$LOG_PREFIX 已请求打开哔哩漫游设置（经模块 App 代开）")
         }.onFailure { t ->
