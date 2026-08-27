@@ -93,6 +93,7 @@ class FeatureStatusInstallerTest {
         val result = CommentPurifyFeatureInstaller(
             removeSearchLinks = false,
             removeEmptyGuide = false,
+            removeVoteWidgets = false,
             points = null
         )
             .install(environment)
