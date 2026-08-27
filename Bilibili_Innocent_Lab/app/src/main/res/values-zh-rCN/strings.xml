@@ -48,6 +48,13 @@
     <string name="player_control_settings">播放器控件</string>
     <string name="hide_player_portrait_control">隐藏播放器竖屏切换控件</string>
     <string name="hide_player_portrait_control_tip">隐藏 Gemini 播放器中的“进入看一看”竖屏切换控件，保留全屏等其他控件；重启哔哩哔哩后生效</string>
+    <string name="player_default_quality">播放器默认画质</string>
+    <string name="player_default_quality_tip">仅修改播放器初始请求画质，不解锁付费画质；片源、账号或网络条件不支持时仍由哔哩哔哩降级，重启哔哩哔哩后生效</string>
+    <string name="player_default_quality_current">当前：%1$s</string>
+    <string name="player_default_quality_dialog_title">选择播放器默认画质</string>
+    <string name="player_default_quality_follow_host">跟随哔哩哔哩</string>
+    <string name="player_default_quality_follow_host_tip">保留哔哩哔哩原有的自动画质、账号与受限模式判断。</string>
+    <string name="player_default_quality_override_tip">将该档位作为初始请求；不可用时仍由宿主或服务器降级。</string>
     <string name="comment_purify_settings">评论区净化</string>
     <string name="remove_comment_search_links">移除评论区关键词高亮搜索</string>
     <string name="remove_comment_search_links_tip">保留评论正文与 emoji，仅禁用点击关键词后跳转哔哩哔哩搜索的链接；重启哔哩哔哩后生效</string>
