@@ -1,0 +1,275 @@
+name: Sync Release to LSPosed repository
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      source_tag:
+        description: Existing Stable or Alpha tag in the main repository
+        required: true
+        type: string
+      dry_run:
+        description: Validate the source Release without writing to the LSPosed repository
+        required: true
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      source_tag:
+        description: Existing Stable or Alpha tag in the main repository
+        required: true
+        type: string
+      dry_run:
+        description: Validate the source Release without writing to the LSPosed repository
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      LSPOSED_RELEASE_TOKEN:
+        description: Token allowed to create Releases in the LSPosed metadata repository
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lsposed-release-${{ inputs.source_tag || github.event.release.tag_name }}
+  cancel-in-progress: false
+
+env:
+  TARGET_REPOSITORY: Xposed-Modules-Repo/com.Bilibili_Innocent_Lab.xposedmodule
+  CI_BUILD_TOOLS: '35.0.0'
+
+jobs:
+  sync:
+    name: Validate and mirror published Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve source Release
+        id: source
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.source_tag }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          source_tag="${REQUESTED_TAG:-$EVENT_TAG}"
+          if [[ -z "$source_tag" ]]; then
+            echo 'A source Release tag is required.'
+            exit 1
+          fi
+          if [[ ! "$source_tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-alpha\.(0|[1-9][0-9]*))?$ ]]; then
+            echo "Unsupported source Release tag: $source_tag"
+            exit 1
+          fi
+          echo "source_tag=$source_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Check out synchronization tooling
+        uses: actions/checkout@v4
+        with:
+          # Release events may point GITHUB_SHA at an older published tag. Keep the
+          # synchronization implementation on the default branch for that event;
+          # workflow_dispatch/workflow_call use the exact caller commit.
+          ref: ${{ github.event_name == 'release' && github.event.repository.default_branch || github.sha }}
+          fetch-depth: 0
+
+      - name: Resolve published tag commit
+        shell: bash
+        env:
+          SOURCE_TAG: ${{ steps.source.outputs.source_tag }}
+        run: |
+          set -euo pipefail
+          git fetch --force --no-tags origin \
+            "refs/tags/$SOURCE_TAG:refs/tags/$SOURCE_TAG"
+          tag_sha="$(git rev-list -n 1 "refs/tags/$SOURCE_TAG")"
+          test -n "$tag_sha"
+          echo "Resolved source tag $SOURCE_TAG at $tag_sha"
+
+      - name: Test Release synchronization rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover \
+            -s .github/release-templates \
+            -p 'test_*.py'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install APK inspection tools
+        shell: bash
+        run: sdkmanager "build-tools;${CI_BUILD_TOOLS}"
+
+      - name: Download source Release and assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_TAG: ${{ steps.source.outputs.source_tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/source-assets"
+          gh release view "$SOURCE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,body,isDraft,isPrerelease,targetCommitish,assets,url \
+            > "$RUNNER_TEMP/source-release.json"
+          gh release download "$SOURCE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$RUNNER_TEMP/source-assets"
+
+      - name: Inspect and validate source APK
+        id: identity
+        shell: bash
+        env:
+          SOURCE_TAG: ${{ steps.source.outputs.source_tag }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' apk_files < <(
+            find "$RUNNER_TEMP/source-assets" -maxdepth 1 -type f -iname '*.apk' -print0
+          )
+          if (( ${#apk_files[@]} != 1 )); then
+            echo "Expected exactly one APK, found ${#apk_files[@]}"
+            exit 1
+          fi
+
+          aapt_bin="$ANDROID_SDK_ROOT/build-tools/$CI_BUILD_TOOLS/aapt"
+          test -x "$aapt_bin"
+          "$aapt_bin" dump badging "${apk_files[0]}" > "$RUNNER_TEMP/aapt-badging.txt"
+
+          python3 .github/release-templates/sync_lsposed_release.py prepare \
+            --source-tag "$SOURCE_TAG" \
+            --release-json "$RUNNER_TEMP/source-release.json" \
+            --asset-directory "$RUNNER_TEMP/source-assets" \
+            --aapt-output "$RUNNER_TEMP/aapt-badging.txt" \
+            --notes-output "$RUNNER_TEMP/source-release-notes.md" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Summarize dry run
+        if: ${{ inputs.dry_run == true }}
+        shell: bash
+        env:
+          SOURCE_TAG: ${{ steps.identity.outputs.source_tag }}
+          TARGET_TAG: ${{ steps.identity.outputs.target_tag }}
+          APK_FILENAME: ${{ steps.identity.outputs.apk_filename }}
+        run: |
+          {
+            echo '### LSPosed synchronization dry run'
+            echo "- Source Release: \`$SOURCE_TAG\`"
+            echo "- Target Release: \`$TARGET_TAG\`"
+            echo "- Verified APK: \`$APK_FILENAME\`"
+            echo '- Target repository was not modified.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Require target repository credentials
+        if: ${{ inputs.dry_run != true }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.LSPOSED_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo 'Missing LSPOSED_RELEASE_TOKEN repository secret.'
+            exit 1
+          fi
+          permission="$(gh repo view "$TARGET_REPOSITORY" --json viewerPermission --jq .viewerPermission)"
+          case "$permission" in
+            ADMIN|MAINTAIN|WRITE) ;;
+            *)
+              echo "LSPOSED_RELEASE_TOKEN has insufficient target permission: $permission"
+              exit 1
+              ;;
+          esac
+
+      - name: Detect existing target Release
+        if: ${{ inputs.dry_run != true }}
+        id: target
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.LSPOSED_RELEASE_TOKEN }}
+          TARGET_TAG: ${{ steps.identity.outputs.target_tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TARGET_TAG" --repo "$TARGET_REPOSITORY" > /dev/null 2>&1; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create target LSPosed Release
+        if: ${{ inputs.dry_run != true && steps.target.outputs.exists == 'false' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.LSPOSED_RELEASE_TOKEN }}
+          SOURCE_TAG: ${{ steps.identity.outputs.source_tag }}
+          TARGET_TAG: ${{ steps.identity.outputs.target_tag }}
+          IS_PRERELEASE: ${{ steps.identity.outputs.is_prerelease }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' release_assets < <(
+            find "$RUNNER_TEMP/source-assets" -maxdepth 1 -type f -print0
+          )
+          if (( ${#release_assets[@]} == 0 )); then
+            echo 'No validated Release assets are available for upload.'
+            exit 1
+          fi
+
+          channel_flags=()
+          if [[ "$IS_PRERELEASE" == 'true' ]]; then
+            channel_flags+=(--prerelease)
+          else
+            channel_flags+=(--latest)
+          fi
+          gh release create "$TARGET_TAG" \
+            "${release_assets[@]}" \
+            --repo "$TARGET_REPOSITORY" \
+            --target main \
+            --title "$SOURCE_TAG" \
+            --notes-file "$RUNNER_TEMP/source-release-notes.md" \
+            "${channel_flags[@]}"
+
+      - name: Read back and verify target Release
+        if: ${{ inputs.dry_run != true }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.LSPOSED_RELEASE_TOKEN }}
+          TARGET_TAG: ${{ steps.identity.outputs.target_tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/target-assets"
+          gh release view "$TARGET_TAG" \
+            --repo "$TARGET_REPOSITORY" \
+            --json tagName,name,body,isDraft,isPrerelease,targetCommitish,assets,url \
+            > "$RUNNER_TEMP/target-release.json"
+          gh release download "$TARGET_TAG" \
+            --repo "$TARGET_REPOSITORY" \
+            --dir "$RUNNER_TEMP/target-assets"
+
+          python3 .github/release-templates/sync_lsposed_release.py compare \
+            --source-release-json "$RUNNER_TEMP/source-release.json" \
+            --target-release-json "$RUNNER_TEMP/target-release.json" \
+            --source-assets "$RUNNER_TEMP/source-assets" \
+            --target-assets "$RUNNER_TEMP/target-assets" \
+            --target-tag "$TARGET_TAG"
+
+      - name: Summarize synchronized Release
+        if: ${{ inputs.dry_run != true }}
+        shell: bash
+        env:
+          SOURCE_TAG: ${{ steps.identity.outputs.source_tag }}
+          TARGET_TAG: ${{ steps.identity.outputs.target_tag }}
+          APK_FILENAME: ${{ steps.identity.outputs.apk_filename }}
+          TARGET_EXISTED: ${{ steps.target.outputs.exists }}
+        run: |
+          {
+            echo '### LSPosed Release synchronized'
+            echo "- Source Release: \`$SOURCE_TAG\`"
+            echo "- Target Release: \`$TARGET_TAG\`"
+            echo "- Verified APK: \`$APK_FILENAME\`"
+            if [[ "$TARGET_EXISTED" == 'true' ]]; then
+              echo '- Result: existing Release matched exactly; no overwrite was performed.'
+            else
+              echo '- Result: new Release created and read-back verification passed.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
