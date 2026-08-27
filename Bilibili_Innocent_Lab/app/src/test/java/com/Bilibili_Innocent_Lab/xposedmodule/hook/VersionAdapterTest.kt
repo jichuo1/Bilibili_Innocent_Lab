@@ -142,9 +142,26 @@ class VersionAdapterTest {
                     )
                 ),
                 followButtonClassName = "com.bilibili.relation.widget.FollowButton"
+            ),
+            VersionAdapter.CommentOptionalPayloadPoint(
+                presenceGetter = VersionAdapter.HookPoint(
+                    "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+                    "hasQoe",
+                    emptyList()
+                ),
+                contentGetter = VersionAdapter.HookPoint(
+                    "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+                    "getQoe",
+                    emptyList()
+                ),
+                defaultInstanceGetter = VersionAdapter.HookPoint(
+                    "com.bapis.bilibili.main.community.reply.v1.QoeInfo",
+                    "getDefaultInstance",
+                    emptyList()
+                )
             )
         ),
-        hostFingerprint = "host|9090300|rules=11",
+        hostFingerprint = "host|9090300|rules=12",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -303,6 +320,24 @@ class VersionAdapterTest {
         assertEquals(
             "com.bilibili.relation.widget.FollowButton",
             points?.followButtonClassName
+        )
+    }
+
+    @Test
+    fun `locates qoe public presence content and default instance boundaries`() {
+        val point = VersionAdapter.locateCommentPurify(requireNotNull(javaClass.classLoader))
+            ?.qoe
+
+        assertEquals("hasQoe", point?.presenceGetter?.methodName)
+        assertEquals("getQoe", point?.contentGetter?.methodName)
+        assertEquals("getDefaultInstance", point?.defaultInstanceGetter?.methodName)
+        assertEquals(
+            "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+            point?.contentGetter?.className
+        )
+        assertEquals(
+            "com.bapis.bilibili.main.community.reply.v1.QoeInfo",
+            point?.defaultInstanceGetter?.className
         )
     }
 }

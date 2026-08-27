@@ -97,8 +97,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 19
-    private const val ADAPTER_RULE_VERSION = 11
+    private const val SCHEMA_VERSION = 20
+    private const val ADAPTER_RULE_VERSION = 12
 
     enum class AdaptState {
         FOUND,
@@ -381,12 +381,35 @@ object VersionAdapter {
         }
     }
 
+    /** protobuf 可选消息字段的公开读取边界；不依赖或修改生成类的私有存储。 */
+    data class CommentOptionalPayloadPoint(
+        val presenceGetter: HookPoint,
+        val contentGetter: HookPoint,
+        val defaultInstanceGetter: HookPoint
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("presence", presenceGetter.toJson())
+            put("content", contentGetter.toJson())
+            put("default", defaultInstanceGetter.toJson())
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): CommentOptionalPayloadPoint =
+                CommentOptionalPayloadPoint(
+                    presenceGetter = HookPoint.fromJson(o.getJSONObject("presence")),
+                    contentGetter = HookPoint.fromJson(o.getJSONObject("content")),
+                    defaultInstanceGetter = HookPoint.fromJson(o.getJSONObject("default"))
+                )
+        }
+    }
+
     /** 评论 protobuf 的净化边界；不触碰正文、emoji 或评论视图。 */
     data class CommentPurifyPoints(
         val urlMapGetters: List<HookPoint>,
         val emptyPageGetters: List<CommentEmptyPagePoint>,
         val voteWidgetMethods: List<HookPoint>,
-        val follow: CommentFollowPoints?
+        val follow: CommentFollowPoints?,
+        val qoe: CommentOptionalPayloadPoint?
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("urls", JSONArray().apply { urlMapGetters.forEach { put(it.toJson()) } })
@@ -396,6 +419,7 @@ object VersionAdapter {
             )
             put("vote", JSONArray().apply { voteWidgetMethods.forEach { put(it.toJson()) } })
             follow?.let { put("follow", it.toJson()) }
+            qoe?.let { put("qoe", it.toJson()) }
         }
 
         companion object {
@@ -416,7 +440,8 @@ object VersionAdapter {
                         }
                     },
                     if (o.has("follow")) CommentFollowPoints.fromJson(o.getJSONObject("follow"))
-                    else null
+                    else null,
+                    o.optJSONObject("qoe")?.let(CommentOptionalPayloadPoint::fromJson)
                 )
             }
         }
@@ -535,7 +560,8 @@ object VersionAdapter {
                 } != false &&
                 commentPurify?.let { value ->
                     (value.urlMapGetters.isNotEmpty() || value.emptyPageGetters.isNotEmpty() ||
-                        value.voteWidgetMethods.isNotEmpty() || value.follow != null) &&
+                        value.voteWidgetMethods.isNotEmpty() || value.follow != null ||
+                        value.qoe != null) &&
                         value.urlMapGetters.all { it.isValid() } &&
                         value.emptyPageGetters.all {
                             it.contentGetter.isValid() && it.defaultInstanceGetter.isValid()
@@ -546,6 +572,9 @@ object VersionAdapter {
                                 follow.headerBindMethods.all { it.isValid() } &&
                                 (follow.headerBindMethods.isEmpty() ||
                                     !follow.followButtonClassName.isNullOrBlank())
+                        } != false && value.qoe?.let { qoe ->
+                            qoe.presenceGetter.isValid() && qoe.contentGetter.isValid() &&
+                                qoe.defaultInstanceGetter.isValid()
                         } != false
                 } != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
@@ -672,6 +701,10 @@ object VersionAdapter {
     )
     private val COMMENT_FOLLOW_BUTTON_CLASS_CANDIDATES = listOf(
         "com.bilibili.relation.widget.FollowButton"
+    )
+    private val COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES = listOf(
+        "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+        "com.bapis.bilibili.p4311main.community.reply.p4312v1.MainListReply"
     )
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
@@ -939,6 +972,9 @@ object VersionAdapter {
             || COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES.any {
                 KavaMemberLookup.hasClass(loader, it)
             }
+            || COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.any {
+                KavaMemberLookup.hasClass(loader, it)
+            }
             || BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
@@ -1035,6 +1071,9 @@ object VersionAdapter {
         val commentFollowCandidateExists = COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         } || COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val commentMainListCandidateExists = COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
         val pauseCandidateClasses = listOf(
@@ -1176,6 +1215,14 @@ object VersionAdapter {
                     "widget=${follow.widgetStateMethods.joinToString("|") { it.label() }};" +
                         "header=${follow.headerBindMethods.joinToString("|") { it.label() }};" +
                         "button=${follow.followButtonClassName.orEmpty()}"
+                }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.purify.qoe",
+                stateFor(commentPurify?.qoe != null, commentMainListCandidateExists),
+                commentPurify?.qoe?.let { qoe ->
+                    "has=${qoe.presenceGetter.label()},get=${qoe.contentGetter.label()}," +
+                        "default=${qoe.defaultInstanceGetter.label()}"
                 }.orEmpty()
             )
         )
@@ -1581,11 +1628,44 @@ object VersionAdapter {
                 followButtonClass?.name
             )
         }
+        val qoePoint = COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .mapNotNull { owner ->
+                val presenceGetter = KavaMemberLookup.methodOrNull(owner, "hasQoe")
+                    ?.takeIf { method ->
+                        !method.isStatic && method.parameterCount == 0 &&
+                            method.returnType == classOf<Boolean>()
+                    } ?: return@mapNotNull null
+                val contentGetter = KavaMemberLookup.methodOrNull(owner, "getQoe")
+                    ?.takeIf { method ->
+                        !method.isStatic && method.parameterCount == 0 &&
+                            !method.returnType.isPrimitive
+                    } ?: return@mapNotNull null
+                val defaultInstanceGetter = KavaMemberLookup.methodOrNull(
+                    contentGetter.returnType,
+                    "getDefaultInstance"
+                )?.takeIf { method ->
+                    method.isStatic && method.parameterCount == 0 &&
+                        method.returnType == contentGetter.returnType
+                } ?: return@mapNotNull null
+                CommentOptionalPayloadPoint(
+                    presenceGetter.toHookPoint(),
+                    contentGetter.toHookPoint(),
+                    defaultInstanceGetter.toHookPoint()
+                )
+            }
+            .firstOrNull()
         if (urlMethods.isEmpty() && emptyPageGetters.isEmpty() && voteWidgetMethods.isEmpty() &&
-            followPoints == null) {
+            followPoints == null && qoePoint == null) {
             null
         } else {
-            CommentPurifyPoints(urlMethods, emptyPageGetters, voteWidgetMethods, followPoints)
+            CommentPurifyPoints(
+                urlMethods,
+                emptyPageGetters,
+                voteWidgetMethods,
+                followPoints,
+                qoePoint
+            )
         }
     }.getOrNull()
 

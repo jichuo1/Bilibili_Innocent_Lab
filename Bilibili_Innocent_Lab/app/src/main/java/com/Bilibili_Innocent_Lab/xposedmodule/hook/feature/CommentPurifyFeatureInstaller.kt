@@ -17,6 +17,7 @@ internal class CommentPurifyFeatureInstaller(
     private val removeEmptyGuide: Boolean,
     private val removeVoteWidgets: Boolean,
     private val removeFollowButtons: Boolean,
+    private val removeQoe: Boolean,
     private val points: VersionAdapter.CommentPurifyPoints?
 ) : FeatureInstaller {
 
@@ -26,7 +27,7 @@ internal class CommentPurifyFeatureInstaller(
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!removeSearchLinks && !removeEmptyGuide && !removeVoteWidgets &&
-            !removeFollowButtons) {
+            !removeFollowButtons && !removeQoe) {
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
@@ -188,6 +189,60 @@ internal class CommentPurifyFeatureInstaller(
                                 )
                             }
                         }
+                    }
+                }
+            }
+        }
+        if (removeQoe) {
+            val qoePoint = adapted.qoe
+            if (qoePoint == null) {
+                missingGroups += "qoe"
+            } else {
+                expectedCount += 2
+                val defaultInstance = runCatching {
+                    val defaultGetter = environment.hookPoints.resolveAdapted(
+                        "comment.purify.qoe.default",
+                        qoePoint.defaultInstanceGetter.className,
+                        qoePoint.defaultInstanceGetter.methodName,
+                        qoePoint.defaultInstanceGetter.paramClassNames
+                    ) ?: error("missing-qoe-default-instance-getter")
+                    defaultGetter.invoke(null) ?: error("null-qoe-default-instance")
+                }.onFailure { throwable ->
+                    environment.logError(
+                        "comment_purify_qoe_default",
+                        "[BIL] 评论反馈默认实例解析失败: $throwable"
+                    )
+                }.getOrNull()
+                if (defaultInstance == null) {
+                    missingGroups += "qoe-default"
+                } else {
+                    runCatching {
+                        environment.registrar.adapted(
+                            "comment.purify.qoe.presence",
+                            qoePoint.presenceGetter
+                        ) {
+                            after { result = false }
+                        }
+                        installedCount += 1
+                    }.onFailure { throwable ->
+                        environment.logError(
+                            "comment_purify_qoe_presence",
+                            "[BIL] 评论反馈 presence Hook 注册失败: $throwable"
+                        )
+                    }
+                    runCatching {
+                        environment.registrar.adapted(
+                            "comment.purify.qoe.content",
+                            qoePoint.contentGetter
+                        ) {
+                            after { result = defaultInstance }
+                        }
+                        installedCount += 1
+                    }.onFailure { throwable ->
+                        environment.logError(
+                            "comment_purify_qoe_content",
+                            "[BIL] 评论反馈 content Hook 注册失败: $throwable"
+                        )
                     }
                 }
             }
