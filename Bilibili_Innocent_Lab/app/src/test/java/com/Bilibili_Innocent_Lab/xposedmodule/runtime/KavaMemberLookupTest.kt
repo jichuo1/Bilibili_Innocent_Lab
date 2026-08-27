@@ -3,9 +3,16 @@ package com.Bilibili_Innocent_Lab.xposedmodule.runtime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class KavaMemberLookupTest {
+
+    @Before
+    fun resetLookupCaches() {
+        KavaMemberLookup.resetForTests()
+    }
 
     private open class HiddenBase {
         @Suppress("unused")
@@ -78,6 +85,18 @@ class KavaMemberLookupTest {
     }
 
     @Test
+    fun `enumerates inherited fields through cached Kava boundary`() {
+        val fields = KavaMemberLookup.fields(
+            HiddenMethods::class.java,
+            includeSuperclasses = true,
+            makeAccessible = true
+        ) { it.name == "inheritedText" }
+
+        assertEquals(1, fields.size)
+        assertEquals("base", fields.single().get(HiddenMethods.create()))
+    }
+
+    @Test
     fun `resolves private constructor and declared member collections`() {
         val constructor = KavaMemberLookup.constructorOrNull(
             HiddenMethods::class.java,
@@ -106,5 +125,31 @@ class KavaMemberLookupTest {
         )
         assertEquals(true, KavaMemberLookup.hasClass(loader, HiddenMethods::class.java.name))
         assertNull(KavaMemberLookup.classOrNull(loader, "missing.Type"))
+    }
+
+    @Test
+    fun `caches positive and negative lookups and exposes diagnostics`() {
+        val loader = requireNotNull(HiddenMethods::class.java.classLoader)
+
+        repeat(2) {
+            assertSame(
+                HiddenMethods::class.java,
+                KavaMemberLookup.classOrNull(loader, HiddenMethods::class.java.name)
+            )
+            assertNull(KavaMemberLookup.classOrNull(loader, "missing.CachedType"))
+            assertNull(
+                KavaMemberLookup.methodOrNull(
+                    HiddenMethods::class.java,
+                    "missingCachedMethod"
+                )
+            )
+        }
+
+        val diagnostics = KavaMemberLookup.diagnostics()
+        assertTrue(diagnostics.cacheHits >= 3)
+        assertTrue(diagnostics.cacheMisses >= 3)
+        assertEquals(2, diagnostics.cachedClasses)
+        assertEquals(1, diagnostics.cachedMethods)
+        assertEquals(0, diagnostics.lookupFailures)
     }
 }

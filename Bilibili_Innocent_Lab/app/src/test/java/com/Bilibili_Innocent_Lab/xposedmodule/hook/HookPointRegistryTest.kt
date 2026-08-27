@@ -1,0 +1,144 @@
+package com.Bilibili_Innocent_Lab.xposedmodule.hook
+
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+
+class HookPointRegistryTest {
+
+    private class FixtureException(message: String) : RuntimeException(message)
+
+    private class Fixture {
+        @Suppress("unused")
+        private val stableField: String = "value"
+
+        @Suppress("unused")
+        private fun exact(value: Int): String = value.toString()
+
+        @Suppress("unused")
+        private fun overloaded(value: Int) = value
+
+        @Suppress("unused")
+        private fun overloaded(value: String) = value
+    }
+
+    private lateinit var registry: HookPointRegistry
+
+    @Before
+    fun setUp() {
+        KavaMemberLookup.resetForTests()
+        registry = HookPointRegistry(requireNotNull(Fixture::class.java.classLoader))
+    }
+
+    @After
+    fun tearDown() {
+        KavaMemberLookup.resetForTests()
+    }
+
+    @Test
+    fun `resolves adapted primitive signature and prevents duplicate registration`() {
+        val method = registry.resolveAdapted(
+            id = "fixture.exact",
+            className = Fixture::class.java.name,
+            methodName = "exact",
+            parameterClassNames = listOf("int")
+        )
+
+        assertNotNull(method)
+        assertTrue(registry.claim("fixture.exact", requireNotNull(method)))
+        registry.markInstalled("fixture.exact", method)
+        assertFalse(registry.claim("fixture.exact", method))
+        assertEquals(HookPointRegistry.State.DUPLICATE, registry.snapshot().single().state)
+    }
+
+    @Test
+    fun `prevents duplicate constructor registration`() {
+        val constructor = Fixture::class.java.getDeclaredConstructor()
+
+        assertTrue(registry.claim("fixture.constructor", constructor))
+        registry.markInstalled("fixture.constructor", constructor)
+        assertFalse(registry.claim("fixture.constructor", constructor))
+
+        val diagnostic = registry.snapshot().single()
+        assertEquals(HookPointRegistry.State.DUPLICATE, diagnostic.state)
+        assertTrue(diagnostic.member.orEmpty().contains("#<init>()"))
+    }
+
+    @Test
+    fun `reports ambiguous and missing hook points without throwing`() {
+        assertNull(
+            registry.resolveAdapted(
+                id = "fixture.ambiguous",
+                className = Fixture::class.java.name,
+                methodName = "overloaded",
+                parameterClassNames = null
+            )
+        )
+        assertNull(
+            registry.resolveFirst(
+                id = "fixture.missing",
+                className = "missing.Fixture",
+                methodName = "none"
+            )
+        )
+
+        val states = registry.snapshot().associate { it.id to it.state }
+        assertEquals(HookPointRegistry.State.AMBIGUOUS_METHOD, states["fixture.ambiguous"])
+        assertEquals(HookPointRegistry.State.MISSING_CLASS, states["fixture.missing"])
+    }
+
+    @Test
+    fun `resolves fields through unified diagnostics`() {
+        val field = registry.resolveField(
+            "fixture.field",
+            Fixture::class.java.name,
+            "stableField"
+        )
+        val missing = registry.resolveField(
+            "fixture.field.missing",
+            Fixture::class.java,
+            "absent"
+        )
+
+        assertNotNull(field)
+        assertEquals("value", requireNotNull(field).get(Fixture()))
+        assertNull(missing)
+        val diagnostics = registry.snapshot().associateBy { it.id }
+        assertEquals(HookPointRegistry.State.RESOLVED, diagnostics["fixture.field"]?.state)
+        assertTrue(diagnostics["fixture.field"]?.member.orEmpty().endsWith("#stableField"))
+        assertEquals(
+            HookPointRegistry.State.MISSING_FIELD,
+            diagnostics["fixture.field.missing"]?.state
+        )
+    }
+
+    @Test
+    fun `resolves constructor and reports missing signature`() {
+        val constructor = registry.resolveConstructor(
+            "fixture.exception",
+            FixtureException::class.java.name,
+            listOf(String::class.java.name)
+        )
+        val missing = registry.resolveConstructor(
+            "fixture.exception.missing",
+            FixtureException::class.java.name,
+            listOf("int")
+        )
+
+        assertNotNull(constructor)
+        assertTrue(requireNotNull(constructor).newInstance("blocked") is FixtureException)
+        assertNull(missing)
+        val diagnostics = registry.snapshot().associateBy { it.id }
+        assertEquals(HookPointRegistry.State.RESOLVED, diagnostics["fixture.exception"]?.state)
+        assertEquals(
+            HookPointRegistry.State.MISSING_CONSTRUCTOR,
+            diagnostics["fixture.exception.missing"]?.state
+        )
+    }
+}
