@@ -3,7 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.theme
 import android.app.WallpaperManager
 import android.content.Context
 import android.content.res.Configuration
-import com.highcapable.betterandroid.system.extension.tool.AndroidVersion
+import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
 import com.kyant.m3color.dynamiccolor.MaterialDynamicColors
 import com.kyant.m3color.hct.Hct
 import com.kyant.m3color.scheme.SchemeTonalSpot

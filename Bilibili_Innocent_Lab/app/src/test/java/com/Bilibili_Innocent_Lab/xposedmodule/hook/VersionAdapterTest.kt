@@ -262,6 +262,31 @@ class VersionAdapterTest {
                 "com.bilibili.video.story.StoryDetail",
                 "isCheese",
                 emptyList()
+            ),
+            musicGetter = VersionAdapter.HookPoint(
+                "com.bilibili.video.story.StoryDetail",
+                "isMusic",
+                emptyList()
+            ),
+            cartInfoGetter = VersionAdapter.HookPoint(
+                "com.bilibili.video.story.StoryDetail",
+                "getCartIconInfo",
+                emptyList()
+            ),
+            dramaPromptGetter = VersionAdapter.HookPoint(
+                "com.bilibili.video.story.StoryDetail",
+                "getDramaPromptBar",
+                emptyList()
+            ),
+            seasonInfoGetter = VersionAdapter.HookPoint(
+                "com.bilibili.video.story.StoryDetail",
+                "getSeasonInfo",
+                emptyList()
+            ),
+            seasonTypeGetter = VersionAdapter.HookPoint(
+                "com.bilibili.video.story.StoryDetail\$SeasonCardInfo",
+                "getSeasonType",
+                emptyList()
             )
         ),
         bottomBar = VersionAdapter.BottomBarPoints(
@@ -457,7 +482,7 @@ class VersionAdapterTest {
                 )
             )
         ),
-        hostFingerprint = "host|9090300|rules=22",
+        hostFingerprint = "host|9090300|rules=24",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -651,6 +676,32 @@ class VersionAdapterTest {
     }
 
     @Test
+    fun `locates and serializes legacy mine public field boundary`() {
+        val mineEntry = VersionAdapter.MineEntryPoint(
+            buildMethods = listOf(VersionAdapter.HookPoint("legacy.MineFragment", "build")),
+            groupListField = "groups",
+            adapterField = "adapter",
+            clickMethod = VersionAdapter.HookPoint("legacy.Click", "invoke")
+        )
+
+        val points = VersionAdapter.locateLegacyMineComponents(
+            requireNotNull(javaClass.classLoader),
+            mineEntry
+        )
+        val restored = points?.toJson()?.let(VersionAdapter.MineComponentPoints::fromJson)
+
+        assertTrue(points?.itemListGetters.isNullOrEmpty())
+        assertTrue(points?.itemTitleGetters.isNullOrEmpty())
+        assertEquals("groups", restored?.legacyGroupListField)
+        assertEquals("adapter", restored?.legacyAdapterField)
+        assertEquals("com.bilibili.lib.homepage.mine.MenuGroup", restored?.legacyGroupClassName)
+        assertEquals("itemList", restored?.legacyItemListField)
+        assertEquals("com.bilibili.lib.homepage.mine.MenuGroup\$Item", restored?.legacyItemClassName)
+        assertEquals("title", restored?.legacyItemTitleField)
+        assertEquals("build", restored?.legacyBuildMethods?.single()?.methodName)
+    }
+
+    @Test
     fun `locates story list boundaries and exact public type getters`() {
         val points = VersionAdapter.locateStoryFeed(requireNotNull(javaClass.classLoader))
 
@@ -661,6 +712,11 @@ class VersionAdapterTest {
         assertEquals("isGame", points?.gameGetter?.methodName)
         assertEquals("isBangumi", points?.bangumiGetter?.methodName)
         assertEquals("isCheese", points?.courseGetter?.methodName)
+        assertEquals("isMusic", points?.musicGetter?.methodName)
+        assertEquals("getCartIconInfo", points?.cartInfoGetter?.methodName)
+        assertEquals("getDramaPromptBar", points?.dramaPromptGetter?.methodName)
+        assertEquals("getSeasonInfo", points?.seasonInfoGetter?.methodName)
+        assertEquals("getSeasonType", points?.seasonTypeGetter?.methodName)
     }
 
     @Test
@@ -705,6 +761,24 @@ class VersionAdapterTest {
 
         assertEquals("Jq1.l", point?.className)
         assertEquals("a", point?.methodName)
+        assertEquals(emptyList<String>(), point?.paramClassNames)
+    }
+
+    @Test
+    fun `uses legacy default quality helper without selecting settings getter`() {
+        val parent = requireNotNull(javaClass.classLoader)
+        val legacyOnlyLoader = object : ClassLoader(parent) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if (name == "Jq1.l" || name == "gh6.h") throw ClassNotFoundException(name)
+                return super.loadClass(name, resolve)
+            }
+        }
+
+        val point = VersionAdapter.locateDefaultVideoQuality(legacyOnlyLoader)
+            ?.defaultQualityMethod
+
+        assertEquals("com.bilibili.playerbizcommon.utils.PlayerSettingHelper", point?.className)
+        assertEquals("getDefaultQuality", point?.methodName)
         assertEquals(emptyList<String>(), point?.paramClassNames)
     }
 
