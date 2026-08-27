@@ -34,6 +34,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.GamePromotionFeatureI
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeBannerFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeTopBarFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeVerticalDetailFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeRecommendPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MerchandiseFeatureInstaller
@@ -43,6 +44,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPortraitFeature
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerStatusBarFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TeenagersModeFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoRelateFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.BubbleDrawable
 
@@ -2812,6 +2814,26 @@ class HookEntry : IYukiHookXposedInit {
 
             featureInstallCoordinator.installAll(
                 listOf(
+                    HomeRecommendPurifyFeatureInstaller(
+                        removeAds = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS,
+                            false
+                        ),
+                        removePictures = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES,
+                            false
+                        ),
+                        removeGamePromotions = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS,
+                            false
+                        ),
+                        points = hostAdaptResult?.homeRecommendFeed
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
                     PlayerPortraitFeatureInstaller(
                         enabled = prefs.getBoolean(
                             FeaturePreferences.HIDE_PLAYER_PORTRAIT_CONTROL,
@@ -2830,6 +2852,36 @@ class HookEntry : IYukiHookXposedInit {
                             false
                         ),
                         points = hostAdaptResult?.playerStatusBar
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    VideoRelateFilterFeatureInstaller(
+                        hiddenTypes = buildSet {
+                            if (prefs.getBoolean(
+                                    FeaturePreferences.REMOVE_RELATE_COMMERCIAL,
+                                    false
+                                )) add("CM")
+                            if (prefs.getBoolean(
+                                    FeaturePreferences.REMOVE_RELATE_GAME,
+                                    false
+                                )) add("GAME")
+                            if (prefs.getBoolean(
+                                    FeaturePreferences.REMOVE_RELATE_LIVE,
+                                    false
+                                )) add("LIVE")
+                            if (prefs.getBoolean(
+                                    FeaturePreferences.REMOVE_RELATE_COURSE,
+                                    false
+                                )) add("COURSE")
+                            if (prefs.getBoolean(
+                                    FeaturePreferences.REMOVE_RELATE_SPECIAL,
+                                    false
+                                )) add("SPECIAL")
+                        },
+                        points = hostAdaptResult?.videoRelate
                     )
                 )
             )
