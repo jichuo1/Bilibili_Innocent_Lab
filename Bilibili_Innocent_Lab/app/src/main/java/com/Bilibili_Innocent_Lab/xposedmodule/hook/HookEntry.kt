@@ -33,12 +33,14 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FullNumberFeatureInst
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.GamePromotionFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeBannerFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeTopBarFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeVerticalDetailFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MerchandiseFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineVipFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PausedAdFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPortraitFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerStatusBarFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TeenagersModeFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
@@ -2798,12 +2800,36 @@ class HookEntry : IYukiHookXposedInit {
 
             featureInstallCoordinator.installAll(
                 listOf(
+                    HomeVerticalDetailFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL,
+                            false
+                        ),
+                        points = hostAdaptResult?.homeRecommendFeed
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
                     PlayerPortraitFeatureInstaller(
                         enabled = prefs.getBoolean(
                             FeaturePreferences.HIDE_PLAYER_PORTRAIT_CONTROL,
                             false
                         ),
                         points = hostAdaptResult?.playerPortrait
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    PlayerStatusBarFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR,
+                            false
+                        ),
+                        points = hostAdaptResult?.playerStatusBar
                     )
                 )
             )
