@@ -97,8 +97,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 21
-    private const val ADAPTER_RULE_VERSION = 13
+    private const val SCHEMA_VERSION = 22
+    private const val ADAPTER_RULE_VERSION = 14
 
     enum class AdaptState {
         FOUND,
@@ -334,6 +334,26 @@ object VersionAdapter {
         }
     }
 
+    /** 青少年模式提示页自身的创建入口；只结束明确命名的提示 Activity。 */
+    data class TeenagersModePoints(
+        val onCreateMethods: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("methods", JSONArray().apply { onCreateMethods.forEach { put(it.toJson()) } })
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): TeenagersModePoints {
+                val methods = o.getJSONArray("methods")
+                return TeenagersModePoints(
+                    (0 until methods.length()).map {
+                        HookPoint.fromJson(methods.getJSONObject(it))
+                    }
+                )
+            }
+        }
+    }
+
     /** 空评论区引导 getter 与对应 protobuf 默认实例 getter。 */
     data class CommentEmptyPagePoint(
         val contentGetter: HookPoint,
@@ -481,6 +501,8 @@ object VersionAdapter {
         val fullNumbers: FullNumberPoints?,
         /** 播放器竖屏切换控件自身的可见性入口。 */
         val playerPortrait: PlayerPortraitPoints?,
+        /** 青少年模式提示页自身的 onCreate 入口。 */
+        val teenagersMode: TeenagersModePoints?,
         /** 评论区净化所需的 protobuf 数据边界。 */
         val commentPurify: CommentPurifyPoints?,
         /** 宿主 APK + 适配规则指纹，防止只凭 versionCode 复用陈旧缓存。 */
@@ -503,6 +525,7 @@ object VersionAdapter {
             dynamicTabs?.let { put("dynamic_tabs", it.toJson()) }
             fullNumbers?.let { put("full_numbers", it.toJson()) }
             playerPortrait?.let { put("player_portrait", it.toJson()) }
+            teenagersMode?.let { put("teenagers_mode", it.toJson()) }
             commentPurify?.let { put("comment_purify", it.toJson()) }
             put("fp", hostFingerprint)
             put("diag", JSONArray().apply { diagnostics.forEach { put(it.toJson()) } })
@@ -565,6 +588,9 @@ object VersionAdapter {
                 playerPortrait?.visibilityMethods?.let { methods ->
                     methods.isNotEmpty() && methods.all { it.isValid() }
                 } != false &&
+                teenagersMode?.onCreateMethods?.let { methods ->
+                    methods.isNotEmpty() && methods.all { it.isValid() }
+                } != false &&
                 commentPurify?.let { value ->
                     (value.urlMapGetters.isNotEmpty() || value.emptyPageGetters.isNotEmpty() ||
                         value.voteWidgetMethods.isNotEmpty() || value.follow != null ||
@@ -613,6 +639,8 @@ object VersionAdapter {
                     fullNumbers = o.optJSONObject("full_numbers")?.let(FullNumberPoints::fromJson),
                     playerPortrait = o.optJSONObject("player_portrait")
                         ?.let(PlayerPortraitPoints::fromJson),
+                    teenagersMode = o.optJSONObject("teenagers_mode")
+                        ?.let(TeenagersModePoints::fromJson),
                     commentPurify = o.optJSONObject("comment_purify")
                         ?.let(CommentPurifyPoints::fromJson),
                     hostFingerprint = o.optString("fp"),
@@ -683,6 +711,12 @@ object VersionAdapter {
     )
     private val PLAYER_PORTRAIT_CLASS_CANDIDATES = listOf(
         "com.bilibili.app.gemini.player.widget.story.GeminiPlayerFullStoryWidget"
+    )
+    private val TEENAGERS_MODE_ACTIVITY_CANDIDATES = listOf(
+        "com.bilibili.teenagersmode.ui.TeenagersModeDialogActivity",
+        "com.bilibili.app.preferences.TeenagersModeDialogActivity",
+        "com.bilibili.p4439app.preferences.TeenagersModeDialogActivity",
+        "tv.danmaku.bili.ui.teenagersmode.TeenagersModeDialogActivity"
     )
     private val COMMENT_CONTENT_CLASS_CANDIDATES = listOf(
         "com.bapis.bilibili.main.community.reply.v1.Content",
@@ -894,6 +928,7 @@ object VersionAdapter {
                     "blockUpdate=${result?.blockUpdate != null} " +
                     "dynamicTabs=${result?.dynamicTabs != null} " +
                     "playerPortrait=${result?.playerPortrait != null} " +
+                    "teenagersMode=${result?.teenagersMode != null} " +
                     "commentPurify=${result?.commentPurify != null} " +
                     "diag=${result?.diagnosticSummary()}"
             )
@@ -919,13 +954,14 @@ object VersionAdapter {
         val dynamicTabs = locateDynamicTabs(loader)
         val fullNumbers = locateFullNumbers(loader)
         val playerPortrait = locatePlayerPortrait(loader)
+        val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
-            commentPurify == null) return null
+            teenagersMode == null && commentPurify == null) return null
         return AdaptResult(
             biliVersionCode = 0,
             ts = 0L,
@@ -940,11 +976,12 @@ object VersionAdapter {
             dynamicTabs = dynamicTabs,
             fullNumbers = fullNumbers,
             playerPortrait = playerPortrait,
+            teenagersMode = teenagersMode,
             commentPurify = commentPurify,
             hostFingerprint = "runtime-no-context|rules=$ADAPTER_RULE_VERSION",
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
-                dynamicTabs, fullNumbers, playerPortrait, commentPurify
+                dynamicTabs, fullNumbers, playerPortrait, teenagersMode, commentPurify
             )
         )
     }
@@ -968,6 +1005,7 @@ object VersionAdapter {
         val dynamicTabs = locateDynamicTabs(loader)
         val fullNumbers = locateFullNumbers(loader)
         val playerPortrait = locatePlayerPortrait(loader)
+        val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
         val anyClassExists = COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
@@ -976,6 +1014,7 @@ object VersionAdapter {
             || KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS)
             || FULL_NUMBER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || PLAYER_PORTRAIT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || TEENAGERS_MODE_ACTIVITY_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_CONTENT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_VOTE_WIDGET_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
@@ -992,7 +1031,7 @@ object VersionAdapter {
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
-            commentPurify == null &&
+            teenagersMode == null && commentPurify == null &&
             !anyClassExists) return null
         return AdaptResult(
             biliVersionCode = vc,
@@ -1008,11 +1047,12 @@ object VersionAdapter {
             dynamicTabs = dynamicTabs,
             fullNumbers = fullNumbers,
             playerPortrait = playerPortrait,
+            teenagersMode = teenagersMode,
             commentPurify = commentPurify,
             hostFingerprint = buildHostFingerprint(context),
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
-                dynamicTabs, fullNumbers, playerPortrait, commentPurify
+                dynamicTabs, fullNumbers, playerPortrait, teenagersMode, commentPurify
             )
         )
     }
@@ -1041,6 +1081,7 @@ object VersionAdapter {
         dynamicTabs: DynamicTabsPoint?,
         fullNumbers: FullNumberPoints?,
         playerPortrait: PlayerPortraitPoints?,
+        teenagersMode: TeenagersModePoints?,
         commentPurify: CommentPurifyPoints?
     ): List<AdaptDiagnostic> {
         fun stateFor(pointFound: Boolean, candidateExists: Boolean): AdaptState = when {
@@ -1068,6 +1109,9 @@ object VersionAdapter {
             KavaMemberLookup.hasClass(loader, it)
         }
         val playerPortraitCandidateExists = PLAYER_PORTRAIT_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val teenagersModeCandidateExists = TEENAGERS_MODE_ACTIVITY_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
         val commentPurifyCandidateExists = COMMENT_CONTENT_CLASS_CANDIDATES.any {
@@ -1192,6 +1236,11 @@ object VersionAdapter {
                 "player.portrait",
                 stateFor(playerPortrait != null, playerPortraitCandidateExists),
                 playerPortrait?.visibilityMethods?.joinToString("|") { it.label() }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "teenagers.mode",
+                stateFor(teenagersMode != null, teenagersModeCandidateExists),
+                teenagersMode?.onCreateMethods?.joinToString("|") { it.label() }.orEmpty()
             ),
             AdaptDiagnostic(
                 "comment.purify.search",
@@ -1520,6 +1569,27 @@ object VersionAdapter {
             .map { it.toHookPoint() }
             .toList()
         methods.takeIf { it.isNotEmpty() }?.let(::PlayerPortraitPoints)
+    }.getOrNull()
+
+    /**
+     * 青少年模式提示页在 8.90.2、9.1.0 与 9.9.0 均保留稳定类名。
+     * 只接受 Activity 自身声明的 onCreate(Bundle)，避免结束正常青少年模式设置页面。
+     */
+    fun locateTeenagersMode(loader: ClassLoader): TeenagersModePoints? = runCatching {
+        val methods = TEENAGERS_MODE_ACTIVITY_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .filter { it.hasSuperclassNamed("android.app.Activity") }
+            .mapNotNull { owner ->
+                KavaMemberLookup.methodOrNull(owner, "onCreate", classOf<Bundle>())
+                    ?.takeIf { method ->
+                        !method.isStatic && method.declaringClass == owner &&
+                            method.returnType == Void.TYPE
+                    }
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        methods.takeIf { it.isNotEmpty() }?.let(::TeenagersModePoints)
     }.getOrNull()
 
     /**

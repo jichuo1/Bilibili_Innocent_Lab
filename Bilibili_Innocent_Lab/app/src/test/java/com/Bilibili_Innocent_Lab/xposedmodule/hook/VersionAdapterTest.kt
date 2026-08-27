@@ -97,6 +97,15 @@ class VersionAdapterTest {
                 )
             )
         ),
+        teenagersMode = VersionAdapter.TeenagersModePoints(
+            listOf(
+                VersionAdapter.HookPoint(
+                    "com.bilibili.teenagersmode.ui.TeenagersModeDialogActivity",
+                    "onCreate",
+                    listOf("android.os.Bundle")
+                )
+            )
+        ),
         commentPurify = VersionAdapter.CommentPurifyPoints(
             listOf(
                 VersionAdapter.HookPoint(
@@ -197,7 +206,7 @@ class VersionAdapterTest {
                 )
             )
         ),
-        hostFingerprint = "host|9090300|rules=13",
+        hostFingerprint = "host|9090300|rules=14",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -258,6 +267,22 @@ class VersionAdapterTest {
         assertEquals("stableBinding", point?.bindingField)
         assertEquals("getRoot", point?.rootGetter?.methodName)
         assertEquals(emptyList<String>(), point?.rootGetter?.paramClassNames)
+    }
+
+    @Test
+    fun `locates only the dedicated teenagers mode prompt activity onCreate`() {
+        val points = VersionAdapter.locateTeenagersMode(requireNotNull(javaClass.classLoader))
+
+        assertEquals(1, points?.onCreateMethods?.size)
+        assertEquals(
+            "com.bilibili.teenagersmode.ui.TeenagersModeDialogActivity",
+            points?.onCreateMethods?.single()?.className
+        )
+        assertEquals("onCreate", points?.onCreateMethods?.single()?.methodName)
+        assertEquals(
+            listOf("android.os.Bundle"),
+            points?.onCreateMethods?.single()?.paramClassNames
+        )
     }
 
     @Test
