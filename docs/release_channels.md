@@ -25,7 +25,7 @@
   `SHA256SUMS.txt`，可直接追溯源码提交、APK 内部版本与文件哈希。
 - Stable 工作流同样生成带完整标签和源码短 SHA 的 APK、`BUILD_INFO.txt` 与
   `SHA256SUMS.txt`；创建 Release 后会重新下载全部附件、核对 Git Tag 指向和逐文件哈希，
-  验证通过后才进入 LSPosed 同步。
+  验证通过后结束主仓库发布，不再自动进入 LSPosed 同步。
 
 建议在 GitHub 仓库的 Settings → Environments 中创建 `alpha-release` 环境，设置
 Required reviewers，并将 Deployment branches 限制为 `main`。这样即使有人从旧 ref
@@ -42,20 +42,20 @@ Stable 使用独立的 `stable-release` 环境，并同样设置 Required review
 稳定版是 `v1.0.6` 时，依次发布 `v1.0.7-alpha.1`、`v1.0.7-alpha.2`；正式发布
 `v1.0.7` 后，下一轮 Alpha 前缀切换为 `v1.0.8-alpha.N`。
 
-## LSPosed 仓库自动同步
+## LSPosed 仓库独立同步
 
 主仓库 `jichuo1/Bilibili_Innocent_Lab` 是唯一构建与发布源；
 `Xposed-Modules-Repo/com.Bilibili_Innocent_Lab.xposedmodule` 只保存 LSPosed 元数据和
 Release，不镜像源码分支。`.github/workflows/sync-lsposed-release.yml` 负责复制 Release
 标题、正文和全部附件，并保留 Stable/Pre-release 属性。
 
-- 人工发布 Stable 后，GitHub 的 `release.published` 事件自动启动同步；
-  `stable-release.yml` 使用 `GITHUB_TOKEN` 创建 Stable 时则在发布成功后直接调用同一同步
-  工作流，避免依赖不会可靠递归触发的 Release 事件。
-- Alpha 由 `GITHUB_TOKEN` 创建 Release，不会可靠触发后续普通工作流，因此
-  `alpha-release.yml` 的发布任务成功后直接调用同一个可复用同步工作流。
-- Actions 中可手动运行 `Sync Release to LSPosed repository`，输入已存在的主仓库标签进行
-  补偿同步；启用 `dry_run` 时只验证主仓库 Release，不写目标仓库。
+- `alpha-release.yml` 与 `stable-release.yml` 只负责主仓库构建、校验和 Release 发布，不再
+  调用同步工作流，也不再传递 `LSPOSED_RELEASE_TOKEN`。目标仓库权限问题不会再把主仓库
+  发布流程标记为失败。
+- 需要同步时，在 Actions 中单独运行 `Sync Release to LSPosed repository`，输入已存在的
+  主仓库标签；启用 `dry_run` 时只验证主仓库 Release，不写目标仓库。
+- 人工发布 Release 仍可能通过 `release.published` 事件启动独立同步，但 Actions 使用
+  `GITHUB_TOKEN` 创建的 Stable 和 Alpha 不依赖该事件，也不会从发布流程直接调用同步。
 - 同步凭据只允许从仓库 Secret `LSPOSED_RELEASE_TOKEN` 读取，不得写入工作流、源码、日志
   或 Release 附件。令牌至少需要目标仓库 `Contents: write`，不需要管理其他仓库功能。
 
