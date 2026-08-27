@@ -57,6 +57,9 @@ import com.highcapable.yukihookapi.hook.factory.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.RoamingCompatHook
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.GitHubReleaseChecker
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ShellCommandRunner
@@ -70,6 +73,7 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.RippleDrawable
 import android.view.ViewGroup
 import android.widget.FrameLayout as NativeFrameLayout
+import android.widget.EditText as NativeEditText
 import android.widget.LinearLayout as NativeLinearLayout
 import android.widget.TextView as NativeTextView
 import androidx.core.graphics.ColorUtils
@@ -96,6 +100,46 @@ class MainActivity : AppViewsActivity() {
     private var gamecardAdEnabled = true
     private var bannerAdEnabled = true
     private var merchAdEnabled = true
+    private var hideHomeGameMenu = false
+    private var hideHomeSearchDefaultWord = false
+    private var homeVerticalOpenDetail = false
+    private var removeHomeRecommendAds = false
+    private var removeHomeRecommendPictures = false
+    private var removeHomeRecommendGamePromotions = false
+    private var homeTabHiddenRules = ""
+    private var homeComponentHiddenRules = ""
+    private var bottomBarHiddenRules = ""
+    private var removeStoryAds = false
+    private var removeStoryLive = false
+    private var removeStoryGames = false
+    private var hideMineVip = false
+    private var keepMineVipSpace = false
+    private var mineComponentHiddenRules = ""
+    private var blockAppUpdate = false
+    private var hideDynamicCityTab = false
+    private var hideDynamicSchoolTab = false
+    private var preferDynamicVideoTab = false
+    private var showFullNumbers = false
+    private var hidePlayerPortraitControl = false
+    private var transparentPlayerStatusBar = false
+    private var removeRelateCommercial = false
+    private var removeRelateGame = false
+    private var removeRelateLive = false
+    private var removeRelateCourse = false
+    private var removeRelateSpecial = false
+    private var playerDefaultQualityQn = 0
+    private var blockTeenagersModePrompt = false
+    private var removeCommentSearchLinks = false
+    private var removeCommentEmptyGuide = false
+    private var removeCommentVoteWidgets = false
+    private var removeCommentFollowButtons = false
+    private var removeCommentQoe = false
+    private var removeCommentOperations = false
+    private var blockCommentQuickReply = false
+    private var commentKeywordFilterEnabled = false
+    private var commentFilterKeywords = ""
+    private var commentMinLevelFilterEnabled = false
+    private var commentMinLevel = CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL
     private var freeCopyEnabled = true
     private var freeCopyDescEnabled = true
     private var freeCopyLightMode = false
@@ -115,6 +159,13 @@ class MainActivity : AppViewsActivity() {
 
     /** 手动亮色开关下方 tip 引用（动态动画切换文本） */
     private var lightModeTipView: NativeTextView? = null
+    private var playerQualitySummaryView: NativeTextView? = null
+    private var homeTabRulesSummaryView: NativeTextView? = null
+    private var homeComponentRulesSummaryView: NativeTextView? = null
+    private var mineComponentRulesSummaryView: NativeTextView? = null
+    private var bottomBarRulesSummaryView: NativeTextView? = null
+    private var commentKeywordSummaryView: NativeTextView? = null
+    private var commentLevelSummaryView: NativeTextView? = null
     private var roamingCompatEnabled = false
     private var predictiveBackEnabled = false
     private var logEnabled = true
@@ -124,7 +175,11 @@ class MainActivity : AppViewsActivity() {
     private var experimentalContent: View? = null
     private var experimentalChevron: View? = null
     private var experimentalExpanded = false
-    private var experimentalContentHeight = -1
+
+    /** "进阶设置"二级菜单：与实验性功能共用同一套展开/收起动效。 */
+    private var advancedContent: View? = null
+    private var advancedChevron: View? = null
+    private var advancedExpanded = false
 
     /** 当前活动的确认弹窗：Activity 销毁时主动 dismiss，避免 WindowLeaked */
     private var activeConfirmDialog: Dialog? = null
@@ -143,6 +198,10 @@ class MainActivity : AppViewsActivity() {
     // Material You 标准动效插值器
     private val emphasizedDecelerate = PathInterpolator(0.2f, 0f, 0f, 1f)   // 展开（减速收尾）
     private val emphasizedAccelerate = PathInterpolator(0.3f, 0f, 1f, 1f)   // 收起（加速开始）
+    // 超长二级菜单使用独立的 Material 3 风格曲线：快速建立反馈，保留更长的柔和收尾。
+    // 不复用上方插值器，避免改变弹窗、日志滑块等已有动画的节奏。
+    private val secondaryExpandInterpolator = PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
+    private val secondaryCollapseInterpolator = PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
 
     /** Material You 动态取色调色板（从壁纸提取种子色） */
     private val monetColors by lazy { MonetColors.fromWallpaper(this) }
@@ -651,6 +710,235 @@ class MainActivity : AppViewsActivity() {
         presentGlassDialog(dialog, container)
     }
 
+    /** 播放器默认画质选择：只写模块配置，实际 Hook 在 B 站下次主进程启动时安装。 */
+    private fun showPlayerQualityDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createGlassContainer()
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.player_default_quality_dialog_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 17f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (12 * density).toInt() }
+        )
+
+        val optionsContainer = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.VERTICAL
+        }
+        PlayerQualityConfig.supportedQns.forEachIndexed { index, qn ->
+            optionsContainer.addView(
+                createGitHubMenuRow(
+                    title = playerQualityLabel(qn),
+                    subtitle = getString(
+                        if (qn == 0) R.string.player_default_quality_follow_host_tip
+                        else R.string.player_default_quality_override_tip
+                    ),
+                    highlight = qn == playerDefaultQualityQn
+                ) {
+                    playerDefaultQualityQn = qn
+                    runCatching {
+                        prefs().edit {
+                            putInt(FeaturePreferences.PLAYER_DEFAULT_QUALITY_QN, qn)
+                        }
+                    }.onFailure { throwable ->
+                        Log.e(
+                            "BilibiliInnocentLab",
+                            "write player default quality prefs failed",
+                            throwable
+                        )
+                    }
+                    updatePlayerQualitySummary()
+                    dismissWithAnimation(dialog, container) {}
+                },
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    if (index > 0) topMargin = (4 * density).toInt()
+                }
+            )
+        }
+        container.addView(
+            android.widget.ScrollView(this).apply {
+                isFillViewport = false
+                overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+                addView(
+                    optionsContainer,
+                    NativeFrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                )
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (420 * density).toInt()
+            )
+        )
+
+        val buttonRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        buttonRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.dialog_close)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(
+                    (20 * density).toInt(),
+                    (11 * density).toInt(),
+                    (20 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { dismissWithAnimation(dialog, container) {} }
+            }
+        )
+        container.addView(
+            buttonRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (18 * density).toInt() }
+        )
+
+        presentGlassDialog(dialog, container)
+    }
+
+    private fun playerQualityLabel(qn: Int): String = when (qn) {
+        16 -> "360P"
+        32 -> "480P"
+        64 -> "720P"
+        74 -> "720P60"
+        80 -> "1080P"
+        112 -> "1080P 高码率"
+        116 -> "1080P60"
+        120 -> "4K"
+        127 -> "8K"
+        else -> getString(R.string.player_default_quality_follow_host)
+    }
+
+    private fun updatePlayerQualitySummary() {
+        playerQualitySummaryView?.text = getString(
+            R.string.player_default_quality_current,
+            playerQualityLabel(playerDefaultQualityQn)
+        )
+    }
+
+    /** 评论最低等级选择：沿用播放器画质选择器的玻璃菜单与进退场动画。 */
+    private fun showCommentMinLevelDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createGlassContainer()
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.comment_min_level_dialog_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 17f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (12 * density).toInt() }
+        )
+
+        val options = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.VERTICAL
+        }
+        (1..6).forEachIndexed { index, level ->
+            options.addView(
+                createGitHubMenuRow(
+                    title = getString(R.string.comment_level_value, level),
+                    subtitle = getString(R.string.comment_min_level_option_tip, level),
+                    highlight = level == commentMinLevel
+                ) {
+                    commentMinLevel = level
+                    runCatching {
+                        prefs().edit {
+                            putInt(FeaturePreferences.COMMENT_MIN_LEVEL, level)
+                        }
+                    }.onFailure { throwable ->
+                        Log.e(
+                            "BilibiliInnocentLab",
+                            "write comment minimum level prefs failed",
+                            throwable
+                        )
+                    }
+                    commentLevelSummaryView?.text = getString(
+                        R.string.comment_min_level_current,
+                        level
+                    )
+                    dismissWithAnimation(dialog, container) {}
+                },
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { if (index > 0) topMargin = (4 * density).toInt() }
+            )
+        }
+        container.addView(
+            android.widget.ScrollView(this).apply {
+                isFillViewport = false
+                overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+                addView(
+                    options,
+                    NativeFrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                )
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (380 * density).toInt()
+            )
+        )
+
+        val closeRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        closeRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.dialog_close)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(
+                    (20 * density).toInt(),
+                    (11 * density).toInt(),
+                    (20 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { dismissWithAnimation(dialog, container) {} }
+            }
+        )
+        container.addView(
+            closeRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (18 * density).toInt() }
+        )
+        presentGlassDialog(dialog, container)
+    }
+
     /** 保存渠道选择并立即按新渠道检查一次；检查失败保留渠道，下次可继续。 */
     private fun applyUpdateChannel(channel: GitHubReleaseChecker.UpdateChannel) {
         val updatePrefs = applicationContext.getSharedPreferences(UPDATE_PREFS_NAME, MODE_PRIVATE)
@@ -1128,6 +1416,146 @@ class MainActivity : AppViewsActivity() {
         }
     }
 
+    /** 自定义隐藏规则编辑器：沿用项目玻璃弹窗与统一退场动画。 */
+    private fun showRuleEditorDialog(
+        @StringRes titleRes: Int,
+        @StringRes hintRes: Int,
+        initialValue: String,
+        onConfirm: (String) -> Unit
+    ) {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createGlassContainer()
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(titleRes)
+                setTextColor(getColor(R.color.colorTextDark))
+                textSize = 17f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        val editor = NativeEditText(this).apply {
+            setText(initialValue)
+            setSelection(text.length)
+            hint = getString(hintRes)
+            setTextColor(getColor(R.color.colorTextDark))
+            setHintTextColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x99))
+            textSize = 14f
+            gravity = Gravity.TOP or Gravity.START
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            isSingleLine = false
+            minLines = 3
+            maxLines = 6
+            setHorizontallyScrolling(false)
+            setPadding(
+                (14 * density).toInt(),
+                (12 * density).toInt(),
+                (14 * density).toInt(),
+                (12 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                cornerRadius = 14 * density
+                setColor(monetColors.surfaceVariant)
+                setStroke(
+                    density.toInt().coerceAtLeast(1),
+                    ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x38)
+                )
+            }
+        }
+        container.addView(
+            editor,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (14 * density).toInt() }
+        )
+
+        val buttonRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        buttonRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.dialog_cancel)
+                setTextColor(getColor(R.color.colorTextGray))
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(
+                    (20 * density).toInt(),
+                    (11 * density).toInt(),
+                    (20 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { dismissWithAnimation(dialog, container) {} }
+            }
+        )
+        buttonRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.dialog_confirm)
+                setTextColor(monetColors.onPrimary)
+                textSize = 15f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(
+                    (22 * density).toInt(),
+                    (11 * density).toInt(),
+                    (22 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                val radius = 20 * density
+                val content = GradientDrawable().apply {
+                    cornerRadius = radius
+                    setColor(monetColors.primary)
+                }
+                val rippleMask = GradientDrawable().apply {
+                    cornerRadius = radius
+                    setColor(Color.WHITE)
+                }
+                background = RippleDrawable(
+                    ColorStateList.valueOf(
+                        ColorUtils.setAlphaComponent(monetColors.onPrimary, 0x33)
+                    ),
+                    content,
+                    rippleMask
+                )
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    val value = editor.text.toString().trim()
+                    dismissWithAnimation(dialog, container) { onConfirm(value) }
+                }
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = (16 * density).toInt() }
+        )
+        container.addView(
+            buttonRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (18 * density).toInt() }
+        )
+        presentGlassDialog(dialog, container)
+    }
+
+    private fun ruleSummary(value: String): String = if (value.isBlank()) {
+        getString(R.string.custom_hide_rules_empty)
+    } else {
+        getString(R.string.custom_hide_rules_current, value)
+    }
+
     private fun openExternalUrl(url: String) {
         val uri = Uri.parse(url)
         if (uri.scheme != "https") {
@@ -1502,107 +1930,93 @@ class MainActivity : AppViewsActivity() {
     private fun execShell(vararg cmd: String): Int =
         ShellCommandRunner.run(cmd.toList(), timeoutMs = 10_000L)
 
-    /**
-     * 切换"实验性功能"二级菜单的展开/收起状态，带动画。
-     * 展开：内容高度 0 → 目标高度（emphasized decelerate），箭头旋转 0° → 180°
-     * 收起：内容高度 目标 → 0（emphasized accelerate），箭头旋转 180° → 0°
-     */
+    /** 切换“实验性功能”二级菜单；内容与箭头只做属性动画，不逐帧触发布局。 */
     private fun toggleExperimental() {
         val content = experimentalContent ?: return
         val chevron = experimentalChevron ?: return
-        if (experimentalExpanded) {
-            collapseExperimental(content, chevron)
-        } else {
-            expandExperimental(content, chevron)
-        }
         experimentalExpanded = !experimentalExpanded
+        animateSecondarySection(content, chevron, experimentalExpanded)
     }
 
-    private fun expandExperimental(content: View, chevron: View) {
-        // 目标高度：优先复用缓存值，避免每次展开都重新 measure（内容高度固定，只需测一次）。
-        // 测量宽度必须用父容器「内容区」宽度（外宽减 padding）——用外宽会高估可用宽度、
-        // 文字换行偏少、测得高度偏小；真实布局在较窄宽度下换行变多后，竖向 LinearLayout
-        // 会把末尾子项挤压成残高/0 高（「重新适配」行概率性只剩空位/消失的根源）。
-        content.visibility = View.VISIBLE
-        val parent = content.parent as? View
-        val parentWidth = parent?.let { it.width - it.paddingLeft - it.paddingRight } ?: 0
-        if (parentWidth <= 0 && experimentalContentHeight <= 0) {
-            // 首帧布局未完成（打开界面后极快点击）：无法可靠测量，直接自然展开，
-            // 不缓存错误高度
-            chevron.animate().rotation(180f).setDuration(260L)
-                .setInterpolator(emphasizedDecelerate).start()
-            return
-        }
-        val targetHeight = if (experimentalContentHeight > 0) {
-            experimentalContentHeight
+    /** 切换“进阶设置”二级菜单；与实验性功能共用完全相同的轻量动效。 */
+    private fun toggleAdvanced() {
+        val content = advancedContent ?: return
+        val chevron = advancedChevron ?: return
+        advancedExpanded = !advancedExpanded
+        animateSecondarySection(content, chevron, advancedExpanded)
+    }
+
+    /**
+     * 二级菜单公共动效。
+     *
+     * 旧实现用 ValueAnimator 每帧写 layoutParams.height，大型进阶菜单会让整棵设置树在
+     * 每一帧重新 measure/layout。这里改为一次正常布局后只更新 alpha/translationY；
+     * 两者均不触发布局，快速反复点击时先清理旧 listener 再取消动画，避免旧收起回调
+     * 把刚展开的内容重新设为 GONE。
+     */
+    private fun animateSecondarySection(
+        content: View,
+        chevron: View,
+        expanded: Boolean
+    ) {
+        val contentAnimator = content.animate()
+        contentAnimator.setListener(null)
+        contentAnimator.cancel()
+        chevron.animate().cancel()
+        val density = resources.displayMetrics.density
+
+        if (expanded) {
+            content.visibility = View.VISIBLE
+            content.alpha = 0f
+            content.translationY = -8f * density
+            contentAnimator
+                .alpha(1f)
+                .translationY(0f)
+                // 让首次 VISIBLE 布局先独占一帧，动画从下一帧稳定起步。
+                .setStartDelay(16L)
+                .setDuration(260L)
+                .setInterpolator(secondaryExpandInterpolator)
+                .start()
+            chevron.animate()
+                .rotation(180f)
+                .setStartDelay(16L)
+                .setDuration(260L)
+                .setInterpolator(secondaryExpandInterpolator)
+                .start()
         } else {
-            content.measure(
-                View.MeasureSpec.makeMeasureSpec(parentWidth, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-            )
-            content.measuredHeight.also { experimentalContentHeight = it }
+            contentAnimator
+                .alpha(0f)
+                .translationY(-5f * density)
+                // ViewPropertyAnimator 会保留上一次 startDelay，收起时必须显式清零。
+                .setStartDelay(0L)
+                .setDuration(200L)
+                .setInterpolator(secondaryCollapseInterpolator)
+                .setListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        content.visibility = View.GONE
+                        content.alpha = 1f
+                        content.translationY = 0f
+                        content.animate().setListener(null)
+                    }
+                })
+                .start()
+            chevron.animate()
+                .rotation(0f)
+                .setStartDelay(0L)
+                .setDuration(200L)
+                .setInterpolator(secondaryCollapseInterpolator)
+                .start()
         }
-
-        // 高度动画（从 0 展开）
-        ValueAnimator.ofInt(0, targetHeight).apply {
-            duration = 260L
-            interpolator = emphasizedDecelerate
-            addUpdateListener { animator ->
-                val lp = content.layoutParams
-                lp.height = animator.animatedValue as Int
-                content.layoutParams = lp
-            }
-            // 动画结束恢复 WRAP_CONTENT：末态不再固定高度。即便缓存高度因字号/字体/
-            // 换行差异偏小，内容也按自然高度布局，杜绝末尾子项被挤压
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    val lp = content.layoutParams
-                    lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
-                    content.layoutParams = lp
-                }
-            })
-            start()
-        }
-
-        // 箭头旋转（GPU 加速，无布局重绘）
-        chevron.animate()
-            .rotation(180f)
-            .setDuration(260L)
-            .setInterpolator(emphasizedDecelerate)
-            .start()
     }
 
-    private fun collapseExperimental(content: View, chevron: View) {
-        // 收起起点用当前实际高度（展开末态为 WRAP_CONTENT，与缓存值可能有细微差）
-        val startHeight = content.height.takeIf { it > 0 } ?: experimentalContentHeight
-
-        // 高度动画（收起到 0）
-        ValueAnimator.ofInt(startHeight.coerceAtLeast(0), 0).apply {
-            duration = 260L
-            interpolator = emphasizedAccelerate
-            addUpdateListener { animator ->
-                val lp = content.layoutParams
-                lp.height = animator.animatedValue as Int
-                content.layoutParams = lp
-            }
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    content.visibility = View.GONE
-                    // 复位高度，下次展开从自然测量开始
-                    val lp = content.layoutParams
-                    lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
-                    content.layoutParams = lp
-                }
-            })
-            start()
-        }
-
-        // 箭头旋转回正
-        chevron.animate()
-            .rotation(0f)
-            .setDuration(260L)
-            .setInterpolator(emphasizedAccelerate)
-            .start()
+    /** 首次绘制前把“进阶设置”卡片调整到“实验性功能”正下方，避免可见重排。 */
+    private fun placeAdvancedBelowExperimental() {
+        val advancedCard = advancedContent?.parent as? View ?: return
+        val experimentalCard = experimentalContent?.parent as? View ?: return
+        val parent = advancedCard.parent as? ViewGroup ?: return
+        if (experimentalCard.parent !== parent) return
+        parent.removeView(advancedCard)
+        parent.addView(advancedCard, parent.indexOfChild(experimentalCard) + 1)
     }
 
     override fun onDestroy() {
@@ -1610,12 +2024,27 @@ class MainActivity : AppViewsActivity() {
         activeConfirmDialog?.dismiss()
         activeConfirmDialog = null
         // 清理 View 引用字段，彻底断开对 hierarchy 的持有
+        experimentalContent?.animate()?.setListener(null)
+        experimentalContent?.animate()?.cancel()
+        experimentalChevron?.animate()?.cancel()
+        advancedContent?.animate()?.setListener(null)
+        advancedContent?.animate()?.cancel()
+        advancedChevron?.animate()?.cancel()
         experimentalContent = null
         experimentalChevron = null
+        advancedContent = null
+        advancedChevron = null
         logLevelMinimalPill = null
         logLevelCompletePill = null
         logLevelThumb = null
         logLevelDesc = null
+        playerQualitySummaryView = null
+        homeTabRulesSummaryView = null
+        homeComponentRulesSummaryView = null
+        mineComponentRulesSummaryView = null
+        bottomBarRulesSummaryView = null
+        commentKeywordSummaryView = null
+        commentLevelSummaryView = null
         super.onDestroy()
     }
 
@@ -1651,6 +2080,219 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read banner prefs failed", t)
         }.getOrDefault(true)
+        hideHomeGameMenu = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.HIDE_HOME_GAME_MENU, false) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read home game menu prefs failed", t)
+        }.getOrDefault(false)
+        hideHomeSearchDefaultWord = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read home search word prefs failed", t)
+        }.getOrDefault(false)
+        homeVerticalOpenDetail = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read home vertical detail prefs failed", t)
+        }.getOrDefault(false)
+        removeHomeRecommendAds = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS, false) ?: false
+        }.getOrDefault(false)
+        removeHomeRecommendPictures = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES, false)
+                ?: false
+        }.getOrDefault(false)
+        removeHomeRecommendGamePromotions = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS,
+                false
+            ) ?: false
+        }.getOrDefault(false)
+        homeTabHiddenRules = runCatching {
+            modulePrefs?.getString(FeaturePreferences.HOME_TAB_HIDDEN_RULES, "").orEmpty()
+        }.getOrDefault("")
+        homeComponentHiddenRules = runCatching {
+            modulePrefs?.getString(FeaturePreferences.HOME_COMPONENT_HIDDEN_RULES, "").orEmpty()
+        }.getOrDefault("")
+        bottomBarHiddenRules = runCatching {
+            modulePrefs?.getString(FeaturePreferences.BOTTOM_BAR_HIDDEN_RULES, "").orEmpty()
+        }.getOrDefault("")
+        removeStoryAds = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_ADS, false) ?: false
+        }.getOrDefault(false)
+        removeStoryLive = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_LIVE, false) ?: false
+        }.getOrDefault(false)
+        removeStoryGames = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_GAMES, false) ?: false
+        }.getOrDefault(false)
+        hideMineVip = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.HIDE_MINE_VIP, false) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read mine vip prefs failed", t)
+        }.getOrDefault(false)
+        keepMineVipSpace = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.KEEP_MINE_VIP_SPACE, false) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read mine vip space prefs failed", t)
+        }.getOrDefault(false)
+        mineComponentHiddenRules = runCatching {
+            modulePrefs?.getString(FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES, "").orEmpty()
+        }.getOrDefault("")
+        blockAppUpdate = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read block app update prefs failed", t)
+        }.getOrDefault(false)
+        hideDynamicCityTab = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.HIDE_DYNAMIC_CITY_TAB, false) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read dynamic city tab prefs failed", t)
+        }.getOrDefault(false)
+        hideDynamicSchoolTab = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.HIDE_DYNAMIC_SCHOOL_TAB, false) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read dynamic school tab prefs failed", t)
+        }.getOrDefault(false)
+        preferDynamicVideoTab = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB, false) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read preferred dynamic video prefs failed", t)
+        }.getOrDefault(false)
+        showFullNumbers = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.SHOW_FULL_NUMBERS, false) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read full number prefs failed", t)
+        }.getOrDefault(false)
+        hidePlayerPortraitControl = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.HIDE_PLAYER_PORTRAIT_CONTROL,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read player portrait prefs failed", t)
+        }.getOrDefault(false)
+        transparentPlayerStatusBar = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read player status bar prefs failed", t)
+        }.getOrDefault(false)
+        removeRelateCommercial = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_RELATE_COMMERCIAL, false) ?: false
+        }.getOrDefault(false)
+        removeRelateGame = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_RELATE_GAME, false) ?: false
+        }.getOrDefault(false)
+        removeRelateLive = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_RELATE_LIVE, false) ?: false
+        }.getOrDefault(false)
+        removeRelateCourse = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_RELATE_COURSE, false) ?: false
+        }.getOrDefault(false)
+        removeRelateSpecial = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_RELATE_SPECIAL, false) ?: false
+        }.getOrDefault(false)
+        playerDefaultQualityQn = runCatching {
+            PlayerQualityConfig.normalize(
+                modulePrefs?.getInt(FeaturePreferences.PLAYER_DEFAULT_QUALITY_QN, 0) ?: 0
+            )
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read player default quality prefs failed", t)
+        }.getOrDefault(0)
+        removeCommentSearchLinks = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read comment search prefs failed", t)
+        }.getOrDefault(false)
+        removeCommentEmptyGuide = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read comment empty guide prefs failed", t)
+        }.getOrDefault(false)
+        removeCommentVoteWidgets = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.REMOVE_COMMENT_VOTE_WIDGETS,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read comment vote prefs failed", t)
+        }.getOrDefault(false)
+        removeCommentFollowButtons = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.REMOVE_COMMENT_FOLLOW_BUTTONS,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read comment follow prefs failed", t)
+        }.getOrDefault(false)
+        removeCommentQoe = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.REMOVE_COMMENT_QOE,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read comment qoe prefs failed", t)
+        }.getOrDefault(false)
+        removeCommentOperations = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.REMOVE_COMMENT_OPERATIONS,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read comment operation prefs failed", t)
+        }.getOrDefault(false)
+        blockCommentQuickReply = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.BLOCK_COMMENT_QUICK_REPLY,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read comment quick reply prefs failed", t)
+        }.getOrDefault(false)
+        commentKeywordFilterEnabled = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.COMMENT_KEYWORD_FILTER_ENABLED,
+                false
+            ) ?: false
+        }.getOrDefault(false)
+        commentFilterKeywords = runCatching {
+            modulePrefs?.getString(FeaturePreferences.COMMENT_FILTER_KEYWORDS, "").orEmpty()
+        }.getOrDefault("")
+        commentMinLevelFilterEnabled = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.COMMENT_MIN_LEVEL_FILTER_ENABLED,
+                false
+            ) ?: false
+        }.getOrDefault(false)
+        commentMinLevel = runCatching {
+            (modulePrefs?.getInt(
+                FeaturePreferences.COMMENT_MIN_LEVEL,
+                CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL
+            ) ?: CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL).coerceIn(1, 6)
+        }.getOrDefault(CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL)
+        blockTeenagersModePrompt = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.BLOCK_TEENAGERS_MODE_PROMPT,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read teenagers mode prefs failed", t)
+        }.getOrDefault(false)
         merchAdEnabled = runCatching {
             modulePrefs?.getBoolean(HookEntry.PREF_MERCH_ENABLED, true) ?: true
         }.onFailure { t ->
@@ -2152,7 +2794,403 @@ class MainActivity : AppViewsActivity() {
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }
-                            // 功能区分隔线（子项 2 与子项 3 之间）
+                        }
+                        // Advanced 分支新增功能统一收纳到默认折叠的“进阶设置”。
+                        LinearLayout(
+                            lparams = LayoutParams(widthMatchParent = true) {
+                                updateMargins(horizontal = 15.dp)
+                                topMargin = 10.dp
+                            },
+                            init = {
+                                orientation = LinearLayout.VERTICAL
+                                gravity = Gravity.CENTER or Gravity.START
+                                background = roundedColor(monetColors.surfaceVariant)
+                                updatePadding(left = 15.dp, top = 5.dp, right = 15.dp, bottom = 5.dp)
+                            }
+                        ) {
+                            LinearLayout(
+                                lparams = LayoutParams(widthMatchParent = true),
+                                init = {
+                                    gravity = Gravity.CENTER or Gravity.START
+                                    updatePadding(vertical = 10.dp)
+                                    setOnClickListener { toggleAdvanced() }
+                                }
+                            ) {
+                                ImageView(
+                                    lparams = LayoutParams(15.dp, 15.dp) {
+                                        marginEnd = 10.dp
+                                    }
+                                ) {
+                                    setImageResource(R.drawable.ic_tune)
+                                    imageTintList = stateColorResource(R.color.colorTextGray)
+                                }
+                                TextView(
+                                    lparams = LayoutParams { weight = 1f }
+                                ) {
+                                    alpha = 0.85f
+                                    isSingleLine = true
+                                    text = stringResource(R.string.advanced_settings)
+                                    textColor = colorResource(R.color.colorTextGray)
+                                    textSize = 12f
+                                }
+                                ImageView(
+                                    lparams = LayoutParams(18.dp, 18.dp)
+                                ) {
+                                    advancedChevron = this
+                                    setImageResource(R.drawable.ic_chevron_down)
+                                    imageTintList = stateColorResource(R.color.colorTextGray)
+                                    alpha = 0.85f
+                                }
+                            }
+                            LinearLayout(
+                                lparams = LayoutParams(widthMatchParent = true),
+                                init = {
+                                    orientation = LinearLayout.VERTICAL
+                                    visibility = View.GONE
+                                    advancedContent = this
+                                    updatePadding(bottom = 10.dp)
+                                }
+                            ) {
+                            // 分类：首页与导航
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.9f
+                                isSingleLine = true
+                                text = stringResource(R.string.advanced_home_navigation_category)
+                                textColor = monetColors.primary
+                                textSize = 12f
+                                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.hide_home_game_menu)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = hideHomeGameMenu
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    hideHomeGameMenu = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.HIDE_HOME_GAME_MENU,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write home game menu prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.hide_home_game_menu_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.hide_home_search_default_word)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = hideHomeSearchDefaultWord
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    hideHomeSearchDefaultWord = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write home search word prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.hide_home_search_default_word_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.home_vertical_open_detail)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = homeVerticalOpenDetail
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    homeVerticalOpenDetail = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write home vertical detail prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.home_vertical_open_detail_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.7f
+                                text = stringResource(R.string.home_recommend_purify_settings)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 11f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_home_recommend_ads)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeHomeRecommendAds
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeHomeRecommendAds = checked
+                                    prefs().edit {
+                                        putBoolean(
+                                            FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS,
+                                            checked
+                                        )
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_home_recommend_pictures)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeHomeRecommendPictures
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeHomeRecommendPictures = checked
+                                    prefs().edit {
+                                        putBoolean(
+                                            FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES,
+                                            checked
+                                        )
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_home_recommend_game_promotions)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeHomeRecommendGamePromotions
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeHomeRecommendGamePromotions = checked
+                                    prefs().edit {
+                                        putBoolean(
+                                            FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS,
+                                            checked
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.home_recommend_purify_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                }
+                            ) {
+                                homeTabRulesSummaryView = this
+                                text = getString(R.string.custom_home_tab_hide) + "\n" +
+                                    ruleSummary(homeTabHiddenRules)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                maxLines = 3
+                                ellipsize = TextUtils.TruncateAt.END
+                                setLineSpacing(5f, 1f)
+                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                background = selfRippleBackground(10f)
+                                isClickable = true
+                                isFocusable = true
+                                setOnClickListener {
+                                    showRuleEditorDialog(
+                                        R.string.custom_home_tab_hide_dialog_title,
+                                        R.string.custom_home_tab_hide_hint,
+                                        homeTabHiddenRules
+                                    ) { value ->
+                                        homeTabHiddenRules = value
+                                        prefs().edit {
+                                            putString(
+                                                FeaturePreferences.HOME_TAB_HIDDEN_RULES,
+                                                value
+                                            )
+                                        }
+                                        homeTabRulesSummaryView?.text =
+                                            getString(R.string.custom_home_tab_hide) + "\n" +
+                                                ruleSummary(value)
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                text = stringResource(R.string.custom_home_tab_hide_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                }
+                            ) {
+                                homeComponentRulesSummaryView = this
+                                text = getString(R.string.custom_home_component_hide) + "\n" +
+                                    ruleSummary(homeComponentHiddenRules)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                maxLines = 3
+                                ellipsize = TextUtils.TruncateAt.END
+                                setLineSpacing(5f, 1f)
+                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                background = selfRippleBackground(10f)
+                                isClickable = true
+                                isFocusable = true
+                                setOnClickListener {
+                                    showRuleEditorDialog(
+                                        R.string.custom_home_component_hide_dialog_title,
+                                        R.string.custom_home_component_hide_hint,
+                                        homeComponentHiddenRules
+                                    ) { value ->
+                                        homeComponentHiddenRules = value
+                                        prefs().edit {
+                                            putString(
+                                                FeaturePreferences.HOME_COMPONENT_HIDDEN_RULES,
+                                                value
+                                            )
+                                        }
+                                        homeComponentRulesSummaryView?.text =
+                                            getString(R.string.custom_home_component_hide) + "\n" +
+                                                ruleSummary(value)
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                text = stringResource(R.string.custom_home_component_hide_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                }
+                            ) {
+                                bottomBarRulesSummaryView = this
+                                text = getString(R.string.custom_bottom_bar_hide) + "\n" +
+                                    ruleSummary(bottomBarHiddenRules)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                maxLines = 3
+                                ellipsize = TextUtils.TruncateAt.END
+                                setLineSpacing(5f, 1f)
+                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                background = selfRippleBackground(10f)
+                                isClickable = true
+                                isFocusable = true
+                                setOnClickListener {
+                                    showRuleEditorDialog(
+                                        R.string.custom_bottom_bar_hide_dialog_title,
+                                        R.string.custom_bottom_bar_hide_hint,
+                                        bottomBarHiddenRules
+                                    ) { value ->
+                                        bottomBarHiddenRules = value
+                                        prefs().edit {
+                                            putString(
+                                                FeaturePreferences.BOTTOM_BAR_HIDDEN_RULES,
+                                                value
+                                            )
+                                        }
+                                        bottomBarRulesSummaryView?.text =
+                                            getString(R.string.custom_bottom_bar_hide) + "\n" +
+                                                ruleSummary(value)
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                text = stringResource(R.string.custom_bottom_bar_hide_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
                             FrameLayout(
                                 lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
                                     topMargin = 14.dp
@@ -2162,7 +3200,1228 @@ class MainActivity : AppViewsActivity() {
                                     setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x40))
                                 }
                             )
-                            // 子项 3：评论区长按自由复制
+                            // 分类：界面与提示
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.9f
+                                isSingleLine = true
+                                text = stringResource(R.string.advanced_interface_category)
+                                textColor = monetColors.primary
+                                textSize = 12f
+                                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.hide_mine_vip)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = hideMineVip
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    hideMineVip = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.HIDE_MINE_VIP,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write mine vip prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.hide_mine_vip_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.keep_mine_vip_space)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = keepMineVipSpace
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    keepMineVipSpace = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.KEEP_MINE_VIP_SPACE,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write mine vip space prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.keep_mine_vip_space_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                }
+                            ) {
+                                mineComponentRulesSummaryView = this
+                                text = getString(R.string.custom_mine_component_hide) + "\n" +
+                                    ruleSummary(mineComponentHiddenRules)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                maxLines = 3
+                                ellipsize = TextUtils.TruncateAt.END
+                                setLineSpacing(5f, 1f)
+                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                background = selfRippleBackground(10f)
+                                isClickable = true
+                                isFocusable = true
+                                setOnClickListener {
+                                    showRuleEditorDialog(
+                                        R.string.custom_mine_component_hide_dialog_title,
+                                        R.string.custom_mine_component_hide_hint,
+                                        mineComponentHiddenRules
+                                    ) { value ->
+                                        mineComponentHiddenRules = value
+                                        prefs().edit {
+                                            putString(
+                                                FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES,
+                                                value
+                                            )
+                                        }
+                                        mineComponentRulesSummaryView?.text =
+                                            getString(R.string.custom_mine_component_hide) + "\n" +
+                                                ruleSummary(value)
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                text = stringResource(R.string.custom_mine_component_hide_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            FrameLayout(
+                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 14.dp
+                                },
+                                init = {
+                                    setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x40))
+                                }
+                            )
+                            // 子项 5：客户端更新（新功能默认关闭）
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.7f
+                                isSingleLine = true
+                                text = stringResource(R.string.client_update_settings)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 11f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.block_app_update)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = blockAppUpdate
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    blockAppUpdate = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.BLOCK_APP_UPDATE,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write block app update prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.block_app_update_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            FrameLayout(
+                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 14.dp
+                                },
+                                init = {
+                                    setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x40))
+                                }
+                            )
+                            // 子项 6：动态页标签净化（新功能默认关闭）
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.7f
+                                isSingleLine = true
+                                text = stringResource(R.string.dynamic_page_settings)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 11f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.hide_dynamic_city_tab)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = hideDynamicCityTab
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    hideDynamicCityTab = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.HIDE_DYNAMIC_CITY_TAB,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write dynamic city tab prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.hide_dynamic_city_tab_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.hide_dynamic_school_tab)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = hideDynamicSchoolTab
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    hideDynamicSchoolTab = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.HIDE_DYNAMIC_SCHOOL_TAB,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write dynamic school tab prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.hide_dynamic_school_tab_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.prefer_dynamic_video_tab)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = preferDynamicVideoTab
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    preferDynamicVideoTab = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write preferred dynamic video prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.prefer_dynamic_video_tab_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            FrameLayout(
+                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 14.dp
+                                },
+                                init = {
+                                    setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x40))
+                                }
+                            )
+                            // 子项 7：完整数字显示（新功能默认关闭）
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.7f
+                                isSingleLine = true
+                                text = stringResource(R.string.number_display_settings)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 11f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.show_full_numbers)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = showFullNumbers
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    showFullNumbers = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.SHOW_FULL_NUMBERS,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write full number prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.show_full_numbers_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            FrameLayout(
+                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 14.dp
+                                },
+                                init = {
+                                    setBackgroundColor(
+                                        ColorUtils.setAlphaComponent(
+                                            colorResource(R.color.colorTextGray),
+                                            0x40
+                                        )
+                                    )
+                                }
+                            )
+                            // 子项 8：青少年模式提示页（新功能默认关闭）
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.7f
+                                isSingleLine = true
+                                text = stringResource(R.string.prompt_purify_settings)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 11f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.block_teenagers_mode_prompt)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = blockTeenagersModePrompt
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    blockTeenagersModePrompt = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.BLOCK_TEENAGERS_MODE_PROMPT,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write teenagers mode prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.block_teenagers_mode_prompt_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            FrameLayout(
+                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 14.dp
+                                },
+                                init = {
+                                    setBackgroundColor(
+                                        ColorUtils.setAlphaComponent(
+                                            colorResource(R.color.colorTextGray),
+                                            0x40
+                                        )
+                                    )
+                                }
+                            )
+                            // 分类：播放与视频
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.9f
+                                isSingleLine = true
+                                text = stringResource(R.string.advanced_playback_category)
+                                textColor = monetColors.primary
+                                textSize = 12f
+                                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.hide_player_portrait_control)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = hidePlayerPortraitControl
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    hidePlayerPortraitControl = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.HIDE_PLAYER_PORTRAIT_CONTROL,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write player portrait prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.hide_player_portrait_control_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.transparent_player_status_bar)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = transparentPlayerStatusBar
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    transparentPlayerStatusBar = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write player status bar prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.transparent_player_status_bar_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.7f
+                                text = stringResource(R.string.story_purify_settings)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 11f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_story_ads)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeStoryAds
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeStoryAds = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_STORY_ADS, checked)
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_story_live)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeStoryLive
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeStoryLive = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_STORY_LIVE, checked)
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_story_games)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeStoryGames
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeStoryGames = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_STORY_GAMES, checked)
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.story_purify_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.7f
+                                text = stringResource(R.string.video_relate_filter_settings)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 11f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) { bottomMargin = 5.dp }
+                            ) {
+                                text = stringResource(R.string.remove_relate_commercial)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeRelateCommercial
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeRelateCommercial = checked
+                                    prefs().edit {
+                                        putBoolean(
+                                            FeaturePreferences.REMOVE_RELATE_COMMERCIAL,
+                                            checked
+                                        )
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_relate_game)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeRelateGame
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeRelateGame = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_RELATE_GAME, checked)
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_relate_live)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeRelateLive
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeRelateLive = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_RELATE_LIVE, checked)
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_relate_course)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeRelateCourse
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeRelateCourse = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_RELATE_COURSE, checked)
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_relate_special)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeRelateSpecial
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeRelateSpecial = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_RELATE_SPECIAL, checked)
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.video_relate_filter_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            LinearLayout(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                },
+                                init = {
+                                    orientation = LinearLayout.VERTICAL
+                                    background = selfRippleBackground(10f)
+                                    updatePadding(horizontal = 4.dp, vertical = 9.dp)
+                                    isClickable = true
+                                    isFocusable = true
+                                    setOnClickListener { showPlayerQualityDialog() }
+                                }
+                            ) {
+                                TextView(
+                                    lparams = LayoutParams(widthMatchParent = true)
+                                ) {
+                                    text = stringResource(R.string.player_default_quality)
+                                    textColor = colorResource(R.color.colorTextGray)
+                                    textSize = 15f
+                                }
+                                TextView(
+                                    lparams = LayoutParams(widthMatchParent = true) {
+                                        topMargin = 5.dp
+                                    }
+                                ) {
+                                    alpha = 0.6f
+                                    setLineSpacing(6f, 1f)
+                                    text = stringResource(
+                                        R.string.player_default_quality_current,
+                                        playerQualityLabel(playerDefaultQualityQn)
+                                    )
+                                    textColor = colorResource(R.color.colorTextDark)
+                                    textSize = 12f
+                                    playerQualitySummaryView = this
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.player_default_quality_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            FrameLayout(
+                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 14.dp
+                                },
+                                init = {
+                                    setBackgroundColor(
+                                        ColorUtils.setAlphaComponent(
+                                            colorResource(R.color.colorTextGray),
+                                            0x40
+                                        )
+                                    )
+                                }
+                            )
+                            // 分类：评论区
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.9f
+                                isSingleLine = true
+                                text = stringResource(R.string.advanced_comment_category)
+                                textColor = monetColors.primary
+                                textSize = 12f
+                                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_comment_search_links)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeCommentSearchLinks
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    removeCommentSearchLinks = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write comment search prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.remove_comment_search_links_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_comment_empty_guide)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeCommentEmptyGuide
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    removeCommentEmptyGuide = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write comment empty guide prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.remove_comment_empty_guide_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_comment_vote_widgets)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeCommentVoteWidgets
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    removeCommentVoteWidgets = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.REMOVE_COMMENT_VOTE_WIDGETS,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write comment vote prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.remove_comment_vote_widgets_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_comment_follow_buttons)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeCommentFollowButtons
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    removeCommentFollowButtons = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.REMOVE_COMMENT_FOLLOW_BUTTONS,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write comment follow prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.remove_comment_follow_buttons_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_comment_qoe)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeCommentQoe
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    removeCommentQoe = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.REMOVE_COMMENT_QOE,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write comment qoe prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.remove_comment_qoe_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_comment_operations)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeCommentOperations
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    removeCommentOperations = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.REMOVE_COMMENT_OPERATIONS,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write comment operation prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.remove_comment_operations_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.block_comment_quick_reply)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = blockCommentQuickReply
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    blockCommentQuickReply = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.BLOCK_COMMENT_QUICK_REPLY,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write comment quick reply prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.block_comment_quick_reply_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.comment_keyword_filter)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = commentKeywordFilterEnabled
+                                setOnCheckedChangeListener { _, checked ->
+                                    commentKeywordFilterEnabled = checked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.COMMENT_KEYWORD_FILTER_ENABLED,
+                                                checked
+                                            )
+                                        }
+                                    }.onFailure { throwable ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write comment keyword filter prefs failed",
+                                            throwable
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                commentKeywordSummaryView = this
+                                text = getString(R.string.comment_keyword_rules) + "\n" +
+                                    if (commentFilterKeywords.isBlank()) {
+                                        getString(R.string.comment_keyword_rules_empty)
+                                    } else {
+                                        getString(
+                                            R.string.comment_keyword_rules_current,
+                                            commentFilterKeywords
+                                        )
+                                    }
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                maxLines = 3
+                                ellipsize = TextUtils.TruncateAt.END
+                                setLineSpacing(5f, 1f)
+                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                background = selfRippleBackground(10f)
+                                isClickable = true
+                                isFocusable = true
+                                setOnClickListener {
+                                    showRuleEditorDialog(
+                                        R.string.comment_keyword_dialog_title,
+                                        R.string.comment_keyword_dialog_hint,
+                                        commentFilterKeywords
+                                    ) { value ->
+                                        commentFilterKeywords = value
+                                        prefs().edit {
+                                            putString(
+                                                FeaturePreferences.COMMENT_FILTER_KEYWORDS,
+                                                value
+                                            )
+                                        }
+                                        commentKeywordSummaryView?.text =
+                                            getString(R.string.comment_keyword_rules) + "\n" +
+                                                if (value.isBlank()) {
+                                                    getString(R.string.comment_keyword_rules_empty)
+                                                } else {
+                                                    getString(
+                                                        R.string.comment_keyword_rules_current,
+                                                        value
+                                                    )
+                                                }
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.comment_keyword_filter_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.comment_min_level_filter)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = commentMinLevelFilterEnabled
+                                setOnCheckedChangeListener { _, checked ->
+                                    commentMinLevelFilterEnabled = checked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.COMMENT_MIN_LEVEL_FILTER_ENABLED,
+                                                checked
+                                            )
+                                        }
+                                    }.onFailure { throwable ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write comment minimum level filter prefs failed",
+                                            throwable
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                commentLevelSummaryView = this
+                                text = getString(R.string.comment_min_level_current, commentMinLevel)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                background = selfRippleBackground(10f)
+                                isClickable = true
+                                isFocusable = true
+                                setOnClickListener { showCommentMinLevelDialog() }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.comment_min_level_filter_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            }
+                        }
+                        Space(lparams = LayoutParams(height = 10.dp))
+                        // 分支前已有的自由复制功能保持独立，不归入进阶设置。
+                        LinearLayout(
+                            lparams = LayoutParams(widthMatchParent = true) {
+                                updateMargins(horizontal = 15.dp)
+                            },
+                            init = {
+                                orientation = LinearLayout.VERTICAL
+                                gravity = Gravity.CENTER or Gravity.START
+                                background = roundedColor(monetColors.surfaceVariant)
+                                updatePadding(left = 15.dp, top = 15.dp, right = 15.dp, bottom = 15.dp)
+                            }
+                        ) {
+                            // 子项 10：评论区长按自由复制
                             TextView(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     bottomMargin = 4.dp
@@ -2719,6 +4978,8 @@ class MainActivity : AppViewsActivity() {
             }
         }
 
+        // setContentView 返回后尚未进入首帧绘制，此时重排不会产生界面跳动。
+        placeAdvancedBelowExperimental()
         // 布局完成后定位日志档位滑块（宽度收缩为一半 + 对齐当前档位）
         findViewById<View>(Android_R.id.content).post {
             positionLogLevelThumb()
