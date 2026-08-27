@@ -2734,6 +2734,10 @@ class HookEntry : IYukiHookXposedInit {
                 listOf(
                     MineVipFeatureInstaller(
                         enabled = prefs.getBoolean(FeaturePreferences.HIDE_MINE_VIP, false),
+                        keepSpace = prefs.getBoolean(
+                            FeaturePreferences.KEEP_MINE_VIP_SPACE,
+                            false
+                        ),
                         point = hostAdaptResult?.mineVip
                     )
                 )
@@ -2841,6 +2845,10 @@ class HookEntry : IYukiHookXposedInit {
                         ),
                         removeOperations = prefs.getBoolean(
                             FeaturePreferences.REMOVE_COMMENT_OPERATIONS,
+                            false
+                        ),
+                        blockQuickReply = prefs.getBoolean(
+                            FeaturePreferences.BLOCK_COMMENT_QUICK_REPLY,
                             false
                         ),
                         points = hostAdaptResult?.commentPurify

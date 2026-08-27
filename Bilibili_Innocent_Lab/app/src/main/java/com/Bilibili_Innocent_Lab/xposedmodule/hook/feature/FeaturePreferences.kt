@@ -5,6 +5,7 @@ internal object FeaturePreferences {
     const val HIDE_HOME_GAME_MENU = "hide_home_game_menu"
     const val HIDE_HOME_SEARCH_DEFAULT_WORD = "hide_home_search_default_word"
     const val HIDE_MINE_VIP = "hide_mine_vip"
+    const val KEEP_MINE_VIP_SPACE = "keep_mine_vip_space"
     const val BLOCK_APP_UPDATE = "block_app_update"
     const val HIDE_DYNAMIC_CITY_TAB = "hide_dynamic_city_tab"
     const val HIDE_DYNAMIC_SCHOOL_TAB = "hide_dynamic_school_tab"
@@ -19,4 +20,5 @@ internal object FeaturePreferences {
     const val REMOVE_COMMENT_FOLLOW_BUTTONS = "remove_comment_follow_buttons"
     const val REMOVE_COMMENT_QOE = "remove_comment_qoe"
     const val REMOVE_COMMENT_OPERATIONS = "remove_comment_operations"
+    const val BLOCK_COMMENT_QUICK_REPLY = "block_comment_quick_reply"
 }
