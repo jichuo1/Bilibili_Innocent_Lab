@@ -106,6 +106,7 @@ class MainActivity : AppViewsActivity() {
     private var preferDynamicVideoTab = false
     private var showFullNumbers = false
     private var hidePlayerPortraitControl = false
+    private var blockTeenagersModePrompt = false
     private var removeCommentSearchLinks = false
     private var removeCommentEmptyGuide = false
     private var removeCommentVoteWidgets = false
@@ -1766,6 +1767,14 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read comment operation prefs failed", t)
         }.getOrDefault(false)
+        blockTeenagersModePrompt = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.BLOCK_TEENAGERS_MODE_PROMPT,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read teenagers mode prefs failed", t)
+        }.getOrDefault(false)
         merchAdEnabled = runCatching {
             modulePrefs?.getBoolean(HookEntry.PREF_MERCH_ENABLED, true) ?: true
         }.onFailure { t ->
@@ -2686,7 +2695,70 @@ class MainActivity : AppViewsActivity() {
                                     )
                                 }
                             )
-                            // 子项 8：播放器竖屏切换控件（新功能默认关闭）
+                            // 子项 8：青少年模式提示页（新功能默认关闭）
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.7f
+                                isSingleLine = true
+                                text = stringResource(R.string.prompt_purify_settings)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 11f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.block_teenagers_mode_prompt)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = blockTeenagersModePrompt
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    blockTeenagersModePrompt = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.BLOCK_TEENAGERS_MODE_PROMPT,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write teenagers mode prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.block_teenagers_mode_prompt_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            FrameLayout(
+                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 14.dp
+                                },
+                                init = {
+                                    setBackgroundColor(
+                                        ColorUtils.setAlphaComponent(
+                                            colorResource(R.color.colorTextGray),
+                                            0x40
+                                        )
+                                    )
+                                }
+                            )
+                            // 子项 9：播放器竖屏切换控件（新功能默认关闭）
                             TextView(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     bottomMargin = 4.dp
@@ -2749,7 +2821,7 @@ class MainActivity : AppViewsActivity() {
                                     )
                                 }
                             )
-                            // 子项 9：评论区搜索跳转净化（新功能默认关闭）
+                            // 子项 10：评论区搜索跳转净化（新功能默认关闭）
                             TextView(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     bottomMargin = 4.dp
