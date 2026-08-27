@@ -223,6 +223,51 @@ class VersionAdapterTest {
                 )
             )
         ),
+        storyFeed = VersionAdapter.StoryFeedPoints(
+            responseItemGetters = listOf(
+                VersionAdapter.HookPoint(
+                    "com.bilibili.video.story.api.StoryFeedResponse",
+                    "getItems",
+                    emptyList()
+                )
+            ),
+            pagerListMethods = listOf(
+                VersionAdapter.HookPoint(
+                    "com.bilibili.video.story.player.StoryPagerPlayer",
+                    "append",
+                    listOf("java.util.List")
+                )
+            ),
+            adGetter = VersionAdapter.HookPoint(
+                "com.bilibili.video.story.StoryDetail",
+                "isAd",
+                emptyList()
+            ),
+            liveGetter = VersionAdapter.HookPoint(
+                "com.bilibili.video.story.StoryDetail",
+                "isLive",
+                emptyList()
+            ),
+            gameGetter = VersionAdapter.HookPoint(
+                "com.bilibili.video.story.StoryDetail",
+                "isGame",
+                emptyList()
+            )
+        ),
+        bottomBar = VersionAdapter.BottomBarPoints(
+            tabsGetter = VersionAdapter.HookPoint(
+                "com.bilibili.lib.homepage.widget.TabHost",
+                "getTabs",
+                emptyList()
+            ),
+            bindTabMethod = VersionAdapter.HookPoint(
+                "com.bilibili.lib.homepage.widget.TabHost",
+                "bind",
+                listOf("int", "android.view.View")
+            ),
+            itemClassName = "com.bilibili.lib.homepage.widget.TabHost\$h",
+            itemStringFields = listOf("name", "uri")
+        ),
         playerQuality = VersionAdapter.PlayerQualityPoints(
             VersionAdapter.HookPoint("gh6.h", "c", emptyList())
         ),
@@ -345,7 +390,7 @@ class VersionAdapterTest {
                 )
             )
         ),
-        hostFingerprint = "host|9090300|rules=19",
+        hostFingerprint = "host|9090300|rules=20",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -536,6 +581,27 @@ class VersionAdapterTest {
 
         assertEquals(setOf("getItemList"), points?.itemListGetters?.map { it.methodName }?.toSet())
         assertEquals(setOf("getTitle"), points?.itemTitleGetters?.map { it.methodName }?.toSet())
+    }
+
+    @Test
+    fun `locates story list boundaries and exact public type getters`() {
+        val points = VersionAdapter.locateStoryFeed(requireNotNull(javaClass.classLoader))
+
+        assertEquals(setOf("getItems"), points?.responseItemGetters?.map { it.methodName }?.toSet())
+        assertEquals(setOf("append", "insert"), points?.pagerListMethods?.map { it.methodName }?.toSet())
+        assertEquals("isAd", points?.adGetter?.methodName)
+        assertEquals("isLive", points?.liveGetter?.methodName)
+        assertEquals("isGame", points?.gameGetter?.methodName)
+    }
+
+    @Test
+    fun `locates bottom tab public list and structural bind method`() {
+        val points = VersionAdapter.locateBottomBar(requireNotNull(javaClass.classLoader))
+
+        assertEquals("getTabs", points?.tabsGetter?.methodName)
+        assertEquals("bind", points?.bindTabMethod?.methodName)
+        assertEquals("com.bilibili.lib.homepage.widget.TabHost\$h", points?.itemClassName)
+        assertEquals(listOf("name", "uri"), points?.itemStringFields)
     }
 
     @Test

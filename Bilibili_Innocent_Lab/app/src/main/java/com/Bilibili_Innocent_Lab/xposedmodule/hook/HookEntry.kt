@@ -25,6 +25,7 @@ import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BlockUpdateFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BottomBarFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DynamicTabsFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallCoordinator
@@ -45,6 +46,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentFilterFe
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PausedAdFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPortraitFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerStatusBarFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.StoryPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TeenagersModeFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoRelateFilterFeatureInstaller
@@ -2862,6 +2864,33 @@ class HookEntry : IYukiHookXposedInit {
                             ""
                         ).orEmpty(),
                         points = hostAdaptResult?.homeComponents
+                    ),
+                    BottomBarFeatureInstaller(
+                        rules = prefs.getString(
+                            FeaturePreferences.BOTTOM_BAR_HIDDEN_RULES,
+                            ""
+                        ).orEmpty(),
+                        points = hostAdaptResult?.bottomBar
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    StoryPurifyFeatureInstaller(
+                        removeAds = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_STORY_ADS,
+                            false
+                        ),
+                        removeLive = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_STORY_LIVE,
+                            false
+                        ),
+                        removeGames = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_STORY_GAMES,
+                            false
+                        ),
+                        points = hostAdaptResult?.storyFeed
                     )
                 )
             )
