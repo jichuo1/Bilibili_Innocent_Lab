@@ -6,7 +6,7 @@ import android.view.View
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
-import com.highcapable.betterandroid.system.extension.tool.AndroidVersion
+import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
 
 /** 仅在 Adapter 确认的视频详情 Activity 生命周期末尾应用透明播放器状态栏。 */
 internal class PlayerStatusBarFeatureInstaller(
