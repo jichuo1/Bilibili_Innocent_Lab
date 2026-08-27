@@ -16,7 +16,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.widget.Toast
 import android.text.TextUtils
 import android.text.util.Linkify
 import android.view.Gravity
@@ -37,7 +36,10 @@ import com.highcapable.betterandroid.system.extension.component.disableComponent
 import com.highcapable.betterandroid.system.extension.component.enableComponent
 import com.highcapable.betterandroid.system.extension.component.isComponentEnabled
 import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
+import com.highcapable.betterandroid.ui.extension.view.parentOrNull
 import com.highcapable.betterandroid.ui.extension.view.textColor
+import com.highcapable.betterandroid.ui.extension.view.textToString
+import com.highcapable.betterandroid.ui.extension.view.toast
 import com.highcapable.betterandroid.ui.extension.view.updateMargins
 import com.highcapable.betterandroid.ui.extension.view.updatePadding
 import com.highcapable.betterandroid.ui.extension.view.updateTypeface
@@ -271,8 +273,8 @@ class MainActivity : AppViewsActivity() {
             interpolator = emphasizedDecelerate
             addUpdateListener { a ->
                 val f = a.animatedValue as Float
-                minimal.setTextColor(argbLerp(fromMinimalColor, toMinimalColor, f))
-                complete.setTextColor(argbLerp(fromCompleteColor, toCompleteColor, f))
+                minimal.textColor = argbLerp(fromMinimalColor, toMinimalColor, f)
+                complete.textColor = argbLerp(fromCompleteColor, toCompleteColor, f)
             }
             start()
         }
@@ -346,7 +348,7 @@ class MainActivity : AppViewsActivity() {
         container.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.restart_bilibili_confirm_title)
-                setTextColor(getColor(R.color.colorTextDark))
+                textColor = getColor(R.color.colorTextDark)
                 textSize = 17f
                 setLineSpacing(4 * density, 1f)
             },
@@ -363,7 +365,7 @@ class MainActivity : AppViewsActivity() {
         buttonRow.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.dialog_cancel)
-                setTextColor(getColor(R.color.colorTextGray))
+                textColor = getColor(R.color.colorTextGray)
                 textSize = 15f
                 gravity = Gravity.CENTER
                 setPadding((20 * density).toInt(), (11 * density).toInt(), (20 * density).toInt(), (11 * density).toInt())
@@ -378,7 +380,7 @@ class MainActivity : AppViewsActivity() {
         buttonRow.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.dialog_confirm)
-                setTextColor(monetColors.onPrimary)
+                textColor = monetColors.onPrimary
                 textSize = 15f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 gravity = Gravity.CENTER
@@ -492,7 +494,7 @@ class MainActivity : AppViewsActivity() {
         container.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.github_menu_title)
-                setTextColor(getColor(R.color.colorTextDark))
+                textColor = getColor(R.color.colorTextDark)
                 textSize = 17f
                 setLineSpacing(4 * density, 1f)
             },
@@ -550,7 +552,7 @@ class MainActivity : AppViewsActivity() {
         buttonRow.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.dialog_close)
-                setTextColor(getColor(R.color.colorTextGray))
+                textColor = getColor(R.color.colorTextGray)
                 textSize = 15f
                 gravity = Gravity.CENTER
                 setPadding(
@@ -610,10 +612,8 @@ class MainActivity : AppViewsActivity() {
             addView(
                 NativeTextView(this@MainActivity).apply {
                     text = title
-                    setTextColor(
-                        if (highlight) monetColors.primary
-                        else getColor(R.color.colorTextGray)
-                    )
+                    textColor = if (highlight) monetColors.primary
+                    else getColor(R.color.colorTextGray)
                     textSize = 16f
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 },
@@ -625,7 +625,7 @@ class MainActivity : AppViewsActivity() {
             addView(
                 NativeTextView(this@MainActivity).apply {
                     text = subtitle
-                    setTextColor(getColor(R.color.colorTextDark))
+                    textColor = getColor(R.color.colorTextDark)
                     textSize = 12f
                     alpha = 0.72f
                     setLineSpacing(3 * density, 1f)
@@ -649,7 +649,7 @@ class MainActivity : AppViewsActivity() {
         container.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.update_channel)
-                setTextColor(getColor(R.color.colorTextDark))
+                textColor = getColor(R.color.colorTextDark)
                 textSize = 17f
                 setLineSpacing(4 * density, 1f)
             },
@@ -695,7 +695,7 @@ class MainActivity : AppViewsActivity() {
         buttonRow.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.dialog_close)
-                setTextColor(getColor(R.color.colorTextGray))
+                textColor = getColor(R.color.colorTextGray)
                 textSize = 15f
                 gravity = Gravity.CENTER
                 setPadding(
@@ -1017,7 +1017,7 @@ class MainActivity : AppViewsActivity() {
         val request = UpdateCheckCoordinator.Request(channel, manual)
         val requestToStart = updateCheckCoordinator.submit(request)
         if (requestToStart == null) {
-            if (manual) Toast.makeText(this, checkingToastRes(channel), Toast.LENGTH_SHORT).show()
+            if (manual) toast(getString(checkingToastRes(channel)))
             return
         }
         startUpdateCheck(requestToStart, updatePrefs)
@@ -1030,7 +1030,7 @@ class MainActivity : AppViewsActivity() {
     ) {
         val channel = request.channel
         if (request.manual) {
-            Toast.makeText(this, checkingToastRes(channel), Toast.LENGTH_SHORT).show()
+            toast(getString(checkingToastRes(channel)))
         }
         val activityRef = WeakReference(this)
         Thread({
@@ -1053,11 +1053,7 @@ class MainActivity : AppViewsActivity() {
                         onFailure = { error ->
                             Log.w("BilibiliInnocentLab", "release check failed", error)
                             if (request.manual) {
-                                Toast.makeText(
-                                    activity,
-                                    activity.failedToastRes(channel),
-                                    Toast.LENGTH_SHORT
-                                ).show()
+                                activity.toast(activity.getString(activity.failedToastRes(channel)))
                             }
                         }
                     )
@@ -1102,15 +1098,15 @@ class MainActivity : AppViewsActivity() {
                     } else {
                         latestToastRes(channel)
                     }
-                    Toast.makeText(this, resId, Toast.LENGTH_SHORT).show()
+                    toast(getString(resId))
                 }
             }
             GitHubReleaseChecker.VersionRelation.EQUAL -> {
-                if (manual) Toast.makeText(this, latestToastRes(channel), Toast.LENGTH_SHORT).show()
+                if (manual) toast(getString(latestToastRes(channel)))
             }
             null -> {
                 // 两侧标签应已被解析器保证合法；异常到达时按无更新处理，不打扰用户。
-                if (manual) Toast.makeText(this, latestToastRes(channel), Toast.LENGTH_SHORT).show()
+                if (manual) toast(getString(latestToastRes(channel)))
             }
         }
     }
@@ -1149,7 +1145,7 @@ class MainActivity : AppViewsActivity() {
                 } else {
                     getString(R.string.update_available_title, release.displayName)
                 }
-                setTextColor(getColor(R.color.colorTextDark))
+                textColor = getColor(R.color.colorTextDark)
                 textSize = 19f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 setLineSpacing(4 * density, 1f)
@@ -1164,7 +1160,7 @@ class MainActivity : AppViewsActivity() {
             container.addView(
                 NativeTextView(this).apply {
                     text = getString(R.string.update_available_prerelease_note)
-                    setTextColor(0xFFFF5722.toInt())
+                    textColor = 0xFFFF5722.toInt()
                     textSize = 12f
                     setLineSpacing(3 * density, 1f)
                 },
@@ -1182,7 +1178,7 @@ class MainActivity : AppViewsActivity() {
                     BuildConfig.VERSION_NAME,
                     release.tagName
                 )
-                setTextColor(getColor(R.color.colorTextGray))
+                textColor = getColor(R.color.colorTextGray)
                 textSize = 14f
                 setLineSpacing(4 * density, 1f)
             },
@@ -1196,7 +1192,7 @@ class MainActivity : AppViewsActivity() {
             container.addView(
                 NativeTextView(this).apply {
                     text = release.releaseNotes
-                    setTextColor(getColor(R.color.colorTextDark))
+                    textColor = getColor(R.color.colorTextDark)
                     textSize = 12f
                     alpha = 0.78f
                     maxLines = 7
@@ -1217,7 +1213,7 @@ class MainActivity : AppViewsActivity() {
         buttonRow.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.update_later)
-                setTextColor(getColor(R.color.colorTextGray))
+                textColor = getColor(R.color.colorTextGray)
                 textSize = 15f
                 gravity = Gravity.CENTER
                 setPadding(
@@ -1235,7 +1231,7 @@ class MainActivity : AppViewsActivity() {
         buttonRow.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.update_details)
-                setTextColor(monetColors.primary)
+                textColor = monetColors.primary
                 textSize = 15f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 gravity = Gravity.CENTER
@@ -1262,7 +1258,7 @@ class MainActivity : AppViewsActivity() {
         buttonRow.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.update_now)
-                setTextColor(monetColors.onPrimary)
+                textColor = monetColors.onPrimary
                 textSize = 15f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 gravity = Gravity.CENTER
@@ -1313,7 +1309,7 @@ class MainActivity : AppViewsActivity() {
     }
 
     private fun openReleaseDetailsWithFallback(officialUrl: String) {
-        Toast.makeText(this, R.string.update_details_opening, Toast.LENGTH_SHORT).show()
+        toast(getString(R.string.update_details_opening))
         val activityRef = WeakReference(this)
         Thread({
             val result = runCatching {
@@ -1325,21 +1321,13 @@ class MainActivity : AppViewsActivity() {
                 result.fold(
                     onSuccess = { destination ->
                         if (destination.usesMirror) {
-                            Toast.makeText(
-                                activity,
-                                R.string.update_details_using_mirror,
-                                Toast.LENGTH_SHORT
-                            ).show()
+                            activity.toast(activity.getString(R.string.update_details_using_mirror))
                         }
                         activity.openExternalUrl(destination.url)
                     },
                     onFailure = { error ->
                         Log.w("BilibiliInnocentLab", "release details resolution failed", error)
-                        Toast.makeText(
-                            activity,
-                            R.string.open_link_failed,
-                            Toast.LENGTH_SHORT
-                        ).show()
+                        activity.toast(activity.getString(R.string.open_link_failed))
                     }
                 )
             }
@@ -1441,7 +1429,7 @@ class MainActivity : AppViewsActivity() {
         container.addView(
             NativeTextView(this).apply {
                 text = getString(titleRes)
-                setTextColor(getColor(R.color.colorTextDark))
+                textColor = getColor(R.color.colorTextDark)
                 textSize = 17f
                 setLineSpacing(4 * density, 1f)
             },
@@ -1455,7 +1443,7 @@ class MainActivity : AppViewsActivity() {
             setText(initialValue)
             setSelection(text.length)
             hint = getString(hintRes)
-            setTextColor(getColor(R.color.colorTextDark))
+            textColor = getColor(R.color.colorTextDark)
             setHintTextColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x99))
             textSize = 14f
             gravity = Gravity.TOP or Gravity.START
@@ -1495,7 +1483,7 @@ class MainActivity : AppViewsActivity() {
         buttonRow.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.dialog_cancel)
-                setTextColor(getColor(R.color.colorTextGray))
+                textColor = getColor(R.color.colorTextGray)
                 textSize = 15f
                 gravity = Gravity.CENTER
                 setPadding(
@@ -1513,7 +1501,7 @@ class MainActivity : AppViewsActivity() {
         buttonRow.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.dialog_confirm)
-                setTextColor(monetColors.onPrimary)
+                textColor = monetColors.onPrimary
                 textSize = 15f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 gravity = Gravity.CENTER
@@ -1542,7 +1530,7 @@ class MainActivity : AppViewsActivity() {
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
-                    val value = editor.text.toString().trim()
+                    val value = editor.textToString().trim()
                     dismissWithAnimation(dialog, container) { onConfirm(value) }
                 }
             },
@@ -1570,7 +1558,7 @@ class MainActivity : AppViewsActivity() {
     private fun openExternalUrl(url: String) {
         val uri = Uri.parse(url)
         if (uri.scheme != "https") {
-            Toast.makeText(this, R.string.open_link_failed, Toast.LENGTH_SHORT).show()
+            toast(getString(R.string.open_link_failed))
             return
         }
         try {
@@ -1580,7 +1568,7 @@ class MainActivity : AppViewsActivity() {
                 }
             )
         } catch (_: ActivityNotFoundException) {
-            Toast.makeText(this, R.string.open_link_failed, Toast.LENGTH_SHORT).show()
+            toast(getString(R.string.open_link_failed))
         }
     }
 
@@ -1621,7 +1609,7 @@ class MainActivity : AppViewsActivity() {
         container.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.free_copy_light_mode_confirm_title)
-                setTextColor(getColor(R.color.colorTextDark))
+                textColor = getColor(R.color.colorTextDark)
                 textSize = 17f
                 setLineSpacing(4 * density, 1f)
             },
@@ -1636,7 +1624,7 @@ class MainActivity : AppViewsActivity() {
         buttonRow.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.dialog_cancel)
-                setTextColor(getColor(R.color.colorTextGray))
+                textColor = getColor(R.color.colorTextGray)
                 textSize = 15f
                 gravity = Gravity.CENTER
                 setPadding((20 * density).toInt(), (11 * density).toInt(), (20 * density).toInt(), (11 * density).toInt())
@@ -1653,7 +1641,7 @@ class MainActivity : AppViewsActivity() {
         buttonRow.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.dialog_confirm)
-                setTextColor(monetColors.onPrimary)
+                textColor = monetColors.onPrimary
                 textSize = 15f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 gravity = Gravity.CENTER
@@ -1740,7 +1728,7 @@ class MainActivity : AppViewsActivity() {
             if (freeCopyAutoLight) R.string.free_copy_light_mode_auto_tip
             else R.string.free_copy_light_mode_tip
         )
-        if (tv.text?.toString() == newText) return
+        if (tv.textToString() == newText) return
         tv.animate().cancel()
         // 淡出 → 换文本（此时不可见，父布局重排无割裂感）→ 淡入
         tv.animate()
@@ -1783,7 +1771,7 @@ class MainActivity : AppViewsActivity() {
         container.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.adapt_clear_confirm_title)
-                setTextColor(getColor(R.color.colorTextDark))
+                textColor = getColor(R.color.colorTextDark)
                 textSize = 17f
                 setLineSpacing(4 * density, 1f)
             },
@@ -1798,7 +1786,7 @@ class MainActivity : AppViewsActivity() {
         buttonRow.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.dialog_cancel)
-                setTextColor(getColor(R.color.colorTextGray))
+                textColor = getColor(R.color.colorTextGray)
                 textSize = 15f
                 gravity = Gravity.CENTER
                 setPadding((20 * density).toInt(), (11 * density).toInt(), (20 * density).toInt(), (11 * density).toInt())
@@ -1812,7 +1800,7 @@ class MainActivity : AppViewsActivity() {
         buttonRow.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.dialog_confirm)
-                setTextColor(monetColors.onPrimary)
+                textColor = monetColors.onPrimary
                 textSize = 15f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 gravity = Gravity.CENTER
@@ -1830,7 +1818,7 @@ class MainActivity : AppViewsActivity() {
                 setOnClickListener {
                     dismissWithAnimation(dialog, container) {
                         runCatching { VersionAdapter.clearCache(this@MainActivity, runCatching { prefs() }.getOrNull()) }
-                        Toast.makeText(this@MainActivity, getString(R.string.adapt_manual_done), Toast.LENGTH_SHORT).show()
+                        this@MainActivity.toast(getString(R.string.adapt_manual_done))
                     }
                 }
             },
@@ -1898,12 +1886,12 @@ class MainActivity : AppViewsActivity() {
                 Thread.sleep(800)
                 execShell(suPath, "-c", "am start -n ${HookEntry.TARGET_PACKAGE}/.MainActivityV2")
                 Handler(Looper.getMainLooper()).post {
-                    Toast.makeText(appContext, appContext.getString(R.string.restart_bilibili_done), Toast.LENGTH_SHORT).show()
+                    appContext.toast(appContext.getString(R.string.restart_bilibili_done))
                 }
             } catch (e: Exception) {
                 Log.e("BilibiliInnocentLab", "restart bilibili failed: $e")
                 Handler(Looper.getMainLooper()).post {
-                    Toast.makeText(appContext, appContext.getString(R.string.restart_bilibili_failed), Toast.LENGTH_SHORT).show()
+                    appContext.toast(appContext.getString(R.string.restart_bilibili_failed))
                 }
             }
         }.start()
@@ -2024,7 +2012,7 @@ class MainActivity : AppViewsActivity() {
     private fun placeAdvancedBelowExperimental() {
         val advancedCard = advancedContent?.parent as? View ?: return
         val experimentalCard = experimentalContent?.parent as? View ?: return
-        val parent = advancedCard.parent as? ViewGroup ?: return
+        val parent = advancedCard.parentOrNull() ?: return
         if (experimentalCard.parent !== parent) return
         parent.removeView(advancedCard)
         parent.addView(advancedCard, parent.indexOfChild(experimentalCard) + 1)
@@ -2431,7 +2419,7 @@ class MainActivity : AppViewsActivity() {
                         }
                     ) {
                         isSingleLine = true
-                        text = getString(R.string.app_name)
+                        text = stringResource(R.string.app_name)
                         textColor = colorResource(R.color.colorTextGray)
                         textSize = 25f
                         updateTypeface(Typeface.BOLD)
@@ -2445,7 +2433,7 @@ class MainActivity : AppViewsActivity() {
                         alpha = 0.85f
                         setImageResource(R.drawable.ic_restart)
                         imageTintList = stateColorResource(R.color.colorTextGray)
-                        contentDescription = getString(R.string.restart_bilibili)
+                        contentDescription = stringResource(R.string.restart_bilibili)
                         setOnClickListener {
                             showRestartConfirmDialog()
                         }
@@ -2459,7 +2447,7 @@ class MainActivity : AppViewsActivity() {
                         alpha = 0.85f
                         setImageResource(R.mipmap.ic_github)
                         imageTintList = stateColorResource(R.color.colorTextGray)
-                        contentDescription = getString(R.string.github_menu_description)
+                        contentDescription = stringResource(R.string.github_menu_description)
                         setOnClickListener { showGitHubMenuDialog() }
                     }
                 }
@@ -2556,8 +2544,8 @@ class MainActivity : AppViewsActivity() {
                             textColor = colorResource(R.color.white)
                             textSize = 11f
                             text = if (YukiHookAPI.Status.Executor.apiLevel > 0)
-                                getString(R.string.activated_by, YukiHookAPI.Status.Executor.name, YukiHookAPI.Status.Executor.apiLevel)
-                            else getString(R.string.activated_by_noapi, YukiHookAPI.Status.Executor.name)
+                                stringResource(R.string.activated_by, YukiHookAPI.Status.Executor.name, YukiHookAPI.Status.Executor.apiLevel)
+                            else stringResource(R.string.activated_by_noapi, YukiHookAPI.Status.Executor.name)
                             isVisible = YukiHookAPI.Status.isXposedModuleActive
                         }
                     }
@@ -2799,7 +2787,7 @@ class MainActivity : AppViewsActivity() {
                                     bottomMargin = 14.dp
                                 },
                                 init = {
-                                    setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x40))
+                                    setBackgroundColor(ColorUtils.setAlphaComponent(colorResource(R.color.colorTextGray), 0x40))
                                 }
                             )
                             // 子项 2：首页大卡轮播
@@ -3125,11 +3113,11 @@ class MainActivity : AppViewsActivity() {
                                 lparams = LayoutParams(widthMatchParent = true)
                             ) {
                                 homeRecommendTitleSummaryView = this
-                                text = getString(R.string.home_recommend_title_rules) + "\n" +
+                                text = stringResource(R.string.home_recommend_title_rules) + "\n" +
                                     if (homeRecommendTitleKeywords.isBlank()) {
-                                        getString(R.string.home_recommend_title_rules_empty)
+                                        stringResource(R.string.home_recommend_title_rules_empty)
                                     } else {
-                                        getString(
+                                        stringResource(
                                             R.string.home_recommend_title_rules_current,
                                             homeRecommendTitleKeywords
                                         )
@@ -3157,11 +3145,11 @@ class MainActivity : AppViewsActivity() {
                                             )
                                         }
                                         homeRecommendTitleSummaryView?.text =
-                                            getString(R.string.home_recommend_title_rules) + "\n" +
+                                            stringResource(R.string.home_recommend_title_rules) + "\n" +
                                                 if (value.isBlank()) {
-                                                    getString(R.string.home_recommend_title_rules_empty)
+                                                    stringResource(R.string.home_recommend_title_rules_empty)
                                                 } else {
-                                                    getString(
+                                                    stringResource(
                                                         R.string.home_recommend_title_rules_current,
                                                         value
                                                     )
@@ -3268,7 +3256,7 @@ class MainActivity : AppViewsActivity() {
                                 }
                             ) {
                                 homeTabRulesSummaryView = this
-                                text = getString(R.string.custom_home_tab_hide) + "\n" +
+                                text = stringResource(R.string.custom_home_tab_hide) + "\n" +
                                     ruleSummary(homeTabHiddenRules)
                                 textColor = colorResource(R.color.colorTextGray)
                                 textSize = 15f
@@ -3293,7 +3281,7 @@ class MainActivity : AppViewsActivity() {
                                             )
                                         }
                                         homeTabRulesSummaryView?.text =
-                                            getString(R.string.custom_home_tab_hide) + "\n" +
+                                            stringResource(R.string.custom_home_tab_hide) + "\n" +
                                                 ruleSummary(value)
                                     }
                                 }
@@ -3312,7 +3300,7 @@ class MainActivity : AppViewsActivity() {
                                 }
                             ) {
                                 homeComponentRulesSummaryView = this
-                                text = getString(R.string.custom_home_component_hide) + "\n" +
+                                text = stringResource(R.string.custom_home_component_hide) + "\n" +
                                     ruleSummary(homeComponentHiddenRules)
                                 textColor = colorResource(R.color.colorTextGray)
                                 textSize = 15f
@@ -3337,7 +3325,7 @@ class MainActivity : AppViewsActivity() {
                                             )
                                         }
                                         homeComponentRulesSummaryView?.text =
-                                            getString(R.string.custom_home_component_hide) + "\n" +
+                                            stringResource(R.string.custom_home_component_hide) + "\n" +
                                                 ruleSummary(value)
                                     }
                                 }
@@ -3356,7 +3344,7 @@ class MainActivity : AppViewsActivity() {
                                 }
                             ) {
                                 bottomBarRulesSummaryView = this
-                                text = getString(R.string.custom_bottom_bar_hide) + "\n" +
+                                text = stringResource(R.string.custom_bottom_bar_hide) + "\n" +
                                     ruleSummary(bottomBarHiddenRules)
                                 textColor = colorResource(R.color.colorTextGray)
                                 textSize = 15f
@@ -3381,7 +3369,7 @@ class MainActivity : AppViewsActivity() {
                                             )
                                         }
                                         bottomBarRulesSummaryView?.text =
-                                            getString(R.string.custom_bottom_bar_hide) + "\n" +
+                                            stringResource(R.string.custom_bottom_bar_hide) + "\n" +
                                                 ruleSummary(value)
                                     }
                                 }
@@ -3400,7 +3388,7 @@ class MainActivity : AppViewsActivity() {
                                     bottomMargin = 14.dp
                                 },
                                 init = {
-                                    setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x40))
+                                    setBackgroundColor(ColorUtils.setAlphaComponent(colorResource(R.color.colorTextGray), 0x40))
                                 }
                             )
                             // 分类：界面与提示
@@ -3497,7 +3485,7 @@ class MainActivity : AppViewsActivity() {
                                 }
                             ) {
                                 mineComponentRulesSummaryView = this
-                                text = getString(R.string.custom_mine_component_hide) + "\n" +
+                                text = stringResource(R.string.custom_mine_component_hide) + "\n" +
                                     ruleSummary(mineComponentHiddenRules)
                                 textColor = colorResource(R.color.colorTextGray)
                                 textSize = 15f
@@ -3522,7 +3510,7 @@ class MainActivity : AppViewsActivity() {
                                             )
                                         }
                                         mineComponentRulesSummaryView?.text =
-                                            getString(R.string.custom_mine_component_hide) + "\n" +
+                                            stringResource(R.string.custom_mine_component_hide) + "\n" +
                                                 ruleSummary(value)
                                     }
                                 }
@@ -3541,7 +3529,7 @@ class MainActivity : AppViewsActivity() {
                                     bottomMargin = 14.dp
                                 },
                                 init = {
-                                    setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x40))
+                                    setBackgroundColor(ColorUtils.setAlphaComponent(colorResource(R.color.colorTextGray), 0x40))
                                 }
                             )
                             // 子项 5：客户端更新（新功能默认关闭）
@@ -3599,7 +3587,7 @@ class MainActivity : AppViewsActivity() {
                                     bottomMargin = 14.dp
                                 },
                                 init = {
-                                    setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x40))
+                                    setBackgroundColor(ColorUtils.setAlphaComponent(colorResource(R.color.colorTextGray), 0x40))
                                 }
                             )
                             // 子项 6：动态页标签净化（新功能默认关闭）
@@ -3733,7 +3721,7 @@ class MainActivity : AppViewsActivity() {
                                     bottomMargin = 14.dp
                                 },
                                 init = {
-                                    setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x40))
+                                    setBackgroundColor(ColorUtils.setAlphaComponent(colorResource(R.color.colorTextGray), 0x40))
                                 }
                             )
                             // 子项 7：完整数字显示（新功能默认关闭）
@@ -4595,11 +4583,11 @@ class MainActivity : AppViewsActivity() {
                                 lparams = LayoutParams(widthMatchParent = true)
                             ) {
                                 commentKeywordSummaryView = this
-                                text = getString(R.string.comment_keyword_rules) + "\n" +
+                                text = stringResource(R.string.comment_keyword_rules) + "\n" +
                                     if (commentFilterKeywords.isBlank()) {
-                                        getString(R.string.comment_keyword_rules_empty)
+                                        stringResource(R.string.comment_keyword_rules_empty)
                                     } else {
-                                        getString(
+                                        stringResource(
                                             R.string.comment_keyword_rules_current,
                                             commentFilterKeywords
                                         )
@@ -4627,11 +4615,11 @@ class MainActivity : AppViewsActivity() {
                                             )
                                         }
                                         commentKeywordSummaryView?.text =
-                                            getString(R.string.comment_keyword_rules) + "\n" +
+                                            stringResource(R.string.comment_keyword_rules) + "\n" +
                                                 if (value.isBlank()) {
-                                                    getString(R.string.comment_keyword_rules_empty)
+                                                    stringResource(R.string.comment_keyword_rules_empty)
                                                 } else {
-                                                    getString(
+                                                    stringResource(
                                                         R.string.comment_keyword_rules_current,
                                                         value
                                                     )
@@ -4681,7 +4669,7 @@ class MainActivity : AppViewsActivity() {
                                 lparams = LayoutParams(widthMatchParent = true)
                             ) {
                                 commentLevelSummaryView = this
-                                text = getString(R.string.comment_min_level_current, commentMinLevel)
+                                text = stringResource(R.string.comment_min_level_current, commentMinLevel)
                                 textColor = colorResource(R.color.colorTextGray)
                                 textSize = 15f
                                 setPadding(12.dp, 10.dp, 12.dp, 10.dp)

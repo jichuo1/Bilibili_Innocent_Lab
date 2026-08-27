@@ -1,7 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook
 
 import android.content.Context
-import android.os.Build
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuInflater
@@ -10,8 +9,10 @@ import android.widget.TextView
 import android.widget.Toast
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetAppStorage
+import com.highcapable.betterandroid.system.extension.component.versionCodeCompat
 import com.highcapable.kavaref.extension.classOf
 import com.highcapable.kavaref.extension.isAbstract
+import com.highcapable.kavaref.extension.isPublic
 import com.highcapable.kavaref.extension.isStatic
 import com.highcapable.kavaref.extension.isSubclassOf
 import de.robv.android.xposed.XposedBridge
@@ -1341,11 +1342,7 @@ object VersionAdapter {
     @Suppress("DEPRECATION")
     private fun buildHostFingerprint(context: Context): String = runCatching {
         val info = context.packageManager.getPackageInfo("tv.danmaku.bili", 0)
-        val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            info.longVersionCode
-        } else {
-            info.versionCode.toLong()
-        }
+        val versionCode = info.versionCodeCompat
         val source = File(info.applicationInfo?.sourceDir.orEmpty())
         listOf(
             "tv.danmaku.bili",
@@ -2174,13 +2171,12 @@ object VersionAdapter {
         if (builds.isEmpty()) return@runCatching null
 
         val listFields = KavaMemberLookup.declaredFields(fragment, makeAccessible = true) {
-            !java.lang.reflect.Modifier.isStatic(it.modifiers) &&
-                List::class.java.isAssignableFrom(it.type)
+            !it.isStatic && it.type isSubclassOf classOf<List<*>>()
         }
         val groups = listFields.singleOrNull() ?: return@runCatching null
 
         val adapter = KavaMemberLookup.declaredFields(fragment, makeAccessible = true) {
-            !java.lang.reflect.Modifier.isStatic(it.modifiers) &&
+            !it.isStatic &&
                 it.type.hasSuperclassNamed("androidx.recyclerview.widget.RecyclerView\$Adapter")
         }.singleOrNull()
 
@@ -2213,10 +2209,10 @@ object VersionAdapter {
                 it.returnType == Void.TYPE
         }.singleOrNull() ?: return@runCatching null
         val managerField = KavaMemberLookup.declaredFields(fragment, makeAccessible = true) {
-            !java.lang.reflect.Modifier.isStatic(it.modifiers) && manager.isAssignableFrom(it.type)
+            !it.isStatic && it.type isSubclassOf manager
         }.singleOrNull() ?: return@runCatching null
         val bindingField = KavaMemberLookup.declaredFields(manager, makeAccessible = true) {
-            !java.lang.reflect.Modifier.isStatic(it.modifiers) &&
+            !it.isStatic &&
                 it.type.implementsInterfaceNamed("androidx.viewbinding.ViewBinding")
         }.singleOrNull() ?: return@runCatching null
         val rootGetter = KavaMemberLookup.declaredMethods(
@@ -2224,7 +2220,7 @@ object VersionAdapter {
             makeAccessible = true
         ) {
             !it.isStatic && !it.isBridge && it.name == "getRoot" &&
-                it.parameterCount == 0 && View::class.java.isAssignableFrom(it.returnType)
+                it.parameterCount == 0 && it.returnType isSubclassOf classOf<View>()
         }.singleOrNull() ?: return@runCatching null
 
         MineVipPoint(
@@ -2246,9 +2242,9 @@ object VersionAdapter {
         for (ownerName in BLOCK_UPDATE_OWNER_CANDIDATES) {
             val owner = KavaMemberLookup.classOrNull(loader, ownerName) ?: continue
             val candidates = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
-                !it.isStatic && !java.lang.reflect.Modifier.isAbstract(it.modifiers) &&
+                !it.isStatic && !it.isAbstract &&
                     it.returnType == upgradeInfo &&
-                    it.parameterTypes.contentEquals(arrayOf(Context::class.java))
+                    it.parameterTypes.contentEquals(arrayOf(classOf<Context>()))
             }
             if (candidates.isEmpty()) continue
             val interfaceSignatures = owner.interfaces.flatMap { contract ->
@@ -2280,19 +2276,17 @@ object VersionAdapter {
             return@runCatching null
         }
         val listGetter = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
-            !it.isStatic && it.parameterCount == 0 && List::class.java == it.returnType
+            !it.isStatic && it.parameterCount == 0 && classOf<List<*>>() == it.returnType
         }.singleOrNull() ?: return@runCatching null
         val itemClass = (listGetter.genericReturnType as? ParameterizedType)
             ?.actualTypeArguments
             ?.singleOrNull() as? Class<*>
             ?: return@runCatching null
         val titleField = KavaMemberLookup.declaredFields(itemClass, makeAccessible = true) {
-            !java.lang.reflect.Modifier.isStatic(it.modifiers) &&
-                it.type == String::class.java && it.name == "a"
+            !it.isStatic && it.type == classOf<String>() && it.name == "a"
         }.singleOrNull() ?: return@runCatching null
         val nameField = KavaMemberLookup.declaredFields(itemClass, makeAccessible = true) {
-            !java.lang.reflect.Modifier.isStatic(it.modifiers) &&
-                it.type == String::class.java && it.name == "b"
+            !it.isStatic && it.type == classOf<String>() && it.name == "b"
         }.singleOrNull() ?: return@runCatching null
         val tabLayout = mediatorTab.superclass?.let { current ->
             generateSequence(current) { it.superclass }
@@ -2306,12 +2300,12 @@ object VersionAdapter {
             tabLayout,
             "addTab",
             tabClass,
-            Boolean::class.javaPrimitiveType ?: return@runCatching null
+            classOf<Boolean>()
         ) ?: return@runCatching null
         val customViewGetter = KavaMemberLookup.methodOrNull(
             tabClass,
             "getCustomView"
-        )?.takeIf { View::class.java.isAssignableFrom(it.returnType) }
+        )?.takeIf { it.returnType isSubclassOf classOf<View>() }
             ?: return@runCatching null
 
         DynamicTabsPoint(
@@ -2396,7 +2390,7 @@ object VersionAdapter {
             .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
             .filter { it.hasSuperclassNamed("android.app.Activity") }
             .mapNotNull { owner ->
-                KavaMemberLookup.methodOrNull(owner, "onCreate", Bundle::class.java)
+                KavaMemberLookup.methodOrNull(owner, "onCreate", classOf<Bundle>())
                     ?.takeIf { method ->
                         method.declaringClass == owner && method.returnType == Void.TYPE &&
                             !method.isStatic
@@ -2422,7 +2416,7 @@ object VersionAdapter {
             makeAccessible = true
         ) { method ->
             method.name == "getHolderType" && method.parameterCount == 0 &&
-                method.returnType == String::class.java && !method.isStatic
+                method.returnType == classOf<String>() && !method.isStatic
         }.distinctBy(Method::toGenericString).singleOrNull() ?: return@runCatching null
 
         val responseGetters = PEGASUS_RESPONSE_CLASS_CANDIDATES.asSequence()
@@ -2434,7 +2428,7 @@ object VersionAdapter {
                     makeAccessible = true
                 ) { method ->
                     method.name == "getItems" && method.parameterCount == 0 &&
-                        List::class.java.isAssignableFrom(method.returnType) &&
+                        (method.returnType isSubclassOf classOf<List<*>>()) &&
                         !method.isStatic && !method.isAbstract
                 }.asSequence()
             }
@@ -2452,7 +2446,7 @@ object VersionAdapter {
             makeAccessible = true
         ) { method ->
             method.name == name && method.parameterCount == 0 &&
-                method.returnType == String::class.java && !method.isStatic
+                method.returnType == classOf<String>() && !method.isStatic
         }.distinctBy(Method::toGenericString).singleOrNull()?.toHookPoint()
 
         val uri = stringGetter("getUri") ?: return@runCatching null
@@ -2490,7 +2484,7 @@ object VersionAdapter {
                 ) { method ->
                     method.name in setOf("getCardsList", "getRelatesList") &&
                         method.parameterCount == 0 &&
-                        List::class.java.isAssignableFrom(method.returnType) &&
+                        (method.returnType isSubclassOf classOf<List<*>>()) &&
                         !method.isStatic && !method.isAbstract
                 }.asSequence()
             }
@@ -2530,8 +2524,8 @@ object VersionAdapter {
             .flatMap { owner ->
                 KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
                     !method.isStatic && !method.isAbstract && method.parameterCount == 1 &&
-                        List::class.java.isAssignableFrom(method.parameterTypes[0]) &&
-                        List::class.java.isAssignableFrom(method.returnType) &&
+                        (method.parameterTypes[0] isSubclassOf classOf<List<*>>()) &&
+                        (method.returnType isSubclassOf classOf<List<*>>()) &&
                         method.genericParameterTypes[0].toString().contains("main2.resource.")
                 }.asSequence()
             }
@@ -2545,7 +2539,7 @@ object VersionAdapter {
             }
             ?: return@runCatching null
         val stringFields = KavaMemberLookup.declaredFields(resource, makeAccessible = true) {
-            !java.lang.reflect.Modifier.isStatic(it.modifiers) && it.type == String::class.java
+            !it.isStatic && it.type == classOf<String>()
         }
         if (stringFields.size < 3) return@runCatching null
         HomeTabPoints(
@@ -2565,8 +2559,8 @@ object VersionAdapter {
         val onViewCreated = KavaMemberLookup.methodOrNull(
             fragment,
             "onViewCreated",
-            View::class.java,
-            Bundle::class.java
+            classOf<View>(),
+            classOf<Bundle>()
         )?.takeIf { !it.isStatic && it.returnType == Void.TYPE }
             ?: return@runCatching null
         val parent = KavaMemberLookup.methodOrNull(fragment, "getParentFragment")
@@ -2586,7 +2580,7 @@ object VersionAdapter {
                     makeAccessible = true
                 ) { method ->
                     method.name == "getItemList" && method.parameterCount == 0 &&
-                        List::class.java.isAssignableFrom(method.returnType) && !method.isStatic
+                        (method.returnType isSubclassOf classOf<List<*>>()) && !method.isStatic
                 }.asSequence()
             }
             .distinctBy(Method::toGenericString)
@@ -2601,7 +2595,7 @@ object VersionAdapter {
                     makeAccessible = true
                 ) { method ->
                     method.name == "getTitle" && method.parameterCount == 0 &&
-                        method.returnType == String::class.java && !method.isStatic
+                        method.returnType == classOf<String>() && !method.isStatic
                 }.asSequence()
             }
             .distinctBy(Method::toGenericString)
@@ -2618,7 +2612,7 @@ object VersionAdapter {
         fun booleanGetter(name: String): HookPoint? = KavaMemberLookup.methodOrNull(detail, name)
             ?.takeIf { method ->
                 !method.isStatic && method.parameterCount == 0 &&
-                    method.returnType == Boolean::class.javaPrimitiveType
+                    method.returnType == classOf<Boolean>()
             }
             ?.toHookPoint()
 
@@ -2631,7 +2625,7 @@ object VersionAdapter {
                 ) { method ->
                     method.name == "getItems" && !method.isStatic &&
                         method.parameterCount == 0 &&
-                        List::class.java.isAssignableFrom(method.returnType)
+                        (method.returnType isSubclassOf classOf<List<*>>())
                 }.distinctBy(Method::toGenericString).map { it.toHookPoint() }
             }.orEmpty()
 
@@ -2640,7 +2634,7 @@ object VersionAdapter {
                 KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
                     !method.isStatic && !method.isAbstract && method.returnType == Void.TYPE &&
                         method.parameterCount == 1 &&
-                        List::class.java.isAssignableFrom(method.parameterTypes[0]) &&
+                        (method.parameterTypes[0] isSubclassOf classOf<List<*>>()) &&
                         method.genericParameterTypes[0].toString().contains(STORY_DETAIL_CLASS)
                 }.distinctBy(Method::toGenericString).map { it.toHookPoint() }
             }.orEmpty()
@@ -2668,7 +2662,7 @@ object VersionAdapter {
         fun inspectConstructor(ownerConstructor: java.lang.reflect.Constructor<*>) {
             if (ownerConstructor.isSynthetic) return
             ownerConstructor.genericParameterTypes.forEachIndexed { index, genericType ->
-                if (!List::class.java.isAssignableFrom(ownerConstructor.parameterTypes[index])) {
+                if (!(ownerConstructor.parameterTypes[index] isSubclassOf classOf<List<*>>())) {
                     return@forEachIndexed
                 }
                 val parameterized = genericType as? ParameterizedType ?: return@forEachIndexed
@@ -2738,7 +2732,7 @@ object VersionAdapter {
                 ) { method ->
                     !method.isStatic && !method.isAbstract && method.parameterCount == 0 &&
                         method.name in SPLASH_LIST_GETTER_NAMES &&
-                        List::class.java.isAssignableFrom(method.returnType)
+                        (method.returnType isSubclassOf classOf<List<*>>())
                 }.asSequence()
             }
             .distinctBy(Method::toGenericString)
@@ -2764,17 +2758,17 @@ object VersionAdapter {
                 makeAccessible = true
             ) { method ->
                 method.name == "getTabs" && !method.isStatic && method.parameterCount == 0 &&
-                    List::class.java.isAssignableFrom(method.returnType)
+                    (method.returnType isSubclassOf classOf<List<*>>())
             }.distinctBy(Method::toGenericString).singleOrNull() ?: continue
             val itemClass = (tabsGetter.genericReturnType as? ParameterizedType)
                 ?.actualTypeArguments?.singleOrNull() as? Class<*> ?: continue
             val bind = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
                 !method.isStatic && method.returnType == Void.TYPE && method.parameterCount == 2 &&
-                    method.parameterTypes[0] == Int::class.javaPrimitiveType &&
-                    View::class.java.isAssignableFrom(method.parameterTypes[1])
+                    method.parameterTypes[0] == classOf<Int>() &&
+                    (method.parameterTypes[1] isSubclassOf classOf<View>())
             }.singleOrNull() ?: continue
             val strings = KavaMemberLookup.declaredFields(itemClass, makeAccessible = true) {
-                !java.lang.reflect.Modifier.isStatic(it.modifiers) && it.type == String::class.java
+                !it.isStatic && it.type == classOf<String>()
             }.map { it.name }
             if (strings.isEmpty()) continue
             return@runCatching BottomBarPoints(
@@ -2841,28 +2835,27 @@ object VersionAdapter {
 
         fun publicNoArg(owner: Class<*>, name: String): Method? =
             KavaMemberLookup.methodOrNull(owner, name)?.takeIf { method ->
-                !method.isStatic && method.parameterCount == 0 &&
-                    java.lang.reflect.Modifier.isPublic(method.modifiers)
+                !method.isStatic && method.parameterCount == 0 && method.isPublic
             }
 
         val contentGetter = publicNoArg(replyInfo, "getContent")
             ?.takeIf { !it.returnType.isPrimitive } ?: return@runCatching null
         val messageGetter = publicNoArg(contentGetter.returnType, "getMessage")
-            ?.takeIf { it.returnType == String::class.java } ?: return@runCatching null
+            ?.takeIf { it.returnType == classOf<String>() } ?: return@runCatching null
         val memberGetter = publicNoArg(replyInfo, "getMember")
             ?.takeIf { !it.returnType.isPrimitive } ?: return@runCatching null
         val levelGetter = publicNoArg(memberGetter.returnType, "getLevel")
             ?.takeIf { method ->
                 method.returnType in setOf(
-                    Int::class.javaPrimitiveType,
-                    Long::class.javaPrimitiveType,
-                    Int::class.javaObjectType,
-                    Long::class.javaObjectType
+                    classOf<Int>(),
+                    classOf<Long>(),
+                    classOf<Int>(primitiveType = false),
+                    classOf<Long>(primitiveType = false)
                 )
             } ?: return@runCatching null
 
         fun Method.returnsReplyInfoList(): Boolean {
-            if (!List::class.java.isAssignableFrom(returnType)) return false
+            if (!(returnType isSubclassOf classOf<List<*>>())) return false
             val generic = genericReturnType as? ParameterizedType ?: return false
             val argument = generic.actualTypeArguments.singleOrNull() ?: return false
             val argumentName = when (argument) {
@@ -2878,8 +2871,7 @@ object VersionAdapter {
             .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
             .flatMap { owner ->
                 KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                    !method.isStatic && method.parameterCount == 0 &&
-                        java.lang.reflect.Modifier.isPublic(method.modifiers) &&
+                    !method.isStatic && method.parameterCount == 0 && method.isPublic &&
                         method.name in setOf("getRepliesList", "getTopRepliesList") &&
                         method.returnsReplyInfoList()
                 }.asSequence()
@@ -3151,7 +3143,7 @@ object VersionAdapter {
                 "setAdapter" -> it.parameterCount == 1 &&
                     it.parameterTypes[0].name.endsWith(".SwiperBannerAdapter")
                 "onVisibilityChanged" -> it.parameterTypes.contentEquals(
-                    arrayOf(android.view.View::class.java, Integer.TYPE)
+                    arrayOf(classOf<android.view.View>(), Integer.TYPE)
                 )
                 else -> false
             }
@@ -3172,17 +3164,17 @@ object VersionAdapter {
             val method = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
                 !it.isStatic && it.returnType == Void.TYPE &&
                     it.parameterTypes.contentEquals(
-                        arrayOf(Menu::class.java, MenuInflater::class.java)
+                        arrayOf(classOf<Menu>(), classOf<MenuInflater>())
                     )
             }.singleOrNull() ?: return@let null
             val configField = KavaMemberLookup.declaredFields(
                 owner,
                 makeAccessible = true
             ) { field ->
-                !java.lang.reflect.Modifier.isStatic(field.modifiers) &&
+                !field.isStatic &&
                     field.type.enclosingClass == owner &&
                     KavaMemberLookup.declaredFields(field.type) {
-                        it.type == String::class.java
+                        it.type == classOf<String>()
                     }.isNotEmpty()
             }.singleOrNull() ?: return@let null
             method.toHookPoint().copy(viewField = configField.name)
@@ -3195,7 +3187,7 @@ object VersionAdapter {
                     owner,
                     makeAccessible = true
                 ) {
-                    TextView::class.java.isAssignableFrom(it.type) &&
+                    (it.type isSubclassOf classOf<TextView>()) &&
                         it.type.simpleName == "SwitchTextView"
                 }
                 val searchField = searchFields.singleOrNull() ?: return@mapNotNull null
@@ -3203,7 +3195,7 @@ object VersionAdapter {
                     !it.isStatic && it.returnType == Void.TYPE &&
                         it.name == "onViewCreated" &&
                         it.parameterTypes.contentEquals(
-                            arrayOf(View::class.java, Bundle::class.java)
+                            arrayOf(classOf<View>(), classOf<Bundle>())
                         )
                 }.singleOrNull() ?: return@mapNotNull null
                 method.toHookPoint().copy(viewField = searchField.name)
@@ -3217,7 +3209,7 @@ object VersionAdapter {
                 .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
                 .map { owner ->
                     KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
-                        !it.isStatic && !java.lang.reflect.Modifier.isAbstract(it.modifiers) &&
+                        !it.isStatic && !it.isAbstract &&
                             it.returnType == Void.TYPE && it.parameterCount == 1 &&
                             it.parameterTypes[0].name in HOME_DEFAULT_WORD_CLASS_CANDIDATES
                     }.distinctBy(Method::toGenericString)
@@ -3307,8 +3299,12 @@ object VersionAdapter {
         runCatching {
             android.os.Looper.getMainLooper().let { looper ->
                 if (android.os.Looper.myLooper() == looper) {
+                    // 保留主线程显式分支；BetterAndroid 默认禁止后台线程直接弹 Toast。
+                    //noinspection ReplaceWithToastExtension
                     Toast.makeText(context, text, Toast.LENGTH_LONG).show()
                 } else {
+                    // 保留 Handler 切换主线程的既有行为，不交由扩展创建后台 Looper。
+                    //noinspection ReplaceWithToastExtension
                     android.os.Handler(looper).post { Toast.makeText(context, text, Toast.LENGTH_LONG).show() }
                 }
             }

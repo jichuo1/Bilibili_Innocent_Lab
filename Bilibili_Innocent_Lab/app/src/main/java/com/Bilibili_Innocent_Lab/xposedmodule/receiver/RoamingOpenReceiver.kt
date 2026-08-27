@@ -3,9 +3,9 @@ package com.Bilibili_Innocent_Lab.xposedmodule.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.os.SystemClock
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
+import com.highcapable.betterandroid.system.extension.tool.AndroidVersion
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -39,7 +39,7 @@ class RoamingOpenReceiver : BroadcastReceiver() {
         // 发起的请求。Android 13 及以下没有对应公开 API，因此 Manifest 不再声明
         // Intent Filter，发送方必须知道并显式指定组件，同时还需通过短时效与节流检查。
         // 接收器只执行无参数的设置页跳转，不处理状态写入或外部数据。
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+        if (AndroidVersion.isAtLeast(AndroidVersion.U) &&
             sentFromPackage != HookEntry.TARGET_PACKAGE
         ) return
         val previous = lastAcceptedRequestMs.get()

@@ -8,6 +8,11 @@ import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.highcapable.betterandroid.system.extension.tool.AndroidVersion
+import com.highcapable.betterandroid.ui.extension.view.childOrNull
+import com.highcapable.betterandroid.ui.extension.view.parentOrNull
+import com.highcapable.betterandroid.ui.extension.view.textColor
+import com.highcapable.betterandroid.ui.extension.view.textToString
 import com.highcapable.kavaref.extension.classOf
 import com.highcapable.kavaref.extension.isStatic
 import com.highcapable.kavaref.extension.isSubclassOf
@@ -628,6 +633,8 @@ class HookEntry : IYukiHookXposedInit {
             // 短点的 UP 会先得到处理并撤销任务，不会被 delay=0 的旧事件时间误弹气泡。
             val dueAt = commentTouchObservedAtMs + 400L
             val delay = (dueAt - android.os.SystemClock.uptimeMillis()).coerceAtLeast(0L)
+            // 保留同一 Runnable，以便手势取消时由 removeCallbacks 精确撤销。
+            //noinspection ReplaceWithCoroutinesExtension
             handler.postDelayed(commentLongPressRunnable, delay)
         }
 
@@ -1087,6 +1094,8 @@ class HookEntry : IYukiHookXposedInit {
             }
             bindDrainScheduled = true
             handler.removeCallbacks(commentBindRetryRunnable)
+            // 绑定重试与固定 Runnable 的撤销状态共享，不能改成独立协程 Job。
+            //noinspection ReplaceWithCoroutinesExtension
             handler.postDelayed(commentBindRetryRunnable, delayMs.coerceAtLeast(0L))
         }
 
@@ -1208,10 +1217,10 @@ class HookEntry : IYukiHookXposedInit {
             if (depth > 12) return null
             if (v.visibility != View.VISIBLE) return null
             var best: String? = null
-            (v as? android.widget.TextView)?.text?.toString()?.takeIf { it.length >= 2 }?.let { best = it }
+            (v as? android.widget.TextView)?.textToString()?.takeIf { it.length >= 2 }?.let { best = it }
             (v as? android.view.ViewGroup)?.let { vg ->
                 for (i in 0 until vg.childCount) {
-                    val child = vg.getChildAt(i) ?: continue
+                    val child = vg.childOrNull(i) ?: continue
                     val t = extractLongText(child, depth + 1) ?: continue
                     if (best == null || t.length > best.let { b -> b?.length ?: 0 }) best = t
                 }
@@ -1266,7 +1275,7 @@ class HookEntry : IYukiHookXposedInit {
             }
             if (v is android.view.ViewGroup) {
                 for (i in 0 until v.childCount) {
-                    findCommentBody(v.getChildAt(i) ?: continue, depth + 1)?.let { return it }
+                    findCommentBody(v.childOrNull(i) ?: continue, depth + 1)?.let { return it }
                 }
             }
             return null
@@ -1365,7 +1374,7 @@ class HookEntry : IYukiHookXposedInit {
                     view.layoutParams = params
                 }
             }
-            val parent = view.parent as? android.view.ViewGroup ?: return
+            val parent = view.parentOrNull() ?: return
             // 仅处理“只承载 V8Banner”的专用壳，绝不隐藏含其它首页内容的共享父容器。
             if (parent.childCount == 1) {
                 parent.visibility = View.GONE
@@ -1505,6 +1514,8 @@ class HookEntry : IYukiHookXposedInit {
                             as? android.content.ClipboardManager ?: return@runCatching false
                         popupClipboardWriteInProgress.set(true)
                         try {
+                            // 显式保留 ThreadLocal 豁免区间内的原生剪贴板写入边界。
+                            //noinspection ReplaceWithClipboardExtension
                             clipboard.setPrimaryClip(android.content.ClipData.newPlainText(null, selected))
                         } finally {
                             popupClipboardWriteInProgress.remove()
@@ -1559,11 +1570,11 @@ class HookEntry : IYukiHookXposedInit {
                     freeCopyLightMode
                 }
                 val bubbleColor = if (useLight) 0xFFFFFFFF.toInt() else 0xFF2A2B2E.toInt()
-                val textColor = if (useLight) 0xFF1C1B1F.toInt() else 0xFFE8E8E8.toInt()
+                val bubbleTextColor = if (useLight) 0xFF1C1B1F.toInt() else 0xFFE8E8E8.toInt()
                 // 屏幕尺寸：优先 WindowMetrics（当前窗口真实 bounds）——部分 ROM 上
                 // Activity 的 displayMetrics 返回的是缩放/兼容模式尺寸，会导致防越界
                 // 计算（气泡限宽、右/底贴边收窄）与真实屏幕不符
-                val wmBounds = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                val wmBounds = if (AndroidVersion.isAtLeast(AndroidVersion.R)) {
                     runCatching {
                         val wm = act.getSystemService(android.content.Context.WINDOW_SERVICE)
                             as? android.view.WindowManager
@@ -1625,7 +1636,7 @@ class HookEntry : IYukiHookXposedInit {
                 val content = TextView(act).apply {
                     setText(text, TextView.BufferType.SPANNABLE)
                     textSize = 15f
-                    setTextColor(textColor)
+                    textColor = bubbleTextColor
                     setLineSpacing(dp(3).toFloat(), 1f)
                     maxLines = 12
                     maxWidth = maxContentW // ★ 限宽，超长自动换行避免超出屏幕
@@ -1689,7 +1700,7 @@ class HookEntry : IYukiHookXposedInit {
 
                 // 关闭系统默认焦点高亮：可选文本（setTextIsSelectable）会让 TextView 可聚焦，
                 // 部分 ROM 的默认焦点高亮是黑色矩形描边——保险起见统一关闭（我们自己不依赖它）
-                if (android.os.Build.VERSION.SDK_INT >= 26) {
+                if (AndroidVersion.isAtLeast(26)) {
                     fullscreen.defaultFocusHighlightEnabled = false
                     body.defaultFocusHighlightEnabled = false
                     content.defaultFocusHighlightEnabled = false
@@ -1940,19 +1951,19 @@ class HookEntry : IYukiHookXposedInit {
                 val subtreeStart = views.size
                 val isRecyclerView = v is androidx.recyclerview.widget.RecyclerView
                 if (v is android.widget.TextView) {
-                    val t = v.text?.toString()
+                    val t = v.textToString()
                     // 「回复」文字按钮（旧判据）
                     if (!hasReply && t == "回复") hasReply = true
                     // 评论日期文本（如「8月2日 吉林」）——所有真评论必带，视频推荐卡没有。
                     // 单一「回复」判据会漏掉无回复按钮的评论 → 整树不绑定 → 长按无反应
                     // （实测「只在首条评论生效」的根因：首条有回复通过过滤，其余全灭）
-                    if (!hasDate && COMMENT_DATE_PATTERN.matcher(t ?: "").find()) hasDate = true
+                    if (!hasDate && COMMENT_DATE_PATTERN.matcher(t).find()) hasDate = true
                 }
                 var containsImage = v is android.widget.ImageView
                 if (v is android.view.ViewGroup) {
                     for (i in 0 until v.childCount) {
                         // RecyclerView 自身不绑定，但必须继续遍历其回复 item。
-                        if (collect(v.getChildAt(i) ?: continue)) containsImage = true
+                        if (collect(v.childOrNull(i) ?: continue)) containsImage = true
                     }
                 }
                 // 仅把「含图片且自身承担点击」的容器判为媒体交互分支；不能把所有可点击
@@ -3688,6 +3699,8 @@ class HookEntry : IYukiHookXposedInit {
                                                 handler.removeCallbacks(descLongPressRunnable)
                                                 val delay = (descTouchObservedAtMs + 400L -
                                                     android.os.SystemClock.uptimeMillis()).coerceAtLeast(0L)
+                                                // 描述长按与固定 Runnable 的 removeCallbacks 必须保持配对。
+                                                //noinspection ReplaceWithCoroutinesExtension
                                                 handler.postDelayed(descLongPressRunnable, delay)
                                             }
                                         }
@@ -3842,7 +3855,7 @@ class HookEntry : IYukiHookXposedInit {
                                             includeSuperclasses = true
                                         )?.get(desc) as? CharSequence
                                     }.getOrNull()?.toString()
-                                        ?: runCatching { (desc as? android.widget.TextView)?.text?.toString() }.getOrNull()
+                                        ?: runCatching { (desc as? android.widget.TextView)?.textToString() }.getOrNull()
                                         ?: return@before
                                     if (descText.isNotEmpty() && clipText == descText) {
                                         this.result = null // 官方复制简介全文，拦截（由我们的气泡接管）
