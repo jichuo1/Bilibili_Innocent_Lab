@@ -35,10 +35,13 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeBannerFeatureInst
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeTopBarFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeVerticalDetailFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeRecommendPurifyFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeTabFilterFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeComponentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MerchandiseFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineVipFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PausedAdFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPortraitFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerStatusBarFeatureInstaller
@@ -2749,6 +2752,18 @@ class HookEntry : IYukiHookXposedInit {
 
             featureInstallCoordinator.installAll(
                 listOf(
+                    MineComponentFilterFeatureInstaller(
+                        rules = prefs.getString(
+                            FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES,
+                            ""
+                        ).orEmpty(),
+                        points = hostAdaptResult?.mineComponents
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
                     BlockUpdateFeatureInstaller(
                         enabled = prefs.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false),
                         point = hostAdaptResult?.blockUpdate
@@ -2828,6 +2843,25 @@ class HookEntry : IYukiHookXposedInit {
                             false
                         ),
                         points = hostAdaptResult?.homeRecommendFeed
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    HomeTabFilterFeatureInstaller(
+                        rules = prefs.getString(
+                            FeaturePreferences.HOME_TAB_HIDDEN_RULES,
+                            ""
+                        ).orEmpty(),
+                        points = hostAdaptResult?.homeTabs
+                    ),
+                    HomeComponentFilterFeatureInstaller(
+                        rules = prefs.getString(
+                            FeaturePreferences.HOME_COMPONENT_HIDDEN_RULES,
+                            ""
+                        ).orEmpty(),
+                        points = hostAdaptResult?.homeComponents
                     )
                 )
             )
