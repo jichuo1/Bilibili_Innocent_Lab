@@ -1,15 +1,24 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook
 
 import android.content.Context
+import android.os.Build
+import android.os.Bundle
+import android.view.Menu
+import android.view.MenuInflater
+import android.view.View
+import android.widget.TextView
 import android.widget.Toast
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetAppStorage
 import com.highcapable.kavaref.extension.classOf
+import com.highcapable.kavaref.extension.isAbstract
 import com.highcapable.kavaref.extension.isStatic
 import com.highcapable.kavaref.extension.isSubclassOf
 import de.robv.android.xposed.XposedBridge
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.lang.reflect.ParameterizedType
 import java.lang.reflect.Method
 
 /**
@@ -35,6 +44,9 @@ object VersionAdapter {
     private const val KEY_ADAPT_RESULT = "adapt_result"
     private const val KEY_RESET_TS = "adapt_reset_ts"
 
+    @Volatile
+    private var lastCacheStatus = "not-read"
+
     /**
      * 二级缓存文件（B 站自身 cache 目录，loadApp 阶段无 Context 也可同步读；
      * 模块 prefs 在部分设备（官方 LSPosed 无 DirectAccessService）不可用时，
@@ -57,7 +69,7 @@ object VersionAdapter {
         val methodName: String,
         /** 参数类型类名列表（精确签名用；null = 不限制参数） */
         val paramClassNames: List<String>? = null,
-        /** itemView 来源字段名（handler 内 ViewGroup 类型字段；null = 从方法参数拿） */
+        /** Hook 点关联的已验证字段名（无关联字段时为 null）。 */
         val viewField: String? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
@@ -86,7 +98,37 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 8
+    private const val SCHEMA_VERSION = 29
+    private const val ADAPTER_RULE_VERSION = 21
+
+    enum class AdaptState {
+        FOUND,
+        MISSING,
+        NOT_APPLICABLE
+    }
+
+    data class AdaptDiagnostic(
+        val id: String,
+        val state: AdaptState,
+        val detail: String = ""
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("id", id)
+            put("state", state.name)
+            if (detail.isNotBlank()) put("detail", detail)
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): AdaptDiagnostic? = runCatching {
+                AdaptDiagnostic(
+                    id = o.getString("id").takeIf { it.isNotBlank() }
+                        ?: return@runCatching null,
+                    state = AdaptState.valueOf(o.getString("state")),
+                    detail = o.optString("detail")
+                )
+            }.getOrNull()
+        }
+    }
 
     /** “我的”页菜单注入所需的整组结构化入口。字段名会随 R8 漂移，必须和方法一起缓存。 */
     data class MineEntryPoint(
@@ -168,6 +210,557 @@ object VersionAdapter {
         }
     }
 
+    /** 首页顶部栏游戏入口与搜索默认词的结构化入口。 */
+    data class HomeTopBarPoints(
+        val gameMenu: HookPoint?,
+        val baseOnViewCreated: HookPoint?,
+        val defaultWordMethods: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            gameMenu?.let { put("game", it.toJson()) }
+            baseOnViewCreated?.let { put("view", it.toJson()) }
+            put(
+                "words",
+                JSONArray().apply { defaultWordMethods.forEach { put(it.toJson()) } }
+            )
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): HomeTopBarPoints {
+                val words = o.optJSONArray("words")
+                return HomeTopBarPoints(
+                    gameMenu = o.optJSONObject("game")?.let(HookPoint::fromJson),
+                    baseOnViewCreated = o.optJSONObject("view")?.let(HookPoint::fromJson),
+                    defaultWordMethods = if (words == null) emptyList() else
+                        (0 until words.length()).map {
+                            HookPoint.fromJson(words.getJSONObject(it))
+                        }
+                )
+            }
+        }
+    }
+
+    /** “我的”页 VIP 卡片：Fragment → 管理器 → ViewBinding → 根视图的稳定成员链。 */
+    data class MineVipPoint(
+        /** onResume 的 [HookPoint.viewField] 保存 Fragment 中的管理器字段名。 */
+        val onResume: HookPoint,
+        val bindingField: String,
+        val rootGetter: HookPoint
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("resume", onResume.toJson())
+            put("binding", bindingField)
+            put("root", rootGetter.toJson())
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): MineVipPoint = MineVipPoint(
+                onResume = HookPoint.fromJson(o.getJSONObject("resume")),
+                bindingField = o.getString("binding"),
+                rootGetter = HookPoint.fromJson(o.getJSONObject("root"))
+            )
+        }
+    }
+
+    /** 动态页筛选标签：宿主列表位置映射 + Material Tab 添加入口。 */
+    data class DynamicTabsPoint(
+        val listGetter: HookPoint,
+        val addTab: HookPoint,
+        val tabCustomViewGetter: HookPoint,
+        val mediatorTabClassName: String,
+        val itemClassName: String,
+        val itemTitleField: String,
+        val itemNameField: String
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("list", listGetter.toJson())
+            put("add", addTab.toJson())
+            put("custom", tabCustomViewGetter.toJson())
+            put("tab", mediatorTabClassName)
+            put("item", itemClassName)
+            put("title", itemTitleField)
+            put("name", itemNameField)
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): DynamicTabsPoint = DynamicTabsPoint(
+                listGetter = HookPoint.fromJson(o.getJSONObject("list")),
+                addTab = HookPoint.fromJson(o.getJSONObject("add")),
+                tabCustomViewGetter = HookPoint.fromJson(o.getJSONObject("custom")),
+                mediatorTabClassName = o.getString("tab"),
+                itemClassName = o.getString("item"),
+                itemTitleField = o.getString("title"),
+                itemNameField = o.getString("name")
+            )
+        }
+    }
+
+    /** 原生 Java 与 Kotlin 本地化层的数字缩写格式化入口。 */
+    data class FullNumberPoints(
+        val formatterMethods: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("methods", JSONArray().apply { formatterMethods.forEach { put(it.toJson()) } })
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): FullNumberPoints {
+                val methods = o.getJSONArray("methods")
+                return FullNumberPoints(
+                    (0 until methods.length()).map {
+                        HookPoint.fromJson(methods.getJSONObject(it))
+                    }
+                )
+            }
+        }
+    }
+
+    /** 播放器竖屏切换控件自身的可见性入口；不使用全局 View Hook。 */
+    data class PlayerPortraitPoints(
+        val visibilityMethods: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("methods", JSONArray().apply { visibilityMethods.forEach { put(it.toJson()) } })
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): PlayerPortraitPoints {
+                val methods = o.getJSONArray("methods")
+                return PlayerPortraitPoints(
+                    (0 until methods.length()).map {
+                        HookPoint.fromJson(methods.getJSONObject(it))
+                    }
+                )
+            }
+        }
+    }
+
+    /** 视频详情页 Activity 的稳定生命周期入口；只在精确目标 Activity 上修改系统栏。 */
+    data class PlayerStatusBarPoints(
+        val onCreateMethods: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("create", JSONArray().apply { onCreateMethods.forEach { put(it.toJson()) } })
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): PlayerStatusBarPoints = PlayerStatusBarPoints(
+                o.getJSONArray("create").let { methods ->
+                    (0 until methods.length()).map {
+                        HookPoint.fromJson(methods.getJSONObject(it))
+                    }
+                }
+            )
+        }
+    }
+
+    /** 首页推荐服务端响应及卡片公开读取边界；不依赖混淆字段名或 View 树扫描。 */
+    data class HomeRecommendFeedPoints(
+        val responseItemGetters: List<HookPoint>,
+        val holderTypeGetter: HookPoint,
+        val bizTypeGetter: HookPoint?,
+        val adInfoGetter: HookPoint?,
+        val cardGotoGetter: HookPoint?,
+        val goToGetter: HookPoint?,
+        val uriGetter: HookPoint?,
+        val paramGetter: HookPoint?,
+        val titleGetter: HookPoint?,
+        val subtitleGetter: HookPoint?,
+        val descGetter: HookPoint?
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("responses", JSONArray().apply { responseItemGetters.forEach { put(it.toJson()) } })
+            put("holder", holderTypeGetter.toJson())
+            bizTypeGetter?.let { put("biz", it.toJson()) }
+            adInfoGetter?.let { put("ad_info", it.toJson()) }
+            cardGotoGetter?.let { put("card_goto", it.toJson()) }
+            goToGetter?.let { put("goto", it.toJson()) }
+            uriGetter?.let { put("uri", it.toJson()) }
+            paramGetter?.let { put("param", it.toJson()) }
+            titleGetter?.let { put("title", it.toJson()) }
+            subtitleGetter?.let { put("subtitle", it.toJson()) }
+            descGetter?.let { put("desc", it.toJson()) }
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): HomeRecommendFeedPoints = HomeRecommendFeedPoints(
+                responseItemGetters = o.getJSONArray("responses").let { methods ->
+                    (0 until methods.length()).map {
+                        HookPoint.fromJson(methods.getJSONObject(it))
+                    }
+                },
+                holderTypeGetter = HookPoint.fromJson(o.getJSONObject("holder")),
+                bizTypeGetter = o.optJSONObject("biz")?.let(HookPoint::fromJson),
+                adInfoGetter = o.optJSONObject("ad_info")?.let(HookPoint::fromJson),
+                cardGotoGetter = o.optJSONObject("card_goto")?.let(HookPoint::fromJson),
+                goToGetter = o.optJSONObject("goto")?.let(HookPoint::fromJson),
+                uriGetter = o.optJSONObject("uri")?.let(HookPoint::fromJson),
+                paramGetter = o.optJSONObject("param")?.let(HookPoint::fromJson),
+                titleGetter = o.optJSONObject("title")?.let(HookPoint::fromJson),
+                subtitleGetter = o.optJSONObject("subtitle")?.let(HookPoint::fromJson),
+                descGetter = o.optJSONObject("desc")?.let(HookPoint::fromJson)
+            )
+        }
+    }
+
+    /** 视频详情相关推荐响应与类型公开读取边界。 */
+    data class VideoRelatePoints(
+        val responseItemGetters: List<HookPoint>,
+        val cardCaseGetters: List<HookPoint>,
+        val gotoGetters: List<HookPoint>,
+        val cardTypeGetters: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("responses", JSONArray().apply { responseItemGetters.forEach { put(it.toJson()) } })
+            put("case", JSONArray().apply { cardCaseGetters.forEach { put(it.toJson()) } })
+            put("goto", JSONArray().apply { gotoGetters.forEach { put(it.toJson()) } })
+            put("type", JSONArray().apply { cardTypeGetters.forEach { put(it.toJson()) } })
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): VideoRelatePoints = VideoRelatePoints(
+                responseItemGetters = o.getJSONArray("responses").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                },
+                cardCaseGetters = o.getJSONArray("case").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                },
+                gotoGetters = o.getJSONArray("goto").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                },
+                cardTypeGetters = o.getJSONArray("type").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                }
+            )
+        }
+    }
+
+    /** 首页 Tab 构建入口与资源对象的稳定 String 字段。 */
+    data class HomeTabPoints(
+        val buildMethod: HookPoint,
+        val resourceClassName: String,
+        val idField: String,
+        val titleField: String,
+        val uriField: String,
+        val reporterIdField: String?
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("build", buildMethod.toJson())
+            put("resource", resourceClassName)
+            put("id", idField)
+            put("title", titleField)
+            put("uri", uriField)
+            reporterIdField?.let { put("reporter", it) }
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): HomeTabPoints = HomeTabPoints(
+                buildMethod = HookPoint.fromJson(o.getJSONObject("build")),
+                resourceClassName = o.getString("resource"),
+                idField = o.getString("id"),
+                titleField = o.getString("title"),
+                uriField = o.getString("uri"),
+                reporterIdField = o.optString("reporter").takeIf { it.isNotBlank() }
+            )
+        }
+    }
+
+    /** 首页子 Fragment 的低频生命周期与父 Fragment 公开读取边界。 */
+    data class HomeComponentPoints(
+        val onViewCreated: HookPoint,
+        val parentFragmentGetter: HookPoint
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("view", onViewCreated.toJson())
+            put("parent", parentFragmentGetter.toJson())
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): HomeComponentPoints = HomeComponentPoints(
+                HookPoint.fromJson(o.getJSONObject("view")),
+                HookPoint.fromJson(o.getJSONObject("parent"))
+            )
+        }
+    }
+
+    /** “我的”页菜单组公开 itemList/title 读取边界。 */
+    data class MineComponentPoints(
+        val itemListGetters: List<HookPoint>,
+        val itemTitleGetters: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("lists", JSONArray().apply { itemListGetters.forEach { put(it.toJson()) } })
+            put("titles", JSONArray().apply { itemTitleGetters.forEach { put(it.toJson()) } })
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): MineComponentPoints = MineComponentPoints(
+                o.getJSONArray("lists").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                },
+                o.getJSONArray("titles").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                }
+            )
+        }
+    }
+
+    /** Story 响应/播放器列表边界与 StoryDetail 精确类型判定方法。 */
+    data class StoryFeedPoints(
+        val responseItemGetters: List<HookPoint>,
+        val pagerListMethods: List<HookPoint>,
+        val adGetter: HookPoint?,
+        val liveGetter: HookPoint?,
+        val gameGetter: HookPoint?
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("responses", JSONArray().apply { responseItemGetters.forEach { put(it.toJson()) } })
+            put("pager", JSONArray().apply { pagerListMethods.forEach { put(it.toJson()) } })
+            adGetter?.let { put("ad", it.toJson()) }
+            liveGetter?.let { put("live", it.toJson()) }
+            gameGetter?.let { put("game", it.toJson()) }
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): StoryFeedPoints = StoryFeedPoints(
+                responseItemGetters = o.getJSONArray("responses").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                },
+                pagerListMethods = o.getJSONArray("pager").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                },
+                adGetter = o.optJSONObject("ad")?.let(HookPoint::fromJson),
+                liveGetter = o.optJSONObject("live")?.let(HookPoint::fromJson),
+                gameGetter = o.optJSONObject("game")?.let(HookPoint::fromJson)
+            )
+        }
+    }
+
+    /** 底栏 TabHost 公开列表读取边界、单项绑定入口与条目 String 字段。 */
+    data class BottomBarPoints(
+        val tabsGetter: HookPoint,
+        val bindTabMethod: HookPoint,
+        val itemClassName: String,
+        val itemStringFields: List<String>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("tabs", tabsGetter.toJson())
+            put("bind", bindTabMethod.toJson())
+            put("item", itemClassName)
+            put("strings", JSONArray(itemStringFields))
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): BottomBarPoints = BottomBarPoints(
+                tabsGetter = HookPoint.fromJson(o.getJSONObject("tabs")),
+                bindTabMethod = HookPoint.fromJson(o.getJSONObject("bind")),
+                itemClassName = o.getString("item"),
+                itemStringFields = o.getJSONArray("strings").let { values ->
+                    (0 until values.length()).map(values::getString)
+                }
+            )
+        }
+    }
+
+    /**
+     * 评论关键词/等级过滤的公开 protobuf 读取边界。
+     *
+     * 列表 getter 只负责提供待筛选的 ReplyInfo；正文和等级 getter 只读取判定信号，
+     * 不写 protobuf 私有字段，也不接触评论富文本、emoji 或 View 绑定链路。
+     */
+    data class CommentFilterPoints(
+        val replyListGetters: List<HookPoint>,
+        val contentGetter: HookPoint,
+        val messageGetter: HookPoint,
+        val memberGetter: HookPoint,
+        val levelGetter: HookPoint
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("lists", JSONArray().apply { replyListGetters.forEach { put(it.toJson()) } })
+            put("content", contentGetter.toJson())
+            put("message", messageGetter.toJson())
+            put("member", memberGetter.toJson())
+            put("level", levelGetter.toJson())
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): CommentFilterPoints = CommentFilterPoints(
+                replyListGetters = o.getJSONArray("lists").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                },
+                contentGetter = HookPoint.fromJson(o.getJSONObject("content")),
+                messageGetter = HookPoint.fromJson(o.getJSONObject("message")),
+                memberGetter = HookPoint.fromJson(o.getJSONObject("member")),
+                levelGetter = HookPoint.fromJson(o.getJSONObject("level"))
+            )
+        }
+    }
+
+    /** 播放器默认画质计算边界；仅保存经逐版本核验的唯一无参 Int 方法。 */
+    data class PlayerQualityPoints(
+        val defaultQualityMethod: HookPoint
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("default", defaultQualityMethod.toJson())
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): PlayerQualityPoints = PlayerQualityPoints(
+                HookPoint.fromJson(o.getJSONObject("default"))
+            )
+        }
+    }
+
+    /** 青少年模式提示页自身的创建入口；只结束明确命名的提示 Activity。 */
+    data class TeenagersModePoints(
+        val onCreateMethods: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("methods", JSONArray().apply { onCreateMethods.forEach { put(it.toJson()) } })
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): TeenagersModePoints {
+                val methods = o.getJSONArray("methods")
+                return TeenagersModePoints(
+                    (0 until methods.length()).map {
+                        HookPoint.fromJson(methods.getJSONObject(it))
+                    }
+                )
+            }
+        }
+    }
+
+    /** 空评论区引导 getter 与对应 protobuf 默认实例 getter。 */
+    data class CommentEmptyPagePoint(
+        val contentGetter: HookPoint,
+        val defaultInstanceGetter: HookPoint
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("content", contentGetter.toJson())
+            put("default", defaultInstanceGetter.toJson())
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): CommentEmptyPagePoint = CommentEmptyPagePoint(
+                contentGetter = HookPoint.fromJson(o.getJSONObject("content")),
+                defaultInstanceGetter = HookPoint.fromJson(o.getJSONObject("default"))
+            )
+        }
+    }
+
+    /** 独立关注控件的状态入口，以及头部装饰容器中的关注按钮绑定入口。 */
+    data class CommentFollowPoints(
+        val widgetStateMethods: List<HookPoint>,
+        val headerBindMethods: List<HookPoint>,
+        val followButtonClassName: String?
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("widget", JSONArray().apply { widgetStateMethods.forEach { put(it.toJson()) } })
+            put("header", JSONArray().apply { headerBindMethods.forEach { put(it.toJson()) } })
+            followButtonClassName?.let { put("button", it) }
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): CommentFollowPoints {
+                val widget = o.getJSONArray("widget")
+                val header = o.getJSONArray("header")
+                return CommentFollowPoints(
+                    widgetStateMethods = (0 until widget.length()).map {
+                        HookPoint.fromJson(widget.getJSONObject(it))
+                    },
+                    headerBindMethods = (0 until header.length()).map {
+                        HookPoint.fromJson(header.getJSONObject(it))
+                    },
+                    followButtonClassName = o.optString("button").takeIf { it.isNotEmpty() }
+                )
+            }
+        }
+    }
+
+    /** protobuf 可选消息字段的公开读取边界；不依赖或修改生成类的私有存储。 */
+    data class CommentOptionalPayloadPoint(
+        val presenceGetter: HookPoint,
+        val contentGetter: HookPoint,
+        val defaultInstanceGetter: HookPoint
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("presence", presenceGetter.toJson())
+            put("content", contentGetter.toJson())
+            put("default", defaultInstanceGetter.toJson())
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): CommentOptionalPayloadPoint =
+                CommentOptionalPayloadPoint(
+                    presenceGetter = HookPoint.fromJson(o.getJSONObject("presence")),
+                    contentGetter = HookPoint.fromJson(o.getJSONObject("content")),
+                    defaultInstanceGetter = HookPoint.fromJson(o.getJSONObject("default"))
+                )
+        }
+    }
+
+    /** 评论 protobuf 的净化边界；不触碰正文、emoji 或评论视图。 */
+    data class CommentPurifyPoints(
+        val urlMapGetters: List<HookPoint>,
+        val emptyPageGetters: List<CommentEmptyPagePoint>,
+        val voteWidgetMethods: List<HookPoint>,
+        val follow: CommentFollowPoints?,
+        val qoe: CommentOptionalPayloadPoint?,
+        val operations: List<CommentOptionalPayloadPoint>,
+        val quickReplyDialogMethods: List<HookPoint> = emptyList()
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("urls", JSONArray().apply { urlMapGetters.forEach { put(it.toJson()) } })
+            put(
+                "empty_pages",
+                JSONArray().apply { emptyPageGetters.forEach { put(it.toJson()) } }
+            )
+            put("vote", JSONArray().apply { voteWidgetMethods.forEach { put(it.toJson()) } })
+            follow?.let { put("follow", it.toJson()) }
+            qoe?.let { put("qoe", it.toJson()) }
+            put("operations", JSONArray().apply { operations.forEach { put(it.toJson()) } })
+            put(
+                "quick_reply",
+                JSONArray().apply { quickReplyDialogMethods.forEach { put(it.toJson()) } }
+            )
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): CommentPurifyPoints {
+                val urls = o.getJSONArray("urls")
+                return CommentPurifyPoints(
+                    (0 until urls.length()).map {
+                        HookPoint.fromJson(urls.getJSONObject(it))
+                    },
+                    o.getJSONArray("empty_pages").let { emptyPages ->
+                        (0 until emptyPages.length()).map {
+                            CommentEmptyPagePoint.fromJson(emptyPages.getJSONObject(it))
+                        }
+                    },
+                    o.getJSONArray("vote").let { voteMethods ->
+                        (0 until voteMethods.length()).map {
+                            HookPoint.fromJson(voteMethods.getJSONObject(it))
+                        }
+                    },
+                    if (o.has("follow")) CommentFollowPoints.fromJson(o.getJSONObject("follow"))
+                    else null,
+                    o.optJSONObject("qoe")?.let(CommentOptionalPayloadPoint::fromJson),
+                    o.getJSONArray("operations").let { operations ->
+                        (0 until operations.length()).map {
+                            CommentOptionalPayloadPoint.fromJson(operations.getJSONObject(it))
+                        }
+                    },
+                    o.optJSONArray("quick_reply")?.let { methods ->
+                        (0 until methods.length()).map {
+                            HookPoint.fromJson(methods.getJSONObject(it))
+                        }
+                    }.orEmpty()
+                )
+            }
+        }
+    }
+
     /** 适配结果（各功能 hook 点） */
     data class AdaptResult(
         val biliVersionCode: Int,
@@ -182,7 +775,47 @@ object VersionAdapter {
         /** 暂停页所有可用请求/渲染兜底入口。 */
         val pause: PausePoints,
         /** 首页 V8Banner 稳定视图入口。 */
-        val banner: BannerPoint?
+        val banner: BannerPoint?,
+        /** 首页顶部栏游戏入口/搜索默认词入口。 */
+        val homeTopBar: HomeTopBarPoints?,
+        /** “我的”页 VIP 卡片成员链。 */
+        val mineVip: MineVipPoint?,
+        /** 客户端更新信息同步入口。 */
+        val blockUpdate: HookPoint?,
+        /** 动态页筛选标签渲染与位置映射入口。 */
+        val dynamicTabs: DynamicTabsPoint?,
+        /** 完整数字显示的所有格式化入口。 */
+        val fullNumbers: FullNumberPoints?,
+        /** 播放器竖屏切换控件自身的可见性入口。 */
+        val playerPortrait: PlayerPortraitPoints?,
+        /** 视频详情页透明状态栏的精确 Activity 生命周期入口。 */
+        val playerStatusBar: PlayerStatusBarPoints?,
+        /** 首页推荐服务端响应及卡片公开读取边界。 */
+        val homeRecommendFeed: HomeRecommendFeedPoints?,
+        /** 视频详情相关推荐响应及精确类型读取边界。 */
+        val videoRelate: VideoRelatePoints?,
+        /** 首页 Tab 自定义隐藏的构建边界。 */
+        val homeTabs: HomeTabPoints?,
+        /** 首页子组件自定义隐藏的 Fragment 边界。 */
+        val homeComponents: HomeComponentPoints?,
+        /** “我的”页组件自定义隐藏的数据边界。 */
+        val mineComponents: MineComponentPoints?,
+        /** Story 竖屏流响应与精确类型读取边界。 */
+        val storyFeed: StoryFeedPoints?,
+        /** 首页底栏单项绑定与条目元数据边界。 */
+        val bottomBar: BottomBarPoints?,
+        /** 播放器默认画质的统一计算入口。 */
+        val playerQuality: PlayerQualityPoints?,
+        /** 青少年模式提示页自身的 onCreate 入口。 */
+        val teenagersMode: TeenagersModePoints?,
+        /** 评论区净化所需的 protobuf 数据边界。 */
+        val commentPurify: CommentPurifyPoints?,
+        /** 评论关键词与等级过滤的公开 protobuf 列表/信号边界。 */
+        val commentFilter: CommentFilterPoints?,
+        /** 宿主 APK + 适配规则指纹，防止只凭 versionCode 复用陈旧缓存。 */
+        val hostFingerprint: String,
+        /** 每个逻辑 Hook 点的定位结果，供日志/UI 诊断。 */
+        val diagnostics: List<AdaptDiagnostic>
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("sv", SCHEMA_VERSION)
@@ -193,11 +826,182 @@ object VersionAdapter {
             mineEntry?.let { put("mine", it.toJson()) }
             put("pause", pause.toJson())
             banner?.let { put("banner", it.toJson()) }
+            homeTopBar?.let { put("home_top", it.toJson()) }
+            mineVip?.let { put("mine_vip", it.toJson()) }
+            blockUpdate?.let { put("block_update", it.toJson()) }
+            dynamicTabs?.let { put("dynamic_tabs", it.toJson()) }
+            fullNumbers?.let { put("full_numbers", it.toJson()) }
+            playerPortrait?.let { put("player_portrait", it.toJson()) }
+            playerStatusBar?.let { put("player_status_bar", it.toJson()) }
+            homeRecommendFeed?.let { put("home_recommend_feed", it.toJson()) }
+            videoRelate?.let { put("video_relate", it.toJson()) }
+            homeTabs?.let { put("home_tabs", it.toJson()) }
+            homeComponents?.let { put("home_components", it.toJson()) }
+            mineComponents?.let { put("mine_components", it.toJson()) }
+            storyFeed?.let { put("story_feed", it.toJson()) }
+            bottomBar?.let { put("bottom_bar", it.toJson()) }
+            playerQuality?.let { put("player_quality", it.toJson()) }
+            teenagersMode?.let { put("teenagers_mode", it.toJson()) }
+            commentPurify?.let { put("comment_purify", it.toJson()) }
+            commentFilter?.let { put("comment_filter", it.toJson()) }
+            put("fp", hostFingerprint)
+            put("diag", JSONArray().apply { diagnostics.forEach { put(it.toJson()) } })
         }
+
+        fun isUsableWith(expectedFingerprint: String): Boolean =
+            hostFingerprint == expectedFingerprint && isStructurallyValid()
+
+        fun diagnosticSummary(): String = diagnostics
+            .groupingBy { it.state }
+            .eachCount()
+            .let { counts ->
+                AdaptState.entries.joinToString(",") { state ->
+                    "${state.name.lowercase()}=${counts[state] ?: 0}"
+                }
+            }
+
+        private fun HookPoint.isValid(): Boolean =
+            className.isNotBlank() && methodName.isNotBlank() &&
+                paramClassNames?.all { it.isNotBlank() } != false
+
+        private fun isStructurallyValid(): Boolean =
+            biliVersionCode >= 0 && hostFingerprint.isNotBlank() &&
+                commentLow?.isValid() != false && commentHigh?.isValid() != false &&
+                mineEntry?.let { mine ->
+                    mine.groupListField.isNotBlank() && mine.buildMethods.all { it.isValid() } &&
+                        mine.clickMethod.isValid()
+                } != false &&
+                pause.requestMethods.all { it.isValid() } &&
+                pause.legacyCallback?.isValid() != false &&
+                pause.panelShow?.isValid() != false &&
+                pause.countdown?.isValid() != false &&
+                banner?.let { value ->
+                    value.bannerClassName.isNotBlank() && value.lifecycleMethods.all { it.isValid() }
+                } != false &&
+                homeTopBar?.let { value ->
+                    value.gameMenu?.let { point ->
+                        point.isValid() && !point.viewField.isNullOrBlank()
+                    } != false &&
+                        value.baseOnViewCreated?.let { point ->
+                            point.isValid() && !point.viewField.isNullOrBlank()
+                        } != false &&
+                        value.defaultWordMethods.all { it.isValid() }
+                } != false &&
+                mineVip?.let { value ->
+                    value.onResume.isValid() && !value.onResume.viewField.isNullOrBlank() &&
+                        value.bindingField.isNotBlank() && value.rootGetter.isValid()
+                } != false &&
+                blockUpdate?.isValid() != false &&
+                dynamicTabs?.let { value ->
+                    value.listGetter.isValid() && value.addTab.isValid() &&
+                        value.tabCustomViewGetter.isValid() &&
+                        value.mediatorTabClassName.isNotBlank() &&
+                        value.itemClassName.isNotBlank() &&
+                        value.itemTitleField.isNotBlank() && value.itemNameField.isNotBlank()
+                } != false &&
+                fullNumbers?.formatterMethods?.let { methods ->
+                    methods.isNotEmpty() && methods.all { it.isValid() }
+                } != false &&
+                playerPortrait?.visibilityMethods?.let { methods ->
+                    methods.isNotEmpty() && methods.all { it.isValid() }
+                } != false &&
+                playerStatusBar?.onCreateMethods?.let { methods ->
+                    methods.isNotEmpty() && methods.all { it.isValid() }
+                } != false &&
+                homeRecommendFeed?.let { value ->
+                    value.responseItemGetters.isNotEmpty() &&
+                        value.responseItemGetters.all { it.isValid() } &&
+                        value.holderTypeGetter.isValid() &&
+                        value.bizTypeGetter?.isValid() != false &&
+                        value.adInfoGetter?.isValid() != false &&
+                        value.cardGotoGetter?.isValid() != false &&
+                        value.goToGetter?.isValid() != false &&
+                        value.uriGetter?.isValid() != false &&
+                        value.paramGetter?.isValid() != false &&
+                        value.titleGetter?.isValid() != false &&
+                        value.subtitleGetter?.isValid() != false &&
+                        value.descGetter?.isValid() != false
+                } != false &&
+                videoRelate?.let { value ->
+                    value.responseItemGetters.isNotEmpty() &&
+                        value.responseItemGetters.all { it.isValid() } &&
+                        (value.cardCaseGetters.isNotEmpty() || value.gotoGetters.isNotEmpty() ||
+                            value.cardTypeGetters.isNotEmpty()) &&
+                        value.cardCaseGetters.all { it.isValid() } &&
+                        value.gotoGetters.all { it.isValid() } &&
+                        value.cardTypeGetters.all { it.isValid() }
+                } != false &&
+                homeTabs?.let { value ->
+                    value.buildMethod.isValid() && value.resourceClassName.isNotBlank() &&
+                        value.idField.isNotBlank() && value.titleField.isNotBlank() &&
+                        value.uriField.isNotBlank()
+                } != false &&
+                homeComponents?.let { value ->
+                    value.onViewCreated.isValid() && value.parentFragmentGetter.isValid()
+                } != false &&
+                mineComponents?.let { value ->
+                    value.itemListGetters.isNotEmpty() && value.itemTitleGetters.isNotEmpty() &&
+                        value.itemListGetters.all { it.isValid() } &&
+                        value.itemTitleGetters.all { it.isValid() }
+                } != false &&
+                storyFeed?.let { value ->
+                    (value.responseItemGetters.isNotEmpty() || value.pagerListMethods.isNotEmpty()) &&
+                        value.responseItemGetters.all { it.isValid() } &&
+                        value.pagerListMethods.all { it.isValid() } &&
+                        (value.adGetter != null || value.liveGetter != null ||
+                            value.gameGetter != null) &&
+                        value.adGetter?.isValid() != false &&
+                        value.liveGetter?.isValid() != false &&
+                        value.gameGetter?.isValid() != false
+                } != false &&
+                bottomBar?.let { value ->
+                    value.tabsGetter.isValid() && value.bindTabMethod.isValid() &&
+                        value.itemClassName.isNotBlank() && value.itemStringFields.isNotEmpty() &&
+                        value.itemStringFields.all { it.isNotBlank() }
+                } != false &&
+                playerQuality?.defaultQualityMethod?.isValid() != false &&
+                teenagersMode?.onCreateMethods?.let { methods ->
+                    methods.isNotEmpty() && methods.all { it.isValid() }
+                } != false &&
+                commentPurify?.let { value ->
+                    (value.urlMapGetters.isNotEmpty() || value.emptyPageGetters.isNotEmpty() ||
+                        value.voteWidgetMethods.isNotEmpty() || value.follow != null ||
+                        value.qoe != null || value.operations.isNotEmpty() ||
+                        value.quickReplyDialogMethods.isNotEmpty()) &&
+                        value.urlMapGetters.all { it.isValid() } &&
+                        value.emptyPageGetters.all {
+                            it.contentGetter.isValid() && it.defaultInstanceGetter.isValid()
+                        } && value.voteWidgetMethods.all { it.isValid() } &&
+                        value.follow?.let { follow ->
+                            (follow.widgetStateMethods.isNotEmpty() || follow.headerBindMethods.isNotEmpty()) &&
+                                follow.widgetStateMethods.all { it.isValid() } &&
+                                follow.headerBindMethods.all { it.isValid() } &&
+                                (follow.headerBindMethods.isEmpty() ||
+                                    !follow.followButtonClassName.isNullOrBlank())
+                        } != false && value.qoe?.let { qoe ->
+                            qoe.presenceGetter.isValid() && qoe.contentGetter.isValid() &&
+                                qoe.defaultInstanceGetter.isValid()
+                        } != false && value.operations.all { operation ->
+                            operation.presenceGetter.isValid() &&
+                                operation.contentGetter.isValid() &&
+                                operation.defaultInstanceGetter.isValid()
+                        } && value.quickReplyDialogMethods.all { it.isValid() }
+                } != false &&
+                commentFilter?.let { value ->
+                    value.replyListGetters.isNotEmpty() &&
+                        value.replyListGetters.all { it.isValid() } &&
+                        value.contentGetter.isValid() && value.messageGetter.isValid() &&
+                        value.memberGetter.isValid() && value.levelGetter.isValid()
+                } != false &&
+                diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
         companion object {
             fun fromJson(o: JSONObject): AdaptResult? {
                 if (o.optInt("sv", 0) != SCHEMA_VERSION) return null
+                val diagnosticsArray = o.optJSONArray("diag") ?: return null
+                val diagnostics = (0 until diagnosticsArray.length()).map { index ->
+                    AdaptDiagnostic.fromJson(diagnosticsArray.getJSONObject(index)) ?: return null
+                }
                 return AdaptResult(
                     biliVersionCode = o.getInt("v"),
                     ts = o.optLong("ts", 0L),
@@ -206,8 +1010,38 @@ object VersionAdapter {
                     mineEntry = o.optJSONObject("mine")?.let(MineEntryPoint::fromJson),
                     pause = o.optJSONObject("pause")?.let(PausePoints::fromJson)
                         ?: PausePoints(emptyList(), null, null, null),
-                    banner = o.optJSONObject("banner")?.let(BannerPoint::fromJson)
-                )
+                    banner = o.optJSONObject("banner")?.let(BannerPoint::fromJson),
+                    homeTopBar = o.optJSONObject("home_top")?.let(HomeTopBarPoints::fromJson),
+                    mineVip = o.optJSONObject("mine_vip")?.let(MineVipPoint::fromJson),
+                    blockUpdate = o.optJSONObject("block_update")?.let(HookPoint::fromJson),
+                    dynamicTabs = o.optJSONObject("dynamic_tabs")?.let(DynamicTabsPoint::fromJson),
+                    fullNumbers = o.optJSONObject("full_numbers")?.let(FullNumberPoints::fromJson),
+                    playerPortrait = o.optJSONObject("player_portrait")
+                        ?.let(PlayerPortraitPoints::fromJson),
+                    playerStatusBar = o.optJSONObject("player_status_bar")
+                        ?.let(PlayerStatusBarPoints::fromJson),
+                    homeRecommendFeed = o.optJSONObject("home_recommend_feed")
+                        ?.let(HomeRecommendFeedPoints::fromJson),
+                    videoRelate = o.optJSONObject("video_relate")
+                        ?.let(VideoRelatePoints::fromJson),
+                    homeTabs = o.optJSONObject("home_tabs")?.let(HomeTabPoints::fromJson),
+                    homeComponents = o.optJSONObject("home_components")
+                        ?.let(HomeComponentPoints::fromJson),
+                    mineComponents = o.optJSONObject("mine_components")
+                        ?.let(MineComponentPoints::fromJson),
+                    storyFeed = o.optJSONObject("story_feed")?.let(StoryFeedPoints::fromJson),
+                    bottomBar = o.optJSONObject("bottom_bar")?.let(BottomBarPoints::fromJson),
+                    playerQuality = o.optJSONObject("player_quality")
+                        ?.let(PlayerQualityPoints::fromJson),
+                    teenagersMode = o.optJSONObject("teenagers_mode")
+                        ?.let(TeenagersModePoints::fromJson),
+                    commentPurify = o.optJSONObject("comment_purify")
+                        ?.let(CommentPurifyPoints::fromJson),
+                    commentFilter = o.optJSONObject("comment_filter")
+                        ?.let(CommentFilterPoints::fromJson),
+                    hostFingerprint = o.optString("fp"),
+                    diagnostics = diagnostics
+                ).takeIf { it.isStructurallyValid() }
             }
         }
     }
@@ -228,6 +1062,163 @@ object VersionAdapter {
         "com.bilibili.app.comment3.ui.holder.handle.CommentContentRichTextHandler"
     )
 
+    private const val HOME_MENU_ITEM_CLASS =
+        "com.bilibili.lib.homepage.startdust.menu.a"
+    private val HOME_BASE_FRAGMENT_CANDIDATES = listOf(
+        "tv.danmaku.bili.ui.main2.basic.BaseMainFrameFragment",
+        "tv.danmaku.p9138bili.p9228ui.main2.basic.BaseMainFrameFragment"
+    )
+    private val HOME_MAIN_FRAGMENT_CANDIDATES = listOf(
+        "tv.danmaku.bili.ui.main2.MainFragment",
+        "tv.danmaku.p9138bili.p9228ui.main2.MainFragment"
+    )
+    private val HOME_DEFAULT_WORD_CLASS_CANDIDATES = setOf(
+        // 8.90.2
+        "com.bilibili.app.comm.list.common.api.d",
+        // 9.1.0–9.9.0
+        "com.bilibili.app.comm.list.common.api.b"
+    )
+    private val HOME_TOP_BAR_CANDIDATES = listOf(HOME_MENU_ITEM_CLASS) +
+        HOME_BASE_FRAGMENT_CANDIDATES + HOME_MAIN_FRAGMENT_CANDIDATES
+    private const val MINE_FRAGMENT_CLASS =
+        "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment"
+    private const val MINE_VIP_MANAGER_CLASS =
+        "tv.danmaku.bili.ui.main2.mine.modularvip.MineVipModuleManager"
+    private const val BILI_UPGRADE_INFO_CLASS =
+        "tv.danmaku.bili.update.model.BiliUpgradeInfo"
+    private const val DYNAMIC_MEDIATOR_FRAGMENT_CLASS =
+        "com.bilibili.bplus.followinglist.home.mediator.MediatorFragment"
+    private const val DYNAMIC_MEDIATOR_TAB_CLASS =
+        "com.bilibili.bplus.followinglist.home.mediator.MediatorTabLayout"
+    private val BLOCK_UPDATE_OWNER_CANDIDATES = listOf(
+        // 8.90.2；9.1.0/9.1.1；9.2.0；9.3.0；9.4.0；9.5.0；
+        // 9.6.0；9.7.0；9.8.0；9.9.0（按已核验版本顺序）。
+        "vd6.c", "ih1.c", "kh1.c", "Ch1.c", "Uj1.c",
+        "dl1.c", "wm1.c", "Wm1.c", "Sn1.c", "Ro1.c"
+    )
+    private const val KNTR_NUMBER_FORMAT_CLASS =
+        "kntr.base.localization.NumberFormat_androidKt"
+    private val FULL_NUMBER_CLASS_CANDIDATES = listOf(
+        "com.bilibili.base.util.NumberFormat",
+        "com.bilibili.p4566base.p4568util.NumberFormat",
+        "com.bilibili.n9.util.NumberFormat",
+        "com.bilibili.lib.utils.NumberFormat",
+        KNTR_NUMBER_FORMAT_CLASS
+    )
+    private val PLAYER_PORTRAIT_CLASS_CANDIDATES = listOf(
+        "com.bilibili.app.gemini.player.widget.story.GeminiPlayerFullStoryWidget"
+    )
+    private val PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES = listOf(
+        "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity"
+    )
+    private val PEGASUS_RESPONSE_CLASS_CANDIDATES = listOf(
+        "com.bilibili.pegasus.data.base.PegasusResponse",
+        "com.bilibili.pegasus.p5730data.p5731base.PegasusResponse",
+        "com.bilibili.pegasus.p5730data.request.PegasusResponseWrapper"
+    )
+    private const val PEGASUS_HOLDER_DATA_CLASS = "com.bilibili.pegasus.PegasusHolderData"
+    private val BASE_PEGASUS_DATA_CLASS_CANDIDATES = listOf(
+        "com.bilibili.pegasus.data.base.BasePegasusData",
+        "com.bilibili.pegasus.p5730data.p5731base.BasePegasusData"
+    )
+    private val VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES = listOf(
+        "com.bapis.bilibili.app.viewunite.v1.Relates",
+        "com.bapis.bilibili.app.viewunite.v1.RelatesFeedReply",
+        "com.bapis.bilibili.app.view.v1.RelatesFeedReply",
+        "com.bapis.bilibili.app.view.v1.ViewReply",
+        "com.bapis.bilibili.app.view.v1.PlayerRelatesReply"
+    )
+    private val VIDEO_RELATE_ITEM_CLASS_CANDIDATES = listOf(
+        "com.bapis.bilibili.app.viewunite.common.RelateCard",
+        "com.bapis.bilibili.app.view.v1.Relate"
+    )
+    private val HOME_FRAGMENT_V2_CLASS_CANDIDATES = listOf(
+        "tv.danmaku.bili.ui.main2.HomeFragmentV2",
+        "tv.danmaku.p9138bili.p9228ui.main2.HomeFragmentV2"
+    )
+    private val HOME_TAB_RESOURCE_CLASS_CANDIDATES = listOf(
+        "tv.danmaku.bili.ui.main2.resource.z",
+        "tv.danmaku.p9138bili.p9228ui.main2.resource.z"
+    )
+    private const val HOST_FRAGMENT_CLASS = "androidx.fragment.app.Fragment"
+    private val MINE_MENU_GROUP_CLASS_CANDIDATES = listOf(
+        "com.bilibili.lib.homepage.mine.MenuGroupV2",
+        "com.bilibili.lib.homepage.mine.MenuGroup"
+    )
+    private val MINE_MENU_ITEM_CLASS_CANDIDATES = listOf(
+        "com.bilibili.lib.homepage.mine.MenuGroupV2\$Item",
+        "com.bilibili.lib.homepage.mine.MenuGroup\$Item"
+    )
+    private const val STORY_FEED_RESPONSE_CLASS =
+        "com.bilibili.video.story.api.StoryFeedResponse"
+    private const val STORY_DETAIL_CLASS = "com.bilibili.video.story.StoryDetail"
+    private const val STORY_PAGER_PLAYER_CLASS =
+        "com.bilibili.video.story.player.StoryPagerPlayer"
+    private val BOTTOM_TAB_HOST_CLASS_CANDIDATES = listOf(
+        "com.bilibili.lib.homepage.widget.TabHost",
+        "com.bilibili.p5690lib.p5708homepage.widget.TabHost",
+        "tv.danmaku.bili.ui.main2.widget.TabHost",
+        "tv.danmaku.p9138bili.p9228ui.main2.widget.TabHost"
+    )
+    private val PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES = listOf(
+        // 新版 dex 可能引用旧混淆类，因此按新→旧探测，且每个 owner 内仍要求签名唯一。
+        // 9.9.0；9.8.0；9.7.0；9.6.0；9.5.0；9.4.0；9.3.0；
+        // 9.2.0；9.1.0/9.1.1；8.90.2（均由 "quality settings:" 日志交叉核验）。
+        "Jq1.l", "Kp1.l", "Oo1.i", "oo1.g", "Vm1.i",
+        "Kl1.j", "tj1.g", "bj1.i", "Zi1.h", "gh6.h"
+    )
+    private val TEENAGERS_MODE_ACTIVITY_CANDIDATES = listOf(
+        "com.bilibili.teenagersmode.ui.TeenagersModeDialogActivity",
+        "com.bilibili.app.preferences.TeenagersModeDialogActivity",
+        "com.bilibili.p4439app.preferences.TeenagersModeDialogActivity",
+        "tv.danmaku.bili.ui.teenagersmode.TeenagersModeDialogActivity"
+    )
+    private val COMMENT_CONTENT_CLASS_CANDIDATES = listOf(
+        "com.bapis.bilibili.main.community.reply.v1.Content",
+        "com.bapis.bilibili.p4311main.community.reply.p4312v1.Content"
+    )
+    private val COMMENT_EMPTY_PAGE_OWNER_CANDIDATES = listOf(
+        "com.bapis.bilibili.main.community.reply.v1.SubjectControl",
+        "com.bapis.bilibili.main.community.reply.v2.SubjectDescriptionReply",
+        "com.bapis.bilibili.p4311main.community.reply.p4312v1.SubjectControl",
+        "com.bapis.bilibili.p4311main.community.reply.p4313v2.SubjectDescriptionReply"
+    )
+    private val COMMENT_VOTE_WIDGET_CLASS_CANDIDATES = listOf(
+        "com.bilibili.app.comment.ext.widgets.CmtVoteWidget",
+        "com.bilibili.p4439app.comment.p4511ext.widgets.CmtVoteWidget",
+        "com.bilibili.app.comment.ext.widgets.CmtMountWidget",
+        "com.bilibili.p4439app.comment.p4511ext.widgets.CmtMountWidget",
+        "com.bilibili.app.comment3.ui.widget.CommentVoteView",
+        "com.bilibili.p4439app.comment3.p4518ui.widget.CommentVoteView"
+    )
+    private val COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES = listOf(
+        "com.bilibili.app.comm.comment2.phoenix.view.CommentFollowWidget",
+        "com.bilibili.p4439app.p4450comm.comment2.phoenix.p4467view.CommentFollowWidget"
+    )
+    private val COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES = listOf(
+        "com.bilibili.app.comment3.ui.widget.CommentHeaderDecorativeView",
+        "com.bilibili.p4439app.comment3.p4518ui.widget.CommentHeaderDecorativeView"
+    )
+    private val COMMENT_FOLLOW_BUTTON_CLASS_CANDIDATES = listOf(
+        "com.bilibili.relation.widget.FollowButton"
+    )
+    private val COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES = listOf(
+        "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+        "com.bapis.bilibili.p4311main.community.reply.p4312v1.MainListReply"
+    )
+    private val COMMENT_REPLY_INFO_CLASS_CANDIDATES = listOf(
+        "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+        "com.bapis.bilibili.p4311main.community.reply.p4312v1.ReplyInfo"
+    )
+    private val COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES = (4..40).flatMap { index ->
+        listOf(
+            "com.bilibili.app.comment3.ui.CommentContainerImpl\$attachRepository\$$index",
+            "com.bilibili.app.comment3.ui.CommentContainerImpl\$attachRepository\$$index\$2",
+            "com.bilibili.p4439app.comment3.p4518ui.CommentContainerImpl\$attachRepository\$$index",
+            "com.bilibili.p4439app.comment3.p4518ui.CommentContainerImpl\$attachRepository\$$index\$2"
+        )
+    }
+
     private fun prefs(context: Context) = context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
 
     /** 当前 B 站 versionCode（读自身包信息，隔离环境对自身可见） */
@@ -235,32 +1226,84 @@ object VersionAdapter {
         context.packageManager.getPackageInfo("tv.danmaku.bili", 0).versionCode
     }.getOrDefault(0)
 
+    @Suppress("DEPRECATION")
+    private fun buildHostFingerprint(context: Context): String = runCatching {
+        val info = context.packageManager.getPackageInfo("tv.danmaku.bili", 0)
+        val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.longVersionCode
+        } else {
+            info.versionCode.toLong()
+        }
+        val source = File(info.applicationInfo?.sourceDir.orEmpty())
+        listOf(
+            "tv.danmaku.bili",
+            versionCode.toString(),
+            info.versionName.orEmpty(),
+            source.length().toString(),
+            source.lastModified().toString(),
+            ADAPTER_RULE_VERSION.toString()
+        ).joinToString("|")
+    }.getOrElse {
+        "tv.danmaku.bili|${biliVersionCode(context)}|rules=$ADAPTER_RULE_VERSION"
+    }
+
+    fun cacheStatus(): String = lastCacheStatus
+
     /** 读缓存适配结果（二级文件缓存优先；手动重置标记/版本不符返回 null）
      *  @param yukiPrefs YukiHookAPI prefs（DirectAccessService 跨进程读模块 App 的
      *   apexdata prefs；手动重适配的 reset_ts 由模块 UI 写入该处——原生 SharedPreferences
      *   在 B 站进程读的是 B 站自己的内部存储，读不到模块侧的 reset 标记） */
     fun loadCached(context: Context?, yukiPrefs: com.highcapable.yukihookapi.hook.xposed.prefs.YukiHookPrefsBridge?): AdaptResult? {
         val resetTs = yukiPrefs?.getLong(KEY_RESET_TS, 0L) ?: 0L
-        // 文件缓存（loadApp 阶段可读）
-        runCatching {
-            val f = cacheFile()
-            if (f.exists()) {
-                val r = AdaptResult.fromJson(JSONObject(f.readText())) ?: return@runCatching
-                if (r.ts >= resetTs) { // 手动重置标记晚于缓存则作废
-                    val vc = context?.let { biliVersionCode(it) } ?: 0
-                    if (vc == 0 || r.biliVersionCode == vc) return r
-                }
+        val expectedFingerprint = context?.let(::buildHostFingerprint)
+
+        fun accepted(result: AdaptResult, source: String): AdaptResult? {
+            if (result.ts < resetTs) {
+                lastCacheStatus = "$source-stale-reset"
+                return null
             }
+            if (expectedFingerprint != null && !result.isUsableWith(expectedFingerprint)) {
+                lastCacheStatus = "$source-fingerprint-mismatch"
+                return null
+            }
+            val versionCode = context?.let(::biliVersionCode) ?: 0
+            if (versionCode != 0 && result.biliVersionCode != versionCode) {
+                lastCacheStatus = "$source-version-mismatch"
+                return null
+            }
+            lastCacheStatus = "$source-hit"
+            return result
+        }
+
+        // 文件缓存（loadApp 阶段可读）
+        val fileResult = runCatching {
+            val f = cacheFile()
+            if (!f.exists()) return@runCatching null
+            AdaptResult.fromJson(JSONObject(f.readText()))
+                ?: run {
+                    lastCacheStatus = "file-invalid"
+                    null
+                }
+        }.onFailure {
+            lastCacheStatus = "file-read-failed:${it.javaClass.simpleName}"
         }.getOrNull()
+        fileResult?.let { accepted(it, "file") }?.let { return it }
+
         // prefs 缓存（兜底；同样检查手动重置标记）
         if (context != null) {
             runCatching {
                 val p = prefs(context)
                 val v = p.getInt(KEY_ADAPTED_VERSION, 0)
-                val json = p.getString(KEY_ADAPT_RESULT, null) ?: return null
-                val r = AdaptResult.fromJson(JSONObject(json)) ?: return null
-                if (r.ts >= resetTs && r.biliVersionCode == v) r else null
-            }.getOrNull()?.let { return it }
+                val json = p.getString(KEY_ADAPT_RESULT, null) ?: return@runCatching null
+                val r = AdaptResult.fromJson(JSONObject(json)) ?: return@runCatching null
+                if (r.biliVersionCode == v) r else null
+            }.onFailure {
+                lastCacheStatus = "prefs-read-failed:${it.javaClass.simpleName}"
+            }.getOrNull()?.let { accepted(it, "prefs") }?.let { return it }
+        }
+        if (!lastCacheStatus.contains("invalid") && !lastCacheStatus.contains("mismatch") &&
+            !lastCacheStatus.contains("failed") && !lastCacheStatus.contains("stale")) {
+            lastCacheStatus = "miss"
         }
         return null
     }
@@ -303,6 +1346,7 @@ object VersionAdapter {
         callback: AdaptCallback?
     ) {
         val vc = biliVersionCode(context)
+        val expectedFingerprint = buildHostFingerprint(context)
         val cached = loadCached(context, yukiPrefs)
         // 快路径有效性：版本匹配 且（high 已定位 或 当前版本无 high 候选类）。
         // 防止旧缓存（sv 同但 high 缺失——如 8.63.0 早期 low-only 结果）被快路径
@@ -311,6 +1355,7 @@ object VersionAdapter {
             KavaMemberLookup.hasClass(classLoader, it)
         }
         if (cached != null && cached.biliVersionCode == vc &&
+            cached.isUsableWith(expectedFingerprint) &&
             (cached.commentHigh != null || !highCandidateExists)) {
             // 快路径命中：确保文件缓存存在（loadApp 阶段无 context 只读文件缓存；
             // prefs 命中但文件缺失时补写，避免下次启动 loadApp 回退内置候选）
@@ -319,7 +1364,10 @@ object VersionAdapter {
             }
             return // 快路径：已适配
         }
-        XposedBridge.log("[BIL] 版本适配启动 vc=$vc cached=${cached != null}")
+        XposedBridge.log(
+            "[BIL] 版本适配启动 vc=$vc cached=${cached != null} " +
+                "cacheStatus=$lastCacheStatus"
+        )
         // 后台执行（不阻塞启动；toast 提示用户等待）
         callback?.onAdaptStarted()
         Thread({
@@ -342,7 +1390,24 @@ object VersionAdapter {
                 "[BIL] 版本适配${if (result != null) "完成" else "失败"} " +
                     "v=${result?.biliVersionCode} low=${result?.commentLow} high=${result?.commentHigh} " +
                     "mine=${result?.mineEntry != null} pause=${result?.pause?.requestMethods?.size ?: 0} " +
-                    "banner=${result?.banner != null}"
+                    "banner=${result?.banner != null} homeTop=${result?.homeTopBar != null} " +
+                    "mineVip=${result?.mineVip != null} " +
+                    "blockUpdate=${result?.blockUpdate != null} " +
+                    "dynamicTabs=${result?.dynamicTabs != null} " +
+                    "playerPortrait=${result?.playerPortrait != null} " +
+                    "playerStatusBar=${result?.playerStatusBar != null} " +
+                    "homeRecommendFeed=${result?.homeRecommendFeed != null} " +
+                    "videoRelate=${result?.videoRelate != null} " +
+                    "homeTabs=${result?.homeTabs != null} " +
+                    "homeComponents=${result?.homeComponents != null} " +
+                    "mineComponents=${result?.mineComponents != null} " +
+                    "storyFeed=${result?.storyFeed != null} " +
+                    "bottomBar=${result?.bottomBar != null} " +
+                    "playerQuality=${result?.playerQuality != null} " +
+                    "teenagersMode=${result?.teenagersMode != null} " +
+                    "commentPurify=${result?.commentPurify != null} " +
+                    "commentFilter=${result?.commentFilter != null} " +
+                    "diag=${result?.diagnosticSummary()}"
             )
         }, "BIL-VersionAdapter").apply {
             isDaemon = true
@@ -360,10 +1425,69 @@ object VersionAdapter {
         val mine = locateMineEntry(loader)
         val pause = locatePausePoints(loader)
         val banner = locateBanner(loader)
+        val homeTopBar = locateHomeTopBar(loader)
+        val mineVip = locateMineVip(loader)
+        val blockUpdate = locateBlockUpdate(loader)
+        val dynamicTabs = locateDynamicTabs(loader)
+        val fullNumbers = locateFullNumbers(loader)
+        val playerPortrait = locatePlayerPortrait(loader)
+        val playerStatusBar = locatePlayerStatusBar(loader)
+        val homeRecommendFeed = locateHomeRecommendFeed(loader)
+        val videoRelate = locateVideoRelate(loader)
+        val homeTabs = locateHomeTabs(loader)
+        val homeComponents = locateHomeComponents(loader)
+        val mineComponents = locateMineComponents(loader)
+        val storyFeed = locateStoryFeed(loader)
+        val bottomBar = locateBottomBar(loader)
+        val playerQuality = locateDefaultVideoQuality(loader)
+        val teenagersMode = locateTeenagersMode(loader)
+        val commentPurify = locateCommentPurify(loader)
+        val commentFilter = locateCommentFilter(loader)
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
-            pause.panelShow == null && pause.countdown == null && banner == null) return null
-        return AdaptResult(0, 0L, low, high, mine, pause, banner)
+            pause.panelShow == null && pause.countdown == null && banner == null &&
+            homeTopBar == null && mineVip == null && blockUpdate == null &&
+            dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
+            playerStatusBar == null && homeRecommendFeed == null && videoRelate == null &&
+            homeTabs == null && homeComponents == null && mineComponents == null &&
+            storyFeed == null && bottomBar == null &&
+            playerQuality == null && teenagersMode == null && commentPurify == null &&
+            commentFilter == null) return null
+        return AdaptResult(
+            biliVersionCode = 0,
+            ts = 0L,
+            commentLow = low,
+            commentHigh = high,
+            mineEntry = mine,
+            pause = pause,
+            banner = banner,
+            homeTopBar = homeTopBar,
+            mineVip = mineVip,
+            blockUpdate = blockUpdate,
+            dynamicTabs = dynamicTabs,
+            fullNumbers = fullNumbers,
+            playerPortrait = playerPortrait,
+            playerStatusBar = playerStatusBar,
+            homeRecommendFeed = homeRecommendFeed,
+            videoRelate = videoRelate,
+            homeTabs = homeTabs,
+            homeComponents = homeComponents,
+            mineComponents = mineComponents,
+            storyFeed = storyFeed,
+            bottomBar = bottomBar,
+            playerQuality = playerQuality,
+            teenagersMode = teenagersMode,
+            commentPurify = commentPurify,
+            commentFilter = commentFilter,
+            hostFingerprint = "runtime-no-context|rules=$ADAPTER_RULE_VERSION",
+            diagnostics = buildDiagnostics(
+                loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
+                dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
+                videoRelate, homeTabs, homeComponents, mineComponents, storyFeed, bottomBar,
+                playerQuality,
+                teenagersMode, commentPurify, commentFilter
+            )
+        )
     }
 
     /** 智能定位核心：对内置候选类做存在性验证 + 方法签名特征匹配。
@@ -379,13 +1503,468 @@ object VersionAdapter {
         val mine = locateMineEntry(loader)
         val pause = locatePausePoints(loader)
         val banner = locateBanner(loader)
+        val homeTopBar = locateHomeTopBar(loader)
+        val mineVip = locateMineVip(loader)
+        val blockUpdate = locateBlockUpdate(loader)
+        val dynamicTabs = locateDynamicTabs(loader)
+        val fullNumbers = locateFullNumbers(loader)
+        val playerPortrait = locatePlayerPortrait(loader)
+        val playerStatusBar = locatePlayerStatusBar(loader)
+        val homeRecommendFeed = locateHomeRecommendFeed(loader)
+        val videoRelate = locateVideoRelate(loader)
+        val homeTabs = locateHomeTabs(loader)
+        val homeComponents = locateHomeComponents(loader)
+        val mineComponents = locateMineComponents(loader)
+        val storyFeed = locateStoryFeed(loader)
+        val bottomBar = locateBottomBar(loader)
+        val playerQuality = locateDefaultVideoQuality(loader)
+        val teenagersMode = locateTeenagersMode(loader)
+        val commentPurify = locateCommentPurify(loader)
+        val commentFilter = locateCommentFilter(loader)
         val anyClassExists = COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || HOME_TOP_BAR_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || KavaMemberLookup.hasClass(loader, MINE_FRAGMENT_CLASS)
+            || KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS)
+            || FULL_NUMBER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || PLAYER_PORTRAIT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES.any {
+                KavaMemberLookup.hasClass(loader, it)
+            }
+            || PEGASUS_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES.any {
+                KavaMemberLookup.hasClass(loader, it)
+            }
+            || HOME_FRAGMENT_V2_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || MINE_MENU_GROUP_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || KavaMemberLookup.hasClass(loader, STORY_DETAIL_CLASS)
+            || BOTTOM_TAB_HOST_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any {
+                KavaMemberLookup.hasClass(loader, it)
+            }
+            || TEENAGERS_MODE_ACTIVITY_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || COMMENT_CONTENT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || COMMENT_VOTE_WIDGET_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES.any {
+                KavaMemberLookup.hasClass(loader, it)
+            }
+            || COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.any {
+                KavaMemberLookup.hasClass(loader, it)
+            }
+            || COMMENT_REPLY_INFO_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
+            homeTopBar == null && mineVip == null && blockUpdate == null &&
+            dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
+            playerStatusBar == null && homeRecommendFeed == null && videoRelate == null &&
+            homeTabs == null && homeComponents == null && mineComponents == null &&
+            storyFeed == null && bottomBar == null &&
+            playerQuality == null && teenagersMode == null && commentPurify == null &&
+            commentFilter == null &&
             !anyClassExists) return null
-        return AdaptResult(vc, System.currentTimeMillis(), low, high, mine, pause, banner)
+        return AdaptResult(
+            biliVersionCode = vc,
+            ts = System.currentTimeMillis(),
+            commentLow = low,
+            commentHigh = high,
+            mineEntry = mine,
+            pause = pause,
+            banner = banner,
+            homeTopBar = homeTopBar,
+            mineVip = mineVip,
+            blockUpdate = blockUpdate,
+            dynamicTabs = dynamicTabs,
+            fullNumbers = fullNumbers,
+            playerPortrait = playerPortrait,
+            playerStatusBar = playerStatusBar,
+            homeRecommendFeed = homeRecommendFeed,
+            videoRelate = videoRelate,
+            homeTabs = homeTabs,
+            homeComponents = homeComponents,
+            mineComponents = mineComponents,
+            storyFeed = storyFeed,
+            bottomBar = bottomBar,
+            playerQuality = playerQuality,
+            teenagersMode = teenagersMode,
+            commentPurify = commentPurify,
+            commentFilter = commentFilter,
+            hostFingerprint = buildHostFingerprint(context),
+            diagnostics = buildDiagnostics(
+                loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
+                dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
+                videoRelate, homeTabs, homeComponents, mineComponents, storyFeed, bottomBar,
+                playerQuality,
+                teenagersMode, commentPurify, commentFilter
+            )
+        )
+    }
+
+    private fun HookPoint.label(): String = buildString {
+        append(className)
+        append('#')
+        append(methodName)
+        paramClassNames?.let { params ->
+            append('(')
+            append(params.joinToString(","))
+            append(')')
+        }
+    }
+
+    private fun buildDiagnostics(
+        loader: ClassLoader,
+        low: HookPoint?,
+        high: HookPoint?,
+        mine: MineEntryPoint?,
+        pause: PausePoints,
+        banner: BannerPoint?,
+        homeTopBar: HomeTopBarPoints?,
+        mineVip: MineVipPoint?,
+        blockUpdate: HookPoint?,
+        dynamicTabs: DynamicTabsPoint?,
+        fullNumbers: FullNumberPoints?,
+        playerPortrait: PlayerPortraitPoints?,
+        playerStatusBar: PlayerStatusBarPoints?,
+        homeRecommendFeed: HomeRecommendFeedPoints?,
+        videoRelate: VideoRelatePoints?,
+        homeTabs: HomeTabPoints?,
+        homeComponents: HomeComponentPoints?,
+        mineComponents: MineComponentPoints?,
+        storyFeed: StoryFeedPoints?,
+        bottomBar: BottomBarPoints?,
+        playerQuality: PlayerQualityPoints?,
+        teenagersMode: TeenagersModePoints?,
+        commentPurify: CommentPurifyPoints?,
+        commentFilter: CommentFilterPoints?
+    ): List<AdaptDiagnostic> {
+        fun stateFor(pointFound: Boolean, candidateExists: Boolean): AdaptState = when {
+            pointFound -> AdaptState.FOUND
+            candidateExists -> AdaptState.MISSING
+            else -> AdaptState.NOT_APPLICABLE
+        }
+
+        val lowCandidateExists = COMMENT_LOW_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val highCandidateExists = COMMENT_HIGH_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val mineCandidateExists = KavaMemberLookup.hasClass(loader, MINE_FRAGMENT_CLASS)
+        val mineVipCandidateExists = mineCandidateExists &&
+            KavaMemberLookup.hasClass(loader, MINE_VIP_MANAGER_CLASS)
+        val blockUpdateCandidateExists = BLOCK_UPDATE_OWNER_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val dynamicTabsCandidateExists =
+            KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS) &&
+                KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_TAB_CLASS)
+        val fullNumbersCandidateExists = FULL_NUMBER_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val playerPortraitCandidateExists = PLAYER_PORTRAIT_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val playerStatusBarCandidateExists = PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val homeRecommendFeedCandidateExists =
+            KavaMemberLookup.hasClass(loader, PEGASUS_HOLDER_DATA_CLASS) &&
+                PEGASUS_RESPONSE_CLASS_CANDIDATES.any {
+                    KavaMemberLookup.hasClass(loader, it)
+                }
+        val videoRelateCandidateExists = VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val homeTabsCandidateExists = HOME_FRAGMENT_V2_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val homeComponentsCandidateExists = KavaMemberLookup.hasClass(loader, HOST_FRAGMENT_CLASS)
+        val mineComponentsCandidateExists = MINE_MENU_GROUP_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val storyFeedCandidateExists = KavaMemberLookup.hasClass(loader, STORY_DETAIL_CLASS) &&
+            (KavaMemberLookup.hasClass(loader, STORY_FEED_RESPONSE_CLASS) ||
+                KavaMemberLookup.hasClass(loader, STORY_PAGER_PLAYER_CLASS))
+        val bottomBarCandidateExists = BOTTOM_TAB_HOST_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val playerQualityCandidateExists = PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val teenagersModeCandidateExists = TEENAGERS_MODE_ACTIVITY_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val commentPurifyCandidateExists = COMMENT_CONTENT_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val commentEmptyPageCandidateExists = COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val commentVoteCandidateExists = COMMENT_VOTE_WIDGET_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val commentFollowCandidateExists = COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        } || COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val commentMainListCandidateExists = COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val commentQuickReplyCandidateExists = COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val commentFilterCandidateExists = COMMENT_REPLY_INFO_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val pauseCandidateClasses = listOf(
+            "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$2",
+            "com.bilibili.ship.theseus.united.page.pausedpage." +
+                "PausedPageService\$requestPausedPageData\$2"
+        )
+        val pauseCandidateExists = pauseCandidateClasses.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val panelCandidateExists = KavaMemberLookup.hasClass(
+            loader,
+            "com.bilibili.ship.theseus.united.page.ad.AdPanelRepository"
+        )
+        val countdownCandidateExists = KavaMemberLookup.hasClass(
+            loader,
+            "com.bilibili.ship.theseus.united.page.pausedpage." +
+                "PausedPageService\$showPauseBarCountdownToast\$3"
+        )
+        val bannerCandidateExists = KavaMemberLookup.hasClass(
+            loader,
+            "com.bilibili.pegasus.holders.bannerv8.V8Banner"
+        )
+        val gameMenuCandidateExists = KavaMemberLookup.hasClass(loader, HOME_MENU_ITEM_CLASS)
+        val searchCandidateExists = HOME_MAIN_FRAGMENT_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val searchReady = homeTopBar?.baseOnViewCreated != null &&
+            homeTopBar.defaultWordMethods.isNotEmpty()
+        return listOf(
+            AdaptDiagnostic(
+                "comment.low",
+                stateFor(low != null, lowCandidateExists),
+                low?.label().orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.high",
+                stateFor(high != null, highCandidateExists),
+                high?.label().orEmpty()
+            ),
+            AdaptDiagnostic(
+                "mine.entry",
+                stateFor(mine != null, mineCandidateExists),
+                mine?.let { "build=${it.buildMethods.size},groups=${it.groupListField}" }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "paused.request",
+                stateFor(pause.requestMethods.isNotEmpty(), pauseCandidateExists),
+                pause.requestMethods.joinToString("|") { it.label() }
+            ),
+            AdaptDiagnostic(
+                "paused.panel",
+                stateFor(pause.panelShow != null, panelCandidateExists),
+                pause.panelShow?.label().orEmpty()
+            ),
+            AdaptDiagnostic(
+                "paused.countdown",
+                stateFor(pause.countdown != null, countdownCandidateExists),
+                pause.countdown?.label().orEmpty()
+            ),
+            AdaptDiagnostic(
+                "home.banner",
+                stateFor(banner != null, bannerCandidateExists),
+                banner?.let { "${it.bannerClassName},hooks=${it.lifecycleMethods.size}" }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "home.top_bar.game",
+                stateFor(homeTopBar?.gameMenu != null, gameMenuCandidateExists),
+                homeTopBar?.gameMenu?.label().orEmpty()
+            ),
+            AdaptDiagnostic(
+                "home.top_bar.search",
+                stateFor(searchReady, searchCandidateExists),
+                homeTopBar?.let {
+                    "view=${it.baseOnViewCreated?.label().orEmpty()},words=${it.defaultWordMethods.size}"
+                }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "mine.vip",
+                stateFor(mineVip != null, mineVipCandidateExists),
+                mineVip?.let {
+                    "resume=${it.onResume.label()},binding=${it.bindingField}," +
+                        "root=${it.rootGetter.label()}"
+                }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "update.block",
+                stateFor(blockUpdate != null, blockUpdateCandidateExists),
+                blockUpdate?.label().orEmpty()
+            ),
+            AdaptDiagnostic(
+                "dynamic.tabs",
+                stateFor(dynamicTabs != null, dynamicTabsCandidateExists),
+                dynamicTabs?.let {
+                    "list=${it.listGetter.label()},item=${it.itemClassName}#" +
+                        "${it.itemTitleField}/${it.itemNameField}"
+                }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "number.full",
+                stateFor(fullNumbers != null, fullNumbersCandidateExists),
+                fullNumbers?.formatterMethods?.joinToString("|") { it.label() }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "player.portrait",
+                stateFor(playerPortrait != null, playerPortraitCandidateExists),
+                playerPortrait?.visibilityMethods?.joinToString("|") { it.label() }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "player.status_bar",
+                stateFor(playerStatusBar != null, playerStatusBarCandidateExists),
+                playerStatusBar?.onCreateMethods?.joinToString("|") { it.label() }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "home.recommend_feed",
+                stateFor(homeRecommendFeed != null, homeRecommendFeedCandidateExists),
+                homeRecommendFeed?.let {
+                    "responses=${it.responseItemGetters.size},holder=${it.holderTypeGetter.label()}"
+                }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "video.relate",
+                stateFor(videoRelate != null, videoRelateCandidateExists),
+                videoRelate?.let {
+                    "responses=${it.responseItemGetters.size},types=" +
+                        (it.cardCaseGetters.size + it.gotoGetters.size + it.cardTypeGetters.size)
+                }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "home.tabs",
+                stateFor(homeTabs != null, homeTabsCandidateExists),
+                homeTabs?.let { "${it.buildMethod.label()},resource=${it.resourceClassName}" }
+                    .orEmpty()
+            ),
+            AdaptDiagnostic(
+                "home.components",
+                stateFor(homeComponents != null, homeComponentsCandidateExists),
+                homeComponents?.onViewCreated?.label().orEmpty()
+            ),
+            AdaptDiagnostic(
+                "mine.components",
+                stateFor(mineComponents != null, mineComponentsCandidateExists),
+                mineComponents?.let {
+                    "lists=${it.itemListGetters.size},titles=${it.itemTitleGetters.size}"
+                }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "story.feed",
+                stateFor(storyFeed != null, storyFeedCandidateExists),
+                storyFeed?.let {
+                    "responses=${it.responseItemGetters.size},pager=${it.pagerListMethods.size}," +
+                        "ad=${it.adGetter != null},live=${it.liveGetter != null}," +
+                        "game=${it.gameGetter != null}"
+                }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "home.bottom_bar",
+                stateFor(bottomBar != null, bottomBarCandidateExists),
+                bottomBar?.let {
+                    "tabs=${it.tabsGetter.label()},bind=${it.bindTabMethod.label()}," +
+                        "strings=${it.itemStringFields.size}"
+                }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "player.default_quality",
+                stateFor(playerQuality != null, playerQualityCandidateExists),
+                playerQuality?.defaultQualityMethod?.label().orEmpty()
+            ),
+            AdaptDiagnostic(
+                "teenagers.mode",
+                stateFor(teenagersMode != null, teenagersModeCandidateExists),
+                teenagersMode?.onCreateMethods?.joinToString("|") { it.label() }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.purify.search",
+                stateFor(
+                    commentPurify?.urlMapGetters?.isNotEmpty() == true,
+                    commentPurifyCandidateExists
+                ),
+                commentPurify?.urlMapGetters?.joinToString("|") { it.label() }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.purify.empty_page",
+                stateFor(
+                    commentPurify?.emptyPageGetters?.isNotEmpty() == true,
+                    commentEmptyPageCandidateExists
+                ),
+                commentPurify?.emptyPageGetters?.joinToString("|") {
+                    "${it.contentGetter.label()}->${it.defaultInstanceGetter.label()}"
+                }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.purify.vote",
+                stateFor(
+                    commentPurify?.voteWidgetMethods?.isNotEmpty() == true,
+                    commentVoteCandidateExists
+                ),
+                commentPurify?.voteWidgetMethods?.joinToString("|") { it.label() }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.purify.follow",
+                stateFor(commentPurify?.follow != null, commentFollowCandidateExists),
+                commentPurify?.follow?.let { follow ->
+                    "widget=${follow.widgetStateMethods.joinToString("|") { it.label() }};" +
+                        "header=${follow.headerBindMethods.joinToString("|") { it.label() }};" +
+                        "button=${follow.followButtonClassName.orEmpty()}"
+                }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.purify.qoe",
+                stateFor(commentPurify?.qoe != null, commentMainListCandidateExists),
+                commentPurify?.qoe?.let { qoe ->
+                    "has=${qoe.presenceGetter.label()},get=${qoe.contentGetter.label()}," +
+                        "default=${qoe.defaultInstanceGetter.label()}"
+                }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.purify.operation",
+                stateFor(
+                    commentPurify?.operations?.size == 2,
+                    commentMainListCandidateExists
+                ),
+                commentPurify?.operations?.joinToString("|") { operation ->
+                    "${operation.presenceGetter.methodName}/" +
+                        "${operation.contentGetter.methodName}->" +
+                        operation.defaultInstanceGetter.className
+                }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.quick_reply",
+                stateFor(
+                    commentPurify?.quickReplyDialogMethods?.isNotEmpty() == true,
+                    commentQuickReplyCandidateExists
+                ),
+                commentPurify?.quickReplyDialogMethods
+                    ?.joinToString("|") { it.label() }
+                    .orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.filter",
+                stateFor(commentFilter != null, commentFilterCandidateExists),
+                commentFilter?.let { points ->
+                    "lists=${points.replyListGetters.joinToString("|") { it.label() }}," +
+                        "message=${points.messageGetter.label()},level=${points.levelGetter.label()}"
+                }.orEmpty()
+            )
+        )
     }
 
     private fun Method.toHookPoint() = HookPoint(
@@ -407,13 +1986,30 @@ object VersionAdapter {
         return false
     }
 
+    /** 通过类名遍历接口层级，避免宿主 AndroidX 与模块 ClassLoader 身份差异。 */
+    private fun Class<*>.implementsInterfaceNamed(expectedName: String): Boolean {
+        val pending = java.util.ArrayDeque<Class<*>>()
+        val visited = HashSet<Class<*>>()
+        pending.add(this)
+        while (pending.isNotEmpty()) {
+            val current = pending.removeFirst()
+            if (!visited.add(current)) continue
+            current.interfaces.forEach { implemented ->
+                if (implemented.name == expectedName) return true
+                pending.addLast(implemented)
+            }
+            current.superclass?.let(pending::addLast)
+        }
+        return false
+    }
+
     /**
      * 结构化定位“我的”页入口。已确认的字段漂移：
      * 8.90.2/9.8.0 由运行时结构匹配；9.1.1=of+n1/m1、9.2.0=pf+m1/l1、
      * 9.3.0=nf+u0/t0。只依赖方法参数、List 和 RecyclerView.Adapter 类型。
      */
     fun locateMineEntry(loader: ClassLoader): MineEntryPoint? = runCatching {
-        val fragmentName = "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment"
+        val fragmentName = MINE_FRAGMENT_CLASS
         val accountMineName = "tv.danmaku.bili.ui.main2.api.AccountMine"
         val itemName = "com.bilibili.lib.homepage.mine.MenuGroup\$Item"
         val fragment = KavaMemberLookup.classOrNull(loader, fragmentName)
@@ -452,6 +2048,800 @@ object VersionAdapter {
             .firstOrNull() ?: return@runCatching null
 
         MineEntryPoint(builds.map { it.toHookPoint() }, groups.name, adapter?.name, click.toHookPoint())
+    }.getOrNull()
+
+    /**
+     * 结构化定位“我的”页 VIP 卡片。8.90.2、9.1.0 与 9.9.0 的混淆字段名不同，
+     * 但 Fragment 持有唯一 MineVipModuleManager、管理器持有唯一 ViewBinding，且
+     * ViewBinding 暴露无参 getRoot。只在适配期扫描并缓存精确成员描述。
+     */
+    fun locateMineVip(loader: ClassLoader): MineVipPoint? = runCatching {
+        val fragment = KavaMemberLookup.classOrNull(loader, MINE_FRAGMENT_CLASS)
+            ?: return@runCatching null
+        val manager = KavaMemberLookup.classOrNull(loader, MINE_VIP_MANAGER_CLASS)
+            ?: return@runCatching null
+        val onResume = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
+            !it.isStatic && it.name == "onResume" && it.parameterCount == 0 &&
+                it.returnType == Void.TYPE
+        }.singleOrNull() ?: return@runCatching null
+        val managerField = KavaMemberLookup.declaredFields(fragment, makeAccessible = true) {
+            !java.lang.reflect.Modifier.isStatic(it.modifiers) && manager.isAssignableFrom(it.type)
+        }.singleOrNull() ?: return@runCatching null
+        val bindingField = KavaMemberLookup.declaredFields(manager, makeAccessible = true) {
+            !java.lang.reflect.Modifier.isStatic(it.modifiers) &&
+                it.type.implementsInterfaceNamed("androidx.viewbinding.ViewBinding")
+        }.singleOrNull() ?: return@runCatching null
+        val rootGetter = KavaMemberLookup.declaredMethods(
+            bindingField.type,
+            makeAccessible = true
+        ) {
+            !it.isStatic && !it.isBridge && it.name == "getRoot" &&
+                it.parameterCount == 0 && View::class.java.isAssignableFrom(it.returnType)
+        }.singleOrNull() ?: return@runCatching null
+
+        MineVipPoint(
+            onResume = onResume.toHookPoint().copy(viewField = managerField.name),
+            bindingField = bindingField.name,
+            rootGetter = rootGetter.toHookPoint()
+        )
+    }.getOrNull()
+
+    /**
+     * 定位官方客户端更新信息同步入口。候选类来自 8.90.2 与 9.1.0–9.9.0 的离线字符串/
+     * 签名交叉验证；运行期仍要求精确的 (Context) -> BiliUpgradeInfo 结构。
+     * 8.90.2 同时存在接口桥接 a(Context) 与真实网络实现 c(Context)，优先选择没有被接口
+     * 声明的叶子方法；新版本只有一个实现时直接采用唯一候选。
+     */
+    fun locateBlockUpdate(loader: ClassLoader): HookPoint? = runCatching {
+        val upgradeInfo = KavaMemberLookup.classOrNull(loader, BILI_UPGRADE_INFO_CLASS)
+            ?: return@runCatching null
+        for (ownerName in BLOCK_UPDATE_OWNER_CANDIDATES) {
+            val owner = KavaMemberLookup.classOrNull(loader, ownerName) ?: continue
+            val candidates = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                !it.isStatic && !java.lang.reflect.Modifier.isAbstract(it.modifiers) &&
+                    it.returnType == upgradeInfo &&
+                    it.parameterTypes.contentEquals(arrayOf(Context::class.java))
+            }
+            if (candidates.isEmpty()) continue
+            val interfaceSignatures = owner.interfaces.flatMap { contract ->
+                KavaMemberLookup.declaredMethods(contract).map { method ->
+                    method.name to method.parameterTypes.toList()
+                }
+            }.toSet()
+            val leafCandidates = candidates.filter { method ->
+                (method.name to method.parameterTypes.toList()) !in interfaceSignatures
+            }
+            val selected = leafCandidates.singleOrNull() ?: candidates.singleOrNull() ?: continue
+            return@runCatching selected.toHookPoint()
+        }
+        null
+    }.getOrNull()
+
+    /**
+     * 动态页页签定位。8.90.2、9.1.x 与 9.9.0 的渲染方法可能被 R8 内联，不能依赖
+     * 某个混淆方法名；位置映射始终通过 MediatorFragment 唯一的无参 List getter，
+     * 页签添加始终落到 TabLayout.addTab(Tab, boolean)。页签模型由 getter 泛型签名取得，
+     * 再验证 title/name 两个 String 字段；任一结构不唯一即不安装，避免位置错配。
+     */
+    fun locateDynamicTabs(loader: ClassLoader): DynamicTabsPoint? = runCatching {
+        val fragment = KavaMemberLookup.classOrNull(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS)
+            ?: return@runCatching null
+        val mediatorTab = KavaMemberLookup.classOrNull(loader, DYNAMIC_MEDIATOR_TAB_CLASS)
+            ?: return@runCatching null
+        if (!mediatorTab.hasSuperclassNamed("com.google.android.material.tabs.TabLayout")) {
+            return@runCatching null
+        }
+        val listGetter = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
+            !it.isStatic && it.parameterCount == 0 && List::class.java == it.returnType
+        }.singleOrNull() ?: return@runCatching null
+        val itemClass = (listGetter.genericReturnType as? ParameterizedType)
+            ?.actualTypeArguments
+            ?.singleOrNull() as? Class<*>
+            ?: return@runCatching null
+        val titleField = KavaMemberLookup.declaredFields(itemClass, makeAccessible = true) {
+            !java.lang.reflect.Modifier.isStatic(it.modifiers) &&
+                it.type == String::class.java && it.name == "a"
+        }.singleOrNull() ?: return@runCatching null
+        val nameField = KavaMemberLookup.declaredFields(itemClass, makeAccessible = true) {
+            !java.lang.reflect.Modifier.isStatic(it.modifiers) &&
+                it.type == String::class.java && it.name == "b"
+        }.singleOrNull() ?: return@runCatching null
+        val tabLayout = mediatorTab.superclass?.let { current ->
+            generateSequence(current) { it.superclass }
+                .firstOrNull { it.name == "com.google.android.material.tabs.TabLayout" }
+        } ?: return@runCatching null
+        val tabClass = KavaMemberLookup.classOrNull(
+            loader,
+            "com.google.android.material.tabs.TabLayout\$Tab"
+        ) ?: return@runCatching null
+        val addTab = KavaMemberLookup.methodOrNull(
+            tabLayout,
+            "addTab",
+            tabClass,
+            Boolean::class.javaPrimitiveType ?: return@runCatching null
+        ) ?: return@runCatching null
+        val customViewGetter = KavaMemberLookup.methodOrNull(
+            tabClass,
+            "getCustomView"
+        )?.takeIf { View::class.java.isAssignableFrom(it.returnType) }
+            ?: return@runCatching null
+
+        DynamicTabsPoint(
+            listGetter = listGetter.toHookPoint(),
+            addTab = addTab.toHookPoint(),
+            tabCustomViewGetter = customViewGetter.toHookPoint(),
+            mediatorTabClassName = mediatorTab.name,
+            itemClassName = itemClass.name,
+            itemTitleField = titleField.name,
+            itemNameField = nameField.name
+        )
+    }.getOrNull()
+
+    /**
+     * 定位数字缩写格式化器。8.90.2、9.1.0 与 9.9.0 均同时保留 Java NumberFormat；
+     * “我的”页则直接调用 kntr 的 Kotlin 顶层函数。只接受 static、String 返回值且首参
+     * 为 int/long（含装箱）或 kntr 的数字字符串重载，避免碰触时间/小数格式化方法。
+     */
+    fun locateFullNumbers(loader: ClassLoader): FullNumberPoints? = runCatching {
+        val acceptedNames = setOf(
+            "format",
+            "formatWithComma",
+            "formatNumber",
+            "format\$default",
+            "formatNumber\$default"
+        )
+        val numericTypes = setOf(
+            classOf<Int>(),
+            classOf<Long>(),
+            classOf<Int>(primitiveType = false),
+            classOf<Long>(primitiveType = false)
+        )
+        val methods = FULL_NUMBER_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    val firstType = method.parameterTypes.firstOrNull()
+                    method.isStatic && method.returnType == classOf<String>() &&
+                        method.name in acceptedNames && method.parameterCount in 1..5 &&
+                        (firstType in numericTypes ||
+                            (firstType == classOf<String>() &&
+                                owner.name == KNTR_NUMBER_FORMAT_CLASS))
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        methods.takeIf { it.isNotEmpty() }?.let(::FullNumberPoints)
+    }.getOrNull()
+
+    /**
+     * 定位播放器“进入看一看”竖屏切换控件。8.90.2、9.1.0 与 9.9.0 的布局和 dex
+     * 交叉验证表明该控件均由 GeminiPlayerFullStoryWidget 自身覆写 setVisibility(int)。
+     * 只缓存控件自身声明的精确方法，不安装全局 View 可见性 Hook，也不扫描界面树。
+     */
+    fun locatePlayerPortrait(loader: ClassLoader): PlayerPortraitPoints? = runCatching {
+        val methods = PLAYER_PORTRAIT_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .filter { it.hasSuperclassNamed("android.view.View") }
+            .mapNotNull { owner ->
+                KavaMemberLookup.methodOrNull(
+                    owner,
+                    "setVisibility",
+                    classOf<Int>()
+                )?.takeIf { method ->
+                    method.declaringClass == owner && method.returnType == Void.TYPE
+                }
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        methods.takeIf { it.isNotEmpty() }?.let(::PlayerPortraitPoints)
+    }.getOrNull()
+
+    /**
+     * 详情页透明状态栏只挂到目标 Activity 自己声明的 onCreate(Bundle)，避免全局
+     * Activity 生命周期 Hook。9.x 主链均使用 UnitedBizDetailsActivity；类或签名漂移时
+     * 直接不安装，不以类名模糊匹配其它页面。
+     */
+    fun locatePlayerStatusBar(loader: ClassLoader): PlayerStatusBarPoints? = runCatching {
+        val methods = PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .filter { it.hasSuperclassNamed("android.app.Activity") }
+            .mapNotNull { owner ->
+                KavaMemberLookup.methodOrNull(owner, "onCreate", Bundle::class.java)
+                    ?.takeIf { method ->
+                        method.declaringClass == owner && method.returnType == Void.TYPE &&
+                            !method.isStatic
+                    }
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        methods.takeIf { it.isNotEmpty() }?.let(::PlayerStatusBarPoints)
+    }.getOrNull()
+
+    /**
+     * 首页推荐卡片定位：响应只接受无参 List getter，卡片属性只接受公开无参 String
+     * getter。运行期先由响应边界登记对象身份，再改写已登记竖屏卡片的路由，避免把同一
+     * BasePegasusData 类型在其它页面的对象一并修改。
+     */
+    fun locateHomeRecommendFeed(loader: ClassLoader): HomeRecommendFeedPoints? = runCatching {
+        val holder = KavaMemberLookup.classOrNull(loader, PEGASUS_HOLDER_DATA_CLASS)
+            ?: return@runCatching null
+        val holderType = KavaMemberLookup.methods(
+            holder,
+            includeSuperclasses = true,
+            makeAccessible = true
+        ) { method ->
+            method.name == "getHolderType" && method.parameterCount == 0 &&
+                method.returnType == String::class.java && !method.isStatic
+        }.distinctBy(Method::toGenericString).singleOrNull() ?: return@runCatching null
+
+        val responseGetters = PEGASUS_RESPONSE_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.methods(
+                    owner,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    method.name == "getItems" && method.parameterCount == 0 &&
+                        List::class.java.isAssignableFrom(method.returnType) &&
+                        !method.isStatic && !method.isAbstract
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        if (responseGetters.isEmpty()) return@runCatching null
+
+        val base = BASE_PEGASUS_DATA_CLASS_CANDIDATES.firstNotNullOfOrNull {
+            KavaMemberLookup.classOrNull(loader, it)
+        } ?: holder
+        fun stringGetter(name: String): HookPoint? = KavaMemberLookup.methods(
+            base,
+            includeSuperclasses = true,
+            makeAccessible = true
+        ) { method ->
+            method.name == name && method.parameterCount == 0 &&
+                method.returnType == String::class.java && !method.isStatic
+        }.distinctBy(Method::toGenericString).singleOrNull()?.toHookPoint()
+
+        val uri = stringGetter("getUri") ?: return@runCatching null
+        fun objectGetter(name: String): HookPoint? = KavaMemberLookup.methods(
+            base,
+            includeSuperclasses = true,
+            makeAccessible = true
+        ) { method ->
+            method.name == name && method.parameterCount == 0 && !method.isStatic
+        }.distinctBy(Method::toGenericString).singleOrNull()?.toHookPoint()
+        HomeRecommendFeedPoints(
+            responseItemGetters = responseGetters,
+            holderTypeGetter = holderType.toHookPoint(),
+            bizTypeGetter = stringGetter("getBizType"),
+            adInfoGetter = objectGetter("getAdInfo"),
+            cardGotoGetter = stringGetter("getCardGoto"),
+            goToGetter = stringGetter("getGoTo"),
+            uriGetter = uri,
+            paramGetter = stringGetter("getParam"),
+            titleGetter = stringGetter("getTitle"),
+            subtitleGetter = stringGetter("getSubtitle"),
+            descGetter = stringGetter("getDesc")
+        )
+    }.getOrNull()
+
+    /** 精确定位相关推荐列表以及公开的 cardCase/goto/cardType 类型读取方法。 */
+    fun locateVideoRelate(loader: ClassLoader): VideoRelatePoints? = runCatching {
+        val responses = VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.methods(
+                    owner,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    method.name in setOf("getCardsList", "getRelatesList") &&
+                        method.parameterCount == 0 &&
+                        List::class.java.isAssignableFrom(method.returnType) &&
+                        !method.isStatic && !method.isAbstract
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        if (responses.isEmpty()) return@runCatching null
+
+        fun itemGetters(name: String): List<HookPoint> =
+            VIDEO_RELATE_ITEM_CLASS_CANDIDATES.asSequence()
+                .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+                .flatMap { owner ->
+                    KavaMemberLookup.methods(
+                        owner,
+                        includeSuperclasses = true,
+                        makeAccessible = true
+                    ) { method ->
+                        method.name == name && method.parameterCount == 0 &&
+                            !method.isStatic && method.returnType != Void.TYPE
+                    }.asSequence()
+                }
+                .distinctBy(Method::toGenericString)
+                .map { it.toHookPoint() }
+                .toList()
+
+        val cases = itemGetters("getCardCase")
+        val gotos = itemGetters("getGoto")
+        val types = itemGetters("getCardType")
+        if (cases.isEmpty() && gotos.isEmpty() && types.isEmpty()) return@runCatching null
+        VideoRelatePoints(responses, cases, gotos, types)
+    }.getOrNull()
+
+    /** 首页 Tab 构建方法：单个 List 参数、List 返回值，且参数泛型为 main2.resource。 */
+    fun locateHomeTabs(loader: ClassLoader): HomeTabPoints? = runCatching {
+        val candidates = HOME_FRAGMENT_V2_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    !method.isStatic && !method.isAbstract && method.parameterCount == 1 &&
+                        List::class.java.isAssignableFrom(method.parameterTypes[0]) &&
+                        List::class.java.isAssignableFrom(method.returnType) &&
+                        method.genericParameterTypes[0].toString().contains("main2.resource.")
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .toList()
+        val build = candidates.singleOrNull() ?: return@runCatching null
+        val resource = (build.genericParameterTypes[0] as? ParameterizedType)
+            ?.actualTypeArguments?.singleOrNull() as? Class<*>
+            ?: HOME_TAB_RESOURCE_CLASS_CANDIDATES.firstNotNullOfOrNull {
+                KavaMemberLookup.classOrNull(loader, it)
+            }
+            ?: return@runCatching null
+        val stringFields = KavaMemberLookup.declaredFields(resource, makeAccessible = true) {
+            !java.lang.reflect.Modifier.isStatic(it.modifiers) && it.type == String::class.java
+        }
+        if (stringFields.size < 3) return@runCatching null
+        HomeTabPoints(
+            buildMethod = build.toHookPoint(),
+            resourceClassName = resource.name,
+            idField = stringFields[0].name,
+            titleField = stringFields[1].name,
+            uriField = stringFields[2].name,
+            reporterIdField = stringFields.getOrNull(3)?.name
+        )
+    }.getOrNull()
+
+    /** 首页子组件仅使用宿主 AndroidX Fragment 的公开生命周期和父级读取方法。 */
+    fun locateHomeComponents(loader: ClassLoader): HomeComponentPoints? = runCatching {
+        val fragment = KavaMemberLookup.classOrNull(loader, HOST_FRAGMENT_CLASS)
+            ?: return@runCatching null
+        val onViewCreated = KavaMemberLookup.methodOrNull(
+            fragment,
+            "onViewCreated",
+            View::class.java,
+            Bundle::class.java
+        )?.takeIf { !it.isStatic && it.returnType == Void.TYPE }
+            ?: return@runCatching null
+        val parent = KavaMemberLookup.methodOrNull(fragment, "getParentFragment")
+            ?.takeIf { !it.isStatic && it.returnType.name == HOST_FRAGMENT_CLASS }
+            ?: return@runCatching null
+        HomeComponentPoints(onViewCreated.toHookPoint(), parent.toHookPoint())
+    }.getOrNull()
+
+    /** “我的”页只在 MenuGroup(V2) 的 getItemList 返回边界按 Item#getTitle 过滤。 */
+    fun locateMineComponents(loader: ClassLoader): MineComponentPoints? = runCatching {
+        val lists = MINE_MENU_GROUP_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.methods(
+                    owner,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    method.name == "getItemList" && method.parameterCount == 0 &&
+                        List::class.java.isAssignableFrom(method.returnType) && !method.isStatic
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        val titles = MINE_MENU_ITEM_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.methods(
+                    owner,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    method.name == "getTitle" && method.parameterCount == 0 &&
+                        method.returnType == String::class.java && !method.isStatic
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        if (lists.isEmpty() || titles.isEmpty()) return@runCatching null
+        MineComponentPoints(lists, titles)
+    }.getOrNull()
+
+    /** Story 只采用 StoryDetail 自身公开类型判断，不按标题、URI 或字段内容猜测。 */
+    fun locateStoryFeed(loader: ClassLoader): StoryFeedPoints? = runCatching {
+        val detail = KavaMemberLookup.classOrNull(loader, STORY_DETAIL_CLASS)
+            ?: return@runCatching null
+        fun booleanGetter(name: String): HookPoint? = KavaMemberLookup.methodOrNull(detail, name)
+            ?.takeIf { method ->
+                !method.isStatic && method.parameterCount == 0 &&
+                    method.returnType == Boolean::class.javaPrimitiveType
+            }
+            ?.toHookPoint()
+
+        val responses = KavaMemberLookup.classOrNull(loader, STORY_FEED_RESPONSE_CLASS)
+            ?.let { response ->
+                KavaMemberLookup.methods(
+                    response,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    method.name == "getItems" && !method.isStatic &&
+                        method.parameterCount == 0 &&
+                        List::class.java.isAssignableFrom(method.returnType)
+                }.distinctBy(Method::toGenericString).map { it.toHookPoint() }
+            }.orEmpty()
+
+        val pager = KavaMemberLookup.classOrNull(loader, STORY_PAGER_PLAYER_CLASS)
+            ?.let { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    !method.isStatic && !method.isAbstract && method.returnType == Void.TYPE &&
+                        method.parameterCount == 1 &&
+                        List::class.java.isAssignableFrom(method.parameterTypes[0]) &&
+                        method.genericParameterTypes[0].toString().contains(STORY_DETAIL_CLASS)
+                }.distinctBy(Method::toGenericString).map { it.toHookPoint() }
+            }.orEmpty()
+
+        val ad = booleanGetter("isAd")
+        val live = booleanGetter("isLive")
+        val game = booleanGetter("isGame")
+        if ((responses.isEmpty() && pager.isEmpty()) ||
+            (ad == null && live == null && game == null)) return@runCatching null
+        StoryFeedPoints(responses, pager, ad, live, game)
+    }.getOrNull()
+
+    /** 底栏按 TabHost 的公开 tabs 列表和唯一 (int, View) 绑定入口定位。 */
+    fun locateBottomBar(loader: ClassLoader): BottomBarPoints? = runCatching {
+        for (ownerName in BOTTOM_TAB_HOST_CLASS_CANDIDATES) {
+            val owner = KavaMemberLookup.classOrNull(loader, ownerName) ?: continue
+            val tabsGetter = KavaMemberLookup.methods(
+                owner,
+                includeSuperclasses = true,
+                makeAccessible = true
+            ) { method ->
+                method.name == "getTabs" && !method.isStatic && method.parameterCount == 0 &&
+                    List::class.java.isAssignableFrom(method.returnType)
+            }.distinctBy(Method::toGenericString).singleOrNull() ?: continue
+            val itemClass = (tabsGetter.genericReturnType as? ParameterizedType)
+                ?.actualTypeArguments?.singleOrNull() as? Class<*> ?: continue
+            val bind = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                !method.isStatic && method.returnType == Void.TYPE && method.parameterCount == 2 &&
+                    method.parameterTypes[0] == Int::class.javaPrimitiveType &&
+                    View::class.java.isAssignableFrom(method.parameterTypes[1])
+            }.singleOrNull() ?: continue
+            val strings = KavaMemberLookup.declaredFields(itemClass, makeAccessible = true) {
+                !java.lang.reflect.Modifier.isStatic(it.modifiers) && it.type == String::class.java
+            }.map { it.name }
+            if (strings.isEmpty()) continue
+            return@runCatching BottomBarPoints(
+                tabsGetter = tabsGetter.toHookPoint(),
+                bindTabMethod = bind.toHookPoint(),
+                itemClassName = itemClass.name,
+                itemStringFields = strings
+            )
+        }
+        null
+    }.getOrNull()
+
+    /**
+     * 定位播放器默认画质计算方法。8.90.2 的入口是实例方法 gh6.h#c()，9.1.0–9.9.0
+     * 漂移为不同包下的静态 a()；方法体均读取
+     * pref_player_mediaSource_quality_wifi_key，执行宿主限制降级并记录 "quality settings:"。
+     * 运行期按新到旧候选探测，并要求单个 owner 内只有一个无参 Int 入口；这样既避开
+     * 新版 dex 对旧混淆类的残留引用，也不会按宽泛方法名跨类批量安装。
+     */
+    fun locateDefaultVideoQuality(loader: ClassLoader): PlayerQualityPoints? = runCatching {
+        PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.firstNotNullOfOrNull { ownerName ->
+            val owner = KavaMemberLookup.classOrNull(loader, ownerName)
+                ?: return@firstNotNullOfOrNull null
+            KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    !method.isAbstract &&
+                        method.parameterCount == 0 &&
+                        method.returnType == classOf<Int>() &&
+                        method.name in setOf("a", "c")
+                }.singleOrNull()?.let { PlayerQualityPoints(it.toHookPoint()) }
+        }
+    }.getOrNull()
+
+    /**
+     * 青少年模式提示页在 8.90.2、9.1.0 与 9.9.0 均保留稳定类名。
+     * 只接受 Activity 自身声明的 onCreate(Bundle)，避免结束正常青少年模式设置页面。
+     */
+    fun locateTeenagersMode(loader: ClassLoader): TeenagersModePoints? = runCatching {
+        val methods = TEENAGERS_MODE_ACTIVITY_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .filter { it.hasSuperclassNamed("android.app.Activity") }
+            .mapNotNull { owner ->
+                KavaMemberLookup.methodOrNull(owner, "onCreate", classOf<Bundle>())
+                    ?.takeIf { method ->
+                        !method.isStatic && method.declaringClass == owner &&
+                            method.returnType == Void.TYPE
+                    }
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        methods.takeIf { it.isNotEmpty() }?.let(::TeenagersModePoints)
+    }.getOrNull()
+
+    /**
+     * 定位评论筛选的公开 protobuf 读取链。
+     *
+     * 以 ReplyInfo 的真实返回类型反推 Content/Member，避免包重定位后分别选择到不同代
+     * 的同名类；列表边界还要求泛型元素精确为同一个 ReplyInfo，拒绝无关 List getter。
+     */
+    fun locateCommentFilter(loader: ClassLoader): CommentFilterPoints? = runCatching {
+        val replyInfo = COMMENT_REPLY_INFO_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .firstOrNull() ?: return@runCatching null
+
+        fun publicNoArg(owner: Class<*>, name: String): Method? =
+            KavaMemberLookup.methodOrNull(owner, name)?.takeIf { method ->
+                !method.isStatic && method.parameterCount == 0 &&
+                    java.lang.reflect.Modifier.isPublic(method.modifiers)
+            }
+
+        val contentGetter = publicNoArg(replyInfo, "getContent")
+            ?.takeIf { !it.returnType.isPrimitive } ?: return@runCatching null
+        val messageGetter = publicNoArg(contentGetter.returnType, "getMessage")
+            ?.takeIf { it.returnType == String::class.java } ?: return@runCatching null
+        val memberGetter = publicNoArg(replyInfo, "getMember")
+            ?.takeIf { !it.returnType.isPrimitive } ?: return@runCatching null
+        val levelGetter = publicNoArg(memberGetter.returnType, "getLevel")
+            ?.takeIf { method ->
+                method.returnType in setOf(
+                    Int::class.javaPrimitiveType,
+                    Long::class.javaPrimitiveType,
+                    Int::class.javaObjectType,
+                    Long::class.javaObjectType
+                )
+            } ?: return@runCatching null
+
+        fun Method.returnsReplyInfoList(): Boolean {
+            if (!List::class.java.isAssignableFrom(returnType)) return false
+            val generic = genericReturnType as? ParameterizedType ?: return false
+            val argument = generic.actualTypeArguments.singleOrNull() ?: return false
+            val argumentName = when (argument) {
+                is Class<*> -> argument.name
+                is ParameterizedType -> (argument.rawType as? Class<*>)?.name
+                else -> null
+            }
+            return argumentName == replyInfo.name
+        }
+
+        val listGetters = (COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES + replyInfo.name)
+            .asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    !method.isStatic && method.parameterCount == 0 &&
+                        java.lang.reflect.Modifier.isPublic(method.modifiers) &&
+                        method.name in setOf("getRepliesList", "getTopRepliesList") &&
+                        method.returnsReplyInfoList()
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        if (listGetters.isEmpty()) return@runCatching null
+
+        CommentFilterPoints(
+            replyListGetters = listGetters,
+            contentGetter = contentGetter.toHookPoint(),
+            messageGetter = messageGetter.toHookPoint(),
+            memberGetter = memberGetter.toHookPoint(),
+            levelGetter = levelGetter.toHookPoint()
+        )
+    }.getOrNull()
+
+    /**
+     * 定位评论内容的公开 URL Map getter。8.90.2、9.1.0 与 9.9.0 均保留 getUrls/
+     * getUrlsMap；只接管 Map 返回边界，避免修改 protobuf 内部 MapFieldLite 的可变状态。
+     */
+    fun locateCommentPurify(loader: ClassLoader): CommentPurifyPoints? = runCatching {
+        val urlMethods = COMMENT_CONTENT_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    !method.isStatic && method.parameterCount == 0 &&
+                        method.name in setOf("getUrls", "getUrlsMap") &&
+                        method.returnType isSubclassOf classOf<Map<*, *>>()
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        val emptyPageGetters = COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .mapNotNull { owner ->
+                val contentGetter = KavaMemberLookup.methodOrNull(owner, "getEmptyPage")
+                    ?.takeIf { method ->
+                        !method.isStatic && method.parameterCount == 0 &&
+                            method.returnType.simpleName == "EmptyPage"
+                    } ?: return@mapNotNull null
+                val defaultInstanceGetter = KavaMemberLookup.methodOrNull(
+                    contentGetter.returnType,
+                    "getDefaultInstance"
+                )?.takeIf { method ->
+                    method.isStatic && method.parameterCount == 0 &&
+                        method.returnType == contentGetter.returnType
+                } ?: return@mapNotNull null
+                CommentEmptyPagePoint(
+                    contentGetter.toHookPoint(),
+                    defaultInstanceGetter.toHookPoint()
+                )
+            }
+            .distinctBy { it.contentGetter.label() }
+            .toList()
+        val voteWidgetMethods = COMMENT_VOTE_WIDGET_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .filter { it.hasSuperclassNamed("android.view.View") }
+            .flatMap { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    if (method.isStatic || method.returnType != Void.TYPE) return@declaredMethods false
+                    val parameterNames = method.parameterTypes.map { it.name }
+                    when (owner.simpleName) {
+                        "CmtVoteWidget" -> method.parameterCount == 4 &&
+                            parameterNames.count { it.endsWith(".CmtThemeStrategy") } == 1 &&
+                            parameterNames.count { it == "kotlin.jvm.functions.Function0" } == 1 &&
+                            parameterNames.count { it == "kotlin.jvm.functions.Function1" } == 1
+                        "CmtMountWidget" -> method.parameterCount == 2 &&
+                            parameterNames.count { it.endsWith(".CmtThemeStrategy") } == 1
+                        "CommentVoteView" -> method.parameterCount == 1 &&
+                            method.name.startsWith("setVoteData") &&
+                            !method.parameterTypes[0].isPrimitive
+                        else -> false
+                    }
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        val followWidgetMethods = COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .filter { it.hasSuperclassNamed("android.view.View") }
+            .flatMap { owner ->
+                val directMethods = KavaMemberLookup.declaredMethods(
+                    owner,
+                    makeAccessible = true
+                ) { method ->
+                    if (method.isStatic || method.returnType != Void.TYPE) {
+                        return@declaredMethods false
+                    }
+                    val binder = method.parameterCount == 1 &&
+                        !method.parameterTypes[0].isPrimitive
+                    val visibilityState = method.parameterCount == 0 &&
+                        method.name != "onDetachedFromWindow"
+                    binder || visibilityState
+                }.map { it.toHookPoint() }
+                val callbackMethods = owner.declaredClasses.flatMap { callbackClass ->
+                    val outerField = KavaMemberLookup.declaredFields(
+                        callbackClass,
+                        makeAccessible = true
+                    ) { field -> !field.isStatic && field.type == owner }.singleOrNull()
+                        ?: return@flatMap emptyList()
+                    KavaMemberLookup.declaredMethods(
+                        callbackClass,
+                        makeAccessible = true
+                    ) { method ->
+                        !method.isStatic && method.returnType == Void.TYPE &&
+                            method.parameterCount == 2 &&
+                            method.parameterTypes[1] == classOf<Int>()
+                    }.map { method -> method.toHookPoint().copy(viewField = outerField.name) }
+                }
+                (directMethods + callbackMethods).asSequence()
+            }
+            .distinctBy { it.label() }
+            .toList()
+        val followButtonClass = COMMENT_FOLLOW_BUTTON_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .firstOrNull()
+        val headerBindMethods = if (followButtonClass == null) {
+            emptyList()
+        } else {
+            COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES.asSequence()
+                .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+                .filter { it.hasSuperclassNamed("android.view.ViewGroup") }
+                .flatMap { owner ->
+                    KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                        !method.isStatic && method.returnType == Void.TYPE &&
+                            method.parameterCount == 2 &&
+                            method.parameterTypes[0] isSubclassOf classOf<List<*>>() &&
+                            !method.parameterTypes[1].isPrimitive
+                    }.asSequence()
+                }
+                .distinctBy(Method::toGenericString)
+                .map { it.toHookPoint() }
+                .toList()
+        }
+        val followPoints = if (followWidgetMethods.isEmpty() && headerBindMethods.isEmpty()) {
+            null
+        } else {
+            CommentFollowPoints(
+                followWidgetMethods,
+                headerBindMethods,
+                followButtonClass?.name
+            )
+        }
+        val mainListOwner = COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .firstOrNull()
+        fun optionalPayloadPoint(
+            owner: Class<*>?,
+            presenceName: String,
+            contentName: String
+        ): CommentOptionalPayloadPoint? {
+            val messageClass = owner ?: return null
+            val presenceGetter = KavaMemberLookup.methodOrNull(messageClass, presenceName)
+                ?.takeIf { method ->
+                    !method.isStatic && method.parameterCount == 0 &&
+                        method.returnType == classOf<Boolean>()
+                } ?: return null
+            val contentGetter = KavaMemberLookup.methodOrNull(messageClass, contentName)
+                ?.takeIf { method ->
+                    !method.isStatic && method.parameterCount == 0 &&
+                        !method.returnType.isPrimitive
+                } ?: return null
+            val defaultInstanceGetter = KavaMemberLookup.methodOrNull(
+                contentGetter.returnType,
+                "getDefaultInstance"
+            )?.takeIf { method ->
+                method.isStatic && method.parameterCount == 0 &&
+                    method.returnType == contentGetter.returnType
+            } ?: return null
+            return CommentOptionalPayloadPoint(
+                presenceGetter.toHookPoint(),
+                contentGetter.toHookPoint(),
+                defaultInstanceGetter.toHookPoint()
+            )
+        }
+        val qoePoint = optionalPayloadPoint(mainListOwner, "hasQoe", "getQoe")
+        val operationPoints = listOfNotNull(
+            optionalPayloadPoint(mainListOwner, "hasOperation", "getOperation"),
+            optionalPayloadPoint(mainListOwner, "hasOperationV2", "getOperationV2")
+        )
+        val quickReplyDialogMethods = COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    !method.isStatic && method.parameterCount == 2 &&
+                        method.parameterTypes[0].name.endsWith(".PublishDialogIntent") &&
+                        method.parameterTypes[1].name == "kotlin.coroutines.Continuation"
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        if (urlMethods.isEmpty() && emptyPageGetters.isEmpty() && voteWidgetMethods.isEmpty() &&
+            followPoints == null && qoePoint == null && operationPoints.isEmpty() &&
+            quickReplyDialogMethods.isEmpty()) {
+            null
+        } else {
+            CommentPurifyPoints(
+                urlMethods,
+                emptyPageGetters,
+                voteWidgetMethods,
+                followPoints,
+                qoePoint,
+                operationPoints,
+                quickReplyDialogMethods
+            )
+        }
     }.getOrNull()
 
     /** 暂停页请求入口并行探测；仅零参数 invoke 才允许被识别为旧 Function0。 */
@@ -519,6 +2909,80 @@ object VersionAdapter {
         }.map { it.toHookPoint() }
         if (hooks.none { it.methodName == "onAttachedToWindow" }) return@runCatching null
         BannerPoint(bannerName, hooks)
+    }.getOrNull()
+
+    /**
+     * 首页顶部栏结构化定位：
+     * - 游戏菜单构建方法在 8.90.2 为 c(Menu, MenuInflater)，9.1.0–9.9.0 为 b(...)；
+     * - 默认搜索词模型在 8.90.2 为 api.d，9.1.0–9.9.0 为 api.b。
+     * 因此只依赖参数/返回类型与 SwitchTextView 字段特征，不缓存宿主实例。
+     */
+    fun locateHomeTopBar(loader: ClassLoader): HomeTopBarPoints? = runCatching {
+        val menuOwner = KavaMemberLookup.classOrNull(loader, HOME_MENU_ITEM_CLASS)
+        val gameMenu = menuOwner?.let { owner ->
+            val method = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                !it.isStatic && it.returnType == Void.TYPE &&
+                    it.parameterTypes.contentEquals(
+                        arrayOf(Menu::class.java, MenuInflater::class.java)
+                    )
+            }.singleOrNull() ?: return@let null
+            val configField = KavaMemberLookup.declaredFields(
+                owner,
+                makeAccessible = true
+            ) { field ->
+                !java.lang.reflect.Modifier.isStatic(field.modifiers) &&
+                    field.type.enclosingClass == owner &&
+                    KavaMemberLookup.declaredFields(field.type) {
+                        it.type == String::class.java
+                    }.isNotEmpty()
+            }.singleOrNull() ?: return@let null
+            method.toHookPoint().copy(viewField = configField.name)
+        }
+
+        val baseOnViewCreated = HOME_BASE_FRAGMENT_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .mapNotNull { owner ->
+                val searchFields = KavaMemberLookup.declaredFields(
+                    owner,
+                    makeAccessible = true
+                ) {
+                    TextView::class.java.isAssignableFrom(it.type) &&
+                        it.type.simpleName == "SwitchTextView"
+                }
+                val searchField = searchFields.singleOrNull() ?: return@mapNotNull null
+                val method = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                    !it.isStatic && it.returnType == Void.TYPE &&
+                        it.name == "onViewCreated" &&
+                        it.parameterTypes.contentEquals(
+                            arrayOf(View::class.java, Bundle::class.java)
+                        )
+                }.singleOrNull() ?: return@mapNotNull null
+                method.toHookPoint().copy(viewField = searchField.name)
+            }
+            .firstOrNull()
+
+        val defaultWordMethods = if (baseOnViewCreated == null) {
+            emptyList()
+        } else {
+            HOME_MAIN_FRAGMENT_CANDIDATES.asSequence()
+                .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+                .map { owner ->
+                    KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                        !it.isStatic && !java.lang.reflect.Modifier.isAbstract(it.modifiers) &&
+                            it.returnType == Void.TYPE && it.parameterCount == 1 &&
+                            it.parameterTypes[0].name in HOME_DEFAULT_WORD_CLASS_CANDIDATES
+                    }.distinctBy(Method::toGenericString)
+                }
+                .firstOrNull { it.isNotEmpty() }
+                .orEmpty()
+                .map { it.toHookPoint() }
+        }
+
+        if (gameMenu == null && baseOnViewCreated == null && defaultWordMethods.isEmpty()) {
+            null
+        } else {
+            HomeTopBarPoints(gameMenu, baseOnViewCreated, defaultWordMethods)
+        }
     }.getOrNull()
 
     /**
