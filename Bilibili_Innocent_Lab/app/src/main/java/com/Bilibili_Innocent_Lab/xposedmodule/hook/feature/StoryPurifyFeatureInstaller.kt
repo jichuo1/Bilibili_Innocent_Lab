@@ -72,18 +72,9 @@ internal class StoryPurifyFeatureInstaller(
         return FeatureInstallResult.Installed(installed)
     }
 
-    private fun filter(source: List<*>, accessors: Accessors): ArrayList<Any?>? {
-        if (source.isEmpty()) return null
-        val filtered = ArrayList<Any?>(source.size)
-        var removed = 0
-        source.forEach { item ->
-            if (item != null && shouldRemove(signals(item, accessors))) {
-                removed += 1
-            } else {
-                filtered += item
-            }
-        }
-        return filtered.takeIf { removed > 0 }
+    private fun filter(source: List<*>, accessors: Accessors): List<*>? {
+        val filtered = CopyOnFilter.list(source) { item -> shouldRemove(signals(item, accessors)) }
+        return filtered.takeIf { it !== source }
     }
 
     private fun signals(item: Any, accessors: Accessors): Signals = Signals(

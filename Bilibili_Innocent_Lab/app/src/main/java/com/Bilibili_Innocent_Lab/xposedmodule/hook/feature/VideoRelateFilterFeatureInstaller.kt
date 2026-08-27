@@ -41,22 +41,16 @@ internal class VideoRelateFilterFeatureInstaller(
                 environment.registrar.adapted("video.relate.response.$index", point) {
                     after {
                         val source = result as? List<*> ?: return@after
-                        if (source.isEmpty()) return@after
-                        val filtered = ArrayList<Any?>(source.size)
-                        var removed = 0
-                        source.forEach { item ->
-                            val type = item?.let { extractType(it, typeMethods) }
-                            if (type != null && normalizeType(type) in normalizedHidden) {
-                                removed += 1
-                            } else {
-                                filtered += item
-                            }
+                        val filtered = CopyOnFilter.list(source) { item ->
+                            val type = extractType(item, typeMethods)
+                            type != null && normalizeType(type) in normalizedHidden
                         }
-                        if (removed > 0) {
+                        if (filtered !== source) {
                             result = filtered
                             environment.logInfo(
                                 "video_relate_removed",
-                                "[BIL] 视频相关推荐精确类型过滤已移除 $removed 项"
+                                "[BIL] 视频相关推荐精确类型过滤已移除 " +
+                                    "${source.size - filtered.size} 项"
                             )
                         }
                     }

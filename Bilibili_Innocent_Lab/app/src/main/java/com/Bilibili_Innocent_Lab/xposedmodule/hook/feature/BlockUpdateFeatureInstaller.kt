@@ -39,7 +39,7 @@ internal class BlockUpdateFeatureInstaller(
                             "[BIL] 构造宿主最新版状态失败，已放行官方更新检查: $throwable"
                         )
                     }.getOrNull()
-                    if (exception != null) throw exception
+                    if (exception != null) exception.throwToApp()
                 }
             }
             environment.reportStatus(CHANNEL_STATUS, "success")

@@ -41,21 +41,14 @@ internal class HomeRecommendPurifyFeatureInstaller(
                 environment.registrar.adapted("home.recommend.purify.$index", point) {
                     after {
                         val source = result as? List<*> ?: return@after
-                        if (source.isEmpty()) return@after
-                        val filtered = ArrayList<Any?>(source.size)
-                        var removed = 0
-                        source.forEach { item ->
-                            if (item != null && shouldRemove(signals(item, accessors))) {
-                                removed += 1
-                            } else {
-                                filtered += item
-                            }
+                        val filtered = CopyOnFilter.list(source) { item ->
+                            shouldRemove(signals(item, accessors))
                         }
-                        if (removed > 0) {
+                        if (filtered !== source) {
                             result = filtered
                             environment.logInfo(
                                 "home_recommend_removed",
-                                "[BIL] 首页推荐服务端数据已过滤 $removed 项"
+                                "[BIL] 首页推荐服务端数据已过滤 ${source.size - filtered.size} 项"
                             )
                         }
                     }
