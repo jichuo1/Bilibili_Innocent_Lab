@@ -8,13 +8,27 @@ internal class HomeRecommendPurifyFeatureInstaller(
     private val removeAds: Boolean,
     private val removePictures: Boolean,
     private val removeGamePromotions: Boolean,
+    titleFilterEnabled: Boolean,
+    rawTitleKeywords: String,
+    private val removeLive: Boolean,
+    private val removeCourses: Boolean,
+    private val removeVertical: Boolean,
+    private val removeLarge: Boolean,
     private val points: VersionAdapter.HomeRecommendFeedPoints?
 ) : FeatureInstaller {
+
+    private val titleKeywords = if (titleFilterEnabled) {
+        RuleSetCodec.parse(rawTitleKeywords)
+    } else {
+        emptySet()
+    }
 
     override val id: String = ID
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
-        if (!removeAds && !removePictures && !removeGamePromotions) {
+        if (!removeAds && !removePictures && !removeGamePromotions &&
+            titleKeywords.isEmpty() && !removeLive && !removeCourses &&
+            !removeVertical && !removeLarge) {
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
@@ -74,19 +88,41 @@ internal class HomeRecommendPurifyFeatureInstaller(
     private fun shouldRemove(signals: Signals): Boolean =
         (removeAds && isAdvertisement(signals)) ||
             (removePictures && isPicture(signals)) ||
-            (removeGamePromotions && isGamePromotion(signals))
+            (removeGamePromotions && isGamePromotion(signals)) ||
+            RuleSetCodec.matches(titleKeywords, signals.title) ||
+            (removeLive && isLive(signals)) ||
+            (removeCourses && isCourse(signals)) ||
+            (removeVertical && isVertical(signals)) ||
+            (removeLarge && isLarge(signals))
 
-    private fun signals(item: Any, accessors: Accessors): Signals = Signals(
-        holderType = invokeString(accessors.holderType, item),
-        bizType = invokeString(accessors.bizType, item),
-        cardGoto = invokeString(accessors.cardGoto, item),
-        goTo = invokeString(accessors.goTo, item),
-        uri = invokeString(accessors.uri, item),
-        title = invokeString(accessors.title, item),
-        subtitle = invokeString(accessors.subtitle, item),
-        desc = invokeString(accessors.desc, item),
-        hasAdInfo = invokeCompatible(accessors.adInfo, item) != null
-    )
+    private fun signals(item: Any, accessors: Accessors): Signals {
+        val needsRoute = removePictures || removeGamePromotions || removeLive ||
+            removeCourses || removeVertical || removeLarge
+        return Signals(
+            holderType = if (removeAds || removeLarge) {
+                invokeString(accessors.holderType, item)
+            } else {
+                null
+            },
+            bizType = if (removeAds) invokeString(accessors.bizType, item) else null,
+            cardGoto = if (removeAds || needsRoute) {
+                invokeString(accessors.cardGoto, item)
+            } else {
+                null
+            },
+            goTo = if (needsRoute) invokeString(accessors.goTo, item) else null,
+            uri = if (needsRoute) invokeString(accessors.uri, item) else null,
+            title = if (titleKeywords.isNotEmpty() || removeGamePromotions) {
+                invokeString(accessors.title, item)
+            } else {
+                null
+            },
+            subtitle = if (removeGamePromotions) invokeString(accessors.subtitle, item) else null,
+            desc = if (removeGamePromotions) invokeString(accessors.desc, item) else null,
+            hasAdInfo = (removeAds || removeGamePromotions) &&
+                invokeCompatible(accessors.adInfo, item) != null
+        )
+    }
 
     private fun resolveOptional(
         environment: HookEnvironment,
@@ -178,6 +214,29 @@ internal class HomeRecommendPurifyFeatureInstaller(
                 .joinToString(" ")
                 .lowercase()
             return GAME_TEXT_MARKERS.any(text::contains)
+        }
+
+        internal fun isLive(value: Signals): Boolean =
+            value.cardGoto.equals("live", ignoreCase = true) ||
+                value.goTo.equals("live", ignoreCase = true) ||
+                value.uri?.contains("live.bilibili.com/", ignoreCase = true) == true ||
+                value.uri?.startsWith("bilibili://live/", ignoreCase = true) == true
+
+        internal fun isCourse(value: Signals): Boolean =
+            value.cardGoto.equals("ketang", ignoreCase = true) ||
+                value.goTo.equals("ketang", ignoreCase = true) ||
+                value.cardGoto.equals("cheese", ignoreCase = true) ||
+                value.goTo.equals("cheese", ignoreCase = true) ||
+                value.uri?.contains("/cheese/play/", ignoreCase = true) == true
+
+        internal fun isVertical(value: Signals): Boolean =
+            value.cardGoto.equals("vertical_av", ignoreCase = true) ||
+                value.goTo.equals("vertical_av", ignoreCase = true) ||
+                value.uri?.startsWith("bilibili://story/", ignoreCase = true) == true
+
+        internal fun isLarge(value: Signals): Boolean {
+            val holder = value.holderType.orEmpty()
+            return holder.startsWith("large_cover", ignoreCase = true)
         }
 
         private val GAME_ROUTE_MARKERS = listOf(
