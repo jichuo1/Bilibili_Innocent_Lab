@@ -119,6 +119,16 @@ class VersionAdapterTest {
                 "getHolderType",
                 emptyList()
             ),
+            bizTypeGetter = VersionAdapter.HookPoint(
+                "com.bilibili.pegasus.data.base.BasePegasusData",
+                "getBizType",
+                emptyList()
+            ),
+            adInfoGetter = VersionAdapter.HookPoint(
+                "com.bilibili.pegasus.data.base.BasePegasusData",
+                "getAdInfo",
+                emptyList()
+            ),
             cardGotoGetter = VersionAdapter.HookPoint(
                 "com.bilibili.pegasus.data.base.BasePegasusData",
                 "getCardGoto",
@@ -138,7 +148,40 @@ class VersionAdapterTest {
                 "com.bilibili.pegasus.data.base.BasePegasusData",
                 "getParam",
                 emptyList()
+            ),
+            titleGetter = VersionAdapter.HookPoint(
+                "com.bilibili.pegasus.data.base.BasePegasusData",
+                "getTitle",
+                emptyList()
+            ),
+            subtitleGetter = VersionAdapter.HookPoint(
+                "com.bilibili.pegasus.data.base.BasePegasusData",
+                "getSubtitle",
+                emptyList()
+            ),
+            descGetter = VersionAdapter.HookPoint(
+                "com.bilibili.pegasus.data.base.BasePegasusData",
+                "getDesc",
+                emptyList()
             )
+        ),
+        videoRelate = VersionAdapter.VideoRelatePoints(
+            responseItemGetters = listOf(
+                VersionAdapter.HookPoint(
+                    "com.bapis.bilibili.app.viewunite.v1.Relates",
+                    "getCardsList",
+                    emptyList()
+                )
+            ),
+            cardCaseGetters = listOf(
+                VersionAdapter.HookPoint(
+                    "com.bapis.bilibili.app.viewunite.common.RelateCard",
+                    "getCardCase",
+                    emptyList()
+                )
+            ),
+            gotoGetters = emptyList(),
+            cardTypeGetters = emptyList()
         ),
         playerQuality = VersionAdapter.PlayerQualityPoints(
             VersionAdapter.HookPoint("gh6.h", "c", emptyList())
@@ -262,7 +305,7 @@ class VersionAdapterTest {
                 )
             )
         ),
-        hostFingerprint = "host|9090300|rules=17",
+        hostFingerprint = "host|9090300|rules=18",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -408,6 +451,19 @@ class VersionAdapterTest {
         assertEquals("getGoTo", points?.goToGetter?.methodName)
         assertEquals("getUri", points?.uriGetter?.methodName)
         assertEquals("getParam", points?.paramGetter?.methodName)
+        assertEquals("getBizType", points?.bizTypeGetter?.methodName)
+        assertEquals("getAdInfo", points?.adInfoGetter?.methodName)
+        assertEquals("getTitle", points?.titleGetter?.methodName)
+    }
+
+    @Test
+    fun `locates related video response and exact card type getter`() {
+        val points = VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader))
+
+        assertEquals(1, points?.responseItemGetters?.size)
+        assertEquals("getCardsList", points?.responseItemGetters?.single()?.methodName)
+        assertEquals(1, points?.cardCaseGetters?.size)
+        assertEquals("getCardCase", points?.cardCaseGetters?.single()?.methodName)
     }
 
     @Test

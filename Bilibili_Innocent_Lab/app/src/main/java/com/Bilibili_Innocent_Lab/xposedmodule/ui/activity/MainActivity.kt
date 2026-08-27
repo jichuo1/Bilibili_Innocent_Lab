@@ -101,6 +101,9 @@ class MainActivity : AppViewsActivity() {
     private var hideHomeGameMenu = false
     private var hideHomeSearchDefaultWord = false
     private var homeVerticalOpenDetail = false
+    private var removeHomeRecommendAds = false
+    private var removeHomeRecommendPictures = false
+    private var removeHomeRecommendGamePromotions = false
     private var hideMineVip = false
     private var keepMineVipSpace = false
     private var blockAppUpdate = false
@@ -110,6 +113,11 @@ class MainActivity : AppViewsActivity() {
     private var showFullNumbers = false
     private var hidePlayerPortraitControl = false
     private var transparentPlayerStatusBar = false
+    private var removeRelateCommercial = false
+    private var removeRelateGame = false
+    private var removeRelateLive = false
+    private var removeRelateCourse = false
+    private var removeRelateSpecial = false
     private var playerDefaultQualityQn = 0
     private var blockTeenagersModePrompt = false
     private var removeCommentSearchLinks = false
@@ -1823,6 +1831,19 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read home vertical detail prefs failed", t)
         }.getOrDefault(false)
+        removeHomeRecommendAds = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS, false) ?: false
+        }.getOrDefault(false)
+        removeHomeRecommendPictures = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES, false)
+                ?: false
+        }.getOrDefault(false)
+        removeHomeRecommendGamePromotions = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS,
+                false
+            ) ?: false
+        }.getOrDefault(false)
         hideMineVip = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.HIDE_MINE_VIP, false) ?: false
         }.onFailure { t ->
@@ -1873,6 +1894,21 @@ class MainActivity : AppViewsActivity() {
             ) ?: false
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read player status bar prefs failed", t)
+        }.getOrDefault(false)
+        removeRelateCommercial = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_RELATE_COMMERCIAL, false) ?: false
+        }.getOrDefault(false)
+        removeRelateGame = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_RELATE_GAME, false) ?: false
+        }.getOrDefault(false)
+        removeRelateLive = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_RELATE_LIVE, false) ?: false
+        }.getOrDefault(false)
+        removeRelateCourse = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_RELATE_COURSE, false) ?: false
+        }.getOrDefault(false)
+        removeRelateSpecial = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_RELATE_SPECIAL, false) ?: false
         }.getOrDefault(false)
         playerDefaultQualityQn = runCatching {
             PlayerQualityConfig.normalize(
@@ -2581,6 +2617,88 @@ class MainActivity : AppViewsActivity() {
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.7f
+                                text = stringResource(R.string.home_recommend_purify_settings)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 11f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_home_recommend_ads)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeHomeRecommendAds
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeHomeRecommendAds = checked
+                                    prefs().edit {
+                                        putBoolean(
+                                            FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS,
+                                            checked
+                                        )
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_home_recommend_pictures)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeHomeRecommendPictures
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeHomeRecommendPictures = checked
+                                    prefs().edit {
+                                        putBoolean(
+                                            FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES,
+                                            checked
+                                        )
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_home_recommend_game_promotions)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeHomeRecommendGamePromotions
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeHomeRecommendGamePromotions = checked
+                                    prefs().edit {
+                                        putBoolean(
+                                            FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS,
+                                            checked
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.home_recommend_purify_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
                             FrameLayout(
                                 lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
                                     topMargin = 14.dp
@@ -3088,6 +3206,116 @@ class MainActivity : AppViewsActivity() {
                                 alpha = 0.6f
                                 setLineSpacing(6f, 1f)
                                 text = stringResource(R.string.transparent_player_status_bar_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.7f
+                                text = stringResource(R.string.video_relate_filter_settings)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 11f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) { bottomMargin = 5.dp }
+                            ) {
+                                text = stringResource(R.string.remove_relate_commercial)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeRelateCommercial
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeRelateCommercial = checked
+                                    prefs().edit {
+                                        putBoolean(
+                                            FeaturePreferences.REMOVE_RELATE_COMMERCIAL,
+                                            checked
+                                        )
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_relate_game)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeRelateGame
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeRelateGame = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_RELATE_GAME, checked)
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_relate_live)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeRelateLive
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeRelateLive = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_RELATE_LIVE, checked)
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_relate_course)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeRelateCourse
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeRelateCourse = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_RELATE_COURSE, checked)
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_relate_special)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeRelateSpecial
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeRelateSpecial = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_RELATE_SPECIAL, checked)
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.video_relate_filter_tip)
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }
