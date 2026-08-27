@@ -125,9 +125,26 @@ class VersionAdapterTest {
                     "setVoteData",
                     listOf("comment.VoteData")
                 )
+            ),
+            VersionAdapter.CommentFollowPoints(
+                widgetStateMethods = listOf(
+                    VersionAdapter.HookPoint(
+                        "com.bilibili.app.comm.comment2.phoenix.view.CommentFollowWidget",
+                        "bind",
+                        listOf("comment.FollowData")
+                    )
+                ),
+                headerBindMethods = listOf(
+                    VersionAdapter.HookPoint(
+                        "com.bilibili.app.comment3.ui.widget.CommentHeaderDecorativeView",
+                        "bind",
+                        listOf("java.util.List", "comment.HeaderContext")
+                    )
+                ),
+                followButtonClassName = "com.bilibili.relation.widget.FollowButton"
             )
         ),
-        hostFingerprint = "host|9090300|rules=10",
+        hostFingerprint = "host|9090300|rules=11",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -273,5 +290,19 @@ class VersionAdapterTest {
             points.map { it.className.substringAfterLast('.') }.toSet()
         )
         assertTrue(points.all { it.paramClassNames?.isNotEmpty() == true })
+    }
+
+    @Test
+    fun `locates follow visibility state machine and decorative header binder`() {
+        val points = VersionAdapter.locateCommentPurify(requireNotNull(javaClass.classLoader))
+            ?.follow
+
+        assertEquals(4, points?.widgetStateMethods?.size)
+        assertEquals(1, points?.headerBindMethods?.size)
+        assertTrue(points?.widgetStateMethods.orEmpty().any { it.viewField != null })
+        assertEquals(
+            "com.bilibili.relation.widget.FollowButton",
+            points?.followButtonClassName
+        )
     }
 }
