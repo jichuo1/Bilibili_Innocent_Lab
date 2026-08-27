@@ -53,6 +53,7 @@ class CommentPurifyFeatureInstallerTest {
             removeSearchLinks = true,
             removeEmptyGuide = false,
             removeVoteWidgets = false,
+            removeFollowButtons = false,
             points = null
         )
 
@@ -80,6 +81,7 @@ class CommentPurifyFeatureInstallerTest {
             removeSearchLinks = false,
             removeEmptyGuide = true,
             removeVoteWidgets = false,
+            removeFollowButtons = false,
             points = points
         ).install(environment)
 
@@ -106,10 +108,38 @@ class CommentPurifyFeatureInstallerTest {
             removeSearchLinks = false,
             removeEmptyGuide = false,
             removeVoteWidgets = true,
+            removeFollowButtons = false,
             points = points
         ).install(environment)
 
         assertEquals(FeatureInstallResult.Installed(3), result)
+        assertEquals("success", statuses["comment_purify_status"])
+    }
+
+    @Test
+    fun `registers complete follow visibility state and header bind points`() {
+        val loader = requireNotNull(javaClass.classLoader)
+        val points = requireNotNull(VersionAdapter.locateCommentPurify(loader))
+        val statuses = linkedMapOf<String, String>()
+        val environment = HookEnvironment(
+            processName = "tv.danmaku.bili",
+            classLoader = loader,
+            hookPoints = HookPointRegistry(loader),
+            registrar = TestHookRegistrar,
+            logInfo = { _, _ -> },
+            logError = { _, _ -> },
+            reportStatus = { channel, status -> statuses[channel] = status }
+        )
+
+        val result = CommentPurifyFeatureInstaller(
+            removeSearchLinks = false,
+            removeEmptyGuide = false,
+            removeVoteWidgets = false,
+            removeFollowButtons = true,
+            points = points
+        ).install(environment)
+
+        assertEquals(FeatureInstallResult.Installed(5), result)
         assertEquals("success", statuses["comment_purify_status"])
     }
 }

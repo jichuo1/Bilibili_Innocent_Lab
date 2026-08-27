@@ -97,6 +97,9 @@ internal class HookPointRegistry(
         return methods
     }
 
+    /** 统一解析需要在安装期缓存的宿主类型，并把缺失类型写入同一诊断表。 */
+    fun resolveClass(id: String, className: String): Class<*>? = resolveOwner(id, className)
+
     fun resolveExact(
         id: String,
         owner: Class<*>,

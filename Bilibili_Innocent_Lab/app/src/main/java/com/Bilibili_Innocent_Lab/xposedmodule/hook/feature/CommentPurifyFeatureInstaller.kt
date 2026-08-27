@@ -1,7 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import android.view.View
+import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.highcapable.betterandroid.ui.extension.view.child
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.highcapable.kavaref.extension.classOf
 import com.highcapable.kavaref.extension.isSubclassOf
@@ -14,6 +16,7 @@ internal class CommentPurifyFeatureInstaller(
     private val removeSearchLinks: Boolean,
     private val removeEmptyGuide: Boolean,
     private val removeVoteWidgets: Boolean,
+    private val removeFollowButtons: Boolean,
     private val points: VersionAdapter.CommentPurifyPoints?
 ) : FeatureInstaller {
 
@@ -22,7 +25,8 @@ internal class CommentPurifyFeatureInstaller(
     private val textFields = ConcurrentHashMap<Class<*>, List<Field>>()
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
-        if (!removeSearchLinks && !removeEmptyGuide && !removeVoteWidgets) {
+        if (!removeSearchLinks && !removeEmptyGuide && !removeVoteWidgets &&
+            !removeFollowButtons) {
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
@@ -111,6 +115,83 @@ internal class CommentPurifyFeatureInstaller(
                 }
             }
         }
+        if (removeFollowButtons) {
+            val followPoints = adapted.follow
+            if (followPoints == null) {
+                missingGroups += "follow"
+            } else {
+                val widgetPoints = followPoints.widgetStateMethods
+                if (widgetPoints.isEmpty()) missingGroups += "follow-widget"
+                expectedCount += widgetPoints.size
+                widgetPoints.forEachIndexed { index, point ->
+                    runCatching {
+                        val outerField = point.viewField?.let { fieldName ->
+                            environment.hookPoints.resolveField(
+                                "comment.purify.follow.outer.$index",
+                                point.className,
+                                fieldName
+                            ) ?: error("missing-follow-outer-field")
+                        }
+                        environment.registrar.adapted(
+                            "comment.purify.follow.widget.$index",
+                            point
+                        ) {
+                            after {
+                                val target = if (outerField == null) {
+                                    instance
+                                } else {
+                                    runCatching { outerField.get(instance) }.getOrNull()
+                                }
+                                (target as? View)?.visibility = View.GONE
+                            }
+                        }
+                        installedCount += 1
+                    }.onFailure { throwable ->
+                        environment.logError(
+                            "comment_purify_follow_widget_$index",
+                            "[BIL] 评论独立关注控件 Hook 注册失败(" +
+                                "${point.className}#${point.methodName}): $throwable"
+                        )
+                    }
+                }
+
+                val headerPoints = followPoints.headerBindMethods
+                if (headerPoints.isNotEmpty()) {
+                    val buttonClassName = followPoints.followButtonClassName
+                    val followButtonClass = buttonClassName?.let { className ->
+                        environment.hookPoints.resolveClass(
+                            "comment.purify.follow.button_class",
+                            className
+                        )
+                    }
+                    if (followButtonClass == null) {
+                        missingGroups += "follow-header-button"
+                    } else {
+                        expectedCount += headerPoints.size
+                        headerPoints.forEachIndexed { index, point ->
+                            runCatching {
+                                environment.registrar.adapted(
+                                    "comment.purify.follow.header.$index",
+                                    point
+                                ) {
+                                    after {
+                                        val root = instance as? ViewGroup ?: return@after
+                                        hideTypedChildren(root, followButtonClass)
+                                    }
+                                }
+                                installedCount += 1
+                            }.onFailure { throwable ->
+                                environment.logError(
+                                    "comment_purify_follow_header_$index",
+                                    "[BIL] 评论头部关注按钮 Hook 注册失败(" +
+                                        "${point.className}#${point.methodName}): $throwable"
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         if (installedCount == 0) return missing(environment, "registration-failed")
         val status = if (missingGroups.isEmpty() && installedCount == expectedCount) {
@@ -167,6 +248,20 @@ internal class CommentPurifyFeatureInstaller(
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val CHANNEL_STATUS = "comment_purify_status"
         private const val SEARCH_URI_PREFIX = "bilibili://search"
+
+        /** 只遍历已适配的头部装饰小容器，保留其它徽章、图片与长按监听。 */
+        internal fun hideTypedChildren(root: ViewGroup, targetClass: Class<*>): Int {
+            var hidden = 0
+            for (index in 0 until root.childCount) {
+                val child = root.child(index)
+                if (targetClass.isInstance(child)) {
+                    child.visibility = View.GONE
+                    hidden += 1
+                }
+                if (child is ViewGroup) hidden += hideTypedChildren(child, targetClass)
+            }
+            return hidden
+        }
 
         /** 无命中时返回原 Map；命中时返回保持顺序的不可变副本，不修改 protobuf 原数据。 */
         internal fun <K, V> withoutSearchUrls(
