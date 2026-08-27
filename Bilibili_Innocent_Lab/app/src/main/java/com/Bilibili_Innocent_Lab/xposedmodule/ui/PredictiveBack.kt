@@ -1,7 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.betterandroid.system.extension.tool.AndroidVersion
+import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
 import com.highcapable.kavaref.extension.classOf
 
 /**
@@ -34,7 +34,7 @@ object PredictiveBack {
     private var appInfoMethodResolved = false
 
     fun apply(window: android.view.Window?, enabled: Boolean) {
-        if (AndroidVersion.isLessThan(34) || window == null) return
+        if (AndroidVersion.isLessThan(AndroidVersion.U) || window == null) return
         // 通道 1：当前 window 即时生效
         val wm = windowMethod ?: if (!windowMethodResolved) {
             KavaMemberLookup.methodOrNull(

@@ -8,7 +8,7 @@ import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
-import com.highcapable.betterandroid.system.extension.tool.AndroidVersion
+import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
 import com.highcapable.betterandroid.ui.extension.view.childOrNull
 import com.highcapable.betterandroid.ui.extension.view.parentOrNull
 import com.highcapable.betterandroid.ui.extension.view.textColor
@@ -1700,7 +1700,7 @@ class HookEntry : IYukiHookXposedInit {
 
                 // 关闭系统默认焦点高亮：可选文本（setTextIsSelectable）会让 TextView 可聚焦，
                 // 部分 ROM 的默认焦点高亮是黑色矩形描边——保险起见统一关闭（我们自己不依赖它）
-                if (AndroidVersion.isAtLeast(26)) {
+                if (AndroidVersion.isAtLeast(AndroidVersion.O)) {
                     fullscreen.defaultFocusHighlightEnabled = false
                     body.defaultFocusHighlightEnabled = false
                     content.defaultFocusHighlightEnabled = false
@@ -2936,6 +2936,34 @@ class HookEntry : IYukiHookXposedInit {
                             FeaturePreferences.REMOVE_STORY_COURSES,
                             false
                         ),
+                        removeShortDrama = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_STORY_SHORT_DRAMA,
+                            false
+                        ),
+                        removeShopping = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_STORY_SHOPPING,
+                            false
+                        ),
+                        removeMovies = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_STORY_MOVIES,
+                            false
+                        ),
+                        removeDocumentaries = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_STORY_DOCUMENTARIES,
+                            false
+                        ),
+                        removeTv = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_STORY_TV,
+                            false
+                        ),
+                        removeVariety = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_STORY_VARIETY,
+                            false
+                        ),
+                        removeMusic = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_STORY_MUSIC,
+                            false
+                        ),
                         points = hostAdaptResult?.storyFeed
                     )
                 )
@@ -3781,6 +3809,24 @@ class HookEntry : IYukiHookXposedInit {
                                         (descTouchedView != null || isOfficialSuppressionActive())
                                     ) {
                                         this.result = null // 简介触摸中或当前气泡会话内，跳过官方复制全文
+                                    }
+                                }
+                        }
+                    }
+                    // 8.96.0 过渡版：同一 UgcIntroductionComponent 接口的剪贴板实现
+                    // 漂移为 o(boolean, String)。离线方法体已确认直接调用 setPrimaryClip；
+                    // 仍使用精确类名和参数签名，不按 void/双参数宽泛匹配其它业务方法。
+                    runCatching {
+                        val owner = KavaMemberLookup.classOrNull(
+                            biliClassLoader,
+                            "com.bilibili.ship.theseus.ugc.intro.ugcheadline.UgcHeadlineService\$c"
+                        ) ?: return@runCatching
+                        hookExactMethod(owner, "o", classOf<Boolean>(), classOf<String>()) {
+                                before {
+                                    if (runtimeDescriptionFreeCopyEnabled &&
+                                        (descTouchedView != null || isOfficialSuppressionActive())
+                                    ) {
+                                        this.result = null
                                     }
                                 }
                         }

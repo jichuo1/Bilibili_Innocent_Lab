@@ -125,8 +125,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 30
-    private const val ADAPTER_RULE_VERSION = 22
+    private const val SCHEMA_VERSION = 32
+    private const val ADAPTER_RULE_VERSION = 24
 
     enum class AdaptState {
         FOUND,
@@ -510,25 +510,58 @@ object VersionAdapter {
         }
     }
 
-    /** “我的”页菜单组公开 itemList/title 读取边界。 */
+    /**
+     * “我的”页菜单组过滤边界。
+     *
+     * 8.92.1+ 优先使用公开 getter；8.84.0–8.91.0 的同名模型只有公开字段，
+     * 因此回退到“菜单构建方法 + 精确字段链”，仍不扫描 View 树或缓存宿主实例。
+     */
     data class MineComponentPoints(
         val itemListGetters: List<HookPoint>,
-        val itemTitleGetters: List<HookPoint>
+        val itemTitleGetters: List<HookPoint>,
+        val legacyBuildMethods: List<HookPoint> = emptyList(),
+        val legacyGroupListField: String? = null,
+        val legacyAdapterField: String? = null,
+        val legacyGroupClassName: String? = null,
+        val legacyItemListField: String? = null,
+        val legacyItemClassName: String? = null,
+        val legacyItemTitleField: String? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("lists", JSONArray().apply { itemListGetters.forEach { put(it.toJson()) } })
             put("titles", JSONArray().apply { itemTitleGetters.forEach { put(it.toJson()) } })
+            if (legacyBuildMethods.isNotEmpty()) {
+                put("legacy_build", JSONArray().apply {
+                    legacyBuildMethods.forEach { put(it.toJson()) }
+                })
+                legacyGroupListField?.let { put("legacy_groups", it) }
+                legacyAdapterField?.let { put("legacy_adapter", it) }
+                legacyGroupClassName?.let { put("legacy_group_class", it) }
+                legacyItemListField?.let { put("legacy_items", it) }
+                legacyItemClassName?.let { put("legacy_item_class", it) }
+                legacyItemTitleField?.let { put("legacy_title", it) }
+            }
         }
 
         companion object {
-            fun fromJson(o: JSONObject): MineComponentPoints = MineComponentPoints(
-                o.getJSONArray("lists").let { values ->
+            fun fromJson(o: JSONObject): MineComponentPoints {
+                fun points(name: String): List<HookPoint> = o.optJSONArray(name)?.let { values ->
                     (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
-                },
-                o.getJSONArray("titles").let { values ->
-                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
-                }
-            )
+                }.orEmpty()
+                return MineComponentPoints(
+                    itemListGetters = points("lists"),
+                    itemTitleGetters = points("titles"),
+                    legacyBuildMethods = points("legacy_build"),
+                    legacyGroupListField = o.optString("legacy_groups").takeIf { it.isNotBlank() },
+                    legacyAdapterField = o.optString("legacy_adapter").takeIf { it.isNotBlank() },
+                    legacyGroupClassName = o.optString("legacy_group_class")
+                        .takeIf { it.isNotBlank() },
+                    legacyItemListField = o.optString("legacy_items").takeIf { it.isNotBlank() },
+                    legacyItemClassName = o.optString("legacy_item_class")
+                        .takeIf { it.isNotBlank() },
+                    legacyItemTitleField = o.optString("legacy_title").takeIf { it.isNotBlank() }
+                )
+            }
         }
     }
 
@@ -540,7 +573,12 @@ object VersionAdapter {
         val liveGetter: HookPoint?,
         val gameGetter: HookPoint?,
         val bangumiGetter: HookPoint? = null,
-        val courseGetter: HookPoint? = null
+        val courseGetter: HookPoint? = null,
+        val musicGetter: HookPoint? = null,
+        val cartInfoGetter: HookPoint? = null,
+        val dramaPromptGetter: HookPoint? = null,
+        val seasonInfoGetter: HookPoint? = null,
+        val seasonTypeGetter: HookPoint? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("responses", JSONArray().apply { responseItemGetters.forEach { put(it.toJson()) } })
@@ -550,6 +588,11 @@ object VersionAdapter {
             gameGetter?.let { put("game", it.toJson()) }
             bangumiGetter?.let { put("bangumi", it.toJson()) }
             courseGetter?.let { put("course", it.toJson()) }
+            musicGetter?.let { put("music", it.toJson()) }
+            cartInfoGetter?.let { put("cart_info", it.toJson()) }
+            dramaPromptGetter?.let { put("drama_prompt", it.toJson()) }
+            seasonInfoGetter?.let { put("season_info", it.toJson()) }
+            seasonTypeGetter?.let { put("season_type", it.toJson()) }
         }
 
         companion object {
@@ -564,7 +607,12 @@ object VersionAdapter {
                 liveGetter = o.optJSONObject("live")?.let(HookPoint::fromJson),
                 gameGetter = o.optJSONObject("game")?.let(HookPoint::fromJson),
                 bangumiGetter = o.optJSONObject("bangumi")?.let(HookPoint::fromJson),
-                courseGetter = o.optJSONObject("course")?.let(HookPoint::fromJson)
+                courseGetter = o.optJSONObject("course")?.let(HookPoint::fromJson),
+                musicGetter = o.optJSONObject("music")?.let(HookPoint::fromJson),
+                cartInfoGetter = o.optJSONObject("cart_info")?.let(HookPoint::fromJson),
+                dramaPromptGetter = o.optJSONObject("drama_prompt")?.let(HookPoint::fromJson),
+                seasonInfoGetter = o.optJSONObject("season_info")?.let(HookPoint::fromJson),
+                seasonTypeGetter = o.optJSONObject("season_type")?.let(HookPoint::fromJson)
             )
         }
     }
@@ -1018,9 +1066,18 @@ object VersionAdapter {
                     value.onViewCreated.isValid() && value.parentFragmentGetter.isValid()
                 } != false &&
                 mineComponents?.let { value ->
-                    value.itemListGetters.isNotEmpty() && value.itemTitleGetters.isNotEmpty() &&
+                    val getterPathValid = value.itemListGetters.isNotEmpty() &&
+                        value.itemTitleGetters.isNotEmpty() &&
                         value.itemListGetters.all { it.isValid() } &&
                         value.itemTitleGetters.all { it.isValid() }
+                    val legacyPathValid = value.legacyBuildMethods.isNotEmpty() &&
+                        value.legacyBuildMethods.all { it.isValid() } &&
+                        !value.legacyGroupListField.isNullOrBlank() &&
+                        !value.legacyGroupClassName.isNullOrBlank() &&
+                        !value.legacyItemListField.isNullOrBlank() &&
+                        !value.legacyItemClassName.isNullOrBlank() &&
+                        !value.legacyItemTitleField.isNullOrBlank()
+                    getterPathValid || legacyPathValid
                 } != false &&
                 storyFeed?.let { value ->
                     (value.responseItemGetters.isNotEmpty() || value.pagerListMethods.isNotEmpty()) &&
@@ -1028,12 +1085,20 @@ object VersionAdapter {
                         value.pagerListMethods.all { it.isValid() } &&
                         (value.adGetter != null || value.liveGetter != null ||
                             value.gameGetter != null || value.bangumiGetter != null ||
-                            value.courseGetter != null) &&
+                            value.courseGetter != null || value.musicGetter != null ||
+                            value.cartInfoGetter != null || value.dramaPromptGetter != null ||
+                            value.seasonInfoGetter != null) &&
                         value.adGetter?.isValid() != false &&
                         value.liveGetter?.isValid() != false &&
                         value.gameGetter?.isValid() != false &&
                         value.bangumiGetter?.isValid() != false &&
-                        value.courseGetter?.isValid() != false
+                        value.courseGetter?.isValid() != false &&
+                        value.musicGetter?.isValid() != false &&
+                        value.cartInfoGetter?.isValid() != false &&
+                        value.dramaPromptGetter?.isValid() != false &&
+                        value.seasonInfoGetter?.isValid() != false &&
+                        value.seasonTypeGetter?.isValid() != false &&
+                        (value.seasonInfoGetter == null) == (value.seasonTypeGetter == null)
                 } != false &&
                 bottomBar?.let { value ->
                     value.tabsGetter.isValid() && value.bindTabMethod.isValid() &&
@@ -1186,10 +1251,13 @@ object VersionAdapter {
     private const val DYNAMIC_MEDIATOR_TAB_CLASS =
         "com.bilibili.bplus.followinglist.home.mediator.MediatorTabLayout"
     private val BLOCK_UPDATE_OWNER_CANDIDATES = listOf(
-        // 8.90.2；9.1.0/9.1.1；9.2.0；9.3.0；9.4.0；9.5.0；
-        // 9.6.0；9.7.0；9.8.0；9.9.0（按已核验版本顺序）。
-        "vd6.c", "ih1.c", "kh1.c", "Ch1.c", "Uj1.c",
-        "dl1.c", "wm1.c", "Wm1.c", "Sn1.c", "Ro1.c"
+        // 9.9.0 → 9.1.0/9.1.1；再到 8.99.0 → 8.84.0。每个 owner 仍须通过
+        // 精确 (Context) -> BiliUpgradeInfo 签名和叶子实现筛选，类名存在本身不算命中。
+        "Ro1.c", "Sn1.c", "Wm1.c", "wm1.c", "dl1.c",
+        "Uj1.c", "Ch1.c", "kh1.c", "ih1.c",
+        "Xg1.c", "Lg1.c", "Kg1.c", "od1.c", "Sb1.c",
+        "xb1.c", "Pa1.c", "si6.c", "oe6.c", "vd6.c",
+        "id6.c", "wc6.c", "xc6.c", "aa6.c", "o56.c"
     )
     private const val KNTR_NUMBER_FORMAT_CLASS =
         "kntr.base.localization.NumberFormat_androidKt"
@@ -1274,11 +1342,16 @@ object VersionAdapter {
         "tv.danmaku.p9138bili.p9228ui.main2.widget.TabHost"
     )
     private val PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES = listOf(
-        // 新版 dex 可能引用旧混淆类，因此按新→旧探测，且每个 owner 内仍要求签名唯一。
-        // 9.9.0；9.8.0；9.7.0；9.6.0；9.5.0；9.4.0；9.3.0；
-        // 9.2.0；9.1.0/9.1.1；8.90.2（均由 "quality settings:" 日志交叉核验）。
+        // 新版 dex 可能保留旧混淆类，因此按新→旧探测；每个 owner 内仍要求唯一的
+        // 无参 Int 入口。8.84.0–8.99.0 与 9.1.0–9.9.0 均由
+        // "quality settings:" / 画质偏好键的离线方法体语义交叉核验。
         "Jq1.l", "Kp1.l", "Oo1.i", "oo1.g", "Vm1.i",
-        "Kl1.j", "tj1.g", "bj1.i", "Zi1.h", "gh6.h"
+        "Kl1.j", "tj1.g", "bj1.i", "Zi1.h",
+        "Oi1.f", "Ci1.f", "Bi1.f", "Ze1.h", "Dd1.h",
+        "hd1.h", "zc1.h", "dm6.h", "zh6.h", "gh6.h",
+        "tg6.h", "hg6.h",
+        // 8.84.0–8.87.0 的稳定公开入口；放在最后，避免新版残留包装器抢先命中。
+        "com.bilibili.playerbizcommon.utils.PlayerSettingHelper"
     )
     private val TEENAGERS_MODE_ACTIVITY_CANDIDATES = listOf(
         "com.bilibili.teenagersmode.ui.TeenagersModeDialogActivity",
@@ -1547,7 +1620,7 @@ object VersionAdapter {
         val videoRelate = locateVideoRelate(loader)
         val homeTabs = locateHomeTabs(loader)
         val homeComponents = locateHomeComponents(loader)
-        val mineComponents = locateMineComponents(loader)
+        val mineComponents = locateMineComponents(loader, mine)
         val storyFeed = locateStoryFeed(loader)
         val bottomBar = locateBottomBar(loader)
         val playerQuality = locateDefaultVideoQuality(loader)
@@ -1629,7 +1702,7 @@ object VersionAdapter {
         val videoRelate = locateVideoRelate(loader)
         val homeTabs = locateHomeTabs(loader)
         val homeComponents = locateHomeComponents(loader)
-        val mineComponents = locateMineComponents(loader)
+        val mineComponents = locateMineComponents(loader, mine)
         val storyFeed = locateStoryFeed(loader)
         val bottomBar = locateBottomBar(loader)
         val playerQuality = locateDefaultVideoQuality(loader)
@@ -1992,7 +2065,8 @@ object VersionAdapter {
                 "mine.components",
                 stateFor(mineComponents != null, mineComponentsCandidateExists),
                 mineComponents?.let {
-                    "lists=${it.itemListGetters.size},titles=${it.itemTitleGetters.size}"
+                    "lists=${it.itemListGetters.size},titles=${it.itemTitleGetters.size}," +
+                        "legacy=${it.legacyBuildMethods.size}"
                 }.orEmpty()
             ),
             AdaptDiagnostic(
@@ -2002,7 +2076,9 @@ object VersionAdapter {
                     "responses=${it.responseItemGetters.size},pager=${it.pagerListMethods.size}," +
                         "ad=${it.adGetter != null},live=${it.liveGetter != null}," +
                         "game=${it.gameGetter != null},bangumi=${it.bangumiGetter != null}," +
-                        "course=${it.courseGetter != null}"
+                        "course=${it.courseGetter != null},music=${it.musicGetter != null}," +
+                        "cart=${it.cartInfoGetter != null},drama=${it.dramaPromptGetter != null}," +
+                        "season=${it.seasonInfoGetter != null && it.seasonTypeGetter != null}"
                 }.orEmpty()
             ),
             AdaptDiagnostic(
@@ -2569,8 +2645,14 @@ object VersionAdapter {
         HomeComponentPoints(onViewCreated.toHookPoint(), parent.toHookPoint())
     }.getOrNull()
 
-    /** “我的”页只在 MenuGroup(V2) 的 getItemList 返回边界按 Item#getTitle 过滤。 */
-    fun locateMineComponents(loader: ClassLoader): MineComponentPoints? = runCatching {
+    /**
+     * “我的”页优先在 MenuGroup(V2) 的公开 getter 返回边界过滤；旧模型没有 getter 时，
+     * 复用已定位的菜单构建方法，并缓存唯一 List<Item> 字段和语义稳定的 title 字段。
+     */
+    fun locateMineComponents(
+        loader: ClassLoader,
+        mineEntry: MineEntryPoint? = null
+    ): MineComponentPoints? = runCatching {
         val lists = MINE_MENU_GROUP_CLASS_CANDIDATES.asSequence()
             .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
             .flatMap { owner ->
@@ -2601,8 +2683,57 @@ object VersionAdapter {
             .distinctBy(Method::toGenericString)
             .map { it.toHookPoint() }
             .toList()
-        if (lists.isEmpty() || titles.isEmpty()) return@runCatching null
-        MineComponentPoints(lists, titles)
+        if (lists.isNotEmpty() && titles.isNotEmpty()) {
+            return@runCatching MineComponentPoints(lists, titles)
+        }
+        locateLegacyMineComponents(loader, mineEntry ?: locateMineEntry(loader))
+    }.getOrNull()
+
+    /** 仅供旧公开字段模型与单元测试使用；字段链在适配期确定，运行期直接 Field#get/set。 */
+    internal fun locateLegacyMineComponents(
+        loader: ClassLoader,
+        mineEntry: MineEntryPoint?
+    ): MineComponentPoints? = runCatching {
+        val entry = mineEntry ?: return@runCatching null
+        for (groupName in MINE_MENU_GROUP_CLASS_CANDIDATES) {
+            val group = KavaMemberLookup.classOrNull(loader, groupName) ?: continue
+            val itemListFields = KavaMemberLookup.declaredFields(
+                group,
+                makeAccessible = true
+            ) { field ->
+                !field.isStatic &&
+                    !java.lang.reflect.Modifier.isFinal(field.modifiers) &&
+                    field.type isSubclassOf classOf<List<*>>() &&
+                    ((field.genericType as? ParameterizedType)
+                        ?.actualTypeArguments
+                        ?.singleOrNull()
+                        ?.rawClassOrNull()
+                        ?.name in MINE_MENU_ITEM_CLASS_CANDIDATES)
+            }
+            val itemListField = itemListFields.singleOrNull() ?: continue
+            val itemClass = (itemListField.genericType as? ParameterizedType)
+                ?.actualTypeArguments
+                ?.singleOrNull()
+                ?.rawClassOrNull() ?: continue
+            val titleField = KavaMemberLookup.declaredFields(
+                itemClass,
+                makeAccessible = true
+            ) { field ->
+                !field.isStatic && field.name == "title" && field.type == classOf<String>()
+            }.singleOrNull() ?: continue
+            return@runCatching MineComponentPoints(
+                itemListGetters = emptyList(),
+                itemTitleGetters = emptyList(),
+                legacyBuildMethods = entry.buildMethods,
+                legacyGroupListField = entry.groupListField,
+                legacyAdapterField = entry.adapterField,
+                legacyGroupClassName = group.name,
+                legacyItemListField = itemListField.name,
+                legacyItemClassName = itemClass.name,
+                legacyItemTitleField = titleField.name
+            )
+        }
+        null
     }.getOrNull()
 
     /** Story 只采用 StoryDetail 自身公开类型判断，不按标题、URI 或字段内容猜测。 */
@@ -2615,6 +2746,12 @@ object VersionAdapter {
                     method.returnType == classOf<Boolean>()
             }
             ?.toHookPoint()
+
+        fun objectGetter(name: String): Method? = KavaMemberLookup.methodOrNull(detail, name)
+            ?.takeIf { method ->
+                !method.isStatic && method.parameterCount == 0 &&
+                    !method.returnType.isPrimitive && method.returnType != Void.TYPE
+            }
 
         val responses = KavaMemberLookup.classOrNull(loader, STORY_FEED_RESPONSE_CLASS)
             ?.let { response ->
@@ -2644,11 +2781,36 @@ object VersionAdapter {
         val game = booleanGetter("isGame")
         val bangumi = booleanGetter("isBangumi")
         val course = booleanGetter("isCheese")
+        val music = booleanGetter("isMusic")
+        val cartInfo = objectGetter("getCartIconInfo")
+        val dramaPrompt = objectGetter("getDramaPromptBar")
+        val seasonInfo = objectGetter("getSeasonInfo")
+        val seasonType = seasonInfo?.returnType?.let { owner ->
+            KavaMemberLookup.methodOrNull(owner, "getSeasonType")
+                ?.takeIf { method ->
+                    !method.isStatic && method.parameterCount == 0 &&
+                        method.returnType == classOf<Int>()
+                }
+        }
         if ((responses.isEmpty() && pager.isEmpty()) ||
-            (ad == null && live == null && game == null && bangumi == null && course == null)) {
+            (ad == null && live == null && game == null && bangumi == null && course == null &&
+                music == null && cartInfo == null && dramaPrompt == null && seasonType == null)) {
             return@runCatching null
         }
-        StoryFeedPoints(responses, pager, ad, live, game, bangumi, course)
+        StoryFeedPoints(
+            responses,
+            pager,
+            ad,
+            live,
+            game,
+            bangumi,
+            course,
+            music,
+            cartInfo?.toHookPoint(),
+            dramaPrompt?.toHookPoint(),
+            seasonInfo?.takeIf { seasonType != null }?.toHookPoint(),
+            seasonType?.toHookPoint()
+        )
     }.getOrNull()
 
     /**
@@ -2782,8 +2944,9 @@ object VersionAdapter {
     }.getOrNull()
 
     /**
-     * 定位播放器默认画质计算方法。8.90.2 的入口是实例方法 gh6.h#c()，9.1.0–9.9.0
-     * 漂移为不同包下的静态 a()；方法体均读取
+     * 定位播放器默认画质计算方法。8.84.0–8.87.0 使用稳定公开
+     * PlayerSettingHelper#getDefaultQuality()，8.88.0–8.96.0 主要为混淆 h#c()，
+     * 8.97.0 起迁移为混淆 f#a()，9.x 继续按版本漂移；方法体均读取
      * pref_player_mediaSource_quality_wifi_key，执行宿主限制降级并记录 "quality settings:"。
      * 运行期按新到旧候选探测，并要求单个 owner 内只有一个无参 Int 入口；这样既避开
      * 新版 dex 对旧混淆类的残留引用，也不会按宽泛方法名跨类批量安装。
@@ -2796,8 +2959,12 @@ object VersionAdapter {
                     !method.isAbstract &&
                         method.parameterCount == 0 &&
                         method.returnType == classOf<Int>() &&
-                        method.name in setOf("a", "c")
-                }.singleOrNull()?.let { PlayerQualityPoints(it.toHookPoint()) }
+                        method.name in setOf(
+                            "a",
+                            "c",
+                            "getDefaultQuality"
+                        )
+            }.singleOrNull()?.let { PlayerQualityPoints(it.toHookPoint()) }
         }
     }.getOrNull()
 

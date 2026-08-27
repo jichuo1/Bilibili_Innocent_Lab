@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
-import com.highcapable.betterandroid.system.extension.tool.AndroidVersion
+import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
 import java.util.concurrent.atomic.AtomicLong
 
 /**

@@ -122,6 +122,13 @@ class MainActivity : AppViewsActivity() {
     private var removeStoryGames = false
     private var removeStoryBangumi = false
     private var removeStoryCourses = false
+    private var removeStoryShortDrama = false
+    private var removeStoryShopping = false
+    private var removeStoryMovies = false
+    private var removeStoryDocumentaries = false
+    private var removeStoryTv = false
+    private var removeStoryVariety = false
+    private var removeStoryMusic = false
     private var hideMineVip = false
     private var keepMineVipSpace = false
     private var mineComponentHiddenRules = ""
@@ -2164,6 +2171,27 @@ class MainActivity : AppViewsActivity() {
         removeStoryCourses = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_COURSES, false) ?: false
         }.getOrDefault(false)
+        removeStoryShortDrama = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_SHORT_DRAMA, false) ?: false
+        }.getOrDefault(false)
+        removeStoryShopping = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_SHOPPING, false) ?: false
+        }.getOrDefault(false)
+        removeStoryMovies = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_MOVIES, false) ?: false
+        }.getOrDefault(false)
+        removeStoryDocumentaries = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_DOCUMENTARIES, false) ?: false
+        }.getOrDefault(false)
+        removeStoryTv = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_TV, false) ?: false
+        }.getOrDefault(false)
+        removeStoryVariety = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_VARIETY, false) ?: false
+        }.getOrDefault(false)
+        removeStoryMusic = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_MUSIC, false) ?: false
+        }.getOrDefault(false)
         hideMineVip = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.HIDE_MINE_VIP, false) ?: false
         }.onFailure { t ->
@@ -4062,6 +4090,141 @@ class MainActivity : AppViewsActivity() {
                                     removeStoryCourses = checked
                                     prefs().edit {
                                         putBoolean(FeaturePreferences.REMOVE_STORY_COURSES, checked)
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_story_short_drama)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeStoryShortDrama
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeStoryShortDrama = checked
+                                    prefs().edit {
+                                        putBoolean(
+                                            FeaturePreferences.REMOVE_STORY_SHORT_DRAMA,
+                                            checked
+                                        )
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_story_shopping)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeStoryShopping
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeStoryShopping = checked
+                                    prefs().edit {
+                                        putBoolean(
+                                            FeaturePreferences.REMOVE_STORY_SHOPPING,
+                                            checked
+                                        )
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_story_movies)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeStoryMovies
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeStoryMovies = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_STORY_MOVIES, checked)
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_story_documentaries)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeStoryDocumentaries
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeStoryDocumentaries = checked
+                                    prefs().edit {
+                                        putBoolean(
+                                            FeaturePreferences.REMOVE_STORY_DOCUMENTARIES,
+                                            checked
+                                        )
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_story_tv)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeStoryTv
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeStoryTv = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_STORY_TV, checked)
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_story_variety)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeStoryVariety
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeStoryVariety = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_STORY_VARIETY, checked)
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_story_music)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeStoryMusic
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeStoryMusic = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_STORY_MUSIC, checked)
                                     }
                                 }
                             }
