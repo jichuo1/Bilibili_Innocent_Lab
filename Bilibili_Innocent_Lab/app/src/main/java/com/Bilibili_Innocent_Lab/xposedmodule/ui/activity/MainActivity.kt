@@ -100,6 +100,7 @@ class MainActivity : AppViewsActivity() {
     private var merchAdEnabled = true
     private var hideHomeGameMenu = false
     private var hideHomeSearchDefaultWord = false
+    private var homeVerticalOpenDetail = false
     private var hideMineVip = false
     private var keepMineVipSpace = false
     private var blockAppUpdate = false
@@ -108,6 +109,7 @@ class MainActivity : AppViewsActivity() {
     private var preferDynamicVideoTab = false
     private var showFullNumbers = false
     private var hidePlayerPortraitControl = false
+    private var transparentPlayerStatusBar = false
     private var playerDefaultQualityQn = 0
     private var blockTeenagersModePrompt = false
     private var removeCommentSearchLinks = false
@@ -1813,6 +1815,14 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read home search word prefs failed", t)
         }.getOrDefault(false)
+        homeVerticalOpenDetail = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read home vertical detail prefs failed", t)
+        }.getOrDefault(false)
         hideMineVip = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.HIDE_MINE_VIP, false) ?: false
         }.onFailure { t ->
@@ -1855,6 +1865,14 @@ class MainActivity : AppViewsActivity() {
             ) ?: false
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read player portrait prefs failed", t)
+        }.getOrDefault(false)
+        transparentPlayerStatusBar = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read player status bar prefs failed", t)
         }.getOrDefault(false)
         playerDefaultQualityQn = runCatching {
             PlayerQualityConfig.normalize(
@@ -2525,6 +2543,44 @@ class MainActivity : AppViewsActivity() {
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.home_vertical_open_detail)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = homeVerticalOpenDetail
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    homeVerticalOpenDetail = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write home vertical detail prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.home_vertical_open_detail_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
                             FrameLayout(
                                 lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
                                     topMargin = 14.dp
@@ -2994,6 +3050,44 @@ class MainActivity : AppViewsActivity() {
                                 alpha = 0.6f
                                 setLineSpacing(6f, 1f)
                                 text = stringResource(R.string.hide_player_portrait_control_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.transparent_player_status_bar)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = transparentPlayerStatusBar
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    transparentPlayerStatusBar = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write player status bar prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.transparent_player_status_bar_tip)
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }

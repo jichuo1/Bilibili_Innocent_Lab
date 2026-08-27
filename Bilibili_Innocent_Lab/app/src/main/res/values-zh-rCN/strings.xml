@@ -26,6 +26,8 @@
     <string name="hide_home_game_menu_tip">只拦截指向游戏中心的菜单项，不影响搜索、扫一扫等其他入口；重启哔哩哔哩后生效</string>
     <string name="hide_home_search_default_word">隐藏搜索框默认推荐词</string>
     <string name="hide_home_search_default_word_tip">保留搜索入口与点击行为，仅清空搜索框内的推荐文案；重启哔哩哔哩后生效</string>
+    <string name="home_vertical_open_detail">首页竖屏视频默认进入详情页</string>
+    <string name="home_vertical_open_detail_tip">仅将首页推荐服务端返回的竖屏视频卡片改为普通视频详情路由，不影响其他页面的 Story 链接；重启哔哩哔哩后生效。</string>
     <string name="mine_page_settings">“我的”页面</string>
     <string name="hide_mine_vip">隐藏“我的”页会员卡片</string>
     <string name="hide_mine_vip_tip">仅隐藏会员卡片并移除其占位，不修改“我的”页其他入口；重启哔哩哔哩后生效</string>
@@ -50,6 +52,8 @@
     <string name="player_control_settings">播放器控件</string>
     <string name="hide_player_portrait_control">隐藏播放器竖屏切换控件</string>
     <string name="hide_player_portrait_control_tip">隐藏 Gemini 播放器中的“进入看一看”竖屏切换控件，保留全屏等其他控件；重启哔哩哔哩后生效</string>
+    <string name="transparent_player_status_bar">透明播放器状态栏</string>
+    <string name="transparent_player_status_bar_tip">仅在已适配的视频详情 Activity 中将状态栏设为透明，并使用适合视频背景的浅色图标；重启哔哩哔哩后生效。</string>
     <string name="player_default_quality">播放器默认画质</string>
     <string name="player_default_quality_tip">仅修改播放器初始请求画质，不解锁付费画质；片源、账号或网络条件不支持时仍由哔哩哔哩降级，重启哔哩哔哩后生效</string>
     <string name="player_default_quality_current">当前：%1$s</string>

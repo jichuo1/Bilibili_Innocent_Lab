@@ -98,8 +98,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 24
-    private const val ADAPTER_RULE_VERSION = 16
+    private const val SCHEMA_VERSION = 25
+    private const val ADAPTER_RULE_VERSION = 17
 
     enum class AdaptState {
         FOUND,
@@ -335,6 +335,59 @@ object VersionAdapter {
         }
     }
 
+    /** 视频详情页 Activity 的稳定生命周期入口；只在精确目标 Activity 上修改系统栏。 */
+    data class PlayerStatusBarPoints(
+        val onCreateMethods: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("create", JSONArray().apply { onCreateMethods.forEach { put(it.toJson()) } })
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): PlayerStatusBarPoints = PlayerStatusBarPoints(
+                o.getJSONArray("create").let { methods ->
+                    (0 until methods.length()).map {
+                        HookPoint.fromJson(methods.getJSONObject(it))
+                    }
+                }
+            )
+        }
+    }
+
+    /** 首页推荐服务端响应及卡片公开读取边界；不依赖混淆字段名或 View 树扫描。 */
+    data class HomeRecommendFeedPoints(
+        val responseItemGetters: List<HookPoint>,
+        val holderTypeGetter: HookPoint,
+        val cardGotoGetter: HookPoint?,
+        val goToGetter: HookPoint?,
+        val uriGetter: HookPoint?,
+        val paramGetter: HookPoint?
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("responses", JSONArray().apply { responseItemGetters.forEach { put(it.toJson()) } })
+            put("holder", holderTypeGetter.toJson())
+            cardGotoGetter?.let { put("card_goto", it.toJson()) }
+            goToGetter?.let { put("goto", it.toJson()) }
+            uriGetter?.let { put("uri", it.toJson()) }
+            paramGetter?.let { put("param", it.toJson()) }
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): HomeRecommendFeedPoints = HomeRecommendFeedPoints(
+                responseItemGetters = o.getJSONArray("responses").let { methods ->
+                    (0 until methods.length()).map {
+                        HookPoint.fromJson(methods.getJSONObject(it))
+                    }
+                },
+                holderTypeGetter = HookPoint.fromJson(o.getJSONObject("holder")),
+                cardGotoGetter = o.optJSONObject("card_goto")?.let(HookPoint::fromJson),
+                goToGetter = o.optJSONObject("goto")?.let(HookPoint::fromJson),
+                uriGetter = o.optJSONObject("uri")?.let(HookPoint::fromJson),
+                paramGetter = o.optJSONObject("param")?.let(HookPoint::fromJson)
+            )
+        }
+    }
+
     /** 播放器默认画质计算边界；仅保存经逐版本核验的唯一无参 Int 方法。 */
     data class PlayerQualityPoints(
         val defaultQualityMethod: HookPoint
@@ -527,6 +580,10 @@ object VersionAdapter {
         val fullNumbers: FullNumberPoints?,
         /** 播放器竖屏切换控件自身的可见性入口。 */
         val playerPortrait: PlayerPortraitPoints?,
+        /** 视频详情页透明状态栏的精确 Activity 生命周期入口。 */
+        val playerStatusBar: PlayerStatusBarPoints?,
+        /** 首页推荐服务端响应及卡片公开读取边界。 */
+        val homeRecommendFeed: HomeRecommendFeedPoints?,
         /** 播放器默认画质的统一计算入口。 */
         val playerQuality: PlayerQualityPoints?,
         /** 青少年模式提示页自身的 onCreate 入口。 */
@@ -553,6 +610,8 @@ object VersionAdapter {
             dynamicTabs?.let { put("dynamic_tabs", it.toJson()) }
             fullNumbers?.let { put("full_numbers", it.toJson()) }
             playerPortrait?.let { put("player_portrait", it.toJson()) }
+            playerStatusBar?.let { put("player_status_bar", it.toJson()) }
+            homeRecommendFeed?.let { put("home_recommend_feed", it.toJson()) }
             playerQuality?.let { put("player_quality", it.toJson()) }
             teenagersMode?.let { put("teenagers_mode", it.toJson()) }
             commentPurify?.let { put("comment_purify", it.toJson()) }
@@ -617,6 +676,18 @@ object VersionAdapter {
                 playerPortrait?.visibilityMethods?.let { methods ->
                     methods.isNotEmpty() && methods.all { it.isValid() }
                 } != false &&
+                playerStatusBar?.onCreateMethods?.let { methods ->
+                    methods.isNotEmpty() && methods.all { it.isValid() }
+                } != false &&
+                homeRecommendFeed?.let { value ->
+                    value.responseItemGetters.isNotEmpty() &&
+                        value.responseItemGetters.all { it.isValid() } &&
+                        value.holderTypeGetter.isValid() &&
+                        value.cardGotoGetter?.isValid() != false &&
+                        value.goToGetter?.isValid() != false &&
+                        value.uriGetter?.isValid() != false &&
+                        value.paramGetter?.isValid() != false
+                } != false &&
                 playerQuality?.defaultQualityMethod?.isValid() != false &&
                 teenagersMode?.onCreateMethods?.let { methods ->
                     methods.isNotEmpty() && methods.all { it.isValid() }
@@ -670,6 +741,10 @@ object VersionAdapter {
                     fullNumbers = o.optJSONObject("full_numbers")?.let(FullNumberPoints::fromJson),
                     playerPortrait = o.optJSONObject("player_portrait")
                         ?.let(PlayerPortraitPoints::fromJson),
+                    playerStatusBar = o.optJSONObject("player_status_bar")
+                        ?.let(PlayerStatusBarPoints::fromJson),
+                    homeRecommendFeed = o.optJSONObject("home_recommend_feed")
+                        ?.let(HomeRecommendFeedPoints::fromJson),
                     playerQuality = o.optJSONObject("player_quality")
                         ?.let(PlayerQualityPoints::fromJson),
                     teenagersMode = o.optJSONObject("teenagers_mode")
@@ -744,6 +819,19 @@ object VersionAdapter {
     )
     private val PLAYER_PORTRAIT_CLASS_CANDIDATES = listOf(
         "com.bilibili.app.gemini.player.widget.story.GeminiPlayerFullStoryWidget"
+    )
+    private val PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES = listOf(
+        "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity"
+    )
+    private val PEGASUS_RESPONSE_CLASS_CANDIDATES = listOf(
+        "com.bilibili.pegasus.data.base.PegasusResponse",
+        "com.bilibili.pegasus.p5730data.p5731base.PegasusResponse",
+        "com.bilibili.pegasus.p5730data.request.PegasusResponseWrapper"
+    )
+    private const val PEGASUS_HOLDER_DATA_CLASS = "com.bilibili.pegasus.PegasusHolderData"
+    private val BASE_PEGASUS_DATA_CLASS_CANDIDATES = listOf(
+        "com.bilibili.pegasus.data.base.BasePegasusData",
+        "com.bilibili.pegasus.p5730data.p5731base.BasePegasusData"
     )
     private val PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES = listOf(
         // 新版 dex 可能引用旧混淆类，因此按新→旧探测，且每个 owner 内仍要求签名唯一。
@@ -976,6 +1064,8 @@ object VersionAdapter {
                     "blockUpdate=${result?.blockUpdate != null} " +
                     "dynamicTabs=${result?.dynamicTabs != null} " +
                     "playerPortrait=${result?.playerPortrait != null} " +
+                    "playerStatusBar=${result?.playerStatusBar != null} " +
+                    "homeRecommendFeed=${result?.homeRecommendFeed != null} " +
                     "playerQuality=${result?.playerQuality != null} " +
                     "teenagersMode=${result?.teenagersMode != null} " +
                     "commentPurify=${result?.commentPurify != null} " +
@@ -1003,6 +1093,8 @@ object VersionAdapter {
         val dynamicTabs = locateDynamicTabs(loader)
         val fullNumbers = locateFullNumbers(loader)
         val playerPortrait = locatePlayerPortrait(loader)
+        val playerStatusBar = locatePlayerStatusBar(loader)
+        val homeRecommendFeed = locateHomeRecommendFeed(loader)
         val playerQuality = locateDefaultVideoQuality(loader)
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
@@ -1011,6 +1103,7 @@ object VersionAdapter {
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
+            playerStatusBar == null && homeRecommendFeed == null &&
             playerQuality == null && teenagersMode == null && commentPurify == null) return null
         return AdaptResult(
             biliVersionCode = 0,
@@ -1026,14 +1119,16 @@ object VersionAdapter {
             dynamicTabs = dynamicTabs,
             fullNumbers = fullNumbers,
             playerPortrait = playerPortrait,
+            playerStatusBar = playerStatusBar,
+            homeRecommendFeed = homeRecommendFeed,
             playerQuality = playerQuality,
             teenagersMode = teenagersMode,
             commentPurify = commentPurify,
             hostFingerprint = "runtime-no-context|rules=$ADAPTER_RULE_VERSION",
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
-                dynamicTabs, fullNumbers, playerPortrait, playerQuality, teenagersMode,
-                commentPurify
+                dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
+                playerQuality, teenagersMode, commentPurify
             )
         )
     }
@@ -1057,6 +1152,8 @@ object VersionAdapter {
         val dynamicTabs = locateDynamicTabs(loader)
         val fullNumbers = locateFullNumbers(loader)
         val playerPortrait = locatePlayerPortrait(loader)
+        val playerStatusBar = locatePlayerStatusBar(loader)
+        val homeRecommendFeed = locateHomeRecommendFeed(loader)
         val playerQuality = locateDefaultVideoQuality(loader)
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
@@ -1067,6 +1164,10 @@ object VersionAdapter {
             || KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS)
             || FULL_NUMBER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || PLAYER_PORTRAIT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES.any {
+                KavaMemberLookup.hasClass(loader, it)
+            }
+            || PEGASUS_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any {
                 KavaMemberLookup.hasClass(loader, it)
             }
@@ -1087,6 +1188,7 @@ object VersionAdapter {
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
+            playerStatusBar == null && homeRecommendFeed == null &&
             playerQuality == null && teenagersMode == null && commentPurify == null &&
             !anyClassExists) return null
         return AdaptResult(
@@ -1103,14 +1205,16 @@ object VersionAdapter {
             dynamicTabs = dynamicTabs,
             fullNumbers = fullNumbers,
             playerPortrait = playerPortrait,
+            playerStatusBar = playerStatusBar,
+            homeRecommendFeed = homeRecommendFeed,
             playerQuality = playerQuality,
             teenagersMode = teenagersMode,
             commentPurify = commentPurify,
             hostFingerprint = buildHostFingerprint(context),
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
-                dynamicTabs, fullNumbers, playerPortrait, playerQuality, teenagersMode,
-                commentPurify
+                dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
+                playerQuality, teenagersMode, commentPurify
             )
         )
     }
@@ -1139,6 +1243,8 @@ object VersionAdapter {
         dynamicTabs: DynamicTabsPoint?,
         fullNumbers: FullNumberPoints?,
         playerPortrait: PlayerPortraitPoints?,
+        playerStatusBar: PlayerStatusBarPoints?,
+        homeRecommendFeed: HomeRecommendFeedPoints?,
         playerQuality: PlayerQualityPoints?,
         teenagersMode: TeenagersModePoints?,
         commentPurify: CommentPurifyPoints?
@@ -1170,6 +1276,14 @@ object VersionAdapter {
         val playerPortraitCandidateExists = PLAYER_PORTRAIT_CLASS_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
+        val playerStatusBarCandidateExists = PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val homeRecommendFeedCandidateExists =
+            KavaMemberLookup.hasClass(loader, PEGASUS_HOLDER_DATA_CLASS) &&
+                PEGASUS_RESPONSE_CLASS_CANDIDATES.any {
+                    KavaMemberLookup.hasClass(loader, it)
+                }
         val playerQualityCandidateExists = PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
@@ -1301,6 +1415,18 @@ object VersionAdapter {
                 "player.portrait",
                 stateFor(playerPortrait != null, playerPortraitCandidateExists),
                 playerPortrait?.visibilityMethods?.joinToString("|") { it.label() }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "player.status_bar",
+                stateFor(playerStatusBar != null, playerStatusBarCandidateExists),
+                playerStatusBar?.onCreateMethods?.joinToString("|") { it.label() }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "home.recommend_feed",
+                stateFor(homeRecommendFeed != null, homeRecommendFeedCandidateExists),
+                homeRecommendFeed?.let {
+                    "responses=${it.responseItemGetters.size},holder=${it.holderTypeGetter.label()}"
+                }.orEmpty()
             ),
             AdaptDiagnostic(
                 "player.default_quality",
@@ -1649,6 +1775,86 @@ object VersionAdapter {
             .map { it.toHookPoint() }
             .toList()
         methods.takeIf { it.isNotEmpty() }?.let(::PlayerPortraitPoints)
+    }.getOrNull()
+
+    /**
+     * 详情页透明状态栏只挂到目标 Activity 自己声明的 onCreate(Bundle)，避免全局
+     * Activity 生命周期 Hook。9.x 主链均使用 UnitedBizDetailsActivity；类或签名漂移时
+     * 直接不安装，不以类名模糊匹配其它页面。
+     */
+    fun locatePlayerStatusBar(loader: ClassLoader): PlayerStatusBarPoints? = runCatching {
+        val methods = PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .filter { it.hasSuperclassNamed("android.app.Activity") }
+            .mapNotNull { owner ->
+                KavaMemberLookup.methodOrNull(owner, "onCreate", Bundle::class.java)
+                    ?.takeIf { method ->
+                        method.declaringClass == owner && method.returnType == Void.TYPE &&
+                            !method.isStatic
+                    }
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        methods.takeIf { it.isNotEmpty() }?.let(::PlayerStatusBarPoints)
+    }.getOrNull()
+
+    /**
+     * 首页推荐卡片定位：响应只接受无参 List getter，卡片属性只接受公开无参 String
+     * getter。运行期先由响应边界登记对象身份，再改写已登记竖屏卡片的路由，避免把同一
+     * BasePegasusData 类型在其它页面的对象一并修改。
+     */
+    fun locateHomeRecommendFeed(loader: ClassLoader): HomeRecommendFeedPoints? = runCatching {
+        val holder = KavaMemberLookup.classOrNull(loader, PEGASUS_HOLDER_DATA_CLASS)
+            ?: return@runCatching null
+        val holderType = KavaMemberLookup.methods(
+            holder,
+            includeSuperclasses = true,
+            makeAccessible = true
+        ) { method ->
+            method.name == "getHolderType" && method.parameterCount == 0 &&
+                method.returnType == String::class.java && !method.isStatic
+        }.distinctBy(Method::toGenericString).singleOrNull() ?: return@runCatching null
+
+        val responseGetters = PEGASUS_RESPONSE_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.methods(
+                    owner,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    method.name == "getItems" && method.parameterCount == 0 &&
+                        List::class.java.isAssignableFrom(method.returnType) &&
+                        !method.isStatic && !method.isAbstract
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        if (responseGetters.isEmpty()) return@runCatching null
+
+        val base = BASE_PEGASUS_DATA_CLASS_CANDIDATES.firstNotNullOfOrNull {
+            KavaMemberLookup.classOrNull(loader, it)
+        } ?: holder
+        fun stringGetter(name: String): HookPoint? = KavaMemberLookup.methods(
+            base,
+            includeSuperclasses = true,
+            makeAccessible = true
+        ) { method ->
+            method.name == name && method.parameterCount == 0 &&
+                method.returnType == String::class.java && !method.isStatic
+        }.distinctBy(Method::toGenericString).singleOrNull()?.toHookPoint()
+
+        val uri = stringGetter("getUri") ?: return@runCatching null
+        HomeRecommendFeedPoints(
+            responseItemGetters = responseGetters,
+            holderTypeGetter = holderType.toHookPoint(),
+            cardGotoGetter = stringGetter("getCardGoto"),
+            goToGetter = stringGetter("getGoTo"),
+            uriGetter = uri,
+            paramGetter = stringGetter("getParam")
+        )
     }.getOrNull()
 
     /**
