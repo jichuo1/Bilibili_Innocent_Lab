@@ -28,6 +28,8 @@
     <string name="mine_page_settings">Mine page</string>
     <string name="hide_mine_vip">Hide the VIP card on the Mine page</string>
     <string name="hide_mine_vip_tip">Hides only the VIP card and removes its space; other Mine-page entries remain unchanged. Restart Bilibili to apply.</string>
+    <string name="keep_mine_vip_space">Keep the VIP card space</string>
+    <string name="keep_mine_vip_space_tip">When the VIP card is hidden, preserves its original layout space to reduce page movement. This option has no effect unless VIP-card hiding is enabled.</string>
     <string name="client_update_settings">Client updates</string>
     <string name="block_app_update">Block Bilibili client update prompts</string>
     <string name="block_app_update_tip">Makes the official updater treat checks as already up to date; it does not affect this module\'s update checks. Restart Bilibili to apply.</string>
@@ -67,6 +69,8 @@
     <string name="remove_comment_qoe_tip">Suppresses comment-experience surveys by replacing only the top-level QOE payload at its public read boundary. Comment content and interactions remain unchanged. Restart Bilibili to apply.</string>
     <string name="remove_comment_operations">Remove comment promotions</string>
     <string name="remove_comment_operations_tip">Suppresses top-level Operation and OperationV2 promotional payloads through their public read boundaries without modifying comments or reply data. Restart Bilibili to apply.</string>
+    <string name="block_comment_quick_reply">Block tap-to-quick-reply</string>
+    <string name="block_comment_quick_reply_tip">Prevents a short tap on comment text or its card from opening the reply editor. Explicit reply buttons, the input bar, the three-dot menu, long-press free copy and other official actions remain available. Restart Bilibili to apply.</string>
     <string name="merch_ad_enable">Hide UP merchandise promotions</string>
     <string name="merch_ad_tip">When enabled, "UP merchandise" promotions on some video detail pages are no longer shown</string>
     <string name="purify_settings">Purify</string>

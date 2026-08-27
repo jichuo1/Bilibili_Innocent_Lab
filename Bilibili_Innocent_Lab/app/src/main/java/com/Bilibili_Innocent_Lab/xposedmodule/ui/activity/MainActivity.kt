@@ -101,6 +101,7 @@ class MainActivity : AppViewsActivity() {
     private var hideHomeGameMenu = false
     private var hideHomeSearchDefaultWord = false
     private var hideMineVip = false
+    private var keepMineVipSpace = false
     private var blockAppUpdate = false
     private var hideDynamicCityTab = false
     private var hideDynamicSchoolTab = false
@@ -115,6 +116,7 @@ class MainActivity : AppViewsActivity() {
     private var removeCommentFollowButtons = false
     private var removeCommentQoe = false
     private var removeCommentOperations = false
+    private var blockCommentQuickReply = false
     private var freeCopyEnabled = true
     private var freeCopyDescEnabled = true
     private var freeCopyLightMode = false
@@ -1816,6 +1818,11 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read mine vip prefs failed", t)
         }.getOrDefault(false)
+        keepMineVipSpace = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.KEEP_MINE_VIP_SPACE, false) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read mine vip space prefs failed", t)
+        }.getOrDefault(false)
         blockAppUpdate = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false) ?: false
         }.onFailure { t ->
@@ -1903,6 +1910,14 @@ class MainActivity : AppViewsActivity() {
             ) ?: false
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read comment operation prefs failed", t)
+        }.getOrDefault(false)
+        blockCommentQuickReply = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.BLOCK_COMMENT_QUICK_REPLY,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read comment quick reply prefs failed", t)
         }.getOrDefault(false)
         blockTeenagersModePrompt = runCatching {
             modulePrefs?.getBoolean(
@@ -2565,6 +2580,44 @@ class MainActivity : AppViewsActivity() {
                                 alpha = 0.6f
                                 setLineSpacing(6f, 1f)
                                 text = stringResource(R.string.hide_mine_vip_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.keep_mine_vip_space)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = keepMineVipSpace
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    keepMineVipSpace = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.KEEP_MINE_VIP_SPACE,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write mine vip space prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.keep_mine_vip_space_tip)
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }
@@ -3241,6 +3294,44 @@ class MainActivity : AppViewsActivity() {
                                 alpha = 0.6f
                                 setLineSpacing(6f, 1f)
                                 text = stringResource(R.string.remove_comment_operations_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.block_comment_quick_reply)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = blockCommentQuickReply
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    blockCommentQuickReply = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.BLOCK_COMMENT_QUICK_REPLY,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write comment quick reply prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.block_comment_quick_reply_tip)
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }

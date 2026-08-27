@@ -6,6 +6,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.highcapable.betterandroid.ui.extension.view.child
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.highcapable.kavaref.extension.classOf
+import com.highcapable.kavaref.extension.isStatic
 import com.highcapable.kavaref.extension.isSubclassOf
 import java.lang.reflect.Field
 import java.util.Collections
@@ -19,16 +20,18 @@ internal class CommentPurifyFeatureInstaller(
     private val removeFollowButtons: Boolean,
     private val removeQoe: Boolean,
     private val removeOperations: Boolean,
+    private val blockQuickReply: Boolean = false,
     private val points: VersionAdapter.CommentPurifyPoints?
 ) : FeatureInstaller {
 
     override val id: String = ID
 
     private val textFields = ConcurrentHashMap<Class<*>, List<Field>>()
+    private val quickReplyFields = ConcurrentHashMap<Class<*>, QuickReplyIntentFields>()
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!removeSearchLinks && !removeEmptyGuide && !removeVoteWidgets &&
-            !removeFollowButtons && !removeQoe && !removeOperations) {
+            !removeFollowButtons && !removeQoe && !removeOperations && !blockQuickReply) {
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
@@ -227,6 +230,28 @@ internal class CommentPurifyFeatureInstaller(
                 missingGroups += "operation-read-boundary"
             }
         }
+        if (blockQuickReply) {
+            val quickReplyPoints = adapted.quickReplyDialogMethods
+            if (quickReplyPoints.isEmpty()) missingGroups += "quick-reply"
+            expectedCount += quickReplyPoints.size
+            quickReplyPoints.forEachIndexed { index, point ->
+                runCatching {
+                    environment.registrar.adapted("comment.purify.quick_reply.$index", point) {
+                        before {
+                            val intent = args.firstOrNull() ?: return@before
+                            if (shouldBlockQuickReply(intent)) result = Unit
+                        }
+                    }
+                    installedCount += 1
+                }.onFailure { throwable ->
+                    environment.logError(
+                        "comment_purify_quick_reply_$index",
+                        "[BIL] 评论快速回复 Hook 注册失败(" +
+                            "${point.className}#${point.methodName}): $throwable"
+                    )
+                }
+            }
+        }
 
         if (installedCount == 0) return missing(environment, "registration-failed")
         val status = if (missingGroups.isEmpty() && installedCount == expectedCount) {
@@ -264,6 +289,29 @@ internal class CommentPurifyFeatureInstaller(
                 .getOrNull()
                 ?.startsWith(SEARCH_URI_PREFIX, ignoreCase = true) == true
         }
+    }
+
+    private fun shouldBlockQuickReply(intent: Any): Boolean {
+        val fields = quickReplyFields.getOrPut(intent.javaClass) {
+            val declared = KavaMemberLookup.declaredFields(
+                intent.javaClass,
+                makeAccessible = true
+            ) { field -> !field.isStatic }
+            val booleans = declared.filter { it.type == Boolean::class.javaPrimitiveType }
+            QuickReplyIntentFields(
+                isReply = booleans.getOrNull(1),
+                position = declared.firstOrNull { field ->
+                    field.type.isEnum && field.type.simpleName == "Pos"
+                }
+            )
+        }
+        val isReply = fields.isReply?.let { field ->
+            runCatching { field.getBoolean(intent) }.getOrDefault(false)
+        } ?: false
+        val position = fields.position?.let { field ->
+            runCatching { field.get(intent)?.toString().orEmpty() }.getOrDefault("")
+        }.orEmpty()
+        return shouldBlockQuickReply(isReply, position)
     }
 
     /** 成对替换 protobuf 的 has/get 公开读取结果；默认实例只在安装期解析一次。 */
@@ -366,5 +414,28 @@ internal class CommentPurifyFeatureInstaller(
             }
             return filtered?.let(Collections::unmodifiableMap) ?: source
         }
+
+        /** 只屏蔽评论卡片/正文短按；显式回复按钮、输入栏和三点菜单必须继续工作。 */
+        internal fun shouldBlockQuickReply(isReply: Boolean, positionName: String): Boolean {
+            if (!isReply) return false
+            val position = positionName.uppercase()
+            if (position.isBlank()) return true
+            return when {
+                "REPLY_BUTTON" in position -> false
+                "MORE_MENU" in position -> false
+                "BAR" in position -> false
+                "INPUT" in position -> false
+                "CARD" in position -> true
+                "ITEM" in position -> true
+                "TEXT" in position -> true
+                "REPLY" in position -> true
+                else -> true
+            }
+        }
     }
+
+    private data class QuickReplyIntentFields(
+        val isReply: Field?,
+        val position: Field?
+    )
 }

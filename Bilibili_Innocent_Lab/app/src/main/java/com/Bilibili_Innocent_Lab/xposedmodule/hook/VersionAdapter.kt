@@ -98,8 +98,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 23
-    private const val ADAPTER_RULE_VERSION = 15
+    private const val SCHEMA_VERSION = 24
+    private const val ADAPTER_RULE_VERSION = 16
 
     enum class AdaptState {
         FOUND,
@@ -446,7 +446,8 @@ object VersionAdapter {
         val voteWidgetMethods: List<HookPoint>,
         val follow: CommentFollowPoints?,
         val qoe: CommentOptionalPayloadPoint?,
-        val operations: List<CommentOptionalPayloadPoint>
+        val operations: List<CommentOptionalPayloadPoint>,
+        val quickReplyDialogMethods: List<HookPoint> = emptyList()
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("urls", JSONArray().apply { urlMapGetters.forEach { put(it.toJson()) } })
@@ -458,6 +459,10 @@ object VersionAdapter {
             follow?.let { put("follow", it.toJson()) }
             qoe?.let { put("qoe", it.toJson()) }
             put("operations", JSONArray().apply { operations.forEach { put(it.toJson()) } })
+            put(
+                "quick_reply",
+                JSONArray().apply { quickReplyDialogMethods.forEach { put(it.toJson()) } }
+            )
         }
 
         companion object {
@@ -484,7 +489,12 @@ object VersionAdapter {
                         (0 until operations.length()).map {
                             CommentOptionalPayloadPoint.fromJson(operations.getJSONObject(it))
                         }
-                    }
+                    },
+                    o.optJSONArray("quick_reply")?.let { methods ->
+                        (0 until methods.length()).map {
+                            HookPoint.fromJson(methods.getJSONObject(it))
+                        }
+                    }.orEmpty()
                 )
             }
         }
@@ -614,7 +624,8 @@ object VersionAdapter {
                 commentPurify?.let { value ->
                     (value.urlMapGetters.isNotEmpty() || value.emptyPageGetters.isNotEmpty() ||
                         value.voteWidgetMethods.isNotEmpty() || value.follow != null ||
-                        value.qoe != null || value.operations.isNotEmpty()) &&
+                        value.qoe != null || value.operations.isNotEmpty() ||
+                        value.quickReplyDialogMethods.isNotEmpty()) &&
                         value.urlMapGetters.all { it.isValid() } &&
                         value.emptyPageGetters.all {
                             it.contentGetter.isValid() && it.defaultInstanceGetter.isValid()
@@ -632,7 +643,7 @@ object VersionAdapter {
                             operation.presenceGetter.isValid() &&
                                 operation.contentGetter.isValid() &&
                                 operation.defaultInstanceGetter.isValid()
-                        }
+                        } && value.quickReplyDialogMethods.all { it.isValid() }
                 } != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
@@ -780,6 +791,14 @@ object VersionAdapter {
         "com.bapis.bilibili.main.community.reply.v1.MainListReply",
         "com.bapis.bilibili.p4311main.community.reply.p4312v1.MainListReply"
     )
+    private val COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES = (4..40).flatMap { index ->
+        listOf(
+            "com.bilibili.app.comment3.ui.CommentContainerImpl\$attachRepository\$$index",
+            "com.bilibili.app.comment3.ui.CommentContainerImpl\$attachRepository\$$index\$2",
+            "com.bilibili.p4439app.comment3.p4518ui.CommentContainerImpl\$attachRepository\$$index",
+            "com.bilibili.p4439app.comment3.p4518ui.CommentContainerImpl\$attachRepository\$$index\$2"
+        )
+    }
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
 
@@ -1174,6 +1193,9 @@ object VersionAdapter {
         val commentMainListCandidateExists = COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
+        val commentQuickReplyCandidateExists = COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
         val pauseCandidateClasses = listOf(
             "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$2",
             "com.bilibili.ship.theseus.united.page.pausedpage." +
@@ -1344,6 +1366,16 @@ object VersionAdapter {
                         "${operation.contentGetter.methodName}->" +
                         operation.defaultInstanceGetter.className
                 }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.quick_reply",
+                stateFor(
+                    commentPurify?.quickReplyDialogMethods?.isNotEmpty() == true,
+                    commentQuickReplyCandidateExists
+                ),
+                commentPurify?.quickReplyDialogMethods
+                    ?.joinToString("|") { it.label() }
+                    .orEmpty()
             )
         )
     }
@@ -1826,8 +1858,21 @@ object VersionAdapter {
             optionalPayloadPoint(mainListOwner, "hasOperation", "getOperation"),
             optionalPayloadPoint(mainListOwner, "hasOperationV2", "getOperationV2")
         )
+        val quickReplyDialogMethods = COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    !method.isStatic && method.parameterCount == 2 &&
+                        method.parameterTypes[0].name.endsWith(".PublishDialogIntent") &&
+                        method.parameterTypes[1].name == "kotlin.coroutines.Continuation"
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
         if (urlMethods.isEmpty() && emptyPageGetters.isEmpty() && voteWidgetMethods.isEmpty() &&
-            followPoints == null && qoePoint == null && operationPoints.isEmpty()) {
+            followPoints == null && qoePoint == null && operationPoints.isEmpty() &&
+            quickReplyDialogMethods.isEmpty()) {
             null
         } else {
             CommentPurifyPoints(
@@ -1836,7 +1881,8 @@ object VersionAdapter {
                 voteWidgetMethods,
                 followPoints,
                 qoePoint,
-                operationPoints
+                operationPoints,
+                quickReplyDialogMethods
             )
         }
     }.getOrNull()
