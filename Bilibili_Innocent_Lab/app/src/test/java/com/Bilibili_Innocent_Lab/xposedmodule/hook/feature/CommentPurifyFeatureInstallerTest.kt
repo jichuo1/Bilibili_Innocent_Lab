@@ -17,6 +17,17 @@ class CommentPurifyFeatureInstallerTest {
     )
 
     @Test
+    fun `blocks only implicit comment quick reply origins`() {
+        assertTrue(CommentPurifyFeatureInstaller.shouldBlockQuickReply(true, "CARD"))
+        assertTrue(CommentPurifyFeatureInstaller.shouldBlockQuickReply(true, "TEXT"))
+        assertTrue(CommentPurifyFeatureInstaller.shouldBlockQuickReply(true, ""))
+        assertFalse(CommentPurifyFeatureInstaller.shouldBlockQuickReply(false, "CARD"))
+        assertFalse(CommentPurifyFeatureInstaller.shouldBlockQuickReply(true, "REPLY_BUTTON"))
+        assertFalse(CommentPurifyFeatureInstaller.shouldBlockQuickReply(true, "MORE_MENU"))
+        assertFalse(CommentPurifyFeatureInstaller.shouldBlockQuickReply(true, "PIC_BAR"))
+    }
+
+    @Test
     fun `keeps original map when no search destination exists`() {
         val source = linkedMapOf("topic" to "bilibili://topic/1")
 
@@ -62,6 +73,21 @@ class CommentPurifyFeatureInstallerTest {
         assertTrue(installer.isSearchUrlValue(UrlFixture("bilibili://search?q=test", "test")))
         assertFalse(installer.isSearchUrlValue(UrlFixture("bilibili://video/BV1", "search")))
         assertFalse(installer.isSearchUrlValue(null))
+    }
+
+    @Test
+    fun `locates the exact quick reply collector boundary`() {
+        val points = requireNotNull(VersionAdapter.locateCommentPurify(requireNotNull(javaClass.classLoader)))
+
+        assertEquals(1, points.quickReplyDialogMethods.size)
+        assertEquals("emit", points.quickReplyDialogMethods.single().methodName)
+        assertEquals(
+            listOf(
+                "com.bilibili.app.comment3.data.state.PublishDialogIntent",
+                "kotlin.coroutines.Continuation"
+            ),
+            points.quickReplyDialogMethods.single().paramClassNames
+        )
     }
 
     @Test

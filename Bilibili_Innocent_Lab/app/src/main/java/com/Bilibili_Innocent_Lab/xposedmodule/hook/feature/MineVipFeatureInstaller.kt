@@ -6,6 +6,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 /** “我的”页净化：隐藏会员卡片，不修改 AccountMine 数据或其它菜单项。 */
 internal class MineVipFeatureInstaller(
     private val enabled: Boolean,
+    private val keepSpace: Boolean = false,
     private val point: VersionAdapter.MineVipPoint?
 ) : FeatureInstaller {
 
@@ -49,7 +50,7 @@ internal class MineVipFeatureInstaller(
                         val manager = managerField.get(fragment) ?: return@runCatching
                         val binding = bindingField.get(manager) ?: return@runCatching
                         val root = rootGetter.invoke(binding) as? View ?: return@runCatching
-                        root.visibility = View.GONE
+                        root.visibility = if (keepSpace) View.INVISIBLE else View.GONE
                     }.onFailure { throwable ->
                         environment.logError(
                             "mine_vip_hide_err",
@@ -59,7 +60,10 @@ internal class MineVipFeatureInstaller(
                 }
             }
             environment.reportStatus(CHANNEL_STATUS, "success")
-            environment.logInfo("mine_vip_ok", "[BIL] “我的”页会员卡片净化已安装")
+            environment.logInfo(
+                "mine_vip_ok",
+                "[BIL] “我的”页会员卡片净化已安装，keepSpace=$keepSpace"
+            )
             FeatureInstallResult.Installed()
         }.getOrElse { throwable ->
             environment.reportStatus(CHANNEL_STATUS, "failed:${throwable.javaClass.simpleName}")

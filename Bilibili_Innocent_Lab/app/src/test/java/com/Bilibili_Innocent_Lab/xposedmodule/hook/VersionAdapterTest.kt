@@ -207,9 +207,19 @@ class VersionAdapterTest {
                         emptyList()
                     )
                 )
+            ),
+            listOf(
+                VersionAdapter.HookPoint(
+                    "com.bilibili.app.comment3.ui.CommentContainerImpl\$attachRepository\$5",
+                    "emit",
+                    listOf(
+                        "com.bilibili.app.comment3.data.state.PublishDialogIntent",
+                        "kotlin.coroutines.Continuation"
+                    )
+                )
             )
         ),
-        hostFingerprint = "host|9090300|rules=15",
+        hostFingerprint = "host|9090300|rules=16",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
