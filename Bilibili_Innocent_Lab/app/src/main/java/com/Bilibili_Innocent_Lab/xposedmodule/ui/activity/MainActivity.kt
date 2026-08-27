@@ -106,12 +106,20 @@ class MainActivity : AppViewsActivity() {
     private var removeHomeRecommendAds = false
     private var removeHomeRecommendPictures = false
     private var removeHomeRecommendGamePromotions = false
+    private var homeRecommendTitleFilterEnabled = false
+    private var homeRecommendTitleKeywords = ""
+    private var removeHomeRecommendLive = false
+    private var removeHomeRecommendCourses = false
+    private var removeHomeRecommendVertical = false
+    private var removeHomeRecommendLarge = false
     private var homeTabHiddenRules = ""
     private var homeComponentHiddenRules = ""
     private var bottomBarHiddenRules = ""
     private var removeStoryAds = false
     private var removeStoryLive = false
     private var removeStoryGames = false
+    private var removeStoryBangumi = false
+    private var removeStoryCourses = false
     private var hideMineVip = false
     private var keepMineVipSpace = false
     private var mineComponentHiddenRules = ""
@@ -136,10 +144,12 @@ class MainActivity : AppViewsActivity() {
     private var removeCommentQoe = false
     private var removeCommentOperations = false
     private var blockCommentQuickReply = false
+    private var hideCommentSection = false
     private var commentKeywordFilterEnabled = false
     private var commentFilterKeywords = ""
     private var commentMinLevelFilterEnabled = false
     private var commentMinLevel = CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL
+    private var purifySplashAds = false
     private var freeCopyEnabled = true
     private var freeCopyDescEnabled = true
     private var freeCopyLightMode = false
@@ -161,6 +171,7 @@ class MainActivity : AppViewsActivity() {
     private var lightModeTipView: NativeTextView? = null
     private var playerQualitySummaryView: NativeTextView? = null
     private var homeTabRulesSummaryView: NativeTextView? = null
+    private var homeRecommendTitleSummaryView: NativeTextView? = null
     private var homeComponentRulesSummaryView: NativeTextView? = null
     private var mineComponentRulesSummaryView: NativeTextView? = null
     private var bottomBarRulesSummaryView: NativeTextView? = null
@@ -2040,6 +2051,7 @@ class MainActivity : AppViewsActivity() {
         logLevelDesc = null
         playerQualitySummaryView = null
         homeTabRulesSummaryView = null
+        homeRecommendTitleSummaryView = null
         homeComponentRulesSummaryView = null
         mineComponentRulesSummaryView = null
         bottomBarRulesSummaryView = null
@@ -2114,6 +2126,32 @@ class MainActivity : AppViewsActivity() {
                 false
             ) ?: false
         }.getOrDefault(false)
+        homeRecommendTitleFilterEnabled = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_ENABLED,
+                false
+            ) ?: false
+        }.getOrDefault(false)
+        homeRecommendTitleKeywords = runCatching {
+            modulePrefs?.getString(
+                FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_KEYWORDS,
+                ""
+            ).orEmpty()
+        }.getOrDefault("")
+        removeHomeRecommendLive = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE, false) ?: false
+        }.getOrDefault(false)
+        removeHomeRecommendCourses = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES, false)
+                ?: false
+        }.getOrDefault(false)
+        removeHomeRecommendVertical = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_VERTICAL, false)
+                ?: false
+        }.getOrDefault(false)
+        removeHomeRecommendLarge = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE, false) ?: false
+        }.getOrDefault(false)
         homeTabHiddenRules = runCatching {
             modulePrefs?.getString(FeaturePreferences.HOME_TAB_HIDDEN_RULES, "").orEmpty()
         }.getOrDefault("")
@@ -2131,6 +2169,12 @@ class MainActivity : AppViewsActivity() {
         }.getOrDefault(false)
         removeStoryGames = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_GAMES, false) ?: false
+        }.getOrDefault(false)
+        removeStoryBangumi = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_BANGUMI, false) ?: false
+        }.getOrDefault(false)
+        removeStoryCourses = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_COURSES, false) ?: false
         }.getOrDefault(false)
         hideMineVip = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.HIDE_MINE_VIP, false) ?: false
@@ -2264,6 +2308,9 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read comment quick reply prefs failed", t)
         }.getOrDefault(false)
+        hideCommentSection = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.HIDE_COMMENT_SECTION, false) ?: false
+        }.getOrDefault(false)
         commentKeywordFilterEnabled = runCatching {
             modulePrefs?.getBoolean(
                 FeaturePreferences.COMMENT_KEYWORD_FILTER_ENABLED,
@@ -2292,6 +2339,9 @@ class MainActivity : AppViewsActivity() {
             ) ?: false
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read teenagers mode prefs failed", t)
+        }.getOrDefault(false)
+        purifySplashAds = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.PURIFY_SPLASH_ADS, false) ?: false
         }.getOrDefault(false)
         merchAdEnabled = runCatching {
             modulePrefs?.getBoolean(HookEntry.PREF_MERCH_ENABLED, true) ?: true
@@ -3050,6 +3100,159 @@ class MainActivity : AppViewsActivity() {
                                     }
                                 }
                             }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.home_recommend_title_filter)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = homeRecommendTitleFilterEnabled
+                                setOnCheckedChangeListener { _, checked ->
+                                    homeRecommendTitleFilterEnabled = checked
+                                    prefs().edit {
+                                        putBoolean(
+                                            FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_ENABLED,
+                                            checked
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                homeRecommendTitleSummaryView = this
+                                text = getString(R.string.home_recommend_title_rules) + "\n" +
+                                    if (homeRecommendTitleKeywords.isBlank()) {
+                                        getString(R.string.home_recommend_title_rules_empty)
+                                    } else {
+                                        getString(
+                                            R.string.home_recommend_title_rules_current,
+                                            homeRecommendTitleKeywords
+                                        )
+                                    }
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                maxLines = 3
+                                ellipsize = TextUtils.TruncateAt.END
+                                setLineSpacing(5f, 1f)
+                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                background = selfRippleBackground(10f)
+                                isClickable = true
+                                isFocusable = true
+                                setOnClickListener {
+                                    showRuleEditorDialog(
+                                        R.string.home_recommend_title_dialog_title,
+                                        R.string.home_recommend_title_dialog_hint,
+                                        homeRecommendTitleKeywords
+                                    ) { value ->
+                                        homeRecommendTitleKeywords = value
+                                        prefs().edit {
+                                            putString(
+                                                FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_KEYWORDS,
+                                                value
+                                            )
+                                        }
+                                        homeRecommendTitleSummaryView?.text =
+                                            getString(R.string.home_recommend_title_rules) + "\n" +
+                                                if (value.isBlank()) {
+                                                    getString(R.string.home_recommend_title_rules_empty)
+                                                } else {
+                                                    getString(
+                                                        R.string.home_recommend_title_rules_current,
+                                                        value
+                                                    )
+                                                }
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_home_recommend_live)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeHomeRecommendLive
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeHomeRecommendLive = checked
+                                    prefs().edit {
+                                        putBoolean(
+                                            FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE,
+                                            checked
+                                        )
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_home_recommend_courses)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeHomeRecommendCourses
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeHomeRecommendCourses = checked
+                                    prefs().edit {
+                                        putBoolean(
+                                            FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES,
+                                            checked
+                                        )
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_home_recommend_vertical)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeHomeRecommendVertical
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeHomeRecommendVertical = checked
+                                    prefs().edit {
+                                        putBoolean(
+                                            FeaturePreferences.REMOVE_HOME_RECOMMEND_VERTICAL,
+                                            checked
+                                        )
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_home_recommend_large)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeHomeRecommendLarge
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeHomeRecommendLarge = checked
+                                    prefs().edit {
+                                        putBoolean(
+                                            FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE,
+                                            checked
+                                        )
+                                    }
+                                }
+                            }
                             TextView(
                                 lparams = LayoutParams(widthMatchParent = true)
                             ) {
@@ -3645,6 +3848,33 @@ class MainActivity : AppViewsActivity() {
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.purify_splash_ads)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = purifySplashAds
+                                setOnCheckedChangeListener { _, checked ->
+                                    purifySplashAds = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.PURIFY_SPLASH_ADS, checked)
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.purify_splash_ads_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
                             FrameLayout(
                                 lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
                                     topMargin = 14.dp
@@ -3808,6 +4038,42 @@ class MainActivity : AppViewsActivity() {
                                     removeStoryGames = checked
                                     prefs().edit {
                                         putBoolean(FeaturePreferences.REMOVE_STORY_GAMES, checked)
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_story_bangumi)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeStoryBangumi
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeStoryBangumi = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_STORY_BANGUMI, checked)
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_story_courses)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeStoryCourses
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeStoryCourses = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_STORY_COURSES, checked)
                                     }
                                 }
                             }
@@ -4006,6 +4272,33 @@ class MainActivity : AppViewsActivity() {
                             }
                             MaterialSwitch(
                                 lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.hide_comment_section)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = hideCommentSection
+                                setOnCheckedChangeListener { _, checked ->
+                                    hideCommentSection = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.HIDE_COMMENT_SECTION, checked)
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.hide_comment_section_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
                                     bottomMargin = 5.dp
                                 }
                             ) {

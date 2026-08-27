@@ -37,4 +37,33 @@ class HomeRecommendPurifyFeatureInstallerTest {
             )
         )
     }
+
+    @Test
+    fun `classifies home feed types only from explicit route signals`() {
+        assertTrue(
+            HomeRecommendPurifyFeatureInstaller.isLive(
+                HomeRecommendPurifyFeatureInstaller.Signals(goTo = "live")
+            )
+        )
+        assertTrue(
+            HomeRecommendPurifyFeatureInstaller.isCourse(
+                HomeRecommendPurifyFeatureInstaller.Signals(uri = "https://www.bilibili.com/cheese/play/ep1")
+            )
+        )
+        assertTrue(
+            HomeRecommendPurifyFeatureInstaller.isVertical(
+                HomeRecommendPurifyFeatureInstaller.Signals(cardGoto = "vertical_av")
+            )
+        )
+        assertTrue(
+            HomeRecommendPurifyFeatureInstaller.isLarge(
+                HomeRecommendPurifyFeatureInstaller.Signals(holderType = "large_cover_v9")
+            )
+        )
+        assertFalse(
+            HomeRecommendPurifyFeatureInstaller.isLive(
+                HomeRecommendPurifyFeatureInstaller.Signals(title = "直播录像")
+            )
+        )
+    }
 }
