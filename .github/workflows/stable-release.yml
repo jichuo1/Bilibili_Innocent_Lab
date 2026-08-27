@@ -392,18 +392,3 @@ jobs:
             echo "- Release: $release_url"
             echo "- Assets: APK, BUILD_INFO.txt, SHA256SUMS.txt"
           } >> "$GITHUB_STEP_SUMMARY"
-
-  sync-lsposed:
-    name: Sync Stable to LSPosed repository
-    needs:
-      - verify
-      - publish
-    if: ${{ needs.publish.result == 'success' }}
-    permissions:
-      contents: read
-    uses: ./.github/workflows/sync-lsposed-release.yml
-    with:
-      source_tag: ${{ needs.verify.outputs.release_tag }}
-      dry_run: false
-    secrets:
-      LSPOSED_RELEASE_TOKEN: ${{ secrets.LSPOSED_RELEASE_TOKEN }}
