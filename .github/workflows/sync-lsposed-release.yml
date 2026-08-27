@@ -61,26 +61,32 @@ jobs:
             echo 'A source Release tag is required.'
             exit 1
           fi
+          if [[ ! "$source_tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-alpha\.(0|[1-9][0-9]*))?$ ]]; then
+            echo "Unsupported source Release tag: $source_tag"
+            exit 1
+          fi
           echo "source_tag=$source_tag" >> "$GITHUB_OUTPUT"
 
-      - name: Check out published source tag
+      - name: Check out synchronization tooling
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.source.outputs.source_tag }}
+          # Release events may point GITHUB_SHA at an older published tag. Keep the
+          # synchronization implementation on the default branch for that event;
+          # workflow_dispatch/workflow_call use the exact caller commit.
+          ref: ${{ github.event_name == 'release' && github.event.repository.default_branch || github.sha }}
           fetch-depth: 0
 
-      - name: Require the checked-out tag commit
+      - name: Resolve published tag commit
         shell: bash
         env:
           SOURCE_TAG: ${{ steps.source.outputs.source_tag }}
         run: |
           set -euo pipefail
-          checked_out_sha="$(git rev-parse HEAD)"
-          tag_sha="$(git rev-list -n 1 "$SOURCE_TAG")"
-          if [[ "$checked_out_sha" != "$tag_sha" ]]; then
-            echo "Checked-out commit $checked_out_sha does not match tag $SOURCE_TAG at $tag_sha"
-            exit 1
-          fi
+          git fetch --force --no-tags origin \
+            "refs/tags/$SOURCE_TAG:refs/tags/$SOURCE_TAG"
+          tag_sha="$(git rev-list -n 1 "refs/tags/$SOURCE_TAG")"
+          test -n "$tag_sha"
+          echo "Resolved source tag $SOURCE_TAG at $tag_sha"
 
       - name: Test Release synchronization rules
         shell: bash
