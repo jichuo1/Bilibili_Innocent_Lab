@@ -24,7 +24,7 @@ import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.hikage.core.layout.LayoutParams
 import com.highcapable.hikage.extension.setContentView
-import com.highcapable.hikage.widget.android.widget.LinearLayout as HikageLinearLayout
+import com.highcapable.hikage.widget.android.widget.LinearLayout
 import com.highcapable.hikage.widget.android.widget.TextView
 import com.highcapable.hikage.widget.androidx.core.widget.NestedScrollView
 import com.highcapable.yukihookapi.hook.factory.prefs
@@ -55,7 +55,7 @@ class FreeCopyActivity : AppViewsActivity() {
         }
 
         setContentView {
-            HikageLinearLayout(
+            LinearLayout(
                 lparams = LayoutParams(matchParent = true),
                 init = {
                     orientation = LinearLayout.VERTICAL
@@ -63,7 +63,7 @@ class FreeCopyActivity : AppViewsActivity() {
                 }
             ) {
                 // ===== 顶部 AppBar =====
-                HikageLinearLayout(
+                LinearLayout(
                     lparams = LayoutParams(widthMatchParent = true),
                     init = {
                         orientation = LinearLayout.HORIZONTAL
@@ -89,7 +89,7 @@ class FreeCopyActivity : AppViewsActivity() {
                             weight = 1f
                         },
                         init = {
-                            text = getString(R.string.free_copy_title)
+                            text = stringResource(R.string.free_copy_title)
                             textColor = colorResource(R.color.colorTextGray)
                             textSize = 17f
                             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -104,7 +104,7 @@ class FreeCopyActivity : AppViewsActivity() {
                         rightMargin = 20.dp
                     },
                     init = {
-                        text = getString(R.string.free_copy_hint)
+                        text = stringResource(R.string.free_copy_hint)
                         textColor = colorResource(R.color.colorTextGray)
                         textSize = 12f
                         alpha = 0.7f

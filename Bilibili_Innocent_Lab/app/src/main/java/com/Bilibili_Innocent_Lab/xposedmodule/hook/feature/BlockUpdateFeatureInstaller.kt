@@ -1,6 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.highcapable.kavaref.extension.classOf
+import com.highcapable.kavaref.extension.isSubclassOf
 
 /** 屏蔽官方客户端更新：在同步检查入口抛出宿主自己的“已是最新版”异常。 */
 internal class BlockUpdateFeatureInstaller(
@@ -22,9 +24,9 @@ internal class BlockUpdateFeatureInstaller(
         val exceptionConstructor = environment.hookPoints.resolveConstructor(
             "update.block.latest_exception",
             LATEST_VERSION_EXCEPTION_CLASS,
-            listOf(String::class.java.name)
+            listOf(classOf<String>().name)
         ) ?: return missing(environment, "missing-latest-exception")
-        if (!Throwable::class.java.isAssignableFrom(exceptionConstructor.declaringClass)) {
+        if (!(exceptionConstructor.declaringClass isSubclassOf classOf<Throwable>())) {
             return missing(environment, "invalid-latest-exception")
         }
 

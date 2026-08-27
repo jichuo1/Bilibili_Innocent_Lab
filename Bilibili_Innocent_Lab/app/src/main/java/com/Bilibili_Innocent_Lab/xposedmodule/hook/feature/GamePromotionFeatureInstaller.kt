@@ -200,7 +200,7 @@ internal class GamePromotionFeatureInstaller(
     }
 
     private fun mentionedSectionConstructor(environment: HookEnvironment): Constructor<*> =
-        mentionedSectionConstructor ?: synchronized(GamePromotionFeatureInstaller::class.java) {
+        mentionedSectionConstructor ?: synchronized(classOf<GamePromotionFeatureInstaller>()) {
             mentionedSectionConstructor ?: run {
                 val owner = KavaMemberLookup.classOrNull(
                     environment.classLoader,
@@ -213,7 +213,7 @@ internal class GamePromotionFeatureInstaller(
         }
 
     private fun uiComponentConstructor(context: Context): Constructor<*> =
-        uiComponentConstructor ?: synchronized(GamePromotionFeatureInstaller::class.java) {
+        uiComponentConstructor ?: synchronized(classOf<GamePromotionFeatureInstaller>()) {
             uiComponentConstructor ?: run {
                 val owner = KavaMemberLookup.classOrNull(context.classLoader, UI_COMPONENT_CLASS)
                     ?: throw ClassNotFoundException(UI_COMPONENT_CLASS)

@@ -4,6 +4,7 @@ import android.content.Context
 import android.view.View
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import com.highcapable.kavaref.extension.classOf
 import de.robv.android.xposed.XposedHelpers
 
 /** 隐藏视频简介区的“UP 主分享好物”商品模块。 */
@@ -22,8 +23,8 @@ internal class MerchandiseFeatureInstaller(
             HOOK_CREATE_VIEW_ENTRY,
             owner,
             "createViewEntry",
-            Context::class.java,
-            ViewGroup::class.java
+            classOf<Context>(),
+            classOf<ViewGroup>()
         ) {
             after {
                 val viewEntry = result ?: return@after
