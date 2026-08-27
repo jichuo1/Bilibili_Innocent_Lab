@@ -11,6 +11,7 @@ import android.widget.Toast
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetAppStorage
 import com.highcapable.kavaref.extension.classOf
+import com.highcapable.kavaref.extension.isAbstract
 import com.highcapable.kavaref.extension.isStatic
 import com.highcapable.kavaref.extension.isSubclassOf
 import de.robv.android.xposed.XposedBridge
@@ -97,8 +98,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 22
-    private const val ADAPTER_RULE_VERSION = 14
+    private const val SCHEMA_VERSION = 23
+    private const val ADAPTER_RULE_VERSION = 15
 
     enum class AdaptState {
         FOUND,
@@ -334,6 +335,21 @@ object VersionAdapter {
         }
     }
 
+    /** 播放器默认画质计算边界；仅保存经逐版本核验的唯一无参 Int 方法。 */
+    data class PlayerQualityPoints(
+        val defaultQualityMethod: HookPoint
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("default", defaultQualityMethod.toJson())
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): PlayerQualityPoints = PlayerQualityPoints(
+                HookPoint.fromJson(o.getJSONObject("default"))
+            )
+        }
+    }
+
     /** 青少年模式提示页自身的创建入口；只结束明确命名的提示 Activity。 */
     data class TeenagersModePoints(
         val onCreateMethods: List<HookPoint>
@@ -501,6 +517,8 @@ object VersionAdapter {
         val fullNumbers: FullNumberPoints?,
         /** 播放器竖屏切换控件自身的可见性入口。 */
         val playerPortrait: PlayerPortraitPoints?,
+        /** 播放器默认画质的统一计算入口。 */
+        val playerQuality: PlayerQualityPoints?,
         /** 青少年模式提示页自身的 onCreate 入口。 */
         val teenagersMode: TeenagersModePoints?,
         /** 评论区净化所需的 protobuf 数据边界。 */
@@ -525,6 +543,7 @@ object VersionAdapter {
             dynamicTabs?.let { put("dynamic_tabs", it.toJson()) }
             fullNumbers?.let { put("full_numbers", it.toJson()) }
             playerPortrait?.let { put("player_portrait", it.toJson()) }
+            playerQuality?.let { put("player_quality", it.toJson()) }
             teenagersMode?.let { put("teenagers_mode", it.toJson()) }
             commentPurify?.let { put("comment_purify", it.toJson()) }
             put("fp", hostFingerprint)
@@ -588,6 +607,7 @@ object VersionAdapter {
                 playerPortrait?.visibilityMethods?.let { methods ->
                     methods.isNotEmpty() && methods.all { it.isValid() }
                 } != false &&
+                playerQuality?.defaultQualityMethod?.isValid() != false &&
                 teenagersMode?.onCreateMethods?.let { methods ->
                     methods.isNotEmpty() && methods.all { it.isValid() }
                 } != false &&
@@ -639,6 +659,8 @@ object VersionAdapter {
                     fullNumbers = o.optJSONObject("full_numbers")?.let(FullNumberPoints::fromJson),
                     playerPortrait = o.optJSONObject("player_portrait")
                         ?.let(PlayerPortraitPoints::fromJson),
+                    playerQuality = o.optJSONObject("player_quality")
+                        ?.let(PlayerQualityPoints::fromJson),
                     teenagersMode = o.optJSONObject("teenagers_mode")
                         ?.let(TeenagersModePoints::fromJson),
                     commentPurify = o.optJSONObject("comment_purify")
@@ -711,6 +733,13 @@ object VersionAdapter {
     )
     private val PLAYER_PORTRAIT_CLASS_CANDIDATES = listOf(
         "com.bilibili.app.gemini.player.widget.story.GeminiPlayerFullStoryWidget"
+    )
+    private val PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES = listOf(
+        // 新版 dex 可能引用旧混淆类，因此按新→旧探测，且每个 owner 内仍要求签名唯一。
+        // 9.9.0；9.8.0；9.7.0；9.6.0；9.5.0；9.4.0；9.3.0；
+        // 9.2.0；9.1.0/9.1.1；8.90.2（均由 "quality settings:" 日志交叉核验）。
+        "Jq1.l", "Kp1.l", "Oo1.i", "oo1.g", "Vm1.i",
+        "Kl1.j", "tj1.g", "bj1.i", "Zi1.h", "gh6.h"
     )
     private val TEENAGERS_MODE_ACTIVITY_CANDIDATES = listOf(
         "com.bilibili.teenagersmode.ui.TeenagersModeDialogActivity",
@@ -928,6 +957,7 @@ object VersionAdapter {
                     "blockUpdate=${result?.blockUpdate != null} " +
                     "dynamicTabs=${result?.dynamicTabs != null} " +
                     "playerPortrait=${result?.playerPortrait != null} " +
+                    "playerQuality=${result?.playerQuality != null} " +
                     "teenagersMode=${result?.teenagersMode != null} " +
                     "commentPurify=${result?.commentPurify != null} " +
                     "diag=${result?.diagnosticSummary()}"
@@ -954,6 +984,7 @@ object VersionAdapter {
         val dynamicTabs = locateDynamicTabs(loader)
         val fullNumbers = locateFullNumbers(loader)
         val playerPortrait = locatePlayerPortrait(loader)
+        val playerQuality = locateDefaultVideoQuality(loader)
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
         if (low == null && high == null && mine == null &&
@@ -961,7 +992,7 @@ object VersionAdapter {
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
-            teenagersMode == null && commentPurify == null) return null
+            playerQuality == null && teenagersMode == null && commentPurify == null) return null
         return AdaptResult(
             biliVersionCode = 0,
             ts = 0L,
@@ -976,12 +1007,14 @@ object VersionAdapter {
             dynamicTabs = dynamicTabs,
             fullNumbers = fullNumbers,
             playerPortrait = playerPortrait,
+            playerQuality = playerQuality,
             teenagersMode = teenagersMode,
             commentPurify = commentPurify,
             hostFingerprint = "runtime-no-context|rules=$ADAPTER_RULE_VERSION",
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
-                dynamicTabs, fullNumbers, playerPortrait, teenagersMode, commentPurify
+                dynamicTabs, fullNumbers, playerPortrait, playerQuality, teenagersMode,
+                commentPurify
             )
         )
     }
@@ -1005,6 +1038,7 @@ object VersionAdapter {
         val dynamicTabs = locateDynamicTabs(loader)
         val fullNumbers = locateFullNumbers(loader)
         val playerPortrait = locatePlayerPortrait(loader)
+        val playerQuality = locateDefaultVideoQuality(loader)
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
         val anyClassExists = COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
@@ -1014,6 +1048,9 @@ object VersionAdapter {
             || KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS)
             || FULL_NUMBER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || PLAYER_PORTRAIT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any {
+                KavaMemberLookup.hasClass(loader, it)
+            }
             || TEENAGERS_MODE_ACTIVITY_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_CONTENT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
@@ -1031,7 +1068,7 @@ object VersionAdapter {
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
-            teenagersMode == null && commentPurify == null &&
+            playerQuality == null && teenagersMode == null && commentPurify == null &&
             !anyClassExists) return null
         return AdaptResult(
             biliVersionCode = vc,
@@ -1047,12 +1084,14 @@ object VersionAdapter {
             dynamicTabs = dynamicTabs,
             fullNumbers = fullNumbers,
             playerPortrait = playerPortrait,
+            playerQuality = playerQuality,
             teenagersMode = teenagersMode,
             commentPurify = commentPurify,
             hostFingerprint = buildHostFingerprint(context),
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
-                dynamicTabs, fullNumbers, playerPortrait, teenagersMode, commentPurify
+                dynamicTabs, fullNumbers, playerPortrait, playerQuality, teenagersMode,
+                commentPurify
             )
         )
     }
@@ -1081,6 +1120,7 @@ object VersionAdapter {
         dynamicTabs: DynamicTabsPoint?,
         fullNumbers: FullNumberPoints?,
         playerPortrait: PlayerPortraitPoints?,
+        playerQuality: PlayerQualityPoints?,
         teenagersMode: TeenagersModePoints?,
         commentPurify: CommentPurifyPoints?
     ): List<AdaptDiagnostic> {
@@ -1109,6 +1149,9 @@ object VersionAdapter {
             KavaMemberLookup.hasClass(loader, it)
         }
         val playerPortraitCandidateExists = PLAYER_PORTRAIT_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val playerQualityCandidateExists = PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
         val teenagersModeCandidateExists = TEENAGERS_MODE_ACTIVITY_CANDIDATES.any {
@@ -1236,6 +1279,11 @@ object VersionAdapter {
                 "player.portrait",
                 stateFor(playerPortrait != null, playerPortraitCandidateExists),
                 playerPortrait?.visibilityMethods?.joinToString("|") { it.label() }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "player.default_quality",
+                stateFor(playerQuality != null, playerQualityCandidateExists),
+                playerQuality?.defaultQualityMethod?.label().orEmpty()
             ),
             AdaptDiagnostic(
                 "teenagers.mode",
@@ -1569,6 +1617,26 @@ object VersionAdapter {
             .map { it.toHookPoint() }
             .toList()
         methods.takeIf { it.isNotEmpty() }?.let(::PlayerPortraitPoints)
+    }.getOrNull()
+
+    /**
+     * 定位播放器默认画质计算方法。8.90.2 的入口是实例方法 gh6.h#c()，9.1.0–9.9.0
+     * 漂移为不同包下的静态 a()；方法体均读取
+     * pref_player_mediaSource_quality_wifi_key，执行宿主限制降级并记录 "quality settings:"。
+     * 运行期按新到旧候选探测，并要求单个 owner 内只有一个无参 Int 入口；这样既避开
+     * 新版 dex 对旧混淆类的残留引用，也不会按宽泛方法名跨类批量安装。
+     */
+    fun locateDefaultVideoQuality(loader: ClassLoader): PlayerQualityPoints? = runCatching {
+        PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.firstNotNullOfOrNull { ownerName ->
+            val owner = KavaMemberLookup.classOrNull(loader, ownerName)
+                ?: return@firstNotNullOfOrNull null
+            KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    !method.isAbstract &&
+                        method.parameterCount == 0 &&
+                        method.returnType == classOf<Int>() &&
+                        method.name in setOf("a", "c")
+                }.singleOrNull()?.let { PlayerQualityPoints(it.toHookPoint()) }
+        }
     }.getOrNull()
 
     /**
