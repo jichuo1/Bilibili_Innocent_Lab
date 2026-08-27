@@ -2801,6 +2801,10 @@ class HookEntry : IYukiHookXposedInit {
                             FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE,
                             false
                         ),
+                        removeVoteWidgets = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_COMMENT_VOTE_WIDGETS,
+                            false
+                        ),
                         points = hostAdaptResult?.commentPurify
                     )
                 )

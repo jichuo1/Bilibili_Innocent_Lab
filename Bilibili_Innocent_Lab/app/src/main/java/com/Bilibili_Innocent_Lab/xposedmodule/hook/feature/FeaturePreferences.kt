@@ -13,4 +13,5 @@ internal object FeaturePreferences {
     const val HIDE_PLAYER_PORTRAIT_CONTROL = "hide_player_portrait_control"
     const val REMOVE_COMMENT_SEARCH_LINKS = "remove_comment_search_links"
     const val REMOVE_COMMENT_EMPTY_GUIDE = "remove_comment_empty_guide"
+    const val REMOVE_COMMENT_VOTE_WIDGETS = "remove_comment_vote_widgets"
 }

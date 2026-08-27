@@ -97,8 +97,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 17
-    private const val ADAPTER_RULE_VERSION = 9
+    private const val SCHEMA_VERSION = 18
+    private const val ADAPTER_RULE_VERSION = 10
 
     enum class AdaptState {
         FOUND,
@@ -355,7 +355,8 @@ object VersionAdapter {
     /** 评论 protobuf 的净化边界；不触碰正文、emoji 或评论视图。 */
     data class CommentPurifyPoints(
         val urlMapGetters: List<HookPoint>,
-        val emptyPageGetters: List<CommentEmptyPagePoint>
+        val emptyPageGetters: List<CommentEmptyPagePoint>,
+        val voteWidgetMethods: List<HookPoint>
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("urls", JSONArray().apply { urlMapGetters.forEach { put(it.toJson()) } })
@@ -363,6 +364,7 @@ object VersionAdapter {
                 "empty_pages",
                 JSONArray().apply { emptyPageGetters.forEach { put(it.toJson()) } }
             )
+            put("vote", JSONArray().apply { voteWidgetMethods.forEach { put(it.toJson()) } })
         }
 
         companion object {
@@ -375,6 +377,11 @@ object VersionAdapter {
                     o.getJSONArray("empty_pages").let { emptyPages ->
                         (0 until emptyPages.length()).map {
                             CommentEmptyPagePoint.fromJson(emptyPages.getJSONObject(it))
+                        }
+                    },
+                    o.getJSONArray("vote").let { voteMethods ->
+                        (0 until voteMethods.length()).map {
+                            HookPoint.fromJson(voteMethods.getJSONObject(it))
                         }
                     }
                 )
@@ -494,11 +501,12 @@ object VersionAdapter {
                     methods.isNotEmpty() && methods.all { it.isValid() }
                 } != false &&
                 commentPurify?.let { value ->
-                    (value.urlMapGetters.isNotEmpty() || value.emptyPageGetters.isNotEmpty()) &&
+                    (value.urlMapGetters.isNotEmpty() || value.emptyPageGetters.isNotEmpty() ||
+                        value.voteWidgetMethods.isNotEmpty()) &&
                         value.urlMapGetters.all { it.isValid() } &&
                         value.emptyPageGetters.all {
                             it.contentGetter.isValid() && it.defaultInstanceGetter.isValid()
-                        }
+                        } && value.voteWidgetMethods.all { it.isValid() }
                 } != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
@@ -605,6 +613,14 @@ object VersionAdapter {
         "com.bapis.bilibili.main.community.reply.v2.SubjectDescriptionReply",
         "com.bapis.bilibili.p4311main.community.reply.p4312v1.SubjectControl",
         "com.bapis.bilibili.p4311main.community.reply.p4313v2.SubjectDescriptionReply"
+    )
+    private val COMMENT_VOTE_WIDGET_CLASS_CANDIDATES = listOf(
+        "com.bilibili.app.comment.ext.widgets.CmtVoteWidget",
+        "com.bilibili.p4439app.comment.p4511ext.widgets.CmtVoteWidget",
+        "com.bilibili.app.comment.ext.widgets.CmtMountWidget",
+        "com.bilibili.p4439app.comment.p4511ext.widgets.CmtMountWidget",
+        "com.bilibili.app.comment3.ui.widget.CommentVoteView",
+        "com.bilibili.p4439app.comment3.p4518ui.widget.CommentVoteView"
     )
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
@@ -867,6 +883,7 @@ object VersionAdapter {
             || PLAYER_PORTRAIT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_CONTENT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || COMMENT_VOTE_WIDGET_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
@@ -955,6 +972,9 @@ object VersionAdapter {
             KavaMemberLookup.hasClass(loader, it)
         }
         val commentEmptyPageCandidateExists = COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val commentVoteCandidateExists = COMMENT_VOTE_WIDGET_CLASS_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
         val pauseCandidateClasses = listOf(
@@ -1080,6 +1100,14 @@ object VersionAdapter {
                 commentPurify?.emptyPageGetters?.joinToString("|") {
                     "${it.contentGetter.label()}->${it.defaultInstanceGetter.label()}"
                 }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.purify.vote",
+                stateFor(
+                    commentPurify?.voteWidgetMethods?.isNotEmpty() == true,
+                    commentVoteCandidateExists
+                ),
+                commentPurify?.voteWidgetMethods?.joinToString("|") { it.label() }.orEmpty()
             )
         )
     }
@@ -1394,10 +1422,34 @@ object VersionAdapter {
             }
             .distinctBy { it.contentGetter.label() }
             .toList()
-        if (urlMethods.isEmpty() && emptyPageGetters.isEmpty()) {
+        val voteWidgetMethods = COMMENT_VOTE_WIDGET_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .filter { it.hasSuperclassNamed("android.view.View") }
+            .flatMap { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    if (method.isStatic || method.returnType != Void.TYPE) return@declaredMethods false
+                    val parameterNames = method.parameterTypes.map { it.name }
+                    when (owner.simpleName) {
+                        "CmtVoteWidget" -> method.parameterCount == 4 &&
+                            parameterNames.count { it.endsWith(".CmtThemeStrategy") } == 1 &&
+                            parameterNames.count { it == "kotlin.jvm.functions.Function0" } == 1 &&
+                            parameterNames.count { it == "kotlin.jvm.functions.Function1" } == 1
+                        "CmtMountWidget" -> method.parameterCount == 2 &&
+                            parameterNames.count { it.endsWith(".CmtThemeStrategy") } == 1
+                        "CommentVoteView" -> method.parameterCount == 1 &&
+                            method.name.startsWith("setVoteData") &&
+                            !method.parameterTypes[0].isPrimitive
+                        else -> false
+                    }
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        if (urlMethods.isEmpty() && emptyPageGetters.isEmpty() && voteWidgetMethods.isEmpty()) {
             null
         } else {
-            CommentPurifyPoints(urlMethods, emptyPageGetters)
+            CommentPurifyPoints(urlMethods, emptyPageGetters, voteWidgetMethods)
         }
     }.getOrNull()
 

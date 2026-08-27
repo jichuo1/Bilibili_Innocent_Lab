@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import android.view.View
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.highcapable.kavaref.extension.classOf
@@ -8,10 +9,11 @@ import java.lang.reflect.Field
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 
-/** 评论净化：在 protobuf 的公开 URL 映射边界移除关键词搜索跳转。 */
+/** 评论净化：仅接管已由 Adapter 精确确认的 protobuf 与独立组件边界。 */
 internal class CommentPurifyFeatureInstaller(
     private val removeSearchLinks: Boolean,
     private val removeEmptyGuide: Boolean,
+    private val removeVoteWidgets: Boolean,
     private val points: VersionAdapter.CommentPurifyPoints?
 ) : FeatureInstaller {
 
@@ -20,7 +22,7 @@ internal class CommentPurifyFeatureInstaller(
     private val textFields = ConcurrentHashMap<Class<*>, List<Field>>()
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
-        if (!removeSearchLinks && !removeEmptyGuide) {
+        if (!removeSearchLinks && !removeEmptyGuide && !removeVoteWidgets) {
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
@@ -84,6 +86,27 @@ internal class CommentPurifyFeatureInstaller(
                         "[BIL] 空评论区引导净化 Hook 注册失败(" +
                             "${point.contentGetter.className}#" +
                             "${point.contentGetter.methodName}): $throwable"
+                    )
+                }
+            }
+        }
+        if (removeVoteWidgets) {
+            val votePoints = adapted.voteWidgetMethods
+            if (votePoints.isEmpty()) missingGroups += "vote"
+            expectedCount += votePoints.size
+            votePoints.forEachIndexed { index, point ->
+                runCatching {
+                    environment.registrar.adapted("comment.purify.vote.$index", point) {
+                        after {
+                            (instance as? View)?.visibility = View.GONE
+                        }
+                    }
+                    installedCount += 1
+                }.onFailure { throwable ->
+                    environment.logError(
+                        "comment_purify_vote_$index",
+                        "[BIL] 评论投票组件净化 Hook 注册失败(" +
+                            "${point.className}#${point.methodName}): $throwable"
                     )
                 }
             }

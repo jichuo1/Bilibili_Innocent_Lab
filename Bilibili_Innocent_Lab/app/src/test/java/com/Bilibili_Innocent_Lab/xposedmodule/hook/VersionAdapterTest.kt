@@ -118,9 +118,16 @@ class VersionAdapterTest {
                         emptyList()
                     )
                 )
+            ),
+            listOf(
+                VersionAdapter.HookPoint(
+                    "com.bilibili.app.comment3.ui.widget.CommentVoteView",
+                    "setVoteData",
+                    listOf("comment.VoteData")
+                )
             )
         ),
-        hostFingerprint = "host|9090300|rules=9",
+        hostFingerprint = "host|9090300|rules=10",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -253,5 +260,18 @@ class VersionAdapterTest {
                 it.contentGetter.paramClassNames == emptyList<String>() &&
                 it.defaultInstanceGetter.paramClassNames == emptyList<String>()
         })
+    }
+
+    @Test
+    fun `locates vote widget binders by component structure across naming drift`() {
+        val points = VersionAdapter.locateCommentPurify(requireNotNull(javaClass.classLoader))
+            ?.voteWidgetMethods.orEmpty()
+
+        assertEquals(3, points.size)
+        assertEquals(
+            setOf("CmtVoteWidget", "CmtMountWidget", "CommentVoteView"),
+            points.map { it.className.substringAfterLast('.') }.toSet()
+        )
+        assertTrue(points.all { it.paramClassNames?.isNotEmpty() == true })
     }
 }
