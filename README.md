@@ -577,6 +577,7 @@ SPDX-License-Identifier: GPL-3.0-only
 
 - [YukiHookAPI](https://github.com/HighCapable/YukiHookAPI)
 - [KavaRef](https://github.com/HighCapable/KavaRef)
+- [BBZQ](https://github.com/HSSkyBoy/BBZQ)
 - Xposed / LSPosed 社区
 - Android 开源项目与相关开发文档
 - 参与测试、反馈兼容问题和提供日志的用户
