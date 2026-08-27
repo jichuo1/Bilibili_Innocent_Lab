@@ -54,6 +54,7 @@ class CommentPurifyFeatureInstallerTest {
             removeEmptyGuide = false,
             removeVoteWidgets = false,
             removeFollowButtons = false,
+            removeQoe = false,
             points = null
         )
 
@@ -82,6 +83,7 @@ class CommentPurifyFeatureInstallerTest {
             removeEmptyGuide = true,
             removeVoteWidgets = false,
             removeFollowButtons = false,
+            removeQoe = false,
             points = points
         ).install(environment)
 
@@ -109,6 +111,7 @@ class CommentPurifyFeatureInstallerTest {
             removeEmptyGuide = false,
             removeVoteWidgets = true,
             removeFollowButtons = false,
+            removeQoe = false,
             points = points
         ).install(environment)
 
@@ -136,10 +139,39 @@ class CommentPurifyFeatureInstallerTest {
             removeEmptyGuide = false,
             removeVoteWidgets = false,
             removeFollowButtons = true,
+            removeQoe = false,
             points = points
         ).install(environment)
 
         assertEquals(FeatureInstallResult.Installed(5), result)
+        assertEquals("success", statuses["comment_purify_status"])
+    }
+
+    @Test
+    fun `registers qoe public read boundaries without main list mutation`() {
+        val loader = requireNotNull(javaClass.classLoader)
+        val points = requireNotNull(VersionAdapter.locateCommentPurify(loader))
+        val statuses = linkedMapOf<String, String>()
+        val environment = HookEnvironment(
+            processName = "tv.danmaku.bili",
+            classLoader = loader,
+            hookPoints = HookPointRegistry(loader),
+            registrar = TestHookRegistrar,
+            logInfo = { _, _ -> },
+            logError = { _, _ -> },
+            reportStatus = { channel, status -> statuses[channel] = status }
+        )
+
+        val result = CommentPurifyFeatureInstaller(
+            removeSearchLinks = false,
+            removeEmptyGuide = false,
+            removeVoteWidgets = false,
+            removeFollowButtons = false,
+            removeQoe = true,
+            points = points
+        ).install(environment)
+
+        assertEquals(FeatureInstallResult.Installed(2), result)
         assertEquals("success", statuses["comment_purify_status"])
     }
 }

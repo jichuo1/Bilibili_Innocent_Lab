@@ -54,6 +54,8 @@
     <string name="remove_comment_vote_widgets_tip">隐藏评论中的顶踩票选与站队组件，不影响普通点赞、回复和评论正文；重启哔哩哔哩后生效</string>
     <string name="remove_comment_follow_buttons">移除评论区关注按钮</string>
     <string name="remove_comment_follow_buttons_tip">隐藏评论右侧及头部装饰中的关注按钮，保留其它徽章、评论正文和交互；重启哔哩哔哩后生效</string>
+    <string name="remove_comment_qoe">移除评论区反馈弹窗</string>
+    <string name="remove_comment_qoe_tip">仅在公开读取边界隐藏评论体验反馈与问卷数据，不改写评论正文、表情或交互；重启哔哩哔哩后生效</string>
     <string name="merch_ad_enable">隐藏UP主分享好物推广</string>
     <string name="merch_ad_tip">开启后不再展示某些视频详细页的UP主分享好物推广</string>
     <string name="purify_settings">净化</string>

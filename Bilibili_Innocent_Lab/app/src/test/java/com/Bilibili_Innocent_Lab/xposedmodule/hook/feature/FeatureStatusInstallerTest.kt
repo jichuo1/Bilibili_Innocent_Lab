@@ -95,6 +95,7 @@ class FeatureStatusInstallerTest {
             removeEmptyGuide = false,
             removeVoteWidgets = false,
             removeFollowButtons = false,
+            removeQoe = false,
             points = null
         )
             .install(environment)
