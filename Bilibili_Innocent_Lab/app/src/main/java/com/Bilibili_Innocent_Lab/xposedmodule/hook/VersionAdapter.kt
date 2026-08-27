@@ -98,8 +98,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 27
-    private const val ADAPTER_RULE_VERSION = 19
+    private const val SCHEMA_VERSION = 28
+    private const val ADAPTER_RULE_VERSION = 20
 
     enum class AdaptState {
         FOUND,
@@ -505,6 +505,63 @@ object VersionAdapter {
         }
     }
 
+    /** Story 响应/播放器列表边界与 StoryDetail 精确类型判定方法。 */
+    data class StoryFeedPoints(
+        val responseItemGetters: List<HookPoint>,
+        val pagerListMethods: List<HookPoint>,
+        val adGetter: HookPoint?,
+        val liveGetter: HookPoint?,
+        val gameGetter: HookPoint?
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("responses", JSONArray().apply { responseItemGetters.forEach { put(it.toJson()) } })
+            put("pager", JSONArray().apply { pagerListMethods.forEach { put(it.toJson()) } })
+            adGetter?.let { put("ad", it.toJson()) }
+            liveGetter?.let { put("live", it.toJson()) }
+            gameGetter?.let { put("game", it.toJson()) }
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): StoryFeedPoints = StoryFeedPoints(
+                responseItemGetters = o.getJSONArray("responses").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                },
+                pagerListMethods = o.getJSONArray("pager").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                },
+                adGetter = o.optJSONObject("ad")?.let(HookPoint::fromJson),
+                liveGetter = o.optJSONObject("live")?.let(HookPoint::fromJson),
+                gameGetter = o.optJSONObject("game")?.let(HookPoint::fromJson)
+            )
+        }
+    }
+
+    /** 底栏 TabHost 公开列表读取边界、单项绑定入口与条目 String 字段。 */
+    data class BottomBarPoints(
+        val tabsGetter: HookPoint,
+        val bindTabMethod: HookPoint,
+        val itemClassName: String,
+        val itemStringFields: List<String>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("tabs", tabsGetter.toJson())
+            put("bind", bindTabMethod.toJson())
+            put("item", itemClassName)
+            put("strings", JSONArray(itemStringFields))
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): BottomBarPoints = BottomBarPoints(
+                tabsGetter = HookPoint.fromJson(o.getJSONObject("tabs")),
+                bindTabMethod = HookPoint.fromJson(o.getJSONObject("bind")),
+                itemClassName = o.getString("item"),
+                itemStringFields = o.getJSONArray("strings").let { values ->
+                    (0 until values.length()).map(values::getString)
+                }
+            )
+        }
+    }
+
     /** 播放器默认画质计算边界；仅保存经逐版本核验的唯一无参 Int 方法。 */
     data class PlayerQualityPoints(
         val defaultQualityMethod: HookPoint
@@ -709,6 +766,10 @@ object VersionAdapter {
         val homeComponents: HomeComponentPoints?,
         /** “我的”页组件自定义隐藏的数据边界。 */
         val mineComponents: MineComponentPoints?,
+        /** Story 竖屏流响应与精确类型读取边界。 */
+        val storyFeed: StoryFeedPoints?,
+        /** 首页底栏单项绑定与条目元数据边界。 */
+        val bottomBar: BottomBarPoints?,
         /** 播放器默认画质的统一计算入口。 */
         val playerQuality: PlayerQualityPoints?,
         /** 青少年模式提示页自身的 onCreate 入口。 */
@@ -741,6 +802,8 @@ object VersionAdapter {
             homeTabs?.let { put("home_tabs", it.toJson()) }
             homeComponents?.let { put("home_components", it.toJson()) }
             mineComponents?.let { put("mine_components", it.toJson()) }
+            storyFeed?.let { put("story_feed", it.toJson()) }
+            bottomBar?.let { put("bottom_bar", it.toJson()) }
             playerQuality?.let { put("player_quality", it.toJson()) }
             teenagersMode?.let { put("teenagers_mode", it.toJson()) }
             commentPurify?.let { put("comment_purify", it.toJson()) }
@@ -844,6 +907,21 @@ object VersionAdapter {
                         value.itemListGetters.all { it.isValid() } &&
                         value.itemTitleGetters.all { it.isValid() }
                 } != false &&
+                storyFeed?.let { value ->
+                    (value.responseItemGetters.isNotEmpty() || value.pagerListMethods.isNotEmpty()) &&
+                        value.responseItemGetters.all { it.isValid() } &&
+                        value.pagerListMethods.all { it.isValid() } &&
+                        (value.adGetter != null || value.liveGetter != null ||
+                            value.gameGetter != null) &&
+                        value.adGetter?.isValid() != false &&
+                        value.liveGetter?.isValid() != false &&
+                        value.gameGetter?.isValid() != false
+                } != false &&
+                bottomBar?.let { value ->
+                    value.tabsGetter.isValid() && value.bindTabMethod.isValid() &&
+                        value.itemClassName.isNotBlank() && value.itemStringFields.isNotEmpty() &&
+                        value.itemStringFields.all { it.isNotBlank() }
+                } != false &&
                 playerQuality?.defaultQualityMethod?.isValid() != false &&
                 teenagersMode?.onCreateMethods?.let { methods ->
                     methods.isNotEmpty() && methods.all { it.isValid() }
@@ -908,6 +986,8 @@ object VersionAdapter {
                         ?.let(HomeComponentPoints::fromJson),
                     mineComponents = o.optJSONObject("mine_components")
                         ?.let(MineComponentPoints::fromJson),
+                    storyFeed = o.optJSONObject("story_feed")?.let(StoryFeedPoints::fromJson),
+                    bottomBar = o.optJSONObject("bottom_bar")?.let(BottomBarPoints::fromJson),
                     playerQuality = o.optJSONObject("player_quality")
                         ?.let(PlayerQualityPoints::fromJson),
                     teenagersMode = o.optJSONObject("teenagers_mode")
@@ -1023,6 +1103,17 @@ object VersionAdapter {
     private val MINE_MENU_ITEM_CLASS_CANDIDATES = listOf(
         "com.bilibili.lib.homepage.mine.MenuGroupV2\$Item",
         "com.bilibili.lib.homepage.mine.MenuGroup\$Item"
+    )
+    private const val STORY_FEED_RESPONSE_CLASS =
+        "com.bilibili.video.story.api.StoryFeedResponse"
+    private const val STORY_DETAIL_CLASS = "com.bilibili.video.story.StoryDetail"
+    private const val STORY_PAGER_PLAYER_CLASS =
+        "com.bilibili.video.story.player.StoryPagerPlayer"
+    private val BOTTOM_TAB_HOST_CLASS_CANDIDATES = listOf(
+        "com.bilibili.lib.homepage.widget.TabHost",
+        "com.bilibili.p5690lib.p5708homepage.widget.TabHost",
+        "tv.danmaku.bili.ui.main2.widget.TabHost",
+        "tv.danmaku.p9138bili.p9228ui.main2.widget.TabHost"
     )
     private val PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES = listOf(
         // 新版 dex 可能引用旧混淆类，因此按新→旧探测，且每个 owner 内仍要求签名唯一。
@@ -1261,6 +1352,8 @@ object VersionAdapter {
                     "homeTabs=${result?.homeTabs != null} " +
                     "homeComponents=${result?.homeComponents != null} " +
                     "mineComponents=${result?.mineComponents != null} " +
+                    "storyFeed=${result?.storyFeed != null} " +
+                    "bottomBar=${result?.bottomBar != null} " +
                     "playerQuality=${result?.playerQuality != null} " +
                     "teenagersMode=${result?.teenagersMode != null} " +
                     "commentPurify=${result?.commentPurify != null} " +
@@ -1294,6 +1387,8 @@ object VersionAdapter {
         val homeTabs = locateHomeTabs(loader)
         val homeComponents = locateHomeComponents(loader)
         val mineComponents = locateMineComponents(loader)
+        val storyFeed = locateStoryFeed(loader)
+        val bottomBar = locateBottomBar(loader)
         val playerQuality = locateDefaultVideoQuality(loader)
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
@@ -1304,6 +1399,7 @@ object VersionAdapter {
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
             playerStatusBar == null && homeRecommendFeed == null && videoRelate == null &&
             homeTabs == null && homeComponents == null && mineComponents == null &&
+            storyFeed == null && bottomBar == null &&
             playerQuality == null && teenagersMode == null && commentPurify == null) return null
         return AdaptResult(
             biliVersionCode = 0,
@@ -1325,6 +1421,8 @@ object VersionAdapter {
             homeTabs = homeTabs,
             homeComponents = homeComponents,
             mineComponents = mineComponents,
+            storyFeed = storyFeed,
+            bottomBar = bottomBar,
             playerQuality = playerQuality,
             teenagersMode = teenagersMode,
             commentPurify = commentPurify,
@@ -1332,7 +1430,8 @@ object VersionAdapter {
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
                 dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
-                videoRelate, homeTabs, homeComponents, mineComponents, playerQuality,
+                videoRelate, homeTabs, homeComponents, mineComponents, storyFeed, bottomBar,
+                playerQuality,
                 teenagersMode, commentPurify
             )
         )
@@ -1363,6 +1462,8 @@ object VersionAdapter {
         val homeTabs = locateHomeTabs(loader)
         val homeComponents = locateHomeComponents(loader)
         val mineComponents = locateMineComponents(loader)
+        val storyFeed = locateStoryFeed(loader)
+        val bottomBar = locateBottomBar(loader)
         val playerQuality = locateDefaultVideoQuality(loader)
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
@@ -1382,6 +1483,8 @@ object VersionAdapter {
             }
             || HOME_FRAGMENT_V2_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || MINE_MENU_GROUP_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || KavaMemberLookup.hasClass(loader, STORY_DETAIL_CLASS)
+            || BOTTOM_TAB_HOST_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any {
                 KavaMemberLookup.hasClass(loader, it)
             }
@@ -1404,6 +1507,7 @@ object VersionAdapter {
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
             playerStatusBar == null && homeRecommendFeed == null && videoRelate == null &&
             homeTabs == null && homeComponents == null && mineComponents == null &&
+            storyFeed == null && bottomBar == null &&
             playerQuality == null && teenagersMode == null && commentPurify == null &&
             !anyClassExists) return null
         return AdaptResult(
@@ -1426,6 +1530,8 @@ object VersionAdapter {
             homeTabs = homeTabs,
             homeComponents = homeComponents,
             mineComponents = mineComponents,
+            storyFeed = storyFeed,
+            bottomBar = bottomBar,
             playerQuality = playerQuality,
             teenagersMode = teenagersMode,
             commentPurify = commentPurify,
@@ -1433,7 +1539,8 @@ object VersionAdapter {
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
                 dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
-                videoRelate, homeTabs, homeComponents, mineComponents, playerQuality,
+                videoRelate, homeTabs, homeComponents, mineComponents, storyFeed, bottomBar,
+                playerQuality,
                 teenagersMode, commentPurify
             )
         )
@@ -1469,6 +1576,8 @@ object VersionAdapter {
         homeTabs: HomeTabPoints?,
         homeComponents: HomeComponentPoints?,
         mineComponents: MineComponentPoints?,
+        storyFeed: StoryFeedPoints?,
+        bottomBar: BottomBarPoints?,
         playerQuality: PlayerQualityPoints?,
         teenagersMode: TeenagersModePoints?,
         commentPurify: CommentPurifyPoints?
@@ -1516,6 +1625,12 @@ object VersionAdapter {
         }
         val homeComponentsCandidateExists = KavaMemberLookup.hasClass(loader, HOST_FRAGMENT_CLASS)
         val mineComponentsCandidateExists = MINE_MENU_GROUP_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val storyFeedCandidateExists = KavaMemberLookup.hasClass(loader, STORY_DETAIL_CLASS) &&
+            (KavaMemberLookup.hasClass(loader, STORY_FEED_RESPONSE_CLASS) ||
+                KavaMemberLookup.hasClass(loader, STORY_PAGER_PLAYER_CLASS))
+        val bottomBarCandidateExists = BOTTOM_TAB_HOST_CLASS_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
         val playerQualityCandidateExists = PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any {
@@ -1686,6 +1801,23 @@ object VersionAdapter {
                 stateFor(mineComponents != null, mineComponentsCandidateExists),
                 mineComponents?.let {
                     "lists=${it.itemListGetters.size},titles=${it.itemTitleGetters.size}"
+                }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "story.feed",
+                stateFor(storyFeed != null, storyFeedCandidateExists),
+                storyFeed?.let {
+                    "responses=${it.responseItemGetters.size},pager=${it.pagerListMethods.size}," +
+                        "ad=${it.adGetter != null},live=${it.liveGetter != null}," +
+                        "game=${it.gameGetter != null}"
+                }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "home.bottom_bar",
+                stateFor(bottomBar != null, bottomBarCandidateExists),
+                bottomBar?.let {
+                    "tabs=${it.tabsGetter.label()},bind=${it.bindTabMethod.label()}," +
+                        "strings=${it.itemStringFields.size}"
                 }.orEmpty()
             ),
             AdaptDiagnostic(
@@ -2260,6 +2392,81 @@ object VersionAdapter {
             .toList()
         if (lists.isEmpty() || titles.isEmpty()) return@runCatching null
         MineComponentPoints(lists, titles)
+    }.getOrNull()
+
+    /** Story 只采用 StoryDetail 自身公开类型判断，不按标题、URI 或字段内容猜测。 */
+    fun locateStoryFeed(loader: ClassLoader): StoryFeedPoints? = runCatching {
+        val detail = KavaMemberLookup.classOrNull(loader, STORY_DETAIL_CLASS)
+            ?: return@runCatching null
+        fun booleanGetter(name: String): HookPoint? = KavaMemberLookup.methodOrNull(detail, name)
+            ?.takeIf { method ->
+                !method.isStatic && method.parameterCount == 0 &&
+                    method.returnType == Boolean::class.javaPrimitiveType
+            }
+            ?.toHookPoint()
+
+        val responses = KavaMemberLookup.classOrNull(loader, STORY_FEED_RESPONSE_CLASS)
+            ?.let { response ->
+                KavaMemberLookup.methods(
+                    response,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    method.name == "getItems" && !method.isStatic &&
+                        method.parameterCount == 0 &&
+                        List::class.java.isAssignableFrom(method.returnType)
+                }.distinctBy(Method::toGenericString).map { it.toHookPoint() }
+            }.orEmpty()
+
+        val pager = KavaMemberLookup.classOrNull(loader, STORY_PAGER_PLAYER_CLASS)
+            ?.let { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    !method.isStatic && !method.isAbstract && method.returnType == Void.TYPE &&
+                        method.parameterCount == 1 &&
+                        List::class.java.isAssignableFrom(method.parameterTypes[0]) &&
+                        method.genericParameterTypes[0].toString().contains(STORY_DETAIL_CLASS)
+                }.distinctBy(Method::toGenericString).map { it.toHookPoint() }
+            }.orEmpty()
+
+        val ad = booleanGetter("isAd")
+        val live = booleanGetter("isLive")
+        val game = booleanGetter("isGame")
+        if ((responses.isEmpty() && pager.isEmpty()) ||
+            (ad == null && live == null && game == null)) return@runCatching null
+        StoryFeedPoints(responses, pager, ad, live, game)
+    }.getOrNull()
+
+    /** 底栏按 TabHost 的公开 tabs 列表和唯一 (int, View) 绑定入口定位。 */
+    fun locateBottomBar(loader: ClassLoader): BottomBarPoints? = runCatching {
+        for (ownerName in BOTTOM_TAB_HOST_CLASS_CANDIDATES) {
+            val owner = KavaMemberLookup.classOrNull(loader, ownerName) ?: continue
+            val tabsGetter = KavaMemberLookup.methods(
+                owner,
+                includeSuperclasses = true,
+                makeAccessible = true
+            ) { method ->
+                method.name == "getTabs" && !method.isStatic && method.parameterCount == 0 &&
+                    List::class.java.isAssignableFrom(method.returnType)
+            }.distinctBy(Method::toGenericString).singleOrNull() ?: continue
+            val itemClass = (tabsGetter.genericReturnType as? ParameterizedType)
+                ?.actualTypeArguments?.singleOrNull() as? Class<*> ?: continue
+            val bind = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                !method.isStatic && method.returnType == Void.TYPE && method.parameterCount == 2 &&
+                    method.parameterTypes[0] == Int::class.javaPrimitiveType &&
+                    View::class.java.isAssignableFrom(method.parameterTypes[1])
+            }.singleOrNull() ?: continue
+            val strings = KavaMemberLookup.declaredFields(itemClass, makeAccessible = true) {
+                !java.lang.reflect.Modifier.isStatic(it.modifiers) && it.type == String::class.java
+            }.map { it.name }
+            if (strings.isEmpty()) continue
+            return@runCatching BottomBarPoints(
+                tabsGetter = tabsGetter.toHookPoint(),
+                bindTabMethod = bind.toHookPoint(),
+                itemClassName = itemClass.name,
+                itemStringFields = strings
+            )
+        }
+        null
     }.getOrNull()
 
     /**

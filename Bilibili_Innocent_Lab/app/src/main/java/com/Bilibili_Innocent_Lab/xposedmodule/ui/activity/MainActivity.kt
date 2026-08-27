@@ -107,6 +107,10 @@ class MainActivity : AppViewsActivity() {
     private var removeHomeRecommendGamePromotions = false
     private var homeTabHiddenRules = ""
     private var homeComponentHiddenRules = ""
+    private var bottomBarHiddenRules = ""
+    private var removeStoryAds = false
+    private var removeStoryLive = false
+    private var removeStoryGames = false
     private var hideMineVip = false
     private var keepMineVipSpace = false
     private var mineComponentHiddenRules = ""
@@ -154,6 +158,7 @@ class MainActivity : AppViewsActivity() {
     private var homeTabRulesSummaryView: NativeTextView? = null
     private var homeComponentRulesSummaryView: NativeTextView? = null
     private var mineComponentRulesSummaryView: NativeTextView? = null
+    private var bottomBarRulesSummaryView: NativeTextView? = null
     private var roamingCompatEnabled = false
     private var predictiveBackEnabled = false
     private var logEnabled = true
@@ -1997,6 +2002,18 @@ class MainActivity : AppViewsActivity() {
         homeComponentHiddenRules = runCatching {
             modulePrefs?.getString(FeaturePreferences.HOME_COMPONENT_HIDDEN_RULES, "").orEmpty()
         }.getOrDefault("")
+        bottomBarHiddenRules = runCatching {
+            modulePrefs?.getString(FeaturePreferences.BOTTOM_BAR_HIDDEN_RULES, "").orEmpty()
+        }.getOrDefault("")
+        removeStoryAds = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_ADS, false) ?: false
+        }.getOrDefault(false)
+        removeStoryLive = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_LIVE, false) ?: false
+        }.getOrDefault(false)
+        removeStoryGames = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_GAMES, false) ?: false
+        }.getOrDefault(false)
         hideMineVip = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.HIDE_MINE_VIP, false) ?: false
         }.onFailure { t ->
@@ -2943,6 +2960,50 @@ class MainActivity : AppViewsActivity() {
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                }
+                            ) {
+                                bottomBarRulesSummaryView = this
+                                text = getString(R.string.custom_bottom_bar_hide) + "\n" +
+                                    ruleSummary(bottomBarHiddenRules)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                maxLines = 3
+                                ellipsize = TextUtils.TruncateAt.END
+                                setLineSpacing(5f, 1f)
+                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                background = selfRippleBackground(10f)
+                                isClickable = true
+                                isFocusable = true
+                                setOnClickListener {
+                                    showRuleEditorDialog(
+                                        R.string.custom_bottom_bar_hide_dialog_title,
+                                        R.string.custom_bottom_bar_hide_hint,
+                                        bottomBarHiddenRules
+                                    ) { value ->
+                                        bottomBarHiddenRules = value
+                                        prefs().edit {
+                                            putString(
+                                                FeaturePreferences.BOTTOM_BAR_HIDDEN_RULES,
+                                                value
+                                            )
+                                        }
+                                        bottomBarRulesSummaryView?.text =
+                                            getString(R.string.custom_bottom_bar_hide) + "\n" +
+                                                ruleSummary(value)
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                text = stringResource(R.string.custom_bottom_bar_hide_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
                             FrameLayout(
                                 lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
                                     topMargin = 14.dp
@@ -3494,6 +3555,79 @@ class MainActivity : AppViewsActivity() {
                                 alpha = 0.6f
                                 setLineSpacing(6f, 1f)
                                 text = stringResource(R.string.transparent_player_status_bar_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.7f
+                                text = stringResource(R.string.story_purify_settings)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 11f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_story_ads)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeStoryAds
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeStoryAds = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_STORY_ADS, checked)
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_story_live)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeStoryLive
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeStoryLive = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_STORY_LIVE, checked)
+                                    }
+                                }
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_story_games)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeStoryGames
+                                setOnCheckedChangeListener { _, checked ->
+                                    removeStoryGames = checked
+                                    prefs().edit {
+                                        putBoolean(FeaturePreferences.REMOVE_STORY_GAMES, checked)
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.story_purify_tip)
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }
