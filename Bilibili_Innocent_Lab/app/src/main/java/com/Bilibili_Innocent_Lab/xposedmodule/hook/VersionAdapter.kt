@@ -98,8 +98,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 26
-    private const val ADAPTER_RULE_VERSION = 18
+    private const val SCHEMA_VERSION = 27
+    private const val ADAPTER_RULE_VERSION = 19
 
     enum class AdaptState {
         FOUND,
@@ -435,6 +435,76 @@ object VersionAdapter {
         }
     }
 
+    /** 首页 Tab 构建入口与资源对象的稳定 String 字段。 */
+    data class HomeTabPoints(
+        val buildMethod: HookPoint,
+        val resourceClassName: String,
+        val idField: String,
+        val titleField: String,
+        val uriField: String,
+        val reporterIdField: String?
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("build", buildMethod.toJson())
+            put("resource", resourceClassName)
+            put("id", idField)
+            put("title", titleField)
+            put("uri", uriField)
+            reporterIdField?.let { put("reporter", it) }
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): HomeTabPoints = HomeTabPoints(
+                buildMethod = HookPoint.fromJson(o.getJSONObject("build")),
+                resourceClassName = o.getString("resource"),
+                idField = o.getString("id"),
+                titleField = o.getString("title"),
+                uriField = o.getString("uri"),
+                reporterIdField = o.optString("reporter").takeIf { it.isNotBlank() }
+            )
+        }
+    }
+
+    /** 首页子 Fragment 的低频生命周期与父 Fragment 公开读取边界。 */
+    data class HomeComponentPoints(
+        val onViewCreated: HookPoint,
+        val parentFragmentGetter: HookPoint
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("view", onViewCreated.toJson())
+            put("parent", parentFragmentGetter.toJson())
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): HomeComponentPoints = HomeComponentPoints(
+                HookPoint.fromJson(o.getJSONObject("view")),
+                HookPoint.fromJson(o.getJSONObject("parent"))
+            )
+        }
+    }
+
+    /** “我的”页菜单组公开 itemList/title 读取边界。 */
+    data class MineComponentPoints(
+        val itemListGetters: List<HookPoint>,
+        val itemTitleGetters: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("lists", JSONArray().apply { itemListGetters.forEach { put(it.toJson()) } })
+            put("titles", JSONArray().apply { itemTitleGetters.forEach { put(it.toJson()) } })
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): MineComponentPoints = MineComponentPoints(
+                o.getJSONArray("lists").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                },
+                o.getJSONArray("titles").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                }
+            )
+        }
+    }
+
     /** 播放器默认画质计算边界；仅保存经逐版本核验的唯一无参 Int 方法。 */
     data class PlayerQualityPoints(
         val defaultQualityMethod: HookPoint
@@ -633,6 +703,12 @@ object VersionAdapter {
         val homeRecommendFeed: HomeRecommendFeedPoints?,
         /** 视频详情相关推荐响应及精确类型读取边界。 */
         val videoRelate: VideoRelatePoints?,
+        /** 首页 Tab 自定义隐藏的构建边界。 */
+        val homeTabs: HomeTabPoints?,
+        /** 首页子组件自定义隐藏的 Fragment 边界。 */
+        val homeComponents: HomeComponentPoints?,
+        /** “我的”页组件自定义隐藏的数据边界。 */
+        val mineComponents: MineComponentPoints?,
         /** 播放器默认画质的统一计算入口。 */
         val playerQuality: PlayerQualityPoints?,
         /** 青少年模式提示页自身的 onCreate 入口。 */
@@ -662,6 +738,9 @@ object VersionAdapter {
             playerStatusBar?.let { put("player_status_bar", it.toJson()) }
             homeRecommendFeed?.let { put("home_recommend_feed", it.toJson()) }
             videoRelate?.let { put("video_relate", it.toJson()) }
+            homeTabs?.let { put("home_tabs", it.toJson()) }
+            homeComponents?.let { put("home_components", it.toJson()) }
+            mineComponents?.let { put("mine_components", it.toJson()) }
             playerQuality?.let { put("player_quality", it.toJson()) }
             teenagersMode?.let { put("teenagers_mode", it.toJson()) }
             commentPurify?.let { put("comment_purify", it.toJson()) }
@@ -752,6 +831,19 @@ object VersionAdapter {
                         value.gotoGetters.all { it.isValid() } &&
                         value.cardTypeGetters.all { it.isValid() }
                 } != false &&
+                homeTabs?.let { value ->
+                    value.buildMethod.isValid() && value.resourceClassName.isNotBlank() &&
+                        value.idField.isNotBlank() && value.titleField.isNotBlank() &&
+                        value.uriField.isNotBlank()
+                } != false &&
+                homeComponents?.let { value ->
+                    value.onViewCreated.isValid() && value.parentFragmentGetter.isValid()
+                } != false &&
+                mineComponents?.let { value ->
+                    value.itemListGetters.isNotEmpty() && value.itemTitleGetters.isNotEmpty() &&
+                        value.itemListGetters.all { it.isValid() } &&
+                        value.itemTitleGetters.all { it.isValid() }
+                } != false &&
                 playerQuality?.defaultQualityMethod?.isValid() != false &&
                 teenagersMode?.onCreateMethods?.let { methods ->
                     methods.isNotEmpty() && methods.all { it.isValid() }
@@ -811,6 +903,11 @@ object VersionAdapter {
                         ?.let(HomeRecommendFeedPoints::fromJson),
                     videoRelate = o.optJSONObject("video_relate")
                         ?.let(VideoRelatePoints::fromJson),
+                    homeTabs = o.optJSONObject("home_tabs")?.let(HomeTabPoints::fromJson),
+                    homeComponents = o.optJSONObject("home_components")
+                        ?.let(HomeComponentPoints::fromJson),
+                    mineComponents = o.optJSONObject("mine_components")
+                        ?.let(MineComponentPoints::fromJson),
                     playerQuality = o.optJSONObject("player_quality")
                         ?.let(PlayerQualityPoints::fromJson),
                     teenagersMode = o.optJSONObject("teenagers_mode")
@@ -909,6 +1006,23 @@ object VersionAdapter {
     private val VIDEO_RELATE_ITEM_CLASS_CANDIDATES = listOf(
         "com.bapis.bilibili.app.viewunite.common.RelateCard",
         "com.bapis.bilibili.app.view.v1.Relate"
+    )
+    private val HOME_FRAGMENT_V2_CLASS_CANDIDATES = listOf(
+        "tv.danmaku.bili.ui.main2.HomeFragmentV2",
+        "tv.danmaku.p9138bili.p9228ui.main2.HomeFragmentV2"
+    )
+    private val HOME_TAB_RESOURCE_CLASS_CANDIDATES = listOf(
+        "tv.danmaku.bili.ui.main2.resource.z",
+        "tv.danmaku.p9138bili.p9228ui.main2.resource.z"
+    )
+    private const val HOST_FRAGMENT_CLASS = "androidx.fragment.app.Fragment"
+    private val MINE_MENU_GROUP_CLASS_CANDIDATES = listOf(
+        "com.bilibili.lib.homepage.mine.MenuGroupV2",
+        "com.bilibili.lib.homepage.mine.MenuGroup"
+    )
+    private val MINE_MENU_ITEM_CLASS_CANDIDATES = listOf(
+        "com.bilibili.lib.homepage.mine.MenuGroupV2\$Item",
+        "com.bilibili.lib.homepage.mine.MenuGroup\$Item"
     )
     private val PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES = listOf(
         // 新版 dex 可能引用旧混淆类，因此按新→旧探测，且每个 owner 内仍要求签名唯一。
@@ -1144,6 +1258,9 @@ object VersionAdapter {
                     "playerStatusBar=${result?.playerStatusBar != null} " +
                     "homeRecommendFeed=${result?.homeRecommendFeed != null} " +
                     "videoRelate=${result?.videoRelate != null} " +
+                    "homeTabs=${result?.homeTabs != null} " +
+                    "homeComponents=${result?.homeComponents != null} " +
+                    "mineComponents=${result?.mineComponents != null} " +
                     "playerQuality=${result?.playerQuality != null} " +
                     "teenagersMode=${result?.teenagersMode != null} " +
                     "commentPurify=${result?.commentPurify != null} " +
@@ -1174,6 +1291,9 @@ object VersionAdapter {
         val playerStatusBar = locatePlayerStatusBar(loader)
         val homeRecommendFeed = locateHomeRecommendFeed(loader)
         val videoRelate = locateVideoRelate(loader)
+        val homeTabs = locateHomeTabs(loader)
+        val homeComponents = locateHomeComponents(loader)
+        val mineComponents = locateMineComponents(loader)
         val playerQuality = locateDefaultVideoQuality(loader)
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
@@ -1183,6 +1303,7 @@ object VersionAdapter {
             homeTopBar == null && mineVip == null && blockUpdate == null &&
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
             playerStatusBar == null && homeRecommendFeed == null && videoRelate == null &&
+            homeTabs == null && homeComponents == null && mineComponents == null &&
             playerQuality == null && teenagersMode == null && commentPurify == null) return null
         return AdaptResult(
             biliVersionCode = 0,
@@ -1201,6 +1322,9 @@ object VersionAdapter {
             playerStatusBar = playerStatusBar,
             homeRecommendFeed = homeRecommendFeed,
             videoRelate = videoRelate,
+            homeTabs = homeTabs,
+            homeComponents = homeComponents,
+            mineComponents = mineComponents,
             playerQuality = playerQuality,
             teenagersMode = teenagersMode,
             commentPurify = commentPurify,
@@ -1208,7 +1332,8 @@ object VersionAdapter {
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
                 dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
-                videoRelate, playerQuality, teenagersMode, commentPurify
+                videoRelate, homeTabs, homeComponents, mineComponents, playerQuality,
+                teenagersMode, commentPurify
             )
         )
     }
@@ -1235,6 +1360,9 @@ object VersionAdapter {
         val playerStatusBar = locatePlayerStatusBar(loader)
         val homeRecommendFeed = locateHomeRecommendFeed(loader)
         val videoRelate = locateVideoRelate(loader)
+        val homeTabs = locateHomeTabs(loader)
+        val homeComponents = locateHomeComponents(loader)
+        val mineComponents = locateMineComponents(loader)
         val playerQuality = locateDefaultVideoQuality(loader)
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
@@ -1252,6 +1380,8 @@ object VersionAdapter {
             || VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES.any {
                 KavaMemberLookup.hasClass(loader, it)
             }
+            || HOME_FRAGMENT_V2_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || MINE_MENU_GROUP_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any {
                 KavaMemberLookup.hasClass(loader, it)
             }
@@ -1273,6 +1403,7 @@ object VersionAdapter {
             homeTopBar == null && mineVip == null && blockUpdate == null &&
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
             playerStatusBar == null && homeRecommendFeed == null && videoRelate == null &&
+            homeTabs == null && homeComponents == null && mineComponents == null &&
             playerQuality == null && teenagersMode == null && commentPurify == null &&
             !anyClassExists) return null
         return AdaptResult(
@@ -1292,6 +1423,9 @@ object VersionAdapter {
             playerStatusBar = playerStatusBar,
             homeRecommendFeed = homeRecommendFeed,
             videoRelate = videoRelate,
+            homeTabs = homeTabs,
+            homeComponents = homeComponents,
+            mineComponents = mineComponents,
             playerQuality = playerQuality,
             teenagersMode = teenagersMode,
             commentPurify = commentPurify,
@@ -1299,7 +1433,8 @@ object VersionAdapter {
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
                 dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
-                videoRelate, playerQuality, teenagersMode, commentPurify
+                videoRelate, homeTabs, homeComponents, mineComponents, playerQuality,
+                teenagersMode, commentPurify
             )
         )
     }
@@ -1331,6 +1466,9 @@ object VersionAdapter {
         playerStatusBar: PlayerStatusBarPoints?,
         homeRecommendFeed: HomeRecommendFeedPoints?,
         videoRelate: VideoRelatePoints?,
+        homeTabs: HomeTabPoints?,
+        homeComponents: HomeComponentPoints?,
+        mineComponents: MineComponentPoints?,
         playerQuality: PlayerQualityPoints?,
         teenagersMode: TeenagersModePoints?,
         commentPurify: CommentPurifyPoints?
@@ -1371,6 +1509,13 @@ object VersionAdapter {
                     KavaMemberLookup.hasClass(loader, it)
                 }
         val videoRelateCandidateExists = VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val homeTabsCandidateExists = HOME_FRAGMENT_V2_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val homeComponentsCandidateExists = KavaMemberLookup.hasClass(loader, HOST_FRAGMENT_CLASS)
+        val mineComponentsCandidateExists = MINE_MENU_GROUP_CLASS_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
         val playerQualityCandidateExists = PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any {
@@ -1523,6 +1668,24 @@ object VersionAdapter {
                 videoRelate?.let {
                     "responses=${it.responseItemGetters.size},types=" +
                         (it.cardCaseGetters.size + it.gotoGetters.size + it.cardTypeGetters.size)
+                }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "home.tabs",
+                stateFor(homeTabs != null, homeTabsCandidateExists),
+                homeTabs?.let { "${it.buildMethod.label()},resource=${it.resourceClassName}" }
+                    .orEmpty()
+            ),
+            AdaptDiagnostic(
+                "home.components",
+                stateFor(homeComponents != null, homeComponentsCandidateExists),
+                homeComponents?.onViewCreated?.label().orEmpty()
+            ),
+            AdaptDiagnostic(
+                "mine.components",
+                stateFor(mineComponents != null, mineComponentsCandidateExists),
+                mineComponents?.let {
+                    "lists=${it.itemListGetters.size},titles=${it.itemTitleGetters.size}"
                 }.orEmpty()
             ),
             AdaptDiagnostic(
@@ -2009,6 +2172,94 @@ object VersionAdapter {
         val types = itemGetters("getCardType")
         if (cases.isEmpty() && gotos.isEmpty() && types.isEmpty()) return@runCatching null
         VideoRelatePoints(responses, cases, gotos, types)
+    }.getOrNull()
+
+    /** 首页 Tab 构建方法：单个 List 参数、List 返回值，且参数泛型为 main2.resource。 */
+    fun locateHomeTabs(loader: ClassLoader): HomeTabPoints? = runCatching {
+        val candidates = HOME_FRAGMENT_V2_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    !method.isStatic && !method.isAbstract && method.parameterCount == 1 &&
+                        List::class.java.isAssignableFrom(method.parameterTypes[0]) &&
+                        List::class.java.isAssignableFrom(method.returnType) &&
+                        method.genericParameterTypes[0].toString().contains("main2.resource.")
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .toList()
+        val build = candidates.singleOrNull() ?: return@runCatching null
+        val resource = (build.genericParameterTypes[0] as? ParameterizedType)
+            ?.actualTypeArguments?.singleOrNull() as? Class<*>
+            ?: HOME_TAB_RESOURCE_CLASS_CANDIDATES.firstNotNullOfOrNull {
+                KavaMemberLookup.classOrNull(loader, it)
+            }
+            ?: return@runCatching null
+        val stringFields = KavaMemberLookup.declaredFields(resource, makeAccessible = true) {
+            !java.lang.reflect.Modifier.isStatic(it.modifiers) && it.type == String::class.java
+        }
+        if (stringFields.size < 3) return@runCatching null
+        HomeTabPoints(
+            buildMethod = build.toHookPoint(),
+            resourceClassName = resource.name,
+            idField = stringFields[0].name,
+            titleField = stringFields[1].name,
+            uriField = stringFields[2].name,
+            reporterIdField = stringFields.getOrNull(3)?.name
+        )
+    }.getOrNull()
+
+    /** 首页子组件仅使用宿主 AndroidX Fragment 的公开生命周期和父级读取方法。 */
+    fun locateHomeComponents(loader: ClassLoader): HomeComponentPoints? = runCatching {
+        val fragment = KavaMemberLookup.classOrNull(loader, HOST_FRAGMENT_CLASS)
+            ?: return@runCatching null
+        val onViewCreated = KavaMemberLookup.methodOrNull(
+            fragment,
+            "onViewCreated",
+            View::class.java,
+            Bundle::class.java
+        )?.takeIf { !it.isStatic && it.returnType == Void.TYPE }
+            ?: return@runCatching null
+        val parent = KavaMemberLookup.methodOrNull(fragment, "getParentFragment")
+            ?.takeIf { !it.isStatic && it.returnType.name == HOST_FRAGMENT_CLASS }
+            ?: return@runCatching null
+        HomeComponentPoints(onViewCreated.toHookPoint(), parent.toHookPoint())
+    }.getOrNull()
+
+    /** “我的”页只在 MenuGroup(V2) 的 getItemList 返回边界按 Item#getTitle 过滤。 */
+    fun locateMineComponents(loader: ClassLoader): MineComponentPoints? = runCatching {
+        val lists = MINE_MENU_GROUP_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.methods(
+                    owner,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    method.name == "getItemList" && method.parameterCount == 0 &&
+                        List::class.java.isAssignableFrom(method.returnType) && !method.isStatic
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        val titles = MINE_MENU_ITEM_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.methods(
+                    owner,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    method.name == "getTitle" && method.parameterCount == 0 &&
+                        method.returnType == String::class.java && !method.isStatic
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        if (lists.isEmpty() || titles.isEmpty()) return@runCatching null
+        MineComponentPoints(lists, titles)
     }.getOrNull()
 
     /**

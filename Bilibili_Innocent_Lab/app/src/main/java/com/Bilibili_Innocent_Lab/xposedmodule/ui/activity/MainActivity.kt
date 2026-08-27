@@ -72,6 +72,7 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.RippleDrawable
 import android.view.ViewGroup
 import android.widget.FrameLayout as NativeFrameLayout
+import android.widget.EditText as NativeEditText
 import android.widget.LinearLayout as NativeLinearLayout
 import android.widget.TextView as NativeTextView
 import androidx.core.graphics.ColorUtils
@@ -104,8 +105,11 @@ class MainActivity : AppViewsActivity() {
     private var removeHomeRecommendAds = false
     private var removeHomeRecommendPictures = false
     private var removeHomeRecommendGamePromotions = false
+    private var homeTabHiddenRules = ""
+    private var homeComponentHiddenRules = ""
     private var hideMineVip = false
     private var keepMineVipSpace = false
+    private var mineComponentHiddenRules = ""
     private var blockAppUpdate = false
     private var hideDynamicCityTab = false
     private var hideDynamicSchoolTab = false
@@ -147,6 +151,9 @@ class MainActivity : AppViewsActivity() {
     /** 手动亮色开关下方 tip 引用（动态动画切换文本） */
     private var lightModeTipView: NativeTextView? = null
     private var playerQualitySummaryView: NativeTextView? = null
+    private var homeTabRulesSummaryView: NativeTextView? = null
+    private var homeComponentRulesSummaryView: NativeTextView? = null
+    private var mineComponentRulesSummaryView: NativeTextView? = null
     private var roamingCompatEnabled = false
     private var predictiveBackEnabled = false
     private var logEnabled = true
@@ -1286,6 +1293,146 @@ class MainActivity : AppViewsActivity() {
         }
     }
 
+    /** 自定义隐藏规则编辑器：沿用项目玻璃弹窗与统一退场动画。 */
+    private fun showRuleEditorDialog(
+        @StringRes titleRes: Int,
+        @StringRes hintRes: Int,
+        initialValue: String,
+        onConfirm: (String) -> Unit
+    ) {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createGlassContainer()
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(titleRes)
+                setTextColor(getColor(R.color.colorTextDark))
+                textSize = 17f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        val editor = NativeEditText(this).apply {
+            setText(initialValue)
+            setSelection(text.length)
+            hint = getString(hintRes)
+            setTextColor(getColor(R.color.colorTextDark))
+            setHintTextColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x99))
+            textSize = 14f
+            gravity = Gravity.TOP or Gravity.START
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            isSingleLine = false
+            minLines = 3
+            maxLines = 6
+            setHorizontallyScrolling(false)
+            setPadding(
+                (14 * density).toInt(),
+                (12 * density).toInt(),
+                (14 * density).toInt(),
+                (12 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                cornerRadius = 14 * density
+                setColor(monetColors.surfaceVariant)
+                setStroke(
+                    density.toInt().coerceAtLeast(1),
+                    ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x38)
+                )
+            }
+        }
+        container.addView(
+            editor,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (14 * density).toInt() }
+        )
+
+        val buttonRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        buttonRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.dialog_cancel)
+                setTextColor(getColor(R.color.colorTextGray))
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(
+                    (20 * density).toInt(),
+                    (11 * density).toInt(),
+                    (20 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { dismissWithAnimation(dialog, container) {} }
+            }
+        )
+        buttonRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.dialog_confirm)
+                setTextColor(monetColors.onPrimary)
+                textSize = 15f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(
+                    (22 * density).toInt(),
+                    (11 * density).toInt(),
+                    (22 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                val radius = 20 * density
+                val content = GradientDrawable().apply {
+                    cornerRadius = radius
+                    setColor(monetColors.primary)
+                }
+                val rippleMask = GradientDrawable().apply {
+                    cornerRadius = radius
+                    setColor(Color.WHITE)
+                }
+                background = RippleDrawable(
+                    ColorStateList.valueOf(
+                        ColorUtils.setAlphaComponent(monetColors.onPrimary, 0x33)
+                    ),
+                    content,
+                    rippleMask
+                )
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    val value = editor.text.toString().trim()
+                    dismissWithAnimation(dialog, container) { onConfirm(value) }
+                }
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = (16 * density).toInt() }
+        )
+        container.addView(
+            buttonRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (18 * density).toInt() }
+        )
+        presentGlassDialog(dialog, container)
+    }
+
+    private fun ruleSummary(value: String): String = if (value.isBlank()) {
+        getString(R.string.custom_hide_rules_empty)
+    } else {
+        getString(R.string.custom_hide_rules_current, value)
+    }
+
     private fun openExternalUrl(url: String) {
         val uri = Uri.parse(url)
         if (uri.scheme != "https") {
@@ -1844,6 +1991,12 @@ class MainActivity : AppViewsActivity() {
                 false
             ) ?: false
         }.getOrDefault(false)
+        homeTabHiddenRules = runCatching {
+            modulePrefs?.getString(FeaturePreferences.HOME_TAB_HIDDEN_RULES, "").orEmpty()
+        }.getOrDefault("")
+        homeComponentHiddenRules = runCatching {
+            modulePrefs?.getString(FeaturePreferences.HOME_COMPONENT_HIDDEN_RULES, "").orEmpty()
+        }.getOrDefault("")
         hideMineVip = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.HIDE_MINE_VIP, false) ?: false
         }.onFailure { t ->
@@ -1854,6 +2007,9 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read mine vip space prefs failed", t)
         }.getOrDefault(false)
+        mineComponentHiddenRules = runCatching {
+            modulePrefs?.getString(FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES, "").orEmpty()
+        }.getOrDefault("")
         blockAppUpdate = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false) ?: false
         }.onFailure { t ->
@@ -2699,6 +2855,94 @@ class MainActivity : AppViewsActivity() {
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                }
+                            ) {
+                                homeTabRulesSummaryView = this
+                                text = getString(R.string.custom_home_tab_hide) + "\n" +
+                                    ruleSummary(homeTabHiddenRules)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                maxLines = 3
+                                ellipsize = TextUtils.TruncateAt.END
+                                setLineSpacing(5f, 1f)
+                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                background = selfRippleBackground(10f)
+                                isClickable = true
+                                isFocusable = true
+                                setOnClickListener {
+                                    showRuleEditorDialog(
+                                        R.string.custom_home_tab_hide_dialog_title,
+                                        R.string.custom_home_tab_hide_hint,
+                                        homeTabHiddenRules
+                                    ) { value ->
+                                        homeTabHiddenRules = value
+                                        prefs().edit {
+                                            putString(
+                                                FeaturePreferences.HOME_TAB_HIDDEN_RULES,
+                                                value
+                                            )
+                                        }
+                                        homeTabRulesSummaryView?.text =
+                                            getString(R.string.custom_home_tab_hide) + "\n" +
+                                                ruleSummary(value)
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                text = stringResource(R.string.custom_home_tab_hide_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                }
+                            ) {
+                                homeComponentRulesSummaryView = this
+                                text = getString(R.string.custom_home_component_hide) + "\n" +
+                                    ruleSummary(homeComponentHiddenRules)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                maxLines = 3
+                                ellipsize = TextUtils.TruncateAt.END
+                                setLineSpacing(5f, 1f)
+                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                background = selfRippleBackground(10f)
+                                isClickable = true
+                                isFocusable = true
+                                setOnClickListener {
+                                    showRuleEditorDialog(
+                                        R.string.custom_home_component_hide_dialog_title,
+                                        R.string.custom_home_component_hide_hint,
+                                        homeComponentHiddenRules
+                                    ) { value ->
+                                        homeComponentHiddenRules = value
+                                        prefs().edit {
+                                            putString(
+                                                FeaturePreferences.HOME_COMPONENT_HIDDEN_RULES,
+                                                value
+                                            )
+                                        }
+                                        homeComponentRulesSummaryView?.text =
+                                            getString(R.string.custom_home_component_hide) + "\n" +
+                                                ruleSummary(value)
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                text = stringResource(R.string.custom_home_component_hide_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
                             FrameLayout(
                                 lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
                                     topMargin = 14.dp
@@ -2792,6 +3036,50 @@ class MainActivity : AppViewsActivity() {
                                 alpha = 0.6f
                                 setLineSpacing(6f, 1f)
                                 text = stringResource(R.string.keep_mine_vip_space_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                }
+                            ) {
+                                mineComponentRulesSummaryView = this
+                                text = getString(R.string.custom_mine_component_hide) + "\n" +
+                                    ruleSummary(mineComponentHiddenRules)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                maxLines = 3
+                                ellipsize = TextUtils.TruncateAt.END
+                                setLineSpacing(5f, 1f)
+                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                background = selfRippleBackground(10f)
+                                isClickable = true
+                                isFocusable = true
+                                setOnClickListener {
+                                    showRuleEditorDialog(
+                                        R.string.custom_mine_component_hide_dialog_title,
+                                        R.string.custom_mine_component_hide_hint,
+                                        mineComponentHiddenRules
+                                    ) { value ->
+                                        mineComponentHiddenRules = value
+                                        prefs().edit {
+                                            putString(
+                                                FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES,
+                                                value
+                                            )
+                                        }
+                                        mineComponentRulesSummaryView?.text =
+                                            getString(R.string.custom_mine_component_hide) + "\n" +
+                                                ruleSummary(value)
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                text = stringResource(R.string.custom_mine_component_hide_tip)
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }

@@ -183,6 +183,46 @@ class VersionAdapterTest {
             gotoGetters = emptyList(),
             cardTypeGetters = emptyList()
         ),
+        homeTabs = VersionAdapter.HomeTabPoints(
+            buildMethod = VersionAdapter.HookPoint(
+                "tv.danmaku.bili.ui.main2.HomeFragmentV2",
+                "build",
+                listOf("java.util.List")
+            ),
+            resourceClassName = "tv.danmaku.bili.ui.main2.resource.z",
+            idField = "id",
+            titleField = "title",
+            uriField = "uri",
+            reporterIdField = "reporterId"
+        ),
+        homeComponents = VersionAdapter.HomeComponentPoints(
+            onViewCreated = VersionAdapter.HookPoint(
+                "androidx.fragment.app.Fragment",
+                "onViewCreated",
+                listOf("android.view.View", "android.os.Bundle")
+            ),
+            parentFragmentGetter = VersionAdapter.HookPoint(
+                "androidx.fragment.app.Fragment",
+                "getParentFragment",
+                emptyList()
+            )
+        ),
+        mineComponents = VersionAdapter.MineComponentPoints(
+            itemListGetters = listOf(
+                VersionAdapter.HookPoint(
+                    "com.bilibili.lib.homepage.mine.MenuGroupV2",
+                    "getItemList",
+                    emptyList()
+                )
+            ),
+            itemTitleGetters = listOf(
+                VersionAdapter.HookPoint(
+                    "com.bilibili.lib.homepage.mine.MenuGroupV2\$Item",
+                    "getTitle",
+                    emptyList()
+                )
+            )
+        ),
         playerQuality = VersionAdapter.PlayerQualityPoints(
             VersionAdapter.HookPoint("gh6.h", "c", emptyList())
         ),
@@ -305,7 +345,7 @@ class VersionAdapterTest {
                 )
             )
         ),
-        hostFingerprint = "host|9090300|rules=18",
+        hostFingerprint = "host|9090300|rules=19",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -464,6 +504,38 @@ class VersionAdapterTest {
         assertEquals("getCardsList", points?.responseItemGetters?.single()?.methodName)
         assertEquals(1, points?.cardCaseGetters?.size)
         assertEquals("getCardCase", points?.cardCaseGetters?.single()?.methodName)
+    }
+
+    @Test
+    fun `locates home tab builder and stable resource fields by generic signature`() {
+        val points = VersionAdapter.locateHomeTabs(requireNotNull(javaClass.classLoader))
+
+        assertEquals("build", points?.buildMethod?.methodName)
+        assertEquals("tv.danmaku.bili.ui.main2.resource.z", points?.resourceClassName)
+        assertEquals("id", points?.idField)
+        assertEquals("title", points?.titleField)
+        assertEquals("uri", points?.uriField)
+        assertEquals("reporterId", points?.reporterIdField)
+    }
+
+    @Test
+    fun `locates host fragment lifecycle for home component filtering`() {
+        val points = VersionAdapter.locateHomeComponents(requireNotNull(javaClass.classLoader))
+
+        assertEquals("onViewCreated", points?.onViewCreated?.methodName)
+        assertEquals(
+            listOf("android.view.View", "android.os.Bundle"),
+            points?.onViewCreated?.paramClassNames
+        )
+        assertEquals("getParentFragment", points?.parentFragmentGetter?.methodName)
+    }
+
+    @Test
+    fun `locates mine menu list and item title public getters`() {
+        val points = VersionAdapter.locateMineComponents(requireNotNull(javaClass.classLoader))
+
+        assertEquals(setOf("getItemList"), points?.itemListGetters?.map { it.methodName }?.toSet())
+        assertEquals(setOf("getTitle"), points?.itemTitleGetters?.map { it.methodName }?.toSet())
     }
 
     @Test
