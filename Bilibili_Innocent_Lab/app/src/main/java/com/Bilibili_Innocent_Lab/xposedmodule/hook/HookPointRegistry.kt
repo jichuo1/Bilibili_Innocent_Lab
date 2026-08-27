@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import com.highcapable.kavaref.extension.classOf
 import java.lang.reflect.Constructor
 import java.lang.reflect.Field
 import java.lang.reflect.Member
@@ -234,14 +235,14 @@ internal class HookPointRegistry(
     }
 
     private fun resolveParameterClass(name: String): Class<*>? = when (name) {
-        "boolean" -> Boolean::class.javaPrimitiveType
-        "byte" -> Byte::class.javaPrimitiveType
-        "char" -> Char::class.javaPrimitiveType
-        "short" -> Short::class.javaPrimitiveType
-        "int" -> Int::class.javaPrimitiveType
-        "long" -> Long::class.javaPrimitiveType
-        "float" -> Float::class.javaPrimitiveType
-        "double" -> Double::class.javaPrimitiveType
+        "boolean" -> classOf<Boolean>()
+        "byte" -> classOf<Byte>()
+        "char" -> classOf<Char>()
+        "short" -> classOf<Short>()
+        "int" -> classOf<Int>()
+        "long" -> classOf<Long>()
+        "float" -> classOf<Float>()
+        "double" -> classOf<Double>()
         "void" -> Void.TYPE
         else -> KavaMemberLookup.classOrNull(classLoader, name)
     }

@@ -3,7 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.theme
 import android.app.WallpaperManager
 import android.content.Context
 import android.content.res.Configuration
-import android.os.Build
+import com.highcapable.betterandroid.system.extension.tool.AndroidVersion
 import com.kyant.m3color.dynamiccolor.MaterialDynamicColors
 import com.kyant.m3color.hct.Hct
 import com.kyant.m3color.scheme.SchemeTonalSpot
@@ -60,7 +60,7 @@ class MonetColors(
 
         /** Android 12+ 从系统壁纸提取种子色，低版本返回 null */
         private fun extractSeedColor(context: Context): Int? {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+            if (AndroidVersion.isLessThan(AndroidVersion.S)) return null
             return try {
                 val manager = WallpaperManager.getInstance(context)
                 val colors = manager.getWallpaperColors(WallpaperManager.FLAG_SYSTEM)

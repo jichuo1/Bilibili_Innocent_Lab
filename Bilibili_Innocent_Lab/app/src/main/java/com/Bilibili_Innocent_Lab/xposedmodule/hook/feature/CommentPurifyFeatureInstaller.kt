@@ -297,7 +297,7 @@ internal class CommentPurifyFeatureInstaller(
                 intent.javaClass,
                 makeAccessible = true
             ) { field -> !field.isStatic }
-            val booleans = declared.filter { it.type == Boolean::class.javaPrimitiveType }
+            val booleans = declared.filter { it.type == classOf<Boolean>() }
             QuickReplyIntentFields(
                 isReply = booleans.getOrNull(1),
                 position = declared.firstOrNull { field ->

@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import android.widget.TextView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import com.highcapable.kavaref.extension.classOf
 
 /** 首页顶部栏净化：游戏中心入口与搜索框默认推荐词。 */
 internal class HomeTopBarFeatureInstaller(
@@ -154,7 +155,7 @@ internal class HomeTopBarFeatureInstaller(
                 includeSuperclasses = true,
                 makeAccessible = true
             ).any { field ->
-                if (field.type != String::class.java) return@any false
+                if (field.type != classOf<String>()) return@any false
                 val action = runCatching { field.get(config) as? String }.getOrNull()
                     ?: return@any false
                 action == GAME_MENU_ACTION || action.startsWith("$GAME_MENU_ACTION?")

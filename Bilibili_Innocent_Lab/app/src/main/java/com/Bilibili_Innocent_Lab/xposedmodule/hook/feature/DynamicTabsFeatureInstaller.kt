@@ -4,6 +4,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.highcapable.betterandroid.ui.extension.view.childOrNull
+import com.highcapable.betterandroid.ui.extension.view.textToString
 import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -202,10 +204,12 @@ internal class DynamicTabsFeatureInstaller(
                 val view = pending.removeFirst()
                 visited += 1
                 if (view is TextView) {
-                    view.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+                    view.textToString().trim().takeIf { it.isNotEmpty() }?.let { return it }
                 }
                 if (view is ViewGroup) {
-                    for (index in 0 until view.childCount) pending.addLast(view.getChildAt(index))
+                    for (index in 0 until view.childCount) {
+                        view.childOrNull(index)?.let(pending::addLast)
+                    }
                 }
             }
             return null
