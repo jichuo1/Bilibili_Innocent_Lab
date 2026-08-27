@@ -98,8 +98,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 28
-    private const val ADAPTER_RULE_VERSION = 20
+    private const val SCHEMA_VERSION = 29
+    private const val ADAPTER_RULE_VERSION = 21
 
     enum class AdaptState {
         FOUND,
@@ -562,6 +562,40 @@ object VersionAdapter {
         }
     }
 
+    /**
+     * 评论关键词/等级过滤的公开 protobuf 读取边界。
+     *
+     * 列表 getter 只负责提供待筛选的 ReplyInfo；正文和等级 getter 只读取判定信号，
+     * 不写 protobuf 私有字段，也不接触评论富文本、emoji 或 View 绑定链路。
+     */
+    data class CommentFilterPoints(
+        val replyListGetters: List<HookPoint>,
+        val contentGetter: HookPoint,
+        val messageGetter: HookPoint,
+        val memberGetter: HookPoint,
+        val levelGetter: HookPoint
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("lists", JSONArray().apply { replyListGetters.forEach { put(it.toJson()) } })
+            put("content", contentGetter.toJson())
+            put("message", messageGetter.toJson())
+            put("member", memberGetter.toJson())
+            put("level", levelGetter.toJson())
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): CommentFilterPoints = CommentFilterPoints(
+                replyListGetters = o.getJSONArray("lists").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                },
+                contentGetter = HookPoint.fromJson(o.getJSONObject("content")),
+                messageGetter = HookPoint.fromJson(o.getJSONObject("message")),
+                memberGetter = HookPoint.fromJson(o.getJSONObject("member")),
+                levelGetter = HookPoint.fromJson(o.getJSONObject("level"))
+            )
+        }
+    }
+
     /** 播放器默认画质计算边界；仅保存经逐版本核验的唯一无参 Int 方法。 */
     data class PlayerQualityPoints(
         val defaultQualityMethod: HookPoint
@@ -776,6 +810,8 @@ object VersionAdapter {
         val teenagersMode: TeenagersModePoints?,
         /** 评论区净化所需的 protobuf 数据边界。 */
         val commentPurify: CommentPurifyPoints?,
+        /** 评论关键词与等级过滤的公开 protobuf 列表/信号边界。 */
+        val commentFilter: CommentFilterPoints?,
         /** 宿主 APK + 适配规则指纹，防止只凭 versionCode 复用陈旧缓存。 */
         val hostFingerprint: String,
         /** 每个逻辑 Hook 点的定位结果，供日志/UI 诊断。 */
@@ -807,6 +843,7 @@ object VersionAdapter {
             playerQuality?.let { put("player_quality", it.toJson()) }
             teenagersMode?.let { put("teenagers_mode", it.toJson()) }
             commentPurify?.let { put("comment_purify", it.toJson()) }
+            commentFilter?.let { put("comment_filter", it.toJson()) }
             put("fp", hostFingerprint)
             put("diag", JSONArray().apply { diagnostics.forEach { put(it.toJson()) } })
         }
@@ -950,6 +987,12 @@ object VersionAdapter {
                                 operation.defaultInstanceGetter.isValid()
                         } && value.quickReplyDialogMethods.all { it.isValid() }
                 } != false &&
+                commentFilter?.let { value ->
+                    value.replyListGetters.isNotEmpty() &&
+                        value.replyListGetters.all { it.isValid() } &&
+                        value.contentGetter.isValid() && value.messageGetter.isValid() &&
+                        value.memberGetter.isValid() && value.levelGetter.isValid()
+                } != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
         companion object {
@@ -994,6 +1037,8 @@ object VersionAdapter {
                         ?.let(TeenagersModePoints::fromJson),
                     commentPurify = o.optJSONObject("comment_purify")
                         ?.let(CommentPurifyPoints::fromJson),
+                    commentFilter = o.optJSONObject("comment_filter")
+                        ?.let(CommentFilterPoints::fromJson),
                     hostFingerprint = o.optString("fp"),
                     diagnostics = diagnostics
                 ).takeIf { it.isStructurallyValid() }
@@ -1160,6 +1205,10 @@ object VersionAdapter {
     private val COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES = listOf(
         "com.bapis.bilibili.main.community.reply.v1.MainListReply",
         "com.bapis.bilibili.p4311main.community.reply.p4312v1.MainListReply"
+    )
+    private val COMMENT_REPLY_INFO_CLASS_CANDIDATES = listOf(
+        "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+        "com.bapis.bilibili.p4311main.community.reply.p4312v1.ReplyInfo"
     )
     private val COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES = (4..40).flatMap { index ->
         listOf(
@@ -1357,6 +1406,7 @@ object VersionAdapter {
                     "playerQuality=${result?.playerQuality != null} " +
                     "teenagersMode=${result?.teenagersMode != null} " +
                     "commentPurify=${result?.commentPurify != null} " +
+                    "commentFilter=${result?.commentFilter != null} " +
                     "diag=${result?.diagnosticSummary()}"
             )
         }, "BIL-VersionAdapter").apply {
@@ -1392,6 +1442,7 @@ object VersionAdapter {
         val playerQuality = locateDefaultVideoQuality(loader)
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
+        val commentFilter = locateCommentFilter(loader)
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
@@ -1400,7 +1451,8 @@ object VersionAdapter {
             playerStatusBar == null && homeRecommendFeed == null && videoRelate == null &&
             homeTabs == null && homeComponents == null && mineComponents == null &&
             storyFeed == null && bottomBar == null &&
-            playerQuality == null && teenagersMode == null && commentPurify == null) return null
+            playerQuality == null && teenagersMode == null && commentPurify == null &&
+            commentFilter == null) return null
         return AdaptResult(
             biliVersionCode = 0,
             ts = 0L,
@@ -1426,13 +1478,14 @@ object VersionAdapter {
             playerQuality = playerQuality,
             teenagersMode = teenagersMode,
             commentPurify = commentPurify,
+            commentFilter = commentFilter,
             hostFingerprint = "runtime-no-context|rules=$ADAPTER_RULE_VERSION",
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
                 dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
                 videoRelate, homeTabs, homeComponents, mineComponents, storyFeed, bottomBar,
                 playerQuality,
-                teenagersMode, commentPurify
+                teenagersMode, commentPurify, commentFilter
             )
         )
     }
@@ -1467,6 +1520,7 @@ object VersionAdapter {
         val playerQuality = locateDefaultVideoQuality(loader)
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
+        val commentFilter = locateCommentFilter(loader)
         val anyClassExists = COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || HOME_TOP_BAR_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
@@ -1499,6 +1553,7 @@ object VersionAdapter {
             || COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.any {
                 KavaMemberLookup.hasClass(loader, it)
             }
+            || COMMENT_REPLY_INFO_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
@@ -1509,6 +1564,7 @@ object VersionAdapter {
             homeTabs == null && homeComponents == null && mineComponents == null &&
             storyFeed == null && bottomBar == null &&
             playerQuality == null && teenagersMode == null && commentPurify == null &&
+            commentFilter == null &&
             !anyClassExists) return null
         return AdaptResult(
             biliVersionCode = vc,
@@ -1535,13 +1591,14 @@ object VersionAdapter {
             playerQuality = playerQuality,
             teenagersMode = teenagersMode,
             commentPurify = commentPurify,
+            commentFilter = commentFilter,
             hostFingerprint = buildHostFingerprint(context),
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
                 dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
                 videoRelate, homeTabs, homeComponents, mineComponents, storyFeed, bottomBar,
                 playerQuality,
-                teenagersMode, commentPurify
+                teenagersMode, commentPurify, commentFilter
             )
         )
     }
@@ -1580,7 +1637,8 @@ object VersionAdapter {
         bottomBar: BottomBarPoints?,
         playerQuality: PlayerQualityPoints?,
         teenagersMode: TeenagersModePoints?,
-        commentPurify: CommentPurifyPoints?
+        commentPurify: CommentPurifyPoints?,
+        commentFilter: CommentFilterPoints?
     ): List<AdaptDiagnostic> {
         fun stateFor(pointFound: Boolean, candidateExists: Boolean): AdaptState = when {
             pointFound -> AdaptState.FOUND
@@ -1657,6 +1715,9 @@ object VersionAdapter {
             KavaMemberLookup.hasClass(loader, it)
         }
         val commentQuickReplyCandidateExists = COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val commentFilterCandidateExists = COMMENT_REPLY_INFO_CLASS_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
         val pauseCandidateClasses = listOf(
@@ -1894,6 +1955,14 @@ object VersionAdapter {
                 commentPurify?.quickReplyDialogMethods
                     ?.joinToString("|") { it.label() }
                     .orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.filter",
+                stateFor(commentFilter != null, commentFilterCandidateExists),
+                commentFilter?.let { points ->
+                    "lists=${points.replyListGetters.joinToString("|") { it.label() }}," +
+                        "message=${points.messageGetter.label()},level=${points.levelGetter.label()}"
+                }.orEmpty()
             )
         )
     }
@@ -2508,6 +2577,76 @@ object VersionAdapter {
             .map { it.toHookPoint() }
             .toList()
         methods.takeIf { it.isNotEmpty() }?.let(::TeenagersModePoints)
+    }.getOrNull()
+
+    /**
+     * 定位评论筛选的公开 protobuf 读取链。
+     *
+     * 以 ReplyInfo 的真实返回类型反推 Content/Member，避免包重定位后分别选择到不同代
+     * 的同名类；列表边界还要求泛型元素精确为同一个 ReplyInfo，拒绝无关 List getter。
+     */
+    fun locateCommentFilter(loader: ClassLoader): CommentFilterPoints? = runCatching {
+        val replyInfo = COMMENT_REPLY_INFO_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .firstOrNull() ?: return@runCatching null
+
+        fun publicNoArg(owner: Class<*>, name: String): Method? =
+            KavaMemberLookup.methodOrNull(owner, name)?.takeIf { method ->
+                !method.isStatic && method.parameterCount == 0 &&
+                    java.lang.reflect.Modifier.isPublic(method.modifiers)
+            }
+
+        val contentGetter = publicNoArg(replyInfo, "getContent")
+            ?.takeIf { !it.returnType.isPrimitive } ?: return@runCatching null
+        val messageGetter = publicNoArg(contentGetter.returnType, "getMessage")
+            ?.takeIf { it.returnType == String::class.java } ?: return@runCatching null
+        val memberGetter = publicNoArg(replyInfo, "getMember")
+            ?.takeIf { !it.returnType.isPrimitive } ?: return@runCatching null
+        val levelGetter = publicNoArg(memberGetter.returnType, "getLevel")
+            ?.takeIf { method ->
+                method.returnType in setOf(
+                    Int::class.javaPrimitiveType,
+                    Long::class.javaPrimitiveType,
+                    Int::class.javaObjectType,
+                    Long::class.javaObjectType
+                )
+            } ?: return@runCatching null
+
+        fun Method.returnsReplyInfoList(): Boolean {
+            if (!List::class.java.isAssignableFrom(returnType)) return false
+            val generic = genericReturnType as? ParameterizedType ?: return false
+            val argument = generic.actualTypeArguments.singleOrNull() ?: return false
+            val argumentName = when (argument) {
+                is Class<*> -> argument.name
+                is ParameterizedType -> (argument.rawType as? Class<*>)?.name
+                else -> null
+            }
+            return argumentName == replyInfo.name
+        }
+
+        val listGetters = (COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES + replyInfo.name)
+            .asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    !method.isStatic && method.parameterCount == 0 &&
+                        java.lang.reflect.Modifier.isPublic(method.modifiers) &&
+                        method.name in setOf("getRepliesList", "getTopRepliesList") &&
+                        method.returnsReplyInfoList()
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        if (listGetters.isEmpty()) return@runCatching null
+
+        CommentFilterPoints(
+            replyListGetters = listGetters,
+            contentGetter = contentGetter.toHookPoint(),
+            messageGetter = messageGetter.toHookPoint(),
+            memberGetter = memberGetter.toHookPoint(),
+            levelGetter = levelGetter.toHookPoint()
+        )
     }.getOrNull()
 
     /**

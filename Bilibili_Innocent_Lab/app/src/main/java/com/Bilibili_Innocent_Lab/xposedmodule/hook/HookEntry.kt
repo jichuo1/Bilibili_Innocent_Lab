@@ -27,6 +27,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BlockUpdateFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BottomBarFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentPurifyFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DynamicTabsFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
@@ -2993,6 +2994,30 @@ class HookEntry : IYukiHookXposedInit {
                             false
                         ),
                         points = hostAdaptResult?.commentPurify
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    CommentFilterFeatureInstaller(
+                        keywordFilterEnabled = prefs.getBoolean(
+                            FeaturePreferences.COMMENT_KEYWORD_FILTER_ENABLED,
+                            false
+                        ),
+                        rawKeywords = prefs.getString(
+                            FeaturePreferences.COMMENT_FILTER_KEYWORDS,
+                            ""
+                        ).orEmpty(),
+                        minimumLevelFilterEnabled = prefs.getBoolean(
+                            FeaturePreferences.COMMENT_MIN_LEVEL_FILTER_ENABLED,
+                            false
+                        ),
+                        minimumLevel = prefs.getInt(
+                            FeaturePreferences.COMMENT_MIN_LEVEL,
+                            CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL
+                        ),
+                        points = hostAdaptResult?.commentFilter
                     )
                 )
             )
