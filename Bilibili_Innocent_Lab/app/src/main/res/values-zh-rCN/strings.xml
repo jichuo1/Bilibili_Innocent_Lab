@@ -41,6 +41,10 @@
     <string name="custom_home_component_hide_tip">按首页子组件的完整类名或类名片段匹配，不扫描视图文字；适合已知组件类名的高级配置。</string>
     <string name="custom_home_component_hide_dialog_title">首页组件隐藏规则</string>
     <string name="custom_home_component_hide_hint">例如：PopularFragment, LiveHomeFragment</string>
+    <string name="custom_bottom_bar_hide">底栏自定义</string>
+    <string name="custom_bottom_bar_hide_tip">按底栏条目的标题、标识符或 URI 匹配；保留宿主页码和索引，并始终至少保留一个底栏项。</string>
+    <string name="custom_bottom_bar_hide_dialog_title">底栏隐藏规则</string>
+    <string name="custom_bottom_bar_hide_hint">例如：动态, 会员购, bilibili://following/home</string>
     <string name="mine_page_settings">“我的”页面</string>
     <string name="hide_mine_vip">隐藏“我的”页会员卡片</string>
     <string name="hide_mine_vip_tip">仅隐藏会员卡片并移除其占位，不修改“我的”页其他入口；重启哔哩哔哩后生效</string>
@@ -73,6 +77,11 @@
     <string name="hide_player_portrait_control_tip">隐藏 Gemini 播放器中的“进入看一看”竖屏切换控件，保留全屏等其他控件；重启哔哩哔哩后生效</string>
     <string name="transparent_player_status_bar">透明播放器状态栏</string>
     <string name="transparent_player_status_bar_tip">仅在已适配的视频详情 Activity 中将状态栏设为透明，并使用适合视频背景的浅色图标；重启哔哩哔哩后生效。</string>
+    <string name="story_purify_settings">Story 竖屏视频净化</string>
+    <string name="remove_story_ads">过滤 Story 广告</string>
+    <string name="remove_story_live">过滤 Story 直播</string>
+    <string name="remove_story_games">过滤 Story 游戏卡片</string>
+    <string name="story_purify_tip">只使用 StoryDetail 的 isAd、isLive、isGame 精确类型判断，在响应和播放器列表边界过滤；普通竖屏视频保持不变。</string>
     <string name="video_relate_filter_settings">视频相关推荐精确类型过滤</string>
     <string name="remove_relate_commercial">隐藏商业卡片（CM）</string>
     <string name="remove_relate_game">隐藏游戏卡片（GAME）</string>

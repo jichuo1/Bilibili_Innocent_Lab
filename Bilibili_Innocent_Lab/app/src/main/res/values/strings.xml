@@ -40,6 +40,10 @@
     <string name="custom_home_component_hide_tip">Matches full class names or class-name fragments for Home child components without scanning visible text. Intended for advanced known-class configuration.</string>
     <string name="custom_home_component_hide_dialog_title">Hidden Home component rules</string>
     <string name="custom_home_component_hide_hint">Example: PopularFragment, LiveHomeFragment</string>
+    <string name="custom_bottom_bar_hide">Customize the bottom bar</string>
+    <string name="custom_bottom_bar_hide_tip">Matches bottom-bar titles, IDs, or URIs while preserving host page/index data. At least one bottom-bar item is always kept.</string>
+    <string name="custom_bottom_bar_hide_dialog_title">Hidden bottom-bar rules</string>
+    <string name="custom_bottom_bar_hide_hint">Example: Dynamic, Mall, bilibili://following/home</string>
     <string name="mine_page_settings">Mine page</string>
     <string name="hide_mine_vip">Hide the VIP card on the Mine page</string>
     <string name="hide_mine_vip_tip">Hides only the VIP card and removes its space; other Mine-page entries remain unchanged. Restart Bilibili to apply.</string>
@@ -72,6 +76,11 @@
     <string name="hide_player_portrait_control_tip">Hides the Gemini player’s “Full Story” portrait-feed switch while preserving fullscreen controls. Restart Bilibili to apply.</string>
     <string name="transparent_player_status_bar">Transparent player status bar</string>
     <string name="transparent_player_status_bar_tip">Makes the status bar transparent only on the adapted video details Activity and uses light icons for video content. Restart Bilibili to apply.</string>
+    <string name="story_purify_settings">Story portrait-feed purification</string>
+    <string name="remove_story_ads">Remove Story ads</string>
+    <string name="remove_story_live">Remove Story live cards</string>
+    <string name="remove_story_games">Remove Story game cards</string>
+    <string name="story_purify_tip">Uses only StoryDetail isAd/isLive/isGame type signals and filters at response/player list boundaries. Ordinary portrait videos remain unchanged.</string>
     <string name="video_relate_filter_settings">Related-video exact type filtering</string>
     <string name="remove_relate_commercial">Hide commercial cards (CM)</string>
     <string name="remove_relate_game">Hide game cards (GAME)</string>
