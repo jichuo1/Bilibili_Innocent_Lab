@@ -58,6 +58,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.RoamingCompatHook
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.GitHubReleaseChecker
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ShellCommandRunner
@@ -106,6 +107,7 @@ class MainActivity : AppViewsActivity() {
     private var preferDynamicVideoTab = false
     private var showFullNumbers = false
     private var hidePlayerPortraitControl = false
+    private var playerDefaultQualityQn = 0
     private var blockTeenagersModePrompt = false
     private var removeCommentSearchLinks = false
     private var removeCommentEmptyGuide = false
@@ -132,6 +134,7 @@ class MainActivity : AppViewsActivity() {
 
     /** 手动亮色开关下方 tip 引用（动态动画切换文本） */
     private var lightModeTipView: NativeTextView? = null
+    private var playerQualitySummaryView: NativeTextView? = null
     private var roamingCompatEnabled = false
     private var predictiveBackEnabled = false
     private var logEnabled = true
@@ -666,6 +669,132 @@ class MainActivity : AppViewsActivity() {
         )
 
         presentGlassDialog(dialog, container)
+    }
+
+    /** 播放器默认画质选择：只写模块配置，实际 Hook 在 B 站下次主进程启动时安装。 */
+    private fun showPlayerQualityDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createGlassContainer()
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.player_default_quality_dialog_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 17f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (12 * density).toInt() }
+        )
+
+        val optionsContainer = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.VERTICAL
+        }
+        PlayerQualityConfig.supportedQns.forEachIndexed { index, qn ->
+            optionsContainer.addView(
+                createGitHubMenuRow(
+                    title = playerQualityLabel(qn),
+                    subtitle = getString(
+                        if (qn == 0) R.string.player_default_quality_follow_host_tip
+                        else R.string.player_default_quality_override_tip
+                    ),
+                    highlight = qn == playerDefaultQualityQn
+                ) {
+                    playerDefaultQualityQn = qn
+                    runCatching {
+                        prefs().edit {
+                            putInt(FeaturePreferences.PLAYER_DEFAULT_QUALITY_QN, qn)
+                        }
+                    }.onFailure { throwable ->
+                        Log.e(
+                            "BilibiliInnocentLab",
+                            "write player default quality prefs failed",
+                            throwable
+                        )
+                    }
+                    updatePlayerQualitySummary()
+                    dismissWithAnimation(dialog, container) {}
+                },
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    if (index > 0) topMargin = (4 * density).toInt()
+                }
+            )
+        }
+        container.addView(
+            android.widget.ScrollView(this).apply {
+                isFillViewport = false
+                overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+                addView(
+                    optionsContainer,
+                    NativeFrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                )
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (420 * density).toInt()
+            )
+        )
+
+        val buttonRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        buttonRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.dialog_close)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(
+                    (20 * density).toInt(),
+                    (11 * density).toInt(),
+                    (20 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { dismissWithAnimation(dialog, container) {} }
+            }
+        )
+        container.addView(
+            buttonRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (18 * density).toInt() }
+        )
+
+        presentGlassDialog(dialog, container)
+    }
+
+    private fun playerQualityLabel(qn: Int): String = when (qn) {
+        16 -> "360P"
+        32 -> "480P"
+        64 -> "720P"
+        74 -> "720P60"
+        80 -> "1080P"
+        112 -> "1080P 高码率"
+        116 -> "1080P60"
+        120 -> "4K"
+        127 -> "8K"
+        else -> getString(R.string.player_default_quality_follow_host)
+    }
+
+    private fun updatePlayerQualitySummary() {
+        playerQualitySummaryView?.text = getString(
+            R.string.player_default_quality_current,
+            playerQualityLabel(playerDefaultQualityQn)
+        )
     }
 
     /** 保存渠道选择并立即按新渠道检查一次；检查失败保留渠道，下次可继续。 */
@@ -1633,6 +1762,7 @@ class MainActivity : AppViewsActivity() {
         logLevelCompletePill = null
         logLevelThumb = null
         logLevelDesc = null
+        playerQualitySummaryView = null
         super.onDestroy()
     }
 
@@ -1719,6 +1849,13 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read player portrait prefs failed", t)
         }.getOrDefault(false)
+        playerDefaultQualityQn = runCatching {
+            PlayerQualityConfig.normalize(
+                modulePrefs?.getInt(FeaturePreferences.PLAYER_DEFAULT_QUALITY_QN, 0) ?: 0
+            )
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read player default quality prefs failed", t)
+        }.getOrDefault(0)
         removeCommentSearchLinks = runCatching {
             modulePrefs?.getBoolean(
                 FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS,
@@ -2804,6 +2941,53 @@ class MainActivity : AppViewsActivity() {
                                 alpha = 0.6f
                                 setLineSpacing(6f, 1f)
                                 text = stringResource(R.string.hide_player_portrait_control_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            LinearLayout(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                },
+                                init = {
+                                    orientation = LinearLayout.VERTICAL
+                                    background = selfRippleBackground(10f)
+                                    updatePadding(horizontal = 4.dp, vertical = 9.dp)
+                                    isClickable = true
+                                    isFocusable = true
+                                    setOnClickListener { showPlayerQualityDialog() }
+                                }
+                            ) {
+                                TextView(
+                                    lparams = LayoutParams(widthMatchParent = true)
+                                ) {
+                                    text = stringResource(R.string.player_default_quality)
+                                    textColor = colorResource(R.color.colorTextGray)
+                                    textSize = 15f
+                                }
+                                TextView(
+                                    lparams = LayoutParams(widthMatchParent = true) {
+                                        topMargin = 5.dp
+                                    }
+                                ) {
+                                    alpha = 0.6f
+                                    setLineSpacing(6f, 1f)
+                                    text = stringResource(
+                                        R.string.player_default_quality_current,
+                                        playerQualityLabel(playerDefaultQualityQn)
+                                    )
+                                    textColor = colorResource(R.color.colorTextDark)
+                                    textSize = 12f
+                                    playerQualitySummaryView = this
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.player_default_quality_tip)
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }

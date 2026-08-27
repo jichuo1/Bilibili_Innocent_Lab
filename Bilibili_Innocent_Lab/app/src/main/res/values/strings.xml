@@ -47,6 +47,13 @@
     <string name="player_control_settings">Player controls</string>
     <string name="hide_player_portrait_control">Hide the portrait feed switch</string>
     <string name="hide_player_portrait_control_tip">Hides the Gemini player’s “Full Story” portrait-feed switch while preserving fullscreen controls. Restart Bilibili to apply.</string>
+    <string name="player_default_quality">Default player quality</string>
+    <string name="player_default_quality_tip">Changes only the player’s initial quality request and does not unlock paid tiers. Bilibili may still downgrade it for the video, account, or network. Restart Bilibili to apply.</string>
+    <string name="player_default_quality_current">Current: %1$s</string>
+    <string name="player_default_quality_dialog_title">Choose the default player quality</string>
+    <string name="player_default_quality_follow_host">Follow Bilibili</string>
+    <string name="player_default_quality_follow_host_tip">Preserves Bilibili’s automatic quality, account, and restricted-mode decisions.</string>
+    <string name="player_default_quality_override_tip">Uses this tier for the initial request; the host or server may still downgrade it.</string>
     <string name="comment_purify_settings">Comment purification</string>
     <string name="remove_comment_search_links">Remove highlighted search links</string>
     <string name="remove_comment_search_links_tip">Keeps comment text and emoji intact while disabling only keyword links that open Bilibili search. Restart Bilibili to apply.</string>

@@ -97,6 +97,9 @@ class VersionAdapterTest {
                 )
             )
         ),
+        playerQuality = VersionAdapter.PlayerQualityPoints(
+            VersionAdapter.HookPoint("gh6.h", "c", emptyList())
+        ),
         teenagersMode = VersionAdapter.TeenagersModePoints(
             listOf(
                 VersionAdapter.HookPoint(
@@ -206,7 +209,7 @@ class VersionAdapterTest {
                 )
             )
         ),
-        hostFingerprint = "host|9090300|rules=14",
+        hostFingerprint = "host|9090300|rules=15",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -325,6 +328,16 @@ class VersionAdapterTest {
         )
         assertEquals("setVisibility", points.single().methodName)
         assertEquals(listOf("int"), points.single().paramClassNames)
+    }
+
+    @Test
+    fun `prefers newest verified quality owner over older residual candidate`() {
+        val point = VersionAdapter.locateDefaultVideoQuality(requireNotNull(javaClass.classLoader))
+            ?.defaultQualityMethod
+
+        assertEquals("Jq1.l", point?.className)
+        assertEquals("a", point?.methodName)
+        assertEquals(emptyList<String>(), point?.paramClassNames)
     }
 
     @Test
