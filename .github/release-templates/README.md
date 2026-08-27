@@ -20,6 +20,10 @@
 10. Alpha 标签必须使用 `gradle.properties` 中稳定基础版本的下一个补丁前缀，例如
     `1.0.6` 对应 `v1.0.7-alpha.N`；工作流会把完整 Alpha 版本写入 APK，并在发布前反查
     APK 内部版本与构建源码 SHA。
+11. 主仓库 Release 发布后由 `sync-lsposed-release.yml` 同步到 LSPosed 元数据仓库；目标
+    标签固定为 `<versionCode>-<versionName>`，不得手工猜测 versionCode。
+12. 自动同步只接受一个 APK 和 `SHA256SUMS.txt`，会复制全部附件。目标标签已存在时只做
+    全量一致性校验，不自动覆盖或删除。
 
 ## 推荐流程
 
@@ -48,3 +52,15 @@ python3 .github/release-templates/render_release_template.py \
   --release-date 2026-09-01 \
   --sha256 abcdef0123456789
 ```
+
+## LSPosed 同步凭据
+
+主仓库 Actions Secret `LSPOSED_RELEASE_TOKEN` 必须能够在
+`Xposed-Modules-Repo/com.Bilibili_Innocent_Lab.xposedmodule` 创建 Release。优先使用只授权
+该目标仓库且仅包含 `Contents: write` 的 Fine-grained PAT 或 GitHub App；组织不允许外部
+协作者使用细粒度令牌时，才使用带 `public_repo` 的 Classic PAT。令牌值不得写入任何文件。
+
+人工 Stable 发布会通过 `release.published` 自动同步；Actions 使用 `GITHUB_TOKEN` 创建的
+Alpha 不依赖该事件，而是在 Alpha 发布作业成功后直接调用同步工作流。同步失败时，在 Actions
+中手动运行 `Sync Release to LSPosed repository` 并输入原主仓库标签即可补偿；先选
+`dry_run` 可只执行身份与附件校验。
