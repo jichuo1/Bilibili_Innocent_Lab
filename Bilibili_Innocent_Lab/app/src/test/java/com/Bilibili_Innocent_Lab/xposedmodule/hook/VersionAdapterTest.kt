@@ -252,6 +252,16 @@ class VersionAdapterTest {
                 "com.bilibili.video.story.StoryDetail",
                 "isGame",
                 emptyList()
+            ),
+            bangumiGetter = VersionAdapter.HookPoint(
+                "com.bilibili.video.story.StoryDetail",
+                "isBangumi",
+                emptyList()
+            ),
+            courseGetter = VersionAdapter.HookPoint(
+                "com.bilibili.video.story.StoryDetail",
+                "isCheese",
+                emptyList()
             )
         ),
         bottomBar = VersionAdapter.BottomBarPoints(
@@ -424,7 +434,30 @@ class VersionAdapterTest {
                 emptyList()
             )
         ),
-        hostFingerprint = "host|9090300|rules=21",
+        commentSection = VersionAdapter.CommentSectionPoints(
+            listConstructors = listOf(
+                VersionAdapter.ListConstructorPoint(
+                    "com.bilibili.ship.theseus.united.page.tab.TabConfig",
+                    listOf("java.util.List", "java.lang.String", "java.lang.String"),
+                    0
+                )
+            ),
+            locatableTagGetter = VersionAdapter.HookPoint(
+                "com.bilibili.ship.theseus.united.page.tab.TabPage",
+                "getLocatableTag",
+                emptyList()
+            )
+        ),
+        splashAds = VersionAdapter.SplashAdPoints(
+            listOf(
+                VersionAdapter.HookPoint(
+                    "tv.danmaku.bili.splash.ad.model.SplashListResponse",
+                    "getSplashList",
+                    emptyList()
+                )
+            )
+        ),
+        hostFingerprint = "host|9090300|rules=22",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -626,6 +659,33 @@ class VersionAdapterTest {
         assertEquals("isAd", points?.adGetter?.methodName)
         assertEquals("isLive", points?.liveGetter?.methodName)
         assertEquals("isGame", points?.gameGetter?.methodName)
+        assertEquals("isBangumi", points?.bangumiGetter?.methodName)
+        assertEquals("isCheese", points?.courseGetter?.methodName)
+    }
+
+    @Test
+    fun `locates comment tab configuration by generic item tag`() {
+        val points = VersionAdapter.locateCommentSection(requireNotNull(javaClass.classLoader))
+
+        assertEquals(1, points?.listConstructors?.size)
+        assertEquals(
+            "com.bilibili.ship.theseus.united.page.tab.TabConfig",
+            points?.listConstructors?.single()?.className
+        )
+        assertEquals(0, points?.listConstructors?.single()?.listParameterIndex)
+        assertEquals("getLocatableTag", points?.locatableTagGetter?.methodName)
+    }
+
+    @Test
+    fun `locates only whitelisted splash response list getters`() {
+        val points = VersionAdapter.locateSplashAds(requireNotNull(javaClass.classLoader))
+
+        assertEquals(
+            setOf("getSplashList", "getStrategyList"),
+            points?.listGetters?.map { it.methodName }?.toSet()
+        )
+        assertEquals(3, points?.listGetters?.size)
+        assertFalse(points?.listGetters.orEmpty().any { it.methodName == "getKeepIds" })
     }
 
     @Test

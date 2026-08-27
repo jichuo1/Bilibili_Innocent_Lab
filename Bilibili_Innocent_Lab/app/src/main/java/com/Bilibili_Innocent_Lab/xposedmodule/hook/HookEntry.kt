@@ -28,6 +28,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BlockUpdateFeatureIns
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BottomBarFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentSectionFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DynamicTabsFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
@@ -48,6 +49,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PausedAdFeatureInstal
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPortraitFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerStatusBarFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.StoryPurifyFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SplashAdFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TeenagersModeFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoRelateFilterFeatureInstaller
@@ -2845,6 +2847,30 @@ class HookEntry : IYukiHookXposedInit {
                             FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS,
                             false
                         ),
+                        titleFilterEnabled = prefs.getBoolean(
+                            FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_ENABLED,
+                            false
+                        ),
+                        rawTitleKeywords = prefs.getString(
+                            FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_KEYWORDS,
+                            ""
+                        ).orEmpty(),
+                        removeLive = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE,
+                            false
+                        ),
+                        removeCourses = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES,
+                            false
+                        ),
+                        removeVertical = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_HOME_RECOMMEND_VERTICAL,
+                            false
+                        ),
+                        removeLarge = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE,
+                            false
+                        ),
                         points = hostAdaptResult?.homeRecommendFeed
                     )
                 )
@@ -2889,6 +2915,14 @@ class HookEntry : IYukiHookXposedInit {
                         ),
                         removeGames = prefs.getBoolean(
                             FeaturePreferences.REMOVE_STORY_GAMES,
+                            false
+                        ),
+                        removeBangumi = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_STORY_BANGUMI,
+                            false
+                        ),
+                        removeCourses = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_STORY_COURSES,
                             false
                         ),
                         points = hostAdaptResult?.storyFeed
@@ -2964,6 +2998,13 @@ class HookEntry : IYukiHookXposedInit {
 
             featureInstallCoordinator.installAll(
                 listOf(
+                    CommentSectionFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.HIDE_COMMENT_SECTION,
+                            false
+                        ),
+                        points = hostAdaptResult?.commentSection
+                    ),
                     CommentPurifyFeatureInstaller(
                         removeSearchLinks = prefs.getBoolean(
                             FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS,
@@ -2994,6 +3035,18 @@ class HookEntry : IYukiHookXposedInit {
                             false
                         ),
                         points = hostAdaptResult?.commentPurify
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    SplashAdFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.PURIFY_SPLASH_ADS,
+                            false
+                        ),
+                        points = hostAdaptResult?.splashAds
                     )
                 )
             )
