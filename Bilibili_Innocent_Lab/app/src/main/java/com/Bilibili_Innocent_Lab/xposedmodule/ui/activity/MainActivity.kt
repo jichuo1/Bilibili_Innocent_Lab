@@ -109,6 +109,7 @@ class MainActivity : AppViewsActivity() {
     private var removeCommentSearchLinks = false
     private var removeCommentEmptyGuide = false
     private var removeCommentVoteWidgets = false
+    private var removeCommentFollowButtons = false
     private var freeCopyEnabled = true
     private var freeCopyDescEnabled = true
     private var freeCopyLightMode = false
@@ -1739,6 +1740,14 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read comment vote prefs failed", t)
         }.getOrDefault(false)
+        removeCommentFollowButtons = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.REMOVE_COMMENT_FOLLOW_BUTTONS,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read comment follow prefs failed", t)
+        }.getOrDefault(false)
         merchAdEnabled = runCatching {
             modulePrefs?.getBoolean(HookEntry.PREF_MERCH_ENABLED, true) ?: true
         }.onFailure { t ->
@@ -2844,6 +2853,44 @@ class MainActivity : AppViewsActivity() {
                                 alpha = 0.6f
                                 setLineSpacing(6f, 1f)
                                 text = stringResource(R.string.remove_comment_vote_widgets_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_comment_follow_buttons)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeCommentFollowButtons
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    removeCommentFollowButtons = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.REMOVE_COMMENT_FOLLOW_BUTTONS,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write comment follow prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.remove_comment_follow_buttons_tip)
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }

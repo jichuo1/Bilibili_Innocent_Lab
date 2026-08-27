@@ -97,8 +97,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 18
-    private const val ADAPTER_RULE_VERSION = 10
+    private const val SCHEMA_VERSION = 19
+    private const val ADAPTER_RULE_VERSION = 11
 
     enum class AdaptState {
         FOUND,
@@ -352,11 +352,41 @@ object VersionAdapter {
         }
     }
 
+    /** 独立关注控件的状态入口，以及头部装饰容器中的关注按钮绑定入口。 */
+    data class CommentFollowPoints(
+        val widgetStateMethods: List<HookPoint>,
+        val headerBindMethods: List<HookPoint>,
+        val followButtonClassName: String?
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("widget", JSONArray().apply { widgetStateMethods.forEach { put(it.toJson()) } })
+            put("header", JSONArray().apply { headerBindMethods.forEach { put(it.toJson()) } })
+            followButtonClassName?.let { put("button", it) }
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): CommentFollowPoints {
+                val widget = o.getJSONArray("widget")
+                val header = o.getJSONArray("header")
+                return CommentFollowPoints(
+                    widgetStateMethods = (0 until widget.length()).map {
+                        HookPoint.fromJson(widget.getJSONObject(it))
+                    },
+                    headerBindMethods = (0 until header.length()).map {
+                        HookPoint.fromJson(header.getJSONObject(it))
+                    },
+                    followButtonClassName = o.optString("button").takeIf { it.isNotEmpty() }
+                )
+            }
+        }
+    }
+
     /** 评论 protobuf 的净化边界；不触碰正文、emoji 或评论视图。 */
     data class CommentPurifyPoints(
         val urlMapGetters: List<HookPoint>,
         val emptyPageGetters: List<CommentEmptyPagePoint>,
-        val voteWidgetMethods: List<HookPoint>
+        val voteWidgetMethods: List<HookPoint>,
+        val follow: CommentFollowPoints?
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("urls", JSONArray().apply { urlMapGetters.forEach { put(it.toJson()) } })
@@ -365,6 +395,7 @@ object VersionAdapter {
                 JSONArray().apply { emptyPageGetters.forEach { put(it.toJson()) } }
             )
             put("vote", JSONArray().apply { voteWidgetMethods.forEach { put(it.toJson()) } })
+            follow?.let { put("follow", it.toJson()) }
         }
 
         companion object {
@@ -383,7 +414,9 @@ object VersionAdapter {
                         (0 until voteMethods.length()).map {
                             HookPoint.fromJson(voteMethods.getJSONObject(it))
                         }
-                    }
+                    },
+                    if (o.has("follow")) CommentFollowPoints.fromJson(o.getJSONObject("follow"))
+                    else null
                 )
             }
         }
@@ -502,11 +535,18 @@ object VersionAdapter {
                 } != false &&
                 commentPurify?.let { value ->
                     (value.urlMapGetters.isNotEmpty() || value.emptyPageGetters.isNotEmpty() ||
-                        value.voteWidgetMethods.isNotEmpty()) &&
+                        value.voteWidgetMethods.isNotEmpty() || value.follow != null) &&
                         value.urlMapGetters.all { it.isValid() } &&
                         value.emptyPageGetters.all {
                             it.contentGetter.isValid() && it.defaultInstanceGetter.isValid()
-                        } && value.voteWidgetMethods.all { it.isValid() }
+                        } && value.voteWidgetMethods.all { it.isValid() } &&
+                        value.follow?.let { follow ->
+                            (follow.widgetStateMethods.isNotEmpty() || follow.headerBindMethods.isNotEmpty()) &&
+                                follow.widgetStateMethods.all { it.isValid() } &&
+                                follow.headerBindMethods.all { it.isValid() } &&
+                                (follow.headerBindMethods.isEmpty() ||
+                                    !follow.followButtonClassName.isNullOrBlank())
+                        } != false
                 } != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
@@ -621,6 +661,17 @@ object VersionAdapter {
         "com.bilibili.p4439app.comment.p4511ext.widgets.CmtMountWidget",
         "com.bilibili.app.comment3.ui.widget.CommentVoteView",
         "com.bilibili.p4439app.comment3.p4518ui.widget.CommentVoteView"
+    )
+    private val COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES = listOf(
+        "com.bilibili.app.comm.comment2.phoenix.view.CommentFollowWidget",
+        "com.bilibili.p4439app.p4450comm.comment2.phoenix.p4467view.CommentFollowWidget"
+    )
+    private val COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES = listOf(
+        "com.bilibili.app.comment3.ui.widget.CommentHeaderDecorativeView",
+        "com.bilibili.p4439app.comment3.p4518ui.widget.CommentHeaderDecorativeView"
+    )
+    private val COMMENT_FOLLOW_BUTTON_CLASS_CANDIDATES = listOf(
+        "com.bilibili.relation.widget.FollowButton"
     )
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
@@ -884,6 +935,10 @@ object VersionAdapter {
             || COMMENT_CONTENT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_VOTE_WIDGET_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES.any {
+                KavaMemberLookup.hasClass(loader, it)
+            }
             || BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
@@ -975,6 +1030,11 @@ object VersionAdapter {
             KavaMemberLookup.hasClass(loader, it)
         }
         val commentVoteCandidateExists = COMMENT_VOTE_WIDGET_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val commentFollowCandidateExists = COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        } || COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
         val pauseCandidateClasses = listOf(
@@ -1108,6 +1168,15 @@ object VersionAdapter {
                     commentVoteCandidateExists
                 ),
                 commentPurify?.voteWidgetMethods?.joinToString("|") { it.label() }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.purify.follow",
+                stateFor(commentPurify?.follow != null, commentFollowCandidateExists),
+                commentPurify?.follow?.let { follow ->
+                    "widget=${follow.widgetStateMethods.joinToString("|") { it.label() }};" +
+                        "header=${follow.headerBindMethods.joinToString("|") { it.label() }};" +
+                        "button=${follow.followButtonClassName.orEmpty()}"
+                }.orEmpty()
             )
         )
     }
@@ -1446,10 +1515,77 @@ object VersionAdapter {
             .distinctBy(Method::toGenericString)
             .map { it.toHookPoint() }
             .toList()
-        if (urlMethods.isEmpty() && emptyPageGetters.isEmpty() && voteWidgetMethods.isEmpty()) {
+        val followWidgetMethods = COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .filter { it.hasSuperclassNamed("android.view.View") }
+            .flatMap { owner ->
+                val directMethods = KavaMemberLookup.declaredMethods(
+                    owner,
+                    makeAccessible = true
+                ) { method ->
+                    if (method.isStatic || method.returnType != Void.TYPE) {
+                        return@declaredMethods false
+                    }
+                    val binder = method.parameterCount == 1 &&
+                        !method.parameterTypes[0].isPrimitive
+                    val visibilityState = method.parameterCount == 0 &&
+                        method.name != "onDetachedFromWindow"
+                    binder || visibilityState
+                }.map { it.toHookPoint() }
+                val callbackMethods = owner.declaredClasses.flatMap { callbackClass ->
+                    val outerField = KavaMemberLookup.declaredFields(
+                        callbackClass,
+                        makeAccessible = true
+                    ) { field -> !field.isStatic && field.type == owner }.singleOrNull()
+                        ?: return@flatMap emptyList()
+                    KavaMemberLookup.declaredMethods(
+                        callbackClass,
+                        makeAccessible = true
+                    ) { method ->
+                        !method.isStatic && method.returnType == Void.TYPE &&
+                            method.parameterCount == 2 &&
+                            method.parameterTypes[1] == classOf<Int>()
+                    }.map { method -> method.toHookPoint().copy(viewField = outerField.name) }
+                }
+                (directMethods + callbackMethods).asSequence()
+            }
+            .distinctBy { it.label() }
+            .toList()
+        val followButtonClass = COMMENT_FOLLOW_BUTTON_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .firstOrNull()
+        val headerBindMethods = if (followButtonClass == null) {
+            emptyList()
+        } else {
+            COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES.asSequence()
+                .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+                .filter { it.hasSuperclassNamed("android.view.ViewGroup") }
+                .flatMap { owner ->
+                    KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                        !method.isStatic && method.returnType == Void.TYPE &&
+                            method.parameterCount == 2 &&
+                            method.parameterTypes[0] isSubclassOf classOf<List<*>>() &&
+                            !method.parameterTypes[1].isPrimitive
+                    }.asSequence()
+                }
+                .distinctBy(Method::toGenericString)
+                .map { it.toHookPoint() }
+                .toList()
+        }
+        val followPoints = if (followWidgetMethods.isEmpty() && headerBindMethods.isEmpty()) {
             null
         } else {
-            CommentPurifyPoints(urlMethods, emptyPageGetters, voteWidgetMethods)
+            CommentFollowPoints(
+                followWidgetMethods,
+                headerBindMethods,
+                followButtonClass?.name
+            )
+        }
+        if (urlMethods.isEmpty() && emptyPageGetters.isEmpty() && voteWidgetMethods.isEmpty() &&
+            followPoints == null) {
+            null
+        } else {
+            CommentPurifyPoints(urlMethods, emptyPageGetters, voteWidgetMethods, followPoints)
         }
     }.getOrNull()
 

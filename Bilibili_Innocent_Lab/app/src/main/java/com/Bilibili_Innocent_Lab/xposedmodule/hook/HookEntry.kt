@@ -2805,6 +2805,10 @@ class HookEntry : IYukiHookXposedInit {
                             FeaturePreferences.REMOVE_COMMENT_VOTE_WIDGETS,
                             false
                         ),
+                        removeFollowButtons = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_COMMENT_FOLLOW_BUTTONS,
+                            false
+                        ),
                         points = hostAdaptResult?.commentPurify
                     )
                 )

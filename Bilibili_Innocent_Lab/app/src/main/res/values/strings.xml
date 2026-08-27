@@ -51,6 +51,8 @@
     <string name="remove_comment_empty_guide_tip">Removes only the one-tap posting guide shown when a comment section is empty; the comment tab remains available. Restart Bilibili to apply.</string>
     <string name="remove_comment_vote_widgets">Remove comment vote widgets</string>
     <string name="remove_comment_vote_widgets_tip">Hides poll and side-picking widgets in comments without changing normal likes, replies, or comment text. Restart Bilibili to apply.</string>
+    <string name="remove_comment_follow_buttons">Remove comment follow buttons</string>
+    <string name="remove_comment_follow_buttons_tip">Hides follow buttons beside comments and in header decorations while keeping other badges, text, and interactions. Restart Bilibili to apply.</string>
     <string name="merch_ad_enable">Hide UP merchandise promotions</string>
     <string name="merch_ad_tip">When enabled, "UP merchandise" promotions on some video detail pages are no longer shown</string>
     <string name="purify_settings">Purify</string>
