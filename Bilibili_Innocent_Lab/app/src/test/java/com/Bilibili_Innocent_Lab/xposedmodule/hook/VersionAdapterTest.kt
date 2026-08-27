@@ -159,9 +159,45 @@ class VersionAdapterTest {
                     "getDefaultInstance",
                     emptyList()
                 )
+            ),
+            listOf(
+                VersionAdapter.CommentOptionalPayloadPoint(
+                    presenceGetter = VersionAdapter.HookPoint(
+                        "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+                        "hasOperation",
+                        emptyList()
+                    ),
+                    contentGetter = VersionAdapter.HookPoint(
+                        "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+                        "getOperation",
+                        emptyList()
+                    ),
+                    defaultInstanceGetter = VersionAdapter.HookPoint(
+                        "com.bapis.bilibili.main.community.reply.v1.Operation",
+                        "getDefaultInstance",
+                        emptyList()
+                    )
+                ),
+                VersionAdapter.CommentOptionalPayloadPoint(
+                    presenceGetter = VersionAdapter.HookPoint(
+                        "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+                        "hasOperationV2",
+                        emptyList()
+                    ),
+                    contentGetter = VersionAdapter.HookPoint(
+                        "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+                        "getOperationV2",
+                        emptyList()
+                    ),
+                    defaultInstanceGetter = VersionAdapter.HookPoint(
+                        "com.bapis.bilibili.main.community.reply.v1.OperationV2",
+                        "getDefaultInstance",
+                        emptyList()
+                    )
+                )
             )
         ),
-        hostFingerprint = "host|9090300|rules=12",
+        hostFingerprint = "host|9090300|rules=13",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -338,6 +374,26 @@ class VersionAdapterTest {
         assertEquals(
             "com.bapis.bilibili.main.community.reply.v1.QoeInfo",
             point?.defaultInstanceGetter?.className
+        )
+    }
+
+    @Test
+    fun `locates both operation payloads at public read boundaries`() {
+        val points = VersionAdapter.locateCommentPurify(requireNotNull(javaClass.classLoader))
+            ?.operations.orEmpty()
+
+        assertEquals(2, points.size)
+        assertEquals(
+            setOf("getOperation", "getOperationV2"),
+            points.map { it.contentGetter.methodName }.toSet()
+        )
+        assertEquals(
+            setOf("hasOperation", "hasOperationV2"),
+            points.map { it.presenceGetter.methodName }.toSet()
+        )
+        assertEquals(
+            setOf("Operation", "OperationV2"),
+            points.map { it.defaultInstanceGetter.className.substringAfterLast('.') }.toSet()
         )
     }
 }
