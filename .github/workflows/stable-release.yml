@@ -1,0 +1,409 @@
+name: Build and publish Stable
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_stable:
+        description: Publish a GitHub Stable Release after all checks pass
+        required: true
+        type: boolean
+        default: false
+      release_tag:
+        description: Stable tag; must exactly match the source version, for example v1.0.8
+        required: true
+        type: string
+      release_summary:
+        description: Two to four sentences describing this Stable version and user-facing value
+        required: true
+        type: string
+
+concurrency:
+  group: stable-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CI_COMPILE_SDK: '35'
+  CI_BUILD_TOOLS: '35.0.0'
+
+jobs:
+  verify:
+    name: Build, test and lint Stable
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      release_tag: ${{ steps.identity.outputs.release_tag }}
+      version_name: ${{ steps.identity.outputs.version_name }}
+      version_code: ${{ steps.identity.outputs.version_code }}
+      package_name: ${{ steps.identity.outputs.package_name }}
+      apk_filename: ${{ steps.apk.outputs.apk_filename }}
+      apk_sha256: ${{ steps.apk.outputs.apk_sha256 }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require the latest main source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Stable builds must be triggered from main; selected ref is $GITHUB_REF"
+            exit 1
+          fi
+
+          checked_out_sha="$(git rev-parse HEAD)"
+          git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+          remote_main_sha="$(git rev-parse refs/remotes/origin/main)"
+          if [[ "$checked_out_sha" != "$GITHUB_SHA" ]]; then
+            echo "Checked-out commit $checked_out_sha does not match event commit $GITHUB_SHA"
+            exit 1
+          fi
+          if [[ "$remote_main_sha" != "$GITHUB_SHA" ]]; then
+            echo "Refusing stale build: event commit is $GITHUB_SHA but remote main is $remote_main_sha"
+            echo "Push the intended source and trigger the latest main commit again."
+            exit 1
+          fi
+
+          {
+            echo "### Stable build source"
+            echo "- Ref: \`$GITHUB_REF\`"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Subject: $(git log -1 --format=%s)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate Stable release tooling
+        shell: bash
+        env:
+          RELEASE_SUMMARY: ${{ inputs.release_summary }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${RELEASE_SUMMARY//[[:space:]]/}" ]]; then
+            echo 'Stable release summary must not be empty.'
+            exit 1
+          fi
+
+          python3 -m unittest discover \
+            -s .github/release-templates \
+            -p 'test_*.py'
+
+          test_dir="$RUNNER_TEMP/stable-release-template-test"
+          mkdir -p "$test_dir"
+          python3 .github/release-templates/generate_stable_changelog.py \
+            --repo-root . \
+            --repository-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --release-tag v0.0.0 \
+            --commit "$GITHUB_SHA" \
+            --output "$test_dir/STABLE_CHANGELOG.md"
+          python3 .github/release-templates/render_release_template.py \
+            --template .github/release-templates/stable.md \
+            --output "$test_dir/RELEASE_NOTES.md" \
+            --version v0.0.0 \
+            --commit "$GITHUB_SHA" \
+            --release-date "$(TZ=Asia/Shanghai date +%F)" \
+            --sha256 0000000000000000000000000000000000000000000000000000000000000000 \
+            --apk-filename Bilibili_Innocent_Lab-v0.0.0-00000000.apk \
+            --release-summary "$RELEASE_SUMMARY" \
+            --changelog-file "$test_dir/STABLE_CHANGELOG.md"
+          if grep -Eq '\{\{[A-Z0-9_]+\}\}' "$test_dir/RELEASE_NOTES.md"; then
+            echo 'Stable release-note tooling left unresolved template tokens.'
+            exit 1
+          fi
+          if grep -Fq '请在此填写' "$test_dir/RELEASE_NOTES.md"; then
+            echo 'Stable release notes still contain a manual fill-in prompt.'
+            exit 1
+          fi
+
+      - name: Resolve source-controlled Stable identity
+        id: identity
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          python3 .github/release-templates/validate_stable_build.py \
+            --gradle-properties Bilibili_Innocent_Lab/gradle.properties \
+            --release-tag "$RELEASE_TAG" \
+            --repo-root . \
+            --commit "$GITHUB_SHA" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: sdkmanager "platforms;android-${CI_COMPILE_SDK}" "build-tools;${CI_BUILD_TOOLS}"
+
+      - name: Build, test and lint
+        working-directory: Bilibili_Innocent_Lab
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
+            assembleDebug testDebugUnitTest lintDebug \
+            --console=plain --no-daemon
+
+      - name: Verify APK identity and generate provenance
+        id: apk
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.identity.outputs.release_tag }}
+          EXPECTED_PACKAGE_NAME: ${{ steps.identity.outputs.package_name }}
+          EXPECTED_VERSION_NAME: ${{ steps.identity.outputs.version_name }}
+          EXPECTED_VERSION_CODE: ${{ steps.identity.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          apk="Bilibili_Innocent_Lab/app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$apk"
+          aapt_bin="$ANDROID_SDK_ROOT/build-tools/$CI_BUILD_TOOLS/aapt"
+          test -x "$aapt_bin"
+          package_line="$("$aapt_bin" dump badging "$apk" | sed -n '1p')"
+          actual_package_name="$(printf '%s\n' "$package_line" | sed -n "s/.*package: name='\([^']*\)'.*/\1/p")"
+          actual_version_name="$(printf '%s\n' "$package_line" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
+          actual_version_code="$(printf '%s\n' "$package_line" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+          test -n "$actual_package_name"
+          test -n "$actual_version_name"
+          test -n "$actual_version_code"
+          if [[ "$actual_package_name" != "$EXPECTED_PACKAGE_NAME" ]]; then
+            echo "APK package mismatch: expected $EXPECTED_PACKAGE_NAME, found $actual_package_name"
+            exit 1
+          fi
+          if [[ "$actual_version_name" != "$EXPECTED_VERSION_NAME" ]]; then
+            echo "APK versionName mismatch: expected $EXPECTED_VERSION_NAME, found $actual_version_name"
+            exit 1
+          fi
+          if [[ "$actual_version_code" != "$EXPECTED_VERSION_CODE" ]]; then
+            echo "APK versionCode mismatch: expected $EXPECTED_VERSION_CODE, found $actual_version_code"
+            exit 1
+          fi
+
+          short_sha="${GITHUB_SHA:0:8}"
+          apk_filename="Bilibili_Innocent_Lab-${RELEASE_TAG}-${short_sha}.apk"
+          mkdir -p release-asset
+          cp "$apk" "release-asset/$apk_filename"
+          apk_sha256="$(sha256sum "release-asset/$apk_filename" | awk '{print $1}')"
+          {
+            printf 'release_channel=stable\n'
+            printf 'release_tag=%s\n' "$RELEASE_TAG"
+            printf 'source_ref=%s\n' "$GITHUB_REF"
+            printf 'source_commit=%s\n' "$GITHUB_SHA"
+            printf 'apk_package_name=%s\n' "$actual_package_name"
+            printf 'apk_version_name=%s\n' "$actual_version_name"
+            printf 'apk_version_code=%s\n' "$actual_version_code"
+            printf 'apk_filename=%s\n' "$apk_filename"
+            printf 'apk_sha256=%s\n' "$apk_sha256"
+          } > release-asset/BUILD_INFO.txt
+          (
+            cd release-asset
+            sha256sum "$apk_filename" BUILD_INFO.txt > SHA256SUMS.txt
+          )
+
+          echo "apk_filename=$apk_filename" >> "$GITHUB_OUTPUT"
+          echo "apk_sha256=$apk_sha256" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Verified Stable APK"
+            echo "- File: \`$apk_filename\`"
+            echo "- Package: \`$actual_package_name\`"
+            echo "- versionName: \`$actual_version_name\`"
+            echo "- versionCode: \`$actual_version_code\`"
+            echo "- SHA-256: \`$apk_sha256\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload verified Stable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: stable-release-asset-${{ github.sha }}
+          path: release-asset
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish Stable Release
+    needs: verify
+    if: ${{ inputs.publish_stable == true && needs.verify.outputs.release_tag == inputs.release_tag }}
+    runs-on: ubuntu-latest
+    environment:
+      name: stable-release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out source and release template
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Download verified build
+        uses: actions/download-artifact@v4
+        with:
+          name: stable-release-asset-${{ github.sha }}
+          path: release-asset
+
+      - name: Verify downloaded build provenance and release vacancy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          APK_FILENAME: ${{ needs.verify.outputs.apk_filename }}
+          EXPECTED_PACKAGE_NAME: ${{ needs.verify.outputs.package_name }}
+          EXPECTED_VERSION_NAME: ${{ needs.verify.outputs.version_name }}
+          EXPECTED_VERSION_CODE: ${{ needs.verify.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin
+          git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+          remote_main_sha="$(git rev-parse refs/remotes/origin/main)"
+          if [[ "$remote_main_sha" != "$GITHUB_SHA" ]]; then
+            echo "Refusing stale publish: verified commit is $GITHUB_SHA but remote main is $remote_main_sha"
+            echo "Run the workflow again from the latest main commit."
+            exit 1
+          fi
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            echo "Refusing to replace existing Git tag $RELEASE_TAG"
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Refusing to replace existing GitHub Release $RELEASE_TAG"
+            exit 1
+          fi
+
+          test -f "release-asset/$APK_FILENAME"
+          test -f release-asset/BUILD_INFO.txt
+          test -f release-asset/SHA256SUMS.txt
+          grep -Fx 'release_channel=stable' release-asset/BUILD_INFO.txt
+          grep -Fx "release_tag=$RELEASE_TAG" release-asset/BUILD_INFO.txt
+          grep -Fx "source_commit=$GITHUB_SHA" release-asset/BUILD_INFO.txt
+          grep -Fx "apk_package_name=$EXPECTED_PACKAGE_NAME" release-asset/BUILD_INFO.txt
+          grep -Fx "apk_version_name=$EXPECTED_VERSION_NAME" release-asset/BUILD_INFO.txt
+          grep -Fx "apk_version_code=$EXPECTED_VERSION_CODE" release-asset/BUILD_INFO.txt
+          grep -Fx "apk_filename=$APK_FILENAME" release-asset/BUILD_INFO.txt
+          (
+            cd release-asset
+            sha256sum -c SHA256SUMS.txt
+          )
+
+      - name: Render standardized Stable release notes
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_SUMMARY: ${{ inputs.release_summary }}
+          APK_FILENAME: ${{ needs.verify.outputs.apk_filename }}
+          APK_SHA256: ${{ needs.verify.outputs.apk_sha256 }}
+        run: |
+          set -euo pipefail
+          changelog_file="release-asset/STABLE_CHANGELOG.md"
+          python3 .github/release-templates/generate_stable_changelog.py \
+            --repo-root . \
+            --repository-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --release-tag "$RELEASE_TAG" \
+            --commit "$GITHUB_SHA" \
+            --output "$changelog_file"
+
+          python3 .github/release-templates/render_release_template.py \
+            --template .github/release-templates/stable.md \
+            --output release-asset/RELEASE_NOTES.md \
+            --version "$RELEASE_TAG" \
+            --commit "$GITHUB_SHA" \
+            --release-date "$(TZ=Asia/Shanghai date +%F)" \
+            --sha256 "$APK_SHA256" \
+            --apk-filename "$APK_FILENAME" \
+            --release-summary "$RELEASE_SUMMARY" \
+            --changelog-file "$changelog_file"
+
+          if grep -Eq '\{\{[A-Z0-9_]+\}\}' release-asset/RELEASE_NOTES.md; then
+            echo 'Rendered Stable release notes still contain template tokens.'
+            exit 1
+          fi
+
+      - name: Create GitHub Stable Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          APK_FILENAME: ${{ needs.verify.outputs.apk_filename }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" \
+            "release-asset/$APK_FILENAME" \
+            release-asset/BUILD_INFO.txt \
+            release-asset/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TAG" \
+            --latest \
+            --notes-file release-asset/RELEASE_NOTES.md
+
+      - name: Read back and verify published Stable Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          APK_FILENAME: ${{ needs.verify.outputs.apk_filename }}
+        run: |
+          set -euo pipefail
+          published_dir="$RUNNER_TEMP/published-stable-assets"
+          metadata_file="$RUNNER_TEMP/published-stable-release.json"
+          mkdir -p "$published_dir"
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,isDraft,isPrerelease,targetCommitish,assets,url \
+            > "$metadata_file"
+          jq -e \
+            --arg tag "$RELEASE_TAG" \
+            '.tagName == $tag and .name == $tag and (.isDraft == false) and (.isPrerelease == false)' \
+            "$metadata_file" > /dev/null
+
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$published_dir"
+          diff -u \
+            <(printf '%s\n' "$APK_FILENAME" BUILD_INFO.txt SHA256SUMS.txt | sort) \
+            <(find "$published_dir" -maxdepth 1 -type f -printf '%f\n' | sort)
+          (
+            cd "$published_dir"
+            sha256sum -c SHA256SUMS.txt
+          )
+          cmp "release-asset/$APK_FILENAME" "$published_dir/$APK_FILENAME"
+          cmp release-asset/BUILD_INFO.txt "$published_dir/BUILD_INFO.txt"
+          cmp release-asset/SHA256SUMS.txt "$published_dir/SHA256SUMS.txt"
+
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          published_commit="$(git rev-list -n 1 "$RELEASE_TAG")"
+          if [[ "$published_commit" != "$GITHUB_SHA" ]]; then
+            echo "Published tag resolves to $published_commit instead of $GITHUB_SHA"
+            exit 1
+          fi
+          release_url="$(jq -r '.url' "$metadata_file")"
+          {
+            echo "### Published Stable Release"
+            echo "- Tag: \`$RELEASE_TAG\`"
+            echo "- Commit: \`$published_commit\`"
+            echo "- Release: $release_url"
+            echo "- Assets: APK, BUILD_INFO.txt, SHA256SUMS.txt"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  sync-lsposed:
+    name: Sync Stable to LSPosed repository
+    needs:
+      - verify
+      - publish
+    if: ${{ needs.publish.result == 'success' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/sync-lsposed-release.yml
+    with:
+      source_tag: ${{ needs.verify.outputs.release_tag }}
+      dry_run: false
+    secrets:
+      LSPOSED_RELEASE_TOKEN: ${{ secrets.LSPOSED_RELEASE_TOKEN }}
