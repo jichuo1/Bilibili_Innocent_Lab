@@ -177,6 +177,12 @@ class MainActivity : AppViewsActivity() {
     private var experimentalExpanded = false
     private var experimentalContentHeight = -1
 
+    /** "进阶设置"二级菜单：与实验性功能共用同一套展开/收起动效。 */
+    private var advancedContent: View? = null
+    private var advancedChevron: View? = null
+    private var advancedExpanded = false
+    private var advancedContentHeight = -1
+
     /** 当前活动的确认弹窗：Activity 销毁时主动 dismiss，避免 WindowLeaked */
     private var activeConfirmDialog: Dialog? = null
 
@@ -1931,14 +1937,34 @@ class MainActivity : AppViewsActivity() {
         val content = experimentalContent ?: return
         val chevron = experimentalChevron ?: return
         if (experimentalExpanded) {
-            collapseExperimental(content, chevron)
+            collapseSecondarySection(content, chevron, experimentalContentHeight)
         } else {
-            expandExperimental(content, chevron)
+            expandSecondarySection(content, chevron, experimentalContentHeight) {
+                experimentalContentHeight = it
+            }
         }
         experimentalExpanded = !experimentalExpanded
     }
 
-    private fun expandExperimental(content: View, chevron: View) {
+    private fun toggleAdvanced() {
+        val content = advancedContent ?: return
+        val chevron = advancedChevron ?: return
+        if (advancedExpanded) {
+            collapseSecondarySection(content, chevron, advancedContentHeight)
+        } else {
+            expandSecondarySection(content, chevron, advancedContentHeight) {
+                advancedContentHeight = it
+            }
+        }
+        advancedExpanded = !advancedExpanded
+    }
+
+    private fun expandSecondarySection(
+        content: View,
+        chevron: View,
+        cachedHeight: Int,
+        cacheHeight: (Int) -> Unit
+    ) {
         // 目标高度：优先复用缓存值，避免每次展开都重新 measure（内容高度固定，只需测一次）。
         // 测量宽度必须用父容器「内容区」宽度（外宽减 padding）——用外宽会高估可用宽度、
         // 文字换行偏少、测得高度偏小；真实布局在较窄宽度下换行变多后，竖向 LinearLayout
@@ -1946,21 +1972,21 @@ class MainActivity : AppViewsActivity() {
         content.visibility = View.VISIBLE
         val parent = content.parent as? View
         val parentWidth = parent?.let { it.width - it.paddingLeft - it.paddingRight } ?: 0
-        if (parentWidth <= 0 && experimentalContentHeight <= 0) {
+        if (parentWidth <= 0 && cachedHeight <= 0) {
             // 首帧布局未完成（打开界面后极快点击）：无法可靠测量，直接自然展开，
             // 不缓存错误高度
             chevron.animate().rotation(180f).setDuration(260L)
                 .setInterpolator(emphasizedDecelerate).start()
             return
         }
-        val targetHeight = if (experimentalContentHeight > 0) {
-            experimentalContentHeight
+        val targetHeight = if (cachedHeight > 0) {
+            cachedHeight
         } else {
             content.measure(
                 View.MeasureSpec.makeMeasureSpec(parentWidth, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
             )
-            content.measuredHeight.also { experimentalContentHeight = it }
+            content.measuredHeight.also(cacheHeight)
         }
 
         // 高度动画（从 0 展开）
@@ -1992,9 +2018,9 @@ class MainActivity : AppViewsActivity() {
             .start()
     }
 
-    private fun collapseExperimental(content: View, chevron: View) {
+    private fun collapseSecondarySection(content: View, chevron: View, cachedHeight: Int) {
         // 收起起点用当前实际高度（展开末态为 WRAP_CONTENT，与缓存值可能有细微差）
-        val startHeight = content.height.takeIf { it > 0 } ?: experimentalContentHeight
+        val startHeight = content.height.takeIf { it > 0 } ?: cachedHeight
 
         // 高度动画（收起到 0）
         ValueAnimator.ofInt(startHeight.coerceAtLeast(0), 0).apply {
@@ -2032,11 +2058,19 @@ class MainActivity : AppViewsActivity() {
         // 清理 View 引用字段，彻底断开对 hierarchy 的持有
         experimentalContent = null
         experimentalChevron = null
+        advancedContent = null
+        advancedChevron = null
         logLevelMinimalPill = null
         logLevelCompletePill = null
         logLevelThumb = null
         logLevelDesc = null
         playerQualitySummaryView = null
+        homeTabRulesSummaryView = null
+        homeComponentRulesSummaryView = null
+        mineComponentRulesSummaryView = null
+        bottomBarRulesSummaryView = null
+        commentKeywordSummaryView = null
+        commentLevelSummaryView = null
         super.onDestroy()
     }
 
@@ -2786,27 +2820,75 @@ class MainActivity : AppViewsActivity() {
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }
-                            // 功能区分隔线（首页大卡与顶部栏净化之间）
-                            FrameLayout(
-                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
-                                    topMargin = 14.dp
-                                    bottomMargin = 14.dp
-                                },
+                        }
+                        Space(lparams = LayoutParams(height = 10.dp))
+                        // Advanced 分支新增功能统一收纳到默认折叠的“进阶设置”。
+                        LinearLayout(
+                            lparams = LayoutParams(widthMatchParent = true) {
+                                updateMargins(horizontal = 15.dp)
+                            },
+                            init = {
+                                orientation = LinearLayout.VERTICAL
+                                gravity = Gravity.CENTER or Gravity.START
+                                background = roundedColor(monetColors.surfaceVariant)
+                                updatePadding(left = 15.dp, top = 5.dp, right = 15.dp, bottom = 5.dp)
+                            }
+                        ) {
+                            LinearLayout(
+                                lparams = LayoutParams(widthMatchParent = true),
                                 init = {
-                                    setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x40))
+                                    gravity = Gravity.CENTER or Gravity.START
+                                    updatePadding(vertical = 10.dp)
+                                    setOnClickListener { toggleAdvanced() }
                                 }
-                            )
-                            // 子项 3：首页顶部栏净化（新功能默认关闭）
+                            ) {
+                                ImageView(
+                                    lparams = LayoutParams(15.dp, 15.dp) {
+                                        marginEnd = 10.dp
+                                    }
+                                ) {
+                                    setImageResource(R.drawable.ic_tune)
+                                    imageTintList = stateColorResource(R.color.colorTextGray)
+                                }
+                                TextView(
+                                    lparams = LayoutParams { weight = 1f }
+                                ) {
+                                    alpha = 0.85f
+                                    isSingleLine = true
+                                    text = stringResource(R.string.advanced_settings)
+                                    textColor = colorResource(R.color.colorTextGray)
+                                    textSize = 12f
+                                }
+                                ImageView(
+                                    lparams = LayoutParams(18.dp, 18.dp)
+                                ) {
+                                    advancedChevron = this
+                                    setImageResource(R.drawable.ic_chevron_down)
+                                    imageTintList = stateColorResource(R.color.colorTextGray)
+                                    alpha = 0.85f
+                                }
+                            }
+                            LinearLayout(
+                                lparams = LayoutParams(widthMatchParent = true),
+                                init = {
+                                    orientation = LinearLayout.VERTICAL
+                                    visibility = View.GONE
+                                    advancedContent = this
+                                    updatePadding(bottom = 10.dp)
+                                }
+                            ) {
+                            // 分类：首页与导航
                             TextView(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     bottomMargin = 4.dp
                                 }
                             ) {
-                                alpha = 0.7f
+                                alpha = 0.9f
                                 isSingleLine = true
-                                text = stringResource(R.string.home_top_bar_settings)
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 11f
+                                text = stringResource(R.string.advanced_home_navigation_category)
+                                textColor = monetColors.primary
+                                textSize = 12f
+                                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                             }
                             MaterialSwitch(
                                 lparams = LayoutParams(widthMatchParent = true) {
@@ -3144,17 +3226,18 @@ class MainActivity : AppViewsActivity() {
                                     setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x40))
                                 }
                             )
-                            // 子项 4：“我的”页净化（新功能默认关闭）
+                            // 分类：界面与提示
                             TextView(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     bottomMargin = 4.dp
                                 }
                             ) {
-                                alpha = 0.7f
+                                alpha = 0.9f
                                 isSingleLine = true
-                                text = stringResource(R.string.mine_page_settings)
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 11f
+                                text = stringResource(R.string.advanced_interface_category)
+                                textColor = monetColors.primary
+                                textSize = 12f
+                                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                             }
                             MaterialSwitch(
                                 lparams = LayoutParams(widthMatchParent = true) {
@@ -3602,17 +3685,18 @@ class MainActivity : AppViewsActivity() {
                                     )
                                 }
                             )
-                            // 子项 9：播放器竖屏切换控件（新功能默认关闭）
+                            // 分类：播放与视频
                             TextView(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     bottomMargin = 4.dp
                                 }
                             ) {
-                                alpha = 0.7f
+                                alpha = 0.9f
                                 isSingleLine = true
-                                text = stringResource(R.string.player_control_settings)
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 11f
+                                text = stringResource(R.string.advanced_playback_category)
+                                textColor = monetColors.primary
+                                textSize = 12f
+                                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                             }
                             MaterialSwitch(
                                 lparams = LayoutParams(widthMatchParent = true) {
@@ -3933,17 +4017,18 @@ class MainActivity : AppViewsActivity() {
                                     )
                                 }
                             )
-                            // 子项 10：评论区搜索跳转净化（新功能默认关闭）
+                            // 分类：评论区
                             TextView(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     bottomMargin = 4.dp
                                 }
                             ) {
-                                alpha = 0.7f
+                                alpha = 0.9f
                                 isSingleLine = true
-                                text = stringResource(R.string.comment_purify_settings)
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 11f
+                                text = stringResource(R.string.advanced_comment_category)
+                                textColor = monetColors.primary
+                                textSize = 12f
+                                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                             }
                             MaterialSwitch(
                                 lparams = LayoutParams(widthMatchParent = true) {
@@ -4347,20 +4432,21 @@ class MainActivity : AppViewsActivity() {
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }
-                            FrameLayout(
-                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
-                                    topMargin = 14.dp
-                                    bottomMargin = 14.dp
-                                },
-                                init = {
-                                    setBackgroundColor(
-                                        ColorUtils.setAlphaComponent(
-                                            colorResource(R.color.colorTextGray),
-                                            0x40
-                                        )
-                                    )
-                                }
-                            )
+                            }
+                        }
+                        Space(lparams = LayoutParams(height = 10.dp))
+                        // 分支前已有的自由复制功能保持独立，不归入进阶设置。
+                        LinearLayout(
+                            lparams = LayoutParams(widthMatchParent = true) {
+                                updateMargins(horizontal = 15.dp)
+                            },
+                            init = {
+                                orientation = LinearLayout.VERTICAL
+                                gravity = Gravity.CENTER or Gravity.START
+                                background = roundedColor(monetColors.surfaceVariant)
+                                updatePadding(left = 15.dp, top = 15.dp, right = 15.dp, bottom = 15.dp)
+                            }
+                        ) {
                             // 子项 10：评论区长按自由复制
                             TextView(
                                 lparams = LayoutParams(widthMatchParent = true) {
