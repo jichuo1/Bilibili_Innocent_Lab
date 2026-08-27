@@ -25,6 +25,8 @@
     <string name="hide_home_game_menu_tip">Only blocks the game-center menu item; search, scan, and other entries remain available. Restart Bilibili to apply.</string>
     <string name="hide_home_search_default_word">Hide the default search suggestion</string>
     <string name="hide_home_search_default_word_tip">Keeps search and its click behavior available while clearing only the suggested text. Restart Bilibili to apply.</string>
+    <string name="home_vertical_open_detail">Open portrait videos in details</string>
+    <string name="home_vertical_open_detail_tip">Rewrites only portrait-video cards returned by the home recommendation feed to the normal video details route. Story links elsewhere are unchanged. Restart Bilibili to apply.</string>
     <string name="mine_page_settings">Mine page</string>
     <string name="hide_mine_vip">Hide the VIP card on the Mine page</string>
     <string name="hide_mine_vip_tip">Hides only the VIP card and removes its space; other Mine-page entries remain unchanged. Restart Bilibili to apply.</string>
@@ -49,6 +51,8 @@
     <string name="player_control_settings">Player controls</string>
     <string name="hide_player_portrait_control">Hide the portrait feed switch</string>
     <string name="hide_player_portrait_control_tip">Hides the Gemini player’s “Full Story” portrait-feed switch while preserving fullscreen controls. Restart Bilibili to apply.</string>
+    <string name="transparent_player_status_bar">Transparent player status bar</string>
+    <string name="transparent_player_status_bar_tip">Makes the status bar transparent only on the adapted video details Activity and uses light icons for video content. Restart Bilibili to apply.</string>
     <string name="player_default_quality">Default player quality</string>
     <string name="player_default_quality_tip">Changes only the player’s initial quality request and does not unlock paid tiers. Bilibili may still downgrade it for the video, account, or network. Restart Bilibili to apply.</string>
     <string name="player_default_quality_current">Current: %1$s</string>

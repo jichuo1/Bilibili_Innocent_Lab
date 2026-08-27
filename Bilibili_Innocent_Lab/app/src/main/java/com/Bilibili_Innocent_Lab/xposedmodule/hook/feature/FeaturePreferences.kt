@@ -4,6 +4,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 internal object FeaturePreferences {
     const val HIDE_HOME_GAME_MENU = "hide_home_game_menu"
     const val HIDE_HOME_SEARCH_DEFAULT_WORD = "hide_home_search_default_word"
+    const val HOME_VERTICAL_OPEN_DETAIL = "home_vertical_open_detail"
     const val HIDE_MINE_VIP = "hide_mine_vip"
     const val KEEP_MINE_VIP_SPACE = "keep_mine_vip_space"
     const val BLOCK_APP_UPDATE = "block_app_update"
@@ -12,6 +13,7 @@ internal object FeaturePreferences {
     const val PREFER_DYNAMIC_VIDEO_TAB = "prefer_dynamic_video_tab"
     const val SHOW_FULL_NUMBERS = "show_full_numbers"
     const val HIDE_PLAYER_PORTRAIT_CONTROL = "hide_player_portrait_control"
+    const val TRANSPARENT_PLAYER_STATUS_BAR = "transparent_player_status_bar"
     const val PLAYER_DEFAULT_QUALITY_QN = "player_default_quality_qn"
     const val BLOCK_TEENAGERS_MODE_PROMPT = "block_teenagers_mode_prompt"
     const val REMOVE_COMMENT_SEARCH_LINKS = "remove_comment_search_links"

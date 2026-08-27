@@ -97,6 +97,49 @@ class VersionAdapterTest {
                 )
             )
         ),
+        playerStatusBar = VersionAdapter.PlayerStatusBarPoints(
+            listOf(
+                VersionAdapter.HookPoint(
+                    "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity",
+                    "onCreate",
+                    listOf("android.os.Bundle")
+                )
+            )
+        ),
+        homeRecommendFeed = VersionAdapter.HomeRecommendFeedPoints(
+            responseItemGetters = listOf(
+                VersionAdapter.HookPoint(
+                    "com.bilibili.pegasus.data.base.PegasusResponse",
+                    "getItems",
+                    emptyList()
+                )
+            ),
+            holderTypeGetter = VersionAdapter.HookPoint(
+                "com.bilibili.pegasus.PegasusHolderData",
+                "getHolderType",
+                emptyList()
+            ),
+            cardGotoGetter = VersionAdapter.HookPoint(
+                "com.bilibili.pegasus.data.base.BasePegasusData",
+                "getCardGoto",
+                emptyList()
+            ),
+            goToGetter = VersionAdapter.HookPoint(
+                "com.bilibili.pegasus.data.base.BasePegasusData",
+                "getGoTo",
+                emptyList()
+            ),
+            uriGetter = VersionAdapter.HookPoint(
+                "com.bilibili.pegasus.data.base.BasePegasusData",
+                "getUri",
+                emptyList()
+            ),
+            paramGetter = VersionAdapter.HookPoint(
+                "com.bilibili.pegasus.data.base.BasePegasusData",
+                "getParam",
+                emptyList()
+            )
+        ),
         playerQuality = VersionAdapter.PlayerQualityPoints(
             VersionAdapter.HookPoint("gh6.h", "c", emptyList())
         ),
@@ -219,7 +262,7 @@ class VersionAdapterTest {
                 )
             )
         ),
-        hostFingerprint = "host|9090300|rules=16",
+        hostFingerprint = "host|9090300|rules=17",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -338,6 +381,33 @@ class VersionAdapterTest {
         )
         assertEquals("setVisibility", points.single().methodName)
         assertEquals(listOf("int"), points.single().paramClassNames)
+    }
+
+    @Test
+    fun `locates only the exact video detail activity lifecycle`() {
+        val points = VersionAdapter.locatePlayerStatusBar(requireNotNull(javaClass.classLoader))
+            ?.onCreateMethods.orEmpty()
+
+        assertEquals(1, points.size)
+        assertEquals(
+            "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity",
+            points.single().className
+        )
+        assertEquals("onCreate", points.single().methodName)
+        assertEquals(listOf("android.os.Bundle"), points.single().paramClassNames)
+    }
+
+    @Test
+    fun `locates home feed public response and card getters`() {
+        val points = VersionAdapter.locateHomeRecommendFeed(requireNotNull(javaClass.classLoader))
+
+        assertEquals(1, points?.responseItemGetters?.size)
+        assertEquals("getItems", points?.responseItemGetters?.single()?.methodName)
+        assertEquals("getHolderType", points?.holderTypeGetter?.methodName)
+        assertEquals("getCardGoto", points?.cardGotoGetter?.methodName)
+        assertEquals("getGoTo", points?.goToGetter?.methodName)
+        assertEquals("getUri", points?.uriGetter?.methodName)
+        assertEquals("getParam", points?.paramGetter?.methodName)
     }
 
     @Test
