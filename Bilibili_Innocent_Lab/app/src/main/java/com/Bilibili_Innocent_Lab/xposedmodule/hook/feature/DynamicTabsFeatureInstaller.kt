@@ -56,8 +56,7 @@ internal class DynamicTabsFeatureInstaller(
                 after {
                     val source = result as? List<*> ?: return@after
                     var hasVideo = false
-                    val filtered = source.filterNot { item ->
-                        if (item == null) return@filterNot false
+                    val filtered = CopyOnFilter.list(source) { item ->
                         val title = runCatching { titleField.get(item) as? String }.getOrNull()
                         val name = runCatching { nameField.get(item) as? String }.getOrNull()
                         if (isVideoTab(title, name)) hasVideo = true
@@ -65,7 +64,7 @@ internal class DynamicTabsFeatureInstaller(
                         hidden != null && hidden !in forcedVisibleKinds
                     }
                     if (preferVideo) videoAvailable.set(hasVideo)
-                    if (filtered.isNotEmpty() && filtered.size != source.size) {
+                    if (filtered !== source && filtered.isNotEmpty()) {
                         result = filtered
                     }
                 }

@@ -37,13 +37,13 @@ internal class MineComponentFilterFeatureInstaller(
                 environment.registrar.adapted("mine.components.list.$index", point) {
                     after {
                         val source = result as? List<*> ?: return@after
-                        val filtered = source.filterNot { item ->
-                            item != null && RuleSetCodec.matches(
+                        val filtered = CopyOnFilter.list(source) { item ->
+                            RuleSetCodec.matches(
                                 tokens,
                                 readTitle(item, titleMethods)
                             )
                         }
-                        if (filtered.size != source.size) result = ArrayList(filtered)
+                        if (filtered !== source) result = filtered
                     }
                 }
                 installed += 1

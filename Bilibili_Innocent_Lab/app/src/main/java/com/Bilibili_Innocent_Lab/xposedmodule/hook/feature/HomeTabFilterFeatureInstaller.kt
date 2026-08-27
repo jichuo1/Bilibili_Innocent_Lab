@@ -42,11 +42,11 @@ internal class HomeTabFilterFeatureInstaller(
                 before {
                     val source = args.firstOrNull() as? List<*> ?: return@before
                     if (source.isEmpty()) return@before
-                    val filtered = source.filterNot { item ->
-                        item != null && resource.isInstance(item) && matches(item, fields)
+                    val filtered = CopyOnFilter.list(source) { item ->
+                        resource.isInstance(item) && matches(item, fields)
                     }
-                    if (filtered.isNotEmpty() && filtered.size != source.size) {
-                        args[0] = ArrayList(filtered)
+                    if (filtered !== source && filtered.isNotEmpty()) {
+                        args[0] = filtered
                     }
                 }
             }
