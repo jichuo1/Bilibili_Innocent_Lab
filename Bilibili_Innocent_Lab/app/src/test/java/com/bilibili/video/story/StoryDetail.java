@@ -12,4 +12,12 @@ public final class StoryDetail {
     public boolean isGame() {
         return false;
     }
+
+    public boolean isBangumi() {
+        return false;
+    }
+
+    public boolean isCheese() {
+        return false;
+    }
 }

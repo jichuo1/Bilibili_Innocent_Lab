@@ -8,13 +8,15 @@ internal class StoryPurifyFeatureInstaller(
     private val removeAds: Boolean,
     private val removeLive: Boolean,
     private val removeGames: Boolean,
+    private val removeBangumi: Boolean,
+    private val removeCourses: Boolean,
     private val points: VersionAdapter.StoryFeedPoints?
 ) : FeatureInstaller {
 
     override val id: String = ID
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
-        if (!removeAds && !removeLive && !removeGames) {
+        if (!removeAds && !removeLive && !removeGames && !removeBangumi && !removeCourses) {
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
@@ -25,11 +27,15 @@ internal class StoryPurifyFeatureInstaller(
         val accessors = Accessors(
             ad = resolveOptional(environment, "ad", adapted.adGetter),
             live = resolveOptional(environment, "live", adapted.liveGetter),
-            game = resolveOptional(environment, "game", adapted.gameGetter)
+            game = resolveOptional(environment, "game", adapted.gameGetter),
+            bangumi = resolveOptional(environment, "bangumi", adapted.bangumiGetter),
+            course = resolveOptional(environment, "course", adapted.courseGetter)
         )
         if ((removeAds && accessors.ad == null) ||
             (removeLive && accessors.live == null) ||
-            (removeGames && accessors.game == null)) {
+            (removeGames && accessors.game == null) ||
+            (removeBangumi && accessors.bangumi == null) ||
+            (removeCourses && accessors.course == null)) {
             return missing(environment, "missing-enabled-type-getter")
         }
 
@@ -78,15 +84,19 @@ internal class StoryPurifyFeatureInstaller(
     }
 
     private fun signals(item: Any, accessors: Accessors): Signals = Signals(
-        ad = invokeBoolean(accessors.ad, item),
-        live = invokeBoolean(accessors.live, item),
-        game = invokeBoolean(accessors.game, item)
+        ad = removeAds && invokeBoolean(accessors.ad, item),
+        live = removeLive && invokeBoolean(accessors.live, item),
+        game = removeGames && invokeBoolean(accessors.game, item),
+        bangumi = removeBangumi && invokeBoolean(accessors.bangumi, item),
+        course = removeCourses && invokeBoolean(accessors.course, item)
     )
 
     private fun shouldRemove(signals: Signals): Boolean =
         (removeAds && signals.ad) ||
             (removeLive && signals.live) ||
-            (removeGames && signals.game)
+            (removeGames && signals.game) ||
+            (removeBangumi && signals.bangumi) ||
+            (removeCourses && signals.course)
 
     private fun resolveOptional(
         environment: HookEnvironment,
@@ -118,13 +128,17 @@ internal class StoryPurifyFeatureInstaller(
     internal data class Signals(
         val ad: Boolean = false,
         val live: Boolean = false,
-        val game: Boolean = false
+        val game: Boolean = false,
+        val bangumi: Boolean = false,
+        val course: Boolean = false
     )
 
     private data class Accessors(
         val ad: Method?,
         val live: Method?,
-        val game: Method?
+        val game: Method?,
+        val bangumi: Method?,
+        val course: Method?
     )
 
     companion object {
@@ -136,9 +150,13 @@ internal class StoryPurifyFeatureInstaller(
             signals: Signals,
             removeAds: Boolean,
             removeLive: Boolean,
-            removeGames: Boolean
+            removeGames: Boolean,
+            removeBangumi: Boolean = false,
+            removeCourses: Boolean = false
         ): Boolean = (removeAds && signals.ad) ||
             (removeLive && signals.live) ||
-            (removeGames && signals.game)
+            (removeGames && signals.game) ||
+            (removeBangumi && signals.bangumi) ||
+            (removeCourses && signals.course)
     }
 }

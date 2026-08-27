@@ -32,5 +32,23 @@ class StoryPurifyFeatureInstallerTest {
                 removeGames = false
             )
         )
+        assertTrue(
+            StoryPurifyFeatureInstaller.shouldRemove(
+                StoryPurifyFeatureInstaller.Signals(bangumi = true),
+                removeAds = false,
+                removeLive = false,
+                removeGames = false,
+                removeBangumi = true
+            )
+        )
+        assertTrue(
+            StoryPurifyFeatureInstaller.shouldRemove(
+                StoryPurifyFeatureInstaller.Signals(course = true),
+                removeAds = false,
+                removeLive = false,
+                removeGames = false,
+                removeCourses = true
+            )
+        )
     }
 }
