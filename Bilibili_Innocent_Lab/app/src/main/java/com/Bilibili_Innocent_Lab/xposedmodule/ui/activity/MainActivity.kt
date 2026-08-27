@@ -175,13 +175,11 @@ class MainActivity : AppViewsActivity() {
     private var experimentalContent: View? = null
     private var experimentalChevron: View? = null
     private var experimentalExpanded = false
-    private var experimentalContentHeight = -1
 
     /** "进阶设置"二级菜单：与实验性功能共用同一套展开/收起动效。 */
     private var advancedContent: View? = null
     private var advancedChevron: View? = null
     private var advancedExpanded = false
-    private var advancedContentHeight = -1
 
     /** 当前活动的确认弹窗：Activity 销毁时主动 dismiss，避免 WindowLeaked */
     private var activeConfirmDialog: Dialog? = null
@@ -1928,127 +1926,87 @@ class MainActivity : AppViewsActivity() {
     private fun execShell(vararg cmd: String): Int =
         ShellCommandRunner.run(cmd.toList(), timeoutMs = 10_000L)
 
-    /**
-     * 切换"实验性功能"二级菜单的展开/收起状态，带动画。
-     * 展开：内容高度 0 → 目标高度（emphasized decelerate），箭头旋转 0° → 180°
-     * 收起：内容高度 目标 → 0（emphasized accelerate），箭头旋转 180° → 0°
-     */
+    /** 切换“实验性功能”二级菜单；内容与箭头只做属性动画，不逐帧触发布局。 */
     private fun toggleExperimental() {
         val content = experimentalContent ?: return
         val chevron = experimentalChevron ?: return
-        if (experimentalExpanded) {
-            collapseSecondarySection(content, chevron, experimentalContentHeight)
-        } else {
-            expandSecondarySection(content, chevron, experimentalContentHeight) {
-                experimentalContentHeight = it
-            }
-        }
         experimentalExpanded = !experimentalExpanded
+        animateSecondarySection(content, chevron, experimentalExpanded)
     }
 
+    /** 切换“进阶设置”二级菜单；与实验性功能共用完全相同的轻量动效。 */
     private fun toggleAdvanced() {
         val content = advancedContent ?: return
         val chevron = advancedChevron ?: return
-        if (advancedExpanded) {
-            collapseSecondarySection(content, chevron, advancedContentHeight)
-        } else {
-            expandSecondarySection(content, chevron, advancedContentHeight) {
-                advancedContentHeight = it
-            }
-        }
         advancedExpanded = !advancedExpanded
+        animateSecondarySection(content, chevron, advancedExpanded)
     }
 
-    private fun expandSecondarySection(
+    /**
+     * 二级菜单公共动效。
+     *
+     * 旧实现用 ValueAnimator 每帧写 layoutParams.height，大型进阶菜单会让整棵设置树在
+     * 每一帧重新 measure/layout。这里改为一次正常布局后只更新 alpha/translationY；
+     * 两者均不触发布局，快速反复点击时先清理旧 listener 再取消动画，避免旧收起回调
+     * 把刚展开的内容重新设为 GONE。
+     */
+    private fun animateSecondarySection(
         content: View,
         chevron: View,
-        cachedHeight: Int,
-        cacheHeight: (Int) -> Unit
+        expanded: Boolean
     ) {
-        // 目标高度：优先复用缓存值，避免每次展开都重新 measure（内容高度固定，只需测一次）。
-        // 测量宽度必须用父容器「内容区」宽度（外宽减 padding）——用外宽会高估可用宽度、
-        // 文字换行偏少、测得高度偏小；真实布局在较窄宽度下换行变多后，竖向 LinearLayout
-        // 会把末尾子项挤压成残高/0 高（「重新适配」行概率性只剩空位/消失的根源）。
-        content.visibility = View.VISIBLE
-        val parent = content.parent as? View
-        val parentWidth = parent?.let { it.width - it.paddingLeft - it.paddingRight } ?: 0
-        if (parentWidth <= 0 && cachedHeight <= 0) {
-            // 首帧布局未完成（打开界面后极快点击）：无法可靠测量，直接自然展开，
-            // 不缓存错误高度
-            chevron.animate().rotation(180f).setDuration(260L)
-                .setInterpolator(emphasizedDecelerate).start()
-            return
-        }
-        val targetHeight = if (cachedHeight > 0) {
-            cachedHeight
+        val contentAnimator = content.animate()
+        contentAnimator.setListener(null)
+        contentAnimator.cancel()
+        chevron.animate().cancel()
+        val density = resources.displayMetrics.density
+
+        if (expanded) {
+            content.visibility = View.VISIBLE
+            content.alpha = 0f
+            content.translationY = -6f * density
+            contentAnimator
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(180L)
+                .setInterpolator(emphasizedDecelerate)
+                .start()
+            chevron.animate()
+                .rotation(180f)
+                .setDuration(180L)
+                .setInterpolator(emphasizedDecelerate)
+                .start()
         } else {
-            content.measure(
-                View.MeasureSpec.makeMeasureSpec(parentWidth, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-            )
-            content.measuredHeight.also(cacheHeight)
+            contentAnimator
+                .alpha(0f)
+                .translationY(-4f * density)
+                .setDuration(150L)
+                .setInterpolator(emphasizedAccelerate)
+                .setListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        content.visibility = View.GONE
+                        content.alpha = 1f
+                        content.translationY = 0f
+                        content.animate().setListener(null)
+                    }
+                })
+                .start()
+            chevron.animate()
+                .rotation(0f)
+                .setDuration(150L)
+                .setInterpolator(emphasizedAccelerate)
+                .start()
         }
-
-        // 高度动画（从 0 展开）
-        ValueAnimator.ofInt(0, targetHeight).apply {
-            duration = 260L
-            interpolator = emphasizedDecelerate
-            addUpdateListener { animator ->
-                val lp = content.layoutParams
-                lp.height = animator.animatedValue as Int
-                content.layoutParams = lp
-            }
-            // 动画结束恢复 WRAP_CONTENT：末态不再固定高度。即便缓存高度因字号/字体/
-            // 换行差异偏小，内容也按自然高度布局，杜绝末尾子项被挤压
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    val lp = content.layoutParams
-                    lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
-                    content.layoutParams = lp
-                }
-            })
-            start()
-        }
-
-        // 箭头旋转（GPU 加速，无布局重绘）
-        chevron.animate()
-            .rotation(180f)
-            .setDuration(260L)
-            .setInterpolator(emphasizedDecelerate)
-            .start()
     }
 
-    private fun collapseSecondarySection(content: View, chevron: View, cachedHeight: Int) {
-        // 收起起点用当前实际高度（展开末态为 WRAP_CONTENT，与缓存值可能有细微差）
-        val startHeight = content.height.takeIf { it > 0 } ?: cachedHeight
-
-        // 高度动画（收起到 0）
-        ValueAnimator.ofInt(startHeight.coerceAtLeast(0), 0).apply {
-            duration = 260L
-            interpolator = emphasizedAccelerate
-            addUpdateListener { animator ->
-                val lp = content.layoutParams
-                lp.height = animator.animatedValue as Int
-                content.layoutParams = lp
-            }
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    content.visibility = View.GONE
-                    // 复位高度，下次展开从自然测量开始
-                    val lp = content.layoutParams
-                    lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
-                    content.layoutParams = lp
-                }
-            })
-            start()
-        }
-
-        // 箭头旋转回正
-        chevron.animate()
-            .rotation(0f)
-            .setDuration(260L)
-            .setInterpolator(emphasizedAccelerate)
-            .start()
+    /** 首次绘制前把“进阶设置”卡片调整到“实验性功能”正下方，避免可见重排。 */
+    private fun placeAdvancedBelowExperimental() {
+        val advancedCard = advancedContent?.parent as? View ?: return
+        val experimentalCard = experimentalContent?.parent as? View ?: return
+        val parent = advancedCard.parent as? ViewGroup ?: return
+        if (experimentalCard.parent !== parent) return
+        parent.removeView(advancedCard)
+        parent.addView(advancedCard, parent.indexOfChild(experimentalCard) + 1)
     }
 
     override fun onDestroy() {
@@ -2056,6 +2014,12 @@ class MainActivity : AppViewsActivity() {
         activeConfirmDialog?.dismiss()
         activeConfirmDialog = null
         // 清理 View 引用字段，彻底断开对 hierarchy 的持有
+        experimentalContent?.animate()?.setListener(null)
+        experimentalContent?.animate()?.cancel()
+        experimentalChevron?.animate()?.cancel()
+        advancedContent?.animate()?.setListener(null)
+        advancedContent?.animate()?.cancel()
+        advancedChevron?.animate()?.cancel()
         experimentalContent = null
         experimentalChevron = null
         advancedContent = null
@@ -2821,11 +2785,11 @@ class MainActivity : AppViewsActivity() {
                                 textSize = 12f
                             }
                         }
-                        Space(lparams = LayoutParams(height = 10.dp))
                         // Advanced 分支新增功能统一收纳到默认折叠的“进阶设置”。
                         LinearLayout(
                             lparams = LayoutParams(widthMatchParent = true) {
                                 updateMargins(horizontal = 15.dp)
+                                topMargin = 10.dp
                             },
                             init = {
                                 orientation = LinearLayout.VERTICAL
@@ -5004,6 +4968,8 @@ class MainActivity : AppViewsActivity() {
             }
         }
 
+        // setContentView 返回后尚未进入首帧绘制，此时重排不会产生界面跳动。
+        placeAdvancedBelowExperimental()
         // 布局完成后定位日志档位滑块（宽度收缩为一半 + 对齐当前档位）
         findViewById<View>(Android_R.id.content).post {
             positionLogLevelThumb()
