@@ -58,6 +58,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.RoamingCompatHook
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.GitHubReleaseChecker
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
@@ -135,6 +136,10 @@ class MainActivity : AppViewsActivity() {
     private var removeCommentQoe = false
     private var removeCommentOperations = false
     private var blockCommentQuickReply = false
+    private var commentKeywordFilterEnabled = false
+    private var commentFilterKeywords = ""
+    private var commentMinLevelFilterEnabled = false
+    private var commentMinLevel = CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL
     private var freeCopyEnabled = true
     private var freeCopyDescEnabled = true
     private var freeCopyLightMode = false
@@ -159,6 +164,8 @@ class MainActivity : AppViewsActivity() {
     private var homeComponentRulesSummaryView: NativeTextView? = null
     private var mineComponentRulesSummaryView: NativeTextView? = null
     private var bottomBarRulesSummaryView: NativeTextView? = null
+    private var commentKeywordSummaryView: NativeTextView? = null
+    private var commentLevelSummaryView: NativeTextView? = null
     private var roamingCompatEnabled = false
     private var predictiveBackEnabled = false
     private var logEnabled = true
@@ -819,6 +826,109 @@ class MainActivity : AppViewsActivity() {
             R.string.player_default_quality_current,
             playerQualityLabel(playerDefaultQualityQn)
         )
+    }
+
+    /** 评论最低等级选择：沿用播放器画质选择器的玻璃菜单与进退场动画。 */
+    private fun showCommentMinLevelDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createGlassContainer()
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.comment_min_level_dialog_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 17f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (12 * density).toInt() }
+        )
+
+        val options = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.VERTICAL
+        }
+        (1..6).forEachIndexed { index, level ->
+            options.addView(
+                createGitHubMenuRow(
+                    title = getString(R.string.comment_level_value, level),
+                    subtitle = getString(R.string.comment_min_level_option_tip, level),
+                    highlight = level == commentMinLevel
+                ) {
+                    commentMinLevel = level
+                    runCatching {
+                        prefs().edit {
+                            putInt(FeaturePreferences.COMMENT_MIN_LEVEL, level)
+                        }
+                    }.onFailure { throwable ->
+                        Log.e(
+                            "BilibiliInnocentLab",
+                            "write comment minimum level prefs failed",
+                            throwable
+                        )
+                    }
+                    commentLevelSummaryView?.text = getString(
+                        R.string.comment_min_level_current,
+                        level
+                    )
+                    dismissWithAnimation(dialog, container) {}
+                },
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { if (index > 0) topMargin = (4 * density).toInt() }
+            )
+        }
+        container.addView(
+            android.widget.ScrollView(this).apply {
+                isFillViewport = false
+                overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+                addView(
+                    options,
+                    NativeFrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                )
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (380 * density).toInt()
+            )
+        )
+
+        val closeRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        closeRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.dialog_close)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(
+                    (20 * density).toInt(),
+                    (11 * density).toInt(),
+                    (20 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { dismissWithAnimation(dialog, container) {} }
+            }
+        )
+        container.addView(
+            closeRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (18 * density).toInt() }
+        )
+        presentGlassDialog(dialog, container)
     }
 
     /** 保存渠道选择并立即按新渠道检查一次；检查失败保留渠道，下次可继续。 */
@@ -2146,6 +2256,27 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read comment quick reply prefs failed", t)
         }.getOrDefault(false)
+        commentKeywordFilterEnabled = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.COMMENT_KEYWORD_FILTER_ENABLED,
+                false
+            ) ?: false
+        }.getOrDefault(false)
+        commentFilterKeywords = runCatching {
+            modulePrefs?.getString(FeaturePreferences.COMMENT_FILTER_KEYWORDS, "").orEmpty()
+        }.getOrDefault("")
+        commentMinLevelFilterEnabled = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.COMMENT_MIN_LEVEL_FILTER_ENABLED,
+                false
+            ) ?: false
+        }.getOrDefault(false)
+        commentMinLevel = runCatching {
+            (modulePrefs?.getInt(
+                FeaturePreferences.COMMENT_MIN_LEVEL,
+                CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL
+            ) ?: CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL).coerceIn(1, 6)
+        }.getOrDefault(CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL)
         blockTeenagersModePrompt = runCatching {
             modulePrefs?.getBoolean(
                 FeaturePreferences.BLOCK_TEENAGERS_MODE_PROMPT,
@@ -4076,6 +4207,143 @@ class MainActivity : AppViewsActivity() {
                                 alpha = 0.6f
                                 setLineSpacing(6f, 1f)
                                 text = stringResource(R.string.block_comment_quick_reply_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.comment_keyword_filter)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = commentKeywordFilterEnabled
+                                setOnCheckedChangeListener { _, checked ->
+                                    commentKeywordFilterEnabled = checked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.COMMENT_KEYWORD_FILTER_ENABLED,
+                                                checked
+                                            )
+                                        }
+                                    }.onFailure { throwable ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write comment keyword filter prefs failed",
+                                            throwable
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                commentKeywordSummaryView = this
+                                text = getString(R.string.comment_keyword_rules) + "\n" +
+                                    if (commentFilterKeywords.isBlank()) {
+                                        getString(R.string.comment_keyword_rules_empty)
+                                    } else {
+                                        getString(
+                                            R.string.comment_keyword_rules_current,
+                                            commentFilterKeywords
+                                        )
+                                    }
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                maxLines = 3
+                                ellipsize = TextUtils.TruncateAt.END
+                                setLineSpacing(5f, 1f)
+                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                background = selfRippleBackground(10f)
+                                isClickable = true
+                                isFocusable = true
+                                setOnClickListener {
+                                    showRuleEditorDialog(
+                                        R.string.comment_keyword_dialog_title,
+                                        R.string.comment_keyword_dialog_hint,
+                                        commentFilterKeywords
+                                    ) { value ->
+                                        commentFilterKeywords = value
+                                        prefs().edit {
+                                            putString(
+                                                FeaturePreferences.COMMENT_FILTER_KEYWORDS,
+                                                value
+                                            )
+                                        }
+                                        commentKeywordSummaryView?.text =
+                                            getString(R.string.comment_keyword_rules) + "\n" +
+                                                if (value.isBlank()) {
+                                                    getString(R.string.comment_keyword_rules_empty)
+                                                } else {
+                                                    getString(
+                                                        R.string.comment_keyword_rules_current,
+                                                        value
+                                                    )
+                                                }
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.comment_keyword_filter_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.comment_min_level_filter)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = commentMinLevelFilterEnabled
+                                setOnCheckedChangeListener { _, checked ->
+                                    commentMinLevelFilterEnabled = checked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.COMMENT_MIN_LEVEL_FILTER_ENABLED,
+                                                checked
+                                            )
+                                        }
+                                    }.onFailure { throwable ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write comment minimum level filter prefs failed",
+                                            throwable
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                commentLevelSummaryView = this
+                                text = getString(R.string.comment_min_level_current, commentMinLevel)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                background = selfRippleBackground(10f)
+                                isClickable = true
+                                isFocusable = true
+                                setOnClickListener { showCommentMinLevelDialog() }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.comment_min_level_filter_tip)
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }

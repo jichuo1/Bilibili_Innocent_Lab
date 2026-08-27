@@ -390,7 +390,41 @@ class VersionAdapterTest {
                 )
             )
         ),
-        hostFingerprint = "host|9090300|rules=20",
+        commentFilter = VersionAdapter.CommentFilterPoints(
+            replyListGetters = listOf(
+                VersionAdapter.HookPoint(
+                    "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+                    "getRepliesList",
+                    emptyList()
+                ),
+                VersionAdapter.HookPoint(
+                    "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+                    "getRepliesList",
+                    emptyList()
+                )
+            ),
+            contentGetter = VersionAdapter.HookPoint(
+                "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+                "getContent",
+                emptyList()
+            ),
+            messageGetter = VersionAdapter.HookPoint(
+                "com.bapis.bilibili.main.community.reply.v1.Content",
+                "getMessage",
+                emptyList()
+            ),
+            memberGetter = VersionAdapter.HookPoint(
+                "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+                "getMember",
+                emptyList()
+            ),
+            levelGetter = VersionAdapter.HookPoint(
+                "com.bapis.bilibili.main.community.reply.v1.Member",
+                "getLevel",
+                emptyList()
+            )
+        ),
+        hostFingerprint = "host|9090300|rules=21",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -623,6 +657,24 @@ class VersionAdapterTest {
         assertTrue(points.all {
             it.className == "com.bapis.bilibili.main.community.reply.v1.Content" &&
                 it.paramClassNames == emptyList<String>()
+        })
+    }
+
+    @Test
+    fun `locates comment filter through exact public protobuf list and signal getters`() {
+        val points = VersionAdapter.locateCommentFilter(requireNotNull(javaClass.classLoader))
+
+        assertEquals(
+            setOf("getRepliesList", "getTopRepliesList"),
+            points?.replyListGetters?.map { it.methodName }?.toSet()
+        )
+        assertEquals(3, points?.replyListGetters?.size)
+        assertEquals("getContent", points?.contentGetter?.methodName)
+        assertEquals("getMessage", points?.messageGetter?.methodName)
+        assertEquals("getMember", points?.memberGetter?.methodName)
+        assertEquals("getLevel", points?.levelGetter?.methodName)
+        assertTrue(points?.replyListGetters.orEmpty().all {
+            it.paramClassNames == emptyList<String>()
         })
     }
 
