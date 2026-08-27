@@ -42,6 +42,9 @@
     <string name="number_display_settings">数字显示</string>
     <string name="show_full_numbers">显示完整数字</string>
     <string name="show_full_numbers_tip">让非负整数计数直接显示完整数值，不再使用“万/亿”缩写；重启哔哩哔哩后生效</string>
+    <string name="prompt_purify_settings">提示页净化</string>
+    <string name="block_teenagers_mode_prompt">关闭青少年模式提示页</string>
+    <string name="block_teenagers_mode_prompt_tip">仅在哔哩哔哩专用青少年模式提示 Activity 创建后关闭该页面，不修改青少年模式状态或设置；重启哔哩哔哩后生效</string>
     <string name="player_control_settings">播放器控件</string>
     <string name="hide_player_portrait_control">隐藏播放器竖屏切换控件</string>
     <string name="hide_player_portrait_control_tip">隐藏 Gemini 播放器中的“进入看一看”竖屏切换控件，保留全屏等其他控件；重启哔哩哔哩后生效</string>

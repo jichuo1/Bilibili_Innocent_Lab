@@ -89,6 +89,15 @@ class FeatureStatusInstallerTest {
     }
 
     @Test
+    fun `teenagers mode prompt reports disabled without resolving hook points`() {
+        val result = TeenagersModeFeatureInstaller(enabled = false, points = null)
+            .install(environment)
+
+        assertEquals(FeatureInstallResult.Skipped("disabled"), result)
+        assertEquals(listOf("teenagers_mode_status" to "disabled"), statuses)
+    }
+
+    @Test
     fun `comment purify reports disabled without resolving hook points`() {
         val result = CommentPurifyFeatureInstaller(
             removeSearchLinks = false,

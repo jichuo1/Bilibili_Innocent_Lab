@@ -41,6 +41,9 @@
     <string name="number_display_settings">Number display</string>
     <string name="show_full_numbers">Show full numbers</string>
     <string name="show_full_numbers_tip">Displays non-negative integer counts without ten-thousand or hundred-million abbreviations. Restart Bilibili to apply.</string>
+    <string name="prompt_purify_settings">Prompt purification</string>
+    <string name="block_teenagers_mode_prompt">Close the teen-mode prompt page</string>
+    <string name="block_teenagers_mode_prompt_tip">Closes only Bilibili’s dedicated teen-mode prompt Activity after it is created. Teen-mode state and settings remain unchanged. Restart Bilibili to apply.</string>
     <string name="player_control_settings">Player controls</string>
     <string name="hide_player_portrait_control">Hide the portrait feed switch</string>
     <string name="hide_player_portrait_control_tip">Hides the Gemini player’s “Full Story” portrait-feed switch while preserving fullscreen controls. Restart Bilibili to apply.</string>
