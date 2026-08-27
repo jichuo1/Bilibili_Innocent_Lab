@@ -36,6 +36,16 @@
     <string name="remove_home_recommend_ads">Filter recommendation ads</string>
     <string name="remove_home_recommend_pictures">Filter image and text posts</string>
     <string name="remove_home_recommend_game_promotions">Filter game promotions</string>
+    <string name="home_recommend_title_filter">Filter by title keywords</string>
+    <string name="home_recommend_title_rules">Recommendation title keywords</string>
+    <string name="home_recommend_title_rules_empty">No keywords configured; tap to edit</string>
+    <string name="home_recommend_title_rules_current">Current keywords: %1$s</string>
+    <string name="home_recommend_title_dialog_title">Recommendation title keywords</string>
+    <string name="home_recommend_title_dialog_hint">Example: compilation, reaction</string>
+    <string name="remove_home_recommend_live">Filter live recommendations</string>
+    <string name="remove_home_recommend_courses">Filter course recommendations</string>
+    <string name="remove_home_recommend_vertical">Filter portrait-video recommendations</string>
+    <string name="remove_home_recommend_large">Filter large-card recommendations</string>
     <string name="home_recommend_purify_tip">When enabled, filters the selected Home recommendations while keeping ordinary video recommendations. Restart Bilibili to apply.</string>
     <string name="custom_home_tab_hide">Customize Home tabs</string>
     <string name="custom_home_tab_hide_tip">Enter Home tab names to hide. Separate multiple names with commas, semicolons, or line breaks; at least one tab is always kept.</string>
@@ -76,6 +86,8 @@
     <string name="prompt_purify_settings">Prompt pages</string>
     <string name="block_teenagers_mode_prompt">Disable the teen-mode prompt</string>
     <string name="block_teenagers_mode_prompt_tip">When enabled, the teen-mode prompt page is no longer shown. Teen-mode state and settings remain unchanged. Restart Bilibili to apply.</string>
+    <string name="purify_splash_ads">Clean up splash ads</string>
+    <string name="purify_splash_ads_tip">Clears only Bilibili splash-ad responses without changing ordinary startup data. Restart Bilibili to apply.</string>
     <string name="player_control_settings">Player interface</string>
     <string name="hide_player_portrait_control">Hide the portrait-feed button</string>
     <string name="hide_player_portrait_control_tip">When enabled, hides the player’s portrait-feed button while keeping fullscreen and other controls. Restart Bilibili to apply.</string>
@@ -85,6 +97,8 @@
     <string name="remove_story_ads">Filter portrait-feed ads</string>
     <string name="remove_story_live">Filter portrait-feed live cards</string>
     <string name="remove_story_games">Filter portrait-feed game promotions</string>
+    <string name="remove_story_bangumi">Filter portrait-feed series and films</string>
+    <string name="remove_story_courses">Filter portrait-feed courses</string>
     <string name="story_purify_tip">When enabled, filters the selected portrait-feed content while keeping ordinary portrait videos. Restart Bilibili to apply.</string>
     <string name="video_relate_filter_settings">Related recommendations</string>
     <string name="remove_relate_commercial">Filter commercial promotions</string>
@@ -101,6 +115,8 @@
     <string name="player_default_quality_follow_host_tip">Continue using Bilibili’s automatic quality setting.</string>
     <string name="player_default_quality_override_tip">Prefer this quality and adjust automatically when it is unavailable.</string>
     <string name="comment_purify_settings">Comment content</string>
+    <string name="hide_comment_section">Hide the comment section</string>
+    <string name="hide_comment_section_tip">Removes the comment tab from video details while leaving the introduction and other tabs available. Restart Bilibili to apply.</string>
     <string name="remove_comment_search_links">Disable comment keyword search links</string>
     <string name="remove_comment_search_links_tip">When enabled, comment keywords no longer open search. Comment text and emoji remain unchanged. Restart Bilibili to apply.</string>
     <string name="remove_comment_empty_guide">Hide the empty-comment prompt</string>

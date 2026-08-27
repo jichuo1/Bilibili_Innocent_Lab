@@ -20,6 +20,8 @@ import org.json.JSONObject
 import java.io.File
 import java.lang.reflect.ParameterizedType
 import java.lang.reflect.Method
+import java.lang.reflect.Type
+import java.lang.reflect.WildcardType
 
 /**
  * 哔哩哔哩版本适配器（学 BiliRoaming 的 hook 点自动定位思路，轻量实现）。
@@ -97,9 +99,33 @@ object VersionAdapter {
         }
     }
 
+    /** 构造器适配结果；[listParameterIndex] 只用于以 List 为输入边界的功能。 */
+    data class ListConstructorPoint(
+        val className: String,
+        val paramClassNames: List<String>,
+        val listParameterIndex: Int
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("cls", className)
+            put("params", JSONArray(paramClassNames))
+            put("list_index", listParameterIndex)
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): ListConstructorPoint {
+                val params = o.getJSONArray("params")
+                return ListConstructorPoint(
+                    className = o.getString("cls"),
+                    paramClassNames = (0 until params.length()).map(params::getString),
+                    listParameterIndex = o.getInt("list_index")
+                )
+            }
+        }
+    }
+
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 29
-    private const val ADAPTER_RULE_VERSION = 21
+    private const val SCHEMA_VERSION = 30
+    private const val ADAPTER_RULE_VERSION = 22
 
     enum class AdaptState {
         FOUND,
@@ -511,7 +537,9 @@ object VersionAdapter {
         val pagerListMethods: List<HookPoint>,
         val adGetter: HookPoint?,
         val liveGetter: HookPoint?,
-        val gameGetter: HookPoint?
+        val gameGetter: HookPoint?,
+        val bangumiGetter: HookPoint? = null,
+        val courseGetter: HookPoint? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("responses", JSONArray().apply { responseItemGetters.forEach { put(it.toJson()) } })
@@ -519,6 +547,8 @@ object VersionAdapter {
             adGetter?.let { put("ad", it.toJson()) }
             liveGetter?.let { put("live", it.toJson()) }
             gameGetter?.let { put("game", it.toJson()) }
+            bangumiGetter?.let { put("bangumi", it.toJson()) }
+            courseGetter?.let { put("course", it.toJson()) }
         }
 
         companion object {
@@ -531,7 +561,48 @@ object VersionAdapter {
                 },
                 adGetter = o.optJSONObject("ad")?.let(HookPoint::fromJson),
                 liveGetter = o.optJSONObject("live")?.let(HookPoint::fromJson),
-                gameGetter = o.optJSONObject("game")?.let(HookPoint::fromJson)
+                gameGetter = o.optJSONObject("game")?.let(HookPoint::fromJson),
+                bangumiGetter = o.optJSONObject("bangumi")?.let(HookPoint::fromJson),
+                courseGetter = o.optJSONObject("course")?.let(HookPoint::fromJson)
+            )
+        }
+    }
+
+    /** 详情页 Tab 配置构造边界及 TabPage 的公开定位标签。 */
+    data class CommentSectionPoints(
+        val listConstructors: List<ListConstructorPoint>,
+        val locatableTagGetter: HookPoint
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("constructors", JSONArray().apply {
+                listConstructors.forEach { put(it.toJson()) }
+            })
+            put("tag", locatableTagGetter.toJson())
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): CommentSectionPoints = CommentSectionPoints(
+                listConstructors = o.getJSONArray("constructors").let { values ->
+                    (0 until values.length()).map {
+                        ListConstructorPoint.fromJson(values.getJSONObject(it))
+                    }
+                },
+                locatableTagGetter = HookPoint.fromJson(o.getJSONObject("tag"))
+            )
+        }
+    }
+
+    /** 开屏响应对象的精确广告/策略 List getter。 */
+    data class SplashAdPoints(val listGetters: List<HookPoint>) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("getters", JSONArray().apply { listGetters.forEach { put(it.toJson()) } })
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): SplashAdPoints = SplashAdPoints(
+                o.getJSONArray("getters").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                }
             )
         }
     }
@@ -812,6 +883,10 @@ object VersionAdapter {
         val commentPurify: CommentPurifyPoints?,
         /** 评论关键词与等级过滤的公开 protobuf 列表/信号边界。 */
         val commentFilter: CommentFilterPoints?,
+        /** 视频详情页评论 Tab 的结构化配置边界。 */
+        val commentSection: CommentSectionPoints? = null,
+        /** 开屏响应中的广告与展示策略列表边界。 */
+        val splashAds: SplashAdPoints? = null,
         /** 宿主 APK + 适配规则指纹，防止只凭 versionCode 复用陈旧缓存。 */
         val hostFingerprint: String,
         /** 每个逻辑 Hook 点的定位结果，供日志/UI 诊断。 */
@@ -844,6 +919,8 @@ object VersionAdapter {
             teenagersMode?.let { put("teenagers_mode", it.toJson()) }
             commentPurify?.let { put("comment_purify", it.toJson()) }
             commentFilter?.let { put("comment_filter", it.toJson()) }
+            commentSection?.let { put("comment_section", it.toJson()) }
+            splashAds?.let { put("splash_ads", it.toJson()) }
             put("fp", hostFingerprint)
             put("diag", JSONArray().apply { diagnostics.forEach { put(it.toJson()) } })
         }
@@ -949,10 +1026,13 @@ object VersionAdapter {
                         value.responseItemGetters.all { it.isValid() } &&
                         value.pagerListMethods.all { it.isValid() } &&
                         (value.adGetter != null || value.liveGetter != null ||
-                            value.gameGetter != null) &&
+                            value.gameGetter != null || value.bangumiGetter != null ||
+                            value.courseGetter != null) &&
                         value.adGetter?.isValid() != false &&
                         value.liveGetter?.isValid() != false &&
-                        value.gameGetter?.isValid() != false
+                        value.gameGetter?.isValid() != false &&
+                        value.bangumiGetter?.isValid() != false &&
+                        value.courseGetter?.isValid() != false
                 } != false &&
                 bottomBar?.let { value ->
                     value.tabsGetter.isValid() && value.bindTabMethod.isValid() &&
@@ -992,6 +1072,17 @@ object VersionAdapter {
                         value.replyListGetters.all { it.isValid() } &&
                         value.contentGetter.isValid() && value.messageGetter.isValid() &&
                         value.memberGetter.isValid() && value.levelGetter.isValid()
+                } != false &&
+                commentSection?.let { value ->
+                    value.listConstructors.isNotEmpty() &&
+                        value.listConstructors.all { point ->
+                            point.className.isNotBlank() && point.paramClassNames.isNotEmpty() &&
+                                point.paramClassNames.all { it.isNotBlank() } &&
+                                point.listParameterIndex in point.paramClassNames.indices
+                        } && value.locatableTagGetter.isValid()
+                } != false &&
+                splashAds?.listGetters?.let { getters ->
+                    getters.isNotEmpty() && getters.all { it.isValid() }
                 } != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
@@ -1039,6 +1130,9 @@ object VersionAdapter {
                         ?.let(CommentPurifyPoints::fromJson),
                     commentFilter = o.optJSONObject("comment_filter")
                         ?.let(CommentFilterPoints::fromJson),
+                    commentSection = o.optJSONObject("comment_section")
+                        ?.let(CommentSectionPoints::fromJson),
+                    splashAds = o.optJSONObject("splash_ads")?.let(SplashAdPoints::fromJson),
                     hostFingerprint = o.optString("fp"),
                     diagnostics = diagnostics
                 ).takeIf { it.isStructurallyValid() }
@@ -1154,6 +1248,24 @@ object VersionAdapter {
     private const val STORY_DETAIL_CLASS = "com.bilibili.video.story.StoryDetail"
     private const val STORY_PAGER_PLAYER_CLASS =
         "com.bilibili.video.story.player.StoryPagerPlayer"
+    private val THESEUS_TAB_PAGER_SERVICE_CLASS_CANDIDATES = listOf(
+        "com.bilibili.ship.theseus.united.page.tab.TheseusTabPagerService",
+        "com.bilibili.p5797ship.theseus.united.p5850page.p5861tab.TheseusTabPagerService"
+    )
+    private val SPLASH_RESPONSE_CLASS_CANDIDATES = listOf(
+        "tv.danmaku.bili.splash.ad.model.SplashListResponse",
+        "tv.danmaku.bili.splash.ad.model.SplashShowResponse",
+        "tv.danmaku.bili.ui.splash.SplashData",
+        "tv.danmaku.bili.ui.splash.ad.model.SplashData",
+        "tv.danmaku.bili.ui.splash.ShowSplashData",
+        "tv.danmaku.bili.ui.splash.ad.model.SplashShowData"
+    )
+    private val SPLASH_LIST_GETTER_NAMES = setOf(
+        "getSplashList",
+        "getStrategyList",
+        "getShowList",
+        "getAdList"
+    )
     private val BOTTOM_TAB_HOST_CLASS_CANDIDATES = listOf(
         "com.bilibili.lib.homepage.widget.TabHost",
         "com.bilibili.p5690lib.p5708homepage.widget.TabHost",
@@ -1407,6 +1519,8 @@ object VersionAdapter {
                     "teenagersMode=${result?.teenagersMode != null} " +
                     "commentPurify=${result?.commentPurify != null} " +
                     "commentFilter=${result?.commentFilter != null} " +
+                    "commentSection=${result?.commentSection != null} " +
+                    "splashAds=${result?.splashAds != null} " +
                     "diag=${result?.diagnosticSummary()}"
             )
         }, "BIL-VersionAdapter").apply {
@@ -1443,6 +1557,8 @@ object VersionAdapter {
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
         val commentFilter = locateCommentFilter(loader)
+        val commentSection = locateCommentSection(loader)
+        val splashAds = locateSplashAds(loader)
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
@@ -1452,7 +1568,7 @@ object VersionAdapter {
             homeTabs == null && homeComponents == null && mineComponents == null &&
             storyFeed == null && bottomBar == null &&
             playerQuality == null && teenagersMode == null && commentPurify == null &&
-            commentFilter == null) return null
+            commentFilter == null && commentSection == null && splashAds == null) return null
         return AdaptResult(
             biliVersionCode = 0,
             ts = 0L,
@@ -1479,13 +1595,15 @@ object VersionAdapter {
             teenagersMode = teenagersMode,
             commentPurify = commentPurify,
             commentFilter = commentFilter,
+            commentSection = commentSection,
+            splashAds = splashAds,
             hostFingerprint = "runtime-no-context|rules=$ADAPTER_RULE_VERSION",
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
                 dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
                 videoRelate, homeTabs, homeComponents, mineComponents, storyFeed, bottomBar,
                 playerQuality,
-                teenagersMode, commentPurify, commentFilter
+                teenagersMode, commentPurify, commentFilter, commentSection, splashAds
             )
         )
     }
@@ -1521,6 +1639,8 @@ object VersionAdapter {
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
         val commentFilter = locateCommentFilter(loader)
+        val commentSection = locateCommentSection(loader)
+        val splashAds = locateSplashAds(loader)
         val anyClassExists = COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || HOME_TOP_BAR_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
@@ -1554,6 +1674,10 @@ object VersionAdapter {
                 KavaMemberLookup.hasClass(loader, it)
             }
             || COMMENT_REPLY_INFO_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || THESEUS_TAB_PAGER_SERVICE_CLASS_CANDIDATES.any {
+                KavaMemberLookup.hasClass(loader, it)
+            }
+            || SPLASH_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
@@ -1564,7 +1688,7 @@ object VersionAdapter {
             homeTabs == null && homeComponents == null && mineComponents == null &&
             storyFeed == null && bottomBar == null &&
             playerQuality == null && teenagersMode == null && commentPurify == null &&
-            commentFilter == null &&
+            commentFilter == null && commentSection == null && splashAds == null &&
             !anyClassExists) return null
         return AdaptResult(
             biliVersionCode = vc,
@@ -1592,13 +1716,15 @@ object VersionAdapter {
             teenagersMode = teenagersMode,
             commentPurify = commentPurify,
             commentFilter = commentFilter,
+            commentSection = commentSection,
+            splashAds = splashAds,
             hostFingerprint = buildHostFingerprint(context),
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
                 dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
                 videoRelate, homeTabs, homeComponents, mineComponents, storyFeed, bottomBar,
                 playerQuality,
-                teenagersMode, commentPurify, commentFilter
+                teenagersMode, commentPurify, commentFilter, commentSection, splashAds
             )
         )
     }
@@ -1638,7 +1764,9 @@ object VersionAdapter {
         playerQuality: PlayerQualityPoints?,
         teenagersMode: TeenagersModePoints?,
         commentPurify: CommentPurifyPoints?,
-        commentFilter: CommentFilterPoints?
+        commentFilter: CommentFilterPoints?,
+        commentSection: CommentSectionPoints?,
+        splashAds: SplashAdPoints?
     ): List<AdaptDiagnostic> {
         fun stateFor(pointFound: Boolean, candidateExists: Boolean): AdaptState = when {
             pointFound -> AdaptState.FOUND
@@ -1718,6 +1846,12 @@ object VersionAdapter {
             KavaMemberLookup.hasClass(loader, it)
         }
         val commentFilterCandidateExists = COMMENT_REPLY_INFO_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val commentSectionCandidateExists = THESEUS_TAB_PAGER_SERVICE_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val splashCandidateExists = SPLASH_RESPONSE_CLASS_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
         val pauseCandidateClasses = listOf(
@@ -1870,7 +2004,8 @@ object VersionAdapter {
                 storyFeed?.let {
                     "responses=${it.responseItemGetters.size},pager=${it.pagerListMethods.size}," +
                         "ad=${it.adGetter != null},live=${it.liveGetter != null}," +
-                        "game=${it.gameGetter != null}"
+                        "game=${it.gameGetter != null},bangumi=${it.bangumiGetter != null}," +
+                        "course=${it.courseGetter != null}"
                 }.orEmpty()
             ),
             AdaptDiagnostic(
@@ -1963,6 +2098,19 @@ object VersionAdapter {
                     "lists=${points.replyListGetters.joinToString("|") { it.label() }}," +
                         "message=${points.messageGetter.label()},level=${points.levelGetter.label()}"
                 }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.section",
+                stateFor(commentSection != null, commentSectionCandidateExists),
+                commentSection?.let { points ->
+                    "constructors=${points.listConstructors.size}," +
+                        "tag=${points.locatableTagGetter.label()}"
+                }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "splash.ads",
+                stateFor(splashAds != null, splashCandidateExists),
+                splashAds?.listGetters?.joinToString("|") { it.label() }.orEmpty()
             )
         )
     }
@@ -2500,10 +2648,111 @@ object VersionAdapter {
         val ad = booleanGetter("isAd")
         val live = booleanGetter("isLive")
         val game = booleanGetter("isGame")
+        val bangumi = booleanGetter("isBangumi")
+        val course = booleanGetter("isCheese")
         if ((responses.isEmpty() && pager.isEmpty()) ||
-            (ad == null && live == null && game == null)) return@runCatching null
-        StoryFeedPoints(responses, pager, ad, live, game)
+            (ad == null && live == null && game == null && bangumi == null && course == null)) {
+            return@runCatching null
+        }
+        StoryFeedPoints(responses, pager, ad, live, game, bangumi, course)
     }.getOrNull()
+
+    /**
+     * 评论区只在 TheseusTabPagerService 的直接配置依赖中寻找 List<TabPage> 构造器，
+     * 并要求 TabPage 存在返回含 Comment 枚举值的唯一无参方法，避免按混淆类名猜测。
+     */
+    fun locateCommentSection(loader: ClassLoader): CommentSectionPoints? = runCatching {
+        val constructors = ArrayList<ListConstructorPoint>()
+        var tagGetter: HookPoint? = null
+
+        fun inspectConstructor(ownerConstructor: java.lang.reflect.Constructor<*>) {
+            if (ownerConstructor.isSynthetic) return
+            ownerConstructor.genericParameterTypes.forEachIndexed { index, genericType ->
+                if (!List::class.java.isAssignableFrom(ownerConstructor.parameterTypes[index])) {
+                    return@forEachIndexed
+                }
+                val parameterized = genericType as? ParameterizedType ?: return@forEachIndexed
+                val itemClass = parameterized.actualTypeArguments.singleOrNull()
+                    ?.rawClassOrNull() ?: return@forEachIndexed
+                val getter = KavaMemberLookup.methods(
+                    itemClass,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    !method.isStatic && method.parameterCount == 0 && method.returnType.isEnum &&
+                        method.returnType.enumConstants
+                            ?.filterIsInstance<Enum<*>>()
+                            ?.any { it.name.equals("Comment", ignoreCase = true) } == true
+                }.distinctBy(Method::toGenericString).singleOrNull() ?: return@forEachIndexed
+
+                val point = getter.toHookPoint()
+                if (tagGetter != null && tagGetter != point) return@forEachIndexed
+                tagGetter = point
+                constructors += ListConstructorPoint(
+                    ownerConstructor.declaringClass.name,
+                    ownerConstructor.parameterTypes.map { it.name },
+                    index
+                )
+            }
+        }
+
+        THESEUS_TAB_PAGER_SERVICE_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .forEach { service ->
+                KavaMemberLookup.declaredConstructors(service, makeAccessible = true)
+                    .forEach { serviceConstructor ->
+                        inspectConstructor(serviceConstructor)
+                        serviceConstructor.parameterTypes.asSequence()
+                            .filter { parameter ->
+                                !parameter.isPrimitive && !parameter.isArray &&
+                                    parameter.classLoader === service.classLoader
+                            }
+                            .forEach { parameter ->
+                                KavaMemberLookup.declaredConstructors(
+                                    parameter,
+                                    makeAccessible = true
+                                ).forEach(::inspectConstructor)
+                            }
+                    }
+            }
+
+        val distinctConstructors = constructors.distinctBy {
+            "${it.className}(${it.paramClassNames.joinToString(",")})#${it.listParameterIndex}"
+        }
+        CommentSectionPoints(
+            listConstructors = distinctConstructors.takeIf { it.isNotEmpty() }
+                ?: return@runCatching null,
+            locatableTagGetter = tagGetter ?: return@runCatching null
+        )
+    }.getOrNull()
+
+    /** 开屏净化只定位白名单响应类上的白名单 List getter。 */
+    fun locateSplashAds(loader: ClassLoader): SplashAdPoints? = runCatching {
+        val getters = SPLASH_RESPONSE_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.methods(
+                    owner,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    !method.isStatic && !method.isAbstract && method.parameterCount == 0 &&
+                        method.name in SPLASH_LIST_GETTER_NAMES &&
+                        List::class.java.isAssignableFrom(method.returnType)
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        getters.takeIf { it.isNotEmpty() }?.let(::SplashAdPoints)
+    }.getOrNull()
+
+    private fun Type.rawClassOrNull(): Class<*>? = when (this) {
+        is Class<*> -> this
+        is ParameterizedType -> rawType as? Class<*>
+        is WildcardType -> upperBounds.firstNotNullOfOrNull { it.rawClassOrNull() }
+        else -> null
+    }
 
     /** 底栏按 TabHost 的公开 tabs 列表和唯一 (int, View) 绑定入口定位。 */
     fun locateBottomBar(loader: ClassLoader): BottomBarPoints? = runCatching {
