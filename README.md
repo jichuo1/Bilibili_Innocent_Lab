@@ -6,7 +6,7 @@
 
 基于 **Xposed / LSPosed、YukiHookAPI 与 KavaRef** 构建，作用于官方 Android 客户端 `tv.danmaku.bili`。
 
-[下载 Release](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases) · [提交问题](https://github.com/jichuo1/Bilibili_Innocent_Lab/issues)
+[下载 Release](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases) · [提交问题](https://github.com/jichuo1/Bilibili_Innocent_Lab/issues)· [交流群组](https://t.me/Bilibili_Innocent_Lab)
 
 </div>
 
