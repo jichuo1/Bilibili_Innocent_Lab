@@ -2813,6 +2813,10 @@ class HookEntry : IYukiHookXposedInit {
                             FeaturePreferences.REMOVE_COMMENT_QOE,
                             false
                         ),
+                        removeOperations = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_COMMENT_OPERATIONS,
+                            false
+                        ),
                         points = hostAdaptResult?.commentPurify
                     )
                 )

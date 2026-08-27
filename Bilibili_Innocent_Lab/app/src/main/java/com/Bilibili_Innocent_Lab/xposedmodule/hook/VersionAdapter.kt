@@ -97,8 +97,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 20
-    private const val ADAPTER_RULE_VERSION = 12
+    private const val SCHEMA_VERSION = 21
+    private const val ADAPTER_RULE_VERSION = 13
 
     enum class AdaptState {
         FOUND,
@@ -409,7 +409,8 @@ object VersionAdapter {
         val emptyPageGetters: List<CommentEmptyPagePoint>,
         val voteWidgetMethods: List<HookPoint>,
         val follow: CommentFollowPoints?,
-        val qoe: CommentOptionalPayloadPoint?
+        val qoe: CommentOptionalPayloadPoint?,
+        val operations: List<CommentOptionalPayloadPoint>
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("urls", JSONArray().apply { urlMapGetters.forEach { put(it.toJson()) } })
@@ -420,6 +421,7 @@ object VersionAdapter {
             put("vote", JSONArray().apply { voteWidgetMethods.forEach { put(it.toJson()) } })
             follow?.let { put("follow", it.toJson()) }
             qoe?.let { put("qoe", it.toJson()) }
+            put("operations", JSONArray().apply { operations.forEach { put(it.toJson()) } })
         }
 
         companion object {
@@ -441,7 +443,12 @@ object VersionAdapter {
                     },
                     if (o.has("follow")) CommentFollowPoints.fromJson(o.getJSONObject("follow"))
                     else null,
-                    o.optJSONObject("qoe")?.let(CommentOptionalPayloadPoint::fromJson)
+                    o.optJSONObject("qoe")?.let(CommentOptionalPayloadPoint::fromJson),
+                    o.getJSONArray("operations").let { operations ->
+                        (0 until operations.length()).map {
+                            CommentOptionalPayloadPoint.fromJson(operations.getJSONObject(it))
+                        }
+                    }
                 )
             }
         }
@@ -561,7 +568,7 @@ object VersionAdapter {
                 commentPurify?.let { value ->
                     (value.urlMapGetters.isNotEmpty() || value.emptyPageGetters.isNotEmpty() ||
                         value.voteWidgetMethods.isNotEmpty() || value.follow != null ||
-                        value.qoe != null) &&
+                        value.qoe != null || value.operations.isNotEmpty()) &&
                         value.urlMapGetters.all { it.isValid() } &&
                         value.emptyPageGetters.all {
                             it.contentGetter.isValid() && it.defaultInstanceGetter.isValid()
@@ -575,7 +582,11 @@ object VersionAdapter {
                         } != false && value.qoe?.let { qoe ->
                             qoe.presenceGetter.isValid() && qoe.contentGetter.isValid() &&
                                 qoe.defaultInstanceGetter.isValid()
-                        } != false
+                        } != false && value.operations.all { operation ->
+                            operation.presenceGetter.isValid() &&
+                                operation.contentGetter.isValid() &&
+                                operation.defaultInstanceGetter.isValid()
+                        }
                 } != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
@@ -1224,6 +1235,18 @@ object VersionAdapter {
                     "has=${qoe.presenceGetter.label()},get=${qoe.contentGetter.label()}," +
                         "default=${qoe.defaultInstanceGetter.label()}"
                 }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.purify.operation",
+                stateFor(
+                    commentPurify?.operations?.size == 2,
+                    commentMainListCandidateExists
+                ),
+                commentPurify?.operations?.joinToString("|") { operation ->
+                    "${operation.presenceGetter.methodName}/" +
+                        "${operation.contentGetter.methodName}->" +
+                        operation.defaultInstanceGetter.className
+                }.orEmpty()
             )
         )
     }
@@ -1628,35 +1651,45 @@ object VersionAdapter {
                 followButtonClass?.name
             )
         }
-        val qoePoint = COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.asSequence()
+        val mainListOwner = COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.asSequence()
             .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .mapNotNull { owner ->
-                val presenceGetter = KavaMemberLookup.methodOrNull(owner, "hasQoe")
-                    ?.takeIf { method ->
-                        !method.isStatic && method.parameterCount == 0 &&
-                            method.returnType == classOf<Boolean>()
-                    } ?: return@mapNotNull null
-                val contentGetter = KavaMemberLookup.methodOrNull(owner, "getQoe")
-                    ?.takeIf { method ->
-                        !method.isStatic && method.parameterCount == 0 &&
-                            !method.returnType.isPrimitive
-                    } ?: return@mapNotNull null
-                val defaultInstanceGetter = KavaMemberLookup.methodOrNull(
-                    contentGetter.returnType,
-                    "getDefaultInstance"
-                )?.takeIf { method ->
-                    method.isStatic && method.parameterCount == 0 &&
-                        method.returnType == contentGetter.returnType
-                } ?: return@mapNotNull null
-                CommentOptionalPayloadPoint(
-                    presenceGetter.toHookPoint(),
-                    contentGetter.toHookPoint(),
-                    defaultInstanceGetter.toHookPoint()
-                )
-            }
             .firstOrNull()
+        fun optionalPayloadPoint(
+            owner: Class<*>?,
+            presenceName: String,
+            contentName: String
+        ): CommentOptionalPayloadPoint? {
+            val messageClass = owner ?: return null
+            val presenceGetter = KavaMemberLookup.methodOrNull(messageClass, presenceName)
+                ?.takeIf { method ->
+                    !method.isStatic && method.parameterCount == 0 &&
+                        method.returnType == classOf<Boolean>()
+                } ?: return null
+            val contentGetter = KavaMemberLookup.methodOrNull(messageClass, contentName)
+                ?.takeIf { method ->
+                    !method.isStatic && method.parameterCount == 0 &&
+                        !method.returnType.isPrimitive
+                } ?: return null
+            val defaultInstanceGetter = KavaMemberLookup.methodOrNull(
+                contentGetter.returnType,
+                "getDefaultInstance"
+            )?.takeIf { method ->
+                method.isStatic && method.parameterCount == 0 &&
+                    method.returnType == contentGetter.returnType
+            } ?: return null
+            return CommentOptionalPayloadPoint(
+                presenceGetter.toHookPoint(),
+                contentGetter.toHookPoint(),
+                defaultInstanceGetter.toHookPoint()
+            )
+        }
+        val qoePoint = optionalPayloadPoint(mainListOwner, "hasQoe", "getQoe")
+        val operationPoints = listOfNotNull(
+            optionalPayloadPoint(mainListOwner, "hasOperation", "getOperation"),
+            optionalPayloadPoint(mainListOwner, "hasOperationV2", "getOperationV2")
+        )
         if (urlMethods.isEmpty() && emptyPageGetters.isEmpty() && voteWidgetMethods.isEmpty() &&
-            followPoints == null && qoePoint == null) {
+            followPoints == null && qoePoint == null && operationPoints.isEmpty()) {
             null
         } else {
             CommentPurifyPoints(
@@ -1664,7 +1697,8 @@ object VersionAdapter {
                 emptyPageGetters,
                 voteWidgetMethods,
                 followPoints,
-                qoePoint
+                qoePoint,
+                operationPoints
             )
         }
     }.getOrNull()

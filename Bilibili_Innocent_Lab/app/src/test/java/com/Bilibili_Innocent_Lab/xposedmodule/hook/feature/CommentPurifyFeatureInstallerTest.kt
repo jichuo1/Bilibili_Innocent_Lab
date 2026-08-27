@@ -55,6 +55,7 @@ class CommentPurifyFeatureInstallerTest {
             removeVoteWidgets = false,
             removeFollowButtons = false,
             removeQoe = false,
+            removeOperations = false,
             points = null
         )
 
@@ -84,6 +85,7 @@ class CommentPurifyFeatureInstallerTest {
             removeVoteWidgets = false,
             removeFollowButtons = false,
             removeQoe = false,
+            removeOperations = false,
             points = points
         ).install(environment)
 
@@ -112,6 +114,7 @@ class CommentPurifyFeatureInstallerTest {
             removeVoteWidgets = true,
             removeFollowButtons = false,
             removeQoe = false,
+            removeOperations = false,
             points = points
         ).install(environment)
 
@@ -140,6 +143,7 @@ class CommentPurifyFeatureInstallerTest {
             removeVoteWidgets = false,
             removeFollowButtons = true,
             removeQoe = false,
+            removeOperations = false,
             points = points
         ).install(environment)
 
@@ -168,10 +172,40 @@ class CommentPurifyFeatureInstallerTest {
             removeVoteWidgets = false,
             removeFollowButtons = false,
             removeQoe = true,
+            removeOperations = false,
             points = points
         ).install(environment)
 
         assertEquals(FeatureInstallResult.Installed(2), result)
+        assertEquals("success", statuses["comment_purify_status"])
+    }
+
+    @Test
+    fun `registers both operation versions without mutating main list reply`() {
+        val loader = requireNotNull(javaClass.classLoader)
+        val points = requireNotNull(VersionAdapter.locateCommentPurify(loader))
+        val statuses = linkedMapOf<String, String>()
+        val environment = HookEnvironment(
+            processName = "tv.danmaku.bili",
+            classLoader = loader,
+            hookPoints = HookPointRegistry(loader),
+            registrar = TestHookRegistrar,
+            logInfo = { _, _ -> },
+            logError = { _, _ -> },
+            reportStatus = { channel, status -> statuses[channel] = status }
+        )
+
+        val result = CommentPurifyFeatureInstaller(
+            removeSearchLinks = false,
+            removeEmptyGuide = false,
+            removeVoteWidgets = false,
+            removeFollowButtons = false,
+            removeQoe = false,
+            removeOperations = true,
+            points = points
+        ).install(environment)
+
+        assertEquals(FeatureInstallResult.Installed(4), result)
         assertEquals("success", statuses["comment_purify_status"])
     }
 }

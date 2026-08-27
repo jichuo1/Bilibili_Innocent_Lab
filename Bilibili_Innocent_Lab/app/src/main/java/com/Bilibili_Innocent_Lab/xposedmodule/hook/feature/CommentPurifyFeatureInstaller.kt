@@ -18,6 +18,7 @@ internal class CommentPurifyFeatureInstaller(
     private val removeVoteWidgets: Boolean,
     private val removeFollowButtons: Boolean,
     private val removeQoe: Boolean,
+    private val removeOperations: Boolean,
     private val points: VersionAdapter.CommentPurifyPoints?
 ) : FeatureInstaller {
 
@@ -27,7 +28,7 @@ internal class CommentPurifyFeatureInstaller(
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!removeSearchLinks && !removeEmptyGuide && !removeVoteWidgets &&
-            !removeFollowButtons && !removeQoe) {
+            !removeFollowButtons && !removeQoe && !removeOperations) {
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
@@ -199,52 +200,31 @@ internal class CommentPurifyFeatureInstaller(
                 missingGroups += "qoe"
             } else {
                 expectedCount += 2
-                val defaultInstance = runCatching {
-                    val defaultGetter = environment.hookPoints.resolveAdapted(
-                        "comment.purify.qoe.default",
-                        qoePoint.defaultInstanceGetter.className,
-                        qoePoint.defaultInstanceGetter.methodName,
-                        qoePoint.defaultInstanceGetter.paramClassNames
-                    ) ?: error("missing-qoe-default-instance-getter")
-                    defaultGetter.invoke(null) ?: error("null-qoe-default-instance")
-                }.onFailure { throwable ->
-                    environment.logError(
-                        "comment_purify_qoe_default",
-                        "[BIL] 评论反馈默认实例解析失败: $throwable"
-                    )
-                }.getOrNull()
-                if (defaultInstance == null) {
-                    missingGroups += "qoe-default"
-                } else {
-                    runCatching {
-                        environment.registrar.adapted(
-                            "comment.purify.qoe.presence",
-                            qoePoint.presenceGetter
-                        ) {
-                            after { result = false }
-                        }
-                        installedCount += 1
-                    }.onFailure { throwable ->
-                        environment.logError(
-                            "comment_purify_qoe_presence",
-                            "[BIL] 评论反馈 presence Hook 注册失败: $throwable"
-                        )
-                    }
-                    runCatching {
-                        environment.registrar.adapted(
-                            "comment.purify.qoe.content",
-                            qoePoint.contentGetter
-                        ) {
-                            after { result = defaultInstance }
-                        }
-                        installedCount += 1
-                    }.onFailure { throwable ->
-                        environment.logError(
-                            "comment_purify_qoe_content",
-                            "[BIL] 评论反馈 content Hook 注册失败: $throwable"
-                        )
-                    }
-                }
+                val installed = installAbsentPayload(
+                    environment,
+                    "qoe",
+                    "评论反馈",
+                    qoePoint
+                )
+                installedCount += installed
+                if (installed != 2) missingGroups += "qoe-read-boundary"
+            }
+        }
+        if (removeOperations) {
+            val operationPoints = adapted.operations
+            expectedCount += 4
+            var operationInstalled = 0
+            operationPoints.forEachIndexed { index, point ->
+                operationInstalled += installAbsentPayload(
+                    environment,
+                    "operation.$index",
+                    "评论运营推广",
+                    point
+                )
+            }
+            installedCount += operationInstalled
+            if (operationPoints.size != 2 || operationInstalled != 4) {
+                missingGroups += "operation-read-boundary"
             }
         }
 
@@ -284,6 +264,60 @@ internal class CommentPurifyFeatureInstaller(
                 .getOrNull()
                 ?.startsWith(SEARCH_URI_PREFIX, ignoreCase = true) == true
         }
+    }
+
+    /** 成对替换 protobuf 的 has/get 公开读取结果；默认实例只在安装期解析一次。 */
+    private fun installAbsentPayload(
+        environment: HookEnvironment,
+        groupId: String,
+        displayName: String,
+        point: VersionAdapter.CommentOptionalPayloadPoint
+    ): Int {
+        val defaultInstance = runCatching {
+            val defaultGetter = environment.hookPoints.resolveAdapted(
+                "comment.purify.$groupId.default",
+                point.defaultInstanceGetter.className,
+                point.defaultInstanceGetter.methodName,
+                point.defaultInstanceGetter.paramClassNames
+            ) ?: error("missing-default-instance-getter")
+            defaultGetter.invoke(null) ?: error("null-default-instance")
+        }.onFailure { throwable ->
+            environment.logError(
+                "comment_purify_${groupId.replace('.', '_')}_default",
+                "[BIL] $displayName 默认实例解析失败: $throwable"
+            )
+        }.getOrNull() ?: return 0
+
+        var installed = 0
+        runCatching {
+            environment.registrar.adapted(
+                "comment.purify.$groupId.presence",
+                point.presenceGetter
+            ) {
+                after { result = false }
+            }
+            installed += 1
+        }.onFailure { throwable ->
+            environment.logError(
+                "comment_purify_${groupId.replace('.', '_')}_presence",
+                "[BIL] $displayName presence Hook 注册失败: $throwable"
+            )
+        }
+        runCatching {
+            environment.registrar.adapted(
+                "comment.purify.$groupId.content",
+                point.contentGetter
+            ) {
+                after { result = defaultInstance }
+            }
+            installed += 1
+        }.onFailure { throwable ->
+            environment.logError(
+                "comment_purify_${groupId.replace('.', '_')}_content",
+                "[BIL] $displayName content Hook 注册失败: $throwable"
+            )
+        }
+        return installed
     }
 
     private fun missing(
