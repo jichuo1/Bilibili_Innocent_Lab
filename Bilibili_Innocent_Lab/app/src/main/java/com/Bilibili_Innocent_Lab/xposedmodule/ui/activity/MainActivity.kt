@@ -110,6 +110,7 @@ class MainActivity : AppViewsActivity() {
     private var removeCommentEmptyGuide = false
     private var removeCommentVoteWidgets = false
     private var removeCommentFollowButtons = false
+    private var removeCommentQoe = false
     private var freeCopyEnabled = true
     private var freeCopyDescEnabled = true
     private var freeCopyLightMode = false
@@ -1748,6 +1749,14 @@ class MainActivity : AppViewsActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read comment follow prefs failed", t)
         }.getOrDefault(false)
+        removeCommentQoe = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.REMOVE_COMMENT_QOE,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read comment qoe prefs failed", t)
+        }.getOrDefault(false)
         merchAdEnabled = runCatching {
             modulePrefs?.getBoolean(HookEntry.PREF_MERCH_ENABLED, true) ?: true
         }.onFailure { t ->
@@ -2891,6 +2900,44 @@ class MainActivity : AppViewsActivity() {
                                 alpha = 0.6f
                                 setLineSpacing(6f, 1f)
                                 text = stringResource(R.string.remove_comment_follow_buttons_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_comment_qoe)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeCommentQoe
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    removeCommentQoe = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.REMOVE_COMMENT_QOE,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write comment qoe prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.remove_comment_qoe_tip)
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }
