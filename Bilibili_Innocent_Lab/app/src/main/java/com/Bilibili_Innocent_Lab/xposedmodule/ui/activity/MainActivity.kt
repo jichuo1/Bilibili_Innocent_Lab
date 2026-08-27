@@ -198,6 +198,10 @@ class MainActivity : AppViewsActivity() {
     // Material You 标准动效插值器
     private val emphasizedDecelerate = PathInterpolator(0.2f, 0f, 0f, 1f)   // 展开（减速收尾）
     private val emphasizedAccelerate = PathInterpolator(0.3f, 0f, 1f, 1f)   // 收起（加速开始）
+    // 超长二级菜单使用独立的 Material 3 风格曲线：快速建立反馈，保留更长的柔和收尾。
+    // 不复用上方插值器，避免改变弹窗、日志滑块等已有动画的节奏。
+    private val secondaryExpandInterpolator = PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
+    private val secondaryCollapseInterpolator = PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
 
     /** Material You 动态取色调色板（从壁纸提取种子色） */
     private val monetColors by lazy { MonetColors.fromWallpaper(this) }
@@ -1964,24 +1968,29 @@ class MainActivity : AppViewsActivity() {
         if (expanded) {
             content.visibility = View.VISIBLE
             content.alpha = 0f
-            content.translationY = -6f * density
+            content.translationY = -8f * density
             contentAnimator
                 .alpha(1f)
                 .translationY(0f)
-                .setDuration(180L)
-                .setInterpolator(emphasizedDecelerate)
+                // 让首次 VISIBLE 布局先独占一帧，动画从下一帧稳定起步。
+                .setStartDelay(16L)
+                .setDuration(260L)
+                .setInterpolator(secondaryExpandInterpolator)
                 .start()
             chevron.animate()
                 .rotation(180f)
-                .setDuration(180L)
-                .setInterpolator(emphasizedDecelerate)
+                .setStartDelay(16L)
+                .setDuration(260L)
+                .setInterpolator(secondaryExpandInterpolator)
                 .start()
         } else {
             contentAnimator
                 .alpha(0f)
-                .translationY(-4f * density)
-                .setDuration(150L)
-                .setInterpolator(emphasizedAccelerate)
+                .translationY(-5f * density)
+                // ViewPropertyAnimator 会保留上一次 startDelay，收起时必须显式清零。
+                .setStartDelay(0L)
+                .setDuration(200L)
+                .setInterpolator(secondaryCollapseInterpolator)
                 .setListener(object : AnimatorListenerAdapter() {
                     override fun onAnimationEnd(animation: Animator) {
                         content.visibility = View.GONE
@@ -1993,8 +2002,9 @@ class MainActivity : AppViewsActivity() {
                 .start()
             chevron.animate()
                 .rotation(0f)
-                .setDuration(150L)
-                .setInterpolator(emphasizedAccelerate)
+                .setStartDelay(0L)
+                .setDuration(200L)
+                .setInterpolator(secondaryCollapseInterpolator)
                 .start()
         }
     }
