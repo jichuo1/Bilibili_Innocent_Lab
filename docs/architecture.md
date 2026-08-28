@@ -48,6 +48,43 @@ multi-user devices.
 continuously drains process output so the settings UI cannot leave a background
 thread blocked on a full stderr pipe.
 
+## Versioned settings backup
+
+Settings backup is an allowlisted protocol, not a copy of the backing
+SharedPreferences file. `settings/backup/SettingsCatalog` assigns every
+supported preference a stable logical id, current storage key, typed default,
+value-version, catalog introduction version, restore policy, validation rules,
+and post-import effects. Storage keys may therefore change without changing the
+on-disk identity. Derived revisions, liveness sentinels, adaptation caches,
+application language, update channel, and launcher-icon state are excluded.
+
+Format v1 is a UTF-8 JSON document with product, format, catalog, source, scope,
+and explicit-value metadata. A deterministic binary canonicalization is hashed
+with SHA-256 to detect accidental damage; it is not a signature or proof of
+origin. Published format decoders are permanent compatibility entry points:
+future formats add a new decoder branch and must retain the v1 branch.
+
+Import is split into a pure `ImportPlan` and a confirmed apply phase. The plan
+migrates known catalog versions, preserves missing or implicit source values,
+keeps current-only settings, reports removed/future/manual/invalid records, and
+contains only writes that are valid under the current schema. The Activity uses
+Android's Storage Access Framework, displays the complete plan, and never asks
+for broad storage permission. Confirmed writes use the Yuki preferences bridge
+and synchronous `commit()`; they never call `clear()` or write unknown keys.
+
+The v1 catalog contains 70 records. Sixty-nine are automatically restorable.
+Roaming compatibility remains in the file and preview as `MANUAL`, including
+its backup and current values, but the importer never writes it. Old invalid
+QN, comment-level, and logging enum values are exported using the same effective
+normalization as the current UI rather than blocking the entire backup.
+
+Free-copy preferences also drive an `AtomicFile` mirror. Before committing
+those values, the importer writes an idempotent roll-forward journal containing
+the final values and revision. A process restart can then finish the mirror
+without guessing or attempting a fragile cross-file rollback. Confirmed import
+execution and its verified/possibly-changed result live in a ViewModel so an
+Activity recreation cannot interrupt or misreport the transaction.
+
 ## Intentional boundaries
 
 - `hookinfo.pb` parsing and write semantics remain unchanged; its behavior is

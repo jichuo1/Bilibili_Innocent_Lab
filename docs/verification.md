@@ -24,6 +24,11 @@ update-channel request serialization. Localization tests additionally require
 the English, Simplified Chinese, and Traditional Chinese resources to have the
 same keys and format placeholders, verify the explicit locale config, and
 exercise the injected-UI locale tag normalization and immutable text snapshots.
+Settings-backup tests lock the v1 catalog ids, automatic/manual boundary,
+legacy-value normalization, deterministic JSON round trips, strict UTF-8 and
+JSON structure, file-size and integrity failures, permanent v1 decoder
+dispatch, value-version ordering, explicit/default intent, future and removed
+records, partial scopes, and catalog migrations.
 
 ## Device checks
 
@@ -59,3 +64,22 @@ exercise the injected-UI locale tag normalization and immutable text snapshots.
 11. Send the UI-locale action from an unrelated package. Android must reject it
     because the sender lacks
     `com.Bilibili_Innocent_Lab.xposedmodule.permission.SET_UI_LOCALE`.
+12. Export settings through at least the system Documents provider and one
+    third-party provider. Confirm the page reports success only after reopening
+    and decoding the written file, and that no storage permission is requested.
+13. Change several Boolean, QN, comment-level, rule-text, and logging settings,
+    read the backup, and verify the preview separates writes, unchanged/current
+    defaults, new current settings, and attention items before confirmation.
+14. Confirm roaming compatibility shows its backup and current values but is
+    never changed by import. Confirm language, update channel, launcher icon,
+    revisions, sentinels, and caches are absent from the file.
+15. Rotate the device while a confirmed import is running and again on each
+    result/error page. The transaction must continue once, and the recreated
+    page must preserve verified versus possibly-changed outcome semantics.
+16. Import a truncated file, invalid UTF-8, valid JSON followed by trailing
+    bytes, wrong-product backup, modified-value backup, and future format. Each
+    must fail before a settings write and show the corresponding error class.
+17. Import a plan that changes either free-copy switch. Verify the Yuki prefs,
+    revision, and `FreeCopyConfigStore` snapshot agree. Interrupt the module
+    process after preference commit where practical, reopen it, and verify the
+    journal completes the same target state idempotently.
