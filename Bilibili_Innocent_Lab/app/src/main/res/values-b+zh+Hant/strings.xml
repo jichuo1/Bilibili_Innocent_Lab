@@ -310,4 +310,24 @@
     <string name="settings_backup_nothing_to_apply">沒有可安全套用的變更。</string>
     <string name="settings_backup_choose_again">重新選擇檔案</string>
     <string name="settings_backup_migration_warning">部分目錄遷移步驟無法使用；只會還原仍能精確相容的自描述設定，其餘項目全部保留目前狀態。</string>
+    <string name="no_root_support_enable">免 Root 支援（NPatch，實驗性）</string>
+    <string name="no_root_support_tip">需要 Android 9 或以上版本，並使用 NPatch Manager 1.0.7 或以上版本的本機/管理器模式。僅在此開關開啟時連線 NPatch。</string>
+    <string name="no_root_status_unsupported_os">狀態：無法使用，需要 Android 9 或更新版本。</string>
+    <string name="no_root_status_disabled">狀態：已關閉，不會連線 NPatch。</string>
+    <string name="no_root_status_checking">狀態：正在檢查本機設定…</string>
+    <string name="no_root_status_manager_missing">狀態：找不到 NPatch Manager，或 Remote API 無法使用。</string>
+    <string name="no_root_status_module_not_registered">狀態：NPatch Manager 尚未識別目前模組，請先在管理器中加入並啟用模組。</string>
+    <string name="no_root_status_syncing">狀態：正在向 NPatch 同步設定…</string>
+    <string name="no_root_status_restart_required">狀態：設定已同步，請重新啟動已修補的嗶哩嗶哩以完成啟用。</string>
+    <string name="no_root_status_disable_restart_required">狀態：免 Root 支援已關閉，但目前嗶哩嗶哩程序中的 Hook 可能仍在執行；請強制停止並重新開啟以完成關閉。</string>
+    <string name="no_root_status_active">狀態：已啟用，已收到已修補嗶哩嗶哩的有效回執。</string>
+    <string name="no_root_status_connection_timeout">狀態：連線 NPatch 逾時，請檢查 NPatch Manager 後重試。</string>
+    <string name="no_root_status_error">狀態：同步失敗，請檢查 NPatch 設定後重試。</string>
+    <string name="no_root_activated_by_npatch">由 NPatch 啟用（回執已驗證）</string>
+    <string name="no_root_enable_failed">無法開啟免 Root 支援</string>
+    <string name="no_root_disable_failed">無法關閉免 Root 支援</string>
+    <string name="no_root_restart_confirm_title">手動重新啟動嗶哩嗶哩？</string>
+    <string name="no_root_restart_confirm_message">免 Root 模式無法強制停止其他應用程式。請開啟嗶哩嗶哩的應用程式資訊，在系統介面強制停止後再重新開啟。</string>
+    <string name="no_root_restart_open_app_details">開啟應用程式資訊</string>
+    <string name="no_root_restart_open_failed">無法開啟嗶哩嗶哩應用程式資訊</string>
 </resources>
