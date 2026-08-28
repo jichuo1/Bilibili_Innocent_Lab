@@ -44,18 +44,19 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
         if (Looper.myLooper() !== Looper.getMainLooper()) return null
         if (activity.isFinishing || activity.isDestroyed) return null
 
-        detachOnMain(null, ReplyTopologyPanelCloseReason.REPLACED)
         val parent = findOverlayParent(activity) ?: return null
         val session = ReplyTopologyPanelSession(generation.incrementAndGet())
         val theme = config.theme ?: ReplyTopologyPanelTheme.resolve(activity)
-        val panel = ReplyTopologyPanelView(
-            context = activity,
-            session = session,
-            config = config,
-            theme = theme,
-            listener = listener,
-            host = this
-        )
+        val panel = runCatching {
+            ReplyTopologyPanelView(
+                context = activity,
+                session = session,
+                config = config,
+                theme = theme,
+                listener = listener,
+                host = this
+            )
+        }.getOrNull() ?: return null
         val dimensions = panelDimensions(parent, config)
         val params = if (parent is FrameLayout) {
             FrameLayout.LayoutParams(dimensions.first, dimensions.second, Gravity.TOP or Gravity.START)
@@ -63,22 +64,23 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
             ViewGroup.LayoutParams(dimensions.first, dimensions.second)
         }
 
-        return runCatching {
-            activeSessionId = session.id
-            activityRef = WeakReference(activity)
-            panelRef = WeakReference(panel)
+        // 先把新面板完整附着并初始化，再替换旧面板；addView 或初始化失败时旧面板
+        // 仍保持可操作，不会产生“定位成功但悬浮面板消失”的半迁移状态。
+        val prepared = runCatching {
             parent.addView(panel, params)
             panel.bindBoundsParent(parent, config.initialPosition.normalized())
             panel.playEntrance()
-            session
-        }.getOrElse {
-            activeSessionId = NO_SESSION
-            activityRef = null
-            panelRef = null
+        }.onFailure {
             runCatching { panel.releaseResources() }
             runCatching { (panel.parent as? ViewGroup)?.removeView(panel) }
-            null
-        }
+        }.isSuccess
+        if (!prepared) return null
+
+        detachOnMain(null, ReplyTopologyPanelCloseReason.REPLACED)
+        activeSessionId = session.id
+        activityRef = WeakReference(activity)
+        panelRef = WeakReference(panel)
+        return session
     }
 
     /** 可从任意线程调用；真正的 View 更新会切回主线程并再次核验会话代次。 */
@@ -98,6 +100,12 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
         session: ReplyTopologyPanelSession,
         opacity: Float
     ): Boolean = withPanel(session) { it.setBackgroundOpacity(opacity, notify = false) }
+
+    /** 可从任意线程调用；定位时收起内容，用户仍可通过标题栏入口恢复完整面板。 */
+    fun setLocateCompact(
+        session: ReplyTopologyPanelSession,
+        compact: Boolean
+    ): Boolean = withPanel(session) { it.setLocateCompact(compact) }
 
     /**
      * 选中并在已加载列表中滚动到稳定 rpid；不存在时返回 false。该查询必须从主线程

@@ -7,15 +7,19 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.drawable.RippleDrawable
+import android.os.SystemClock
 import android.text.TextUtils
 import android.util.LruCache
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.ViewCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyGraph
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyNodeFlags
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyThreadKey
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -28,12 +32,18 @@ import kotlin.math.roundToInt
 internal class ReplyTopologyWorkflowAdapter(
     private val theme: ReplyTopologyPanelTheme,
     private val strings: ReplyTopologyPanelStrings,
-    onNodeClick: (Long) -> Unit
+    onNodeSelected: (Long) -> Unit,
+    onNodeLocateRequested: (Long) -> Unit,
+    private val doubleTapGate: ReplyTopologyDoubleTapGate = ReplyTopologyDoubleTapGate(
+        doubleTapTimeoutMs = ViewConfiguration.getDoubleTapTimeout().toLong(),
+        uptimeMillis = SystemClock::uptimeMillis
+    )
 ) : RecyclerView.Adapter<ReplyTopologyWorkflowAdapter.NodeHolder>() {
 
     private var graph: ReplyTopologyGraph? = null
     private var selectedRpid: Long? = null
-    private var nodeClick: ((Long) -> Unit)? = onNodeClick
+    private var nodeSelected: ((Long) -> Unit)? = onNodeSelected
+    private var nodeLocateRequested: ((Long) -> Unit)? = onNodeLocateRequested
     private val timeCache = LruCache<Long, String>(96)
     private val timeFormat = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
 
@@ -48,15 +58,9 @@ internal class ReplyTopologyWorkflowAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): NodeHolder {
         val row = ReplyTopologyNodeRow(parent.context, theme, strings)
         val holder = NodeHolder(row)
-        row.setOnClickListener {
-            val position = holder.bindingAdapterPosition
-            val current = graph
-            if (position == RecyclerView.NO_POSITION || current == null || position !in 0 until current.size) {
-                return@setOnClickListener
-            }
-            val rpid = current.rpids[position]
-            selectRpid(rpid)
-            nodeClick?.invoke(rpid)
+        row.setOnClickListener { dispatchNodeTap(holder) }
+        ViewCompat.addAccessibilityAction(row, strings.locateReplyAction) { _, _ ->
+            dispatchAccessibleLocate(holder)
         }
         return holder
     }
@@ -79,6 +83,7 @@ internal class ReplyTopologyWorkflowAdapter(
 
     fun submit(snapshot: ReplyTopologyRenderSnapshot) {
         val old = graph
+        if (old != null && old.key != snapshot.graph.key) doubleTapGate.reset()
         val oldSize = old?.size ?: 0
         val oldSelection = selectedRpid
         val appendOnly = old != null &&
@@ -119,8 +124,15 @@ internal class ReplyTopologyWorkflowAdapter(
         return current.rpids.getOrNull(position) == selectedRpid
     }
 
+    /** 用户开始滚动或拖动面板时，上一节点点击不再参与后续双击判断。 */
+    fun cancelPendingTap() {
+        doubleTapGate.reset()
+    }
+
     fun release() {
-        nodeClick = null
+        doubleTapGate.reset()
+        nodeSelected = null
+        nodeLocateRequested = null
         selectedRpid = null
         graph = null
         timeCache.evictAll()
@@ -165,6 +177,47 @@ internal class ReplyTopologyWorkflowAdapter(
             root = root,
             placeholder = placeholder || unavailable || filtered
         )
+    }
+
+    private fun dispatchNodeTap(holder: NodeHolder) {
+        val identity = currentIdentity(holder) ?: return
+        selectRpid(identity.rpid)
+        val tapResult = doubleTapGate.registerTap(identity.rpid)
+        nodeSelected?.invoke(identity.rpid)
+        if (tapResult == ReplyTopologyTapResult.LOCATE && isIdentityCurrent(identity)) {
+            nodeLocateRequested?.invoke(identity.rpid)
+        }
+    }
+
+    /** 无障碍用户无需再完成一次应用层双击，可通过节点自定义操作直接定位完整回复。 */
+    private fun dispatchAccessibleLocate(holder: NodeHolder): Boolean {
+        val identity = currentIdentity(holder) ?: return false
+        doubleTapGate.reset()
+        selectRpid(identity.rpid)
+        nodeSelected?.invoke(identity.rpid)
+        if (!isIdentityCurrent(identity)) return false
+        val locate = nodeLocateRequested ?: return false
+        locate(identity.rpid)
+        return true
+    }
+
+    private fun currentIdentity(holder: NodeHolder): NodeIdentity? {
+        val position = holder.bindingAdapterPosition
+        val current = graph
+        if (
+            position == RecyclerView.NO_POSITION ||
+            current == null ||
+            position !in 0 until current.size
+        ) {
+            return null
+        }
+        return NodeIdentity(current.key, current.rpids[position])
+    }
+
+    private fun isIdentityCurrent(identity: NodeIdentity): Boolean {
+        val current = graph ?: return false
+        return current.key == identity.threadKey &&
+            indexOf(current, identity.rpid) != RecyclerView.NO_POSITION
     }
 
     private fun buildMeta(graph: ReplyTopologyGraph, position: Int, flags: Int): String {
@@ -226,6 +279,11 @@ internal class ReplyTopologyWorkflowAdapter(
     }
 
     internal class NodeHolder(val row: ReplyTopologyNodeRow) : RecyclerView.ViewHolder(row)
+
+    private data class NodeIdentity(
+        val threadKey: ReplyTopologyThreadKey,
+        val rpid: Long
+    )
 
     private companion object {
         val SELECTION_PAYLOAD = Any()
@@ -298,6 +356,7 @@ internal class ReplyTopologyNodeRow(
         contentDescription = buildString {
             append(authorView.text).append(strings.descriptionSeparator).append(message)
             if (meta.isNotEmpty()) append(strings.descriptionSeparator).append(meta)
+            append(strings.descriptionSeparator).append(strings.nodeActionDescription)
         }
     }
 

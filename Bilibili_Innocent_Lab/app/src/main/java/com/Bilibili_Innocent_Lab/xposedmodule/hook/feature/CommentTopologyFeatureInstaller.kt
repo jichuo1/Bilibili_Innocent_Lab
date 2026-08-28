@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Color
-import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -15,12 +14,14 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.core.net.toUri
 import androidx.recyclerview.widget.RecyclerView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyGraph
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyGraphBuilder
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyNodeFlags
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyPagingBudget
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyPagingDecision
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyPagingGuard
@@ -550,8 +551,10 @@ internal class CommentTopologyFeatureInstaller(
             }.getOrNull() ?: return
         }
         anchor.bind(seed, coordinator)
-        findActivity(target.row.context)?.let { activity ->
-            coordinator.onCommentBound(activity, seed.key)
+        if (coordinator.expectsCommentBound(seed.key)) {
+            findActivity(target.row.context)?.let { activity ->
+                coordinator.onCommentBound(activity, seed.key)
+            }
         }
     }
 
@@ -1011,39 +1014,35 @@ internal class ReplyTopologyCoordinator(
         requestNext(state)
     }
 
-    /** 只有同一 oid/type/root 的评论真正绑定到新页面后才迁移面板，避免附着到无关 Activity。 */
+    /**
+     * 同一 oid/type/root 的根评论绑定只用于确认公开路由已经进入目标线程，并在
+     * Activity 真正变化时迁移悬浮面板。目标回复的锚定完全交给宿主 URI；这里不
+     * 观察回复 View、不主动滚动 RecyclerView，也不接入普通评论 bind 热路径。
+     */
     fun onCommentBound(activity: Activity, key: ReplyTopologyThreadKey) {
         if (Looper.myLooper() !== Looper.getMainLooper()) {
             mainHandler.post { onCommentBound(activity, key) }
             return
         }
         val current = active ?: return
-        if (!gate.accepts(current.token) || !current.pendingRebind || current.token.key != key) return
-        if (SystemClock.elapsedRealtime() > current.rebindDeadlineMs) {
-            finishRebindWindow(current)
+        val pending = current.pendingLocate ?: return
+        if (!isCurrentLocate(current, pending) || pending.threadKey != key) return
+        if (!pending.routeStarted) return
+        if (SystemClock.elapsedRealtime() > pending.deadlineMs) {
+            finishLocateWindow(current, pending)
             return
         }
         if (activity.packageName != TARGET_PACKAGE) return
-        // 源页面可能在启动路由后再次 bind 同一根评论，不能把它误认为目标详情页。
-        // 同 Activity 导航时面板仍在原 decor，等待窗口结束后恢复稳态即可。
-        if (current.activityRef.get() === activity) return
-        current.rebindInProgress = true
-        val panel = attachPanel(activity, current)
-        if (panel == null) {
-            current.rebindInProgress = false
-            return
-        }
-        current.activityRef = WeakReference(activity)
-        current.panelSession = panel
-        current.rebindRunnable?.let(mainHandler::removeCallbacks)
-        current.rebindRunnable = null
-        current.pendingRebind = false
-        current.detachedWhileRebind = false
-        current.rebindInProgress = false
-        current.graph?.let {
-            panelController.submit(panel, ReplyTopologyRenderSnapshot(it, current.selectedRpid))
-        }
-        panelController.updateState(panel, current.panelState)
+        pending.threadConfirmed = true
+        ensurePanelOnActivity(current, activity, compact = true)
+    }
+
+    /** 普通评论 bind 只做常数时间门控；没有定位窗口时不解析 Context 或 Activity。 */
+    fun expectsCommentBound(key: ReplyTopologyThreadKey): Boolean {
+        if (Looper.myLooper() !== Looper.getMainLooper()) return false
+        val current = active ?: return false
+        val pending = current.pendingLocate ?: return false
+        return isCurrentLocate(current, pending) && pending.routeStarted && pending.threadKey == key
     }
 
     private fun attachPanel(activity: Activity, state: Active): ReplyTopologyPanelSession? {
@@ -1062,6 +1061,10 @@ internal class ReplyTopologyCoordinator(
         )
         val listener = object : ReplyTopologyPanelListener {
             override fun onNodeSelected(rpid: Long) {
+                selectReply(state.token, rpid)
+            }
+
+            override fun onNodeLocateRequested(rpid: Long) {
                 locateReply(state.token, rpid)
             }
 
@@ -1086,7 +1089,9 @@ internal class ReplyTopologyCoordinator(
                 val current = active
                 if (current?.token != state.token) return
                 if (current.rebindInProgress && reason == ReplyTopologyPanelCloseReason.REPLACED) return
-                if (current.pendingRebind && reason == ReplyTopologyPanelCloseReason.HOST_DETACHED) {
+                if (current.pendingLocate != null &&
+                    reason == ReplyTopologyPanelCloseReason.HOST_DETACHED
+                ) {
                     current.detachedWhileRebind = true
                     if (panel != null && current.panelSession == panel) current.panelSession = null
                     return
@@ -1279,12 +1284,45 @@ internal class ReplyTopologyCoordinator(
         requestNext(state)
     }
 
+    private fun selectReply(token: ReplyTopologySessionToken, rpid: Long) {
+        val state = active?.takeIf { it.token == token } ?: return
+        if (rpid <= 0L) return
+        state.selectedRpid = rpid
+    }
+
     private fun locateReply(token: ReplyTopologySessionToken, rpid: Long) {
         val state = active?.takeIf { it.token == token } ?: return
-        if (state.pendingRebind) return
+        if (rpid <= 0L || state.pendingLocate != null) return
         val activity = state.activityRef.get() ?: return
-        state.selectedRpid = rpid
-        state.panelSession?.let { panelController.selectAndReveal(it, rpid) }
+        selectReply(token, rpid)
+
+        locateBlockedMessage(state, rpid)?.let { message ->
+            restoreSteadyPanelState(state, message)
+            return
+        }
+
+        val route = buildReplyTopologyLocateRoute(token.key, rpid) ?: return
+        val intent = Intent(Intent.ACTION_VIEW, route.toUri()).setPackage(TARGET_PACKAGE)
+        val resolved = runCatching {
+            intent.resolveActivity(activity.packageManager) != null
+        }.getOrDefault(false)
+        if (!resolved) {
+            environment.logInfo(
+                "comment_topology_route_unsupported",
+                "[BIL] 回复定位入口不可解析，未启动外部 Activity"
+            )
+            restoreSteadyPanelState(state, state.strings.locateUnsupportedMessage)
+            return
+        }
+
+        val startedAtMs = SystemClock.elapsedRealtime()
+        val pending = PendingLocate(
+            token = token,
+            threadKey = token.key,
+            targetRpid = rpid,
+            deadlineMs = startedAtMs + LOCATE_WINDOW_MS
+        )
+        state.pendingLocate = pending
         updatePanelState(
             state,
             ReplyTopologyPanelState.locating(
@@ -1292,42 +1330,125 @@ internal class ReplyTopologyCoordinator(
                 message = state.strings.locatingMessage
             )
         )
-        val uri = Uri.Builder()
-            .scheme("bilibili")
-            .authority("comment3")
-            .appendPath("detail")
-            .appendPath(token.key.oid.toString())
-            .appendPath(token.key.type.toString())
-            .appendPath(token.key.rootRpid.toString())
-            .appendQueryParameter("rp_id", rpid.toString())
-            .build()
-        state.pendingRebind = true
+        state.panelSession?.let { panelController.setLocateCompact(it, true) }
         state.detachedWhileRebind = false
-        state.rebindDeadlineMs = SystemClock.elapsedRealtime() + REBIND_WINDOW_MS
+        // startActivity 可能同步进入宿主路由分发；先打开 bind 接收窗口，异常分支再统一清理。
+        pending.routeStarted = true
         val launched = runCatching {
-            activity.startActivity(Intent(Intent.ACTION_VIEW, uri).setPackage(TARGET_PACKAGE))
+            activity.startActivity(intent)
         }.fold(
             onSuccess = { true },
             onFailure = { throwable ->
-                state.pendingRebind = false
                 environment.logError(
                     "comment_topology_route",
                     "[BIL] 回复定位失败: $throwable"
                 )
-                restoreSteadyPanelState(state)
+                failLocate(state, pending, state.strings.locateUnsupportedMessage)
                 false
             }
         )
         if (!launched) return
-        val rebindTimeout = Runnable {
+        if (!isCurrentLocate(state, pending)) return
+        val locateTimeout = Runnable {
             val current = active
-            if (current !== state || !current.pendingRebind) return@Runnable
-            if (SystemClock.elapsedRealtime() >= current.rebindDeadlineMs) {
-                finishRebindWindow(current)
+            if (current !== state || current.pendingLocate !== pending) return@Runnable
+            if (SystemClock.elapsedRealtime() >= pending.deadlineMs) {
+                finishLocateWindow(current, pending)
             }
         }
-        state.rebindRunnable = rebindTimeout
-        mainHandler.postDelayed(rebindTimeout, REBIND_WINDOW_MS)
+        pending.timeoutRunnable = locateTimeout
+        mainHandler.postDelayed(
+            locateTimeout,
+            (pending.deadlineMs - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+        )
+    }
+
+    private fun locateBlockedMessage(state: Active, rpid: Long): String? {
+        val graph = state.graph ?: return null
+        var index = -1
+        for (candidate in graph.rpids.indices) {
+            if (graph.rpids[candidate] == rpid) {
+                index = candidate
+                break
+            }
+        }
+        if (index < 0) return state.strings.locateUnavailableMessage
+        val flags = graph.flags[index]
+        return when {
+            ReplyTopologyNodeFlags.has(flags, ReplyTopologyNodeFlags.FILTERED) ->
+                state.strings.locateFilteredMessage
+            ReplyTopologyNodeFlags.has(flags, ReplyTopologyNodeFlags.PLACEHOLDER) ||
+                ReplyTopologyNodeFlags.has(flags, ReplyTopologyNodeFlags.UNAVAILABLE) ->
+                state.strings.locateUnavailableMessage
+            else -> null
+        }
+    }
+
+    private fun failLocate(state: Active, pending: PendingLocate, message: String) {
+        if (!isCurrentLocate(state, pending)) return
+        clearPendingLocate(state, pending)
+        state.detachedWhileRebind = false
+        if (!ensurePanelAttached(state)) {
+            close(state.token)
+            return
+        }
+        state.panelSession?.let { panelController.setLocateCompact(it, false) }
+        restoreSteadyPanelState(state, message)
+    }
+
+    private fun ensurePanelAttached(state: Active): Boolean {
+        val activity = state.activityRef.get()?.takeUnless { it.isFinishing || it.isDestroyed }
+            ?: return false
+        return ensurePanelOnActivity(state, activity, compact = false)
+    }
+
+    private fun ensurePanelOnActivity(
+        state: Active,
+        activity: Activity,
+        compact: Boolean
+    ): Boolean {
+        if (activity.isFinishing || activity.isDestroyed || activity.packageName != TARGET_PACKAGE) {
+            return false
+        }
+        val existing = state.panelSession
+        if (state.activityRef.get() === activity &&
+            existing != null && panelController.isAttached(existing)
+        ) {
+            panelController.setLocateCompact(existing, compact)
+            return true
+        }
+        state.rebindInProgress = true
+        val panel = try {
+            attachPanel(activity, state)
+        } finally {
+            state.rebindInProgress = false
+        }
+        if (panel == null) {
+            if (existing == null || !panelController.isAttached(existing)) {
+                state.panelSession = null
+            }
+            return false
+        }
+        state.activityRef = WeakReference(activity)
+        state.panelSession = panel
+        state.detachedWhileRebind = false
+        state.graph?.let {
+            panelController.submit(panel, ReplyTopologyRenderSnapshot(it, state.selectedRpid))
+        }
+        panelController.updateState(panel, state.panelState)
+        panelController.setLocateCompact(panel, compact)
+        return true
+    }
+
+    private fun isCurrentLocate(state: Active, pending: PendingLocate): Boolean =
+        active === state && gate.accepts(state.token) && state.pendingLocate === pending &&
+            pending.token == state.token && pending.threadKey == state.token.key
+
+    private fun clearPendingLocate(state: Active, pending: PendingLocate) {
+        if (state.pendingLocate !== pending) return
+        pending.timeoutRunnable?.let(mainHandler::removeCallbacks)
+        pending.timeoutRunnable = null
+        state.pendingLocate = null
     }
 
     private fun scheduleGraphBuild(state: Active) {
@@ -1360,20 +1481,25 @@ internal class ReplyTopologyCoordinator(
         }
     }
 
-    private fun finishRebindWindow(state: Active) {
-        if (active !== state || !state.pendingRebind) return
-        state.rebindRunnable?.let(mainHandler::removeCallbacks)
-        state.rebindRunnable = null
-        state.pendingRebind = false
-        val panel = state.panelSession
-        if (state.detachedWhileRebind || panel == null || !panelController.isAttached(panel)) {
-            close(state.token)
+    private fun finishLocateWindow(state: Active, pending: PendingLocate) {
+        if (!isCurrentLocate(state, pending)) return
+        val message = if (pending.threadConfirmed) {
+            state.strings.locateThreadOnlyMessage
         } else {
-            restoreSteadyPanelState(state)
+            state.strings.locateUnsupportedMessage
         }
+        environment.logInfo(
+            "comment_topology_locate_timeout",
+            if (pending.threadConfirmed) {
+                "[BIL] 回复详情已打开，但未找到目标回复，rpid=${pending.targetRpid}"
+            } else {
+                "[BIL] 回复定位路由未确认目标评论线程，rpid=${pending.targetRpid}"
+            }
+        )
+        failLocate(state, pending, message)
     }
 
-    private fun restoreSteadyPanelState(state: Active) {
+    private fun restoreSteadyPanelState(state: Active, message: String? = null) {
         val loaded = loadedCount(state)
         updatePanelState(
             state,
@@ -1381,12 +1507,18 @@ internal class ReplyTopologyCoordinator(
                 state.complete -> ReplyTopologyPanelState(
                     ReplyTopologyPanelPhase.COMPLETE,
                     loaded,
-                    state.expectedCount ?: loaded
+                    state.expectedCount ?: loaded,
+                    message = message
                 )
-                state.loadingRequest -> ReplyTopologyPanelState.loading(loaded, state.expectedCount)
+                state.loadingRequest -> ReplyTopologyPanelState.loading(
+                    loaded,
+                    state.expectedCount,
+                    message
+                )
                 else -> ReplyTopologyPanelState.partial(
                     loaded,
                     state.expectedCount,
+                    message = message,
                     canRetry = state.nextOffset != null
                 )
             }
@@ -1416,8 +1548,7 @@ internal class ReplyTopologyCoordinator(
     private fun releaseState(state: Active, reason: ReplyTopologyPanelCloseReason) {
         state.timeout?.let { mainHandler.removeCallbacks(it.runnable) }
         state.timeout = null
-        state.rebindRunnable?.let(mainHandler::removeCallbacks)
-        state.rebindRunnable = null
+        state.pendingLocate?.let { clearPendingLocate(state, it) }
         state.currentCall?.call?.cancel()
         state.currentCall = null
         state.worker.shutdownNow()
@@ -1474,14 +1605,22 @@ internal class ReplyTopologyCoordinator(
         var selectedRpid: Long? = null,
         var loadingRequest: Boolean = false,
         var complete: Boolean = false,
-        var pendingRebind: Boolean = false,
-        var rebindDeadlineMs: Long = 0L,
+        var pendingLocate: PendingLocate? = null,
         var rebindInProgress: Boolean = false,
         var detachedWhileRebind: Boolean = false,
         var graphRevision: Long = 0L,
         var timeout: PendingTimeout? = null,
-        var rebindRunnable: Runnable? = null,
         var currentCall: PendingPageCall? = null
+    )
+
+    private class PendingLocate(
+        val token: ReplyTopologySessionToken,
+        val threadKey: ReplyTopologyThreadKey,
+        val targetRpid: Long,
+        val deadlineMs: Long,
+        var routeStarted: Boolean = false,
+        var threadConfirmed: Boolean = false,
+        var timeoutRunnable: Runnable? = null
     )
 
     private data class PendingTimeout(
@@ -1497,7 +1636,7 @@ internal class ReplyTopologyCoordinator(
     companion object {
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val REQUEST_TIMEOUT_MS = 15_000L
-        private const val REBIND_WINDOW_MS = 5_000L
+        private const val LOCATE_WINDOW_MS = 5_000L
         private const val HARD_NODE_LIMIT = 5_000
         private val AUTO_BUDGET = ReplyTopologyPagingBudget(
             maxPages = 60,

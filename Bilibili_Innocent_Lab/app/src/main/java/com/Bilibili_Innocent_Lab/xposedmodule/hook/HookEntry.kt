@@ -22,6 +22,7 @@ import com.highcapable.yukihookapi.hook.factory.configs
 import com.highcapable.yukihookapi.hook.factory.encase
 import com.highcapable.yukihookapi.hook.xposed.proxy.IYukiHookXposedInit
 import de.robv.android.xposed.XC_MethodHook
+import de.robv.android.xposed.XSharedPreferences
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import java.lang.reflect.Constructor
@@ -71,6 +72,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootRuntimeDetect
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootTargetConfigBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingValue
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.BubbleDrawable
 
 /**
@@ -272,7 +274,70 @@ class HookEntry : IYukiHookXposedInit {
         )
 
         /**
-         * 在 Application.attach 的有界等待内查询当前条款授权。Provider 是常规通道；
+         * 标准 LSPosed 优先读取默认偏好中的最小授权镜像；镜像缺失时兼容尝试独立
+         * 权威文件。两者都复用模块侧版本校验，不推断历史用户，也不保存宿主缓存。
+         * 全部缺失时返回 null，由 attach 同步路径安全关闭本次安装；不能等 IPC 后再
+         * 延迟补装，因为兼容层 Hook 必须早于其他模块的 Application.onCreate 回调。
+         */
+        private fun queryXposedHookAuthorization(): Boolean? {
+            val mirroredDecision = runCatching<Boolean?> {
+                val mirror = XSharedPreferences(MODULE_PACKAGE)
+                mirror.makeWorldReadable()
+                mirror.reload()
+                if (!mirror.contains(UserTermsConsentStore.HOOK_MIRROR_KEY_DECISION)) {
+                    return@runCatching null
+                }
+                UserTermsConsentStore.resolvePersistedDecision(
+                    hasDecision = true,
+                    rawDecision = mirror.getString(
+                        UserTermsConsentStore.HOOK_MIRROR_KEY_DECISION,
+                        null
+                    ),
+                    storedVersion = mirror.getInt(
+                        UserTermsConsentStore.HOOK_MIRROR_KEY_TERMS_VERSION,
+                        -1
+                    )
+                )?.isAuthorized ?: false
+            }.onFailure { throwable ->
+                XposedBridge.log(
+                    "[BIL] LSPosed 默认授权镜像读取失败: " +
+                        "${throwable.javaClass.simpleName}: ${throwable.message}"
+                )
+            }.getOrNull()
+            if (mirroredDecision != null) return mirroredDecision
+
+            return runCatching<Boolean?> {
+                val preferences = XSharedPreferences(
+                    MODULE_PACKAGE,
+                    UserTermsConsentStore.PREF_FILE
+                )
+                preferences.makeWorldReadable()
+                preferences.reload()
+                val hasDecision = preferences.contains(UserTermsConsentStore.KEY_DECISION)
+                if (!hasDecision) {
+                    val file = preferences.file
+                    XposedBridge.log(
+                        "[BIL] LSPosed 授权镜像与私有快照均无可读记录" +
+                            "(path=${file.absolutePath}, exists=${file.exists()}, " +
+                            "readable=${file.canRead()})"
+                    )
+                    return@runCatching null
+                }
+                UserTermsConsentStore.resolvePersistedDecision(
+                    hasDecision = true,
+                    rawDecision = preferences.getString(UserTermsConsentStore.KEY_DECISION, null),
+                    storedVersion = preferences.getInt(UserTermsConsentStore.KEY_TERMS_VERSION, -1)
+                )?.isAuthorized ?: false
+            }.onFailure { throwable ->
+                XposedBridge.log(
+                    "[BIL] LSPosed 私有授权快照读取失败: " +
+                        "${throwable.javaClass.simpleName}: ${throwable.message}"
+                )
+            }.getOrNull()
+        }
+
+        /**
+         * NPatch 在 Application.onCreate 前通过有界等待取得授权和完整配置。Provider 是常规通道；
          * 对已知会隔离跨应用 authority 的宿主环境，并行发送显式 ordered broadcast，
          * 两条通道都由模块进程直接读 UserTermsConsentStore。宿主不保存正向授权缓存。
          *
@@ -284,8 +349,9 @@ class HookEntry : IYukiHookXposedInit {
             requireNoRoot: Boolean
         ): HookBootstrap? {
             val appContext = context.applicationContext ?: context
+            val timeoutMs = HOOK_AUTHORIZATION_TIMEOUT_MS
             val deadlineNanos = System.nanoTime() +
-                java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(HOOK_AUTHORIZATION_TIMEOUT_MS)
+                java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(timeoutMs)
             val resolved = java.util.concurrent.atomic.AtomicReference<HookBootstrap?>(null)
             val resultReady = java.util.concurrent.CountDownLatch(1)
 
@@ -360,6 +426,11 @@ class HookEntry : IYukiHookXposedInit {
                         }
                         HookBootstrap(authorized, envelope)
                     }
+                }.onFailure { throwable ->
+                    XposedBridge.log(
+                        "[BIL] Hook 授权 Provider 查询失败: " +
+                            "${throwable.javaClass.simpleName}: ${throwable.message}"
+                    )
                 }.getOrNull()
                 offerResult(providerResult)
             }, "BIL-hook-authorization-provider").apply {
@@ -491,6 +562,11 @@ class HookEntry : IYukiHookXposedInit {
                     null,
                     null
                 )
+            }.onFailure { throwable ->
+                XposedBridge.log(
+                    "[BIL] Hook 授权广播发送失败: " +
+                        "${throwable.javaClass.simpleName}: ${throwable.message}"
+                )
             }
 
             val completed = try {
@@ -514,6 +590,9 @@ class HookEntry : IYukiHookXposedInit {
                 }
                 runCatching { bootstrapPendingIntent?.cancel() }
                 runCatching { broadcastThread.quitSafely() }
+            }
+            if (!completed) {
+                XposedBridge.log("[BIL] Hook 授权查询超时(${timeoutMs}ms)")
             }
             return if (completed) resolved.get() else null
         }
@@ -2738,6 +2817,8 @@ class HookEntry : IYukiHookXposedInit {
             val authorizationAttempted = java.util.concurrent.atomic.AtomicBoolean(false)
             val authorizedInstallStarted = java.util.concurrent.atomic.AtomicBoolean(false)
             val authorizedHooksInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
+            val applicationOnCreateCompleted = java.util.concurrent.atomic.AtomicBoolean(false)
+            val scanResultReported = java.util.concurrent.atomic.AtomicBoolean(false)
             val authorizedInstallerRef =
                 java.util.concurrent.atomic.AtomicReference<((Context) -> Unit)?>(null)
             val selectedNoRootSnapshot =
@@ -2803,16 +2884,33 @@ class HookEntry : IYukiHookXposedInit {
                 if (handler != null) handler.post(retry) else retry()
             }
 
+            // DataChannel 仅供模块设置页展示主进程状态；子进程上报没有可见收益。
+            // 某些 LSPosed 类加载环境缺少其传递依赖，首次 LinkageError 后本进程
+            // 直接熔断，避免每个安装器重复解析同一缺失类并刷写详细日志。
+            val statusChannelAvailable = java.util.concurrent.atomic.AtomicBoolean(
+                processName == TARGET_PACKAGE
+            )
+
             fun reportChannelStatus(key: String, value: String) {
+                if (!statusChannelAvailable.get()) return
                 runCatching {
                     dataChannel.put(key = key, value = value)
                 }.onFailure { t ->
                     // DataChannel 只服务模块界面状态展示，不是宿主 Hook 的功能依赖。
                     // 上报失败必须 fail-open，避免截断后续自由复制等核心注册链路。
-                    logError(
-                        "channel_status_$key",
-                        "[BIL] 状态通道上报失败(key=$key, value=$value): $t"
-                    )
+                    if (t is LinkageError) {
+                        if (statusChannelAvailable.compareAndSet(true, false)) {
+                            logError(
+                                "channel_status_unavailable",
+                                "[BIL] 状态通道在当前宿主不可用，已停止本进程后续上报: $t"
+                            )
+                        }
+                    } else {
+                        logError(
+                            "channel_status_$key",
+                            "[BIL] 状态通道上报失败(key=$key, value=$value): $t"
+                        )
+                    }
                 }
             }
 
@@ -4315,6 +4413,14 @@ class HookEntry : IYukiHookXposedInit {
 
             authorizedInstallerRef.set(::installAuthorizedHooks)
 
+            fun reportScanResultIfReady(context: Context?) {
+                if (!applicationOnCreateCompleted.get() ||
+                    !authorizedHooksInstalled.get() ||
+                    !scanResultReported.compareAndSet(false, true)
+                ) return
+                RoamingCompatHook.reportScanResult(context, biliClassLoader)
+            }
+
             val runtimeClaimProperty =
                 "com.Bilibili_Innocent_Lab.xposedmodule.runtime_owner"
 
@@ -4345,13 +4451,11 @@ class HookEntry : IYukiHookXposedInit {
 
             fun performAuthorizationAndInstall(
                 appContext: Context,
-                runtimeMode: HookRuntimeMode
+                runtimeMode: HookRuntimeMode,
+                knownBootstrap: HookBootstrap? = null
             ) {
-                val bootstrap = runCatching {
-                    queryHookBootstrap(
-                        appContext,
-                        requireNoRoot = runtimeMode == HookRuntimeMode.NPATCH_LEGACY
-                    )
+                val bootstrap = knownBootstrap ?: runCatching {
+                    queryHookBootstrap(appContext, requireNoRoot = true)
                 }.getOrNull()
                 if (bootstrap?.authorized != true) {
                     authorizedInstallerRef.set(null)
@@ -4476,6 +4580,7 @@ class HookEntry : IYukiHookXposedInit {
                     installer(appContext)
                 }.onSuccess {
                     authorizedHooksInstalled.set(true)
+                    reportScanResultIfReady(appContext)
                     val noRootSnapshot = selectedNoRootSnapshot.get()
                     if (noRootSnapshot != null &&
                         TargetProcess.isMainProcess(appContext, TARGET_PACKAGE)
@@ -4524,17 +4629,37 @@ class HookEntry : IYukiHookXposedInit {
                     frameworkClassLoader = XposedBridge::class.java.classLoader,
                     moduleClassLoader = HookEntry::class.java.classLoader
                 )
-                // NPatch 在 attach 阶段先让路；到 callApplicationOnCreate.before 再声明。
-                // 同一进程若还有 LSPosed，它会在全部 attach callbacks 结束前先取得
-                // standard claim；纯 NPatch 环境仍可在 Application.onCreate 前完成安装。
+                // 标准 LSPosed 只同步读取本地授权快照，并在 attach 原时序内完成
+                // Hook 安装。禁止后台延迟补装：RoamingCompatHook 必须早于其他模块的
+                // Application.onCreate 回调。NPatch 仍在 callApplicationOnCreate.before
+                // 同步取得完整 envelope，维持其既有启动顺序。
                 if (runtimeMode == HookRuntimeMode.NPATCH_LEGACY && deferNoRootAtAttach) return
+                if (runtimeMode == HookRuntimeMode.STANDARD_XPOSED && !deferNoRootAtAttach) return
                 if (!authorizationAttempted.compareAndSet(false, true)) return
-                performAuthorizationAndInstall(appContext, runtimeMode)
+                if (runtimeMode == HookRuntimeMode.STANDARD_XPOSED) {
+                    val authorized = queryXposedHookAuthorization()
+                    if (authorized == null) {
+                        authorizedInstallerRef.set(null)
+                        XposedBridge.log(
+                            "[BIL] LSPosed 授权快照缺失；请先打开一次模块界面，" +
+                                "当前宿主进程不安装任何功能"
+                        )
+                        return
+                    }
+                    XposedBridge.log("[BIL] Hook 授权由 LSPosed 偏好快照确认")
+                    performAuthorizationAndInstall(
+                        appContext,
+                        runtimeMode,
+                        HookBootstrap(authorized = authorized, noRoot = null)
+                    )
+                } else {
+                    performAuthorizationAndInstall(appContext, runtimeMode)
+                }
             }
 
-            // 未授权前仅保留两个宿主生命周期 bootstrap。每个进程只查询一次
-            // Provider/显式有序广播；仅在共享的有界等待内收到明确授权
-            // 才执行上方完整安装链。
+            // 未授权前仅保留两个宿主生命周期 bootstrap。标准 LSPosed 在 attach.before
+            // 读取本地快照并同步安装；NPatch 在 callApplicationOnCreate.before 查询完整
+            // envelope。每个进程只尝试一次，且只有明确授权才安装完整 Hook。
             runCatching {
                 hookExactMethod(
                     classOf<android.app.Application>(),
@@ -4564,12 +4689,8 @@ class HookEntry : IYukiHookXposedInit {
                         )
                     }
                     after {
-                        if (authorizedHooksInstalled.get()) {
-                            RoamingCompatHook.reportScanResult(
-                                args.firstOrNull() as? Context,
-                                biliClassLoader
-                            )
-                        }
+                        applicationOnCreateCompleted.set(true)
+                        reportScanResultIfReady(args.firstOrNull() as? Context)
                     }
                 }
             }.onFailure { throwable ->

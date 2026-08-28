@@ -43,6 +43,7 @@ internal class ReplyTopologyPanelView(
     }
 
     private val titleView = TextView(context)
+    private val expandView = TextView(context)
     private val closeView = TextView(context)
     private val opacityLabel = TextView(context)
     private val opacitySeek = SeekBar(context)
@@ -50,10 +51,20 @@ internal class ReplyTopologyPanelView(
     private val retryView = actionChip(strings.retry)
     private val continueView = actionChip(strings.continueLoading)
     private val recyclerView = RecyclerView(context)
-    private val workflowAdapter = ReplyTopologyWorkflowAdapter(theme, strings) { rpid ->
-        panelListener?.onNodeSelected(rpid)
-    }
+    private val workflowAdapter = ReplyTopologyWorkflowAdapter(
+        theme = theme,
+        strings = strings,
+        onNodeSelected = { rpid -> panelListener?.onNodeSelected(rpid) },
+        onNodeLocateRequested = { rpid -> panelListener?.onNodeLocateRequested(rpid) }
+    )
     private val trackDecoration = ReplyTopologyTrackDecoration(workflowAdapter, theme, density)
+    private val workflowScrollListener = object : RecyclerView.OnScrollListener() {
+        override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+            if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                workflowAdapter.cancelPendingTap()
+            }
+        }
+    }
 
     private var panelListener: ReplyTopologyPanelListener? = listener
     private var hostRef = WeakReference(host)
@@ -62,6 +73,9 @@ internal class ReplyTopologyPanelView(
     private var currentOpacity = config.initialBackgroundOpacity
     private var initialPosition = config.initialPosition.normalized()
     private var positionInitialized = false
+    private val opacityRow: View by lazy(LazyThreadSafetyMode.NONE) { createOpacityRow() }
+    private var locateCompact = false
+    private var expandedHeightPx = 0
 
     @Volatile
     var isReleased: Boolean = false
@@ -95,6 +109,9 @@ internal class ReplyTopologyPanelView(
             .setInterpolator(PathInterpolator(0f, 0f, 0.2f, 1f))
             .start()
     }
+    private val compactLayoutRunnable = Runnable {
+        if (!isReleased) applyBoundedTranslation(translationX, translationY)
+    }
 
     private val parentLayoutListener = OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
         if (!isReleased) {
@@ -114,7 +131,7 @@ internal class ReplyTopologyPanelView(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) defaultFocusHighlightEnabled = false
 
         addView(createHeader(), LayoutParams(LayoutParams.MATCH_PARENT, dp(48)))
-        addView(createOpacityRow(), LayoutParams(LayoutParams.MATCH_PARENT, dp(34)))
+        addView(opacityRow, LayoutParams(LayoutParams.MATCH_PARENT, dp(34)))
         addView(createStatusRow(), LayoutParams(LayoutParams.MATCH_PARENT, dp(38)))
         addView(createWorkflowList(), LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         updateState(currentState)
@@ -181,6 +198,33 @@ internal class ReplyTopologyPanelView(
     }
 
     /**
+     * 定位期间收起列表与透明度控件，只保留标题、状态、展开和关闭入口。尺寸切换不启动
+     * 持续动画，也不改变用户设置的背景透明度和当前位置。
+     */
+    fun setLocateCompact(compact: Boolean) {
+        if (isReleased || locateCompact == compact) return
+        val params = layoutParams ?: return
+        if (compact) {
+            expandedHeightPx = params.height.takeIf { it > 0 } ?: height.takeIf { it > 0 } ?: 0
+        }
+        locateCompact = compact
+        opacityRow.visibility = if (compact) View.GONE else View.VISIBLE
+        recyclerView.visibility = if (compact) View.GONE else View.VISIBLE
+        expandView.visibility = if (compact) View.VISIBLE else View.GONE
+        params.height = if (compact) {
+            val compactHeight = dp(LOCATE_COMPACT_HEIGHT_DP)
+            val parentHeight = boundsParentRef?.get()?.height?.takeIf { it > 0 }
+            parentHeight?.let { compactHeight.coerceAtMost(it) } ?: compactHeight
+        } else {
+            expandedHeightPx.takeIf { it > 0 } ?: params.height
+        }
+        layoutParams = params
+        requestLayout()
+        removeCallbacks(compactLayoutRunnable)
+        post(compactLayoutRunnable)
+    }
+
+    /**
      * 先清除所有强引用和帧回调再从 parent 移除。返回的 Listener 仅供 Controller 在清理
      * 完成后通知一次关闭原因；重复调用返回 null。
      */
@@ -192,15 +236,18 @@ internal class ReplyTopologyPanelView(
         removeCallbacks(applyMoveRunnable)
         removeCallbacks(applyInitialPositionRunnable)
         removeCallbacks(entranceRunnable)
+        removeCallbacks(compactLayoutRunnable)
         moveFramePosted = false
         boundsParentRef?.get()?.removeOnLayoutChangeListener(parentLayoutListener)
         boundsParentRef = null
         titleView.setOnTouchListener(null)
+        expandView.setOnClickListener(null)
         closeView.setOnClickListener(null)
         retryView.setOnClickListener(null)
         continueView.setOnClickListener(null)
         opacitySeek.setOnSeekBarChangeListener(null)
         workflowAdapter.release()
+        recyclerView.removeOnScrollListener(workflowScrollListener)
         recyclerView.adapter = null
         recyclerView.recycledViewPool.clear()
         runCatching { recyclerView.removeItemDecoration(trackDecoration) }
@@ -249,7 +296,21 @@ internal class ReplyTopologyPanelView(
             isFocusable = true
             setOnClickListener { hostRef.get()?.onCloseRequested(session) }
         }
+        expandView.apply {
+            text = strings.expandPanel
+            textSize = 12f
+            gravity = android.view.Gravity.CENTER
+            setTextColor(theme.accentColor)
+            setPadding(dp(8), 0, dp(8), 0)
+            background = roundedRipple()
+            contentDescription = strings.expandDescription
+            isClickable = true
+            isFocusable = true
+            visibility = View.GONE
+            setOnClickListener { setLocateCompact(false) }
+        }
         row.addView(titleView, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        row.addView(expandView, LayoutParams(LayoutParams.WRAP_CONTENT, dp(36)))
         row.addView(closeView, LayoutParams(dp(40), dp(40)))
         return row
     }
@@ -330,6 +391,7 @@ internal class ReplyTopologyPanelView(
             clipToPadding = false
             setPadding(0, dp(2), 0, dp(8))
             addItemDecoration(trackDecoration)
+            addOnScrollListener(workflowScrollListener)
             contentDescription = strings.listDescription
         }
         return recyclerView
@@ -351,6 +413,7 @@ internal class ReplyTopologyPanelView(
         if (isReleased) return false
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                workflowAdapter.cancelPendingTap()
                 dragDownRawX = event.rawX
                 dragDownRawY = event.rawY
                 dragStartX = translationX
@@ -509,5 +572,9 @@ internal class ReplyTopologyPanelView(
         companion object {
             val ZERO = EdgeInsets(0, 0, 0, 0)
         }
+    }
+
+    private companion object {
+        const val LOCATE_COMPACT_HEIGHT_DP = 86
     }
 }

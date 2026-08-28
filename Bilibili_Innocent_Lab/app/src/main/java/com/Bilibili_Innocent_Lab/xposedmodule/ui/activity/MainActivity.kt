@@ -1036,10 +1036,11 @@ class MainActivity : AppViewsActivity() {
     ) {
         if (termsDecisionActionInProgress) return
         termsDecisionActionInProgress = true
+        val hookPrefs = runCatching { prefs() }.getOrNull()
         val persisted = if (accepted) {
-            UserTermsConsentStore.accept(applicationContext)
+            UserTermsConsentStore.accept(applicationContext, hookPrefs)
         } else {
-            UserTermsConsentStore.decline(applicationContext)
+            UserTermsConsentStore.decline(applicationContext, hookPrefs)
         }
         if (!persisted) {
             termsDecisionActionInProgress = false
