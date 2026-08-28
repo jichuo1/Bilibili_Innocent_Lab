@@ -10,6 +10,7 @@ import android.os.Binder
 import android.os.Process
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 
 /**
  * 漫游版本支持扩展的跨进程开关读取入口。
@@ -21,8 +22,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
  * SELinux 限制：B 站进程查询本 Provider 时，系统会自动拉起模块 App 进程
  * （模块 App 用自己的 uid 读自己的 prefs，天然可读），跨进程可靠。
  *
- * 由 HookEntry 中的「漫游版本支持扩展」开关（PREF_ROAMING_COMPAT_ENABLED）
- * 控制；本 Provider 只读不写，仅暴露一个布尔开关值。
+ * Provider 只读不写，目前暴露漫游开关、自由复制配置和模块注入 UI 的语言标签；
+ * 每条路径均复用同一 Binder caller UID 白名单。
  */
 class RoamingCompatProvider : ContentProvider() {
 
@@ -32,9 +33,11 @@ class RoamingCompatProvider : ContentProvider() {
 
         const val PATH_ENABLED = "roaming_compat_enabled"
         const val PATH_FREE_COPY_CONFIG = "free_copy_config"
+        const val PATH_UI_LOCALE = InjectedUiLocale.PROVIDER_PATH
 
         val CONTENT_URI: Uri = Uri.parse("content://$AUTHORITY/$PATH_ENABLED")
         val FREE_COPY_CONFIG_URI: Uri = Uri.parse("content://$AUTHORITY/$PATH_FREE_COPY_CONFIG")
+        val UI_LOCALE_URI: Uri = Uri.parse("content://$AUTHORITY/$PATH_UI_LOCALE")
     }
 
     override fun onCreate(): Boolean = true
@@ -48,6 +51,13 @@ class RoamingCompatProvider : ContentProvider() {
     ): Cursor? {
         if (uri.authority != AUTHORITY) return null
         enforceTrustedCaller()
+        if (uri.pathSegments == listOf(PATH_UI_LOCALE)) {
+            val selectionTag = context?.let(InjectedUiLocale::moduleSelectionForProvider)
+                ?: InjectedUiLocale.TAG_SYSTEM
+            return MatrixCursor(arrayOf(InjectedUiLocale.PROVIDER_COLUMN)).apply {
+                addRow(arrayOf(selectionTag))
+            }
+        }
         if (uri.pathSegments == listOf(PATH_FREE_COPY_CONFIG)) {
             val snapshot = context?.let(FreeCopyConfigStore::read)
             return MatrixCursor(
@@ -76,7 +86,11 @@ class RoamingCompatProvider : ContentProvider() {
 
     override fun getType(uri: Uri): String? =
         if (uri.authority == AUTHORITY &&
-            (uri.pathSegments == listOf(PATH_ENABLED) || uri.pathSegments == listOf(PATH_FREE_COPY_CONFIG))
+            (
+                uri.pathSegments == listOf(PATH_ENABLED) ||
+                    uri.pathSegments == listOf(PATH_FREE_COPY_CONFIG) ||
+                    uri.pathSegments == listOf(PATH_UI_LOCALE)
+                )
         ) "text/plain" else null
 
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null

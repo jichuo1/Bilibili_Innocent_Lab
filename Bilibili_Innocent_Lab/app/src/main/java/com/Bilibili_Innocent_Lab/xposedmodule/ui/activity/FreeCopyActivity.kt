@@ -77,6 +77,7 @@ class FreeCopyActivity : AppViewsActivity() {
                         lparams = LayoutParams(48.dp, 48.dp),
                         init = {
                             text = "✕"
+                            contentDescription = stringResource(R.string.free_copy_close)
                             gravity = Gravity.CENTER
                             textSize = 16f
                             textColor = colorResource(R.color.colorTextGray)

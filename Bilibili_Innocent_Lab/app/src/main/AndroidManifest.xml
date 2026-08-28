@@ -21,7 +21,13 @@
         android:name="${applicationId}.permission.SET_ROAMING_COMPAT"
         android:protectionLevel="signature" />
 
+    <!-- 仅模块 App 可通知 B 站进程刷新模块注入界面的语言快照。 -->
+    <permission
+        android:name="${applicationId}.permission.SET_UI_LOCALE"
+        android:protectionLevel="signature" />
+
     <uses-permission android:name="${applicationId}.permission.SET_ROAMING_COMPAT" />
+    <uses-permission android:name="${applicationId}.permission.SET_UI_LOCALE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
@@ -31,10 +37,11 @@
         android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:localeConfig="@xml/locales_config"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppDefault"
-        tools:targetApi="31">
+        tools:targetApi="33">
 
         <meta-data
             android:name="xposedmodule"
@@ -50,9 +57,22 @@
             android:value="93" />
 
         <!--
-            漫游版本支持扩展：跨进程开关读取。
-            目标进程（B 站）通过 content:// 查询本 Provider 读取模块 prefs 开关，
-            解决部分 LSPosed 构建下 XSharedPreferences 跨应用读取被 SELinux 拦截的问题。
+            Android 12 及以下由 AppCompat 保存应用语言；Android 13+ 交由系统
+            应用语言设置管理。服务本身不启动，也不暴露组件。
+        -->
+        <service
+            android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"
+            android:enabled="false"
+            android:exported="false">
+            <meta-data
+                android:name="autoStoreLocales"
+                android:value="true" />
+        </service>
+
+        <!--
+            跨进程只读降级通道：目标进程（B 站）通过 content:// 读取漫游开关、
+            自由复制配置及模块注入 UI 的语言标签，解决部分 LSPosed 构建下
+            XSharedPreferences 跨应用读取被 SELinux 拦截的问题。
         -->
         <provider
             android:name=".provider.RoamingCompatProvider"

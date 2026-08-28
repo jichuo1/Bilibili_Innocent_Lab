@@ -26,6 +26,8 @@ import android.view.animation.PathInterpolator
 import android.widget.LinearLayout
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.os.LocaleListCompat
 import androidx.core.view.isVisible
 import androidx.core.view.setPadding
 import androidx.core.view.updateMargins
@@ -64,6 +66,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureI
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.GitHubReleaseChecker
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ShellCommandRunner
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateCheckCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
@@ -94,6 +97,16 @@ class MainActivity : AppViewsActivity() {
         const val PREF_LAST_CHECK_PREVIEW = "last_successful_check_ms_preview"
         const val PREF_UPDATE_CHANNEL = "update_channel"
         const val AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1_000L
+    }
+
+    private enum class AppLanguage(
+        val languageTag: String?,
+        @param:StringRes val labelRes: Int
+    ) {
+        SYSTEM(null, R.string.app_language_follow_system),
+        SIMPLIFIED_CHINESE("zh-CN", R.string.app_language_simplified_chinese),
+        TRADITIONAL_CHINESE("zh-Hant", R.string.app_language_traditional_chinese),
+        ENGLISH("en", R.string.app_language_english)
     }
 
     private val homeComponent by lazy { ComponentName(packageName, "${BuildConfig.APPLICATION_ID}.Home") } 
@@ -493,6 +506,157 @@ class MainActivity : AppViewsActivity() {
         )
     }
 
+    /** AppCompat 的显式应用语言为空时表示跟随系统，不额外维护一份语言偏好。 */
+    private fun currentAppLanguage(): AppLanguage {
+        val locale = AppCompatDelegate.getApplicationLocales()[0]
+            ?: return AppLanguage.SYSTEM
+        if (locale.language.equals("en", ignoreCase = true)) return AppLanguage.ENGLISH
+        if (!locale.language.equals("zh", ignoreCase = true)) return AppLanguage.SYSTEM
+
+        val isTraditional = locale.script.equals("Hant", ignoreCase = true) ||
+            locale.country.equals("TW", ignoreCase = true) ||
+            locale.country.equals("HK", ignoreCase = true) ||
+            locale.country.equals("MO", ignoreCase = true)
+        return if (isTraditional) {
+            AppLanguage.TRADITIONAL_CHINESE
+        } else {
+            AppLanguage.SIMPLIFIED_CHINESE
+        }
+    }
+
+    private fun currentAppLanguageSummary(): String {
+        val language = currentAppLanguage()
+        return getString(R.string.app_language_current, getString(language.labelRes))
+    }
+
+    /** 仅在弹窗完成退场后调用；AppCompat 会按需重建 Activity。 */
+    private fun applyAppLanguage(language: AppLanguage) {
+        val locales = language.languageTag?.let(LocaleListCompat::forLanguageTags)
+            ?: LocaleListCompat.getEmptyLocaleList()
+        InjectedUiLocale.setMirrorAndBroadcast(
+            applicationContext,
+            language.languageTag ?: InjectedUiLocale.TAG_SYSTEM
+        )
+        if (AppCompatDelegate.getApplicationLocales().toLanguageTags() == locales.toLanguageTags()) return
+        AppCompatDelegate.setApplicationLocales(locales)
+    }
+
+    /** 应用语言单选弹窗：沿用现有玻璃容器、选中强调色和统一进退场动画。 */
+    private fun showAppLanguageDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createGlassContainer()
+        val current = currentAppLanguage()
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.app_language_dialog_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 17f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.app_language_tip)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 12f
+                alpha = 0.72f
+                setLineSpacing(3 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = (5 * density).toInt()
+                bottomMargin = (12 * density).toInt()
+            }
+        )
+
+        AppLanguage.entries.forEachIndexed { index, language ->
+            container.addView(
+                createAppLanguageRow(
+                    title = getString(language.labelRes),
+                    selected = language == current
+                ) {
+                    dismissWithAnimation(dialog, container) {
+                        applyAppLanguage(language)
+                    }
+                },
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    if (index > 0) topMargin = (6 * density).toInt()
+                }
+            )
+        }
+
+        val buttonRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        buttonRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.dialog_close)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(
+                    (20 * density).toInt(),
+                    (11 * density).toInt(),
+                    (20 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { dismissWithAnimation(dialog, container) {} }
+            }
+        )
+        container.addView(
+            buttonRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (18 * density).toInt() }
+        )
+
+        presentGlassDialog(dialog, container)
+    }
+
+    private fun createAppLanguageRow(
+        title: CharSequence,
+        selected: Boolean,
+        onClick: () -> Unit
+    ): NativeTextView {
+        val density = resources.displayMetrics.density
+        return NativeTextView(this).apply {
+            text = title
+            textColor = if (selected) monetColors.primary else getColor(R.color.colorTextGray)
+            textSize = 16f
+            typeface = Typeface.create(
+                Typeface.DEFAULT,
+                if (selected) Typeface.BOLD else Typeface.NORMAL
+            )
+            setPadding(
+                (16 * density).toInt(),
+                (13 * density).toInt(),
+                (16 * density).toInt(),
+                (13 * density).toInt()
+            )
+            background = selfRippleBackground(14f)
+            isSelected = selected
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
+    }
+
     /** 右上角 GitHub 图标的二级菜单。 */
     private fun showGitHubMenuDialog() {
         val density = resources.displayMetrics.density
@@ -841,7 +1005,7 @@ class MainActivity : AppViewsActivity() {
         64 -> "720P"
         74 -> "720P60"
         80 -> "1080P"
-        112 -> "1080P 高码率"
+        112 -> getString(R.string.player_quality_1080p_high_bitrate)
         116 -> "1080P60"
         120 -> "4K"
         127 -> "8K"
@@ -2026,6 +2190,12 @@ class MainActivity : AppViewsActivity() {
         parent.addView(advancedCard, parent.indexOfChild(experimentalCard) + 1)
     }
 
+    override fun onResume() {
+        super.onResume()
+        val selectionTag = InjectedUiLocale.syncFromAppCompat(applicationContext)
+        InjectedUiLocale.setMirrorAndBroadcast(applicationContext, selectionTag)
+    }
+
     override fun onDestroy() {
         // Activity 销毁时主动关闭弹窗，避免 WindowLeaked（Activity has leaked window）
         activeConfirmDialog?.dismiss()
@@ -2631,6 +2801,48 @@ class MainActivity : AppViewsActivity() {
                                     textColor = colorResource(R.color.colorTextGray)
                                     textSize = 12f
                                 }
+                            }
+                            LinearLayout(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 8.dp
+                                },
+                                init = {
+                                    orientation = LinearLayout.VERTICAL
+                                    background = selfRippleBackground(10f)
+                                    updatePadding(horizontal = 4.dp, vertical = 9.dp)
+                                    isClickable = true
+                                    isFocusable = true
+                                    setOnClickListener { showAppLanguageDialog() }
+                                }
+                            ) {
+                                TextView(
+                                    lparams = LayoutParams(widthMatchParent = true)
+                                ) {
+                                    text = stringResource(R.string.app_language)
+                                    textColor = colorResource(R.color.colorTextGray)
+                                    textSize = 15f
+                                }
+                                TextView(
+                                    lparams = LayoutParams(widthMatchParent = true) {
+                                        topMargin = 4.dp
+                                    }
+                                ) {
+                                    alpha = 0.72f
+                                    text = currentAppLanguageSummary()
+                                    textColor = colorResource(R.color.colorTextDark)
+                                    textSize = 12f
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.app_language_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
                             }
                             MaterialSwitch(
                                 lparams = LayoutParams(widthMatchParent = true)
