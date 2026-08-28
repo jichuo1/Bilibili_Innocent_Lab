@@ -14,7 +14,12 @@ class KavaMemberLookupTest {
         KavaMemberLookup.resetForTests()
     }
 
-    private open class HiddenBase {
+    private open class HiddenGrandBase {
+        @Suppress("unused")
+        private fun inheritedBuild() = "built"
+    }
+
+    private open class HiddenBase : HiddenGrandBase() {
         @Suppress("unused")
         private val inheritedText = "base"
 
@@ -94,6 +99,19 @@ class KavaMemberLookupTest {
 
         assertEquals(1, fields.size)
         assertEquals("base", fields.single().get(HiddenMethods.create()))
+    }
+
+    @Test
+    fun `enumerates methods across the complete superclass chain`() {
+        val methods = KavaMemberLookup.methods(
+            HiddenMethods::class.java,
+            includeSuperclasses = true,
+            makeAccessible = true
+        ) { it.name == "inheritedBuild" && it.parameterCount == 0 }
+
+        assertEquals(1, methods.size)
+        assertEquals("built", methods.single().invoke(HiddenMethods.create()))
+        assertSame(HiddenGrandBase::class.java, methods.single().declaringClass)
     }
 
     @Test
