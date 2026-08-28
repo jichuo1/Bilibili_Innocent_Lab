@@ -1,10 +1,14 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.receiver
 
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import androidx.core.content.IntentCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
+import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
 import java.util.concurrent.atomic.AtomicLong
@@ -29,6 +33,14 @@ class RoamingOpenReceiver : BroadcastReceiver() {
             "com.Bilibili_Innocent_Lab.xposedmodule.QUERY_HOOK_AUTHORIZATION"
         const val EXTRA_HOOK_AUTHORIZATION_HANDLED = "hook_authorization_handled"
         const val EXTRA_HOOK_AUTHORIZED = "hook_authorized"
+        const val EXTRA_BOOTSTRAP_CALLBACK = "no_root_bootstrap_callback"
+        const val EXTRA_BOOTSTRAP_NONCE = "no_root_bootstrap_nonce"
+
+        /** NPatch 宿主的启动/关闭回执；调用方身份由其自建 PendingIntent 证明。 */
+        const val ACTION_REPORT_NO_ROOT_HEARTBEAT =
+            "com.Bilibili_Innocent_Lab.xposedmodule.REPORT_NO_ROOT_HEARTBEAT"
+        const val EXTRA_CALLER_PROOF = "no_root_caller_proof"
+        const val EXTRA_NO_ROOT_ACTIVE = "no_root_active"
 
         /** B 站进程发送的广播 action（RoamingCompatHook 中点击入口时发送） */
         const val ACTION_OPEN_ROAMING_SETTINGS = "com.Bilibili_Innocent_Lab.xposedmodule.OPEN_ROAMING_SETTINGS"
@@ -53,6 +65,11 @@ class RoamingOpenReceiver : BroadcastReceiver() {
                 putBoolean(EXTRA_HOOK_AUTHORIZATION_HANDLED, true)
                 putBoolean(EXTRA_HOOK_AUTHORIZED, authorized)
             }
+            sendSecureBootstrapReply(context, intent, authorized)
+            return
+        }
+        if (intent.action == ACTION_REPORT_NO_ROOT_HEARTBEAT) {
+            receiveNoRootHeartbeat(context, intent)
             return
         }
         if (intent.action != ACTION_OPEN_ROAMING_SETTINGS) return
@@ -79,6 +96,92 @@ class RoamingOpenReceiver : BroadcastReceiver() {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(launch)
+        }
+    }
+
+    /** 完整配置只回送到由 B 站 uid 创建的一次性 PendingIntent，不进入 ordered extras。 */
+    private fun sendSecureBootstrapReply(
+        context: Context,
+        request: Intent,
+        authorized: Boolean
+    ) {
+        val callback = IntentCompat.getParcelableExtra(
+            request,
+            EXTRA_BOOTSTRAP_CALLBACK,
+            PendingIntent::class.java
+        ) ?: return
+        if (callback.creatorPackage != HookEntry.TARGET_PACKAGE) return
+        val nonce = request.getStringExtra(EXTRA_BOOTSTRAP_NONCE).orEmpty()
+        if (nonce.isBlank()) return
+        val exported = NoRootSupportStore.exportState(context, authorized)
+        val reply = Intent().apply {
+            putExtra(EXTRA_BOOTSTRAP_NONCE, nonce)
+            putExtra(EXTRA_HOOK_AUTHORIZED, authorized)
+            putExtra(RoamingCompatProvider.COLUMN_NO_ROOT_VALID, exported.valid)
+            putExtra(RoamingCompatProvider.COLUMN_NO_ROOT_ENABLED, exported.enabled)
+            putExtra(RoamingCompatProvider.COLUMN_NO_ROOT_REVISION, exported.revision)
+            putExtra(RoamingCompatProvider.COLUMN_NO_ROOT_PAYLOAD, exported.payload)
+        }
+        runCatching { callback.send(context, 0, reply) }
+    }
+
+    private fun receiveNoRootHeartbeat(context: Context, intent: Intent) {
+        if (AndroidVersion.isAtLeast(AndroidVersion.U) &&
+            sentFromPackage != HookEntry.TARGET_PACKAGE
+        ) return
+        val callerProof = IntentCompat.getParcelableExtra(
+            intent,
+            EXTRA_CALLER_PROOF,
+            PendingIntent::class.java
+        ) ?: return
+        if (callerProof.creatorPackage != HookEntry.TARGET_PACKAGE) return
+        val targetPackage = intent.getStringExtra(
+            RoamingCompatProvider.EXTRA_NO_ROOT_TARGET_PACKAGE
+        ).orEmpty()
+        val processName = intent.getStringExtra(
+            RoamingCompatProvider.EXTRA_NO_ROOT_PROCESS
+        ).orEmpty()
+        if (targetPackage != HookEntry.TARGET_PACKAGE ||
+            (processName != targetPackage && !processName.startsWith("$targetPackage:"))
+        ) return
+        val revision = intent.getLongExtra(
+            RoamingCompatProvider.EXTRA_NO_ROOT_REVISION,
+            0L
+        )
+        val moduleVersion = intent.getLongExtra(
+            RoamingCompatProvider.EXTRA_NO_ROOT_MODULE_VERSION,
+            0L
+        )
+        val targetVersion = intent.getLongExtra(
+            RoamingCompatProvider.EXTRA_NO_ROOT_TARGET_VERSION,
+            0L
+        )
+        val targetUpdateTime = intent.getLongExtra(
+            RoamingCompatProvider.EXTRA_NO_ROOT_TARGET_UPDATE_TIME,
+            0L
+        )
+        if (intent.getBooleanExtra(EXTRA_NO_ROOT_ACTIVE, true)) {
+            val authorized = runCatching {
+                UserTermsConsentStore.readOrInitialize(context).isAuthorized
+            }.getOrDefault(false)
+            if (!authorized) return
+            NoRootSupportStore.recordHeartbeat(
+                context = context,
+                revision = revision,
+                moduleVersionCode = moduleVersion,
+                targetVersionCode = targetVersion,
+                targetUpdateTime = targetUpdateTime,
+                targetPackage = targetPackage
+            )
+        } else {
+            NoRootSupportStore.recordDisabledAck(
+                context = context,
+                revision = revision,
+                moduleVersionCode = moduleVersion,
+                targetVersionCode = targetVersion,
+                targetUpdateTime = targetUpdateTime,
+                targetPackage = targetPackage
+            )
         }
     }
 }

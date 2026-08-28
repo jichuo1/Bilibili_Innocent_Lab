@@ -310,4 +310,24 @@
     <string name="settings_backup_nothing_to_apply">没有可安全应用的变更。</string>
     <string name="settings_backup_choose_again">重新选择文件</string>
     <string name="settings_backup_migration_warning">部分目录迁移步骤不可用；只会恢复仍能精确兼容的自描述设置，其余项目全部保持当前状态。</string>
+    <string name="no_root_support_enable">免 Root 支持（NPatch，实验性）</string>
+    <string name="no_root_support_tip">需要 Android 9 及以上版本，并使用 NPatch Manager 1.0.7 及以上版本的本地/管理器模式。仅在此开关开启时连接 NPatch。</string>
+    <string name="no_root_status_unsupported_os">状态：不可用，需要 Android 9 或更高版本。</string>
+    <string name="no_root_status_disabled">状态：已关闭，不会连接 NPatch。</string>
+    <string name="no_root_status_checking">状态：正在检查本地配置…</string>
+    <string name="no_root_status_manager_missing">状态：未找到 NPatch Manager，或 Remote API 不可用。</string>
+    <string name="no_root_status_module_not_registered">状态：NPatch Manager 尚未识别当前模块，请先在管理器中添加并启用模块。</string>
+    <string name="no_root_status_syncing">状态：正在向 NPatch 同步设置…</string>
+    <string name="no_root_status_restart_required">状态：设置已同步，请重新启动已修补的哔哩哔哩以完成激活。</string>
+    <string name="no_root_status_disable_restart_required">状态：免 Root 支持已关闭，但当前哔哩哔哩进程中的 Hook 可能仍在运行；请强制停止并重新打开以完成关闭。</string>
+    <string name="no_root_status_active">状态：已激活，已收到已修补哔哩哔哩的有效回执。</string>
+    <string name="no_root_status_connection_timeout">状态：连接 NPatch 超时，请检查 NPatch Manager 后重试。</string>
+    <string name="no_root_status_error">状态：同步失败，请检查 NPatch 配置后重试。</string>
+    <string name="no_root_activated_by_npatch">由 NPatch 激活（回执已验证）</string>
+    <string name="no_root_enable_failed">无法开启免 Root 支持</string>
+    <string name="no_root_disable_failed">无法关闭免 Root 支持</string>
+    <string name="no_root_restart_confirm_title">手动重新启动哔哩哔哩？</string>
+    <string name="no_root_restart_confirm_message">免 Root 模式无法强制停止其他应用。请打开哔哩哔哩的应用详情，在系统界面强制停止后再重新打开。</string>
+    <string name="no_root_restart_open_app_details">打开应用详情</string>
+    <string name="no_root_restart_open_failed">无法打开哔哩哔哩应用详情</string>
 </resources>

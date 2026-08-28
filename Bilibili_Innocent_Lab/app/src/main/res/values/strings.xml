@@ -309,4 +309,24 @@
     <string name="settings_backup_nothing_to_apply">There are no safe changes to apply.</string>
     <string name="settings_backup_choose_again">Choose another file</string>
     <string name="settings_backup_migration_warning">Some catalog migration steps are unavailable. Only self-describing settings that are still exactly compatible will be restored; all other items remain unchanged.</string>
+    <string name="no_root_support_enable">No-root support (NPatch, experimental)</string>
+    <string name="no_root_support_tip">Requires Android 9+ and NPatch Manager 1.0.7+ in Local/Manager mode. NPatch is contacted only while this switch is on.</string>
+    <string name="no_root_status_unsupported_os">Status: unavailable; Android 9 or later is required.</string>
+    <string name="no_root_status_disabled">Status: off. No NPatch connection will be made.</string>
+    <string name="no_root_status_checking">Status: checking the local configuration…</string>
+    <string name="no_root_status_manager_missing">Status: NPatch Manager or its Remote API is unavailable.</string>
+    <string name="no_root_status_module_not_registered">Status: NPatch Manager does not recognize this module. Add and enable it in Manager first.</string>
+    <string name="no_root_status_syncing">Status: synchronizing settings with NPatch…</string>
+    <string name="no_root_status_restart_required">Status: settings synchronized. Restart the patched Bilibili app to activate them.</string>
+    <string name="no_root_status_disable_restart_required">Status: no-root support is off, but hooks may remain in the running Bilibili process. Force stop and reopen it to finish disabling.</string>
+    <string name="no_root_status_active">Status: active; a valid heartbeat was received from the patched Bilibili app.</string>
+    <string name="no_root_status_connection_timeout">Status: NPatch connection timed out. Check NPatch Manager and try again.</string>
+    <string name="no_root_status_error">Status: synchronization failed. Check NPatch configuration and try again.</string>
+    <string name="no_root_activated_by_npatch">Activated through NPatch (heartbeat verified)</string>
+    <string name="no_root_enable_failed">Could not enable no-root support</string>
+    <string name="no_root_disable_failed">Could not disable no-root support</string>
+    <string name="no_root_restart_confirm_title">Restart Bilibili manually?</string>
+    <string name="no_root_restart_confirm_message">No-root mode cannot force-stop another app. Open the Bilibili app details, force stop it there, then launch it again.</string>
+    <string name="no_root_restart_open_app_details">Open app details</string>
+    <string name="no_root_restart_open_failed">Could not open the Bilibili app details</string>
 </resources>

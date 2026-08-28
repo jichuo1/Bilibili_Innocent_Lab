@@ -11,6 +11,8 @@
     <queries>
         <package android:name="tv.danmaku.bili" />
         <package android:name="me.iacn.biliroaming" />
+        <!-- NPatch Local/Manager 模式的 Remote API Provider 可见性。 -->
+        <provider android:authorities="top.nkbe.npatch.remote" />
     </queries>
 
     <!--

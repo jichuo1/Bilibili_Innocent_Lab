@@ -749,11 +749,13 @@ object RoamingCompatHook {
      * @param context        attach 参数（ContextImpl），可为 null
      * @param appClassLoader 目标 App 的 ClassLoader（读 BiliRoaming 的 BuildConfig）
      * @param prefs          YukiHookAPI prefs（DirectAccessService，模块 App 进程存活时可靠）
+     * @param authoritativeEnabled 免 Root 完整快照给出的权威开关；null 时保留 LSPosed 原解析链
      */
     fun onApplicationAttach(
         context: Context?,
         appClassLoader: ClassLoader?,
-        prefs: YukiHookPrefsBridge?
+        prefs: YukiHookPrefsBridge?,
+        authoritativeEnabled: Boolean? = null
     ) {
         val ctx = context ?: run {
             logInfo("br_no_ctx", "$LOG_PREFIX attach 无上下文，跳过（callApplicationOnCreate 兜底重试）")
@@ -761,7 +763,7 @@ object RoamingCompatHook {
         }
         InjectedUiLocale.initializeHost(ctx)
         ensureReceiverRegistered(ctx)
-        ensureHookInfoCache(ctx, appClassLoader, prefs)
+        ensureHookInfoCache(ctx, appClassLoader, prefs, authoritativeEnabled)
     }
 
     /**
@@ -808,8 +810,14 @@ object RoamingCompatHook {
      * @param context        目标 App（B 站）的 Context，可为 null
      * @param appClassLoader 目标 App 的 ClassLoader（读 BiliRoaming 的 BuildConfig）
      * @param prefs          YukiHookAPI prefs（DirectAccessService），可为 null
+     * @param authoritativeEnabled 免 Root 快照的显式开关；null 时保留原有三级降级链
      */
-    fun ensureHookInfoCache(context: Context?, appClassLoader: ClassLoader?, prefs: YukiHookPrefsBridge?) {
+    fun ensureHookInfoCache(
+        context: Context?,
+        appClassLoader: ClassLoader?,
+        prefs: YukiHookPrefsBridge?,
+        authoritativeEnabled: Boolean? = null
+    ) {
         if (cacheCheckedThisProcess) {
             // 缓存检查已完成但分析缺陷修补可能尚未生效（attach 阶段漫游类可能还
             // 未可加载）：此处幂等重试一次（callApplicationOnCreate 兜底钩子携带
@@ -832,9 +840,10 @@ object RoamingCompatHook {
             // false），而本地缓存缺失时判「关」会误删有效缓存 → 每次冷启动删→全量分析
             // 重建的死循环。因此：仅「确定关闭」（本地缓存明确 false）才删缓存还原原生；
             // 「未知」（prefs 不可用 + 无本地缓存）保守不干预，后台异步 provider 同步。
-            var roamingEnabled = prefs?.getBoolean(HookEntry.PREF_ROAMING_COMPAT_ENABLED, false) ?: false
-            var resolved = roamingEnabled
-            if (!roamingEnabled) {
+            var roamingEnabled = authoritativeEnabled
+                ?: (prefs?.getBoolean(HookEntry.PREF_ROAMING_COMPAT_ENABLED, false) ?: false)
+            var resolved = authoritativeEnabled != null || roamingEnabled
+            if (authoritativeEnabled == null && !roamingEnabled) {
                 val cached = localCacheResolved(context)
                 if (cached != null) {
                     roamingEnabled = cached
@@ -877,7 +886,8 @@ object RoamingCompatHook {
                 // - 子进程（web/download/ijkservice）attach 早于 prefs 就绪，解析不可靠
                 //   且多进程竞争删除有害，跳过。
                 val prefsAlive = prefs?.getLong(HookEntry.PREF_PREFS_ALIVE_TS, 0L) ?: 0L
-                if (prefsAlive > 0L && TargetProcess.isMainProcess(context, HookEntry.TARGET_PACKAGE)) {
+                val reliablyDisabled = authoritativeEnabled != null || prefsAlive > 0L
+                if (reliablyDisabled && TargetProcess.isMainProcess(context, HookEntry.TARGET_PACKAGE)) {
                     restoreNativeRoaming(context)
                 }
                 // 缓存处理细节（保留完整缓存/删除最小缓存）由 restoreNativeRoaming
