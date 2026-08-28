@@ -85,6 +85,22 @@ without guessing or attempting a fragile cross-file rollback. Confirmed import
 execution and its verified/possibly-changed result live in a ViewModel so an
 Activity recreation cannot interrupt or misreport the transaction.
 
+The backup Activity uses a translucent, non-floating window with one persistent
+motion host. MainActivity supplies weakly-held card/title screen geometry; the
+host draws a rounded surface from that card to the full content bounds, stages
+page alpha/translation, and moves a dedicated title copy to the toolbar when
+both endpoints are single-line LTR text. The same `expansion` value is directly
+seeked by AndroidX predictive-back progress, so no framework/shared-element
+transition is involved. Timed entry/exit delays page content until the container
+and title are near their destinations; interactive predictive back uses a wider
+content-alpha profile and keeps it through cancel/commit completion, avoiding a
+one-frame disappearance after nonlinear gesture mapping. While a timed or
+gesture-completion morph is still in flight, a newly-started back action is
+consumed until the surface is stable so the two content-alpha profiles cannot
+switch at an intermediate expansion. Internal preview/error back navigation
+never runs the cross-Activity morph. Restored or incompatible window geometry
+falls back to a neutral fade/scale rather than targeting stale screen coordinates.
+
 ## Intentional boundaries
 
 - `hookinfo.pb` parsing and write semantics remain unchanged; its behavior is
