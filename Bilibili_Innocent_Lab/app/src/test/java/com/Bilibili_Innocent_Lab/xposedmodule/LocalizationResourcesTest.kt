@@ -61,6 +61,43 @@ class LocalizationResourcesTest {
         assertEquals(setOf("en", "zh-CN", "zh-Hant"), locales)
     }
 
+    @Test
+    fun `user terms ui and body are complete in every released locale`() {
+        val locales = mapOf(
+            "en" to File(resRoot, "values/strings.xml"),
+            "zh-CN" to File(resRoot, "values-zh-rCN/strings.xml"),
+            "zh-Hant" to File(resRoot, "values-b+zh+Hant/strings.xml")
+        )
+
+        locales.forEach { (locale, file) ->
+            val strings = readStrings(file)
+            assertTrue(
+                "$locale user-terms keys missing: ${USER_TERMS_KEYS - strings.keys}",
+                strings.keys.containsAll(USER_TERMS_KEYS)
+            )
+            USER_TERMS_KEYS.forEach { key ->
+                assertTrue("$locale user-terms string '$key' is blank", strings.getValue(key).isNotBlank())
+            }
+            assertTrue(
+                "$locale user-terms body lost its paragraph structure",
+                strings.getValue(USER_TERMS_BODY).contains("\\n\\n")
+            )
+            assertTrue(
+                "$locale user-terms body lost the canonical project URL",
+                strings.getValue(USER_TERMS_BODY).contains(PROJECT_URL)
+            )
+        }
+    }
+
+    @Test
+    fun `simplified Chinese terms preserve maintainer supplied core notice`() {
+        val strings = readStrings(File(resRoot, "values-zh-rCN/strings.xml"))
+        val body = strings.getValue(USER_TERMS_BODY).replace("\\n", "\n")
+        assertEquals(SIMPLIFIED_TERMS_BODY, body)
+        assertEquals("不同意并退出", strings.getValue("user_terms_decline"))
+        assertEquals("我已阅读完毕并知情同意", strings.getValue("user_terms_accept"))
+    }
+
     private fun readStrings(file: File): Map<String, String> {
         assertTrue("Missing strings resource: $file", file.isFile)
         val document = parse(file)
@@ -102,5 +139,27 @@ class LocalizationResourcesTest {
             "http://javax.xml.XMLConstants/property/accessExternalSchema"
         val FORMAT_PLACEHOLDER = Regex("%(?:\\d+\\$)?[#+ 0,(<\\-]*\\d*(?:\\.\\d+)?[a-zA-Z]")
         val HAN_REGEX = Regex("\\p{IsHan}")
+        const val USER_TERMS_BODY = "user_terms_body"
+        const val PROJECT_URL = "https://github.com/jichuo1/Bilibili_Innocent_Lab"
+        val USER_TERMS_KEYS = setOf(
+            "user_terms_dialog_title",
+            USER_TERMS_BODY,
+            "user_terms_accept",
+            "user_terms_decline",
+            "user_terms_declined_title",
+            "user_terms_declined_message",
+            "user_terms_read_again",
+            "user_terms_exit",
+            "user_terms_save_failed"
+        )
+        val SIMPLIFIED_TERMS_BODY = listOf(
+            "用户须知：",
+            "本项目是非官方、非商业性质的个人学习与研究项目，与哔哩哔哩及其关联公司不存在隶属、授权、合作或背书关系。",
+            "使用 Xposed/LSPosed 模块可能改变目标应用运行行为，并可能受到客户端更新、系统安全策略、厂商 ROM、账号实验分组或其他模块的影响。使用者应自行评估风险，并对安装、启用、数据备份和设备环境负责。",
+            "本项目不提供任何内容资源，不参与账号交易，不提供访问凭证，也不保证第三方扩展服务的可用性。请在遵守所在地法律法规、目标平台规则和开源项目许可的前提下使用。",
+            "为保证项目稳定维护，请勿将本项目相关内容以包括但不限于以文件，文本，图标，链接，图片，视频，代码等形式在公开的社交媒体进行不定向传播。本项目为非盈利性项目，不会以任何方式收取软件服务费用，不会以任何方式在未经同意的前提下主动获取并传输您的个人信息，若您怀疑从其他渠道获取的文件与以上宗旨相违背，请务必对照对应版本Release HASH，若您发现文件HASH不一致，则该文件可能经过第三方篡改，本项目无法保证其安全性，若您已知并继续使用，由此带来的一切风险与后果请自行承担。",
+            "附加免责声明与风险提示详见：$PROJECT_URL",
+            "请确保阅读完毕摘要内容和完整附加内容，而后决定。"
+        ).joinToString("\n\n")
     }
 }
