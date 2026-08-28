@@ -61,6 +61,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityFeatureI
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TeenagersModeFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoRelateFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
+import com.Bilibili_Innocent_Lab.xposedmodule.receiver.RoamingOpenReceiver
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.BubbleDrawable
 
 /**
@@ -243,6 +244,138 @@ class HookEntry : IYukiHookXposedInit {
         private const val FREE_COPY_CACHE_COMMENT = "comment_enabled"
         private const val FREE_COPY_CACHE_DESCRIPTION = "description_enabled"
         private const val FREE_COPY_CACHE_REVISION = "revision"
+        private const val MODULE_PACKAGE = "com.Bilibili_Innocent_Lab.xposedmodule"
+        private const val HOOK_AUTHORIZATION_RECEIVER_CLASS =
+            "com.Bilibili_Innocent_Lab.xposedmodule.receiver.RoamingOpenReceiver"
+        private const val HOOK_AUTHORIZATION_TIMEOUT_MS = 800L
+
+        /**
+         * 在 Application.attach 的有界等待内查询当前条款授权。Provider 是常规通道；
+         * 对已知会隔离跨应用 authority 的宿主环境，并行发送显式 ordered broadcast，
+         * 两条通道都由模块进程直接读 UserTermsConsentStore。宿主不保存正向授权缓存。
+         *
+         * 工作线程和广播最终回调只会竞争写入一次性布尔结果，绝不持有 Hook 安装
+         * 回调；因此即使 IPC 在超时后迟到，也无法在宿主进程中追加启用功能。
+         */
+        private fun queryHookAuthorization(context: Context): Boolean {
+            val appContext = context.applicationContext ?: context
+            val deadlineNanos = System.nanoTime() +
+                java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(HOOK_AUTHORIZATION_TIMEOUT_MS)
+            // -1=UNKNOWN, 0=DENIED, 1=AUTHORIZED；使用整数三态避免
+            // AtomicReference<Boolean?> 的身份比较语义。
+            val resolved = java.util.concurrent.atomic.AtomicInteger(-1)
+            val resultReady = java.util.concurrent.CountDownLatch(1)
+
+            fun offerResult(value: Boolean?) {
+                // Provider/广播任一通道返回的 live true/false 均可作为本次
+                // 进程启动快照，以首个明确结果为准；交付竞态、均无结果或超时
+                // 都不会写入 true，最终统一保守关闭。
+                val encoded = when (value) {
+                    true -> 1
+                    false -> 0
+                    null -> return
+                }
+                if (resolved.compareAndSet(-1, encoded)) {
+                    resultReady.countDown()
+                }
+            }
+
+            val cancellationSignal = android.os.CancellationSignal()
+            val providerThread = Thread({
+                val providerResult = runCatching<Boolean?> {
+                    appContext.contentResolver.query(
+                        RoamingCompatProvider.HOOK_AUTHORIZATION_URI,
+                        arrayOf(RoamingCompatProvider.COLUMN_HOOK_AUTHORIZED),
+                        null,
+                        null,
+                        null,
+                        cancellationSignal
+                    )?.use { cursor ->
+                        if (!cursor.moveToFirst()) return@use null
+                        when (cursor.getInt(
+                                cursor.getColumnIndexOrThrow(
+                                    RoamingCompatProvider.COLUMN_HOOK_AUTHORIZED
+                                )
+                            )) {
+                            0 -> false
+                            1 -> true
+                            else -> null
+                        }
+                    }
+                }.getOrNull()
+                offerResult(providerResult)
+            }, "BIL-hook-authorization-provider").apply {
+                isDaemon = true
+            }
+            runCatching { providerThread.start() }
+
+            val broadcastThread = android.os.HandlerThread("BIL-hook-authorization-result")
+            runCatching {
+                broadcastThread.start()
+                val resultHandler = android.os.Handler(broadcastThread.looper)
+                val resultReceiver = object : android.content.BroadcastReceiver() {
+                    override fun onReceive(
+                        receiverContext: Context,
+                        receiverIntent: android.content.Intent
+                    ) {
+                        val extras = getResultExtras(false)
+                        val broadcastResult = if (
+                            extras?.getBoolean(
+                                RoamingOpenReceiver.EXTRA_HOOK_AUTHORIZATION_HANDLED,
+                                false
+                            ) == true
+                        ) {
+                            extras.getBoolean(RoamingOpenReceiver.EXTRA_HOOK_AUTHORIZED, false)
+                        } else {
+                            null
+                        }
+                        offerResult(broadcastResult)
+                    }
+                }
+                val request = android.content.Intent(
+                    RoamingOpenReceiver.ACTION_QUERY_HOOK_AUTHORIZATION
+                )
+                    .setComponent(
+                        android.content.ComponentName(
+                            MODULE_PACKAGE,
+                            HOOK_AUTHORIZATION_RECEIVER_CLASS
+                        )
+                    )
+                    // 模块设置 App 被用户手动停止时 Provider 可能无法拉起；
+                    // 显式广播仍允许触达这个只读权威查询，不执行任何写入。
+                    .addFlags(android.content.Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+                @Suppress("DEPRECATION")
+                appContext.sendOrderedBroadcast(
+                    request,
+                    null,
+                    resultReceiver,
+                    resultHandler,
+                    0,
+                    null,
+                    null
+                )
+            }
+
+            val completed = try {
+                if (resolved.get() != -1) {
+                    true
+                } else {
+                    val remainingNanos = deadlineNanos - System.nanoTime()
+                    remainingNanos > 0L && resultReady.await(
+                        remainingNanos,
+                        java.util.concurrent.TimeUnit.NANOSECONDS
+                    )
+                }
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                false
+            } finally {
+                runCatching { cancellationSignal.cancel() }
+                providerThread.interrupt()
+                runCatching { broadcastThread.quitSafely() }
+            }
+            return completed && resolved.get() == 1
+        }
 
         /**
          * 在后台线程读取模块 Provider；失败时使用 B 站进程上次成功同步的本地缓存。
@@ -2461,6 +2594,14 @@ class HookEntry : IYukiHookXposedInit {
                 }
             }
 
+            val authorizationAttempted = java.util.concurrent.atomic.AtomicBoolean(false)
+            val authorizedInstallStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+            val authorizedHooksInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
+            val authorizedInstallerRef =
+                java.util.concurrent.atomic.AtomicReference<((Context) -> Unit)?>(null)
+
+            fun installAuthorizedHooks(authorizationContext: Context) {
+
             // 每个宿主进程只做一次实时结构探测。优先实时结果，避免版本升级后的旧文件缓存
             // 在 Application.attach 写入新缓存前误导 loadApp 阶段的 Hook 注册。
             val hostAdaptResult by lazy(LazyThreadSafetyMode.NONE) {
@@ -2575,142 +2716,8 @@ class HookEntry : IYukiHookXposedInit {
                 }
             }
 
-            // ====== 0. 漫游版本支持扩展（BiliRoaming 兼容底座，默认关闭） ======
-            // 仅做 hookinfo 缓存健康检查与修复，不改动 BiliRoaming 任何功能逻辑；
-            // 未安装 BiliRoaming 时静默不生效。详见 RoamingCompatHook 文件头注释。
-            //
-            // 整个扩展在 Application.attach 的 beforeHook 内执行：loadApp 阶段
-            // appContext 实测为 null，且模块 App 冷启动时所有开关通道（YukiHookAPI
-            // XSharedPreferences / B 站本地缓存 / ContentProvider 同步）均不可用，
-            // 无法在 loadApp 解析开关；attach 携带真实 Context（ContextImpl），
-            // 且必然先于 BiliRoaming 的初始化回调（不受 LSPosed 模块回调顺序影响）。
-            // 若 B 站重写 attach 导致钩子落空，由 callApplicationOnCreate 的
-            // beforeHook 兜底重试（幂等；若 BiliRoaming 本次仍先崩溃，缓存已在
-            // attach 修复，下次启动必定生效——对应开关说明中的「重启两次」场景）。
-            // 钩子无条件注册；扩展关闭时钩子内部解析到关闭状态后删除
-            // hookinfo.pb（还原漫游原生行为），并返回。
-            // 注意：B 站进程被本机做了系统级包隔离（getPackageInfo 对其他包一律
-            // NameNotFoundException，ContentProvider 跨应用查询也解析失败），因此
-            // 开关解析顺序为：YukiHookAPI prefs（DirectAccessService，模块 App 进程
-            // 存活时可靠——用户刚在模块界面切换过开关时正是此状态）→ B 站本地缓存
-            // → provider 同步（隔离下可能失败，留作兜底）。
-            runCatching {
-                hookExactMethod(
-                    classOf<android.app.Application>(),
-                    "attach",
-                    classOf<Context>()
-                ) {
-                        before {
-                            val attachCtx = args.firstOrNull() as? Context
-                            RoamingCompatHook.onApplicationAttach(
-                                attachCtx,
-                                biliClassLoader,
-                                roamingCompatPrefs
-                            )
-                            if (attachCtx != null) freeCopyConfigOnAttach.get()?.invoke(attachCtx)
-                            // 版本适配检测：B 站版本变化/全新版本/首次安装时后台自动
-                            // 定位 hook 点并缓存（toast 提示等待）；已适配则零开销跳过。
-                            // 仅 main 进程执行：attach 钩子会在 system_server/子进程也
-                            // 触发，重复适配浪费且 system_server 写 B 站 cache 有权限风险
-                            if (attachCtx != null && biliClassLoader != null
-                                && TargetProcess.isMainProcess(attachCtx, TARGET_PACKAGE)
-                                && !versionAdaptCheckedThisProcess) {
-                                versionAdaptCheckedThisProcess = true
-                                try {
-                                    VersionAdapter.ensureAdapted(
-                                        attachCtx,
-                                        biliClassLoader,
-                                        roamingCompatPrefs,
-                                        object : VersionAdapter.AdaptCallback {
-                                            override fun onAdaptStarted() {
-                                                VersionAdapter.showAdaptToast(
-                                                    attachCtx,
-                                                    InjectedUiLocale.messages(attachCtx).adaptStarted
-                                                )
-                                            }
-
-                                            override fun onAdaptFinished(ok: Boolean) {
-                                                if (ok) {
-                                                    retryFreeCopyHooksAfterAdapt()
-                                                    VersionAdapter.showAdaptToast(
-                                                        attachCtx,
-                                                        InjectedUiLocale.messages(attachCtx).adaptSucceeded
-                                                    )
-                                                } else {
-                                                    VersionAdapter.showAdaptToast(
-                                                        attachCtx,
-                                                        InjectedUiLocale.messages(attachCtx).adaptFailed
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    )
-                                } catch (t: Throwable) {
-                                    logError("version_adapt_err", "[BIL] 版本适配触发失败: $t")
-                                }
-                            }
-                        }
-                }
-            }.onFailure { t ->
-                logError("roaming_compat_attach_err", "[BIL] Application.attach 钩子注册失败: $t")
-            }
-            // 兜底 + 诊断：callApplicationOnCreate 阶段。若 attach 回调无 Context 或
-            // 动态 Receiver 注册失败，此处会再次进入统一初始化；已有成功状态时幂等跳过。
-            hookExactMethod(
-                classOf<android.app.Instrumentation>(),
-                "callApplicationOnCreate",
-                classOf<android.app.Application>()
-            ) {
-                    before {
-                        val onCreateCtx = args.firstOrNull() as? Context
-                        RoamingCompatHook.onApplicationAttach(
-                            onCreateCtx,
-                            biliClassLoader,
-                            roamingCompatPrefs
-                        )
-                        if (onCreateCtx != null) freeCopyConfigOnAttach.get()?.invoke(onCreateCtx)
-                        // 版本适配兜底（attach 钩子若未触发/异常则此处执行；幂等；仅 main 进程）
-                        if (onCreateCtx != null && biliClassLoader != null
-                            && TargetProcess.isMainProcess(onCreateCtx, TARGET_PACKAGE)
-                            && !versionAdaptCheckedThisProcess) {
-                            versionAdaptCheckedThisProcess = true
-                            VersionAdapter.ensureAdapted(
-                                onCreateCtx,
-                                biliClassLoader,
-                                roamingCompatPrefs,
-                                object : VersionAdapter.AdaptCallback {
-                                    override fun onAdaptStarted() {
-                                        VersionAdapter.showAdaptToast(
-                                            onCreateCtx,
-                                            InjectedUiLocale.messages(onCreateCtx).adaptStarted
-                                        )
-                                    }
-
-                                    override fun onAdaptFinished(ok: Boolean) {
-                                        if (ok) {
-                                            retryFreeCopyHooksAfterAdapt()
-                                            VersionAdapter.showAdaptToast(
-                                                onCreateCtx,
-                                                InjectedUiLocale.messages(onCreateCtx).adaptSucceeded
-                                            )
-                                        } else {
-                                            VersionAdapter.showAdaptToast(
-                                                onCreateCtx,
-                                                InjectedUiLocale.messages(onCreateCtx).adaptFailed
-                                            )
-                                        }
-                                    }
-                                }
-                            )
-                        }
-                    }
-                    after {
-                        RoamingCompatHook.reportScanResult(
-                            args.firstOrNull() as? Context,
-                            biliClassLoader
-                        )
-                    }
-            }
+            // 已授权安装链所需的宿主 Context；只在当前调用栈使用，不进入长期缓存。
+            val attachedContext = authorizationContext.applicationContext ?: authorizationContext
 
             featureInstallCoordinator.installAll(
                 listOf(
@@ -4080,6 +4087,55 @@ class HookEntry : IYukiHookXposedInit {
             if (runtimeCommentFreeCopyEnabled || runtimeDescriptionFreeCopyEnabled) {
                 installDescriptionFreeCopyHooks()
             }
+            // 保持原有已授权相对时序：先安装功能 Hook，attach 再同步
+            // 自由复制派生状态并触发版本适配，避免 quickLocate 与后台适配并发。
+            RoamingCompatHook.onApplicationAttach(
+                attachedContext,
+                biliClassLoader,
+                roamingCompatPrefs
+            )
+            freeCopyConfigOnAttach.get()?.invoke(attachedContext)
+            if (biliClassLoader != null &&
+                TargetProcess.isMainProcess(attachedContext, TARGET_PACKAGE) &&
+                !versionAdaptCheckedThisProcess
+            ) {
+                versionAdaptCheckedThisProcess = true
+                runCatching {
+                    VersionAdapter.ensureAdapted(
+                        attachedContext,
+                        biliClassLoader,
+                        roamingCompatPrefs,
+                        object : VersionAdapter.AdaptCallback {
+                            override fun onAdaptStarted() {
+                                VersionAdapter.showAdaptToast(
+                                    attachedContext,
+                                    InjectedUiLocale.messages(attachedContext).adaptStarted
+                                )
+                            }
+
+                            override fun onAdaptFinished(ok: Boolean) {
+                                if (ok) {
+                                    retryFreeCopyHooksAfterAdapt()
+                                    VersionAdapter.showAdaptToast(
+                                        attachedContext,
+                                        InjectedUiLocale.messages(attachedContext).adaptSucceeded
+                                    )
+                                } else {
+                                    VersionAdapter.showAdaptToast(
+                                        attachedContext,
+                                        InjectedUiLocale.messages(attachedContext).adaptFailed
+                                    )
+                                }
+                            }
+                        }
+                    )
+                }.onFailure { throwable ->
+                    logError(
+                        "version_adapt_err",
+                        "[BIL] 版本适配触发失败: $throwable"
+                    )
+                }
+            }
             val kavaDiagnostics = KavaMemberLookup.diagnostics()
             logInfo(
                 "hook_registry_summary",
@@ -4090,6 +4146,75 @@ class HookEntry : IYukiHookXposedInit {
                     "miss=${kavaDiagnostics.cacheMisses}, " +
                     "failure=${kavaDiagnostics.lookupFailures}"
             )
+            }
+
+            authorizedInstallerRef.set(::installAuthorizedHooks)
+
+            fun authorizeAndInstall(context: Context?) {
+                if (context == null || !authorizationAttempted.compareAndSet(false, true)) return
+                val appContext = context.applicationContext ?: context
+                val authorized = runCatching { queryHookAuthorization(appContext) }
+                    .getOrDefault(false)
+                if (!authorized) {
+                    // 未决定、已拒绝、状态损坏、双通道异常或超时均属于同一
+                    // fail-closed 结果。清空一次性安装器后，迟到结果无法再启用。
+                    authorizedInstallerRef.set(null)
+                    XposedBridge.log("[BIL] Hook 授权未确认，当前宿主进程不安装任何功能")
+                    return
+                }
+                if (!authorizedInstallStarted.compareAndSet(false, true)) {
+                    authorizedInstallerRef.set(null)
+                    return
+                }
+                val installer = authorizedInstallerRef.getAndSet(null) ?: return
+                runCatching {
+                    installer(appContext)
+                }.onSuccess {
+                    authorizedHooksInstalled.set(true)
+                }.onFailure { throwable ->
+                    XposedBridge.log("[BIL] 已授权 Hook 安装链异常: $throwable")
+                }
+            }
+
+            // 未授权前仅保留两个宿主生命周期 bootstrap。每个进程只查询一次
+            // Provider/显式有序广播；仅在共享的有界等待内收到明确授权
+            // 才执行上方完整安装链。
+            runCatching {
+                hookExactMethod(
+                    classOf<android.app.Application>(),
+                    "attach",
+                    classOf<Context>()
+                ) {
+                    before {
+                        authorizeAndInstall(args.firstOrNull() as? Context)
+                    }
+                }
+            }.onFailure { throwable ->
+                XposedBridge.log("[BIL] Application.attach 授权 bootstrap 注册失败: $throwable")
+            }
+            runCatching {
+                hookExactMethod(
+                    classOf<android.app.Instrumentation>(),
+                    "callApplicationOnCreate",
+                    classOf<android.app.Application>()
+                ) {
+                    before {
+                        authorizeAndInstall(args.firstOrNull() as? Context)
+                    }
+                    after {
+                        if (authorizedHooksInstalled.get()) {
+                            RoamingCompatHook.reportScanResult(
+                                args.firstOrNull() as? Context,
+                                biliClassLoader
+                            )
+                        }
+                    }
+                }
+            }.onFailure { throwable ->
+                XposedBridge.log(
+                    "[BIL] callApplicationOnCreate 授权 bootstrap 注册失败: $throwable"
+                )
+            }
         }
         // ====== system_server：允许模块 App 在后台启动界面（代开漫游设置） ======
         // 背景：本机 MIUI 上 B 站进程对任何其他包都不可见（系统级包可见性隔离），

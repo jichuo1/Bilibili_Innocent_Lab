@@ -1,4 +1,4 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">Bilibili_Innocent_Lab</string>
     <string name="xposed_desc">A cleaner, more complete Bilibili interface</string>
     <string name="about_module">This Xposed Module is made by YukiHookAPI. \nLearn more https://github.com/HighCapable/YuKiHookAPI</string>
@@ -7,6 +7,15 @@
     <string name="module_not_activated">Module not activated</string>
     <string name="module_is_activated">Module is activated</string>
     <string name="display_settings">Display settings</string>
+    <string name="user_terms_dialog_title">Terms and risk notice</string>
+    <string name="user_terms_body" tools:ignore="Typos">User Notice:\n\nThis project is an unofficial, non-commercial personal learning and research project. It is not affiliated with, authorized by, partnered with, or endorsed by Bilibili or any of its affiliates.\n\nUsing an Xposed/LSPosed module may change how the target app behaves and may be affected by client updates, system security policies, vendor ROMs, account experiment groups, or other modules. Users must assess the risks themselves and are responsible for installation, activation, data backups, and their device environment.\n\nThis project does not provide any content resources, participate in account trading, provide access credentials, or guarantee the availability of third-party extension services. Use it only in compliance with applicable local laws and regulations, target-platform rules, and open-source project licenses.\n\nTo support stable project maintenance, do not indiscriminately distribute project-related content on public social media in forms including, but not limited to, files, text, icons, links, images, videos, or code. This is a non-profit project. It does not charge software service fees in any way and does not proactively collect and transmit your personal information without consent. If you suspect that a file obtained from another source conflicts with these principles, be sure to compare it with the Release HASH for the corresponding version. A mismatched HASH may indicate third-party tampering, and this project cannot guarantee the safety of that file. If you knowingly continue to use it, you assume all resulting risks and consequences.\n\nAdditional disclaimers and risk notices: https://github.com/jichuo1/Bilibili_Innocent_Lab\n\nPlease read both this summary and the complete additional content before making your decision.</string>
+    <string name="user_terms_accept">I have finished reading, acknowledge the risks, and agree</string>
+    <string name="user_terms_decline">Disagree and exit</string>
+    <string name="user_terms_declined_title">Module settings locked</string>
+    <string name="user_terms_declined_message">You declined the terms. Module settings remain unavailable until you review the terms and explicitly agree.</string>
+    <string name="user_terms_read_again">Review terms</string>
+    <string name="user_terms_exit">Exit</string>
+    <string name="user_terms_save_failed">Could not save your decision. Please try again.</string>
     <string name="app_language">App language</string>
     <string name="app_language_tip">Choose the language used by the module interface and its injected UI</string>
     <string name="app_language_current">Current: %1$s</string>

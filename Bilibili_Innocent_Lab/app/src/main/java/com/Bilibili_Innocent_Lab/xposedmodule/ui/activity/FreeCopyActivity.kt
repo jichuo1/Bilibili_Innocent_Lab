@@ -29,6 +29,7 @@ import com.highcapable.hikage.widget.android.widget.TextView
 import com.highcapable.hikage.widget.androidx.core.widget.NestedScrollView
 import com.highcapable.yukihookapi.hook.factory.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.R
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
 
 class FreeCopyActivity : AppViewsActivity() {
@@ -42,6 +43,10 @@ class FreeCopyActivity : AppViewsActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!UserTermsConsentStore.readOrInitialize(applicationContext).isAuthorized) {
+            finish()
+            return
+        }
         // 预见式返回（跟随主界面的实验性开关；Android 14+ 才有 window 级运行时接口）
         val predictiveBackEnabled = runCatching {
             prefs().getBoolean(com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry.PREF_PREDICTIVE_BACK_ENABLED, false)

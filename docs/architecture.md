@@ -37,6 +37,60 @@ provider on a hook, bind, scroll, or draw path. `system` follows the device
 system locale rather than Bilibili's own per-app override. The bridge never
 calls `Locale.setDefault` and never caches an Activity, View, or host object.
 
+## Versioned user-terms authorization
+
+`settings/terms/UserTermsConsentStore` owns a module-private, versioned decision
+record. It uses ordinary app `SharedPreferences`, not Yuki preferences, the
+settings-backup protocol, or a host-process cache. `ACCEPTED` and
+`LEGACY_EXEMPT` authorize module operation; `UNDECIDED` and `DECLINED` do not.
+Missing state alone may enter the one-time legacy migration: an upgraded package
+installation is eligible only when its first-install time predates the fixed
+terms-rollout cutoff. Legacy-sentinel evidence additionally requires both the
+first-install time and positive `prefs_alive_ts` to predate that cutoff. An
+eligible result is persisted as `LEGACY_EXEMPT`; an install at the exact cutoff
+or later, a corrupt record, or a terms-version mismatch becomes `UNDECIDED` and
+must never re-enter legacy inference.
+Failure to obtain/read the private preferences or to commit the initial
+migration also returns `UNDECIDED`; storage failure is never interpreted as a
+missing legacy record.
+
+`MainActivity` resolves this state before reading feature preferences, writing
+cross-process mirrors, constructing the settings hierarchy, or starting update
+checks. An undecided user sees the scrollable terms gate; a declined user sees
+only a locked page with exit and review actions. Accept and decline use a
+synchronous commit. The back key exits an undecided gate without writing a
+decision, while outside-touch dismissal is disabled.
+`FreeCopyActivity` and `SettingsBackupActivity` apply the same check and finish
+immediately when the decision is unauthorized, so an internal Activity launch
+or restored Activity stack cannot bypass the gate.
+
+Authorization has two parallel, live module-process channels and no positive
+host cache. The exported compatibility provider exposes a read-only
+`/hook_authorization` snapshot through the existing Binder-caller allowlist. In
+parallel, Bilibili sends an explicit ordered broadcast to
+`RoamingOpenReceiver`; the receiver accepts no state input, reads
+`UserTermsConsentStore` itself, and returns handled/authorized result extras.
+This second channel remains available on known hosts that isolate cross-package
+provider authorities. Android 14+ additionally checks the framework-reported
+sender package for the broadcast response. Android 13 and lower do not expose
+that sender identity to this receiver, so the fallback intentionally has no
+intent filter, accepts no state input, and returns only one read-only Boolean;
+it can neither mutate consent nor start the settings UI through this action.
+
+While unauthorized, the provider's locale, free-copy, and roaming routes return
+safe disabled/default snapshots, and the roaming settings action also refuses
+to start another Activity. Bilibili installs only the minimal
+Application/Instrumentation authorization bootstrap before this decision.
+During `Application.attach`, the provider task and ordered-broadcast result
+handler share one 800 ms deadline and race to atomically publish the first
+explicit Boolean result; an unknown/failed channel does not resolve the race.
+Only an explicit authorized result installs the complete hook chain once. An
+explicit denial, two failed/unknown channels, missing state, corruption, or
+timeout all fail closed, discard the installer reference, and cannot enable
+hooks later from a delayed result. Accepting terms does not retrofit hooks into
+an already-running unauthorized Bilibili process, so that process must be
+restarted.
+
 ## Shared runtime helpers
 
 `runtime/TargetAppStorage` centralizes Bilibili cache path construction and
