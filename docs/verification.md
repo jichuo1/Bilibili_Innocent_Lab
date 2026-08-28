@@ -32,6 +32,15 @@ records, partial scopes, and catalog migrations. Motion-spec tests additionally
 lock the source-card/full-window endpoints, rounded-surface takeover, staged
 content reveal, title trajectory, progress clamping, and invalid-geometry
 rejection without requiring Android UI stubs.
+User-terms tests lock the positive terms revision, valid four-state parsing,
+missing-state versus corrupt-state distinction, version-mismatch fail-closed
+behavior, upgraded-install and legacy-sentinel migration, and the exact
+fixed-rollout-cutoff boundaries and authorization snapshot
+(`ACCEPTED/LEGACY_EXEMPT` only). Localization tests also require every released
+locale to provide the complete non-empty terms UI and body, preserve paragraph
+structure and the canonical project URL, and keep the maintainer-supplied
+Simplified Chinese body and both decision-button labels byte-for-byte equivalent
+after Android newline decoding.
 
 ## Device checks
 
@@ -101,3 +110,46 @@ rejection without requiring Android UI stubs.
     must remain blocked; stale geometry must use the neutral fade/scale fallback
     without jumping to an old screen position. A back action during any timed
     morph must be consumed, then work normally after the surface is stable.
+20. On a fresh install or after clearing module data, open settings from both
+    the launcher alias and LSPosed. Confirm the terms gate appears before the
+    settings hierarchy or update check, the body scrolls, links remain usable,
+    outside touches cannot dismiss it, and Back exits without recording accept
+    or decline.
+21. Decline the terms, reopen settings, and confirm only the locked page is
+    available. Use “review terms,” accept, and confirm the Activity rebuilds
+    once into the normal settings UI. Force-stop and cold-start the module to
+    verify both declined and accepted states persist as selected.
+22. Before accepting on a fresh install, start Bilibili and confirm no feature
+    hooks are installed. Query `/hook_authorization` and the other compatibility
+    provider routes: authorization must be false and all derived feature values
+    must be safe disabled/default snapshots. Send the explicit ordered
+    authorization broadcast and confirm it returns handled=true/authorized=false
+    without accepting any state input. Accepting must not modify that
+    already-running process; after restarting Bilibili, authorization must be
+    true and the normal feature installation chain must resume.
+    On Android 14+, an unrelated sender's explicit authorization request must
+    remain unhandled. On Android 13 and lower, confirm such a read-only request
+    cannot alter the stored decision or trigger either settings Activity.
+23. Upgrade an installation whose first-install time predates the fixed terms
+    rollout cutoff and separately test a positive `prefs_alive_ts` that also
+    predates it; each eligible missing-state case must persist `LEGACY_EXEMPT`
+    without prompting. An install exactly at or after the cutoff, a marker at or
+    after the cutoff, missing/invalid timestamps, and a post-rollout install that
+    is later upgraded must remain undecided. Corrupt decision text and a
+    mismatched terms version must become undecided even when old evidence exists.
+    Make the private preference read and first migration commit fail where
+    practical; both failures must remain unauthorized rather than falling into
+    legacy inference.
+24. Exercise the two live authorization channels independently. With the
+    provider authority hidden/isolated from Bilibili, the explicit ordered
+    broadcast must still return the current authorized state and permit hook
+    installation. With broadcast delivery unavailable, the provider must still
+    authorize. If both channels fail or remain unknown, the shared wait must
+    remain bounded to approximately 800 ms, fail closed, and never install hooks
+    from either late result. An explicit true or false from either channel must
+    be the first-and-only resolved result. Confirm this race runs once per host
+    process and never appears on a bind, scroll, draw, or other hook hot path.
+25. Repeat the gate, declined page, save-failure path, and accepted settings page
+    in English, Simplified Chinese, and Traditional Chinese with dark mode,
+    large font, rotation, and TalkBack. Confirm all text and buttons remain
+    reachable and Activity recreation never creates two terms dialogs.

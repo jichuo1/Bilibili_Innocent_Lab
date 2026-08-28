@@ -60,6 +60,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsBackupForm
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportPlanner
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.YukiModuleSettingsStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
 import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
@@ -145,6 +146,10 @@ class SettingsBackupActivity : AppViewsActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!UserTermsConsentStore.readOrInitialize(applicationContext).isAuthorized) {
+            finish()
+            return
+        }
         suppressSystemActivityTransitions()
         window.decorView.setBackgroundColor(Color.TRANSPARENT)
         launchOrigin = SettingsBackupTransitionOrigin.from(intent)

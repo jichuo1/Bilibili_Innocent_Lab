@@ -18,6 +18,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.text.TextUtils
+import android.text.method.LinkMovementMethod
 import android.text.util.Linkify
 import android.view.Gravity
 import android.view.KeyEvent
@@ -74,6 +75,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ShellCommandRunner
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateCheckCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportApplier
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.YukiModuleSettingsStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
 import android.app.Dialog
@@ -85,6 +88,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout as NativeFrameLayout
 import android.widget.EditText as NativeEditText
 import android.widget.LinearLayout as NativeLinearLayout
+import android.widget.ScrollView as NativeScrollView
 import android.widget.TextView as NativeTextView
 import androidx.core.graphics.ColorUtils
 import android.R as Android_R
@@ -241,6 +245,10 @@ class MainActivity : AppViewsActivity() {
 
     /** 当前活动的确认弹窗：Activity 销毁时主动 dismiss，避免 WindowLeaked */
     private var activeConfirmDialog: Dialog? = null
+
+    /** 用户条款状态只在 Activity 创建时解析；决定落盘后随 recreate/finish 更新生命周期。 */
+    private var userTermsDecision = UserTermsDecision.UNDECIDED
+    private var termsDecisionActionInProgress = false
 
     /** GitHub 请求只允许单飞；切换渠道时保留最后一次手动请求并抑制过期结果。 */
     private val updateCheckCoordinator = UpdateCheckCoordinator()
@@ -528,6 +536,321 @@ class MainActivity : AppViewsActivity() {
             ColorDrawable(Color.TRANSPARENT),
             mask
         )
+    }
+
+    /** 未决定时主界面不参与构建，仅保留中性背景并展示不可取消的条款窗口。 */
+    private fun showUserTermsGate() {
+        setContentView(createTermsNeutralRoot())
+        runCatching { showUserTermsDialog() }.onFailure { throwable ->
+            Log.e("BilibiliInnocentLab", "show user terms dialog failed", throwable)
+            finish()
+        }
+    }
+
+    /** 已明确拒绝时保持锁定，不显示任何模块配置入口。 */
+    private fun showUserTermsDeclinedPage() {
+        val density = resources.displayMetrics.density
+        val root = createTermsNeutralRoot()
+        val container = createGlassContainer().apply {
+            scaleX = 1f
+            scaleY = 1f
+            alpha = 1f
+        }
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.user_terms_declined_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 20f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.user_terms_declined_message)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 14f
+                alpha = 0.78f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (12 * density).toInt() }
+        )
+
+        val buttonRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        buttonRow.addView(
+            createTermsActionButton(
+                text = getString(R.string.user_terms_exit),
+                filled = false
+            ) { finish() },
+            NativeLinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        )
+        buttonRow.addView(
+            createTermsActionButton(
+                text = getString(R.string.user_terms_read_again),
+                filled = true
+            ) { showUserTermsDialog() },
+            NativeLinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            ).apply { marginStart = (8 * density).toInt() }
+        )
+        container.addView(
+            buttonRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (22 * density).toInt() }
+        )
+
+        root.addView(
+            container,
+            NativeFrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.CENTER
+                setMargins(
+                    (24 * density).toInt(),
+                    (36 * density).toInt(),
+                    (24 * density).toInt(),
+                    (36 * density).toInt()
+                )
+            }
+        )
+        setContentView(root)
+    }
+
+    private fun createTermsNeutralRoot(): NativeFrameLayout = NativeFrameLayout(this).apply {
+        setBackgroundColor(monetColors.background)
+        isFocusable = true
+        isFocusableInTouchMode = true
+    }
+
+    /** 条款正文可滚动，操作按钮固定在玻璃容器底部；触外、系统取消均不关闭。 */
+    private fun showUserTermsDialog() {
+        activeConfirmDialog?.dismiss()
+        termsDecisionActionInProgress = false
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createGlassContainer()
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.user_terms_dialog_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 20f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        val bodyScroll = NativeScrollView(this).apply {
+            isFillViewport = true
+            isVerticalScrollBarEnabled = true
+            addView(
+                NativeTextView(this@MainActivity).apply {
+                    autoLinkMask = Linkify.WEB_URLS
+                    text = getString(R.string.user_terms_body)
+                    textColor = getColor(R.color.colorTextDark)
+                    setLinkTextColor(monetColors.primary)
+                    textSize = 14f
+                    setLineSpacing(5 * density, 1f)
+                    linksClickable = true
+                    movementMethod = LinkMovementMethod.getInstance()
+                },
+                NativeFrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+        container.addView(
+            bodyScroll,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            ).apply {
+                topMargin = (14 * density).toInt()
+                bottomMargin = (14 * density).toInt()
+            }
+        )
+
+        val buttonRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        buttonRow.addView(
+            createTermsActionButton(
+                text = getString(R.string.user_terms_decline),
+                filled = false
+            ) {
+                commitUserTermsDecision(
+                    dialog = dialog,
+                    container = container,
+                    accepted = false
+                )
+            },
+            NativeLinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        )
+        buttonRow.addView(
+            createTermsActionButton(
+                text = getString(R.string.user_terms_accept),
+                filled = true
+            ) {
+                commitUserTermsDecision(
+                    dialog = dialog,
+                    container = container,
+                    accepted = true
+                )
+            },
+            NativeLinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            ).apply { marginStart = (8 * density).toInt() }
+        )
+        container.addView(
+            buttonRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        val root = NativeFrameLayout(this).apply {
+            addView(
+                container,
+                NativeFrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                ).apply {
+                    gravity = Gravity.CENTER
+                    setMargins(
+                        (20 * density).toInt(),
+                        (28 * density).toInt(),
+                        (20 * density).toInt(),
+                        (28 * density).toInt()
+                    )
+                }
+            )
+        }
+
+        dialog.setContentView(root)
+        dialog.setCancelable(true)
+        dialog.setCanceledOnTouchOutside(false)
+        dialog.setOnCancelListener { finish() }
+        dialog.setOnDismissListener {
+            if (activeConfirmDialog === dialog) activeConfirmDialog = null
+        }
+        activeConfirmDialog = dialog
+        dialog.show()
+        dialog.window?.apply {
+            setBackgroundDrawableResource(Android_R.color.transparent)
+            setDimAmount(0f)
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+        container.post {
+            container.animate()
+                .scaleX(1f).scaleY(1f).alpha(1f)
+                .setDuration(260L)
+                .setInterpolator(emphasizedDecelerate)
+                .start()
+        }
+    }
+
+    private fun createTermsActionButton(
+        text: CharSequence,
+        filled: Boolean,
+        onClick: () -> Unit
+    ): NativeTextView {
+        val density = resources.displayMetrics.density
+        return NativeTextView(this).apply {
+            this.text = text
+            textColor = if (filled) monetColors.onPrimary else getColor(R.color.colorTextGray)
+            textSize = 14f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(
+                (10 * density).toInt(),
+                (12 * density).toInt(),
+                (10 * density).toInt(),
+                (12 * density).toInt()
+            )
+            background = if (filled) {
+                val radius = 20 * density
+                val content = GradientDrawable().apply {
+                    cornerRadius = radius
+                    setColor(monetColors.primary)
+                }
+                val mask = GradientDrawable().apply {
+                    cornerRadius = radius
+                    setColor(Color.WHITE)
+                }
+                RippleDrawable(
+                    ColorStateList.valueOf(
+                        ColorUtils.setAlphaComponent(monetColors.onPrimary, 0x33)
+                    ),
+                    content,
+                    mask
+                )
+            } else {
+                selfRippleBackground(14f)
+            }
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
+    }
+
+    private fun commitUserTermsDecision(
+        dialog: Dialog,
+        container: View,
+        accepted: Boolean
+    ) {
+        if (termsDecisionActionInProgress) return
+        termsDecisionActionInProgress = true
+        val persisted = if (accepted) {
+            UserTermsConsentStore.accept(applicationContext)
+        } else {
+            UserTermsConsentStore.decline(applicationContext)
+        }
+        if (!persisted) {
+            termsDecisionActionInProgress = false
+            toast(getString(R.string.user_terms_save_failed))
+            return
+        }
+
+        userTermsDecision = if (accepted) {
+            UserTermsDecision.ACCEPTED
+        } else {
+            UserTermsDecision.DECLINED
+        }
+        dismissWithAnimation(dialog, container) {
+            if (accepted) recreate() else finish()
+        }
     }
 
     /** AppCompat 的显式应用语言为空时表示跟随系统，不额外维护一份语言偏好。 */
@@ -2216,6 +2539,7 @@ class MainActivity : AppViewsActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (!userTermsDecision.isAuthorized) return
         val selectionTag = InjectedUiLocale.syncFromAppCompat(applicationContext)
         InjectedUiLocale.setMirrorAndBroadcast(applicationContext, selectionTag)
     }
@@ -2278,6 +2602,17 @@ class MainActivity : AppViewsActivity() {
 
         // Base activity background（应用 Monet 动态背景色）
         findViewById<View>(Android_R.id.content).setBackgroundColor(monetColors.background)
+
+        // 条款门禁必须先于现有 prefs、跨进程镜像、主布局和自动更新检查。
+        userTermsDecision = UserTermsConsentStore.readOrInitialize(applicationContext)
+        if (!userTermsDecision.isAuthorized) {
+            when (userTermsDecision) {
+                UserTermsDecision.UNDECIDED -> showUserTermsGate()
+                UserTermsDecision.DECLINED -> showUserTermsDeclinedPage()
+                else -> Unit
+            }
+            return
+        }
 
         // 读取广告开关配置：prefs() 只创建一次跨进程 bridge，两个开关复用（降低初始化开销）
         val modulePrefs = runCatching { prefs() }.onFailure { t ->

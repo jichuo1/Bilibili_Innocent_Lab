@@ -8,6 +8,15 @@
     <string name="module_not_activated">模組尚未啟用</string>
     <string name="module_is_activated">模組已啟用</string>
     <string name="display_settings">顯示設定</string>
+    <string name="user_terms_dialog_title">使用者條款與風險提示</string>
+    <string name="user_terms_body">使用者須知：\n\n本專案是非官方、非商業性質的個人學習與研究專案，與嗶哩嗶哩及其關聯公司不存在隸屬、授權、合作或背書關係。\n\n使用 Xposed/LSPosed 模組可能改變目標應用程式的執行行為，並可能受到用戶端更新、系統安全策略、廠商 ROM、帳號實驗分組或其他模組影響。使用者應自行評估風險，並對安裝、啟用、資料備份及裝置環境負責。\n\n本專案不提供任何內容資源，不參與帳號交易，不提供存取憑證，也不保證第三方擴充服務的可用性。請在遵守所在地法律法規、目標平台規則及開源專案授權條款的前提下使用。\n\n為確保專案穩定維護，請勿將本專案相關內容以包括但不限於檔案、文字、圖示、連結、圖片、影片、程式碼等形式，在公開社群媒體進行不定向傳播。本專案為非營利性專案，不會以任何方式收取軟體服務費用，也不會在未經同意的前提下主動取得並傳輸您的個人資訊。若您懷疑從其他管道取得的檔案與上述宗旨相違背，請務必對照對應版本的 Release HASH；若檔案 HASH 不一致，該檔案可能已遭第三方竄改，本專案無法保證其安全性。若您知悉後仍繼續使用，由此產生的一切風險與後果請自行承擔。\n\n附加免責聲明與風險提示詳見：https://github.com/jichuo1/Bilibili_Innocent_Lab\n\n請務必閱讀完畢摘要內容與完整附加內容，再作決定。</string>
+    <string name="user_terms_accept">我已閱讀完畢並知情同意</string>
+    <string name="user_terms_decline">不同意並退出</string>
+    <string name="user_terms_declined_title">模組設定已鎖定</string>
+    <string name="user_terms_declined_message">您已拒絕使用者條款。在重新閱讀並明確同意前，模組設定將維持鎖定。</string>
+    <string name="user_terms_read_again">重新閱讀條款</string>
+    <string name="user_terms_exit">退出</string>
+    <string name="user_terms_save_failed">無法儲存您的決定，請重試。</string>
     <string name="app_language">應用程式語言</string>
     <string name="app_language_tip">選擇模組介面與注入宿主的介面所使用的語言</string>
     <string name="app_language_current">目前：%1$s</string>
