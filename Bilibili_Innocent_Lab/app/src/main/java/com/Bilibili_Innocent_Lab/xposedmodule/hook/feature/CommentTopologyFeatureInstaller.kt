@@ -17,6 +17,7 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyGraph
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyGraphBuilder
@@ -897,18 +898,15 @@ internal class ReplyTopologyAnchorView(context: Context) : TextView(context) {
     private var coordinator: ReplyTopologyCoordinator? = null
 
     init {
+        val localizedText = InjectedUiLocale.messages(context)
         gravity = Gravity.CENTER
         textSize = 12f
-        text = if (resources.configuration.locales[0].language == "zh") "脉络" else "Trace"
+        text = localizedText.replyTopologyEntryLabel
         setTextColor(resolveSiblingTextColor() ?: Color.GRAY)
         setPadding(dp(8), 0, dp(8), 0)
         isClickable = true
         isFocusable = true
-        contentDescription = if (resources.configuration.locales[0].language == "zh") {
-            "查看回复脉络"
-        } else {
-            "Show reply context"
-        }
+        contentDescription = localizedText.replyTopologyEntryDescription
         val typedValue = TypedValue()
         if (context.theme.resolveAttribute(
                 android.R.attr.selectableItemBackgroundBorderless,

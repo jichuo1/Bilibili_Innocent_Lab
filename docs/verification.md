@@ -20,7 +20,10 @@
 Run gradlew.bat testDebugUnitTest --no-daemon. The tests cover multi-user
 cache-path derivation, bounded merged-output command execution, rich comment
 text/emoji mapping, KavaRef lookup, Stable/Preview Release parsing and
-update-channel request serialization.
+update-channel request serialization. Localization tests additionally require
+the English, Simplified Chinese, and Traditional Chinese resources to have the
+same keys and format placeholders, verify the explicit locale config, and
+exercise the injected-UI locale tag normalization and immutable text snapshots.
 
 ## Device checks
 
@@ -41,3 +44,18 @@ update-channel request serialization.
    afterward; repeat in the opposite direction.
 7. Query the compatibility provider from Bilibili and ADB shell, then verify an
    unrelated application uid receives SecurityException.
+8. Switch the module UI through system, English, Simplified Chinese, and
+   Traditional Chinese. Confirm each selection survives Activity recreation,
+   force-stop, and cold start; on Android 13+ also change it from the system's
+   per-app language page.
+9. With Bilibili already running, switch the module language and verify the
+   reply-context entry/panel, adaptation toast, roaming-settings title, and
+   blocked-update message use the new language without a provider query on a
+   comment binding path.
+10. Force-stop both apps, then start Bilibili first. Verify the provider
+    cold-start refresh restores the explicit module language. With `system`
+    selected, set a different Bilibili per-app language and confirm injected UI
+    still follows the device system locale.
+11. Send the UI-locale action from an unrelated package. Android must reject it
+    because the sender lacks
+    `com.Bilibili_Innocent_Lab.xposedmodule.permission.SET_UI_LOCALE`.

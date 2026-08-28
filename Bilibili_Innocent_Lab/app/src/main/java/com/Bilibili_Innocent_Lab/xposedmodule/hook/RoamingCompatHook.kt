@@ -10,6 +10,7 @@ import android.net.Uri
 import android.view.View
 import androidx.core.content.ContextCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetAppStorage
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
@@ -119,10 +120,9 @@ object RoamingCompatHook {
     /** 本扩展注入「哔哩漫游」设置入口所需的稳定数据类型（方法/字段由 VersionAdapter 定位）。 */
     private const val MENU_GROUP_ITEM_CLASS = "com.bilibili.lib.homepage.mine.MenuGroup\$Item"
 
-    /** 注入的「哔哩漫游设置」入口的 uri / id / 标题 / 图标（与 fork 的 case 9 注入保持一致） */
+    /** 注入的「哔哩漫游设置」入口的 uri / id / 图标（与 fork 的 case 9 注入保持一致） */
     private const val ROAMING_URI = "bilibili://biliroaming"
     private const val ROAMING_ENTRY_ID = 114514L
-    private const val ROAMING_ENTRY_TITLE = "哔哩漫游设置"
     private const val ROAMING_ENTRY_ICON = "https://i0.hdslb.com/bfs/album/276769577d2a5db1d9f914364abad7c5253086f6.png"
 
     /** 日志前缀（与 HookEntry 其他 hook 的 [BIL] 前缀区分） */
@@ -560,7 +560,12 @@ object RoamingCompatHook {
             KavaMemberLookup.constructorOrNull(itemClass)?.newInstance()
         }.getOrNull() ?: return
         XposedHelpers.setLongField(item, "id", ROAMING_ENTRY_ID)
-        XposedHelpers.setObjectField(item, "title", ROAMING_ENTRY_TITLE)
+        val titleContext = mineClickContext(fragment) ?: AndroidAppHelper.currentApplication()
+        XposedHelpers.setObjectField(
+            item,
+            "title",
+            InjectedUiLocale.messages(titleContext).roamingSettingsTitle
+        )
         XposedHelpers.setObjectField(item, "icon", ROAMING_ENTRY_ICON)
         XposedHelpers.setObjectField(item, "uri", ROAMING_URI)
         XposedHelpers.setIntField(item, "visible", 1)
@@ -754,6 +759,7 @@ object RoamingCompatHook {
             logInfo("br_no_ctx", "$LOG_PREFIX attach 无上下文，跳过（callApplicationOnCreate 兜底重试）")
             return
         }
+        InjectedUiLocale.initializeHost(ctx)
         ensureReceiverRegistered(ctx)
         ensureHookInfoCache(ctx, appClassLoader, prefs)
     }

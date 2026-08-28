@@ -28,6 +28,7 @@ import java.lang.reflect.Constructor
 import java.lang.reflect.Method
 import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BlockUpdateFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BottomBarFeatureInstaller
@@ -2624,7 +2625,7 @@ class HookEntry : IYukiHookXposedInit {
                                             override fun onAdaptStarted() {
                                                 VersionAdapter.showAdaptToast(
                                                     attachCtx,
-                                                    "哔哩哔哩版本变化，正在自动适配，请稍候…"
+                                                    InjectedUiLocale.messages(attachCtx).adaptStarted
                                                 )
                                             }
 
@@ -2633,12 +2634,12 @@ class HookEntry : IYukiHookXposedInit {
                                                     retryFreeCopyHooksAfterAdapt()
                                                     VersionAdapter.showAdaptToast(
                                                         attachCtx,
-                                                        "版本适配完成，功能已就绪"
+                                                        InjectedUiLocale.messages(attachCtx).adaptSucceeded
                                                     )
                                                 } else {
                                                     VersionAdapter.showAdaptToast(
                                                         attachCtx,
-                                                        "版本适配失败，部分功能可能受限"
+                                                        InjectedUiLocale.messages(attachCtx).adaptFailed
                                                     )
                                                 }
                                             }
@@ -2681,7 +2682,7 @@ class HookEntry : IYukiHookXposedInit {
                                     override fun onAdaptStarted() {
                                         VersionAdapter.showAdaptToast(
                                             onCreateCtx,
-                                            "哔哩哔哩版本变化，正在自动适配，请稍候…"
+                                            InjectedUiLocale.messages(onCreateCtx).adaptStarted
                                         )
                                     }
 
@@ -2690,12 +2691,12 @@ class HookEntry : IYukiHookXposedInit {
                                             retryFreeCopyHooksAfterAdapt()
                                             VersionAdapter.showAdaptToast(
                                                 onCreateCtx,
-                                                "版本适配完成，功能已就绪"
+                                                InjectedUiLocale.messages(onCreateCtx).adaptSucceeded
                                             )
                                         } else {
                                             VersionAdapter.showAdaptToast(
                                                 onCreateCtx,
-                                                "版本适配失败，部分功能可能受限"
+                                                InjectedUiLocale.messages(onCreateCtx).adaptFailed
                                             )
                                         }
                                     }

@@ -1,6 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import android.app.AndroidAppHelper
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.highcapable.kavaref.extension.classOf
 import com.highcapable.kavaref.extension.isSubclassOf
 
@@ -34,7 +36,10 @@ internal class BlockUpdateFeatureInstaller(
             environment.registrar.adapted("update.block.check", adapted) {
                 before {
                     val exception = runCatching {
-                        exceptionConstructor.newInstance(BLOCK_MESSAGE) as Throwable
+                        val message = InjectedUiLocale.messages(
+                            AndroidAppHelper.currentApplication()
+                        ).latestVersionMessage
+                        exceptionConstructor.newInstance(message) as Throwable
                     }.onFailure { throwable ->
                         environment.logError(
                             "block_update_exception_err",
@@ -72,6 +77,5 @@ internal class BlockUpdateFeatureInstaller(
         private const val CHANNEL_STATUS = "block_update_status"
         private const val LATEST_VERSION_EXCEPTION_CLASS =
             "tv.danmaku.bili.update.internal.exception.LatestVersionException"
-        private const val BLOCK_MESSAGE = "当前已是最新版本"
     }
 }
