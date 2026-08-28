@@ -16,6 +16,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
 import android.text.TextUtils
 import android.text.method.LinkMovementMethod
@@ -31,6 +32,7 @@ import androidx.annotation.StringRes
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.os.LocaleListCompat
+import androidx.core.net.toUri
 import androidx.core.view.isVisible
 import androidx.core.view.setPadding
 import androidx.core.view.updateMargins
@@ -40,6 +42,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.highcapable.betterandroid.system.extension.component.disableComponent
 import com.highcapable.betterandroid.system.extension.component.enableComponent
 import com.highcapable.betterandroid.system.extension.component.isComponentEnabled
+import com.highcapable.betterandroid.system.extension.component.versionCodeCompat
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
 import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
 import com.highcapable.betterandroid.ui.extension.view.parentOrNull
@@ -62,6 +65,7 @@ import com.highcapable.hikage.widget.androidx.core.widget.NestedScrollView
 import com.highcapable.hikage.widget.com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch
 import com.highcapable.yukihookapi.YukiHookAPI
 import com.highcapable.yukihookapi.hook.factory.prefs
+import com.highcapable.yukihookapi.hook.xposed.prefs.YukiHookPrefsBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.RoamingCompatHook
@@ -73,6 +77,10 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ShellCommandRunner
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateCheckCoordinator
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootDisplayState
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportController
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportState
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportApplier
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.YukiModuleSettingsStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
@@ -229,6 +237,7 @@ class MainActivity : AppViewsActivity() {
     private var settingsBackupEntryView: View? = null
     private var settingsBackupEntryTitleView: NativeTextView? = null
     private var roamingCompatEnabled = false
+    private var noRootDesiredEnabled = false
     private var predictiveBackEnabled = false
     private var logEnabled = true
     private var logVerbose = true
@@ -242,6 +251,18 @@ class MainActivity : AppViewsActivity() {
     private var advancedContent: View? = null
     private var advancedChevron: View? = null
     private var advancedExpanded = false
+
+    /** 免 Root 配置只在用户明确开启后同步；回调不得持有 Activity 或 View。 */
+    private var noRootPrefsBridge: YukiHookPrefsBridge? = null
+    private var noRootSwitch: com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch? = null
+    private var noRootStatusView: NativeTextView? = null
+    private var noRootProgrammaticSwitch = false
+
+    /** 激活卡片需要同时聚合 LSPosed 状态与经过版本校验的免 Root heartbeat。 */
+    private var activationCardView: View? = null
+    private var activationIconView: android.widget.ImageView? = null
+    private var activationTitleView: NativeTextView? = null
+    private var activationSourceView: NativeTextView? = null
 
     /** 当前活动的确认弹窗：Activity 销毁时主动 dismiss，避免 WindowLeaked */
     private var activeConfirmDialog: Dialog? = null
@@ -375,6 +396,163 @@ class MainActivity : AppViewsActivity() {
         thumb.translationX = targetX
     }
 
+    private fun currentNoRootDisplayState(): NoRootDisplayState {
+        val appContext = applicationContext
+        return NoRootSupportState.displayState(
+            sdkInt = AndroidVersion.code,
+            status = NoRootSupportStore.readStatus(appContext),
+            currentSnapshot = NoRootSupportStore.readSnapshot(appContext),
+            currentTargetVersionCode = installedBilibiliVersionCode(),
+            currentTargetUpdateTime = installedBilibiliLastUpdateTime()
+        )
+    }
+
+    /** 查询失败时返回 0；状态归并据此拒绝把旧宿主 heartbeat 视为当前激活。 */
+    private fun installedBilibiliVersionCode(): Long = runCatching {
+        packageManager.getPackageInfo(NoRootSupportState.TARGET_PACKAGE, 0)
+            .versionCodeCompat
+    }.getOrDefault(0L)
+
+    private fun installedBilibiliLastUpdateTime(): Long = runCatching {
+        packageManager.getPackageInfo(NoRootSupportState.TARGET_PACKAGE, 0).lastUpdateTime
+    }.getOrDefault(0L)
+
+    @StringRes
+    private fun noRootStatusText(state: NoRootDisplayState): Int = when (state) {
+        NoRootDisplayState.UNSUPPORTED_OS -> R.string.no_root_status_unsupported_os
+        NoRootDisplayState.DISABLED -> R.string.no_root_status_disabled
+        NoRootDisplayState.CHECKING -> R.string.no_root_status_checking
+        NoRootDisplayState.MANAGER_MISSING -> R.string.no_root_status_manager_missing
+        NoRootDisplayState.MODULE_NOT_REGISTERED -> R.string.no_root_status_module_not_registered
+        NoRootDisplayState.SYNCING -> R.string.no_root_status_syncing
+        NoRootDisplayState.RESTART_REQUIRED -> R.string.no_root_status_restart_required
+        NoRootDisplayState.DISABLE_RESTART_REQUIRED ->
+            R.string.no_root_status_disable_restart_required
+        NoRootDisplayState.DISABLE_RESTART_REQUIRED_ACTIVE ->
+            R.string.no_root_status_disable_restart_required
+        NoRootDisplayState.ACTIVE -> R.string.no_root_status_active
+        NoRootDisplayState.CONNECTION_TIMEOUT -> R.string.no_root_status_connection_timeout
+        NoRootDisplayState.ERROR -> R.string.no_root_status_error
+    }
+
+    /** 刷新免 Root 状态与激活卡片；只有有效 heartbeat 才能计为激活。 */
+    private fun renderNoRootUi() {
+        val state = currentNoRootDisplayState()
+        noRootDesiredEnabled = NoRootSupportStore.isDesiredEnabled(applicationContext)
+        noRootProgrammaticSwitch = true
+        noRootSwitch?.apply {
+            isChecked = noRootDesiredEnabled
+            isEnabled = noRootDesiredEnabled ||
+                (
+                    AndroidVersion.isAtLeast(AndroidVersion.P) &&
+                        noRootPrefsBridge != null
+                    )
+        }
+        noRootProgrammaticSwitch = false
+        noRootStatusView?.setText(noRootStatusText(state))
+
+        val rootActive = YukiHookAPI.Status.isXposedModuleActive
+        val activation = NoRootSupportState.activationDecision(rootActive, state)
+        activationCardView?.background = roundedColor(
+            if (activation.activated) monetColors.primary else monetColors.surfaceVariant
+        )
+        activationIconView?.setImageResource(
+            if (activation.activated) R.mipmap.ic_success else R.mipmap.ic_warn
+        )
+        activationTitleView?.setText(
+            if (activation.activated) R.string.module_is_activated else R.string.module_not_activated
+        )
+        activationSourceView?.apply {
+            text = when {
+                rootActive && YukiHookAPI.Status.Executor.apiLevel > 0 -> getString(
+                    R.string.activated_by,
+                    YukiHookAPI.Status.Executor.name,
+                    YukiHookAPI.Status.Executor.apiLevel
+                )
+                rootActive -> getString(
+                    R.string.activated_by_noapi,
+                    YukiHookAPI.Status.Executor.name
+                )
+                activation.byNoRoot -> getString(R.string.no_root_activated_by_npatch)
+                else -> ""
+            }
+            isVisible = activation.activated
+        }
+    }
+
+    /**
+     * 用户开启后才在后台构造快照并连接 NPatch；WeakReference 避免异步回调延长
+     * Activity 生命周期。关闭分支不调用此方法，因此不会触发任何 NPatch 连接。
+     */
+    private fun enableAndSynchronizeNoRootSupport() {
+        val bridge = noRootPrefsBridge ?: run {
+            renderNoRootUi()
+            return
+        }
+        if (AndroidVersion.isLessThan(AndroidVersion.P)) {
+            renderNoRootUi()
+            return
+        }
+        noRootStatusView?.setText(R.string.no_root_status_checking)
+        val appContext = applicationContext
+        if (!NoRootSupportController.setDesiredEnabled(appContext, enabled = true)) {
+            renderNoRootUi()
+            toast(getString(R.string.no_root_enable_failed))
+            return
+        }
+        val generation = NoRootSupportController.beginSynchronization(appContext) ?: run {
+            renderNoRootUi()
+            return
+        }
+        val activityRef = WeakReference(this)
+        Thread({
+            NoRootSupportController.synchronize(appContext, bridge, generation) {
+                val activity = activityRef.get() ?: return@synchronize
+                activity.runOnUiThread {
+                    if (!activity.isFinishing && !activity.isDestroyed) activity.renderNoRootUi()
+                }
+            }
+        }, "InnocentLab-NoRootSync").apply { isDaemon = true }.start()
+    }
+
+    private fun synchronizeNoRootSupportIfEnabled() {
+        if (AndroidVersion.isLessThan(AndroidVersion.P) ||
+            !NoRootSupportStore.isDesiredEnabled(applicationContext)
+        ) return
+        val bridge = noRootPrefsBridge ?: return
+        noRootStatusView?.setText(R.string.no_root_status_checking)
+        val appContext = applicationContext
+        val generation = NoRootSupportController.beginSynchronization(appContext) ?: return
+        val activityRef = WeakReference(this)
+        Thread({
+            NoRootSupportController.synchronize(appContext, bridge, generation) {
+                val activity = activityRef.get() ?: return@synchronize
+                activity.runOnUiThread {
+                    if (!activity.isFinishing && !activity.isDestroyed) activity.renderNoRootUi()
+                }
+            }
+        }, "InnocentLab-NoRootRefresh").apply { isDaemon = true }.start()
+    }
+
+    private fun disableNoRootSupport() {
+        val accepted = NoRootSupportController.setDesiredEnabled(
+            applicationContext,
+            enabled = false
+        )
+        if (!accepted) toast(getString(R.string.no_root_disable_failed))
+        renderNoRootUi()
+    }
+
+    private fun shouldUseNoRootRestartFlow(): Boolean {
+        if (YukiHookAPI.Status.isXposedModuleActive) return false
+        if (NoRootSupportStore.isDesiredEnabled(applicationContext)) return true
+        return when (currentNoRootDisplayState()) {
+            NoRootDisplayState.DISABLE_RESTART_REQUIRED,
+            NoRootDisplayState.DISABLE_RESTART_REQUIRED_ACTIVE -> true
+            else -> false
+        }
+    }
+
     /**
      * 二次确认弹窗：液态玻璃风格 + Material You 动效。
      * 弹窗采用 scale + alpha 动画（GPU 加速、不触发布局重绘，低功耗），
@@ -383,6 +561,7 @@ class MainActivity : AppViewsActivity() {
     private fun showRestartConfirmDialog() {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
+        val useNoRootFlow = shouldUseNoRootRestartFlow()
 
         // 液态玻璃容器：surface 色 + 大圆角 + 细白描边模拟玻璃高光
         val container = NativeLinearLayout(this).apply {
@@ -400,13 +579,31 @@ class MainActivity : AppViewsActivity() {
         // 标题
         container.addView(
             NativeTextView(this).apply {
-                text = getString(R.string.restart_bilibili_confirm_title)
+                text = getString(
+                    if (useNoRootFlow) R.string.no_root_restart_confirm_title
+                    else R.string.restart_bilibili_confirm_title
+                )
                 textColor = getColor(R.color.colorTextDark)
                 textSize = 17f
                 setLineSpacing(4 * density, 1f)
             },
             NativeLinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         )
+
+        if (useNoRootFlow) {
+            container.addView(
+                NativeTextView(this).apply {
+                    text = getString(R.string.no_root_restart_confirm_message)
+                    textColor = getColor(R.color.colorTextGray)
+                    textSize = 13f
+                    setLineSpacing(4 * density, 1f)
+                },
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = (12 * density).toInt() }
+            )
+        }
 
         // 按钮行
         val buttonRow = NativeLinearLayout(this).apply {
@@ -432,7 +629,10 @@ class MainActivity : AppViewsActivity() {
         // 确认按钮（圆角 filled + 跟随圆角的 ripple）
         buttonRow.addView(
             NativeTextView(this).apply {
-                text = getString(R.string.dialog_confirm)
+                text = getString(
+                    if (useNoRootFlow) R.string.no_root_restart_open_app_details
+                    else R.string.dialog_confirm
+                )
                 textColor = monetColors.onPrimary
                 textSize = 15f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -448,7 +648,11 @@ class MainActivity : AppViewsActivity() {
                 )
                 isClickable = true
                 isFocusable = true
-                setOnClickListener { dismissWithAnimation(dialog, container) { restartBilibili() } }
+                setOnClickListener {
+                    dismissWithAnimation(dialog, container) {
+                        if (useNoRootFlow) openBilibiliAppDetails() else restartBilibili()
+                    }
+                }
             },
             NativeLinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 marginStart = (16 * density).toInt()
@@ -2337,6 +2541,10 @@ class MainActivity : AppViewsActivity() {
                 setOnClickListener {
                     dismissWithAnimation(dialog, container) {
                         runCatching { VersionAdapter.clearCache(this@MainActivity, runCatching { prefs() }.getOrNull()) }
+                        if (NoRootSupportStore.isDesiredEnabled(applicationContext)) {
+                            NoRootSupportStore.markAdapterReset(applicationContext)
+                            synchronizeNoRootSupportIfEnabled()
+                        }
                         this@MainActivity.toast(getString(R.string.adapt_manual_done))
                     }
                 }
@@ -2400,10 +2608,20 @@ class MainActivity : AppViewsActivity() {
         Thread {
             try {
                 // 1. 杀死 B 站（root）；execShell 消费输出流，防止 buffer 满导致 waitFor 死锁
-                execShell(suPath, "-c", "am force-stop ${HookEntry.TARGET_PACKAGE}")
+                val stopExitCode = execShell(
+                    suPath,
+                    "-c",
+                    "am force-stop ${HookEntry.TARGET_PACKAGE}"
+                )
+                check(stopExitCode == 0) { "force-stop exited with $stopExitCode" }
                 // 2. 延迟后重新拉起（am start 指定主 Activity；不用 monkey，避免误开自动旋转）
                 Thread.sleep(800)
-                execShell(suPath, "-c", "am start -n ${HookEntry.TARGET_PACKAGE}/.MainActivityV2")
+                val startExitCode = execShell(
+                    suPath,
+                    "-c",
+                    "am start -n ${HookEntry.TARGET_PACKAGE}/.MainActivityV2"
+                )
+                check(startExitCode == 0) { "am start exited with $startExitCode" }
                 Handler(Looper.getMainLooper()).post {
                     appContext.toast(appContext.getString(R.string.restart_bilibili_done))
                 }
@@ -2414,6 +2632,18 @@ class MainActivity : AppViewsActivity() {
                 }
             }
         }.start()
+    }
+
+    /** 免 Root 模式没有 force-stop 权限，只引导用户进入系统应用详情手动停止并重开。 */
+    private fun openBilibiliAppDetails() {
+        val intent = Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            "package:${HookEntry.TARGET_PACKAGE}".toUri()
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { startActivity(intent) }.onFailure { throwable ->
+            Log.e("BilibiliInnocentLab", "open Bilibili app details failed", throwable)
+            toast(getString(R.string.no_root_restart_open_failed))
+        }
     }
 
     /**
@@ -2542,6 +2772,14 @@ class MainActivity : AppViewsActivity() {
         if (!userTermsDecision.isAuthorized) return
         val selectionTag = InjectedUiLocale.syncFromAppCompat(applicationContext)
         InjectedUiLocale.setMirrorAndBroadcast(applicationContext, selectionTag)
+        renderNoRootUi()
+        synchronizeNoRootSupportIfEnabled()
+    }
+
+    override fun onPause() {
+        // 用户离开设置页前刷新一次完整快照；开关关闭时直接返回，不连接 NPatch。
+        if (userTermsDecision.isAuthorized) synchronizeNoRootSupportIfEnabled()
+        super.onPause()
     }
 
     private fun launchSettingsBackup() {
@@ -2579,6 +2817,13 @@ class MainActivity : AppViewsActivity() {
         experimentalChevron = null
         advancedContent = null
         advancedChevron = null
+        noRootSwitch = null
+        noRootStatusView = null
+        noRootPrefsBridge = null
+        activationCardView = null
+        activationIconView = null
+        activationTitleView = null
+        activationSourceView = null
         logLevelMinimalPill = null
         logLevelCompletePill = null
         logLevelThumb = null
@@ -2618,6 +2863,8 @@ class MainActivity : AppViewsActivity() {
         val modulePrefs = runCatching { prefs() }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "init prefs failed", t)
         }.getOrNull()
+        noRootPrefsBridge = modulePrefs
+        noRootDesiredEnabled = NoRootSupportStore.isDesiredEnabled(applicationContext)
         if (
             modulePrefs != null &&
             SettingsImportApplier.hasPendingRecovery(applicationContext)
@@ -3058,6 +3305,7 @@ class MainActivity : AppViewsActivity() {
                     init = {
                         gravity = Gravity.CENTER or Gravity.START
                         background = roundedColor(if (YukiHookAPI.Status.isXposedModuleActive) monetColors.primary else monetColors.surfaceVariant)
+                        activationCardView = this
                     }
                 ) {
                     ImageView(
@@ -3066,6 +3314,7 @@ class MainActivity : AppViewsActivity() {
                             marginEnd = 5.dp
                         }
                     ) {
+                        activationIconView = this
                         setImageResource(when {
                             YukiHookAPI.Status.isXposedModuleActive -> R.mipmap.ic_success
                             else -> R.mipmap.ic_warn
@@ -3084,6 +3333,7 @@ class MainActivity : AppViewsActivity() {
                                 bottomMargin = 5.dp
                             }
                         ) { 
+                            activationTitleView = this
                             isSingleLine = true
                             ellipsize = TextUtils.TruncateAt.END
                             textColor = colorResource(R.color.white)
@@ -3137,6 +3387,7 @@ class MainActivity : AppViewsActivity() {
                                 topMargin = 5.dp
                             }
                         ) {
+                            activationSourceView = this
                             alpha = 0.6f
                             isSingleLine = true
                             ellipsize = TextUtils.TruncateAt.END
@@ -5806,6 +6057,51 @@ class MainActivity : AppViewsActivity() {
                                         bottomMargin = 5.dp
                                     }
                                 ) {
+                                    text = stringResource(R.string.no_root_support_enable)
+                                    isAllCaps = false
+                                    textColor = colorResource(R.color.colorTextGray)
+                                    textSize = 15f
+                                    isChecked = noRootDesiredEnabled
+                                    isEnabled = noRootDesiredEnabled ||
+                                        (
+                                            AndroidVersion.isAtLeast(AndroidVersion.P) &&
+                                                noRootPrefsBridge != null
+                                            )
+                                    setOnCheckedChangeListener { _, isChecked ->
+                                        if (noRootProgrammaticSwitch) return@setOnCheckedChangeListener
+                                        noRootDesiredEnabled = isChecked
+                                        if (isChecked) enableAndSynchronizeNoRootSupport()
+                                        else disableNoRootSupport()
+                                    }
+                                    noRootSwitch = this
+                                }
+                                TextView(
+                                    lparams = LayoutParams(widthMatchParent = true)
+                                ) {
+                                    alpha = 0.6f
+                                    setLineSpacing(6f, 1f)
+                                    text = stringResource(R.string.no_root_support_tip)
+                                    textColor = colorResource(R.color.colorTextDark)
+                                    textSize = 12f
+                                }
+                                TextView(
+                                    lparams = LayoutParams(widthMatchParent = true) {
+                                        topMargin = 4.dp
+                                        bottomMargin = 10.dp
+                                    }
+                                ) {
+                                    alpha = 0.8f
+                                    setLineSpacing(6f, 1f)
+                                    text = stringResource(noRootStatusText(currentNoRootDisplayState()))
+                                    textColor = colorResource(R.color.colorTextGray)
+                                    textSize = 12f
+                                    noRootStatusView = this
+                                }
+                                MaterialSwitch(
+                                    lparams = LayoutParams(widthMatchParent = true) {
+                                        bottomMargin = 5.dp
+                                    }
+                                ) {
                                     text = stringResource(R.string.roaming_compat_enable)
                                     isAllCaps = false
                                     textColor = colorResource(R.color.colorTextGray)
@@ -6146,6 +6442,7 @@ class MainActivity : AppViewsActivity() {
 
         // setContentView 返回后尚未进入首帧绘制，此时重排不会产生界面跳动。
         placeAdvancedBelowExperimental()
+        renderNoRootUi()
         // 布局完成后定位日志档位滑块（宽度收缩为一半 + 对齐当前档位）
         findViewById<View>(Android_R.id.content).post {
             positionLogLevelThumb()
