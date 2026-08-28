@@ -8,6 +8,14 @@
     <string name="module_not_activated">模块未激活</string>
     <string name="module_is_activated">模块已激活</string>
     <string name="display_settings">显示设置</string>
+    <string name="app_language">应用语言</string>
+    <string name="app_language_tip">选择模块界面与模块注入界面使用的语言</string>
+    <string name="app_language_current">当前：%1$s</string>
+    <string name="app_language_dialog_title">选择应用语言</string>
+    <string name="app_language_follow_system">跟随系统</string>
+    <string name="app_language_simplified_chinese">简体中文</string>
+    <string name="app_language_traditional_chinese">繁體中文</string>
+    <string name="app_language_english">English</string>
     <string name="hide_app_icon_on_launcher">在桌面隐藏模块图标</string>
     <string name="hide_app_icon_on_launcher_tip">隐藏模块图标后界面可能会被关闭，将不会再在桌面显示，你可以在 EdXposed、LSPosed 中找到模块设置并打开。</string>
     <string name="hide_app_icon_on_launcher_notice">注意：请务必在 LSPosed 中关闭“强制显示桌面图标”功能</string>
@@ -122,6 +130,7 @@
     <string name="player_default_quality_follow_host">跟随哔哩哔哩</string>
     <string name="player_default_quality_follow_host_tip">继续使用哔哩哔哩的自动画质设置。</string>
     <string name="player_default_quality_override_tip">优先使用该画质，不可用时会自动调整。</string>
+    <string name="player_quality_1080p_high_bitrate">1080P 高码率</string>
     <string name="comment_purify_settings">评论内容</string>
     <string name="hide_comment_section">完全隐藏评论区</string>
     <string name="hide_comment_section_tip">从视频详情页移除评论标签，简介及其他标签保持可用。重启哔哩哔哩后生效。</string>
@@ -162,6 +171,7 @@
     <string name="free_copy_desc_enable">长按简介以自由复制文本</string>
     <string name="free_copy_desc_tip">开启后视频详情页简介支持长按自由复制</string>
     <string name="free_copy_title">自由复制</string>
+    <string name="free_copy_close">关闭自由复制</string>
     <string name="free_copy_hint">长按下方文字自由选择片段复制</string>
     <string name="free_copy_light_mode">亮色模式气泡</string>
     <string name="free_copy_light_mode_tip">开启后气泡改为白底黑字（适配亮色主题）</string>

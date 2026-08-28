@@ -1,12 +1,20 @@
 <resources>
     <string name="app_name">Bilibili_Innocent_Lab</string>
-    <string name="xposed_desc">为Bilibili补全纯净界面</string>
+    <string name="xposed_desc">A cleaner, more complete Bilibili interface</string>
     <string name="about_module">This Xposed Module is made by YukiHookAPI. \nLearn more https://github.com/HighCapable/YuKiHookAPI</string>
     <string name="about_module_extension">This Xposed Module is powered by KavaRef.\nLearn more https://github.com/HighCapable/KavaRef</string>
     <string name="module_version">Module version: %1$s</string>
     <string name="module_not_activated">Module not activated</string>
     <string name="module_is_activated">Module is activated</string>
     <string name="display_settings">Display settings</string>
+    <string name="app_language">App language</string>
+    <string name="app_language_tip">Choose the language used by the module interface and its injected UI</string>
+    <string name="app_language_current">Current: %1$s</string>
+    <string name="app_language_dialog_title">Choose app language</string>
+    <string name="app_language_follow_system">Follow system</string>
+    <string name="app_language_simplified_chinese">Simplified Chinese</string>
+    <string name="app_language_traditional_chinese">Traditional Chinese</string>
+    <string name="app_language_english">English</string>
     <string name="hide_app_icon_on_launcher">Hide app icons on launcher</string>
     <string name="hide_app_icon_on_launcher_tip">After hiding the app icon, the interface may be closed and will no longer be displayed on the launcher. You can find and open the module settings in EdXposed or LSPosed.</string>
     <string name="hide_app_icon_on_launcher_notice">Note: Be sure to turn off the \"Force apps to show launcher icons\" feature in LSPosed</string>
@@ -121,6 +129,7 @@
     <string name="player_default_quality_follow_host">Follow Bilibili</string>
     <string name="player_default_quality_follow_host_tip">Continue using Bilibili’s automatic quality setting.</string>
     <string name="player_default_quality_override_tip">Prefer this quality and adjust automatically when it is unavailable.</string>
+    <string name="player_quality_1080p_high_bitrate">1080P high bitrate</string>
     <string name="comment_purify_settings">Comment content</string>
     <string name="hide_comment_section">Hide the comment section</string>
     <string name="hide_comment_section_tip">Removes the comment tab from video details while leaving the introduction and other tabs available. Restart Bilibili to apply.</string>
@@ -162,6 +171,7 @@
     <string name="free_copy_desc_enable">Long-press the video description to free-copy text</string>
     <string name="free_copy_desc_tip">Long-press the description on the video detail page to open the free-copy sheet</string>
     <string name="free_copy_title">Free copy</string>
+    <string name="free_copy_close">Close free copy</string>
     <string name="free_copy_hint">Long-press the text below to select and copy</string>
     <string name="free_copy_light_mode">Light-mode bubble</string>
     <string name="free_copy_light_mode_tip">White background with black text — better contrast on light themes</string>

@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.overlay
 
 import android.content.Context
 import android.content.res.Configuration
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyGraph
 
 /**
@@ -163,21 +164,31 @@ internal data class ReplyTopologyPanelStrings(
     val invalidPageMessage: String,
     val partialRepliesMessage: String,
     val descriptionSeparator: String,
-    private val chinese: Boolean
+    private val branchUnit: String?
 ) {
-    fun branchCount(count: Int): String = if (chinese) {
-        "$count 个分支"
+    fun branchCount(count: Int): String = if (branchUnit != null) {
+        "$count $branchUnit"
     } else {
         "$count ${if (count == 1) "branch" else "branches"}"
     }
 
     companion object {
-        fun resolve(context: Context): ReplyTopologyPanelStrings {
-            val chinese = context.resources.configuration.locales[0].language == "zh"
-            return if (chinese) CHINESE else ENGLISH
+        /**
+         * 默认使用宿主进程已缓存的模块语言；显式标签仅用于低频面板快照/测试，不会触发
+         * Provider 查询。system 根据设备系统 Locale 解析，不受宿主应用语言覆盖影响。
+         */
+        fun resolve(
+            context: Context,
+            explicitSelectionTag: String? = null
+        ): ReplyTopologyPanelStrings = when (
+            InjectedUiLocale.resolveEffectiveTag(context, explicitSelectionTag)
+        ) {
+            InjectedUiLocale.TAG_SIMPLIFIED_CHINESE -> SIMPLIFIED_CHINESE
+            InjectedUiLocale.TAG_TRADITIONAL_CHINESE -> TRADITIONAL_CHINESE
+            else -> ENGLISH
         }
 
-        private val CHINESE = ReplyTopologyPanelStrings(
+        private val SIMPLIFIED_CHINESE = ReplyTopologyPanelStrings(
             title = "回复脉络",
             retry = "重试",
             continueLoading = "继续",
@@ -213,7 +224,46 @@ internal data class ReplyTopologyPanelStrings(
             invalidPageMessage = "分页数据无效，已保留当前脉络",
             partialRepliesMessage = "当前显示部分回复脉络",
             descriptionSeparator = "，",
-            chinese = true
+            branchUnit = "个分支"
+        )
+
+        private val TRADITIONAL_CHINESE = ReplyTopologyPanelStrings(
+            title = "回覆脈絡",
+            retry = "重試",
+            continueLoading = "繼續",
+            panelDescription = "回覆脈絡浮動面板",
+            dragDescription = "拖曳回覆脈絡面板",
+            closeDescription = "關閉回覆脈絡",
+            opacityLabel = "背景透明度",
+            opacityDescription = "調整回覆脈絡面板背景透明度",
+            listDescription = "回覆脈絡清單",
+            idleMessage = "準備分析回覆關係",
+            loadingMessage = "正在整理回覆脈絡…",
+            completeMessage = "完整脈絡已載入",
+            partialMessage = "目前顯示部分脈絡",
+            errorMessage = "載入失敗，已保留現有內容",
+            resourceLimitMessage = "已暫停自動載入，以避免影響頁面效能",
+            resourcePausedMessage = "已暫停自動載入，可視需要繼續",
+            locatingMessage = "正在定位對應回覆…",
+            networkPartialMessage = "網路請求失敗，已保留目前脈絡",
+            loadErrorMessage = "回覆脈絡載入失敗",
+            filteredAuthor = "已依目前規則隱藏",
+            unavailableAuthor = "不可見回覆",
+            unknownAuthor = "未知使用者",
+            filteredMessage = "此回覆已依目前篩選規則隱藏",
+            unavailableMessage = "此回覆可能已刪除、不可見或尚未載入",
+            emptyMessage = "沒有可顯示的文字",
+            cycleMessage = "關係環已安全斷開",
+            selfParentMessage = "自我引用已安全斷開",
+            missingParentMessage = "上層回覆不可見",
+            duplicateConflictMessage = "重複資料存在差異",
+            rootPrefix = "主評論",
+            repeatedOffsetMessage = "分頁游標重複，已安全停止",
+            noProgressMessage = "連續分頁沒有新增回覆，已安全停止",
+            invalidPageMessage = "分頁資料無效，已保留目前脈絡",
+            partialRepliesMessage = "目前顯示部分回覆脈絡",
+            descriptionSeparator = "，",
+            branchUnit = "個分支"
         )
 
         private val ENGLISH = ReplyTopologyPanelStrings(
@@ -252,7 +302,7 @@ internal data class ReplyTopologyPanelStrings(
             invalidPageMessage = "Invalid page data; current context was kept",
             partialRepliesMessage = "Showing partial reply context",
             descriptionSeparator = ", ",
-            chinese = false
+            branchUnit = null
         )
     }
 }
