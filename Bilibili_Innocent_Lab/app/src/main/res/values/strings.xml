@@ -124,6 +124,8 @@
     <string name="comment_purify_settings">Comment content</string>
     <string name="hide_comment_section">Hide the comment section</string>
     <string name="hide_comment_section_tip">Removes the comment tab from video details while leaving the introduction and other tabs available. Restart Bilibili to apply.</string>
+    <string name="reply_topology_enabled">Reply context map</string>
+    <string name="reply_topology_enabled_tip">Adds a “Trace” entry to top-level comments with replies and presents the actual reply relationships in a draggable, navigable workflow view. Data is loaded only while the panel is open. Restart Bilibili to apply.</string>
     <string name="remove_comment_search_links">Disable comment keyword search links</string>
     <string name="remove_comment_search_links_tip">When enabled, comment keywords no longer open search. Comment text and emoji remain unchanged. Restart Bilibili to apply.</string>
     <string name="remove_comment_empty_guide">Hide the empty-comment prompt</string>

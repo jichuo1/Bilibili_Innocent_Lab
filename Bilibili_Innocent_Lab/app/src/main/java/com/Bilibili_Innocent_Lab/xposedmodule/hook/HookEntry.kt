@@ -33,6 +33,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BlockUpdateFeatureIns
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BottomBarFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentTopologyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentSectionFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DynamicTabsFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallCoordinator
@@ -3110,6 +3111,20 @@ class HookEntry : IYukiHookXposedInit {
                             CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL
                         ),
                         points = hostAdaptResult?.commentFilter
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    CommentTopologyFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.REPLY_TOPOLOGY_ENABLED,
+                            false
+                        ),
+                        points = hostAdaptResult?.commentTopology,
+                        lowBindPoint = hostAdaptResult?.commentLow,
+                        highBindPoint = hostAdaptResult?.commentHigh
                     )
                 )
             )

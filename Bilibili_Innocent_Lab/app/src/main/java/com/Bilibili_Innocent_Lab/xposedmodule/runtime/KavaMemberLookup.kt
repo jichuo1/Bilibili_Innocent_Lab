@@ -181,12 +181,17 @@ internal object KavaMemberLookup {
         methodCollectionCache,
         MethodCollectionKey(declaringClass, includeSuperclasses)
     ) {
-        declaringClass.resolve()
-            .optional(silent = true)
-            .method {
-                if (includeSuperclasses) superclass()
-            }
-            .map { it.self }
+        val owners = if (includeSuperclasses) {
+            generateSequence(declaringClass) { owner -> owner.superclass }.toList()
+        } else {
+            listOf(declaringClass)
+        }
+        owners.flatMap { owner ->
+            owner.resolve()
+                .optional(silent = true)
+                .method { }
+                .map { it.self }
+        }
     }.asSequence()
         .filter(predicate)
         .filter { !makeAccessible || it.makeAccessible() }

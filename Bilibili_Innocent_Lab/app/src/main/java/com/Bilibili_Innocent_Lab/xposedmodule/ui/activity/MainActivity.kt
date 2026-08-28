@@ -154,6 +154,7 @@ class MainActivity : AppViewsActivity() {
     private var removeCommentOperations = false
     private var blockCommentQuickReply = false
     private var hideCommentSection = false
+    private var replyTopologyEnabled = false
     private var commentKeywordFilterEnabled = false
     private var commentFilterKeywords = ""
     private var commentMinLevelFilterEnabled = false
@@ -2327,6 +2328,9 @@ class MainActivity : AppViewsActivity() {
         hideCommentSection = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.HIDE_COMMENT_SECTION, false) ?: false
         }.getOrDefault(false)
+        replyTopologyEnabled = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, false) ?: false
+        }.getOrDefault(false)
         commentKeywordFilterEnabled = runCatching {
             modulePrefs?.getBoolean(
                 FeaturePreferences.COMMENT_KEYWORD_FILTER_ENABLED,
@@ -4423,6 +4427,36 @@ class MainActivity : AppViewsActivity() {
                             }
                             MaterialSwitch(
                                 lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.reply_topology_enabled)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = replyTopologyEnabled
+                                setOnCheckedChangeListener { _, checked ->
+                                    replyTopologyEnabled = checked
+                                    prefs().edit {
+                                        putBoolean(
+                                            FeaturePreferences.REPLY_TOPOLOGY_ENABLED,
+                                            checked
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.reply_topology_enabled_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
                                     bottomMargin = 5.dp
                                 }
                             ) {

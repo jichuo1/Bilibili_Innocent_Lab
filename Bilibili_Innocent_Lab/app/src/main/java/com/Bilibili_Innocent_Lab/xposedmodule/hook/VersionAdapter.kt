@@ -125,8 +125,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 32
-    private const val ADAPTER_RULE_VERSION = 24
+    private const val SCHEMA_VERSION = 34
+    private const val ADAPTER_RULE_VERSION = 27
 
     enum class AdaptState {
         FOUND,
@@ -716,6 +716,104 @@ object VersionAdapter {
         }
     }
 
+    /**
+     * 回复脉络所需的宿主公开数据边界。
+     *
+     * [mapperMethods] 只负责在 ReplyInfo 转换成 CommentItem 时建立弱身份桥；[methods]
+     * 保存构图和宿主 MOSS 分页所需的已验证成员。运行时只缓存 Class/Method/Constructor，
+     * 不缓存 ReplyInfo、CommentItem、Activity 或 View。
+     */
+    data class CommentTopologyPoints(
+        val mapperMethods: List<HookPoint>,
+        val replyMossClassName: String,
+        val methods: Map<String, HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("mappers", JSONArray().apply {
+                mapperMethods.forEach { put(it.toJson()) }
+            })
+            put("moss", replyMossClassName)
+            put("methods", JSONObject().apply {
+                methods.forEach { (key, point) -> put(key, point.toJson()) }
+            })
+        }
+
+        fun hasRequiredMethods(): Boolean =
+            mapperMethods.isNotEmpty() && mapperMethods.size <= MAX_MAPPER_METHODS &&
+                REQUIRED_METHOD_KEYS.all(methods::containsKey)
+
+        companion object {
+            const val REPLY_ID = "reply.id"
+            const val COMMENT_ITEM_ID = "comment_item.id"
+            const val REPLY_OID = "reply.oid"
+            const val REPLY_TYPE = "reply.type"
+            const val REPLY_ROOT = "reply.root"
+            const val REPLY_PARENT = "reply.parent"
+            const val REPLY_DIALOG = "reply.dialog"
+            const val REPLY_CTIME = "reply.ctime"
+            const val REPLY_COUNT = "reply.count"
+            const val REPLY_MID = "reply.mid"
+            const val REPLY_CONTENT = "reply.content"
+            const val REPLY_MEMBER = "reply.member"
+            const val REPLY_MEMBER_V2 = "reply.member_v2"
+            const val REPLY_PARENT_MEMBER = "reply.parent_member"
+            const val REPLY_CHILDREN = "reply.children"
+            const val CONTENT_MESSAGE = "content.message"
+            const val MEMBER_NAME = "member.name"
+            const val MEMBER_V2_BASIC = "member_v2.basic"
+            const val MEMBER_BASIC_NAME = "member_basic.name"
+            const val PARENT_MEMBER_NAME = "parent_member.name"
+            const val PAGINATION_NEW_BUILDER = "pagination.new_builder"
+            const val PAGINATION_SET_OFFSET = "pagination.set_offset"
+            const val PAGINATION_BUILD = "pagination.build"
+            const val DETAIL_NEW_BUILDER = "detail.new_builder"
+            const val DETAIL_SET_OID = "detail.set_oid"
+            const val DETAIL_SET_TYPE = "detail.set_type"
+            const val DETAIL_SET_MODE = "detail.set_mode"
+            const val DETAIL_SET_PAGINATION = "detail.set_pagination"
+            const val DETAIL_SET_ROOT = "detail.set_root"
+            const val DETAIL_SET_RPID = "detail.set_rpid"
+            const val DETAIL_BUILD = "detail.build"
+            const val MOSS_DETAIL = "moss.detail"
+            const val DETAIL_ROOT = "detail_reply.root"
+            const val DETAIL_PAGINATION = "detail_reply.pagination"
+            const val PAGINATION_NEXT_OFFSET = "pagination_reply.next_offset"
+            const val MAX_MAPPER_METHODS = 24
+
+            val REQUIRED_METHOD_KEYS: Set<String> = linkedSetOf(
+                REPLY_ID, COMMENT_ITEM_ID, REPLY_OID, REPLY_TYPE, REPLY_ROOT, REPLY_PARENT,
+                REPLY_DIALOG, REPLY_CTIME, REPLY_COUNT, REPLY_MID, REPLY_CONTENT,
+                REPLY_MEMBER_V2, REPLY_CHILDREN, CONTENT_MESSAGE,
+                MEMBER_V2_BASIC, MEMBER_BASIC_NAME,
+                PAGINATION_NEW_BUILDER,
+                PAGINATION_SET_OFFSET, PAGINATION_BUILD, DETAIL_NEW_BUILDER,
+                DETAIL_SET_OID, DETAIL_SET_TYPE, DETAIL_SET_MODE,
+                DETAIL_SET_PAGINATION, DETAIL_SET_ROOT, DETAIL_SET_RPID, DETAIL_BUILD,
+                MOSS_DETAIL, DETAIL_ROOT, DETAIL_PAGINATION,
+                PAGINATION_NEXT_OFFSET
+            )
+
+            fun fromJson(o: JSONObject): CommentTopologyPoints {
+                val methodObject = o.getJSONObject("methods")
+                val methods = linkedMapOf<String, HookPoint>()
+                val keys = methodObject.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    methods[key] = HookPoint.fromJson(methodObject.getJSONObject(key))
+                }
+                return CommentTopologyPoints(
+                    mapperMethods = o.getJSONArray("mappers").let { values ->
+                        (0 until values.length()).map {
+                            HookPoint.fromJson(values.getJSONObject(it))
+                        }
+                    },
+                    replyMossClassName = o.getString("moss"),
+                    methods = methods
+                )
+            }
+        }
+    }
+
     /** 播放器默认画质计算边界；仅保存经逐版本核验的唯一无参 Int 方法。 */
     data class PlayerQualityPoints(
         val defaultQualityMethod: HookPoint
@@ -932,6 +1030,8 @@ object VersionAdapter {
         val commentPurify: CommentPurifyPoints?,
         /** 评论关键词与等级过滤的公开 protobuf 列表/信号边界。 */
         val commentFilter: CommentFilterPoints?,
+        /** 回复脉络的 ReplyInfo 身份桥与宿主 MOSS 分页边界。 */
+        val commentTopology: CommentTopologyPoints? = null,
         /** 视频详情页评论 Tab 的结构化配置边界。 */
         val commentSection: CommentSectionPoints? = null,
         /** 开屏响应中的广告与展示策略列表边界。 */
@@ -968,6 +1068,7 @@ object VersionAdapter {
             teenagersMode?.let { put("teenagers_mode", it.toJson()) }
             commentPurify?.let { put("comment_purify", it.toJson()) }
             commentFilter?.let { put("comment_filter", it.toJson()) }
+            commentTopology?.let { put("comment_topology", it.toJson()) }
             commentSection?.let { put("comment_section", it.toJson()) }
             splashAds?.let { put("splash_ads", it.toJson()) }
             put("fp", hostFingerprint)
@@ -1139,6 +1240,13 @@ object VersionAdapter {
                         value.contentGetter.isValid() && value.messageGetter.isValid() &&
                         value.memberGetter.isValid() && value.levelGetter.isValid()
                 } != false &&
+                commentTopology?.let { value ->
+                    value.mapperMethods.isNotEmpty() &&
+                        value.mapperMethods.size <= CommentTopologyPoints.MAX_MAPPER_METHODS &&
+                        value.mapperMethods.all { it.isValid() } &&
+                        value.replyMossClassName.isNotBlank() &&
+                        value.hasRequiredMethods() && value.methods.values.all { it.isValid() }
+                } != false &&
                 commentSection?.let { value ->
                     value.listConstructors.isNotEmpty() &&
                         value.listConstructors.all { point ->
@@ -1196,6 +1304,8 @@ object VersionAdapter {
                         ?.let(CommentPurifyPoints::fromJson),
                     commentFilter = o.optJSONObject("comment_filter")
                         ?.let(CommentFilterPoints::fromJson),
+                    commentTopology = o.optJSONObject("comment_topology")
+                        ?.let(CommentTopologyPoints::fromJson),
                     commentSection = o.optJSONObject("comment_section")
                         ?.let(CommentSectionPoints::fromJson),
                     splashAds = o.optJSONObject("splash_ads")?.let(SplashAdPoints::fromJson),
@@ -1396,6 +1506,19 @@ object VersionAdapter {
         "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
         "com.bapis.bilibili.p4311main.community.reply.p4312v1.ReplyInfo"
     )
+    private const val COMMENT_ITEM_CLASS = "com.bilibili.app.comment3.data.model.CommentItem"
+    private val COMMENT_REPLY_MAPPER_CLASS_CANDIDATES = listOf(
+        "com.bilibili.app.comment3.data.source.v1.c",
+        "com.bilibili.app.comment3.data.source.v1.d",
+        "com.bilibili.app.comment3.data.source.v1.e",
+        "com.bilibili.p4439app.comment3.data.source.v1.c",
+        "com.bilibili.p4439app.comment3.data.source.v1.d",
+        "com.bilibili.p4439app.comment3.data.source.v1.e"
+    )
+    private val FEED_PAGINATION_CLASS_CANDIDATES = listOf(
+        "com.bapis.bilibili.pagination.FeedPagination",
+        "com.bapis.bilibili.p4309pagination.FeedPagination"
+    )
     private val COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES = (4..40).flatMap { index ->
         listOf(
             "com.bilibili.app.comment3.ui.CommentContainerImpl\$attachRepository\$$index",
@@ -1589,6 +1712,7 @@ object VersionAdapter {
                     "teenagersMode=${result?.teenagersMode != null} " +
                     "commentPurify=${result?.commentPurify != null} " +
                     "commentFilter=${result?.commentFilter != null} " +
+                    "commentTopology=${result?.commentTopology != null} " +
                     "commentSection=${result?.commentSection != null} " +
                     "splashAds=${result?.splashAds != null} " +
                     "diag=${result?.diagnosticSummary()}"
@@ -1627,6 +1751,8 @@ object VersionAdapter {
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
         val commentFilter = locateCommentFilter(loader)
+        val commentTopologyOutcome = locateCommentTopologyWithDiagnostic(loader)
+        val commentTopology = commentTopologyOutcome.points
         val commentSection = locateCommentSection(loader)
         val splashAds = locateSplashAds(loader)
         if (low == null && high == null && mine == null &&
@@ -1638,7 +1764,8 @@ object VersionAdapter {
             homeTabs == null && homeComponents == null && mineComponents == null &&
             storyFeed == null && bottomBar == null &&
             playerQuality == null && teenagersMode == null && commentPurify == null &&
-            commentFilter == null && commentSection == null && splashAds == null) return null
+            commentFilter == null && commentTopology == null && commentSection == null &&
+            splashAds == null) return null
         return AdaptResult(
             biliVersionCode = 0,
             ts = 0L,
@@ -1665,6 +1792,7 @@ object VersionAdapter {
             teenagersMode = teenagersMode,
             commentPurify = commentPurify,
             commentFilter = commentFilter,
+            commentTopology = commentTopology,
             commentSection = commentSection,
             splashAds = splashAds,
             hostFingerprint = "runtime-no-context|rules=$ADAPTER_RULE_VERSION",
@@ -1673,7 +1801,9 @@ object VersionAdapter {
                 dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
                 videoRelate, homeTabs, homeComponents, mineComponents, storyFeed, bottomBar,
                 playerQuality,
-                teenagersMode, commentPurify, commentFilter, commentSection, splashAds
+                teenagersMode, commentPurify, commentFilter, commentTopology,
+                commentTopologyOutcome.failureDetail, commentSection,
+                splashAds
             )
         )
     }
@@ -1709,6 +1839,8 @@ object VersionAdapter {
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
         val commentFilter = locateCommentFilter(loader)
+        val commentTopologyOutcome = locateCommentTopologyWithDiagnostic(loader)
+        val commentTopology = commentTopologyOutcome.points
         val commentSection = locateCommentSection(loader)
         val splashAds = locateSplashAds(loader)
         val anyClassExists = COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
@@ -1758,7 +1890,8 @@ object VersionAdapter {
             homeTabs == null && homeComponents == null && mineComponents == null &&
             storyFeed == null && bottomBar == null &&
             playerQuality == null && teenagersMode == null && commentPurify == null &&
-            commentFilter == null && commentSection == null && splashAds == null &&
+            commentFilter == null && commentTopology == null && commentSection == null &&
+            splashAds == null &&
             !anyClassExists) return null
         return AdaptResult(
             biliVersionCode = vc,
@@ -1786,6 +1919,7 @@ object VersionAdapter {
             teenagersMode = teenagersMode,
             commentPurify = commentPurify,
             commentFilter = commentFilter,
+            commentTopology = commentTopology,
             commentSection = commentSection,
             splashAds = splashAds,
             hostFingerprint = buildHostFingerprint(context),
@@ -1794,7 +1928,9 @@ object VersionAdapter {
                 dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
                 videoRelate, homeTabs, homeComponents, mineComponents, storyFeed, bottomBar,
                 playerQuality,
-                teenagersMode, commentPurify, commentFilter, commentSection, splashAds
+                teenagersMode, commentPurify, commentFilter, commentTopology,
+                commentTopologyOutcome.failureDetail, commentSection,
+                splashAds
             )
         )
     }
@@ -1835,6 +1971,8 @@ object VersionAdapter {
         teenagersMode: TeenagersModePoints?,
         commentPurify: CommentPurifyPoints?,
         commentFilter: CommentFilterPoints?,
+        commentTopology: CommentTopologyPoints?,
+        commentTopologyFailureDetail: String,
         commentSection: CommentSectionPoints?,
         splashAds: SplashAdPoints?
     ): List<AdaptDiagnostic> {
@@ -1918,6 +2056,11 @@ object VersionAdapter {
         val commentFilterCandidateExists = COMMENT_REPLY_INFO_CLASS_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
+        val commentTopologyCandidateExists = commentFilterCandidateExists &&
+            KavaMemberLookup.hasClass(loader, COMMENT_ITEM_CLASS) &&
+            COMMENT_REPLY_MAPPER_CLASS_CANDIDATES.any {
+                KavaMemberLookup.hasClass(loader, it)
+            }
         val commentSectionCandidateExists = THESEUS_TAB_PAGER_SERVICE_CLASS_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
@@ -2171,6 +2314,15 @@ object VersionAdapter {
                     "lists=${points.replyListGetters.joinToString("|") { it.label() }}," +
                         "message=${points.messageGetter.label()},level=${points.levelGetter.label()}"
                 }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "comment.topology",
+                stateFor(commentTopology != null, commentTopologyCandidateExists),
+                commentTopology?.let { points ->
+                    "mappers=${points.mapperMethods.size}[" +
+                        points.mapperMethods.joinToString("|") { it.label() } +
+                        "],methods=${points.methods.size}"
+                } ?: commentTopologyFailureDetail
             ),
             AdaptDiagnostic(
                 "comment.section",
@@ -3056,6 +3208,211 @@ object VersionAdapter {
             levelGetter = levelGetter.toHookPoint()
         )
     }.getOrNull()
+
+    /**
+     * 定位回复脉络的 ReplyInfo 身份桥和宿主 MOSS 公开分页边界。
+     *
+     * protobuf 类型和方法名在 8.90.2—9.9.0 样本中保持公开稳定；唯一可能混淆的
+     * ReplyInfo -> CommentItem 映射方法按首参/返回类型结构定位，拒绝猜测 a..g 字段。
+     */
+    fun locateCommentTopology(loader: ClassLoader): CommentTopologyPoints? =
+        locateCommentTopologyWithDiagnostic(loader).points
+
+    private fun locateCommentTopologyWithDiagnostic(
+        loader: ClassLoader
+    ): CommentTopologyLocateOutcome {
+        var stage = "reply-info-class"
+        val attempt = runCatching {
+        val replyInfo = COMMENT_REPLY_INFO_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .firstOrNull() ?: return@runCatching null
+        val replyPackage = replyInfo.name.substringBeforeLast('.')
+        stage = "comment-item-class"
+        val commentItem = KavaMemberLookup.classOrNull(loader, COMMENT_ITEM_CLASS)
+            ?: return@runCatching null
+        stage = "reply-mapper-methods"
+        val mapperMethods = COMMENT_REPLY_MAPPER_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { mapperOwner ->
+                KavaMemberLookup.declaredMethods(mapperOwner, makeAccessible = true) { method ->
+                    method.isStatic && !method.isAbstract && !method.isSynthetic &&
+                        method.returnType == commentItem && method.parameterCount >= 1 &&
+                        method.parameterTypes.firstOrNull() == replyInfo
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .sortedBy(Method::toGenericString)
+            .take(CommentTopologyPoints.MAX_MAPPER_METHODS + 1)
+            .toList()
+        if (mapperMethods.isEmpty()) return@runCatching null
+        if (mapperMethods.size > CommentTopologyPoints.MAX_MAPPER_METHODS) {
+            error("too-many-reply-mappers:${mapperMethods.size}")
+        }
+
+        fun publicNoArg(owner: Class<*>, name: String): Method? =
+            KavaMemberLookup.inheritedMethodOrNull(owner, name)?.takeIf { method ->
+                !method.isStatic && method.isPublic && method.parameterCount == 0
+            }
+
+        fun publicStaticNoArg(owner: Class<*>, name: String): Method? =
+            KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                method.isStatic && method.isPublic && method.name == name &&
+                    method.parameterCount == 0
+            }.singleOrNull()
+
+        fun publicExact(owner: Class<*>, name: String, vararg params: Class<*>): Method? =
+            KavaMemberLookup.inheritedMethodOrNull(owner, name, *params)?.takeIf { method ->
+                !method.isStatic && method.isPublic &&
+                    method.parameterTypes.contentEquals(params)
+            }
+
+        val methods = linkedMapOf<String, HookPoint>()
+        fun add(key: String, method: Method?): Method {
+            val resolved = method ?: throw NoSuchMethodException(key)
+            methods[key] = resolved.toHookPoint()
+            return resolved
+        }
+
+        add(CommentTopologyPoints.REPLY_ID, publicNoArg(replyInfo, "getId"))
+        add(CommentTopologyPoints.COMMENT_ITEM_ID, publicNoArg(commentItem, "getId"))
+        add(CommentTopologyPoints.REPLY_OID, publicNoArg(replyInfo, "getOid"))
+        add(CommentTopologyPoints.REPLY_TYPE, publicNoArg(replyInfo, "getType"))
+        add(CommentTopologyPoints.REPLY_ROOT, publicNoArg(replyInfo, "getRoot"))
+        add(CommentTopologyPoints.REPLY_PARENT, publicNoArg(replyInfo, "getParent"))
+        add(CommentTopologyPoints.REPLY_DIALOG, publicNoArg(replyInfo, "getDialog"))
+        add(CommentTopologyPoints.REPLY_CTIME, publicNoArg(replyInfo, "getCtime"))
+        add(CommentTopologyPoints.REPLY_COUNT, publicNoArg(replyInfo, "getCount"))
+        add(CommentTopologyPoints.REPLY_MID, publicNoArg(replyInfo, "getMid"))
+        val contentGetter = add(
+            CommentTopologyPoints.REPLY_CONTENT,
+            publicNoArg(replyInfo, "getContent")
+        )
+        val memberGetter = publicNoArg(replyInfo, "getMember")
+        memberGetter?.let { methods[CommentTopologyPoints.REPLY_MEMBER] = it.toHookPoint() }
+        val memberV2Getter = add(
+            CommentTopologyPoints.REPLY_MEMBER_V2,
+            publicNoArg(replyInfo, "getMemberV2")
+        )
+        val parentMemberGetter = publicNoArg(replyInfo, "getParentReplyMember")
+        parentMemberGetter?.let {
+            methods[CommentTopologyPoints.REPLY_PARENT_MEMBER] = it.toHookPoint()
+        }
+        add(CommentTopologyPoints.REPLY_CHILDREN, publicNoArg(replyInfo, "getRepliesList"))
+        add(
+            CommentTopologyPoints.CONTENT_MESSAGE,
+            publicNoArg(contentGetter.returnType, "getMessage")
+        )
+        memberGetter?.let { getter ->
+            publicNoArg(getter.returnType, "getName")?.let { nameGetter ->
+                methods[CommentTopologyPoints.MEMBER_NAME] = nameGetter.toHookPoint()
+            }
+        }
+        val memberBasicGetter = add(
+            CommentTopologyPoints.MEMBER_V2_BASIC,
+            publicNoArg(memberV2Getter.returnType, "getBasic")
+        )
+        add(
+            CommentTopologyPoints.MEMBER_BASIC_NAME,
+            publicNoArg(memberBasicGetter.returnType, "getName")
+        )
+        parentMemberGetter?.let { getter ->
+            publicNoArg(getter.returnType, "getName")?.let { nameGetter ->
+                methods[CommentTopologyPoints.PARENT_MEMBER_NAME] = nameGetter.toHookPoint()
+            }
+        }
+
+        stage = "feed-pagination-class"
+        val pagination = FEED_PAGINATION_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .firstOrNull() ?: return@runCatching null
+        val paginationNewBuilder = add(
+            CommentTopologyPoints.PAGINATION_NEW_BUILDER,
+            publicStaticNoArg(pagination, "newBuilder")
+        )
+        val paginationBuilder = paginationNewBuilder.returnType
+        add(
+            CommentTopologyPoints.PAGINATION_SET_OFFSET,
+            publicExact(paginationBuilder, "setOffset", classOf<String>())
+        )
+        add(CommentTopologyPoints.PAGINATION_BUILD, publicNoArg(paginationBuilder, "build"))
+
+        stage = "detail-list-request-class"
+        val detailReq = KavaMemberLookup.classOrNull(loader, "$replyPackage.DetailListReq")
+            ?: return@runCatching null
+        val detailNewBuilder = add(
+            CommentTopologyPoints.DETAIL_NEW_BUILDER,
+            publicStaticNoArg(detailReq, "newBuilder")
+        )
+        val detailBuilder = detailNewBuilder.returnType
+        add(CommentTopologyPoints.DETAIL_SET_OID, publicExact(detailBuilder, "setOid", classOf<Long>()))
+        add(CommentTopologyPoints.DETAIL_SET_TYPE, publicExact(detailBuilder, "setType", classOf<Long>()))
+        add(CommentTopologyPoints.DETAIL_SET_MODE, publicExact(detailBuilder, "setModeValue", classOf<Int>()))
+        add(
+            CommentTopologyPoints.DETAIL_SET_PAGINATION,
+            publicExact(detailBuilder, "setPagination", pagination)
+        )
+        add(CommentTopologyPoints.DETAIL_SET_ROOT, publicExact(detailBuilder, "setRoot", classOf<Long>()))
+        add(CommentTopologyPoints.DETAIL_SET_RPID, publicExact(detailBuilder, "setRpid", classOf<Long>()))
+        add(CommentTopologyPoints.DETAIL_BUILD, publicNoArg(detailBuilder, "build"))
+
+        stage = "reply-moss-class"
+        val replyMoss = KavaMemberLookup.classOrNull(loader, "$replyPackage.ReplyMoss")
+            ?: return@runCatching null
+        stage = "reply-moss-constructor"
+        if (KavaMemberLookup.constructorOrNull(replyMoss) == null) return@runCatching null
+        stage = "reply-moss-detail-list"
+        val detailCall = KavaMemberLookup.methods(
+            replyMoss,
+            includeSuperclasses = true,
+            makeAccessible = true
+        ) { method ->
+            !method.isStatic && method.isPublic && method.name == "detailList" &&
+                method.parameterCount == 2 && method.parameterTypes[0] == detailReq &&
+                method.returnType == Void.TYPE
+        }.distinctBy(Method::toGenericString).singleOrNull() ?: return@runCatching null
+        add(CommentTopologyPoints.MOSS_DETAIL, detailCall)
+
+        stage = "detail-list-reply-class"
+        val detailReply = KavaMemberLookup.classOrNull(loader, "$replyPackage.DetailListReply")
+            ?: return@runCatching null
+        val detailRoot = add(
+            CommentTopologyPoints.DETAIL_ROOT,
+            publicNoArg(detailReply, "getRoot")
+        )
+        stage = "detail-root-return-type"
+        if (detailRoot.returnType != replyInfo) return@runCatching null
+        val detailPagination = add(
+            CommentTopologyPoints.DETAIL_PAGINATION,
+            publicNoArg(detailReply, "getPaginationReply")
+        )
+        add(
+            CommentTopologyPoints.PAGINATION_NEXT_OFFSET,
+            publicNoArg(detailPagination.returnType, "getNextOffset")
+        )
+
+        stage = "required-method-validation"
+        CommentTopologyPoints(
+            mapperMethods = mapperMethods.map { it.toHookPoint() },
+            replyMossClassName = replyMoss.name,
+            methods = methods
+        ).takeIf(CommentTopologyPoints::hasRequiredMethods)
+        }
+        val points = attempt.getOrNull()
+        val detail = if (points != null) {
+            ""
+        } else {
+            attempt.exceptionOrNull()?.let { throwable ->
+                val message = throwable.message?.takeIf(String::isNotBlank)
+                "${throwable.javaClass.simpleName}:${message ?: stage}"
+            } ?: "unresolved:$stage"
+        }
+        return CommentTopologyLocateOutcome(points, detail)
+    }
+
+    private data class CommentTopologyLocateOutcome(
+        val points: CommentTopologyPoints?,
+        val failureDetail: String
+    )
 
     /**
      * 定位评论内容的公开 URL Map getter。8.90.2、9.1.0 与 9.9.0 均保留 getUrls/
