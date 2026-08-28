@@ -125,6 +125,8 @@
     <string name="comment_purify_settings">评论内容</string>
     <string name="hide_comment_section">完全隐藏评论区</string>
     <string name="hide_comment_section_tip">从视频详情页移除评论标签，简介及其他标签保持可用。重启哔哩哔哩后生效。</string>
+    <string name="reply_topology_enabled">回复脉络图</string>
+    <string name="reply_topology_enabled_tip">在有回复的一级评论中显示“脉络”入口，以真实回复关系生成可拖动、可定位的流程图。仅在面板打开时加载数据，重启哔哩哔哩后生效。</string>
     <string name="remove_comment_search_links">关闭评论关键词搜索链接</string>
     <string name="remove_comment_search_links_tip">开启后，评论中的关键词不再跳转搜索，评论文字和表情保持不变。重启哔哩哔哩后生效。</string>
     <string name="remove_comment_empty_guide">隐藏空评论区引导</string>

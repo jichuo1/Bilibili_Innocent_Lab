@@ -54,6 +54,7 @@ internal object FeaturePreferences {
     const val REMOVE_COMMENT_OPERATIONS = "remove_comment_operations"
     const val BLOCK_COMMENT_QUICK_REPLY = "block_comment_quick_reply"
     const val HIDE_COMMENT_SECTION = "hide_comment_section"
+    const val REPLY_TOPOLOGY_ENABLED = "reply_topology_enabled"
     const val COMMENT_KEYWORD_FILTER_ENABLED = "comment_keyword_filter_enabled"
     const val COMMENT_FILTER_KEYWORDS = "comment_filter_keywords"
     const val COMMENT_MIN_LEVEL_FILTER_ENABLED = "comment_min_level_filter_enabled"
