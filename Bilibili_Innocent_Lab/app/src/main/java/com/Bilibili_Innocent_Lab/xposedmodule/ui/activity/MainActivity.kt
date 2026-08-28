@@ -39,6 +39,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.highcapable.betterandroid.system.extension.component.disableComponent
 import com.highcapable.betterandroid.system.extension.component.enableComponent
 import com.highcapable.betterandroid.system.extension.component.isComponentEnabled
+import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
 import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
 import com.highcapable.betterandroid.ui.extension.view.parentOrNull
 import com.highcapable.betterandroid.ui.extension.view.textColor
@@ -220,6 +221,9 @@ class MainActivity : AppViewsActivity() {
     private var bottomBarRulesSummaryView: NativeTextView? = null
     private var commentKeywordSummaryView: NativeTextView? = null
     private var commentLevelSummaryView: NativeTextView? = null
+    /** 设置备份入口及标题：用于跨 Activity 容器形变的来源坐标。 */
+    private var settingsBackupEntryView: View? = null
+    private var settingsBackupEntryTitleView: NativeTextView? = null
     private var roamingCompatEnabled = false
     private var predictiveBackEnabled = false
     private var logEnabled = true
@@ -2216,6 +2220,26 @@ class MainActivity : AppViewsActivity() {
         InjectedUiLocale.setMirrorAndBroadcast(applicationContext, selectionTag)
     }
 
+    private fun launchSettingsBackup() {
+        val card = settingsBackupEntryView
+        val title = settingsBackupEntryTitleView
+        val sourceWindow = findViewById<View>(Android_R.id.content)
+        if (card != null && title != null) {
+            SettingsBackupTransitionOriginRegistry.register(card, title, sourceWindow)
+        }
+        val launchIntent = Intent(this, SettingsBackupActivity::class.java)
+        SettingsBackupTransitionOriginRegistry.snapshot()?.putInto(launchIntent)
+        settingsBackupLauncher.launch(launchIntent)
+        suppressLegacyActivityTransition()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun suppressLegacyActivityTransition() {
+        if (AndroidVersion.isAtMost(AndroidVersion.T)) {
+            overridePendingTransition(0, 0)
+        }
+    }
+
     override fun onDestroy() {
         // Activity 销毁时主动关闭弹窗，避免 WindowLeaked（Activity has leaked window）
         activeConfirmDialog?.dismiss()
@@ -2243,6 +2267,9 @@ class MainActivity : AppViewsActivity() {
         bottomBarRulesSummaryView = null
         commentKeywordSummaryView = null
         commentLevelSummaryView = null
+        SettingsBackupTransitionOriginRegistry.clear(settingsBackupEntryView)
+        settingsBackupEntryView = null
+        settingsBackupEntryTitleView = null
         super.onDestroy()
     }
 
@@ -2928,18 +2955,14 @@ class MainActivity : AppViewsActivity() {
                                 isClickable = true
                                 isFocusable = true
                                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                                settingsBackupEntryView = this
                                 contentDescription = buildString {
                                     append(stringResource(R.string.settings_backup_entry_title))
                                     append(". ")
                                     append(stringResource(R.string.settings_backup_entry_summary))
                                 }
                                 setOnClickListener {
-                                    settingsBackupLauncher.launch(
-                                        Intent(
-                                            this@MainActivity,
-                                            SettingsBackupActivity::class.java
-                                        )
-                                    )
+                                    launchSettingsBackup()
                                 }
                             }
                         ) {
@@ -2963,9 +2986,20 @@ class MainActivity : AppViewsActivity() {
                                 }
                             ) {
                                 TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                                    settingsBackupEntryTitleView = this
                                     text = stringResource(R.string.settings_backup_entry_title)
                                     textColor = colorResource(R.color.colorTextGray)
                                     textSize = 15f
+                                    setTypeface(typeface, Typeface.BOLD)
+                                    post {
+                                        val card = settingsBackupEntryView ?: return@post
+                                        val sourceWindow = findViewById<View>(Android_R.id.content)
+                                        SettingsBackupTransitionOriginRegistry.register(
+                                            card,
+                                            this,
+                                            sourceWindow
+                                        )
+                                    }
                                 }
                                 TextView(
                                     lparams = LayoutParams(widthMatchParent = true) {

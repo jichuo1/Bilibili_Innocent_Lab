@@ -28,7 +28,10 @@ Settings-backup tests lock the v1 catalog ids, automatic/manual boundary,
 legacy-value normalization, deterministic JSON round trips, strict UTF-8 and
 JSON structure, file-size and integrity failures, permanent v1 decoder
 dispatch, value-version ordering, explicit/default intent, future and removed
-records, partial scopes, and catalog migrations.
+records, partial scopes, and catalog migrations. Motion-spec tests additionally
+lock the source-card/full-window endpoints, rounded-surface takeover, staged
+content reveal, title trajectory, progress clamping, and invalid-geometry
+rejection without requiring Android UI stubs.
 
 ## Device checks
 
@@ -83,3 +86,18 @@ records, partial scopes, and catalog migrations.
     revision, and `FreeCopyConfigStore` snapshot agree. Interrupt the module
     process after preference commit where practical, reopen it, and verify the
     journal completes the same target state idempotently.
+18. On Android 14 and 15, open settings backup from several main-page scroll
+    positions. Verify the rounded card expands to full screen, its title moves
+    into the toolbar, slow left/right-edge back gestures continuously reverse
+    the same geometry, page content fades over multiple progress samples instead
+    of disappearing on the first sample, cancellation returns to full screen,
+    and commit finishes at the source card before MainActivity handles the result.
+    Immediately starting another back action during entry, cancellation rebound,
+    or commit completion must be consumed without changing content alpha.
+19. Repeat backup-page closing with Android 13 or lower, three-button/hardware
+    back, the module predictive-back switch disabled, animator scale 0/0.5/2,
+    large font, each supported locale, after SAF returns, and after rotation.
+    PREVIEW and ordinary ERROR must first return HOME; WORKING/picker states
+    must remain blocked; stale geometry must use the neutral fade/scale fallback
+    without jumping to an old screen position. A back action during any timed
+    morph must be consumed, then work normally after the surface is stable.

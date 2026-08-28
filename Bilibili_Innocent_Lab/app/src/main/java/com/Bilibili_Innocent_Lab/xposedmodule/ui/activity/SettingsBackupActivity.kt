@@ -1,31 +1,45 @@
-@file:Suppress("SetTextI18n")
+@file:Suppress(
+    "SetTextI18n",
+    // BetterAndroid 的简写 callback 不暴露 predictive progress/cancel 生命周期。
+    "ReplaceWithBackPressedExtension",
+    // 这里直接守卫 API 34 的公开 Activity transition，便于 Android Lint 识别 NewApi 边界。
+    "ReplaceWithAndroidVersion"
+)
 
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.res.ColorStateList
+import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.PathInterpolator
 import android.widget.LinearLayout
 import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.Space
 import android.widget.TextView
+import androidx.activity.BackEventCompat
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
+import androidx.core.view.doOnPreDraw
 import androidx.lifecycle.ViewModelProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.R
@@ -58,6 +72,8 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import kotlin.math.abs
+import kotlin.math.roundToLong
 
 /** SAF 驱动的设置备份、兼容性预览和确认导入页面。 */
 class SettingsBackupActivity : AppViewsActivity() {
@@ -68,6 +84,13 @@ class SettingsBackupActivity : AppViewsActivity() {
         PREVIEW,
         RESULT,
         ERROR
+    }
+
+    private enum class BackTarget {
+        NONE,
+        FINISH_ACTIVITY,
+        INTERNAL_HOME,
+        BLOCKED
     }
 
     private val monetColors by lazy { MonetColors.fromWallpaper(this) }
@@ -87,6 +110,24 @@ class SettingsBackupActivity : AppViewsActivity() {
     private var busy = false
     private var pickerOpen = false
     private var importApplied = false
+    private lateinit var motionHost: SettingsBackupMotionHost
+    private var toolbarTitleView: TextView? = null
+    private var currentPageTitle = ""
+    private var launchOrigin: SettingsBackupTransitionOrigin? = null
+    private var allowLaunchOriginForExit = true
+    private var motionGeometry: SettingsBackupMotionGeometry? = null
+    private var motionAnimator: ValueAnimator? = null
+    private var motionTitleMode = SettingsBackupTransitionTitleMode.SOURCE_TITLE
+    private var motionContentTiming = SettingsBackupContentTiming.TIMED
+    private var backTarget = BackTarget.NONE
+    private var gestureStartExpansion = 1f
+    private var predictiveMotionActive = false
+    private var finishingAfterMotion = false
+
+    private val enterInterpolator = PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
+    private val closeInterpolator = PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
+    private val cancelInterpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
+    private val predictiveBackInterpolator = PathInterpolator(0f, 0f, 0f, 1f)
 
     private val createDocumentLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -104,11 +145,39 @@ class SettingsBackupActivity : AppViewsActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        suppressSystemActivityTransitions()
+        window.decorView.setBackgroundColor(Color.TRANSPARENT)
+        launchOrigin = SettingsBackupTransitionOrigin.from(intent)
+        allowLaunchOriginForExit = savedInstanceState == null
+        motionHost = SettingsBackupMotionHost(
+            context = this,
+            collapsedSurfaceColor = monetColors.surfaceVariant,
+            expandedSurfaceColor = monetColors.background,
+            titleColor = getColor(R.color.colorTextGray),
+            sourceTitle = getString(R.string.settings_backup_title)
+        )
+        motionHost.onWindowSizeChangedDuringMotion = ::handleMotionWindowSizeChange
+        setContentView(motionHost)
         applyPredictiveBackFromPrefs()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() = handleBack()
+            override fun handleOnBackStarted(backEvent: BackEventCompat) {
+                beginPredictiveBack()
+            }
+
+            override fun handleOnBackProgressed(backEvent: BackEventCompat) {
+                progressPredictiveBack(backEvent.progress)
+            }
+
+            override fun handleOnBackCancelled() {
+                cancelPredictiveBack()
+            }
+
+            override fun handleOnBackPressed() {
+                commitBack()
+            }
         })
         renderHome()
+        scheduleInitialMotion(savedInstanceState == null)
         observeApplyState()
         mainHandler.post {
             if (backupViewModel.applyState.value !is SettingsImportApplyState.Idle) return@post
@@ -122,6 +191,8 @@ class SettingsBackupActivity : AppViewsActivity() {
     }
 
     override fun onDestroy() {
+        cancelMotionAnimator()
+        motionHost.onWindowSizeChangedDuringMotion = null
         operationGeneration += 1L
         activeFuture?.cancel(true)
         worker.shutdownNow()
@@ -129,15 +200,357 @@ class SettingsBackupActivity : AppViewsActivity() {
         super.onDestroy()
     }
 
+    private fun handleMotionWindowSizeChange() {
+        cancelMotionAnimator()
+        backTarget = BackTarget.NONE
+        predictiveMotionActive = false
+        motionContentTiming = SettingsBackupContentTiming.TIMED
+        motionGeometry = null
+        motionHost.showExpandedImmediately()
+    }
+
     private fun handleBack() {
-        if (busy || pickerOpen) return
-        when {
-            importApplied || page == Page.HOME -> finish()
-            else -> {
-                backupViewModel.clearSelection()
-                renderHome()
+        when (resolveBackTarget()) {
+            BackTarget.FINISH_ACTIVITY -> requestClose(interactiveCommit = false)
+            BackTarget.INTERNAL_HOME -> returnToHome()
+            BackTarget.BLOCKED,
+            BackTarget.NONE -> Unit
+        }
+    }
+
+    private fun beginPredictiveBack() {
+        predictiveMotionActive = false
+        backTarget = resolveBackTarget()
+        if (backTarget != BackTarget.FINISH_ACTIVITY) return
+        if (!ValueAnimator.areAnimatorsEnabled()) return
+        cancelMotionAnimator()
+        prepareExitMotion(SettingsBackupContentTiming.PREDICTIVE)
+        gestureStartExpansion = motionHost.expansion
+        predictiveMotionActive = true
+    }
+
+    private fun progressPredictiveBack(rawProgress: Float) {
+        if (backTarget != BackTarget.FINISH_ACTIVITY || !predictiveMotionActive) return
+        if (!ValueAnimator.areAnimatorsEnabled()) {
+            predictiveMotionActive = false
+            motionContentTiming = SettingsBackupContentTiming.TIMED
+            motionGeometry = null
+            motionHost.showExpandedImmediately()
+            return
+        }
+        val progress = predictiveBackInterpolator.getInterpolation(rawProgress.coerceIn(0f, 1f))
+        applyMotionExpansion(gestureStartExpansion * (1f - progress))
+    }
+
+    private fun cancelPredictiveBack() {
+        if (backTarget == BackTarget.FINISH_ACTIVITY && predictiveMotionActive) {
+            animateMotionTo(
+                targetExpansion = 1f,
+                durationMs = BACK_CANCEL_DURATION_MS,
+                interpolator = cancelInterpolator
+            ) {
+                motionHost.showExpandedImmediately()
+                motionGeometry = null
+                motionContentTiming = SettingsBackupContentTiming.TIMED
             }
         }
+        predictiveMotionActive = false
+        backTarget = BackTarget.NONE
+    }
+
+    private fun commitBack() {
+        val target = if (backTarget == BackTarget.NONE) resolveBackTarget() else backTarget
+        val hadInteractiveStart = predictiveMotionActive
+        predictiveMotionActive = false
+        backTarget = BackTarget.NONE
+        when (target) {
+            BackTarget.FINISH_ACTIVITY -> requestClose(interactiveCommit = hadInteractiveStart)
+            BackTarget.INTERNAL_HOME -> returnToHome()
+            BackTarget.BLOCKED,
+            BackTarget.NONE -> Unit
+        }
+    }
+
+    private fun resolveBackTarget(): BackTarget = when {
+        // 形变期间与触摸输入使用同一阻塞语义，避免在中间 expansion 从 TIMED profile
+        // 切到 PREDICTIVE（或反向切换）造成正文 alpha 跳帧。
+        motionAnimator != null || motionHost.expansion < 0.999f -> BackTarget.BLOCKED
+        busy || pickerOpen || page == Page.WORKING -> BackTarget.BLOCKED
+        importApplied || page == Page.HOME -> BackTarget.FINISH_ACTIVITY
+        else -> BackTarget.INTERNAL_HOME
+    }
+
+    private fun returnToHome() {
+        cancelMotionAnimator()
+        predictiveMotionActive = false
+        motionContentTiming = SettingsBackupContentTiming.TIMED
+        motionHost.showExpandedImmediately()
+        motionGeometry = null
+        backupViewModel.clearSelection()
+        renderHome()
+    }
+
+    private fun suppressSystemActivityTransitions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            overrideActivityTransition(Activity.OVERRIDE_TRANSITION_OPEN, 0, 0)
+            overrideActivityTransition(Activity.OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        }
+    }
+
+    private fun scheduleInitialMotion(isFreshLaunch: Boolean) {
+        val canResolveOrigin = launchOrigin != null ||
+            SettingsBackupTransitionOriginRegistry.snapshot() != null
+        val shouldAnimate = isFreshLaunch &&
+            canResolveOrigin &&
+            ValueAnimator.areAnimatorsEnabled()
+        if (shouldAnimate) motionHost.prepareFirstFrameForEntry()
+        motionHost.doOnPreDraw {
+            if (!shouldAnimate) {
+                motionHost.showExpandedImmediately()
+                return@doOnPreDraw
+            }
+            val geometry = resolveMotionGeometry()
+            if (geometry == null) {
+                motionHost.showExpandedImmediately()
+                return@doOnPreDraw
+            }
+            motionGeometry = geometry
+            motionContentTiming = SettingsBackupContentTiming.TIMED
+            motionTitleMode = if (geometry.titleMotionEnabled) {
+                SettingsBackupTransitionTitleMode.SOURCE_TITLE
+            } else {
+                SettingsBackupTransitionTitleMode.HIDDEN
+            }
+            motionHost.beginMotion()
+            motionHost.applyExpansion(
+                geometry = geometry,
+                value = 0f,
+                titleMode = motionTitleMode,
+                contentTiming = motionContentTiming
+            )
+            motionHost.post {
+                if (isFinishing || isDestroyed) return@post
+                animateMotionTo(
+                    targetExpansion = 1f,
+                    durationMs = ENTER_DURATION_MS,
+                    interpolator = enterInterpolator
+                ) {
+                    motionHost.showExpandedImmediately()
+                    motionGeometry = null
+                    motionContentTiming = SettingsBackupContentTiming.TIMED
+                }
+            }
+        }
+    }
+
+    private fun prepareExitMotion(contentTiming: SettingsBackupContentTiming) {
+        motionGeometry = resolveMotionGeometry()
+        motionContentTiming = contentTiming
+        motionTitleMode = when {
+            motionGeometry?.titleMotionEnabled != true ->
+                SettingsBackupTransitionTitleMode.HIDDEN
+            currentPageTitle == getString(R.string.settings_backup_title) ->
+                SettingsBackupTransitionTitleMode.SOURCE_TITLE
+            else -> SettingsBackupTransitionTitleMode.CROSSFADE_FROM_PAGE_TITLE
+        }
+        motionHost.beginMotion()
+        applyMotionExpansion(motionHost.expansion)
+    }
+
+    private fun requestClose(interactiveCommit: Boolean) {
+        if (finishingAfterMotion) return
+        cancelMotionAnimator()
+        if (!interactiveCommit) prepareExitMotion(SettingsBackupContentTiming.TIMED)
+        val currentExpansion = motionHost.expansion
+        if (!ValueAnimator.areAnimatorsEnabled() || currentExpansion <= 0.001f) {
+            applyMotionExpansion(0f)
+            finishAfterMotion()
+            return
+        }
+        val baseDuration = if (interactiveCommit) {
+            BACK_COMMIT_DURATION_MS
+        } else {
+            CLOSE_DURATION_MS
+        }
+        val duration = (baseDuration * currentExpansion)
+            .roundToLong()
+            .coerceIn(MIN_CLOSE_DURATION_MS, baseDuration)
+        animateMotionTo(
+            targetExpansion = 0f,
+            durationMs = duration,
+            interpolator = closeInterpolator,
+            onEnd = ::finishAfterMotion
+        )
+    }
+
+    private fun animateMotionTo(
+        targetExpansion: Float,
+        durationMs: Long,
+        interpolator: android.animation.TimeInterpolator,
+        onEnd: () -> Unit
+    ) {
+        cancelMotionAnimator()
+        val startExpansion = motionHost.expansion
+        if (
+            !ValueAnimator.areAnimatorsEnabled() ||
+            durationMs <= 0L ||
+            abs(startExpansion - targetExpansion) <= 0.001f
+        ) {
+            applyMotionExpansion(targetExpansion)
+            onEnd()
+            return
+        }
+        val animator = ValueAnimator.ofFloat(startExpansion, targetExpansion)
+        motionAnimator = animator
+        animator.duration = durationMs
+        animator.interpolator = interpolator
+        animator.addUpdateListener { valueAnimator ->
+            applyMotionExpansion(valueAnimator.animatedValue as Float)
+        }
+        animator.addListener(object : AnimatorListenerAdapter() {
+            private var cancelled = false
+
+            override fun onAnimationCancel(animation: Animator) {
+                cancelled = true
+            }
+
+            override fun onAnimationEnd(animation: Animator) {
+                if (motionAnimator === animator) motionAnimator = null
+                if (!cancelled && !isDestroyed) onEnd()
+            }
+        })
+        animator.start()
+    }
+
+    private fun applyMotionExpansion(expansion: Float) {
+        val geometry = motionGeometry
+        if (geometry != null) {
+            motionHost.applyExpansion(
+                geometry = geometry,
+                value = expansion,
+                titleMode = motionTitleMode,
+                contentTiming = motionContentTiming
+            )
+        } else {
+            motionHost.applyFallbackExpansion(
+                value = expansion,
+                contentTravelPx = dp(CONTENT_TRAVEL_DP),
+                contentTiming = motionContentTiming
+            )
+            motionHost.blockInteraction(true)
+        }
+    }
+
+    private fun finishAfterMotion() {
+        if (finishingAfterMotion || isFinishing || isDestroyed) return
+        finishingAfterMotion = true
+        motionHost.blockInteraction(true)
+        finish()
+        suppressLegacyCloseTransition()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun suppressLegacyCloseTransition() {
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.TIRAMISU) {
+            overridePendingTransition(0, 0)
+        }
+    }
+
+    private fun cancelMotionAnimator() {
+        val animator = motionAnimator ?: return
+        motionAnimator = null
+        animator.removeAllUpdateListeners()
+        animator.removeAllListeners()
+        animator.cancel()
+    }
+
+    private fun resolveMotionGeometry(): SettingsBackupMotionGeometry? {
+        if (motionHost.width <= 0 || motionHost.height <= 0) return null
+        val display = motionHost.display ?: return null
+        val tolerancePx = dp(4)
+        val originCandidates = if (allowLaunchOriginForExit) {
+            // 新鲜实例的 Intent 与本次 launch 一一对应，不能被另一 MainActivity 实例覆盖。
+            sequenceOf(launchOrigin, SettingsBackupTransitionOriginRegistry.snapshot())
+        } else {
+            // Activity 重建后不再信任旧 Intent 坐标，只接受主界面当前弱引用快照。
+            sequenceOf(SettingsBackupTransitionOriginRegistry.snapshot())
+        }
+        val origin = originCandidates.filterNotNull().firstOrNull { candidate ->
+            candidate.displayId == display.displayId &&
+                candidate.displayRotation == display.rotation &&
+                abs(candidate.sourceWindowWidth - motionHost.width) <= tolerancePx &&
+                abs(candidate.sourceWindowHeight - motionHost.height) <= tolerancePx
+        } ?: return null
+
+        val hostLocation = IntArray(2)
+        motionHost.getLocationOnScreen(hostLocation)
+        val collapsedBounds = origin.cardBoundsOnScreen.toLocal(hostLocation)
+        val collapsedTitleBounds = origin.titleBoundsOnScreen.toLocal(hostLocation)
+        val expandedBounds = SettingsBackupMotionRect(
+            left = 0f,
+            top = 0f,
+            right = motionHost.width.toFloat(),
+            bottom = motionHost.height.toFloat()
+        )
+        val destinationTitle = toolbarTitleView ?: return null
+        if (destinationTitle.width <= 0 || destinationTitle.height <= 0) return null
+        val expandedTitleBounds = destinationTitle.boundsOnScreen().toLocal(hostLocation)
+
+        val withinWindow = collapsedBounds.left >= -tolerancePx &&
+            collapsedBounds.top >= -tolerancePx &&
+            collapsedBounds.right <= expandedBounds.right + tolerancePx &&
+            collapsedBounds.bottom <= expandedBounds.bottom + tolerancePx
+        val titleWithinWindow = collapsedTitleBounds.left >= -tolerancePx &&
+            collapsedTitleBounds.top >= -tolerancePx &&
+            collapsedTitleBounds.right <= expandedBounds.right + tolerancePx &&
+            collapsedTitleBounds.bottom <= expandedBounds.bottom + tolerancePx
+        if (
+            !collapsedBounds.isValid ||
+            !collapsedTitleBounds.isValid ||
+            !expandedTitleBounds.isValid ||
+            !withinWindow ||
+            !titleWithinWindow
+        ) {
+            return null
+        }
+        return SettingsBackupMotionGeometry(
+            collapsedBounds = collapsedBounds,
+            expandedBounds = expandedBounds,
+            collapsedTitleBounds = collapsedTitleBounds,
+            expandedTitleBounds = expandedTitleBounds,
+            collapsedTitleTextSizePx = origin.titleTextSizePx,
+            expandedTitleTextSizePx = destinationTitle.textSize,
+            collapsedCornerRadiusPx = dp(SOURCE_CORNER_RADIUS_DP),
+            contentTravelPx = dp(CONTENT_TRAVEL_DP),
+            titleMotionEnabled = SettingsBackupMotionSpec.canMoveTitle(
+                collapsedLineCount = origin.titleLineCount,
+                expandedLineCount = destinationTitle.lineCount,
+                collapsedIsLeftToRight =
+                    origin.titleLayoutDirection == View.LAYOUT_DIRECTION_LTR,
+                expandedIsLeftToRight =
+                    destinationTitle.layoutDirection == View.LAYOUT_DIRECTION_LTR
+            )
+        )
+    }
+
+    private fun SettingsBackupMotionRect.toLocal(
+        hostLocation: IntArray
+    ): SettingsBackupMotionRect = SettingsBackupMotionRect(
+        left = left - hostLocation[0],
+        top = top - hostLocation[1],
+        right = right - hostLocation[0],
+        bottom = bottom - hostLocation[1]
+    )
+
+    private fun View.boundsOnScreen(): SettingsBackupMotionRect {
+        val location = IntArray(2)
+        getLocationOnScreen(location)
+        return SettingsBackupMotionRect(
+            left = location[0].toFloat(),
+            top = location[1].toFloat(),
+            right = (location[0] + width).toFloat(),
+            bottom = (location[1] + height).toFloat()
+        )
     }
 
     private fun chooseExportLocation() {
@@ -569,7 +982,7 @@ class SettingsBackupActivity : AppViewsActivity() {
                         gravity = Gravity.CENTER
                     })
                 }
-                addView(primaryButton(getString(R.string.settings_backup_finish)) { finish() }.withTopMargin(18))
+                addView(primaryButton(getString(R.string.settings_backup_finish)) { handleBack() }.withTopMargin(18))
             })
         }
     }
@@ -597,9 +1010,16 @@ class SettingsBackupActivity : AppViewsActivity() {
     }
 
     private fun setScaffold(title: String, populate: (LinearLayout) -> Unit) {
+        if (motionAnimator != null || motionHost.expansion < 0.999f) {
+            cancelMotionAnimator()
+            motionHost.showExpandedImmediately()
+            motionGeometry = null
+        }
+        predictiveMotionActive = false
+        motionContentTiming = SettingsBackupContentTiming.TIMED
+        backTarget = BackTarget.NONE
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(monetColors.background)
         }
         ViewCompat.setAccessibilityPaneTitle(root, title)
         root.accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
@@ -620,12 +1040,16 @@ class SettingsBackupActivity : AppViewsActivity() {
             background = ripple(monetColors.surfaceVariant, 24f)
             setOnClickListener { handleBack() }
         }, LinearLayout.LayoutParams(dp(48), dp(48)))
-        toolbar.addView(TextView(this).apply {
+        val toolbarTitle = TextView(this).apply {
             text = title
             textSize = 17f
             setTextColor(getColor(R.color.colorTextGray))
             setTypeface(typeface, Typeface.BOLD)
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        toolbar.addView(
+            toolbarTitle,
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
         root.addView(toolbar)
 
         val content = LinearLayout(this).apply {
@@ -637,7 +1061,9 @@ class SettingsBackupActivity : AppViewsActivity() {
             isFillViewport = true
             addView(content)
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        setContentView(root)
+        toolbarTitleView = toolbarTitle
+        currentPageTitle = title
+        motionHost.replacePage(root, toolbarTitle)
     }
 
     private fun operationCard(
@@ -824,6 +1250,13 @@ class SettingsBackupActivity : AppViewsActivity() {
         const val EXTRA_RESTART_RECOMMENDED = "restart_recommended"
         const val OUTCOME_VERIFIED = "verified"
         const val OUTCOME_POSSIBLY_CHANGED = "possibly_changed"
+        private const val ENTER_DURATION_MS = 370L
+        private const val CLOSE_DURATION_MS = 270L
+        private const val BACK_COMMIT_DURATION_MS = 160L
+        private const val BACK_CANCEL_DURATION_MS = 210L
+        private const val MIN_CLOSE_DURATION_MS = 60L
+        private const val SOURCE_CORNER_RADIUS_DP = 15f
+        private const val CONTENT_TRAVEL_DP = 12f
         private const val ID_PLAYER_DEFAULT_QUALITY = "player.default_quality.qn"
         private const val ID_LOG_LEVEL = "diagnostics.logging.level"
     }
