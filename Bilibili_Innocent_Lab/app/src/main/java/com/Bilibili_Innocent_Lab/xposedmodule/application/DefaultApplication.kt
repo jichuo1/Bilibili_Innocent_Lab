@@ -1,7 +1,11 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.application
 
+import android.util.Log
 import androidx.appcompat.app.AppCompatDelegate
 import com.highcapable.yukihookapi.hook.xposed.application.ModuleApplication
+import com.highcapable.yukihookapi.hook.factory.prefs
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportApplier
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.YukiModuleSettingsStore
 
 class DefaultApplication : ModuleApplication() {
 
@@ -12,6 +16,16 @@ class DefaultApplication : ModuleApplication() {
          * Follow system night mode
          */
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
-        // Your code here.
+        // 若上次导入在 prefs 提交后、自由复制镜像落盘前中断，启动时幂等补写。
+        runCatching {
+            check(
+                SettingsImportApplier.recoverPending(
+                    applicationContext,
+                    YukiModuleSettingsStore(prefs())
+                )
+            ) { "pending settings import is not fully recovered" }
+        }.onFailure { throwable ->
+            Log.w("BilibiliInnocentLab", "recover pending settings import failed", throwable)
+        }
     }
 }

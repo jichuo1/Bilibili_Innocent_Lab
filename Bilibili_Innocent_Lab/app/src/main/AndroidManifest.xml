@@ -111,6 +111,12 @@
             android:taskAffinity=""
             android:theme="@style/Theme.AppDefault" />
 
+        <activity
+            android:name=".ui.activity.SettingsBackupActivity"
+            android:exported="false"
+            android:screenOrientation="behind"
+            android:theme="@style/Theme.AppDefault" />
+
         <activity-alias
             android:name=".Home"
             android:exported="true"

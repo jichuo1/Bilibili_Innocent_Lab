@@ -5,6 +5,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
+import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Intent
@@ -27,6 +28,7 @@ import android.widget.LinearLayout
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.os.LocaleListCompat
 import androidx.core.view.isVisible
 import androidx.core.view.setPadding
@@ -69,6 +71,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ShellCommandRunner
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateCheckCoordinator
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportApplier
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.YukiModuleSettingsStore
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
 import android.app.Dialog
@@ -110,6 +114,22 @@ class MainActivity : AppViewsActivity() {
     }
 
     private val homeComponent by lazy { ComponentName(packageName, "${BuildConfig.APPLICATION_ID}.Home") } 
+
+    private val settingsBackupLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val messageRes = when (result.data?.getStringExtra(
+                SettingsBackupActivity.EXTRA_IMPORT_OUTCOME
+            )) {
+                SettingsBackupActivity.OUTCOME_VERIFIED ->
+                    R.string.settings_backup_import_applied
+                else -> R.string.settings_backup_import_needs_review
+            }
+            toast(getString(messageRes))
+            recreate()
+        }
+    }
 
     private var adskipEnabled = true
     private var gamecardAdEnabled = true
@@ -2236,6 +2256,21 @@ class MainActivity : AppViewsActivity() {
         val modulePrefs = runCatching { prefs() }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "init prefs failed", t)
         }.getOrNull()
+        if (
+            modulePrefs != null &&
+            SettingsImportApplier.hasPendingRecovery(applicationContext)
+        ) {
+            runCatching {
+                check(
+                    SettingsImportApplier.recoverPending(
+                        applicationContext,
+                        YukiModuleSettingsStore(modulePrefs)
+                    )
+                ) { "pending settings import is not fully recovered" }
+            }.onFailure { throwable ->
+                Log.w("BilibiliInnocentLab", "recover pending settings import failed", throwable)
+            }
+        }
         // 写 prefs 通道哨兵（时间戳）：B 站进程据此判断 YukiHookAPI prefs 跨进程通道
         // 是否可用——可用时开关解析「确定关闭」才删除 hookinfo.pb 还原原生；不可用
         // （部分 LSPosed 版本无 DirectAccessService/路径差异）时保守不删，避免
@@ -2877,6 +2912,78 @@ class MainActivity : AppViewsActivity() {
                                 text = stringResource(R.string.hide_app_icon_on_launcher_notice)
                                 textColor = 0xFFFF5722.toInt()
                                 textSize = 12f
+                            }
+                        }
+                        Space(lparams = LayoutParams(height = 10.dp))
+                        LinearLayout(
+                            lparams = LayoutParams(widthMatchParent = true) {
+                                updateMargins(horizontal = 15.dp)
+                            },
+                            init = {
+                                orientation = LinearLayout.HORIZONTAL
+                                gravity = Gravity.CENTER_VERTICAL
+                                background = roundedColor(monetColors.surfaceVariant)
+                                foreground = selfRippleBackground(15f)
+                                updatePadding(horizontal = 15.dp, vertical = 14.dp)
+                                isClickable = true
+                                isFocusable = true
+                                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                                contentDescription = buildString {
+                                    append(stringResource(R.string.settings_backup_entry_title))
+                                    append(". ")
+                                    append(stringResource(R.string.settings_backup_entry_summary))
+                                }
+                                setOnClickListener {
+                                    settingsBackupLauncher.launch(
+                                        Intent(
+                                            this@MainActivity,
+                                            SettingsBackupActivity::class.java
+                                        )
+                                    )
+                                }
+                            }
+                        ) {
+                            ImageView(
+                                lparams = LayoutParams(22.dp, 22.dp) {
+                                    marginEnd = 12.dp
+                                }
+                            ) {
+                                setImageResource(R.drawable.ic_backup_restore)
+                                imageTintList = stateColorResource(R.color.colorTextGray)
+                                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                            }
+                            LinearLayout(
+                                lparams = LayoutParams {
+                                    weight = 1f
+                                },
+                                init = {
+                                    orientation = LinearLayout.VERTICAL
+                                    importantForAccessibility =
+                                        View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                                }
+                            ) {
+                                TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                                    text = stringResource(R.string.settings_backup_entry_title)
+                                    textColor = colorResource(R.color.colorTextGray)
+                                    textSize = 15f
+                                }
+                                TextView(
+                                    lparams = LayoutParams(widthMatchParent = true) {
+                                        topMargin = 4.dp
+                                    }
+                                ) {
+                                    alpha = 0.68f
+                                    text = stringResource(R.string.settings_backup_entry_summary)
+                                    textColor = colorResource(R.color.colorTextDark)
+                                    textSize = 12f
+                                }
+                            }
+                            TextView(lparams = LayoutParams(28.dp, 40.dp)) {
+                                gravity = Gravity.CENTER
+                                text = "›"
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 24f
+                                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                             }
                         }
                         Space(lparams = LayoutParams(height = 10.dp))
