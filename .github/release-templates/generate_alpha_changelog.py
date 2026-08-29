@@ -8,6 +8,12 @@ import re
 import subprocess
 from pathlib import Path
 
+from release_note_common import (
+    escape_markdown_text,
+    is_build_maintenance,
+    translate_subject,
+)
+
 
 ALPHA_TAG_PATTERN = re.compile(r"^v(\d+)\.(\d+)\.(\d+)-alpha\.(\d+)$")
 
@@ -47,10 +53,6 @@ def find_previous_alpha(repo_root: Path, commit: str, release_tag: str) -> str |
         if parsed is not None and tag != release_tag:
             candidates.append((parsed, tag))
     return max(candidates, default=None)[1] if candidates else None
-
-
-def escape_markdown_text(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("`", "\\`")
 
 
 def build_changelog(
@@ -98,9 +100,14 @@ def build_changelog(
         # 连续文档修订等常产生相同标题；Release 正文只展示一次，完整差异链接仍保留全部提交。
         if subject in seen_subjects:
             continue
+        # 剔除纯构建/维护/文档类条目，普通用户无感知；完整差异链接仍保留全部提交。
         seen_subjects.add(subject)
+        if is_build_maintenance(subject):
+            continue
+        # 翻译术语化标题，让测试者一眼看到「改了什么类别」；无法翻译时保留原标题。
+        rendered_subject = translate_subject(subject) or subject
         entries.append(
-            f"- {escape_markdown_text(subject)} "
+            f"- {escape_markdown_text(rendered_subject)} "
             f"([`{commit_sha[:7]}`]({repository_url}/commit/{commit_sha}))"
         )
     if not entries:
