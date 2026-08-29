@@ -1894,6 +1894,20 @@ class HookEntry : IYukiHookXposedInit {
         private fun showFreeCopyPopup(anchor: View, rawText: CharSequence) =
             showFreeCopyPopup(anchor, FreeCopyContent(rawText))
 
+        /**
+         * 脉络悬浮窗的全文查看气泡：复用自由复制气泡的完整 UI、入场动画、防越界定位与
+         * 生命周期防泄漏链路。输入是脉络节点的完整纯文本（列表仅显示截断，数据无截断，
+         * 无 Span/Emoji 映射需求），不经过评论身份校验等上游准备层。
+         */
+        internal fun showReplyTraceBubble(anchor: View, rawText: CharSequence) =
+            showFreeCopyPopup(anchor, FreeCopyContent(rawText))
+
+        /** 脉络面板关闭或跨页迁移时收尾由脉络弹出的气泡，防孤儿弹窗；幂等。 */
+        internal fun dismissReplyTraceBubbleIfShowing() {
+            if (!isOurBubbleShowing()) return
+            runCatching { ourBubbleDialogRef?.get()?.dismiss() }
+        }
+
         private fun showFreeCopyPopup(anchor: View, rawContent: FreeCopyContent) {
             // 清理控制字符：B 站简介数据源换行为 \r\n（或含孤立 \r），官方渲染时 CR
             // 不可见，但气泡 TextView 会把 \r 显示成可见的 "r" 字形（实测每个视频简介
