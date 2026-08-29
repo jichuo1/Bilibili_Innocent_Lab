@@ -69,7 +69,9 @@ internal class ReplyTopologyWorkflowAdapter(
             nodeClick?.invoke(rpid)
         }
         // 长按正文 = 选中该节点并请求全文气泡（选项 2：一次手势完成，不触发定位路由）。
-        // 触感反馈先行确认手势，气泡从行下方以既有缩放+淡入动画生长，衔接不突兀。
+        // 触感由框架 View.performLongClick 的原生长按反馈提供（仅一次）；脉络行不在自由
+        // 复制的长按拦截窗口内，该反馈不会被模块的 performHapticFeedback hook 拦截，
+        // 因此这里绝不能再手动补一次触感，否则会双重震动。
         row.setOnMessageLongPress { anchor ->
             val current = graph ?: return@setOnMessageLongPress false
             val position = holder.bindingAdapterPosition
@@ -79,7 +81,6 @@ internal class ReplyTopologyWorkflowAdapter(
             val text = holder.boundMessage ?: return@setOnMessageLongPress false
             val rpid = current.rpids[position]
             selectRpid(rpid)
-            anchor.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
             nodeLongPress?.invoke(anchor, rpid, text)
             true
         }
