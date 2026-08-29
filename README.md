@@ -1,6 +1,13 @@
 <div align="center">
 
-# Bilibili Innocent Lab
+<img src="banner.svg" alt="Bilibili Innocent Lab" width="100%">
+
+[![稳定版](https://img.shields.io/github/v/release/jichuo1/Bilibili_Innocent_Lab?style=flat-square&color=FB7299&label=%E7%A8%B3%E5%AE%9A%E7%89%88)](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases)
+[![License](https://img.shields.io/github/license/jichuo1/Bilibili_Innocent_Lab?style=flat-square&color=00AEEC)](LICENSE)
+[![平台](https://img.shields.io/badge/Android-8.1%2B-2d3a55?style=flat-square&labelColor=2d3a55)](#环境要求)
+[![框架](https://img.shields.io/badge/Xposed-LSPosed-00AEEC?style=flat-square&labelColor=2d3a55)](#环境要求)
+[![目标](https://img.shields.io/badge/%E7%9B%AE%E6%A0%87-tv.danmaku.bili-FB7299?style=flat-square&labelColor=2d3a55)](https://www.bilibili.com)
+[![交流群](https://img.shields.io/badge/Telegram-%E4%BA%A4%E6%B5%81%E7%BE%A4-26A5E4?style=flat-square&logo=telegram&labelColor=2d3a55)](https://t.me/Bilibili_Innocent_Lab)
 
 ### 面向 Android 哔哩哔哩客户端的界面净化与交互增强模块
 
