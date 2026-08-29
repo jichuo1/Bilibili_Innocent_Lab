@@ -40,10 +40,29 @@ class ReplyTopologyPanelThemeBlendTest {
     }
 
     @Test
-    fun `dark theme author color sits between primary and secondary`() {
-        // 暗色主题实值：primary E8E8E8 向 secondary B8BBC2 混合 0.4 => D5D6D9
+    fun `dark theme author color is softened then tinted toward accent pink`() {
         val spec = ReplyTopologyPanelTheme.Companion
-        val author = spec.blendColor(0xFFE8E8E8.toInt(), 0xFFB8BBC2.toInt(), 0.4f)
-        assertEquals(0xFFD5D6D9.toInt(), author)
+        // 暗色主题实值：primary E8E8E8 向 secondary B8BBC2 混 0.4 => D5D6D9，
+        // 再向 accent FB7299 混 0.35 => E2B3C3
+        val softened = spec.blendColor(0xFFE8E8E8.toInt(), 0xFFB8BBC2.toInt(), 0.4f)
+        assertEquals(0xFFD5D6D9.toInt(), softened)
+        val author = spec.blendColor(softened, 0xFFFB7299.toInt(), 0.35f)
+        assertEquals(0xFFE2B3C3.toInt(), author)
+    }
+
+    @Test
+    fun `author color keeps visible separation from primary text`() {
+        val spec = ReplyTopologyPanelTheme.Companion
+        val author = spec.blendColor(
+            spec.blendColor(0xFFE8E8E8.toInt(), 0xFFB8BBC2.toInt(), 0.4f),
+            0xFFFB7299.toInt(),
+            spec.AUTHOR_TEXT_TOWARD_ACCENT_FRACTION
+        )
+        val authorR = author shr 16 and 0xFF
+        val authorG = author shr 8 and 0xFF
+        // 粉调可辨识：红绿通道差显著（正文 E8E8E8 的红绿差为 0）
+        assertTrue("author tint not visible: R-G=${authorR - authorG}", authorR - authorG >= 40)
+        // alpha 保持不透明
+        assertEquals(0xFF, author ushr 24 and 0xFF)
     }
 }
