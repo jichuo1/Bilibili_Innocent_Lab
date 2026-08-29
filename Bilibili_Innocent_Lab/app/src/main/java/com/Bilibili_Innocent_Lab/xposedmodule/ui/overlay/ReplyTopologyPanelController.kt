@@ -7,6 +7,7 @@ import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import java.lang.ref.WeakReference
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.roundToInt
 
@@ -29,6 +30,9 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
 
     @Volatile
     private var panelRef: WeakReference<ReplyTopologyPanelView>? = null
+
+    /** 退出动画进行中的面板（仅主线程访问）：会话已失效，动画结束后统一移除并回调。 */
+    private var exitingPanel: ExitingPanel? = null
 
     /**
      * 必须从主线程调用；Hook 的评论点击回调本身就在主线程。无效 Activity 会故障开放，
@@ -100,19 +104,6 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
     ): Boolean = withPanel(session) { it.setBackgroundOpacity(opacity, notify = false) }
 
     /**
-     * 选中并在已加载列表中滚动到稳定 rpid；不存在时返回 false。该查询必须从主线程
-     * 调用，避免向后台线程暴露瞬时 RecyclerView position。
-     */
-    fun selectAndReveal(
-        session: ReplyTopologyPanelSession,
-        rpid: Long
-    ): Boolean {
-        if (!isCurrent(session)) return false
-        if (Looper.myLooper() !== Looper.getMainLooper()) return false
-        return currentPanel(session)?.selectAndReveal(rpid) == true
-    }
-
-    /**
      * 可从任意线程调用。传入 session 时只关闭对应代次；旧会话不能误关后来打开的面板。
      */
     fun detach(
@@ -158,6 +149,9 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
             mainHandler.post { onUnexpectedDetach(session, panel) }
             return
         }
+        // 退出动画中的面板先于动画被宿主 detach（页面销毁）：按其原始关闭原因统一收尾，
+        // 保证 onClosed 恰好一次（releaseResources 在此之前不会发生，listener 仍有效）
+        exitingPanel?.takeIf { it.panel === panel }?.let { finishExiting(it) }
         if (!isCurrent(session) || panelRef?.get() !== panel) {
             panel.releaseResources()
             return
@@ -201,6 +195,9 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
         reason: ReplyTopologyPanelCloseReason
     ) {
         if (requestedSession != null && !isCurrent(requestedSession)) return
+        // 上一次退出的面板仍在播放离场动画：立即硬移除并按其原始原因回调，
+        // 避免与即将挂载的新面板（替换路径）同屏交叠
+        exitingPanel?.let { finishExiting(it) }
         val panel = panelRef?.get()
         if (panel == null) {
             activeSessionId = NO_SESSION
@@ -213,9 +210,44 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
         activeSessionId = NO_SESSION
         activityRef = null
         panelRef = null
-        val listener = panel.releaseResources()
-        runCatching { (panel.parent as? ViewGroup)?.removeView(panel) }
-        listener?.onClosed(reason)
+
+        // 只有用户关闭与程序化关闭走离场动画；替换（即将挂新面板）与宿主 detach
+        //（decor 已销毁或正在销毁）保持同帧移除，与原有语义一致。
+        if (reason != ReplyTopologyPanelCloseReason.USER &&
+            reason != ReplyTopologyPanelCloseReason.PROGRAMMATIC
+        ) {
+            val listener = panel.releaseResources()
+            runCatching { (panel.parent as? ViewGroup)?.removeView(panel) }
+            listener?.onClosed(reason)
+            return
+        }
+
+        // 与自由复制气泡一致的退出纪律：纯视觉缩小淡出（输入已在 playExit 内摘除，
+        // 触摸直接穿透到宿主），动画结束或被取消后统一移除。会话已失效，动画期间
+        // submit/updateState/selectAndReveal 均不会再触达面板；onClosed 延后一次动画
+        // 时长送达，功能查询 isAttached 立即为 false，对 Coordinator 无影响。
+        val exiting = ExitingPanel(panel, reason)
+        exitingPanel = exiting
+        panel.playExit { finishExiting(exiting) }
+        mainHandler.postDelayed(exiting.fallback, EXIT_ANIMATION_FALLBACK_MS)
+    }
+
+    /**
+     * 退出动画的统一收尾（幂等）：由动画结束、动画取消或超时兜底触发均恰好执行一次。
+     * 若面板已被宿主 detach 路径先释放（onClosed 已按其路径送达），此处只补做移除，
+     * 不重复回调；先 release 再 removeView 的顺序避免触发 onUnexpectedDetach 级联。
+     */
+    private fun finishExiting(exiting: ExitingPanel) {
+        mainHandler.removeCallbacks(exiting.fallback)
+        if (!exiting.finished.compareAndSet(false, true)) return
+        if (exitingPanel === exiting) exitingPanel = null
+        if (exiting.panel.isReleased) {
+            runCatching { (exiting.panel.parent as? ViewGroup)?.removeView(exiting.panel) }
+            return
+        }
+        val listener = exiting.panel.releaseResources()
+        runCatching { (exiting.panel.parent as? ViewGroup)?.removeView(exiting.panel) }
+        listener?.onClosed(exiting.reason)
     }
 
     private fun findOverlayParent(activity: Activity): ViewGroup? {
@@ -247,8 +279,20 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
         return width to height
     }
 
+    /** 退出动画进行中的面板记录：finished 保证移除与 onClosed 恰好执行一次。 */
+    private inner class ExitingPanel(
+        val panel: ReplyTopologyPanelView,
+        val reason: ReplyTopologyPanelCloseReason,
+    ) {
+        val finished = AtomicBoolean(false)
+        val fallback = Runnable { finishExiting(this@ExitingPanel) }
+    }
+
     private companion object {
         const val NO_SESSION = 0L
+
+        /** 离场动画 150ms 的超时兜底：主线程繁忙导致动画回调延迟时仍保证移除与回调。 */
+        const val EXIT_ANIMATION_FALLBACK_MS = 300L
     }
 }
 

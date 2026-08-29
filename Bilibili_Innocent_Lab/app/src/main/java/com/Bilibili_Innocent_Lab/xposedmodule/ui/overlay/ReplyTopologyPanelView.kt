@@ -56,7 +56,10 @@ internal class ReplyTopologyPanelView(
     private val workflowAdapter = ReplyTopologyWorkflowAdapter(
         theme,
         strings,
-        { rpid -> panelListener?.onNodeSelected(rpid) },
+        { rpid ->
+            selectAndCenter(rpid)
+            panelListener?.onNodeSelected(rpid)
+        },
         { anchor, _, text -> panelListener?.onNodeFullTextRequested(anchor, text) }
     )
     private val trackDecoration = ReplyTopologyTrackDecoration(workflowAdapter, theme, density)
@@ -76,6 +79,10 @@ internal class ReplyTopologyPanelView(
     private var expandedHeightPx = 0
     private var compactAnimator: ValueAnimator? = null
     private var compactAnimating = false
+
+    /** 退出动画期间面板对触摸完全透明：DOWN 不再进入本子树，事件直接落到宿主页面
+     *  （对齐自由复制气泡退出的"关闭即穿透"纪律）。仅主线程读写。 */
+    private var exitTouchTransparent = false
 
     @Volatile
     var isReleased: Boolean = false
@@ -154,6 +161,64 @@ internal class ReplyTopologyPanelView(
         post(entranceRunnable)
     }
 
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (exitTouchTransparent || isReleased) return false
+        return super.dispatchTouchEvent(ev)
+    }
+
+    /**
+     * 退出动画：与入场镜像的缩小淡出（alpha 1→0、scale 1→0.97，150ms 加速曲线），
+     * 对齐自由复制气泡的退出纪律——纯视觉过渡，启动时先摘除全部交互监听并整体
+     * 对触摸透明（关闭即穿透，用户可立刻操作宿主页面），动画结束或被取消都恰好
+     * 回调一次 [onFinished]，由调用方统一移除并收尾（幂等兜底在调用方）。
+     */
+    fun playExit(onFinished: () -> Unit) {
+        if (isReleased) {
+            onFinished()
+            return
+        }
+        exitTouchTransparent = true
+        titleView.setOnTouchListener(null)
+        collapseView.setOnClickListener(null)
+        closeView.setOnClickListener(null)
+        retryView.setOnClickListener(null)
+        continueView.setOnClickListener(null)
+        opacitySeek.setOnSeekBarChangeListener(null)
+        isClickable = false
+        isFocusable = false
+        // 折叠/展开动画与尚未执行的入场任务让位于退出（快速呼出后立即关闭的场景）
+        compactAnimator?.let { animator ->
+            animator.removeAllUpdateListeners()
+            animator.removeAllListeners()
+            animator.cancel()
+        }
+        compactAnimator = null
+        compactAnimating = false
+        removeCallbacks(entranceRunnable)
+        animate().setListener(null)
+        animate()
+            .alpha(0f)
+            .scaleX(0.97f)
+            .scaleY(0.97f)
+            .setDuration(150L) // 与自由复制气泡退出同长；入场为 180L，收起略短让出视野更快
+            .setInterpolator(PathInterpolator(0.4f, 0f, 1f, 1f))
+            .setListener(object : android.animation.Animator.AnimatorListener {
+                val delivered = java.util.concurrent.atomic.AtomicBoolean(false)
+
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (delivered.compareAndSet(false, true)) onFinished()
+                }
+
+                override fun onAnimationCancel(animation: android.animation.Animator) {
+                    if (delivered.compareAndSet(false, true)) onFinished()
+                }
+
+                override fun onAnimationStart(animation: android.animation.Animator) = Unit
+                override fun onAnimationRepeat(animation: android.animation.Animator) = Unit
+            })
+            .start()
+    }
+
     fun submit(snapshot: ReplyTopologyRenderSnapshot) {
         if (isReleased) return
         workflowAdapter.submit(snapshot)
@@ -185,12 +250,32 @@ internal class ReplyTopologyPanelView(
         if (notify) panelListener?.onOpacityCommitted(normalized)
     }
 
-    fun selectAndReveal(rpid: Long): Boolean {
+    /**
+     * 选中节点并平滑滚动至列表垂直居中。自定义 LinearSmoothScroller 的对齐计算
+     * （目标行中心对齐列表中心，默认是贴顶/贴底），速度按密度调慢使短距离位移
+     * 也有可感的平滑动画。目标行已可见时位移为半屏内的微滚动；不可见时由
+     * LinearSmoothScroller 自行寻址后同样居中落位。
+     */
+    fun selectAndCenter(rpid: Long): Boolean {
         if (isReleased) return false
         val position = workflowAdapter.selectRpid(rpid)
         if (position < 0) return false
         val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return false
-        layoutManager.scrollToPositionWithOffset(position, recyclerView.height / 3)
+        val scroller = object : androidx.recyclerview.widget.LinearSmoothScroller(recyclerView.context) {
+            override fun calculateDtToFit(
+                viewStart: Int,
+                viewEnd: Int,
+                snapshotStart: Int,
+                snapshotEnd: Int,
+                snapPreference: Int
+            ): Int = ((snapshotStart + snapshotEnd) / 2f).roundToInt() -
+                ((viewStart + viewEnd) / 2f).roundToInt()
+
+            override fun calculateSpeedPerPixel(displayMetrics: android.util.DisplayMetrics): Float =
+                CENTER_SCROLL_MS_PER_INCH / displayMetrics.densityDpi
+        }
+        scroller.targetPosition = position
+        layoutManager.startSmoothScroll(scroller)
         return true
     }
 
@@ -684,3 +769,6 @@ internal class ReplyTopologyPanelView(
         }
     }
 }
+
+/** 选中节点居中滚动的速度（毫秒/英寸）：短距离位移也保留可感的平滑动画。 */
+private const val CENTER_SCROLL_MS_PER_INCH = 120f
