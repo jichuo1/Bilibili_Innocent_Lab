@@ -15,16 +15,25 @@ class DefaultApplication : ModuleApplication() {
         /**
          * 跟随系统夜间模式
          * Follow system night mode
-         */
+        */
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
-        // 条款未授权时不触发任何配置补写；同意后 MainActivity 仍会幂等恢复。
-        if (!UserTermsConsentStore.readOrInitialize(applicationContext).isAuthorized) return
+        val termsDecision = UserTermsConsentStore.readOrInitialize(applicationContext)
+        val modulePrefs = runCatching { prefs() }.onFailure { throwable ->
+            Log.w("BilibiliInnocentLab", "open module prefs for terms mirror failed", throwable)
+        }.getOrNull()
+        if (modulePrefs != null &&
+            !UserTermsConsentStore.syncHookMirror(modulePrefs, termsDecision)
+        ) {
+            Log.w("BilibiliInnocentLab", "sync terms hook mirror failed")
+        }
+        // 条款未授权时除关闭态授权镜像外不触发任何配置补写。
+        if (!termsDecision.isAuthorized || modulePrefs == null) return
         // 若上次导入在 prefs 提交后、自由复制镜像落盘前中断，启动时幂等补写。
         runCatching {
             check(
                 SettingsImportApplier.recoverPending(
                     applicationContext,
-                    YukiModuleSettingsStore(prefs())
+                    YukiModuleSettingsStore(modulePrefs)
                 )
             ) { "pending settings import is not fully recovered" }
         }.onFailure { throwable ->

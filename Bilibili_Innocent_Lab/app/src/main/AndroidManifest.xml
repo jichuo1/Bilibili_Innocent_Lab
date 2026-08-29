@@ -90,6 +90,18 @@
             android:name=".receiver.RoamingOpenReceiver"
             android:exported="true" />
 
+        <!--
+            覆盖安装不会自动打开模块设置页；由系统替换广播启动模块进程，
+            让 DefaultApplication 在 B 站下次启动前刷新版本化授权镜像。
+        -->
+        <receiver
+            android:name=".receiver.TermsMirrorRefreshReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
         <activity
             android:name=".ui.activity.MainActivity"
             android:exported="true"
