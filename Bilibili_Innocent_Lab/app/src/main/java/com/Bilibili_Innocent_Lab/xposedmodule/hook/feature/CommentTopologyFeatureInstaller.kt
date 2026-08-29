@@ -1074,7 +1074,13 @@ internal class ReplyTopologyCoordinator(
         if (current.pendingLocateRpid == null || !gate.accepts(current.token)) return
         if (activity.packageName != TARGET_PACKAGE) return
         if (current.activityRef.get() === activity) return
-        val resumedRoute = runCatching { activity.intent?.data?.toString() }.getOrNull() ?: return
+        val resumedRoute = runCatching { activity.intent?.data?.toString() }.getOrNull()
+        // 诊断日志：若 deep link 的 data 在宿主路由链上被改写导致确认通道失配，
+        // 可直接从本条日志看到实际形态与期望形态的差异。
+        environment.logInfo(
+            "comment_topology_resume_gate",
+            "[BIL] 定位确认探测: matched=${resumedRoute == route} resumed=$resumedRoute expected=$route"
+        )
         if (resumedRoute != route) return
         migratePanelTo(current, activity)
     }
@@ -1091,6 +1097,10 @@ internal class ReplyTopologyCoordinator(
     ) : Application.ActivityLifecycleCallbacks {
 
         override fun onActivityResumed(activity: Activity) {
+            // 窗口内持续记录最近前台的 B 站 Activity：定位路由的发起来源（BAL 合规）。
+            if (activity.packageName == TARGET_PACKAGE) {
+                lastResumedBiliActivityRef = WeakReference(activity)
+            }
             onLocateHostResumed(activity, route)
         }
 
@@ -1110,16 +1120,36 @@ internal class ReplyTopologyCoordinator(
     private var locateResumeGate: LocateResumeGate? = null
     private var locateResumeGateApp: WeakReference<Application>? = null
 
+    /** 窗口内最近进入前台的 B 站 Activity：定位路由从此发起，避开已停止页面被 BAL 拒绝。 */
+    private var lastResumedBiliActivityRef: WeakReference<Activity>? = null
+
+    /**
+     * 解析定位路由的发起 Activity。面板正常态下其宿主即前台页；定位未确认期间宿主
+     * 可能已被 CLEAR_TOP 覆盖为 stopped——从已停止页面发起会被系统 BAL 拒绝（实测
+     * result=-91 且静默），此时改用窗口内最近前台页。
+     */
+    private fun resolveLocateSourceActivity(state: Active): Activity? {
+        val host = state.activityRef.get() ?: return null
+        if (state.pendingLocateRpid == null) return host
+        return lastResumedBiliActivityRef?.get()
+            ?.takeUnless { it.isFinishing || it.isDestroyed }
+            ?: host
+    }
+
     /** 仅在定位窗口内经宿主公开 Application API 注册；不新增 Hook、不持 Activity 引用。 */
     private fun registerLocateResumeGate(state: Active, route: String) {
         unregisterLocateResumeGate()
         val activity = state.activityRef.get() ?: return
         val application = runCatching { activity.application }.getOrNull() ?: return
+        lastResumedBiliActivityRef = WeakReference(activity)
         val gate = LocateResumeGate(route)
         val registered = runCatching {
             application.registerActivityLifecycleCallbacks(gate)
         }.isSuccess
-        if (!registered) return
+        if (!registered) {
+            lastResumedBiliActivityRef = null
+            return
+        }
         locateResumeGate = gate
         locateResumeGateApp = WeakReference(application)
     }
@@ -1391,10 +1421,15 @@ internal class ReplyTopologyCoordinator(
         val pendingRpid = state.pendingLocateRpid
         if (pendingRpid != null) {
             if (pendingRpid == rpid) return
-            if (now - state.pendingLocateStartedAtMs < LOCATE_RESTART_MIN_INTERVAL_MS) return
+            if (now - state.pendingLocateStartedAtMs < LOCATE_RESTART_MIN_INTERVAL_MS) {
+                // 节流命中仍更新选中高亮，让点击有可见反馈而非静默无响应。
+                state.selectedRpid = rpid
+                state.panelSession?.let { panelController.selectAndReveal(it, rpid) }
+                return
+            }
             cancelRebindWindow(state)
         }
-        val activity = state.activityRef.get() ?: return
+        val activity = resolveLocateSourceActivity(state) ?: return
         state.selectedRpid = rpid
         state.panelSession?.let { panelController.selectAndReveal(it, rpid) }
         updatePanelState(
@@ -1546,6 +1581,7 @@ internal class ReplyTopologyCoordinator(
         state.timeout?.let { mainHandler.removeCallbacks(it.runnable) }
         state.timeout = null
         unregisterLocateResumeGate()
+        lastResumedBiliActivityRef = null
         state.rebindRunnable?.let(mainHandler::removeCallbacks)
         state.rebindRunnable = null
         state.currentCall?.call?.cancel()
