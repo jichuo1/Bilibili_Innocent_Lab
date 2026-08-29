@@ -261,7 +261,7 @@ internal class ReplyTopologyNodeRow(
 
         authorView.apply {
             textSize = 13f
-            setTextColor(theme.primaryTextColor)
+            setTextColor(theme.authorTextColor)
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
             includeFontPadding = false
@@ -295,7 +295,8 @@ internal class ReplyTopologyNodeRow(
         placeholder: Boolean
     ) {
         authorView.text = if (root) "${strings.rootPrefix} · $title" else title
-        authorView.setTextColor(if (root) theme.accentColor else theme.primaryTextColor)
+        // 作者名相对正文弱化一档（root 作者名保留主题强调色作为主评论锚点）。
+        authorView.setTextColor(if (root) theme.accentColor else theme.authorTextColor)
         messageView.text = message
         messageView.alpha = if (placeholder) 0.72f else 1f
         metaView.text = meta
