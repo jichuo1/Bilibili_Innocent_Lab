@@ -354,6 +354,11 @@ internal class ReplyTopologyNodeRow(
         messageView.setOnLongClickListener(
             listener?.let { block -> View.OnLongClickListener { view -> block(view) } }
         )
+        // setOnLongClickListener 会把正文置为 LONG_CLICKABLE——onTouchEvent 由此消费
+        // 整个触摸序列且 UP 只走 performClick（本行未设 onClickListener 则什么都不发生），
+        // 行容器的点击监听收不到正文区域的单击。转发单击回行容器恢复选中热区；
+        // 长按监听独立于此路径，两者在同一 View 上共存。
+        messageView.setOnClickListener { performClick() }
     }
 
     fun clearContent() {
