@@ -47,6 +47,12 @@ internal class ReplyTopologyWorkflowAdapter(
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): NodeHolder {
         val row = ReplyTopologyNodeRow(parent.context, theme, strings)
+        // LinearLayoutManager 的默认条目宽度是 WRAP_CONTENT，会让点击判定区只覆盖文字块；
+        // 显式占满整行后，左侧轨道区和右侧留白都属于同一热区。
+        row.layoutParams = RecyclerView.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
         val holder = NodeHolder(row)
         row.setOnClickListener {
             val position = holder.bindingAdapterPosition
