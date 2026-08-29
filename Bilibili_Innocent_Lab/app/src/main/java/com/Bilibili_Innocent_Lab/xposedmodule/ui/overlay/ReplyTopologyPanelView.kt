@@ -53,9 +53,12 @@ internal class ReplyTopologyPanelView(
     private val retryView = actionChip(strings.retry)
     private val continueView = actionChip(strings.continueLoading)
     private val recyclerView = RecyclerView(context)
-    private val workflowAdapter = ReplyTopologyWorkflowAdapter(theme, strings) { rpid ->
-        panelListener?.onNodeSelected(rpid)
-    }
+    private val workflowAdapter = ReplyTopologyWorkflowAdapter(
+        theme,
+        strings,
+        { rpid -> panelListener?.onNodeSelected(rpid) },
+        { anchor, _, text -> panelListener?.onNodeFullTextRequested(anchor, text) }
+    )
     private val trackDecoration = ReplyTopologyTrackDecoration(workflowAdapter, theme, density)
 
     private var panelListener: ReplyTopologyPanelListener? = listener

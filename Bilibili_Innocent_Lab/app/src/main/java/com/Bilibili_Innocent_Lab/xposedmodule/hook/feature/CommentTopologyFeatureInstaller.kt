@@ -16,6 +16,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
@@ -1065,6 +1066,18 @@ internal class ReplyTopologyCoordinator(
                 locateReply(state.token, rpid)
             }
 
+            override fun onNodeFullTextRequested(anchor: android.view.View, text: CharSequence) {
+                // 复用自由复制气泡的完整 UI/动画/防越界/防泄漏链路；失败 fail-open 不影响面板。
+                runCatching {
+                    HookEntry.showReplyTraceBubble(anchor, text)
+                }.onFailure { throwable ->
+                    environment.logError(
+                        "comment_topology_full_text",
+                        "[BIL] 脉络全文气泡弹出失败: $throwable"
+                    )
+                }
+            }
+
             override fun onRetryRequested() {
                 restartLoading(state.token, extended = false)
             }
@@ -1082,6 +1095,8 @@ internal class ReplyTopologyCoordinator(
             }
 
             override fun onClosed(reason: ReplyTopologyPanelCloseReason) {
+                // 面板关闭/跨页迁移时收尾由脉络弹出的全文气泡，防孤儿弹窗；幂等。
+                runCatching { HookEntry.dismissReplyTraceBubbleIfShowing() }
                 val panel = panelRef.get()
                 val current = active
                 if (current?.token != state.token) return

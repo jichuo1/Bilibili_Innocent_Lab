@@ -439,6 +439,12 @@ internal enum class ReplyTopologyPanelCloseReason {
  */
 internal interface ReplyTopologyPanelListener {
     fun onNodeSelected(rpid: Long) = Unit
+
+    /**
+     * 长按节点请求查看完整评论文本。anchor 为节点行视图（自由复制气泡的定位锚点），
+     * text 为该节点当前绑定的完整纯文本。实现方负责弹出气泡并自行 fail-open。
+     */
+    fun onNodeFullTextRequested(anchor: android.view.View, text: CharSequence) = Unit
     fun onRetryRequested() = Unit
     fun onContinueRequested() = Unit
     fun onOpacityCommitted(opacity: Float) = Unit

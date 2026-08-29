@@ -28,12 +28,16 @@ import kotlin.math.roundToInt
 internal class ReplyTopologyWorkflowAdapter(
     private val theme: ReplyTopologyPanelTheme,
     private val strings: ReplyTopologyPanelStrings,
-    onNodeClick: (Long) -> Unit
+    onNodeClick: (Long) -> Unit,
+    onNodeLongPress: (anchor: View, rpid: Long, text: String) -> Unit = { _, _, _ -> }
 ) : RecyclerView.Adapter<ReplyTopologyWorkflowAdapter.NodeHolder>() {
 
     private var graph: ReplyTopologyGraph? = null
     private var selectedRpid: Long? = null
     private var nodeClick: ((Long) -> Unit)? = onNodeClick
+
+    /** 长按节点请求全文查看；anchor 为节点行（气泡定位锚点），text 为该行当前完整文本。 */
+    private var nodeLongPress: ((anchor: View, rpid: Long, text: String) -> Unit)? = onNodeLongPress
     private val timeCache = LruCache<Long, String>(96)
     private val timeFormat = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
 
@@ -64,6 +68,21 @@ internal class ReplyTopologyWorkflowAdapter(
             selectRpid(rpid)
             nodeClick?.invoke(rpid)
         }
+        // 长按正文 = 选中该节点并请求全文气泡（选项 2：一次手势完成，不触发定位路由）。
+        // 触感反馈先行确认手势，气泡从行下方以既有缩放+淡入动画生长，衔接不突兀。
+        row.setOnMessageLongPress { anchor ->
+            val current = graph ?: return@setOnMessageLongPress false
+            val position = holder.bindingAdapterPosition
+            if (position == RecyclerView.NO_POSITION || position !in 0 until current.size) {
+                return@setOnMessageLongPress false
+            }
+            val text = holder.boundMessage ?: return@setOnMessageLongPress false
+            val rpid = current.rpids[position]
+            selectRpid(rpid)
+            anchor.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            nodeLongPress?.invoke(anchor, rpid, text)
+            true
+        }
         return holder
     }
 
@@ -80,6 +99,7 @@ internal class ReplyTopologyWorkflowAdapter(
     }
 
     override fun onViewRecycled(holder: NodeHolder) {
+        holder.boundMessage = null
         holder.row.clearContent()
     }
 
@@ -127,6 +147,7 @@ internal class ReplyTopologyWorkflowAdapter(
 
     fun release() {
         nodeClick = null
+        nodeLongPress = null
         selectedRpid = null
         graph = null
         timeCache.evictAll()
@@ -163,6 +184,8 @@ internal class ReplyTopologyWorkflowAdapter(
             }
         }
         val meta = buildMeta(current, position, flags)
+        // 占位/被过滤/不可见节点展示的是提示文案而非评论文本，不提供全文查看入口。
+        holder.boundMessage = if (placeholder || filtered || unavailable) null else message
         holder.row.bind(
             title = title,
             message = message,
@@ -231,7 +254,11 @@ internal class ReplyTopologyWorkflowAdapter(
         return RecyclerView.NO_POSITION
     }
 
-    internal class NodeHolder(val row: ReplyTopologyNodeRow) : RecyclerView.ViewHolder(row)
+    internal class NodeHolder(val row: ReplyTopologyNodeRow) : RecyclerView.ViewHolder(row) {
+
+        /** 当前行绑定的完整评论文本；占位/被过滤/不可见节点为 null（无全文可看）。 */
+        var boundMessage: String? = null
+    }
 
     private companion object {
         val SELECTION_PAYLOAD = Any()
@@ -311,6 +338,13 @@ internal class ReplyTopologyNodeRow(
     fun setSelectedState(selected: Boolean) {
         isActivated = selected
         setBackgroundColor(if (selected) theme.selectedColor else Color.TRANSPARENT)
+    }
+
+    /** 长按正文请求全文查看；作者名/元信息行不触发，避免误触。 */
+    fun setOnMessageLongPress(listener: ((anchor: View) -> Boolean)?) {
+        messageView.setOnLongClickListener(
+            listener?.let { block -> View.OnLongClickListener { view -> block(view) } }
+        )
     }
 
     fun clearContent() {
