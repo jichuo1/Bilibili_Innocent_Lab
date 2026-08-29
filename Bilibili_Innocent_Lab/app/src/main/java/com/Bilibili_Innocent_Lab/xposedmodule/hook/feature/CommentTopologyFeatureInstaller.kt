@@ -2,11 +2,13 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.Application
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -1033,23 +1035,102 @@ internal class ReplyTopologyCoordinator(
         // 源页面可能在启动路由后再次 bind 同一根评论，不能把它误认为目标详情页。
         // 同 Activity 导航时面板仍在原 decor，等待窗口结束后恢复稳态即可。
         if (current.activityRef.get() === activity) return
-        current.rebindInProgress = true
-        val panel = attachPanel(activity, current)
-        if (panel == null) {
-            current.rebindInProgress = false
-            return
+        migratePanelTo(current, activity)
+    }
+
+    /**
+     * 把面板迁移到新的宿主 Activity 并结束定位窗口。迁移失败（attach 异常等）返回
+     * false 且保持 pendingLocateRpid，等待 bind 兜底或超时恢复；成功则状态文字与
+     * 选中节点随面板原样迁入新页。
+     */
+    private fun migratePanelTo(state: Active, activity: Activity): Boolean {
+        if (activity.isFinishing || activity.isDestroyed || activity.packageName != TARGET_PACKAGE) {
+            return false
         }
-        current.activityRef = WeakReference(activity)
-        current.panelSession = panel
-        current.rebindRunnable?.let(mainHandler::removeCallbacks)
-        current.rebindRunnable = null
-        current.pendingLocateRpid = null
-        current.detachedWhileRebind = false
-        current.rebindInProgress = false
-        current.graph?.let {
-            panelController.submit(panel, ReplyTopologyRenderSnapshot(it, current.selectedRpid))
+        state.rebindInProgress = true
+        val panel = try {
+            attachPanel(activity, state)
+        } finally {
+            state.rebindInProgress = false
         }
-        panelController.updateState(panel, current.panelState)
+        if (panel == null) return false
+        state.activityRef = WeakReference(activity)
+        state.panelSession = panel
+        state.rebindRunnable?.let(mainHandler::removeCallbacks)
+        state.rebindRunnable = null
+        state.pendingLocateRpid = null
+        state.detachedWhileRebind = false
+        unregisterLocateResumeGate()
+        state.graph?.let {
+            panelController.submit(panel, ReplyTopologyRenderSnapshot(it, state.selectedRpid))
+        }
+        panelController.updateState(panel, state.panelState)
+        return true
+    }
+
+    /** LocateResumeGate 的确认回调：intent.data 与本次路由一致的新宿主 resume 即迁移。 */
+    private fun onLocateHostResumed(activity: Activity, route: String) {
+        val current = active ?: return
+        if (current.pendingLocateRpid == null || !gate.accepts(current.token)) return
+        if (activity.packageName != TARGET_PACKAGE) return
+        if (current.activityRef.get() === activity) return
+        val resumedRoute = runCatching { activity.intent?.data?.toString() }.getOrNull() ?: return
+        if (resumedRoute != route) return
+        migratePanelTo(current, activity)
+    }
+
+    /**
+     * 定位窗口内经宿主公开 Application API 注册的生命周期监听，不新增 Hook。
+     * deep link 详情页会直接锚定到深层回复，主评论可能长期不进入 bind 视口，仅靠
+     * bind 确认会让面板滞留在已销毁的旧页面直至超时关闭。新宿主 Activity 的
+     * intent.data 与本次路由一致时提前确认迁移，面板跟随用户实际看到的页面。
+     * 只在窗口内存活，不持有任何 Activity 引用。
+     */
+    private inner class LocateResumeGate(
+        private val route: String
+    ) : Application.ActivityLifecycleCallbacks {
+
+        override fun onActivityResumed(activity: Activity) {
+            onLocateHostResumed(activity, route)
+        }
+
+        override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+
+        override fun onActivityStarted(activity: Activity) = Unit
+
+        override fun onActivityPaused(activity: Activity) = Unit
+
+        override fun onActivityStopped(activity: Activity) = Unit
+
+        override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+
+        override fun onActivityDestroyed(activity: Activity) = Unit
+    }
+
+    private var locateResumeGate: LocateResumeGate? = null
+    private var locateResumeGateApp: WeakReference<Application>? = null
+
+    /** 仅在定位窗口内经宿主公开 Application API 注册；不新增 Hook、不持 Activity 引用。 */
+    private fun registerLocateResumeGate(state: Active, route: String) {
+        unregisterLocateResumeGate()
+        val activity = state.activityRef.get() ?: return
+        val application = runCatching { activity.application }.getOrNull() ?: return
+        val gate = LocateResumeGate(route)
+        val registered = runCatching {
+            application.registerActivityLifecycleCallbacks(gate)
+        }.isSuccess
+        if (!registered) return
+        locateResumeGate = gate
+        locateResumeGateApp = WeakReference(application)
+    }
+
+    private fun unregisterLocateResumeGate() {
+        val gate = locateResumeGate ?: return
+        locateResumeGate = null
+        locateResumeGateApp?.get()?.let { application ->
+            runCatching { application.unregisterActivityLifecycleCallbacks(gate) }
+        }
+        locateResumeGateApp = null
     }
 
     private fun attachPanel(activity: Activity, state: Active): ReplyTopologyPanelSession? {
@@ -1356,6 +1437,7 @@ internal class ReplyTopologyCoordinator(
             }
         )
         if (!launched) return
+        registerLocateResumeGate(state, uri.toString())
         val rebindTimeout = Runnable {
             val current = active
             if (current !== state || current.pendingLocateRpid == null) return@Runnable
@@ -1373,6 +1455,7 @@ internal class ReplyTopologyCoordinator(
         state.rebindRunnable?.let(mainHandler::removeCallbacks)
         state.rebindRunnable = null
         state.pendingLocateRpid = null
+        unregisterLocateResumeGate()
     }
 
     private fun scheduleGraphBuild(state: Active) {
@@ -1410,6 +1493,7 @@ internal class ReplyTopologyCoordinator(
         state.rebindRunnable?.let(mainHandler::removeCallbacks)
         state.rebindRunnable = null
         state.pendingLocateRpid = null
+        unregisterLocateResumeGate()
         val panel = state.panelSession
         if (state.detachedWhileRebind || panel == null || !panelController.isAttached(panel)) {
             close(state.token)
@@ -1461,6 +1545,7 @@ internal class ReplyTopologyCoordinator(
     private fun releaseState(state: Active, reason: ReplyTopologyPanelCloseReason) {
         state.timeout?.let { mainHandler.removeCallbacks(it.runnable) }
         state.timeout = null
+        unregisterLocateResumeGate()
         state.rebindRunnable?.let(mainHandler::removeCallbacks)
         state.rebindRunnable = null
         state.currentCall?.call?.cancel()
