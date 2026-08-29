@@ -20,6 +20,12 @@ CATEGORIES = (
     ("优化", frozenset({"perf", "refactor"})),
     ("构建与维护", frozenset({"build", "chore", "ci", "docs", "test"})),
 )
+CATEGORY_ICONS = {
+    "新增": "✨",
+    "修复": "🛠️",
+    "优化": "⚡",
+    "构建与维护": "🧱",
+}
 
 
 def parse_stable_tag(tag: str) -> tuple[int, int, int] | None:
@@ -92,7 +98,7 @@ def render_categorized_entries(entries: Iterable[tuple[str, str]], repository_ur
 
     sections: list[str] = []
     for category, _ in CATEGORIES:
-        sections.extend([f"### {category}", ""])
+        sections.extend([f"### {CATEGORY_ICONS[category]} {category}", ""])
         sections.extend(grouped[category] or ["- 无"])
         sections.append("")
     return "\n".join(sections).rstrip()
@@ -146,7 +152,7 @@ def build_changelog(
 
     return (
         f"{categorized}\n\n"
-        f"- [查看从 `{previous_stable}` 到本次提交的完整差异]"
+        f"> [查看从 `{previous_stable}` 到本次提交的完整差异]"
         f"({repository_url}/compare/{previous_stable}...{commit})"
     )
 
