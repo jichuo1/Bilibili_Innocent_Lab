@@ -8,11 +8,15 @@
 ## 固定规则
 
 1. 标题只使用版本号：Stable 为 `vX.Y.Z`，Alpha 为 `vX.Y.Z-alpha.N`。
-2. 章节顺序固定，不得删除章节；没有内容时明确写“无”。
+2. 正文结构固定：居中标题区（英文 Emoji 标题 Stable 🧬 / Alpha 🧪 ＋斜体副标）、一句概述
+   （Stable）或 WARNING 风险提示（Alpha）、自动变更记录、分隔线后的下载与反馈两小节、
+   居中小字脚注；安装说明用 `> [!TIP]` 提示框承载。不写 README 中的功能介绍与项目信条，
+   不堆砌兼容性、已知问题、验证结果等长章节。
 3. “版本概述”只写 2～4 句，说明本版本解决了什么问题，不堆砌实现细节。
 4. 每项更新以用户可感知的结果开头，必要时再补充技术原因。
-5. Stable 必须写明兼容性、已知问题、验证结果、升级方式和 SHA-256。
-6. Alpha 必须写明测试目标、潜在风险、回滚方式和反馈所需信息，并明确不会作为稳定更新推送。
+5. Stable 必须包含版本概述与 APK SHA-256；兼容性与验证细节由附件 `BUILD_INFO.txt`、
+   `SHA256SUMS.txt` 和仓库文档承载。
+6. Alpha 必须保留 WARNING 风险提示与回滚说明，并明确不会作为稳定更新推送。
 7. Alpha Release 上传 APK、`BUILD_INFO.txt` 与 `SHA256SUMS.txt`；APK 文件名必须包含
    完整版本号和源码短 SHA。
 8. 发布前删除模板中的填写提示，并确认没有残留 `{{TOKEN}}` 占位符。
@@ -23,7 +27,7 @@
 11. Stable 只通过手动运行 `Build and publish Stable` 发布；标签必须与源码中的稳定
     `versionName` 完全一致，`versionCode` 必须在发布提交中完成递增，不允许由工作流临时覆盖。
 12. Stable 工作流会按 Conventional Commits 分类生成变更记录，发布者仍必须填写 2～4 句
-    `release_summary`；云端验证结果与待真机确认范围由模板明确区分。
+    `release_summary`；变更记录由工作流自动分类生成。
 13. Alpha/Stable 工作流只发布主仓库 Release，不再自动调用 LSPosed 同步。需要同步时单独
     运行 `sync-lsposed-release.yml`，目标标签固定为 `<versionCode>-<versionName>`，不得手工
     猜测 versionCode。
@@ -46,8 +50,8 @@ Markdown 变更记录文件并增加：
   --changelog-file ALPHA_CHANGELOG.md
 ```
 
-Stable 工作流使用 `generate_stable_changelog.py` 查找上一正式标签，并按“新增、修复、优化、
-构建与维护”生成固定章节。`stable.md` 同时要求 `--release-summary` 和
+Stable 工作流使用 `generate_stable_changelog.py` 查找上一正式标签，并按 “✨ 新增、🛠️ 修复、
+⚡ 优化、🧱 构建与维护” 生成固定章节。`stable.md` 同时要求 `--release-summary` 和
 `--changelog-file`，缺少任一内容或残留占位符都会终止发布。
 
 渲染示例：
