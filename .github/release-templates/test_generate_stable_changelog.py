@@ -42,9 +42,10 @@ class GenerateStableChangelogTest(unittest.TestCase):
             "https://github.com/example/repository",
         )
         self.assertEqual(1, changelog.count("feat(ui): add entry"))
-        self.assertIn("### 新增", changelog)
-        self.assertIn("### 修复", changelog)
-        self.assertIn("### 优化\n\n- 无", changelog)
+        self.assertIn("### ✨ 新增", changelog)
+        self.assertIn("### 🛠️ 修复", changelog)
+        self.assertIn("### ⚡ 优化\n\n- 无", changelog)
+        self.assertIn("### 🧱 构建与维护", changelog)
         self.assertIn("https://github.com/example/repository/commit/", changelog)
 
 
