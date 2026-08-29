@@ -251,7 +251,7 @@ Bilibili Innocent Lab 是一个面向 Android 哔哩哔哩客户端的 Xposed/LS
 | Root / Hook 环境 | 建议使用 Magisk + LSPosed |
 | 目标应用 | 官方 Android 哔哩哔哩，包名 `tv.danmaku.bili` |
 | 模块框架 | Xposed / LSPosed 兼容环境 |
-| 已验证客户端 | 8.90.2、9.0.0，以及 9.1.0～9.9.0 的主要版本路径 |
+| 已验证客户端 | 8.84.0～9.9.0 的主要版本路径 |
 | 漫游扩展 | 需要用户另行安装并启用兼容的哔哩漫游版本 |
 | 预见式返回 | 主要面向 AOSP Android 14 及以上系统 |
 
