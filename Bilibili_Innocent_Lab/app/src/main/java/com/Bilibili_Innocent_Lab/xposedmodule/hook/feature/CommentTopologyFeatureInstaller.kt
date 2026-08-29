@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Color
-import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -17,6 +16,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.core.net.toUri
 import androidx.recyclerview.widget.RecyclerView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
@@ -1432,6 +1432,23 @@ internal class ReplyTopologyCoordinator(
         val activity = resolveLocateSourceActivity(state) ?: return
         state.selectedRpid = rpid
         state.panelSession?.let { panelController.selectAndReveal(it, rpid) }
+        // 跨版本路由构造 + 可解析预检：不可解析的宿主版本上 startActivity 会被系统
+        // 静默拒绝（实测 result=-91 且无任何用户反馈），必须显式预检并给出提示。
+        val route = buildReplyTopologyLocateRoute(token.key, rpid) ?: return
+        val intent = Intent(Intent.ACTION_VIEW, route.toUri())
+            .setPackage(TARGET_PACKAGE)
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        val resolved = runCatching {
+            intent.resolveActivity(activity.packageManager) != null
+        }.getOrDefault(false)
+        if (!resolved) {
+            environment.logInfo(
+                "comment_topology_route_unsupported",
+                "[BIL] 回复定位入口不可解析，未启动外部 Activity"
+            )
+            restoreSteadyPanelState(state, state.strings.locateUnsupportedMessage)
+            return
+        }
         updatePanelState(
             state,
             ReplyTopologyPanelState.locating(
@@ -1439,26 +1456,13 @@ internal class ReplyTopologyCoordinator(
                 message = state.strings.locatingMessage
             )
         )
-        val uri = Uri.Builder()
-            .scheme("bilibili")
-            .authority("comment3")
-            .appendPath("detail")
-            .appendPath(token.key.oid.toString())
-            .appendPath(token.key.type.toString())
-            .appendPath(token.key.rootRpid.toString())
-            .appendQueryParameter("rp_id", rpid.toString())
-            .build()
         state.pendingLocateRpid = rpid
         state.pendingLocateStartedAtMs = now
         state.detachedWhileRebind = false
         state.rebindDeadlineMs = now + REBIND_WINDOW_MS
         val launched = runCatching {
             // CLEAR_TOP：跨目标重定位在原层重建详情页，返回栈不随连续定位叠加。
-            activity.startActivity(
-                Intent(Intent.ACTION_VIEW, uri)
-                    .setPackage(TARGET_PACKAGE)
-                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            )
+            activity.startActivity(intent)
         }.fold(
             onSuccess = { true },
             onFailure = { throwable ->
@@ -1472,7 +1476,7 @@ internal class ReplyTopologyCoordinator(
             }
         )
         if (!launched) return
-        registerLocateResumeGate(state, uri.toString())
+        registerLocateResumeGate(state, route)
         val rebindTimeout = Runnable {
             val current = active
             if (current !== state || current.pendingLocateRpid == null) return@Runnable
@@ -1537,7 +1541,7 @@ internal class ReplyTopologyCoordinator(
         }
     }
 
-    private fun restoreSteadyPanelState(state: Active) {
+    private fun restoreSteadyPanelState(state: Active, message: String? = null) {
         val loaded = loadedCount(state)
         updatePanelState(
             state,
@@ -1545,12 +1549,18 @@ internal class ReplyTopologyCoordinator(
                 state.complete -> ReplyTopologyPanelState(
                     ReplyTopologyPanelPhase.COMPLETE,
                     loaded,
-                    state.expectedCount ?: loaded
+                    state.expectedCount ?: loaded,
+                    message
                 )
-                state.loadingRequest -> ReplyTopologyPanelState.loading(loaded, state.expectedCount)
-                else -> ReplyTopologyPanelState.partial(
+                state.loadingRequest -> ReplyTopologyPanelState.loading(
                     loaded,
                     state.expectedCount,
+                    message
+                )
+                else -> ReplyTopologyPanelState.partial(
+                    loadedCount = loaded,
+                    expectedCount = state.expectedCount,
+                    message = message,
                     canRetry = state.nextOffset != null
                 )
             }
