@@ -58,13 +58,20 @@ internal class ReplyTopologyWorkflowAdapter(
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
         val holder = NodeHolder(row)
+        // bindingAdapterPosition 在分页 notify、图重建、跳滚布局等窗口内会短暂返回
+        // NO_POSITION——此时以该行绑定时缓存的 rpid/文本兜底：行内容即绑定节点，
+        // 语义确定，点击与长按都不丢。
         row.setOnClickListener {
-            val position = holder.bindingAdapterPosition
             val current = graph
-            if (position == RecyclerView.NO_POSITION || current == null || position !in 0 until current.size) {
-                return@setOnClickListener
-            }
-            val rpid = current.rpids[position]
+            val position = holder.bindingAdapterPosition
+            val rpid = if (current != null &&
+                position != RecyclerView.NO_POSITION &&
+                position in 0 until current.size
+            ) {
+                current.rpids[position]
+            } else {
+                holder.boundRpid.takeIf { it != RecyclerView.NO_ID }
+            } ?: return@setOnClickListener
             selectRpid(rpid)
             nodeClick?.invoke(rpid)
         }
@@ -73,13 +80,9 @@ internal class ReplyTopologyWorkflowAdapter(
         // 复制的长按拦截窗口内，该反馈不会被模块的 performHapticFeedback hook 拦截，
         // 因此这里绝不能再手动补一次触感，否则会双重震动。
         row.setOnMessageLongPress { anchor ->
-            val current = graph ?: return@setOnMessageLongPress false
-            val position = holder.bindingAdapterPosition
-            if (position == RecyclerView.NO_POSITION || position !in 0 until current.size) {
-                return@setOnMessageLongPress false
-            }
             val text = holder.boundMessage ?: return@setOnMessageLongPress false
-            val rpid = current.rpids[position]
+            val rpid = holder.boundRpid.takeIf { it != RecyclerView.NO_ID }
+                ?: return@setOnMessageLongPress false
             selectRpid(rpid)
             nodeLongPress?.invoke(anchor, rpid, text)
             true
@@ -101,6 +104,7 @@ internal class ReplyTopologyWorkflowAdapter(
 
     override fun onViewRecycled(holder: NodeHolder) {
         holder.boundMessage = null
+        holder.boundRpid = RecyclerView.NO_ID
         holder.row.clearContent()
     }
 
@@ -157,7 +161,8 @@ internal class ReplyTopologyWorkflowAdapter(
     private fun bind(holder: NodeHolder, position: Int, selectionOnly: Boolean) {
         val current = graph ?: return
         if (position !in 0 until current.size) return
-        val selected = current.rpids[position] == selectedRpid
+        holder.boundRpid = current.rpids[position]
+        val selected = holder.boundRpid == selectedRpid
         if (selectionOnly) {
             holder.row.setSelectedState(selected)
             return
@@ -259,6 +264,9 @@ internal class ReplyTopologyWorkflowAdapter(
 
         /** 当前行绑定的完整评论文本；占位/被过滤/不可见节点为 null（无全文可看）。 */
         var boundMessage: String? = null
+
+        /** 当前行绑定的节点 rpid；点击/长按在 position 短暂失效时的确定性兜底。 */
+        var boundRpid: Long = RecyclerView.NO_ID
     }
 
     private companion object {
