@@ -1019,7 +1019,12 @@ internal class ReplyTopologyCoordinator(
             return
         }
         val current = active ?: return
-        if (!gate.accepts(current.token) || !current.pendingRebind || current.token.key != key) return
+        if (!gate.accepts(current.token) ||
+            current.pendingLocateRpid == null ||
+            current.token.key != key
+        ) {
+            return
+        }
         if (SystemClock.elapsedRealtime() > current.rebindDeadlineMs) {
             finishRebindWindow(current)
             return
@@ -1038,7 +1043,7 @@ internal class ReplyTopologyCoordinator(
         current.panelSession = panel
         current.rebindRunnable?.let(mainHandler::removeCallbacks)
         current.rebindRunnable = null
-        current.pendingRebind = false
+        current.pendingLocateRpid = null
         current.detachedWhileRebind = false
         current.rebindInProgress = false
         current.graph?.let {
@@ -1101,7 +1106,9 @@ internal class ReplyTopologyCoordinator(
                 val current = active
                 if (current?.token != state.token) return
                 if (current.rebindInProgress && reason == ReplyTopologyPanelCloseReason.REPLACED) return
-                if (current.pendingRebind && reason == ReplyTopologyPanelCloseReason.HOST_DETACHED) {
+                if (current.pendingLocateRpid != null &&
+                    reason == ReplyTopologyPanelCloseReason.HOST_DETACHED
+                ) {
                     current.detachedWhileRebind = true
                     if (panel != null && current.panelSession == panel) current.panelSession = null
                     return
@@ -1296,7 +1303,16 @@ internal class ReplyTopologyCoordinator(
 
     private fun locateReply(token: ReplyTopologySessionToken, rpid: Long) {
         val state = active?.takeIf { it.token == token } ?: return
-        if (state.pendingRebind) return
+        val now = SystemClock.elapsedRealtime()
+        // 目标感知防抖：同目标重复点击忽略；跨目标点击在最小间隔后允许重定向。
+        // 旧全局锁（pendingRebind 布尔）会让深层锚定场景（主评论不在视口、bind 确认
+        // 迟迟不来）出现长达 5s 的点击死区。
+        val pendingRpid = state.pendingLocateRpid
+        if (pendingRpid != null) {
+            if (pendingRpid == rpid) return
+            if (now - state.pendingLocateStartedAtMs < LOCATE_RESTART_MIN_INTERVAL_MS) return
+            cancelRebindWindow(state)
+        }
         val activity = state.activityRef.get() ?: return
         state.selectedRpid = rpid
         state.panelSession?.let { panelController.selectAndReveal(it, rpid) }
@@ -1316,15 +1332,21 @@ internal class ReplyTopologyCoordinator(
             .appendPath(token.key.rootRpid.toString())
             .appendQueryParameter("rp_id", rpid.toString())
             .build()
-        state.pendingRebind = true
+        state.pendingLocateRpid = rpid
+        state.pendingLocateStartedAtMs = now
         state.detachedWhileRebind = false
-        state.rebindDeadlineMs = SystemClock.elapsedRealtime() + REBIND_WINDOW_MS
+        state.rebindDeadlineMs = now + REBIND_WINDOW_MS
         val launched = runCatching {
-            activity.startActivity(Intent(Intent.ACTION_VIEW, uri).setPackage(TARGET_PACKAGE))
+            // CLEAR_TOP：跨目标重定位在原层重建详情页，返回栈不随连续定位叠加。
+            activity.startActivity(
+                Intent(Intent.ACTION_VIEW, uri)
+                    .setPackage(TARGET_PACKAGE)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            )
         }.fold(
             onSuccess = { true },
             onFailure = { throwable ->
-                state.pendingRebind = false
+                cancelRebindWindow(state)
                 environment.logError(
                     "comment_topology_route",
                     "[BIL] 回复定位失败: $throwable"
@@ -1336,13 +1358,21 @@ internal class ReplyTopologyCoordinator(
         if (!launched) return
         val rebindTimeout = Runnable {
             val current = active
-            if (current !== state || !current.pendingRebind) return@Runnable
+            if (current !== state || current.pendingLocateRpid == null) return@Runnable
             if (SystemClock.elapsedRealtime() >= current.rebindDeadlineMs) {
                 finishRebindWindow(current)
             }
         }
+        state.rebindRunnable?.let(mainHandler::removeCallbacks)
         state.rebindRunnable = rebindTimeout
         mainHandler.postDelayed(rebindTimeout, REBIND_WINDOW_MS)
+    }
+
+    /** 撤销当前未确认定位的窗口（超时回调与目标记录），不改变面板迁移保活状态。 */
+    private fun cancelRebindWindow(state: Active) {
+        state.rebindRunnable?.let(mainHandler::removeCallbacks)
+        state.rebindRunnable = null
+        state.pendingLocateRpid = null
     }
 
     private fun scheduleGraphBuild(state: Active) {
@@ -1376,10 +1406,10 @@ internal class ReplyTopologyCoordinator(
     }
 
     private fun finishRebindWindow(state: Active) {
-        if (active !== state || !state.pendingRebind) return
+        if (active !== state || state.pendingLocateRpid == null) return
         state.rebindRunnable?.let(mainHandler::removeCallbacks)
         state.rebindRunnable = null
-        state.pendingRebind = false
+        state.pendingLocateRpid = null
         val panel = state.panelSession
         if (state.detachedWhileRebind || panel == null || !panelController.isAttached(panel)) {
             close(state.token)
@@ -1489,7 +1519,10 @@ internal class ReplyTopologyCoordinator(
         var selectedRpid: Long? = null,
         var loadingRequest: Boolean = false,
         var complete: Boolean = false,
-        var pendingRebind: Boolean = false,
+
+        /** 当前未确认定位的目标节点；null=无未确认定位。防抖与可重定向以此判定。 */
+        var pendingLocateRpid: Long? = null,
+        var pendingLocateStartedAtMs: Long = 0L,
         var rebindDeadlineMs: Long = 0L,
         var rebindInProgress: Boolean = false,
         var detachedWhileRebind: Boolean = false,
@@ -1513,6 +1546,13 @@ internal class ReplyTopologyCoordinator(
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val REQUEST_TIMEOUT_MS = 15_000L
         private const val REBIND_WINDOW_MS = 5_000L
+
+        /**
+         * 跨目标重定位的最小间隔：CLEAR_TOP 重建详情页约需数百毫秒，更快的连点是
+         * 手抖而非意图，节流掉以免宿主页面连续重建抖动。同目标重复点击不设间隔，
+         * 由目标防抖直接忽略。
+         */
+        private const val LOCATE_RESTART_MIN_INTERVAL_MS = 500L
         private const val HARD_NODE_LIMIT = 5_000
         private val AUTO_BUDGET = ReplyTopologyPagingBudget(
             maxPages = 60,
