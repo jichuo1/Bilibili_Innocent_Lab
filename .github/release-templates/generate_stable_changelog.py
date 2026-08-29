@@ -9,23 +9,18 @@ import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
+from release_note_common import (
+    CATEGORIES,
+    CATEGORY_ICONS,
+    CONVENTIONAL_SUBJECT_PATTERN,
+    category_for_subject,
+    escape_markdown_text,
+    is_build_maintenance,
+    translate_subject,
+)
+
 
 STABLE_TAG_PATTERN = re.compile(r"^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
-CONVENTIONAL_SUBJECT_PATTERN = re.compile(
-    r"^(?P<type>[a-z]+)(?:\([^)]+\))?(?:!)?:\s*(?P<description>.+)$"
-)
-CATEGORIES = (
-    ("新增", frozenset({"feat"})),
-    ("修复", frozenset({"fix"})),
-    ("优化", frozenset({"perf", "refactor"})),
-    ("构建与维护", frozenset({"build", "chore", "ci", "docs", "test"})),
-)
-CATEGORY_ICONS = {
-    "新增": "✨",
-    "修复": "🛠️",
-    "优化": "⚡",
-    "构建与维护": "🧱",
-}
 
 
 def parse_stable_tag(tag: str) -> tuple[int, int, int] | None:
@@ -61,28 +56,6 @@ def find_previous_stable(repo_root: Path, commit: str, release_tag: str) -> str 
     return max(candidates, default=None)[1] if candidates else None
 
 
-def escape_markdown_text(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("`", "\\`")
-
-
-def category_for_subject(subject: str) -> str:
-    match = CONVENTIONAL_SUBJECT_PATTERN.fullmatch(subject)
-    commit_type = match.group("type") if match is not None else ""
-    for category, commit_types in CATEGORIES:
-        if commit_type in commit_types:
-            return category
-    normalized = subject.strip().lower()
-    localized_prefixes = (
-        ("新增", ("新增", "添加", "实现", "引入")),
-        ("修复", ("修复", "解决", "纠正")),
-        ("优化", ("优化", "重构", "改进", "调整", "提升")),
-    )
-    for category, prefixes in localized_prefixes:
-        if normalized.startswith(prefixes):
-            return category
-    return "构建与维护"
-
-
 def render_categorized_entries(entries: Iterable[tuple[str, str]], repository_url: str) -> str:
     grouped: dict[str, list[str]] = {category: [] for category, _ in CATEGORIES}
     seen_subjects: set[str] = set()
@@ -90,17 +63,40 @@ def render_categorized_entries(entries: Iterable[tuple[str, str]], repository_ur
         if not commit_sha or not subject or subject in seen_subjects:
             continue
         seen_subjects.add(subject)
+        # 用户感知章节（新增/修复/优化）剔除纯维护条目；维护类单独折叠展示
+        if is_build_maintenance(subject):
+            grouped["构建与维护"].append(
+                f"- {escape_markdown_text(subject)} "
+                f"([`{commit_sha[:7]}`]({repository_url}/commit/{commit_sha}))"
+            )
+            continue
+        translated = translate_subject(subject) or subject
         category = category_for_subject(subject)
         grouped[category].append(
-            f"- {escape_markdown_text(subject)} "
+            f"- {escape_markdown_text(translated)} "
             f"([`{commit_sha[:7]}`]({repository_url}/commit/{commit_sha}))"
         )
 
     sections: list[str] = []
-    for category, _ in CATEGORIES:
+    # 用户感知章节在前，普通用户直接看到重点
+    for category in ("新增", "修复", "优化"):
         sections.extend([f"### {CATEGORY_ICONS[category]} {category}", ""])
         sections.extend(grouped[category] or ["- 无"])
         sections.append("")
+    # 维护类折叠，避免占据主要篇幅；有内容才输出
+    maintenance = grouped["构建与维护"]
+    if maintenance:
+        sections.extend(
+            [
+                "<details>",
+                "<summary>🧱 构建与维护</summary>",
+                "",
+                *maintenance,
+                "",
+                "</details>",
+                "",
+            ]
+        )
     return "\n".join(sections).rstrip()
 
 
