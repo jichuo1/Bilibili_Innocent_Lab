@@ -2123,6 +2123,15 @@ class HookEntry : IYukiHookXposedInit {
                 fullscreen.setOnClickListener {
                     // 退出动画：气泡收拢 + 文字淡出 + 描边快速淡出（描边不参与缩放，平滑消失无跳变）。
                     content.setTextIsSelectable(false)
+                    // 关闭即穿透：淡出动画改为纯视觉（150ms），窗口立即对触摸透明。否则
+                    // dismiss 前的全屏 Dialog 会吃掉用户"关闭后立即"点击/长按脉络或宿主
+                    // 页面的整段触摸序列（DOWN 落在 Dialog 存活期时整段序列丢失）。
+                    // 穿透后若立刻长按另一节点弹出新气泡，beginBubbleSession 覆盖会话，
+                    // 旧 Dialog dismiss 时的 finishBubbleSession 身份校验（会话号+引用
+                    // 双重比对）保证不会误清新会话；动画结束 dismiss 后窗口自然销毁。
+                    dialog.window?.addFlags(
+                        android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                    )
                     val easeIn = android.view.animation.PathInterpolator(0.4f, 0f, 1f, 1f)
                     val scaleOut = android.animation.ValueAnimator.ofFloat(1f, 0.92f).apply {
                         duration = 150
