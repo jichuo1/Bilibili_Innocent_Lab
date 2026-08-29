@@ -228,15 +228,21 @@ internal class ReplyTopologyPanelView(
         }
         val fromPx = params.height.takeIf { it > 0 } ?: height
         val toPx = if (collapsed) compactPx else expandedPx
+        val opacityFullPx = dp(ReplyTopologyCompactMotionSpec.OPACITY_ROW_HEIGHT_DP)
+        // 透明度行与面板总高按同一进度同步收缩/生长：它的占位连续变化使状态行文字
+        // 全程保持位置连续（连贯位移）。列表为权重行，随剩余空间连续压缩/展开。
+        opacityRow.visibility = View.VISIBLE
+        recyclerView.visibility = View.VISIBLE
         if (collapsed) {
-            opacityRow.visibility = View.VISIBLE
-            recyclerView.visibility = View.VISIBLE
+            setOpacityRowHeight(opacityFullPx)
+            opacityRow.alpha = 1f
         } else {
-            opacityRow.visibility = View.VISIBLE
-            recyclerView.visibility = View.VISIBLE
+            setOpacityRowHeight(1)
             opacityRow.alpha = 0f
-            recyclerView.alpha = 0f
         }
+        recyclerView.alpha = 1f
+        val opacityFromPx = if (collapsed) opacityFullPx else 1
+        val opacityToPx = if (collapsed) 1 else opacityFullPx
         val animator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = if (collapsed) {
                 ReplyTopologyCompactMotionSpec.COLLAPSE_DURATION_MS
@@ -250,12 +256,13 @@ internal class ReplyTopologyPanelView(
                     return@addUpdateListener
                 }
                 val progress = animation.animatedValue as Float
-                val next = ReplyTopologyCompactMotionSpec.heightAt(progress, fromPx, toPx)
-                params.height = next
+                params.height = ReplyTopologyCompactMotionSpec.heightAt(progress, fromPx, toPx)
                 layoutParams = params
-                val alpha = ReplyTopologyCompactMotionSpec.contentAlphaAt(progress, collapsed)
-                opacityRow.alpha = alpha
-                recyclerView.alpha = alpha
+                setOpacityRowHeight(
+                    ReplyTopologyCompactMotionSpec.heightAt(progress, opacityFromPx, opacityToPx)
+                )
+                opacityRow.alpha =
+                    ReplyTopologyCompactMotionSpec.opacityRowAlphaAt(progress, collapsed)
                 // 展开时高度增长会压缩 movementBounds 上限，逐帧钳制保证面板始终完整在屏内。
                 applyBoundedTranslation(translationX, translationY)
             }
@@ -287,18 +294,26 @@ internal class ReplyTopologyPanelView(
         finalizeCompactState(collapsed)
     }
 
-    /** 折叠/展开的终态复位：可见性与 alpha 归位，并按最终高度重新钳制屏幕内位置。 */
+    /** 折叠/展开的终态复位：透明度行归位满高、可见性与 alpha 复位，并按最终高度重新钳制位置。 */
     private fun finalizeCompactState(collapsed: Boolean) {
         if (collapsed) {
             opacityRow.visibility = View.GONE
             recyclerView.visibility = View.GONE
         } else {
             opacityRow.visibility = View.VISIBLE
+            setOpacityRowHeight(dp(ReplyTopologyCompactMotionSpec.OPACITY_ROW_HEIGHT_DP))
             recyclerView.visibility = View.VISIBLE
         }
         opacityRow.alpha = 1f
         recyclerView.alpha = 1f
         applyBoundedTranslation(translationX, translationY)
+    }
+
+    private fun setOpacityRowHeight(px: Int) {
+        opacityRow.layoutParams?.let { layoutParams ->
+            layoutParams.height = px
+            opacityRow.layoutParams = layoutParams
+        }
     }
 
     private fun updateCollapseButton() {
