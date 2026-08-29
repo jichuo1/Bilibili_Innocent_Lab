@@ -5,16 +5,21 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 锁定脉络悬浮窗折叠/展开的动效规格：端点、错相位 alpha 窗口、单调性与非法输入。 */
+/** 锁定脉络悬浮窗折叠/展开的动效规格：端点、透明度行同相收缩、单调性与非法输入。 */
 class ReplyTopologyCompactMotionSpecTest {
 
     @Test
     fun `compact height equals header plus status rows`() {
-        assertEquals(86, ReplyTopologyCompactMotionSpec.COMPACT_HEIGHT_DP)
+        val spec = ReplyTopologyCompactMotionSpec
+        assertEquals(86, spec.COMPACT_HEIGHT_DP)
         assertEquals(
-            ReplyTopologyCompactMotionSpec.HEADER_HEIGHT_DP +
-                ReplyTopologyCompactMotionSpec.STATUS_HEIGHT_DP,
-            ReplyTopologyCompactMotionSpec.COMPACT_HEIGHT_DP
+            spec.HEADER_HEIGHT_DP + spec.STATUS_HEIGHT_DP,
+            spec.COMPACT_HEIGHT_DP
+        )
+        // 展开态固定行总高 = 标题 + 透明度行 + 状态行
+        assertEquals(
+            spec.HEADER_HEIGHT_DP + spec.OPACITY_ROW_HEIGHT_DP + spec.STATUS_HEIGHT_DP,
+            120
         )
     }
 
@@ -32,8 +37,7 @@ class ReplyTopologyCompactMotionSpecTest {
         val spec = ReplyTopologyCompactMotionSpec
         var previous = spec.heightAt(-0.5f, 86, 480)
         assertEquals(86, previous)
-        val steps = 0..100
-        for (step in steps) {
+        for (step in 0..100) {
             val value = spec.heightAt(step / 100f, 86, 480)
             assertTrue("height regressed at $step", value >= previous)
             previous = value
@@ -42,36 +46,53 @@ class ReplyTopologyCompactMotionSpecTest {
     }
 
     @Test
-    fun `collapse content alpha fades out before trim window`() {
+    fun `opacity row height shrinks with panel and keeps status row continuous`() {
         val spec = ReplyTopologyCompactMotionSpec
-        assertEquals(1f, spec.contentAlphaAt(0f, collapsing = true), 1e-6f)
-        assertEquals(0f, spec.contentAlphaAt(spec.CONTENT_FADE_OUT_END, collapsing = true), 1e-6f)
-        assertEquals(0f, spec.contentAlphaAt(0.5f, collapsing = true), 1e-6f)
-        assertEquals(0f, spec.contentAlphaAt(1f, collapsing = true), 1e-6f)
-        // 相位窗口内线性递减
-        val mid = spec.CONTENT_FADE_OUT_END / 2f
-        assertEquals(0.5f, spec.contentAlphaAt(mid, collapsing = true), 1e-6f)
+        // 折叠：透明度行 34 -> 1（插值下限 1px，终态残余由 GONE 消除）；展开：1 -> 34
+        assertEquals(34, spec.heightAt(0f, spec.OPACITY_ROW_HEIGHT_DP, 0))
+        assertEquals(1, spec.heightAt(1f, spec.OPACITY_ROW_HEIGHT_DP, 0))
+        assertEquals(1, spec.heightAt(0f, 0, spec.OPACITY_ROW_HEIGHT_DP))
+        assertEquals(spec.OPACITY_ROW_HEIGHT_DP, spec.heightAt(1f, 0, spec.OPACITY_ROW_HEIGHT_DP))
+        // 同一进度下，状态行 y = header + opacityRow 高度：折叠端回到标题正下方（1px 残余），
+        // 展开端为标题 + 满高，全程无跳变
+        val headerPx = 100
+        val yCollapsed = headerPx + spec.heightAt(1f, spec.OPACITY_ROW_HEIGHT_DP, 0)
+        val yExpanded = headerPx + spec.heightAt(0f, spec.OPACITY_ROW_HEIGHT_DP, 0)
+        assertEquals(headerPx + 1, yCollapsed)
+        assertEquals(headerPx + spec.OPACITY_ROW_HEIGHT_DP, yExpanded)
     }
 
     @Test
-    fun `expand content alpha fades in after container settles`() {
+    fun `opacity row alpha is in phase with its height`() {
         val spec = ReplyTopologyCompactMotionSpec
-        assertEquals(0f, spec.contentAlphaAt(0f, collapsing = false), 1e-6f)
-        assertEquals(0f, spec.contentAlphaAt(spec.CONTENT_FADE_IN_START, collapsing = false), 1e-6f)
-        assertEquals(1f, spec.contentAlphaAt(1f, collapsing = false), 1e-6f)
-        // 相位窗口内线性递增
-        val mid = spec.CONTENT_FADE_IN_START + (1f - spec.CONTENT_FADE_IN_START) / 2f
-        assertEquals(0.5f, spec.contentAlphaAt(mid, collapsing = false), 1e-6f)
+        assertEquals(1f, spec.opacityRowAlphaAt(0f, collapsing = true), 1e-6f)
+        assertEquals(0f, spec.opacityRowAlphaAt(1f, collapsing = true), 1e-6f)
+        assertEquals(0.5f, spec.opacityRowAlphaAt(0.5f, collapsing = true), 1e-6f)
+        assertEquals(0f, spec.opacityRowAlphaAt(0f, collapsing = false), 1e-6f)
+        assertEquals(1f, spec.opacityRowAlphaAt(1f, collapsing = false), 1e-6f)
+        assertEquals(0.5f, spec.opacityRowAlphaAt(0.5f, collapsing = false), 1e-6f)
     }
 
     @Test
-    fun `content alpha stays within unit range across full progress`() {
+    fun `opacity row alpha and height stay monotonic across full progress`() {
         val spec = ReplyTopologyCompactMotionSpec
-        for (step in 0..100) {
-            val progress = step / 100f
-            for (collapsing in booleanArrayOf(true, false)) {
-                val alpha = spec.contentAlphaAt(progress, collapsing)
-                assertTrue("alpha $alpha out of range", alpha in 0f..1f)
+        for (collapsing in booleanArrayOf(true, false)) {
+            var prevAlpha = spec.opacityRowAlphaAt(0f, collapsing)
+            var prevHeight = spec.heightAt(0f, if (collapsing) 34 else 0, if (collapsing) 0 else 34)
+            for (step in 0..100) {
+                val progress = step / 100f
+                val alpha = spec.opacityRowAlphaAt(progress, collapsing)
+                val height = spec.heightAt(progress, if (collapsing) 34 else 0, if (collapsing) 0 else 34)
+                assertTrue("alpha out of range", alpha in 0f..1f)
+                if (collapsing) {
+                    assertTrue("alpha regressed at $step", alpha <= prevAlpha)
+                    assertTrue("height regressed at $step", height <= prevHeight)
+                } else {
+                    assertTrue("alpha regressed at $step", alpha >= prevAlpha)
+                    assertTrue("height regressed at $step", height >= prevHeight)
+                }
+                prevAlpha = alpha
+                prevHeight = height
             }
         }
     }
@@ -96,13 +117,9 @@ class ReplyTopologyCompactMotionSpecTest {
     }
 
     @Test
-    fun `durations and phase windows stay coherent`() {
+    fun `durations stay positive`() {
         val spec = ReplyTopologyCompactMotionSpec
         assertTrue(spec.COLLAPSE_DURATION_MS > 0L)
         assertTrue(spec.EXPAND_DURATION_MS > 0L)
-        // 收起淡出必须在内容开始被裁剪（高度低于固定行总和）之前完成足够幅度
-        assertTrue(spec.CONTENT_FADE_OUT_END in 0.1f..0.5f)
-        // 展开渐显必须晚于容器主要位移阶段
-        assertTrue(spec.CONTENT_FADE_IN_START in 0.4f..0.9f)
     }
 }
