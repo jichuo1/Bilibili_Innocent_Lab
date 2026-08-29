@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.res.Configuration
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyGraph
+import kotlin.math.roundToInt
 
 /**
  * 悬浮面板的一次附着代次。所有异步 UI 更新都必须携带该代次，旧回复区的迟到结果
@@ -358,7 +359,34 @@ internal data class ReplyTopologyPanelTheme(
     val rippleColor: Int,
     val errorColor: Int
 ) {
+    /** 回复作者名用色：主文本向次级文本按固定比例混合的实色——层级弱于正文、强于
+     *  元信息；不使用 alpha 半透明，避免随面板背景透明度滑条变化而漂移。 */
+    val authorTextColor: Int
+        get() = blendColor(
+            primaryTextColor,
+            secondaryTextColor,
+            AUTHOR_TEXT_TOWARD_SECONDARY_FRACTION
+        )
+
     companion object {
+        /** 作者名向次级色靠拢的比例；0=正文同色，1=与元信息同色。 */
+        internal const val AUTHOR_TEXT_TOWARD_SECONDARY_FRACTION = 0.4f
+
+        /** ARGB 各通道线性插值的实色混合；输出 alpha 取主色的 alpha。纯函数，供 JVM 测试。 */
+        internal fun blendColor(primary: Int, secondary: Int, fraction: Float): Int {
+            val f = fraction.coerceIn(0f, 1f)
+            fun channel(shift: Int): Int {
+                val p = primary shr shift and 0xFF
+                val s = secondary shr shift and 0xFF
+                return (p + ((s - p) * f).roundToInt()).coerceIn(0, 0xFF)
+            }
+            val a = primary shr 24 and 0xFF
+            val r = channel(16)
+            val g = channel(8)
+            val b = channel(0)
+            return a shl 24 or (r shl 16) or (g shl 8) or b
+        }
+
         fun resolve(context: Context): ReplyTopologyPanelTheme {
             val nightMask = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
             val dark = nightMask == Configuration.UI_MODE_NIGHT_YES
