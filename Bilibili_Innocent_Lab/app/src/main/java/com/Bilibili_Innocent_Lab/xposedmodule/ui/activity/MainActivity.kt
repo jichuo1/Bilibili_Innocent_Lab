@@ -334,6 +334,7 @@ class MainActivity : SkinnedActivity() {
     private var logLevelCompletePill: android.widget.TextView? = null
     private var logLevelThumb: View? = null
     private var logLevelDesc: android.widget.TextView? = null
+    private var logLevelColorAnimator: ValueAnimator? = null
     /** 档位选择器是否已完成首次布局（滑块定位需要测量后执行） */
     private var logLevelLaidOut = false
 
@@ -382,6 +383,7 @@ class MainActivity : SkinnedActivity() {
         val targetX = if (verbose) containerWidth / 2f else 0f
 
         // 1. 滑块平滑滑动（emphasized decelerate，Material You 标准）
+        thumb.animate().cancel()
         thumb.animate()
             .translationX(targetX)
             .setDuration(260L)
@@ -389,16 +391,17 @@ class MainActivity : SkinnedActivity() {
             .start()
 
         // 2. 文字颜色随进度渐变（精简 pill：onPrimary↔gray；完整 pill：gray↔onPrimary）
-        val fromMinimalColor = if (verbose) onPrimary else gray
+        val fromMinimalColor = minimal.currentTextColor
         val toMinimalColor = if (verbose) gray else onPrimary
-        val fromCompleteColor = if (verbose) gray else onPrimary
+        val fromCompleteColor = complete.currentTextColor
         val toCompleteColor = if (verbose) onPrimary else gray
 
-        ValueAnimator.ofFloat(0f, 1f).apply {
+        logLevelColorAnimator?.cancel()
+        logLevelColorAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 260L
             interpolator = emphasizedDecelerate
             addUpdateListener { a ->
-                val f = a.animatedValue as Float
+                val f = a.animatedFraction
                 minimal.textColor = argbLerp(fromMinimalColor, toMinimalColor, f)
                 complete.textColor = argbLerp(fromCompleteColor, toCompleteColor, f)
             }
@@ -3600,6 +3603,9 @@ class MainActivity : SkinnedActivity() {
         activationIconView = null
         activationTitleView = null
         activationSourceView = null
+        logLevelColorAnimator?.cancel()
+        logLevelColorAnimator = null
+        logLevelThumb?.animate()?.cancel()
         logLevelMinimalPill = null
         logLevelCompletePill = null
         logLevelThumb = null

@@ -11,7 +11,6 @@ import android.graphics.Rect
 import android.graphics.Shader
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.ColorUtils
-import androidx.core.graphics.withClip
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
 import kotlin.math.roundToInt
 
@@ -36,8 +35,6 @@ internal class LiquidBackdropSource private constructor(
     val bitmapShader = BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
 
     private val rootPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-    private val viewportPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-    private val viewportDestination = Rect()
     private var closed = false
 
     val isClosed: Boolean
@@ -55,30 +52,6 @@ internal class LiquidBackdropSource private constructor(
         check(!closed) { "Liquid backdrop source is closed" }
         rootPaint.alpha = alpha.coerceIn(0, 255)
         canvas.drawBitmap(bitmap, null, bounds, rootPaint)
-    }
-
-    /**
-     * 在局部 viewport 中绘制与 Activity 根背景像素对齐的切片，不分配第二张 Bitmap。
-     * [offsetX]/[offsetY] 是 viewport 左上角相对 Liquid 根节点的屏幕坐标。
-     */
-    fun drawViewport(
-        canvas: Canvas,
-        bounds: Rect,
-        alpha: Int,
-        offsetX: Int,
-        offsetY: Int
-    ) {
-        check(!closed) { "Liquid backdrop source is closed" }
-        viewportDestination.set(
-            bounds.left - offsetX,
-            bounds.top - offsetY,
-            bounds.left - offsetX + fullWidth,
-            bounds.top - offsetY + fullHeight
-        )
-        viewportPaint.alpha = alpha.coerceIn(0, 255)
-        canvas.withClip(bounds) {
-            drawBitmap(bitmap, null, viewportDestination, viewportPaint)
-        }
     }
 
     override fun close() {
