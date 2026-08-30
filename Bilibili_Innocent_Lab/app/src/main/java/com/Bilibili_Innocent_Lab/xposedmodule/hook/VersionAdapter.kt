@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuInflater
@@ -9,13 +10,14 @@ import android.widget.TextView
 import android.widget.Toast
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetAppStorage
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
 import com.highcapable.betterandroid.system.extension.component.versionCodeCompat
 import com.highcapable.kavaref.extension.classOf
 import com.highcapable.kavaref.extension.isAbstract
 import com.highcapable.kavaref.extension.isPublic
 import com.highcapable.kavaref.extension.isStatic
 import com.highcapable.kavaref.extension.isSubclassOf
-import de.robv.android.xposed.XposedBridge
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -45,7 +47,7 @@ object VersionAdapter {
     private const val PREF_FILE = "innocent_lab_version_adapter"
     private const val KEY_ADAPTED_VERSION = "adapted_bili_version"
     private const val KEY_ADAPT_RESULT = "adapt_result"
-    private const val KEY_RESET_TS = "adapt_reset_ts"
+    private const val KEY_RESET_TS = RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP
 
     @Volatile
     private var lastCacheStatus = "not-read"
@@ -1606,12 +1608,13 @@ object VersionAdapter {
 
     fun cacheStatus(): String = lastCacheStatus
 
-    /** 读缓存适配结果（二级文件缓存优先；手动重置标记/版本不符返回 null）
-     *  @param yukiPrefs YukiHookAPI prefs（DirectAccessService 跨进程读模块 App 的
-     *   apexdata prefs；手动重适配的 reset_ts 由模块 UI 写入该处——原生 SharedPreferences
-     *   在 B 站进程读的是 B 站自己的内部存储，读不到模块侧的 reset 标记） */
-    fun loadCached(context: Context?, yukiPrefs: com.highcapable.yukihookapi.hook.xposed.prefs.YukiHookPrefsBridge?): AdaptResult? {
-        val resetTs = yukiPrefs?.getLong(KEY_RESET_TS, 0L) ?: 0L
+    /**
+     * 读缓存适配结果（二级文件缓存优先；手动重置标记/版本不符返回 null）。
+     * [resetTimestamp] 已由 API 82 或 NPatch 启动配置完成跨进程校验，适配器不再自行读取
+     * Yuki prefs，以免不可读文件把明确的重置请求静默变成 0。
+     */
+    fun loadCached(context: Context?, resetTimestamp: Long): AdaptResult? {
+        val resetTs = resetTimestamp.coerceAtLeast(0L)
         val expectedFingerprint = context?.let(::buildHostFingerprint)
 
         fun accepted(result: AdaptResult, source: String): AdaptResult? {
@@ -1666,21 +1669,18 @@ object VersionAdapter {
     }
 
     /** 缓存是否覆盖当前版本 */
-    fun isCached(context: Context, yukiPrefs: com.highcapable.yukihookapi.hook.xposed.prefs.YukiHookPrefsBridge?): Boolean {
-        val cached = loadCached(context, yukiPrefs) ?: return false
+    fun isCached(context: Context, resetTimestamp: Long): Boolean {
+        val cached = loadCached(context, resetTimestamp) ?: return false
         return cached.biliVersionCode == biliVersionCode(context)
     }
 
     /**
      * 手动重适配：写重置标记 + 清除记录（B 站下次启动即重新定位）。
-     * 关键：reset_ts 必须写 **YukiHookAPI prefs**（B 站侧经 DirectAccessService 读的
-     * 是 YukiHookAPI 默认 prefs 文件 com.Bilibili_Innocent_Lab.xposedmodule_preferences.xml；原生
-     * SharedPreferences 在模块 App 被重定向到独立文件 innocent_lab_version_adapter.xml，
-     * B 站读不到）。
+     * reset_ts 写入模块私有权威设置后，由 RemoteHookConfigStore 发布到 API 102 配置组。
      */
-    fun clearCache(context: Context, yukiPrefs: com.highcapable.yukihookapi.hook.xposed.prefs.YukiHookPrefsBridge?) {
+    fun clearCache(context: Context, modulePrefs: SharedPreferences?) {
         runCatching {
-            yukiPrefs?.edit { putLong(KEY_RESET_TS, System.currentTimeMillis()) }
+            modulePrefs?.edit()?.putLong(KEY_RESET_TS, System.currentTimeMillis())?.apply()
         }
         runCatching {
             prefs(context).edit()
@@ -1699,12 +1699,12 @@ object VersionAdapter {
     fun ensureAdapted(
         context: Context,
         classLoader: ClassLoader,
-        yukiPrefs: com.highcapable.yukihookapi.hook.xposed.prefs.YukiHookPrefsBridge?,
+        resetTimestamp: Long,
         callback: AdaptCallback?
     ) {
         val vc = biliVersionCode(context)
         val expectedFingerprint = buildHostFingerprint(context)
-        val cached = loadCached(context, yukiPrefs)
+        val cached = loadCached(context, resetTimestamp)
         // 快路径有效性：版本匹配 且（high 已定位 或 当前版本无 high 候选类）。
         // 防止旧缓存（sv 同但 high 缺失——如 8.63.0 早期 low-only 结果）被快路径
         // 复用而跳过重定位（曾有 01:04 prefs 旧结果导致 9.8.0 一直 low-only 的回归）。
@@ -1721,7 +1721,7 @@ object VersionAdapter {
             }
             return // 快路径：已适配
         }
-        XposedBridge.log(
+        ModernHookLog.info(
             "[BIL] 版本适配启动 vc=$vc cached=${cached != null} " +
                 "cacheStatus=$lastCacheStatus"
         )
@@ -1743,7 +1743,7 @@ object VersionAdapter {
                 }
             }
             callback?.onAdaptFinished(result != null)
-            XposedBridge.log(
+            ModernHookLog.info(
                 "[BIL] 版本适配${if (result != null) "完成" else "失败"} " +
                     "v=${result?.biliVersionCode} low=${result?.commentLow} high=${result?.commentHigh} " +
                     "mine=${result?.mineEntry != null} pause=${result?.pause?.requestMethods?.size ?: 0} " +

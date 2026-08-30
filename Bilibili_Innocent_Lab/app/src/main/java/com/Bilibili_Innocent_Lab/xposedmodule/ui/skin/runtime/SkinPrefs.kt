@@ -20,7 +20,22 @@ internal data class SkinPrefsReadResult(
  * 它不使用 Yuki prefs、不进入设置备份或 NPatch 快照；所有写入均检查同步 commit 结果。
  */
 internal object SkinPrefs {
-    private const val PREF_FILE = "ui_skin_preferences"
+    internal const val PREF_FILE = "ui_skin_preferences"
+
+    /**
+     * 设置存储迁移只导出已稳定确认的选择；进程在 Liquid 两阶段激活中断时，
+     * 按既有恢复语义回到 Material You，避免把 pending 尝试跨构建放大。
+     */
+    fun readStableForMigration(context: Context): SkinPreferenceState {
+        val preferences = runCatching { preferences(context) }.getOrNull()
+            ?: return SkinPreferenceState.MATERIAL_DEFAULT
+        val decoded = runCatching {
+            SkinPreferenceCodec.decode(preferences.all.toMap())
+        }.getOrNull() ?: return SkinPreferenceState.MATERIAL_DEFAULT
+        if (decoded.needsRepair) return SkinPreferenceState.MATERIAL_DEFAULT
+        return decoded.state.takeUnless { it.isLiquidPending }
+            ?: SkinPreferenceState.MATERIAL_DEFAULT
+    }
 
     /**
      * 读取并修复皮肤状态。

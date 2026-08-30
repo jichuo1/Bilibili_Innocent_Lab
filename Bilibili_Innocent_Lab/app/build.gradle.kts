@@ -17,7 +17,7 @@ val releaseVersionNameOverride = providers.gradleProperty("innocentLab.releaseVe
 
 hikage {
     compiler {
-        // 本项目已为 YukiHookAPI 显式管理 Kotlin/KSP 版本，禁止插件启用内置 KSP 兜底。
+        // 项目显式管理 Kotlin/KSP 版本，禁止 Hikage 插件启用内置 KSP 兜底。
         useEmbeddedKsp = false
     }
 }
@@ -53,9 +53,6 @@ android {
     }
     lint { checkReleaseBuilds = false }
 
-    // TODO Please visit https://highcapable.github.io/YukiHookAPI/en/api/special-features/host-inject
-    // TODO 请参考 https://highcapable.github.io/YukiHookAPI/zh-cn/api/special-features/host-inject
-    // androidResources.additionalParameters += listOf("--allow-reserved-package-id", "--package-id", "0x64")
 }
 
 tasks.withType<KotlinJvmCompile>().configureEach {
@@ -83,9 +80,8 @@ if (
 }
 
 dependencies {
-    compileOnly(libs.rovo89.xposed.api)
-    ksp(libs.yukihookapi.ksp.xposed)
-    implementation(libs.yukihookapi)
+    compileOnly(libs.libxposed.api)
+    implementation(libs.libxposed.service)
 
     // KavaRef (https://github.com/HighCapable/KavaRef)
     implementation(platform(libs.kavaref.bom))

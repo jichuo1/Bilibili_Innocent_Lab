@@ -15,9 +15,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
+import android.view.View
 import android.widget.LinearLayout
 import androidx.core.view.updatePadding
 import com.highcapable.betterandroid.ui.extension.view.textColor
@@ -26,12 +26,15 @@ import com.highcapable.hikage.extension.setContentView
 import com.highcapable.hikage.widget.android.widget.LinearLayout
 import com.highcapable.hikage.widget.android.widget.TextView
 import com.highcapable.hikage.widget.androidx.core.widget.NestedScrollView
-import com.highcapable.yukihookapi.hook.factory.prefs
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
 
 class FreeCopyActivity : SkinnedActivity() {
+
+    private var liquidStretchScrollTarget: View? = null
+    private var liquidStretchViewport: View? = null
 
     companion object {
         /** 防御性上限：即使未来重新暴露 Activity，也不接受无限大的外部文本。 */
@@ -44,6 +47,7 @@ class FreeCopyActivity : SkinnedActivity() {
             finish()
             return
         }
+        prepareSkinSession()
         // 预见式返回（跟随主界面的实验性开关；Android 14+ 才有 window 级运行时接口）
         val predictiveBackEnabled = runCatching {
             prefs().getBoolean(com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry.PREF_PREDICTIVE_BACK_ENABLED, false)
@@ -61,7 +65,7 @@ class FreeCopyActivity : SkinnedActivity() {
                 lparams = LayoutParams(matchParent = true),
                 init = {
                     orientation = LinearLayout.VERTICAL
-                    setBackgroundColor(monetColors.background)
+                    if (!isLiquidSkinEffective) setBackgroundColor(monetColors.background)
                 }
             ) {
                 // ===== 顶部 AppBar =====
@@ -70,7 +74,7 @@ class FreeCopyActivity : SkinnedActivity() {
                     init = {
                         orientation = LinearLayout.HORIZONTAL
                         gravity = Gravity.CENTER or Gravity.START
-                        setBackgroundColor(monetColors.surfaceVariant)
+                        background = skinCardBackground(monetColors.surfaceVariant, 0f)
                         updatePadding(left = 4, top = 6, right = 16, bottom = 6)
                     }
                 ) {
@@ -121,6 +125,9 @@ class FreeCopyActivity : SkinnedActivity() {
                         topMargin = 10.dp
                         rightMargin = 15.dp
                         bottomMargin = 15.dp
+                    },
+                    init = {
+                        liquidStretchScrollTarget = this
                     }
                 ) {
                     TextView(
@@ -131,10 +138,7 @@ class FreeCopyActivity : SkinnedActivity() {
                             textSize = 16f
                             setLineSpacing(6f, 1f)
                             updatePadding(left = 18, top = 16, right = 18, bottom = 16)
-                            background = GradientDrawable().apply {
-                                cornerRadius = resources.displayMetrics.density * 15f
-                                setColor(monetColors.surfaceVariant)
-                            }
+                            background = skinCardBackground(monetColors.surfaceVariant)
                             // ★核心：系统级文本选择（长按出系统选择菜单，自由拖选片段）
                             setTextIsSelectable(true)
                         }
@@ -142,5 +146,18 @@ class FreeCopyActivity : SkinnedActivity() {
                 }
             }
         }
+        liquidStretchViewport = liquidStretchScrollTarget?.let {
+            installPreparedLiquidStretch(it)
+        }
+        bindPreparedSkinRoot(findViewById<View>(android.R.id.content)) {
+            if (!isFinishing && !isDestroyed) recreate()
+        }
+    }
+
+    override fun onDestroy() {
+        finishPreparedLiquidStretch(liquidStretchViewport)
+        liquidStretchViewport = null
+        liquidStretchScrollTarget = null
+        super.onDestroy()
     }
 }

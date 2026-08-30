@@ -3,7 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import android.content.Context
 import android.view.View
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.yukihookapi.hook.core.YukiMemberHookCreator.MemberHookCreator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import com.highcapable.kavaref.extension.classOf
 import java.lang.reflect.Constructor
 import java.util.Collections
@@ -26,7 +26,7 @@ internal class GamePromotionFeatureInstaller(
             key: String,
             className: String,
             methodName: String,
-            block: MemberHookCreator.() -> Unit
+            block: ModernMemberHookCreator.() -> Unit
         ) {
             runCatching {
                 environment.registrar.first("game_mentioned.$key", className, methodName, block)

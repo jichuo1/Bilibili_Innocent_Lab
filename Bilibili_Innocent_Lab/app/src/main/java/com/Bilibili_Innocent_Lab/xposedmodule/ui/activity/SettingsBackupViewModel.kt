@@ -7,7 +7,7 @@ import androidx.lifecycle.ViewModel
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ImportPlan
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsApplyResult
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportApplier
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.YukiModuleSettingsStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ModuleSettingsStore
 import java.util.concurrent.Executors
 
 /** 已确认导入的进程内状态；配置变更不会中断正在进行的设置提交。 */
@@ -58,7 +58,7 @@ internal class SettingsBackupViewModel : ViewModel() {
 
     fun apply(
         context: Context,
-        store: YukiModuleSettingsStore,
+        store: ModuleSettingsStore,
         plan: ImportPlan
     ) {
         if (applyState.value is SettingsImportApplyState.Running) return

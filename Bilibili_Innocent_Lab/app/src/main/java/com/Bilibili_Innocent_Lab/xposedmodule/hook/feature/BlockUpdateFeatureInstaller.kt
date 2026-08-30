@@ -1,7 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
-import android.app.AndroidAppHelper
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.highcapable.kavaref.extension.classOf
 import com.highcapable.kavaref.extension.isSubclassOf
@@ -37,7 +37,7 @@ internal class BlockUpdateFeatureInstaller(
                 before {
                     val exception = runCatching {
                         val message = InjectedUiLocale.messages(
-                            AndroidAppHelper.currentApplication()
+                            ReflectAccess.currentApplication()
                         ).latestVersionMessage
                         exceptionConstructor.newInstance(message) as Throwable
                     }.onFailure { throwable ->
@@ -46,7 +46,7 @@ internal class BlockUpdateFeatureInstaller(
                             "[BIL] 构造宿主最新版状态失败，已放行官方更新检查: $throwable"
                         )
                     }.getOrNull()
-                    if (exception != null) exception.throwToApp()
+                    if (exception != null) throwable = exception
                 }
             }
             environment.reportStatus(CHANNEL_STATUS, "success")

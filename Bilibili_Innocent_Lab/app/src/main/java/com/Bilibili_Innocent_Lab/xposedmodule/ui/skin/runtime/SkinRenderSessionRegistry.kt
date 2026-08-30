@@ -25,14 +25,14 @@ internal data class LiquidRenderSessionOwner(
 }
 
 /**
- * 当前进程唯一的 Liquid renderer 所有权登记表。
+ * 当前进程同一 Liquid 激活状态下的 renderer 所有权登记表。
  *
- * 新 renderer 取得所有权时会原子替换旧 owner；旧 Activity 即使仍持有相同的 renderer 版本与
- * activationAttemptId，也无法再提交健康或失败结果。
+ * MainActivity 与透明/二级 Activity 可以同时可见，因此同一 renderer 版本与 activationAttemptId
+ * 下允许多个 owner 并存。皮肤切换会整体 invalidate；单个 Activity close 只释放自己的 owner。
  */
 internal class SkinRenderSessionRegistry {
     private val lock = Any()
-    private var activeOwner: LiquidRenderSessionOwner? = null
+    private val activeOwners = LinkedHashSet<LiquidRenderSessionOwner>()
 
     fun claim(
         state: SkinPreferenceState,
@@ -44,7 +44,7 @@ internal class SkinRenderSessionRegistry {
             activationAttemptId = requireNotNull(state.activationAttemptId),
             ownerId = newOwnerId
         )
-        activeOwner = owner
+        activeOwners += owner
         owner
     }
 
@@ -52,20 +52,18 @@ internal class SkinRenderSessionRegistry {
         owner: LiquidRenderSessionOwner,
         state: SkinPreferenceState
     ): Boolean = synchronized(lock) {
-        activeOwner == owner &&
+        owner in activeOwners &&
             state.selectedSkin == SkinId.LIQUID &&
             state.liquidRendererVersion == owner.liquidRendererVersion &&
             state.activationAttemptId == owner.activationAttemptId
     }
 
-    /** 只有当前 owner 能释放自身；旧 Activity 的 close 不得撤销新 Activity 的所有权。 */
+    /** Activity 只能释放自身；不得撤销同时存活的其他 Activity owner。 */
     fun release(owner: LiquidRenderSessionOwner): Boolean = synchronized(lock) {
-        if (activeOwner != owner) return@synchronized false
-        activeOwner = null
-        true
+        activeOwners.remove(owner)
     }
 
     fun invalidate() = synchronized(lock) {
-        activeOwner = null
+        activeOwners.clear()
     }
 }

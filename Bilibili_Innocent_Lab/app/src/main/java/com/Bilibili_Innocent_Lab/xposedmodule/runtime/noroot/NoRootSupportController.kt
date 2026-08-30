@@ -1,9 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot
 
 import android.content.Context
+import android.content.SharedPreferences
 import com.highcapable.betterandroid.system.extension.component.versionCodeCompat
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
-import com.highcapable.yukihookapi.hook.xposed.prefs.YukiHookPrefsBridge
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ScheduledFuture
@@ -127,7 +127,7 @@ internal object NoRootSupportController {
 
     fun synchronize(
         context: Context,
-        bridge: YukiHookPrefsBridge,
+        bridge: SharedPreferences,
         generation: Long? = null,
         onFinished: (() -> Unit)? = null
     ) {
@@ -136,7 +136,7 @@ internal object NoRootSupportController {
 
     private fun synchronizeWithResult(
         context: Context,
-        bridge: YukiHookPrefsBridge,
+        bridge: SharedPreferences,
         generation: Long? = null,
         onFinished: (EnabledSyncCompletion) -> Unit
     ) {
@@ -205,7 +205,7 @@ internal object NoRootSupportController {
      */
     fun flushBeforeRestart(
         context: Context,
-        bridge: YukiHookPrefsBridge,
+        bridge: SharedPreferences,
         timeoutMillis: Long = DEFAULT_RESTART_FLUSH_TIMEOUT_MS,
         onFinished: (FlushResult) -> Unit
     ) {
@@ -228,7 +228,7 @@ internal object NoRootSupportController {
     /** 设置在等待期间继续变化时，使用同一总截止时间同步新 revision，直到源 prefs 稳定。 */
     private fun flushEnabledUntilStable(
         appContext: Context,
-        bridge: YukiHookPrefsBridge,
+        bridge: SharedPreferences,
         generation: Long,
         deadlineNanos: Long
     ): FlushResult {
