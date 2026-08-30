@@ -3,7 +3,6 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.drawable.Drawable
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -22,6 +21,12 @@ internal enum class LiquidStretchEdge {
     NONE,
     TOP,
     BOTTOM
+}
+
+internal enum class LiquidStretchUnconsumedAction {
+    PULL_AND_CONSUME,
+    ABSORB_AND_PROPAGATE,
+    PROPAGATE
 }
 
 /** 与 Android View 无关的方向、距离和速度收敛规则。 */
@@ -83,19 +88,33 @@ internal object LiquidStretchOverscrollPolicy {
 
     fun absorbVelocity(velocityY: Float): Int =
         abs(velocityY).roundToInt().coerceIn(1, MAX_ABSORB_VELOCITY)
+
+    fun unconsumedAction(
+        isTouch: Boolean,
+        hasFlingVelocity: Boolean
+    ): LiquidStretchUnconsumedAction = when {
+        isTouch -> LiquidStretchUnconsumedAction.PULL_AND_CONSUME
+        hasFlingVelocity -> LiquidStretchUnconsumedAction.ABSORB_AND_PROPAGATE
+        else -> LiquidStretchUnconsumedAction.PROPAGATE
+    }
+
+    fun shouldReleaseOnStop(
+        isTouch: Boolean,
+        nonTouchAbsorbed: Boolean,
+        nonTouchAdjusted: Boolean
+    ): Boolean = isTouch || (!nonTouchAbsorbed && nonTouchAdjusted)
 }
 
 /**
- * 让 viewport 背景与滚动内容共享同一个 Android 12+ stretch RenderNode。
+ * 让滚动前景共享同一个 Android 12+ stretch RenderNode，底层 Activity 背景保持静止。
  *
- * 内部滚动容器不再自己绘制 EdgeEffect；它先把未消费距离交给本父层，本父层在完成背景和 child
- * 绘制后调用 EdgeEffect.draw，因此系统 stretch 会作用于两者的最终合成结果。
+ * 内部滚动容器不再自己绘制 EdgeEffect；它先把未消费距离交给本父层，本父层在完成 child 绘制后
+ * 调用 EdgeEffect.draw。viewport 本身保持透明，因此系统 stretch 只作用于控件前景。
  */
 @SuppressLint("ViewConstructor")
 internal class LiquidStretchViewport private constructor(
     context: Context,
     private val scrollTarget: View,
-    backdrop: Drawable,
     private val isStretchAllowed: () -> Boolean
 ) : FrameLayout(context), NestedScrollingParent3 {
 
@@ -105,9 +124,13 @@ internal class LiquidStretchViewport private constructor(
     private val legacyConsumed = IntArray(2)
     private var pointerX = 0f
     private var lastFlingVelocityY = 0f
+    private var nonTouchAbsorbed = false
+    private var nonTouchAdjusted = false
 
     init {
-        background = backdrop
+        // 无背景的 ViewGroup 默认会绕过 draw() 直接 dispatchDraw()；必须关闭该快路径，
+        // 才能在 child 绘制完成后把 EdgeEffect stretch 应用到这个前景 RenderNode。
+        setWillNotDraw(false)
         isClickable = false
         isFocusable = false
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -130,7 +153,8 @@ internal class LiquidStretchViewport private constructor(
         pointerX = event.x
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             lastFlingVelocityY = 0f
-            if (!isAllowedNow()) finishStretch()
+            if (isAllowedNow()) stopEffectsForTouch()
+            else finishStretch()
         }
         return super.dispatchTouchEvent(event)
     }
@@ -175,12 +199,28 @@ internal class LiquidStretchViewport private constructor(
         type: Int
     ) {
         nestedParentHelper.onNestedScrollAccepted(child, target, axes, type)
+        if (type == ViewCompat.TYPE_NON_TOUCH) {
+            nonTouchAbsorbed = false
+            nonTouchAdjusted = false
+        }
     }
 
     override fun onStopNestedScroll(target: View, type: Int) {
         nestedParentHelper.onStopNestedScroll(target, type)
-        releaseEffects()
-        if (type == ViewCompat.TYPE_NON_TOUCH) lastFlingVelocityY = 0f
+        val isTouch = type == ViewCompat.TYPE_TOUCH
+        if (LiquidStretchOverscrollPolicy.shouldReleaseOnStop(
+                isTouch = isTouch,
+                nonTouchAbsorbed = nonTouchAbsorbed,
+                nonTouchAdjusted = nonTouchAdjusted
+            )
+        ) {
+            releaseEffects()
+        }
+        if (!isTouch) {
+            lastFlingVelocityY = 0f
+            nonTouchAbsorbed = false
+            nonTouchAdjusted = false
+        }
     }
 
     override fun onNestedPreScroll(
@@ -212,6 +252,9 @@ internal class LiquidStretchViewport private constructor(
             released,
             height
         )
+        if (type == ViewCompat.TYPE_NON_TOUCH && released != 0f) {
+            nonTouchAdjusted = true
+        }
         if (EdgeEffectCompat.getDistance(effect) == 0f) effect.onRelease()
         postInvalidateOnAnimation()
     }
@@ -239,21 +282,37 @@ internal class LiquidStretchViewport private constructor(
             LiquidStretchEdge.NONE -> return
         }
 
-        if (type == ViewCompat.TYPE_NON_TOUCH && lastFlingVelocityY != 0f) {
-            effect.onAbsorb(
-                LiquidStretchOverscrollPolicy.absorbVelocity(lastFlingVelocityY)
-            )
-            consumed[1] += dyUnconsumed
-            lastFlingVelocityY = 0f
-        } else {
-            val pulled = EdgeEffectCompat.onPullDistance(
-                effect,
-                LiquidStretchOverscrollPolicy.normalizedDistance(dyUnconsumed, height),
-                LiquidStretchOverscrollPolicy.displacement(pointerX, width, edge)
-            )
-            consumed[1] += LiquidStretchOverscrollPolicy.consumedPixels(edge, pulled, height)
+        val effectChanged = when (LiquidStretchOverscrollPolicy.unconsumedAction(
+            isTouch = type == ViewCompat.TYPE_TOUCH,
+            hasFlingVelocity = lastFlingVelocityY != 0f
+        )) {
+            LiquidStretchUnconsumedAction.PULL_AND_CONSUME -> {
+                val pulled = EdgeEffectCompat.onPullDistance(
+                    effect,
+                    LiquidStretchOverscrollPolicy.normalizedDistance(dyUnconsumed, height),
+                    LiquidStretchOverscrollPolicy.displacement(pointerX, width, edge)
+                )
+                consumed[1] += LiquidStretchOverscrollPolicy.consumedPixels(
+                    edge,
+                    pulled,
+                    height
+                )
+                true
+            }
+
+            LiquidStretchUnconsumedAction.ABSORB_AND_PROPAGATE -> {
+                effect.onAbsorb(
+                    LiquidStretchOverscrollPolicy.absorbVelocity(lastFlingVelocityY)
+                )
+                lastFlingVelocityY = 0f
+                nonTouchAbsorbed = true
+                // 必须保持 consumed 不变，让 NestedScrollView 终止已经撞边的 OverScroller。
+                true
+            }
+
+            LiquidStretchUnconsumedAction.PROPAGATE -> false
         }
-        postInvalidateOnAnimation()
+        if (effectChanged) postInvalidateOnAnimation()
     }
 
     override fun onNestedFling(
@@ -262,7 +321,7 @@ internal class LiquidStretchViewport private constructor(
         velocityY: Float,
         consumed: Boolean
     ): Boolean {
-        if (isAllowedNow() && consumed) lastFlingVelocityY = velocityY
+        if (isAllowedNow() && velocityY != 0f) lastFlingVelocityY = velocityY
         return false
     }
 
@@ -333,6 +392,8 @@ internal class LiquidStretchViewport private constructor(
         topEffect.finish()
         bottomEffect.finish()
         lastFlingVelocityY = 0f
+        nonTouchAbsorbed = false
+        nonTouchAdjusted = false
         if (hadEffect) invalidate()
     }
 
@@ -342,9 +403,46 @@ internal class LiquidStretchViewport private constructor(
     }
 
     private fun releaseEffects() {
-        if (!topEffect.isFinished) topEffect.onRelease()
-        if (!bottomEffect.isFinished) bottomEffect.onRelease()
-        postInvalidateOnAnimation()
+        var released = false
+        if (!topEffect.isFinished) {
+            topEffect.onRelease()
+            released = true
+        }
+        if (!bottomEffect.isFinished) {
+            bottomEffect.onRelease()
+            released = true
+        }
+        if (released) postInvalidateOnAnimation()
+    }
+
+    /** 与 NestedScrollView.stopGlowAnimations 对齐：新手势接管回弹，但不突兀清零形变量。 */
+    private fun stopEffectsForTouch() {
+        var stopped = false
+        if (EdgeEffectCompat.getDistance(topEffect) > 0f) {
+            EdgeEffectCompat.onPullDistance(
+                topEffect,
+                0f,
+                LiquidStretchOverscrollPolicy.displacement(
+                    pointerX,
+                    width,
+                    LiquidStretchEdge.TOP
+                )
+            )
+            stopped = true
+        }
+        if (EdgeEffectCompat.getDistance(bottomEffect) > 0f) {
+            EdgeEffectCompat.onPullDistance(
+                bottomEffect,
+                0f,
+                LiquidStretchOverscrollPolicy.displacement(
+                    pointerX,
+                    width,
+                    LiquidStretchEdge.BOTTOM
+                )
+            )
+            stopped = true
+        }
+        if (stopped) postInvalidateOnAnimation()
     }
 
     private fun isAllowedNow(): Boolean =
@@ -353,7 +451,6 @@ internal class LiquidStretchViewport private constructor(
     companion object {
         fun installAround(
             scrollTarget: View,
-            backdrop: Drawable,
             isStretchAllowed: () -> Boolean
         ): LiquidStretchViewport? {
             val parent = scrollTarget.parentOrNull() ?: return null
@@ -364,7 +461,6 @@ internal class LiquidStretchViewport private constructor(
                 val viewport = LiquidStretchViewport(
                     context = scrollTarget.context,
                     scrollTarget = scrollTarget,
-                    backdrop = backdrop,
                     isStretchAllowed = isStretchAllowed
                 )
                 parent.addView(viewport, index, originalLayoutParams)

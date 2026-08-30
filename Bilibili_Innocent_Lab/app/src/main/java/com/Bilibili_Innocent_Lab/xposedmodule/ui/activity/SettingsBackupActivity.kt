@@ -419,11 +419,12 @@ class SettingsBackupActivity : SkinnedActivity() {
             return
         }
         val animator = ValueAnimator.ofFloat(startExpansion, targetExpansion)
+        val expansionDelta = targetExpansion - startExpansion
         motionAnimator = animator
         animator.duration = durationMs
         animator.interpolator = interpolator
         animator.addUpdateListener { valueAnimator ->
-            applyMotionExpansion(valueAnimator.animatedValue as Float)
+            applyMotionExpansion(startExpansion + expansionDelta * valueAnimator.animatedFraction)
         }
         animator.addListener(object : AnimatorListenerAdapter() {
             private var cancelled = false
@@ -1085,8 +1086,7 @@ class SettingsBackupActivity : SkinnedActivity() {
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         )
         pageStretchViewport = installPreparedLiquidStretch(
-            scrollTarget = scrollView,
-            overlayColor = ColorUtils.setAlphaComponent(monetColors.surface, 0x28)
+            scrollTarget = scrollView
         ) {
             motionAnimator == null &&
                 ::motionHost.isInitialized &&
