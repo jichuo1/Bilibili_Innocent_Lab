@@ -10,6 +10,7 @@ import android.net.Uri
 import android.view.View
 import androidx.core.content.ContextCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.CrossAppBroadcastCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetAppStorage
@@ -625,7 +626,7 @@ object RoamingCompatHook {
                         .EXTRA_REQUEST_ELAPSED_REALTIME,
                     android.os.SystemClock.elapsedRealtime()
                 )
-            context.sendBroadcast(intent)
+            CrossAppBroadcastCompat.sendBroadcast(context, intent)
             logInfo("br_mine_click", "$LOG_PREFIX 已请求打开哔哩漫游设置（经模块 App 代开）")
         }.onFailure { t ->
             logError("br_mine_click_err", "$LOG_PREFIX 代开哔哩漫游设置失败: $t")

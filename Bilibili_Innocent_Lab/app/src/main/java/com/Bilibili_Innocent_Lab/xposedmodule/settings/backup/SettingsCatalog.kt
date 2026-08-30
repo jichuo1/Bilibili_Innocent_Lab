@@ -15,9 +15,13 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 1
+    const val CATALOG_VERSION = 2
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
     const val ID_FREE_COPY_DESCRIPTION = "free_copy.description.enabled"
+    const val ID_RECOMMEND_VIDEO_MIN_DURATION =
+        "recommend.video_duration.minimum_seconds"
+    const val ID_RECOMMEND_VIDEO_MAX_DURATION =
+        "recommend.video_duration.maximum_seconds"
 
     private fun bool(
         id: String,
@@ -66,6 +70,7 @@ internal object SettingsCatalog {
         default: Int,
         allowed: Set<Int>? = null,
         range: IntRange? = null,
+        introducedCatalogVersion: Int = 1,
         effects: Set<ImportEffect> = setOf(
             ImportEffect.RECREATE_MODULE_UI,
             ImportEffect.RESTART_BILIBILI
@@ -78,6 +83,7 @@ internal object SettingsCatalog {
         defaultValue = SettingValue.IntValue(default),
         allowedIntegers = allowed,
         integerRange = range,
+        introducedCatalogVersion = introducedCatalogVersion,
         effects = effects
     )
 
@@ -133,6 +139,22 @@ internal object SettingsCatalog {
         bool("story.music.removed", FeaturePreferences.REMOVE_STORY_MUSIC, R.string.remove_story_music),
 
         text("navigation.bottom_bar.hidden_rules", FeaturePreferences.BOTTOM_BAR_HIDDEN_RULES, R.string.custom_bottom_bar_hide),
+        integer(
+            ID_RECOMMEND_VIDEO_MIN_DURATION,
+            FeaturePreferences.RECOMMEND_VIDEO_MIN_DURATION_SECONDS,
+            R.string.recommend_video_min_duration,
+            default = 0,
+            range = 0..Int.MAX_VALUE,
+            introducedCatalogVersion = 2
+        ),
+        integer(
+            ID_RECOMMEND_VIDEO_MAX_DURATION,
+            FeaturePreferences.RECOMMEND_VIDEO_MAX_DURATION_SECONDS,
+            R.string.recommend_video_max_duration,
+            default = 0,
+            range = 0..Int.MAX_VALUE,
+            introducedCatalogVersion = 2
+        ),
         integer(
             "player.default_quality.qn",
             FeaturePreferences.PLAYER_DEFAULT_QUALITY_QN,
@@ -217,7 +239,7 @@ internal object SettingsCatalog {
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
 
     init {
-        check(specs.size == 70) { "Expected 70 catalog settings, found ${specs.size}" }
+        check(specs.size == 72) { "Expected 72 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

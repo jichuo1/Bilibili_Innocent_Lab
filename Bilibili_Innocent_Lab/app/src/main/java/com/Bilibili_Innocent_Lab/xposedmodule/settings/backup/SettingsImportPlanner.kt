@@ -158,10 +158,24 @@ internal class SettingsMigrationRegistry(
         tombstonesById[id]?.removedInCatalogVersion?.let { it <= currentCatalogVersion } == true
 }
 
+/** 已发布 catalog 版本之间的显式迁移链；纯新增设置也登记恒等迁移，避免虚假缺失警告。 */
+internal object SettingsCatalogMigrations {
+    val current = SettingsMigrationRegistry(
+        migrations = listOf(CatalogV1ToV2)
+    )
+
+    private object CatalogV1ToV2 : CatalogMigration {
+        override val fromVersion = 1
+        override val toVersion = 2
+
+        override fun migrate(records: List<BackupSetting>) = MigrationStepResult(records)
+    }
+}
+
 internal class SettingsImportPlanner(
     private val catalog: List<SettingSpec> = SettingsCatalog.specs,
     private val currentCatalogVersion: Int = SettingsCatalog.CATALOG_VERSION,
-    private val migrations: SettingsMigrationRegistry = SettingsMigrationRegistry()
+    private val migrations: SettingsMigrationRegistry = SettingsCatalogMigrations.current
 ) {
 
     fun plan(source: SettingsBackupDocument, current: SettingsSnapshot): ImportPlan {
@@ -265,10 +279,48 @@ internal class SettingsImportPlanner(
 
         return ImportPlan(
             source = source,
-            entries = entries,
+            entries = enforceRelationalConstraints(entries, current),
             currentFingerprint = SettingsFingerprint.create(current, catalog),
             migrationWarnings = migrationRun.warnings
         )
+    }
+
+    /**
+     * 单项类型/范围校验之后，再验证需要原子理解的设置关系。
+     *
+     * 只否决会把当前状态推进到非法组合的写入项；未写入的当前值和省略项保持原预览状态。
+     */
+    private fun enforceRelationalConstraints(
+        entries: List<ImportPlanEntry>,
+        current: SettingsSnapshot
+    ): List<ImportPlanEntry> {
+        val durationIds = setOf(
+            SettingsCatalog.ID_RECOMMEND_VIDEO_MIN_DURATION,
+            SettingsCatalog.ID_RECOMMEND_VIDEO_MAX_DURATION
+        )
+        if (!durationIds.all { id -> catalog.any { it.id == id } }) return entries
+
+        fun effectiveInt(id: String): Int? {
+            val entry = entries.firstOrNull { it.id == id }
+            val value = if (entry?.willWrite == true) entry.proposed else current[id]?.value
+            return (value as? SettingValue.IntValue)?.value
+        }
+
+        val minSeconds = effectiveInt(SettingsCatalog.ID_RECOMMEND_VIDEO_MIN_DURATION)
+            ?: return entries
+        val maxSeconds = effectiveInt(SettingsCatalog.ID_RECOMMEND_VIDEO_MAX_DURATION)
+            ?: return entries
+        if (minSeconds <= 0 || maxSeconds <= 0 || minSeconds <= maxSeconds) return entries
+
+        return entries.map { entry ->
+            if (entry.id !in durationIds || !entry.willWrite) return@map entry
+            entry.copy(
+                status = ImportStatus.INVALID_VALUE,
+                proposed = null,
+                willWrite = false,
+                reason = ImportReason.TYPE_OR_RANGE_INVALID
+            )
+        }
     }
 
     private fun planKnownRecord(
