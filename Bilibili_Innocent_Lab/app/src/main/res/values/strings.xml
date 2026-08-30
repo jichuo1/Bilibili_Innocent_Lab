@@ -16,6 +16,9 @@
     <string name="user_terms_read_again">Review terms</string>
     <string name="user_terms_exit">Exit</string>
     <string name="user_terms_save_failed">Could not save your decision. Please try again.</string>
+    <string name="user_terms_need_lsposed_enable">LSPosed service is not connected. Enable this module and its scope in the LSPosed manager, come back, and tap Accept to retry.</string>
+    <string name="user_terms_need_api102">Your LSPosed / framework build does not support remote preference sync (API 102 required). Update LSPosed and retry.</string>
+    <string name="user_terms_open_lsposed">Open LSPosed</string>
     <string name="app_language">App language</string>
     <string name="app_language_tip">Choose the language used by the module interface and its injected UI</string>
     <string name="app_language_current">Current: %1$s</string>
@@ -253,6 +256,8 @@
     <string name="restart_bilibili">Restart Bilibili</string>
     <string name="restart_bilibili_done">Bilibili restarted</string>
     <string name="restart_bilibili_failed">Failed to restart Bilibili</string>
+    <string name="restart_root_missing">No usable root permission found. Set up root access (Magisk / KernelSU) first, then retry.</string>
+    <string name="restart_root_denied">Root access was denied. Allow this module in your root manager, then retry.</string>
     <string name="restart_bilibili_confirm_title">Confirm to save and restart Bilibili?</string>
     <string name="adapt_manual">Re-adapt to current version</string>
     <string name="adapt_manual_done">Adaptation records cleared. Restart Bilibili to re-adapt automatically.</string>
