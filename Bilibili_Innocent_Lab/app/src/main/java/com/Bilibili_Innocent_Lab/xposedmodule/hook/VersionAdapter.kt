@@ -125,8 +125,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 34
-    private const val ADAPTER_RULE_VERSION = 27
+    private const val SCHEMA_VERSION = 35
+    private const val ADAPTER_RULE_VERSION = 28
 
     enum class AdaptState {
         FOUND,
@@ -393,7 +393,9 @@ object VersionAdapter {
         val paramGetter: HookPoint?,
         val titleGetter: HookPoint?,
         val subtitleGetter: HookPoint?,
-        val descGetter: HookPoint?
+        val descGetter: HookPoint?,
+        val playerArgsGetter: HookPoint?,
+        val playerArgsDurationField: String?
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("responses", JSONArray().apply { responseItemGetters.forEach { put(it.toJson()) } })
@@ -407,6 +409,8 @@ object VersionAdapter {
             titleGetter?.let { put("title", it.toJson()) }
             subtitleGetter?.let { put("subtitle", it.toJson()) }
             descGetter?.let { put("desc", it.toJson()) }
+            playerArgsGetter?.let { put("player_args", it.toJson()) }
+            playerArgsDurationField?.let { put("player_args_duration", it) }
         }
 
         companion object {
@@ -425,7 +429,28 @@ object VersionAdapter {
                 paramGetter = o.optJSONObject("param")?.let(HookPoint::fromJson),
                 titleGetter = o.optJSONObject("title")?.let(HookPoint::fromJson),
                 subtitleGetter = o.optJSONObject("subtitle")?.let(HookPoint::fromJson),
-                descGetter = o.optJSONObject("desc")?.let(HookPoint::fromJson)
+                descGetter = o.optJSONObject("desc")?.let(HookPoint::fromJson),
+                playerArgsGetter = o.optJSONObject("player_args")?.let(HookPoint::fromJson),
+                playerArgsDurationField = o.optString("player_args_duration")
+                    .takeIf { it.isNotBlank() }
+            )
+        }
+    }
+
+    /** 详情页推荐项的“外层卡片 getter -> 数值时长 getter”公开方法链。 */
+    data class DurationMethodChain(
+        val itemGetter: HookPoint,
+        val durationGetter: HookPoint
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("item", itemGetter.toJson())
+            put("duration", durationGetter.toJson())
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): DurationMethodChain = DurationMethodChain(
+                itemGetter = HookPoint.fromJson(o.getJSONObject("item")),
+                durationGetter = HookPoint.fromJson(o.getJSONObject("duration"))
             )
         }
     }
@@ -435,13 +460,23 @@ object VersionAdapter {
         val responseItemGetters: List<HookPoint>,
         val cardCaseGetters: List<HookPoint>,
         val gotoGetters: List<HookPoint>,
-        val cardTypeGetters: List<HookPoint>
+        val cardTypeGetters: List<HookPoint>,
+        val directDurationGetters: List<HookPoint>,
+        val durationChains: List<DurationMethodChain>
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("responses", JSONArray().apply { responseItemGetters.forEach { put(it.toJson()) } })
             put("case", JSONArray().apply { cardCaseGetters.forEach { put(it.toJson()) } })
             put("goto", JSONArray().apply { gotoGetters.forEach { put(it.toJson()) } })
             put("type", JSONArray().apply { cardTypeGetters.forEach { put(it.toJson()) } })
+            put(
+                "direct_duration",
+                JSONArray().apply { directDurationGetters.forEach { put(it.toJson()) } }
+            )
+            put(
+                "duration_chains",
+                JSONArray().apply { durationChains.forEach { put(it.toJson()) } }
+            )
         }
 
         companion object {
@@ -457,7 +492,15 @@ object VersionAdapter {
                 },
                 cardTypeGetters = o.getJSONArray("type").let { values ->
                     (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
-                }
+                },
+                directDurationGetters = o.optJSONArray("direct_duration")?.let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                }.orEmpty(),
+                durationChains = o.optJSONArray("duration_chains")?.let { values ->
+                    (0 until values.length()).map {
+                        DurationMethodChain.fromJson(values.getJSONObject(it))
+                    }
+                }.orEmpty()
             )
         }
     }
@@ -1147,16 +1190,25 @@ object VersionAdapter {
                         value.paramGetter?.isValid() != false &&
                         value.titleGetter?.isValid() != false &&
                         value.subtitleGetter?.isValid() != false &&
-                        value.descGetter?.isValid() != false
+                        value.descGetter?.isValid() != false &&
+                        value.playerArgsGetter?.isValid() != false &&
+                        ((value.playerArgsGetter == null) ==
+                            value.playerArgsDurationField.isNullOrBlank())
                 } != false &&
                 videoRelate?.let { value ->
                     value.responseItemGetters.isNotEmpty() &&
                         value.responseItemGetters.all { it.isValid() } &&
                         (value.cardCaseGetters.isNotEmpty() || value.gotoGetters.isNotEmpty() ||
-                            value.cardTypeGetters.isNotEmpty()) &&
+                            value.cardTypeGetters.isNotEmpty() ||
+                            value.directDurationGetters.isNotEmpty() ||
+                            value.durationChains.isNotEmpty()) &&
                         value.cardCaseGetters.all { it.isValid() } &&
                         value.gotoGetters.all { it.isValid() } &&
-                        value.cardTypeGetters.all { it.isValid() }
+                        value.cardTypeGetters.all { it.isValid() } &&
+                        value.directDurationGetters.all { it.isValid() } &&
+                        value.durationChains.all { chain ->
+                            chain.itemGetter.isValid() && chain.durationGetter.isValid()
+                        }
                 } != false &&
                 homeTabs?.let { value ->
                     value.buildMethod.isValid() && value.resourceClassName.isNotBlank() &&
@@ -2678,13 +2730,36 @@ object VersionAdapter {
         }.distinctBy(Method::toGenericString).singleOrNull()?.toHookPoint()
 
         val uri = stringGetter("getUri") ?: return@runCatching null
-        fun objectGetter(name: String): HookPoint? = KavaMemberLookup.methods(
+        fun objectGetterMethod(name: String): Method? = KavaMemberLookup.methods(
             base,
             includeSuperclasses = true,
             makeAccessible = true
         ) { method ->
-            method.name == name && method.parameterCount == 0 && !method.isStatic
-        }.distinctBy(Method::toGenericString).singleOrNull()?.toHookPoint()
+            method.name == name && method.parameterCount == 0 && method.isPublic &&
+                !method.isStatic
+        }.distinctBy(Method::toGenericString).singleOrNull()
+        fun objectGetter(name: String): HookPoint? = objectGetterMethod(name)?.toHookPoint()
+
+        val playerArgsGetter = objectGetterMethod("getPlayerArgs")
+        val playerArgsDurationField = playerArgsGetter?.returnType?.let { playerArgsClass ->
+            KavaMemberLookup.declaredFields(playerArgsClass, makeAccessible = true) { field ->
+                field.type == classOf<Int>() && field.isPublic &&
+                    !field.isStatic && field.annotations.any { annotation ->
+                        val annotationClass = annotation.annotationClass.java
+                        val attributeName = when (annotationClass.name) {
+                            "com.google.gson.annotations.SerializedName" -> "value"
+                            "com.alibaba.fastjson.annotation.JSONField" -> "name"
+                            else -> null
+                        } ?: return@any false
+                        runCatching {
+                            annotationClass.getMethod(attributeName).invoke(annotation) as? String
+                        }.getOrNull() == "duration"
+                    }
+            }.singleOrNull()
+        }
+        val durationPair = playerArgsDurationField?.let {
+            requireNotNull(playerArgsGetter).toHookPoint() to it.name
+        }
         HomeRecommendFeedPoints(
             responseItemGetters = responseGetters,
             holderTypeGetter = holderType.toHookPoint(),
@@ -2696,7 +2771,9 @@ object VersionAdapter {
             paramGetter = stringGetter("getParam"),
             titleGetter = stringGetter("getTitle"),
             subtitleGetter = stringGetter("getSubtitle"),
-            descGetter = stringGetter("getDesc")
+            descGetter = stringGetter("getDesc"),
+            playerArgsGetter = durationPair?.first,
+            playerArgsDurationField = durationPair?.second
         )
     }.getOrNull()
 
@@ -2721,7 +2798,7 @@ object VersionAdapter {
             .toList()
         if (responses.isEmpty()) return@runCatching null
 
-        fun itemGetters(name: String): List<HookPoint> =
+        fun itemMethods(name: String): List<Method> =
             VIDEO_RELATE_ITEM_CLASS_CANDIDATES.asSequence()
                 .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
                 .flatMap { owner ->
@@ -2731,18 +2808,51 @@ object VersionAdapter {
                         makeAccessible = true
                     ) { method ->
                         method.name == name && method.parameterCount == 0 &&
-                            !method.isStatic && method.returnType != Void.TYPE
+                            method.isPublic && !method.isStatic && method.returnType != Void.TYPE
                     }.asSequence()
                 }
                 .distinctBy(Method::toGenericString)
-                .map { it.toHookPoint() }
                 .toList()
 
-        val cases = itemGetters("getCardCase")
-        val gotos = itemGetters("getGoto")
-        val types = itemGetters("getCardType")
-        if (cases.isEmpty() && gotos.isEmpty() && types.isEmpty()) return@runCatching null
-        VideoRelatePoints(responses, cases, gotos, types)
+        fun isDurationMethod(method: Method): Boolean = method.parameterCount == 0 &&
+            method.isPublic && !method.isStatic &&
+            method.returnType == classOf<Long>()
+
+        val cases = itemMethods("getCardCase").map { it.toHookPoint() }
+        val gotos = itemMethods("getGoto").map { it.toHookPoint() }
+        val types = itemMethods("getCardType").map { it.toHookPoint() }
+        val directDurations = itemMethods("getDuration")
+            .filter(::isDurationMethod)
+            .map { it.toHookPoint() }
+        val durationChains = listOf("getAv", "getHistoryAv", "getAiCard")
+            .flatMap(::itemMethods)
+            .mapNotNull { itemGetter ->
+                KavaMemberLookup.methods(
+                    itemGetter.returnType,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method -> method.name == "getDuration" && isDurationMethod(method) }
+                    .distinctBy(Method::toGenericString)
+                    .singleOrNull()
+                    ?.let { durationGetter ->
+                        DurationMethodChain(
+                            itemGetter = itemGetter.toHookPoint(),
+                            durationGetter = durationGetter.toHookPoint()
+                        )
+                    }
+            }
+            .distinctBy { it.itemGetter.label() + "->" + it.durationGetter.label() }
+        if (cases.isEmpty() && gotos.isEmpty() && types.isEmpty() &&
+            directDurations.isEmpty() && durationChains.isEmpty()
+        ) return@runCatching null
+        VideoRelatePoints(
+            responseItemGetters = responses,
+            cardCaseGetters = cases,
+            gotoGetters = gotos,
+            cardTypeGetters = types,
+            directDurationGetters = directDurations,
+            durationChains = durationChains
+        )
     }.getOrNull()
 
     /** 首页 Tab 构建方法：单个 List 参数、List 返回值，且参数泛型为 main2.resource。 */

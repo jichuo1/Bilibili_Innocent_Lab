@@ -6,34 +6,74 @@ import java.lang.reflect.Method
 /** 按相关推荐卡片的公开枚举/路由类型做精确过滤。 */
 internal class VideoRelateFilterFeatureInstaller(
     private val hiddenTypes: Set<String>,
+    minDurationSeconds: Int,
+    maxDurationSeconds: Int,
     private val points: VersionAdapter.VideoRelatePoints?
 ) : FeatureInstaller {
+
+    private val durationRange = VideoDurationRange(minDurationSeconds, maxDurationSeconds)
 
     override val id: String = ID
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         val normalizedHidden = hiddenTypes.mapTo(linkedSetOf(), ::normalizeType)
             .filterTo(linkedSetOf()) { it.isNotBlank() }
-        if (normalizedHidden.isEmpty()) {
-            environment.reportStatus(CHANNEL_STATUS, "disabled")
-            return FeatureInstallResult.Skipped("disabled")
+        if (durationRange.isConfigured && !durationRange.isValid) {
+            environment.logError(
+                "video_relate_duration_invalid",
+                "[BIL] 推荐视频时长范围无效，已保守放行: " +
+                    "min=${durationRange.minSeconds},max=${durationRange.maxSeconds}"
+            )
+        }
+        if (normalizedHidden.isEmpty() && !durationRange.isEnabled) {
+            val reason = if (durationRange.isConfigured && !durationRange.isValid) {
+                "invalid-duration-range"
+            } else {
+                "disabled"
+            }
+            environment.reportStatus(CHANNEL_STATUS, reason)
+            return FeatureInstallResult.Skipped(reason)
         }
         if (environment.processName != TARGET_PACKAGE) {
             return FeatureInstallResult.Skipped("non-main-process")
         }
         val adapted = points ?: return missing(environment, "missing-adapter-point")
-        val typeMethods = buildList {
-            adapted.cardCaseGetters.forEachIndexed { index, point ->
-                resolve(environment, "case.$index", point)?.let(::add)
+        val typeMethods = if (normalizedHidden.isNotEmpty()) {
+            buildList {
+                adapted.cardCaseGetters.forEachIndexed { index, point ->
+                    resolve(environment, "case.$index", point)?.let(::add)
+                }
+                adapted.gotoGetters.forEachIndexed { index, point ->
+                    resolve(environment, "goto.$index", point)?.let(::add)
+                }
+                adapted.cardTypeGetters.forEachIndexed { index, point ->
+                    resolve(environment, "type.$index", point)?.let(::add)
+                }
             }
-            adapted.gotoGetters.forEachIndexed { index, point ->
-                resolve(environment, "goto.$index", point)?.let(::add)
+                .distinctBy(Method::toGenericString)
+        } else {
+            emptyList()
+        }
+        val durationPaths = resolveDurationPaths(environment, adapted)
+        var partialReason: String? = null
+        if (normalizedHidden.isNotEmpty() && typeMethods.isEmpty()) {
+            if (!durationRange.isEnabled || durationPaths.isEmpty()) {
+                return missing(environment, "missing-type-getter")
             }
-            adapted.cardTypeGetters.forEachIndexed { index, point ->
-                resolve(environment, "type.$index", point)?.let(::add)
-            }
-        }.distinctBy(Method::toGenericString)
-        if (typeMethods.isEmpty()) return missing(environment, "missing-type-getter")
+            partialReason = "missing-type-getter"
+            environment.logError(
+                "video_relate_type_missing",
+                "[BIL] 详情页推荐类型读取适配不完整，时长过滤继续生效"
+            )
+        }
+        if (durationRange.isEnabled && durationPaths.isEmpty()) {
+            if (typeMethods.isEmpty()) return missing(environment, "missing-duration-accessor")
+            partialReason = "missing-duration-accessor"
+            environment.logError(
+                "video_relate_duration_missing",
+                "[BIL] 详情页推荐时长读取适配不完整，现有类型过滤继续生效"
+            )
+        }
 
         var installed = 0
         adapted.responseItemGetters.forEachIndexed { index, point ->
@@ -42,14 +82,22 @@ internal class VideoRelateFilterFeatureInstaller(
                     after {
                         val source = result as? List<*> ?: return@after
                         val filtered = CopyOnFilter.list(source) { item ->
-                            val type = extractType(item, typeMethods)
-                            type != null && normalizeType(type) in normalizedHidden
+                            val typeMatched = if (normalizedHidden.isNotEmpty()) {
+                                extractType(item, typeMethods)?.let { type ->
+                                    normalizeType(type) in normalizedHidden
+                                } == true
+                            } else {
+                                false
+                            }
+                            typeMatched || durationRange.shouldRemove(
+                                VideoDurationReader.fromMethods(item, durationPaths)
+                            )
                         }
                         if (filtered !== source) {
                             result = filtered
                             environment.logInfo(
                                 "video_relate_removed",
-                                "[BIL] 视频相关推荐精确类型过滤已移除 " +
+                                "[BIL] 视频相关推荐过滤已移除 " +
                                     "${source.size - filtered.size} 项"
                             )
                         }
@@ -65,12 +113,37 @@ internal class VideoRelateFilterFeatureInstaller(
             }
         }
         if (installed == 0) return missing(environment, "registration-failed")
-        environment.reportStatus(CHANNEL_STATUS, "success")
+        environment.reportStatus(
+            CHANNEL_STATUS,
+            partialReason?.let { "partial:$it" } ?: "success"
+        )
         environment.logInfo(
             "video_relate_ok",
-            "[BIL] 视频相关推荐精确类型过滤已安装，types=$normalizedHidden"
+            "[BIL] 视频相关推荐过滤已安装，types=$normalizedHidden," +
+                "duration=${durationRange.isEnabled}"
         )
         return FeatureInstallResult.Installed(installed)
+    }
+
+    private fun resolveDurationPaths(
+        environment: HookEnvironment,
+        points: VersionAdapter.VideoRelatePoints
+    ): List<VideoDurationMethodPath> {
+        if (!durationRange.isEnabled) return emptyList()
+        val direct = points.directDurationGetters.mapIndexedNotNull { index, point ->
+            resolve(environment, "duration.direct.$index", point)
+        }
+        val chains = points.durationChains.mapIndexedNotNull { index, chain ->
+            val itemGetter = resolve(environment, "duration.item.$index", chain.itemGetter)
+                ?: return@mapIndexedNotNull null
+            val durationGetter = resolve(
+                environment,
+                "duration.value.$index",
+                chain.durationGetter
+            ) ?: return@mapIndexedNotNull null
+            itemGetter to durationGetter
+        }
+        return VideoDurationReader.buildMethodPaths(direct, chains)
     }
 
     private fun extractType(item: Any, methods: List<Method>): String? {

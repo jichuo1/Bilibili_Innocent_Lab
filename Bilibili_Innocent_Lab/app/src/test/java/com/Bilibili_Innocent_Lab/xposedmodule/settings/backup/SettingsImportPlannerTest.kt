@@ -96,6 +96,94 @@ class SettingsImportPlannerTest {
     }
 
     @Test
+    fun `catalog v1 import reports both duration boundaries as new current settings`() {
+        val durationSpecs = listOf(
+            requireNotNull(
+                SettingsCatalog.byId[SettingsCatalog.ID_RECOMMEND_VIDEO_MIN_DURATION]
+            ),
+            requireNotNull(
+                SettingsCatalog.byId[SettingsCatalog.ID_RECOMMEND_VIDEO_MAX_DURATION]
+            )
+        )
+        val current = SettingsSnapshot(
+            durationSpecs.associate { spec ->
+                spec.id to StoredSetting(explicit = true, SettingValue.IntValue(120))
+            }
+        )
+        val source = document(catalogVersion = 1, records = emptyList())
+
+        val plan = SettingsImportPlanner(
+            durationSpecs,
+            SettingsCatalog.CATALOG_VERSION
+        ).plan(source, current)
+
+        assertEquals(2, plan.entries.size)
+        assertTrue(plan.entries.all { it.status == ImportStatus.NEW_IN_CURRENT })
+        assertTrue(plan.entries.none { it.willWrite })
+        assertTrue(plan.migrationWarnings.isEmpty())
+    }
+
+    @Test
+    fun `reversed imported duration range is visible and never written`() {
+        val minSpec = requireNotNull(
+            SettingsCatalog.byId[SettingsCatalog.ID_RECOMMEND_VIDEO_MIN_DURATION]
+        )
+        val maxSpec = requireNotNull(
+            SettingsCatalog.byId[SettingsCatalog.ID_RECOMMEND_VIDEO_MAX_DURATION]
+        )
+        val catalog = listOf(minSpec, maxSpec)
+        val current = snapshot(
+            minSpec to StoredSetting(explicit = true, SettingValue.IntValue(60)),
+            maxSpec to StoredSetting(explicit = true, SettingValue.IntValue(600))
+        )
+        val source = document(
+            catalogVersion = 2,
+            records = listOf(
+                record(minSpec, explicit = true, SettingValue.IntValue(600)),
+                record(maxSpec, explicit = true, SettingValue.IntValue(30))
+            )
+        )
+
+        val plan = SettingsImportPlanner(catalog, 2).plan(source, current)
+
+        assertEquals(2, plan.entries.size)
+        assertTrue(plan.entries.all { it.status == ImportStatus.INVALID_VALUE })
+        assertTrue(plan.entries.none { it.willWrite })
+        assertFalse(plan.canApply)
+    }
+
+    @Test
+    fun `single imported duration boundary cannot conflict with the kept current boundary`() {
+        val minSpec = requireNotNull(
+            SettingsCatalog.byId[SettingsCatalog.ID_RECOMMEND_VIDEO_MIN_DURATION]
+        )
+        val maxSpec = requireNotNull(
+            SettingsCatalog.byId[SettingsCatalog.ID_RECOMMEND_VIDEO_MAX_DURATION]
+        )
+        val catalog = listOf(minSpec, maxSpec)
+        val current = snapshot(
+            minSpec to StoredSetting(explicit = true, SettingValue.IntValue(60)),
+            maxSpec to StoredSetting(explicit = true, SettingValue.IntValue(300))
+        )
+        val source = document(
+            catalogVersion = 2,
+            records = listOf(record(minSpec, true, SettingValue.IntValue(600)))
+        ).copy(scope = BackupScope(SettingsCatalog.SCOPE_ID, complete = false, recordCount = 1))
+
+        val plan = SettingsImportPlanner(catalog, 2).plan(source, current)
+
+        assertEquals(
+            ImportStatus.INVALID_VALUE,
+            plan.entries.first { it.id == minSpec.id }.status
+        )
+        assertEquals(
+            ImportStatus.SOURCE_DEFAULT_SKIPPED,
+            plan.entries.first { it.id == maxSpec.id }.status
+        )
+        assertFalse(plan.canApply)
+    }
+
+    @Test
     fun `records from a future catalog and future value semantics are not guessed`() {
         val source = document(
             catalogVersion = 3,
