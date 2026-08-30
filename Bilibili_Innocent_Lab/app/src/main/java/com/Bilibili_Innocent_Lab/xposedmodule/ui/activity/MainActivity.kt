@@ -87,6 +87,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentSto
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SkinId
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinRepository
 import android.app.Dialog
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -289,6 +291,13 @@ class MainActivity : SkinnedActivity() {
     /** 用户条款状态只在 Activity 创建时解析；决定落盘后随 recreate/finish 更新生命周期。 */
     private var userTermsDecision = UserTermsDecision.UNDECIDED
     private var termsDecisionActionInProgress = false
+
+    /** Liquid renderer 的同一 Activity 失败只处理一次，避免重复 toast/recreate。 */
+    private var skinFailureHandled = false
+
+    /** 皮肤选择的同步写入和退场动画只允许单飞，避免重复动画吞掉 recreate 回调。 */
+    private var skinSelectionActionInProgress = false
+    private var skinSummaryView: NativeTextView? = null
 
     /** GitHub 请求只允许单飞；切换渠道时保留最后一次手动请求并抑制过期结果。 */
     private val updateCheckCoordinator = UpdateCheckCoordinator()
@@ -570,7 +579,7 @@ class MainActivity : SkinnedActivity() {
     }
 
     /**
-     * 二次确认弹窗：液态玻璃风格 + Material You 动效。
+     * 二次确认弹窗：圆角半透明模态风格 + Material You 动效。
      * 弹窗采用 scale + alpha 动画（GPU 加速、不触发布局重绘，低功耗），
      * 符合 Material 3 的 emphasized easing 标准。
      */
@@ -579,7 +588,7 @@ class MainActivity : SkinnedActivity() {
         val dialog = Dialog(this)
         val useNoRootFlow = shouldUseNoRootRestartFlow()
 
-        // 液态玻璃容器：surface 色 + 大圆角 + 细白描边模拟玻璃高光
+        // 模态容器：surface 色 + 大圆角 + 细白描边高光
         val container = NativeLinearLayout(this).apply {
             orientation = NativeLinearLayout.VERTICAL
             setPadding((24 * density).toInt(), (26 * density).toInt(), (24 * density).toInt(), (18 * density).toInt())
@@ -775,7 +784,7 @@ class MainActivity : SkinnedActivity() {
     private fun showUserTermsDeclinedPage() {
         val density = resources.displayMetrics.density
         val root = createTermsNeutralRoot()
-        val container = createGlassContainer().apply {
+        val container = createModalContainer().apply {
             scaleX = 1f
             scaleY = 1f
             alpha = 1f
@@ -865,13 +874,13 @@ class MainActivity : SkinnedActivity() {
         isFocusableInTouchMode = true
     }
 
-    /** 条款正文可滚动，操作按钮固定在玻璃容器底部；触外、系统取消均不关闭。 */
+    /** 条款正文可滚动，操作按钮固定在模态容器底部；触外、系统取消均不关闭。 */
     private fun showUserTermsDialog() {
         activeConfirmDialog?.dismiss()
         termsDecisionActionInProgress = false
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
-        val container = createGlassContainer()
+        val container = createModalContainer()
 
         container.addView(
             NativeTextView(this).apply {
@@ -1113,11 +1122,11 @@ class MainActivity : SkinnedActivity() {
         AppCompatDelegate.setApplicationLocales(locales)
     }
 
-    /** 应用语言单选弹窗：沿用现有玻璃容器、选中强调色和统一进退场动画。 */
+    /** 应用语言单选弹窗：沿用现有模态容器、选中强调色和统一进退场动画。 */
     private fun showAppLanguageDialog() {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
-        val container = createGlassContainer()
+        val container = createModalContainer()
         val current = currentAppLanguage()
 
         container.addView(
@@ -1198,7 +1207,7 @@ class MainActivity : SkinnedActivity() {
             ).apply { topMargin = (18 * density).toInt() }
         )
 
-        presentGlassDialog(dialog, container)
+        presentModalDialog(dialog, container)
     }
 
     private fun createAppLanguageRow(
@@ -1229,11 +1238,174 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
+    /** 实验性功能区显示实际请求的皮肤；Liquid 同时公开当前降级后端。 */
+    private fun currentSkinSummary(): String {
+        if (!isLiquidSkinRequested) return getString(R.string.skin_current_material_you)
+        val backendLabel = liquidBackendLabelRes(liquidBackendName)?.let { getString(it) }
+            ?: getString(R.string.skin_backend_initializing)
+        return getString(R.string.skin_current_liquid, backendLabel)
+    }
+
+    @StringRes
+    private fun liquidBackendLabelRes(backendName: String?): Int? = when (backendName) {
+        "REFRACTION" -> R.string.skin_backend_refraction
+        "BLUR" -> R.string.skin_backend_blur
+        "TRANSLUCENT" -> R.string.skin_backend_translucent
+        else -> null
+    }
+
+    @StringRes
+    private fun skinTitleRes(skin: SkinId): Int = when (skin) {
+        SkinId.MATERIAL_YOU -> R.string.skin_material_title
+        SkinId.LIQUID -> R.string.skin_liquid_title
+    }
+
+    @StringRes
+    private fun skinDescriptionRes(skin: SkinId): Int = when (skin) {
+        SkinId.MATERIAL_YOU -> R.string.skin_material_desc
+        SkinId.LIQUID -> R.string.skin_liquid_desc
+    }
+
+    /** 界面皮肤单选弹窗；只在同步持久化成功后退场并重建 Activity。 */
+    private fun showSkinSelectionDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createModalContainer()
+        val current = SkinRepository.resolveRequestedSkin(applicationContext)
+        skinSelectionActionInProgress = false
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.skin_dialog_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 17f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (12 * density).toInt() }
+        )
+
+        SkinId.entries.forEachIndexed { index, skin ->
+            val title = getString(skinTitleRes(skin))
+            val description = getString(skinDescriptionRes(skin))
+            val selected = current == skin
+            val row = createGitHubMenuRow(
+                title = title,
+                subtitle = description,
+                highlight = selected
+            ) {
+                selectSkinFromDialog(dialog, container, skin)
+            }.apply {
+                isSelected = selected
+                contentDescription = getString(
+                    if (selected) R.string.skin_option_selected
+                    else R.string.skin_option_not_selected,
+                    title,
+                    description
+                )
+            }
+            container.addView(
+                row,
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    if (index > 0) topMargin = (6 * density).toInt()
+                }
+            )
+        }
+
+        val closeRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        closeRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.dialog_close)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(
+                    (20 * density).toInt(),
+                    (11 * density).toInt(),
+                    (20 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    if (!skinSelectionActionInProgress) {
+                        dismissWithAnimation(dialog, container) {}
+                    }
+                }
+            }
+        )
+        container.addView(
+            closeRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (18 * density).toInt() }
+        )
+
+        presentModalDialog(dialog, container)
+    }
+
+    private fun selectSkinFromDialog(
+        dialog: Dialog,
+        container: NativeLinearLayout,
+        target: SkinId
+    ) {
+        if (skinSelectionActionInProgress) return
+        skinSelectionActionInProgress = true
+        if (SkinRepository.resolveRequestedSkin(applicationContext) == target) {
+            dialog.setCancelable(false)
+            dialog.setOnKeyListener { _, keyCode, _ -> keyCode == KeyEvent.KEYCODE_BACK }
+            dismissWithAnimation(dialog, container) {
+                skinSelectionActionInProgress = false
+            }
+            return
+        }
+        val result = runCatching {
+            SkinRepository.beginSelection(applicationContext, target)
+        }.onFailure { throwable ->
+            Log.e("BilibiliInnocentLab", "persist skin selection failed", throwable)
+        }.getOrNull()
+        if (result?.persisted != true) {
+            skinSelectionActionInProgress = false
+            toast(getString(R.string.skin_save_failed))
+            return
+        }
+        dialog.setCancelable(false)
+        dialog.setOnKeyListener { _, keyCode, _ -> keyCode == KeyEvent.KEYCODE_BACK }
+        dismissWithAnimation(dialog, container) {
+            if (!isFinishing && !isDestroyed) recreate()
+        }
+    }
+
+    /** renderer 已完成核心侧回退后，当前 Activity 只负责提示并重建 Material 界面。 */
+    private fun handleSkinRendererFailure() {
+        runOnUiThread {
+            if (skinFailureHandled || isFinishing || isDestroyed) return@runOnUiThread
+            skinFailureHandled = true
+            if (SkinRepository.resolveRequestedSkin(applicationContext) == SkinId.MATERIAL_YOU) {
+                toast(getString(R.string.skin_start_failed))
+                recreate()
+            } else {
+                toast(getString(R.string.skin_recovery_save_failed))
+                skinSummaryView?.text = currentSkinSummary()
+            }
+        }
+    }
+
     /** 右上角 GitHub 图标的二级菜单。 */
     private fun showGitHubMenuDialog() {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
-        val container = createGlassContainer()
+        val container = createModalContainer()
 
         container.addView(
             NativeTextView(this).apply {
@@ -1319,7 +1491,7 @@ class MainActivity : SkinnedActivity() {
             ).apply { topMargin = (22 * density).toInt() }
         )
 
-        presentGlassDialog(dialog, container)
+        presentModalDialog(dialog, container)
     }
 
     private fun createGitHubMenuRow(
@@ -1386,7 +1558,7 @@ class MainActivity : SkinnedActivity() {
     private fun showUpdateChannelDialog() {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
-        val container = createGlassContainer()
+        val container = createModalContainer()
         val updatePrefs = applicationContext.getSharedPreferences(UPDATE_PREFS_NAME, MODE_PRIVATE)
         val current = readUpdateChannel(updatePrefs)
 
@@ -1462,14 +1634,14 @@ class MainActivity : SkinnedActivity() {
             ).apply { topMargin = (22 * density).toInt() }
         )
 
-        presentGlassDialog(dialog, container)
+        presentModalDialog(dialog, container)
     }
 
     /** 播放器默认画质选择：只写模块配置，实际 Hook 在 B 站下次主进程启动时安装。 */
     private fun showPlayerQualityDialog() {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
-        val container = createGlassContainer()
+        val container = createModalContainer()
 
         container.addView(
             NativeTextView(this).apply {
@@ -1568,7 +1740,7 @@ class MainActivity : SkinnedActivity() {
             ).apply { topMargin = (18 * density).toInt() }
         )
 
-        presentGlassDialog(dialog, container)
+        presentModalDialog(dialog, container)
     }
 
     private fun playerQualityLabel(qn: Int): String = when (qn) {
@@ -1591,11 +1763,11 @@ class MainActivity : SkinnedActivity() {
         )
     }
 
-    /** 评论最低等级选择：沿用播放器画质选择器的玻璃菜单与进退场动画。 */
+    /** 评论最低等级选择：沿用播放器画质选择器的模态菜单与进退场动画。 */
     private fun showCommentMinLevelDialog() {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
-        val container = createGlassContainer()
+        val container = createModalContainer()
 
         container.addView(
             NativeTextView(this).apply {
@@ -1691,7 +1863,7 @@ class MainActivity : SkinnedActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = (18 * density).toInt() }
         )
-        presentGlassDialog(dialog, container)
+        presentModalDialog(dialog, container)
     }
 
     /** 保存渠道选择并立即按新渠道检查一次；检查失败保留渠道，下次可继续。 */
@@ -1879,7 +2051,7 @@ class MainActivity : SkinnedActivity() {
     private fun showUpdateAvailableDialog(release: GitHubReleaseChecker.ReleaseInfo) {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
-        val container = createGlassContainer()
+        val container = createModalContainer()
 
         container.addView(
             NativeTextView(this).apply {
@@ -2049,7 +2221,7 @@ class MainActivity : SkinnedActivity() {
             ).apply { topMargin = (20 * density).toInt() }
         )
 
-        presentGlassDialog(dialog, container)
+        presentModalDialog(dialog, container)
     }
 
     private fun openReleaseDetailsWithFallback(officialUrl: String) {
@@ -2081,7 +2253,7 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
-    private fun createGlassContainer(): NativeLinearLayout {
+    private fun createModalContainer(): NativeLinearLayout {
         val density = resources.displayMetrics.density
         return NativeLinearLayout(this).apply {
             orientation = NativeLinearLayout.VERTICAL
@@ -2092,14 +2264,7 @@ class MainActivity : SkinnedActivity() {
                 (24 * density).toInt(),
                 (18 * density).toInt()
             )
-            background = GradientDrawable().apply {
-                cornerRadius = 28 * density
-                setColor(monetColors.surface)
-                setStroke(
-                    (1 * density).toInt(),
-                    ColorUtils.setAlphaComponent(Color.WHITE, 0x18)
-                )
-            }
+            background = skinModalBackground(monetColors.surface)
             elevation = 12 * density
             scaleX = 0.85f
             scaleY = 0.85f
@@ -2107,7 +2272,7 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
-    private fun presentGlassDialog(dialog: Dialog, container: NativeLinearLayout) {
+    private fun presentModalDialog(dialog: Dialog, container: NativeLinearLayout) {
         activeConfirmDialog?.dismiss()
         val density = resources.displayMetrics.density
         val root = NativeFrameLayout(this).apply {
@@ -2159,7 +2324,7 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
-    /** 自定义隐藏规则编辑器：沿用项目玻璃弹窗与统一退场动画。 */
+    /** 自定义隐藏规则编辑器：沿用项目模态弹窗与统一退场动画。 */
     private fun showRuleEditorDialog(
         @StringRes titleRes: Int,
         @StringRes hintRes: Int,
@@ -2168,7 +2333,7 @@ class MainActivity : SkinnedActivity() {
     ) {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
-        val container = createGlassContainer()
+        val container = createModalContainer()
 
         container.addView(
             NativeTextView(this).apply {
@@ -2290,14 +2455,14 @@ class MainActivity : SkinnedActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = (18 * density).toInt() }
         )
-        presentGlassDialog(dialog, container)
+        presentModalDialog(dialog, container)
     }
 
     /** 推荐视频时长范围编辑器：空输入表示不限制，非法区间保持弹窗等待修正。 */
     private fun showRecommendVideoDurationRangeDialog() {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
-        val container = createGlassContainer()
+        val container = createModalContainer()
 
         container.addView(
             NativeTextView(this).apply {
@@ -2519,7 +2684,7 @@ class MainActivity : SkinnedActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = (18 * density).toInt() }
         )
-        presentGlassDialog(dialog, container)
+        presentModalDialog(dialog, container)
     }
 
     private fun updateRecommendVideoDurationSummary() {
@@ -2595,7 +2760,7 @@ class MainActivity : SkinnedActivity() {
     /**
      * 「亮色模式气泡」二级确认（手动优先：自动跟随开启时切换手动开关 → 提示会关闭
      * 自动跟随，确认后关闭跟随并应用手动值，取消保持原样）。样式与 showAdaptConfirmDialog
-     * 相同（液态玻璃容器 + 取消/确认按钮 + 进出动画）。
+     * 相同（模态容器 + 取消/确认按钮 + 进出动画）。
      *
      * @param onConfirm 确认回调（自动跟随关闭 + 手动值生效；由调用方负责 UI 动画同步）
      * @param onCancel  取消回调（开关 UI 复位）
@@ -2758,7 +2923,7 @@ class MainActivity : SkinnedActivity() {
 
     /**
      * 「重新适配当前版本」二级确认菜单：样式与规格与「重启哔哩哔哩」确认弹窗
-     * （showRestartConfirmDialog）完全一致（液态玻璃容器 + 取消/确认按钮 + 进出动画）。
+     * （showRestartConfirmDialog）完全一致（模态容器 + 取消/确认按钮 + 进出动画）。
      * 确认后清除版本适配缓存（VersionAdapter.clearCache），重启 B 站后自动重新定位。
      */
     private fun showAdaptConfirmDialog() {
@@ -3161,6 +3326,7 @@ class MainActivity : SkinnedActivity() {
         recommendVideoDurationSummaryView = null
         commentKeywordSummaryView = null
         commentLevelSummaryView = null
+        skinSummaryView = null
         SettingsBackupTransitionOriginRegistry.clear(settingsBackupEntryView)
         settingsBackupEntryView = null
         settingsBackupEntryTitleView = null
@@ -3183,6 +3349,7 @@ class MainActivity : SkinnedActivity() {
             }
             return
         }
+        prepareSkinSession()
 
         // 读取广告开关配置：prefs() 只创建一次跨进程 bridge，两个开关复用（降低初始化开销）
         val modulePrefs = runCatching { prefs() }.onFailure { t ->
@@ -3771,7 +3938,7 @@ class MainActivity : SkinnedActivity() {
                             init = {
                                 orientation = LinearLayout.VERTICAL
                                 gravity = Gravity.CENTER or Gravity.START
-                                background = roundedColor(monetColors.surfaceVariant)
+                                background = skinCardBackground(monetColors.surfaceVariant)
                                 updatePadding(left = 15.dp, top = 15.dp, right = 15.dp)
                             }
                         ) {
@@ -3884,7 +4051,7 @@ class MainActivity : SkinnedActivity() {
                             init = {
                                 orientation = LinearLayout.HORIZONTAL
                                 gravity = Gravity.CENTER_VERTICAL
-                                background = roundedColor(monetColors.surfaceVariant)
+                                background = skinCardBackground(monetColors.surfaceVariant)
                                 foreground = selfRippleBackground(15f)
                                 updatePadding(horizontal = 15.dp, vertical = 14.dp)
                                 isClickable = true
@@ -3963,7 +4130,7 @@ class MainActivity : SkinnedActivity() {
                             init = {
                                 orientation = LinearLayout.VERTICAL
                                 gravity = Gravity.CENTER or Gravity.START
-                                background = roundedColor(monetColors.surfaceVariant)
+                                background = skinCardBackground(monetColors.surfaceVariant)
                                 updatePadding(left = 15.dp, top = 15.dp, right = 15.dp, bottom = 15.dp)
                             }
                         ) {
@@ -4162,7 +4329,7 @@ class MainActivity : SkinnedActivity() {
                             init = {
                                 orientation = LinearLayout.VERTICAL
                                 gravity = Gravity.CENTER or Gravity.START
-                                background = roundedColor(monetColors.surfaceVariant)
+                                background = skinCardBackground(monetColors.surfaceVariant)
                                 updatePadding(left = 15.dp, top = 5.dp, right = 15.dp, bottom = 5.dp)
                             }
                         ) {
@@ -6213,7 +6380,7 @@ class MainActivity : SkinnedActivity() {
                             init = {
                                 orientation = LinearLayout.VERTICAL
                                 gravity = Gravity.CENTER or Gravity.START
-                                background = roundedColor(monetColors.surfaceVariant)
+                                background = skinCardBackground(monetColors.surfaceVariant)
                                 updatePadding(left = 15.dp, top = 15.dp, right = 15.dp, bottom = 15.dp)
                             }
                         ) {
@@ -6382,7 +6549,7 @@ class MainActivity : SkinnedActivity() {
                             init = {
                                 orientation = LinearLayout.VERTICAL
                                 gravity = Gravity.CENTER or Gravity.START
-                                background = roundedColor(monetColors.surfaceVariant)
+                                background = skinCardBackground(monetColors.surfaceVariant)
                                 updatePadding(left = 15.dp, top = 5.dp, right = 15.dp, bottom = 5.dp)
                             }
                         ) {
@@ -6431,6 +6598,49 @@ class MainActivity : SkinnedActivity() {
                                     updatePadding(bottom = 10.dp)
                                 }
                             ) {
+                                LinearLayout(
+                                    lparams = LayoutParams(widthMatchParent = true) {
+                                        bottomMargin = 5.dp
+                                    },
+                                    init = {
+                                        orientation = LinearLayout.VERTICAL
+                                        background = selfRippleBackground(10f)
+                                        updatePadding(horizontal = 4.dp, vertical = 9.dp)
+                                        isClickable = true
+                                        isFocusable = true
+                                        setOnClickListener { showSkinSelectionDialog() }
+                                    }
+                                ) {
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        text = stringResource(R.string.skin_setting_title)
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 4.dp
+                                        }
+                                    ) {
+                                        alpha = 0.72f
+                                        skinSummaryView = this
+                                        text = currentSkinSummary()
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                }
+                                TextView(
+                                    lparams = LayoutParams(widthMatchParent = true) {
+                                        bottomMargin = 10.dp
+                                    }
+                                ) {
+                                    alpha = 0.6f
+                                    setLineSpacing(6f, 1f)
+                                    text = stringResource(R.string.skin_setting_tip)
+                                    textColor = colorResource(R.color.colorTextDark)
+                                    textSize = 12f
+                                }
                                 MaterialSwitch(
                                     lparams = LayoutParams(widthMatchParent = true) {
                                         bottomMargin = 5.dp
@@ -6645,7 +6855,7 @@ class MainActivity : SkinnedActivity() {
                             init = {
                                 orientation = LinearLayout.VERTICAL
                                 gravity = Gravity.CENTER or Gravity.START
-                                background = roundedColor(monetColors.surfaceVariant)
+                                background = skinCardBackground(monetColors.surfaceVariant)
                                 updatePadding(left = 15.dp, top = 15.dp, right = 15.dp, bottom = 15.dp)
                             }
                         ) {
@@ -6819,6 +7029,17 @@ class MainActivity : SkinnedActivity() {
             }
         }
 
+        val skinRoot = findViewById<View>(Android_R.id.content)
+        bindPreparedSkinRoot(
+            skinRoot,
+            ::handleSkinRendererFailure
+        )
+        // 两次 animation callback 跨过首次 traversal，刷新首帧实际降级后的后端名称。
+        skinRoot.postOnAnimation {
+            skinRoot.postOnAnimation {
+                if (!isFinishing && !isDestroyed) skinSummaryView?.text = currentSkinSummary()
+            }
+        }
         // setContentView 返回后尚未进入首帧绘制，此时重排不会产生界面跳动。
         placeAdvancedBelowExperimental()
         renderNoRootUi()
@@ -6843,7 +7064,7 @@ class MainActivity : SkinnedActivity() {
             },
             init = {
                 gravity = Gravity.CENTER or Gravity.START
-                background = roundedColor(monetColors.surfaceVariant)
+                background = skinCardBackground(monetColors.surfaceVariant)
                 setPadding(10.dp)
             }
         ) {
