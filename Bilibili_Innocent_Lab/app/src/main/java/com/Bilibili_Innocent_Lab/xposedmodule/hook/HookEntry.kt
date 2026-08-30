@@ -4472,61 +4472,6 @@ class HookEntry : IYukiHookXposedInit {
                 }
             }
 
-            /**
-             * 宿主崩溃哨兵：链式包装默认 UncaughtExceptionHandler，先补一条带模块版本
-             * 与 Hook 点摘要的 [BIL] host_crash 记录，再原样交还原 handler。
-             * 设计约束：不吞异常、不改变宿主崩溃语义；直接走 XposedBridge.log，
-             * 不经过 logEnabled/onceLogged 门控（崩溃记录不允许被日志开关或一次性
-             * 去重吞掉）；摘要构建与日志输出各自兜底，任何失败都不能阻断原 handler
-             * 的调用。仅在本模块已声明进程所有权且本调用确将安装 Hook 后生效，
-             * 未授权/已关闭的宿主进程保持原生行为不受影响。
-             */
-            val hostCrashSentinelInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
-            fun installHostCrashSentinel() {
-                if (!hostCrashSentinelInstalled.compareAndSet(false, true)) return
-                runCatching {
-                    val previous = Thread.getDefaultUncaughtExceptionHandler()
-                    Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-                        runCatching {
-                            val hookSummary = runCatching { hookPointRegistry.summary() }
-                                .getOrDefault("unavailable")
-                            val backend = runCatching {
-                                System.getProperty(runtimeClaimProperty) ?: "unknown"
-                            }.getOrDefault("unknown")
-                            XposedBridge.log(
-                                "[BIL] host_crash " +
-                                    "module=" +
-                                    "${com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.VERSION_NAME}" +
-                                    "(${com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.VERSION_CODE}) " +
-                                    "process=$processName backend=$backend " +
-                                    "thread=${thread.name} hooks=$hookSummary"
-                            )
-                            XposedBridge.log(
-                                "[BIL] host_crash 堆栈:\n" +
-                                    android.util.Log.getStackTraceString(throwable)
-                            )
-                        }
-                        val fallback = previous
-                        if (fallback == null) {
-                            // 正常宿主进程必由框架安装默认 handler；缺失时按平台默认
-                            // 终态（杀进程，退出码 10）收尾，避免哨兵直接返回被视作
-                            // 「已处理」而把宿主变成无主 zombie。
-                            runCatching {
-                                XposedBridge.log(
-                                    "[BIL] host_crash 默认 handler 缺失，按平台默认结束进程"
-                                )
-                            }
-                            android.os.Process.killProcess(android.os.Process.myPid())
-                            System.exit(10)
-                        } else {
-                            // 忠实转发，不再包裹：原 handler 自身的异常属于宿主行为，
-                            // 由其现有契约处理，本层不得截断或吞并。
-                            fallback.uncaughtException(thread, throwable)
-                        }
-                    }
-                }
-            }
-
             fun performAuthorizationAndInstall(
                 appContext: Context,
                 runtimeMode: HookRuntimeMode,
@@ -4653,9 +4598,6 @@ class HookEntry : IYukiHookXposedInit {
                     authorizedInstallerRef.set(null)
                     return
                 }
-                // 哨兵先于安装链生效：安装链本身被外层 runCatching 保护，这里覆盖的是
-                // 其后宿主全生命周期的未捕获异常现场。
-                installHostCrashSentinel()
                 val installer = authorizedInstallerRef.getAndSet(null) ?: return
                 runCatching {
                     installer(appContext)
