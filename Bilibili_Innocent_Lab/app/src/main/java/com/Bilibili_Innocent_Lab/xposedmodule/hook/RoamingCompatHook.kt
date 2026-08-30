@@ -1,6 +1,5 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook
 
-import android.app.AndroidAppHelper
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -15,11 +14,12 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetAppStorage
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.HookConfigSource
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookParam
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookRuntime
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 import com.highcapable.kavaref.extension.classOf
-import com.highcapable.yukihookapi.hook.xposed.prefs.YukiHookPrefsBridge
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
 import java.io.File
 import java.lang.reflect.Field
 import java.lang.reflect.Method
@@ -137,6 +137,9 @@ object RoamingCompatHook {
     @Volatile
     private var logVerbose = true
 
+    @Volatile
+    private var hookRuntime: ModernHookRuntime? = null
+
     /** 本进程是否已成功 hook DexHelper.findMethodInvoked（分析缺陷修补，见文件头注释） */
     @Volatile
     private var analysisPatchApplied = false
@@ -220,9 +223,14 @@ object RoamingCompatHook {
     private val onceLogged = Collections.synchronizedSet(HashSet<String>())
 
     /** 与 HookEntry 日志设置同步（loadApp 启动时调用） */
-    fun configure(logEnabled: Boolean, logVerbose: Boolean) {
+    internal fun configure(
+        logEnabled: Boolean,
+        logVerbose: Boolean,
+        runtime: ModernHookRuntime
+    ) {
         this.logEnabled = logEnabled
         this.logVerbose = logVerbose
+        this.hookRuntime = runtime
     }
 
     /**
@@ -241,21 +249,16 @@ object RoamingCompatHook {
      * 必须在 BiliRoaming 执行分析（其 callApplicationOnCreate 回调）之前完成，
      * 由 attach 阶段的 [onApplicationAttach] 先行调用（必然早于漫游回调）。
      *
-     * @param appClassLoader 目标 App（B 站）的 ClassLoader（本实现实际经
-     *   XposedBridge.sLoadedPackageCallbacks 定位漫游模块类加载器，此参数保留作兜底）
+     * @param appClassLoader 目标 App（B 站）的 ClassLoader；若漫游 fork 将实现类注入
+     *   宿主加载器，可直接定位并修补，否则安全回退缓存兜底路径。
      * @return true=修补已生效（本进程），false=未生效（回退旧缓存兜底行为）
      */
     fun patchRoamingAnalysis(appClassLoader: ClassLoader?): Boolean {
         if (analysisPatchApplied) return true
         return runCatching {
-            // BiliRoaming 的类由 LSPosed 以独立的模块 ClassLoader 加载，不在 B 站
-            // appClassLoader 的父链上（本机 DirectAccessService 分支实测
-            // 目标 App ClassLoader 无法解析该类）。取模块 ClassLoader 的可靠
-            // 途径：LSPosed 将旧式模块包装进 IXposedHookLoadPackage.Wrapper 并注册在
-            // XposedBridge.sLoadedPackageCallbacks（公开静态字段），Wrapper.instance
-            // 即模块的 XposedInit 实例，其类加载器即模块类加载器。
-            val dexHelperClass = resolveRoamingClass(DEX_HELPER_CLASS) ?: return false
-            XposedHelpers.findAndHookMethod(
+            val runtime = hookRuntime ?: return false
+            val dexHelperClass = resolveRoamingClass(DEX_HELPER_CLASS, appClassLoader) ?: return false
+            val invokedMethod = KavaMemberLookup.methodOrNull(
                 dexHelperClass,
                 "findMethodInvoked",
                 classOf<Long>(),
@@ -266,14 +269,14 @@ object RoamingCompatHook {
                 classOf<LongArray>(),
                 classOf<LongArray>(),
                 classOf<IntArray>(),
-                classOf<Boolean>(),
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        runCatching { filterCommentLongClickResults(param) }
-                    }
+                classOf<Boolean>()
+            ) ?: throw NoSuchMethodException("DexHelper#findMethodInvoked")
+            runtime.install("roaming:analysis:find-method-invoked", invokedMethod) {
+                after {
+                    runCatching { filterCommentLongClickResults(this) }
                 }
-            )
-            XposedHelpers.findAndHookMethod(
+            }
+            val usingStringMethod = KavaMemberLookup.methodOrNull(
                 dexHelperClass,
                 "findMethodUsingString",
                 classOf<String>(),
@@ -285,14 +288,14 @@ object RoamingCompatHook {
                 classOf<LongArray>(),
                 classOf<LongArray>(),
                 classOf<IntArray>(),
-                classOf<Boolean>(),
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        runCatching { filterOnOperateClickResults(param) }
-                        runCatching { enhanceSettingRouterQuery(param) }
-                    }
+                classOf<Boolean>()
+            ) ?: throw NoSuchMethodException("DexHelper#findMethodUsingString")
+            runtime.install("roaming:analysis:find-method-using-string", usingStringMethod) {
+                after {
+                    runCatching { filterOnOperateClickResults(this) }
+                    runCatching { enhanceSettingRouterQuery(this) }
                 }
-            )
+            }
             analysisPatchApplied = true
             logInfo(
                 "br_analysis_patched",
@@ -305,37 +308,24 @@ object RoamingCompatHook {
     }
 
     /**
-     * 经 XposedBridge.sLoadedPackageCallbacks 定位 BiliRoaming 模块类加载器并加载
-     * 指定类。返回 null 表示未找到（未安装/未注册/类名不存在）。
+     * 仅从 API 102 可见的宿主/线程加载器定位类，不读取 Legacy 全局回调表。
      */
-    private fun resolveRoamingClass(name: String): Class<*>? {
-        val callbacks = runCatching {
-            KavaMemberLookup.fieldOrNull(classOf<XposedBridge>(), "sLoadedPackageCallbacks")
-                ?.get(null)
-        }.getOrNull() as? Iterable<*> ?: return null
-        for (callback in callbacks) {
-            if (callback == null) continue
-            val instance = runCatching {
-                val field = KavaMemberLookup.fieldOrNull(
-                    callback.javaClass,
-                    "instance",
-                    includeSuperclasses = true
-                ) ?: return@runCatching null
-                field.get(callback)
-            }.getOrNull() ?: continue
-            if (instance.javaClass.name != "$BILIROAMING_PACKAGE.XposedInit") continue
-            val moduleLoader = instance.javaClass.classLoader ?: continue
-            return KavaMemberLookup.classOrNull(moduleLoader, name)
+    private fun resolveRoamingClass(name: String, appClassLoader: ClassLoader?): Class<*>? {
+        val candidates = linkedSetOf<ClassLoader>()
+        appClassLoader?.let(candidates::add)
+        Thread.currentThread().contextClassLoader?.let(candidates::add)
+        for (loader in candidates) {
+            KavaMemberLookup.classOrNull(loader, name)?.let { return it }
         }
         return null
     }
 
     /**
-     * [XC_MethodHook.MethodHookParam] 过滤：仅对 commentLongClick 查询的
+     * [ModernHookParam] 过滤：仅对 commentLongClick 查询的
      * findMethodInvoked 结果生效，剔除会触发 AIOOBE 的 <2 参数候选。
      * 非目标查询/结果异常时原样放行（不做任何改动）。
      */
-    private fun filterCommentLongClickResults(param: XC_MethodHook.MethodHookParam) {
+    private fun filterCommentLongClickResults(param: ModernHookParam) {
         val args = param.args
         if (args.size < 9) return
         // 目标查询特征：shorty="VLL"、opcode 数=2、matchLast=false、参数表={viewIdx, -1}
@@ -345,18 +335,18 @@ object RoamingCompatHook {
         val params = args[5] as? LongArray ?: return
         if (params.size != 2 || params[1] != -1L) return
         val viewIndex = runCatching {
-            XposedHelpers.callMethod(param.thisObject, "encodeClassIndex", classOf<View>())
+            ReflectAccess.callMethod(param.thisObject, "encodeClassIndex", classOf<View>())
         }.getOrNull() as? Long ?: return
         if (params[0] != viewIndex) return
         dropSmallParamCandidates(param, "br_clc_filtered", "commentLongClick")
     }
 
     /**
-     * [XC_MethodHook.MethodHookParam] 过滤：仅对 onOperateClick 查询的
+     * [ModernHookParam] 过滤：仅对 onOperateClick 查询的
      * findMethodUsingString 结果生效，剔除会触发 AIOOBE 的 <2 参数候选。
      * 非目标查询/结果异常时原样放行（不做任何改动）。
      */
-    private fun filterOnOperateClickResults(param: XC_MethodHook.MethodHookParam) {
+    private fun filterOnOperateClickResults(param: ModernHookParam) {
         val args = param.args
         if (args.isEmpty()) return
         // 目标查询特征：唯一以该字符串做全量查找的查询（onOperateClick 分析）
@@ -369,13 +359,13 @@ object RoamingCompatHook {
      * 原过滤条件都会访问 parameterTypes[1]，参数个数不足的候选必然崩溃且
      * 不可能通过原条件，剔除不改变语义）。解码失败/非 Method 候选一律保留。
      */
-    private fun dropSmallParamCandidates(param: XC_MethodHook.MethodHookParam, logKey: String, queryName: String) {
+    private fun dropSmallParamCandidates(param: ModernHookParam, logKey: String, queryName: String) {
         val results = param.result as? LongArray ?: return
         var dropped = 0
         val kept = ArrayList<Long>(results.size)
         for (index in results) {
             val keep = runCatching {
-                val member = XposedHelpers.callMethod(param.thisObject, "decodeMethodIndex", index)
+                val member = ReflectAccess.callMethod(param.thisObject, "decodeMethodIndex", index)
                 !(member is Method && member.parameterTypes.size < 2)
             }.getOrDefault(true)
             if (keep) kept.add(index) else dropped++
@@ -398,7 +388,7 @@ object RoamingCompatHook {
      * interfaces[0]（接口 b）→ findField(接口 b) 正常执行。
      * 非目标查询/结果非空时原样放行。
      */
-    private fun enhanceSettingRouterQuery(param: XC_MethodHook.MethodHookParam) {
+    private fun enhanceSettingRouterQuery(param: ModernHookParam) {
         val args = param.args
         if (args.isEmpty()) return
         // 目标查询特征（fork settings 链中唯一）：查询串 + 返回类型 "V" + matchLast=true
@@ -408,7 +398,7 @@ object RoamingCompatHook {
         val current = param.result as? LongArray
         if (current != null && current.isNotEmpty()) return
         val relaxed = runCatching {
-            XposedHelpers.callMethod(
+            ReflectAccess.callMethod(
                 param.thisObject, "findMethodUsingString",
                 "UperHotMineSolution", false, -1L, (-1).toShort(), null, -1L,
                 null, null, null, false
@@ -445,6 +435,7 @@ object RoamingCompatHook {
         if (mineEntryPatched) return true
         if (appClassLoader == null) return false
         return runCatching {
+            val runtime = hookRuntime ?: throw IllegalStateException("Modern hook runtime unavailable")
             val point = VersionAdapter.locateMineEntry(appClassLoader)
                 ?: throw NoSuchMethodException("HomeUserCenterFragment menu structure")
             val firstBuild = point.buildMethods.firstOrNull()
@@ -470,18 +461,18 @@ object RoamingCompatHook {
                     buildPoint.methodName,
                     *buildParams
                 ) ?: throw NoSuchMethodException(buildPoint.methodName)
-                XposedBridge.hookMethod(buildMethod, object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
+                runtime.install("roaming:mine-build:${buildMethod.toGenericString()}", buildMethod) {
+                    after {
                         runCatching {
                             injectMineEntry(
-                                param.args.getOrNull(0),
+                                args.getOrNull(0),
                                 appClassLoader,
                                 groupField,
                                 adapterField
                             )
                         }
                     }
-                })
+                }
             }
 
             val clickClass = KavaMemberLookup.classOrNull(
@@ -497,18 +488,18 @@ object RoamingCompatHook {
                 point.clickMethod.methodName,
                 *clickParams
             ) ?: throw NoSuchMethodException(point.clickMethod.methodName)
-            XposedBridge.hookMethod(clickMethod, object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    val item = param.args.getOrNull(0)
+            runtime.install("roaming:mine-click:${clickMethod.toGenericString()}", clickMethod) {
+                before {
+                    val item = args.getOrNull(0)
                     val uri = item?.let {
-                        runCatching { XposedHelpers.getObjectField(it, "uri") as? String }.getOrNull()
+                        runCatching { ReflectAccess.getField(it, "uri") as? String }.getOrNull()
                     }
-                    if (uri != ROAMING_URI) return
-                    val ctx = mineClickContext(param.thisObject) ?: return
+                    if (uri != ROAMING_URI) return@before
+                    val ctx = mineClickContext(thisObject) ?: return@before
                     openRoamingSettings(ctx)
-                    param.result = null
+                    result = null
                 }
-            })
+            }
             mineEntryPatched = true
             logInfo(
                 "br_mine_patched",
@@ -541,18 +532,18 @@ object RoamingCompatHook {
         for (group in groups) {
             if (group == null) continue
             val itemList = runCatching {
-                XposedHelpers.getObjectField(group, "itemList") as? MutableList<Any>
+                ReflectAccess.getField(group, "itemList") as? MutableList<Any>
             }.getOrNull() ?: continue
             if (itemList.isEmpty()) continue
             val hasSettings = itemList.any {
-                runCatching { XposedHelpers.getObjectField(it, "uri") as? String }.getOrNull() == "activity://main/preference"
+                runCatching { ReflectAccess.getField(it, "uri") as? String }.getOrNull() == "activity://main/preference"
             }
             targetList = itemList
             if (hasSettings) break
         }
         if (targetList == null) return
         val exists = targetList.any {
-            runCatching { XposedHelpers.getLongField(it, "id") }.getOrDefault(-1L) == ROAMING_ENTRY_ID
+            runCatching { ReflectAccess.getLongField(it, "id") }.getOrDefault(-1L) == ROAMING_ENTRY_ID
         }
         if (exists) return
         val item = runCatching {
@@ -560,20 +551,20 @@ object RoamingCompatHook {
                 ?: return@runCatching null
             KavaMemberLookup.constructorOrNull(itemClass)?.newInstance()
         }.getOrNull() ?: return
-        XposedHelpers.setLongField(item, "id", ROAMING_ENTRY_ID)
-        val titleContext = mineClickContext(fragment) ?: AndroidAppHelper.currentApplication()
-        XposedHelpers.setObjectField(
+        ReflectAccess.setLongField(item, "id", ROAMING_ENTRY_ID)
+        val titleContext = mineClickContext(fragment) ?: ReflectAccess.currentApplication()
+        ReflectAccess.setField(
             item,
             "title",
             InjectedUiLocale.messages(titleContext).roamingSettingsTitle
         )
-        XposedHelpers.setObjectField(item, "icon", ROAMING_ENTRY_ICON)
-        XposedHelpers.setObjectField(item, "uri", ROAMING_URI)
-        XposedHelpers.setIntField(item, "visible", 1)
+        ReflectAccess.setField(item, "icon", ROAMING_ENTRY_ICON)
+        ReflectAccess.setField(item, "uri", ROAMING_URI)
+        ReflectAccess.setIntField(item, "visible", 1)
         targetList.add(item)
         runCatching {
             val adapter = adapterField?.get(fragment) ?: return@runCatching
-            XposedHelpers.callMethod(adapter, "notifyDataSetChanged")
+            ReflectAccess.callMethod(adapter, "notifyDataSetChanged")
         }
         logInfo("br_mine_injected", "$LOG_PREFIX 已注入「哔哩漫游设置」入口到我的页菜单")
     }
@@ -583,15 +574,15 @@ object RoamingCompatHook {
         if (clickInstance != null) {
             // 新版 `$e` 常为 static，8.90.2 的 `$i` 可能保留 this$0；两种结构均兼容。
             val outer = runCatching {
-                XposedHelpers.getObjectField(clickInstance, "this\$0")
+                ReflectAccess.getField(clickInstance, "this\$0")
             }.getOrNull()
             if (outer is Context) return outer
             val outerCtx = runCatching {
-                XposedHelpers.callMethod(outer, "getContext")
+                ReflectAccess.callMethod(outer, "getContext")
             }.getOrNull() as? Context
             if (outerCtx != null) return outerCtx
         }
-        return AndroidAppHelper.currentApplication()
+        return ReflectAccess.currentApplication()
     }
 
     /** 打开 me.iacn.biliroaming 的 MainActivity（漫游设置界面） */
@@ -728,12 +719,12 @@ object RoamingCompatHook {
 
     /** 精简档也输出的显著错误日志（每次 key 只打印一次） */
     private fun logError(key: String, msg: String) {
-        if (logEnabled && onceLogged.add(key)) XposedBridge.log(msg)
+        if (logEnabled && onceLogged.add(key)) ModernHookLog.error(msg)
     }
 
     /** 仅完整档输出的详细日志（每次 key 只打印一次） */
     private fun logInfo(key: String, msg: String) {
-        if (logEnabled && logVerbose && onceLogged.add(key)) XposedBridge.log(msg)
+        if (logEnabled && logVerbose && onceLogged.add(key)) ModernHookLog.info(msg)
     }
 
     /** 判断 BiliRoaming 入口类是否存在于目标 App 的 ClassLoader（即其 hook 是否在本进程生效） */
@@ -741,21 +732,21 @@ object RoamingCompatHook {
      * Application.attach 的 beforeHook（整个扩展的入口）。
      *
      * 为什么在这里：loadApp 阶段 appContext 实测为 null，且模块 App 冷启动时
-     * YukiHookAPI XSharedPreferences / B 站本地缓存 / ContentProvider 同步三条
-     * 开关通道全部不可用，无法在 loadApp 解析开关；attach 携带真实 Context
+     * Remote Preferences / B 站本地缓存 / ContentProvider 同步三条
+     * 开关通道全部不可用，无法在包加载早期解析开关；attach 携带真实 Context
      * （ContextImpl），且必然先于 BiliRoaming 的初始化回调（不受 LSPosed 模块
      * 回调顺序影响）。此处完成：广播接收器注册 + 开关解析 + hookinfo 缓存修复。
      * attach 被重写而落空时，由 callApplicationOnCreate 的 beforeHook 兜底。
      *
      * @param context        attach 参数（ContextImpl），可为 null
      * @param appClassLoader 目标 App 的 ClassLoader（读 BiliRoaming 的 BuildConfig）
-     * @param prefs          YukiHookAPI prefs（DirectAccessService，模块 App 进程存活时可靠）
-     * @param authoritativeEnabled 免 Root 完整快照给出的权威开关；null 时保留 LSPosed 原解析链
+     * @param prefs          已校验的只读配置快照；可为 null
+     * @param authoritativeEnabled API 102 Remote Preferences 给出的权威开关
      */
-    fun onApplicationAttach(
+    internal fun onApplicationAttach(
         context: Context?,
         appClassLoader: ClassLoader?,
-        prefs: YukiHookPrefsBridge?,
+        prefs: HookConfigSource?,
         authoritativeEnabled: Boolean? = null
     ) {
         val ctx = context ?: run {
@@ -810,13 +801,13 @@ object RoamingCompatHook {
      *
      * @param context        目标 App（B 站）的 Context，可为 null
      * @param appClassLoader 目标 App 的 ClassLoader（读 BiliRoaming 的 BuildConfig）
-     * @param prefs          YukiHookAPI prefs（DirectAccessService），可为 null
-     * @param authoritativeEnabled 免 Root 快照的显式开关；null 时保留原有三级降级链
+     * @param prefs          已校验的只读配置快照，可为 null
+     * @param authoritativeEnabled API 102 Remote Preferences 的显式开关
      */
-    fun ensureHookInfoCache(
+    internal fun ensureHookInfoCache(
         context: Context?,
         appClassLoader: ClassLoader?,
-        prefs: YukiHookPrefsBridge?,
+        prefs: HookConfigSource?,
         authoritativeEnabled: Boolean? = null
     ) {
         if (cacheCheckedThisProcess) {
@@ -833,8 +824,7 @@ object RoamingCompatHook {
             }
             // 开关解析。本机 B 站进程被系统级包隔离：ContentProvider 跨应用查询
             // 解析失败（provider 通道留作最后兜底），因此按可靠性排序：
-            // 1. YukiHookAPI prefs（DirectAccessService）——模块 App 进程存活时
-            //    可靠（用户刚在模块界面切换过开关时正是此状态），值最新；
+            // 1. API 102 Remote Preferences 快照——已在入口完成完整性校验，值最新；
             // 2. B 站本地缓存（进程内读写，永远可用，但可能滞后于最近一次切换）；
             // 3. ContentProvider 同步（隔离下可能失败；成功后写回本地缓存）。
             // 关键：prefs 不可用（模块 App 进程未存活）与「明确关闭」不可区分（都回退

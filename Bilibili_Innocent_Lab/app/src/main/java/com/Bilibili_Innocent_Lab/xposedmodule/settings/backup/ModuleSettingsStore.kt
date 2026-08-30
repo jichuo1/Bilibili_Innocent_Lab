@@ -1,10 +1,10 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.settings.backup
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.AtomicFile
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
-import com.highcapable.yukihookapi.hook.xposed.prefs.YukiHookPrefsBridge
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.EOFException
@@ -12,9 +12,9 @@ import java.io.File
 import java.io.IOException
 import kotlin.math.max
 
-/** 通过 YukiHookAPI 的权威 bridge 访问模块设置；不会读取 prefs.all，也不会 clear。 */
-internal class YukiModuleSettingsStore(
-    private val bridge: YukiHookPrefsBridge
+/** 通过模块私有权威 SharedPreferences 访问设置；不会读取任意未知键，也不会 clear。 */
+internal class ModuleSettingsStore(
+    private val bridge: SharedPreferences
 ) : SettingsReader {
 
     override fun read(spec: SettingSpec): StoredSetting {
@@ -26,7 +26,7 @@ internal class YukiModuleSettingsStore(
                 bridge.getInt(spec.storageKey, default.value)
             )
             is SettingValue.Text -> SettingValue.Text(
-                bridge.getString(spec.storageKey, default.value)
+                bridge.getString(spec.storageKey, default.value) ?: default.value
             )
         }
         return StoredSetting(
@@ -70,14 +70,14 @@ internal sealed interface SettingsApplyResult {
 }
 
 /**
- * 把纯 ImportPlan 落到 Yuki prefs，并闭环自由复制的 AtomicFile 镜像。
+ * 把纯 ImportPlan 落到模块私有 prefs，并闭环自由复制的 AtomicFile 镜像。
  *
  * journal 采用幂等 roll-forward：prefs 单文件提交成功但进程在镜像写入前退出时，
  * 下次模块进程启动会用同一 revision 补写镜像；不会尝试脆弱的跨文件即时回滚。
  */
 internal class SettingsImportApplier(
     private val context: Context,
-    private val store: YukiModuleSettingsStore,
+    private val store: ModuleSettingsStore,
     private val now: () -> Long = System::currentTimeMillis
 ) {
 
@@ -147,7 +147,7 @@ internal class SettingsImportApplier(
     companion object {
         fun hasPendingRecovery(context: Context): Boolean = FreeCopyImportJournal.exists(context)
 
-        fun recoverPending(context: Context, store: YukiModuleSettingsStore): Boolean {
+        fun recoverPending(context: Context, store: ModuleSettingsStore): Boolean {
             val pending = when (val read = FreeCopyImportJournal.read(context)) {
                 FreeCopyJournalRead.Missing -> return true
                 FreeCopyJournalRead.Unreadable -> return false

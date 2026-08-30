@@ -9,6 +9,7 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -63,9 +64,7 @@ import com.highcapable.hikage.widget.android.widget.Space
 import com.highcapable.hikage.widget.android.widget.TextView
 import com.highcapable.hikage.widget.androidx.core.widget.NestedScrollView
 import com.highcapable.hikage.widget.com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch
-import com.highcapable.yukihookapi.YukiHookAPI
-import com.highcapable.yukihookapi.hook.factory.prefs
-import com.highcapable.yukihookapi.hook.xposed.prefs.YukiHookPrefsBridge
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.RoamingCompatHook
@@ -77,16 +76,23 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ShellCommandRunner
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateCheckCoordinator
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateChannelStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootDisplayState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportController
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportApplier
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.YukiModuleSettingsStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ModuleSettingsStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundImportFailure
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundImportResult
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundMode
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundStore
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SkinId
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinRepository
 import android.app.Dialog
@@ -101,20 +107,21 @@ import android.widget.LinearLayout as NativeLinearLayout
 import android.widget.ScrollView as NativeScrollView
 import android.widget.TextView as NativeTextView
 import androidx.core.graphics.ColorUtils
+import androidx.core.content.edit
 import android.R as Android_R
 import java.io.File
 import java.lang.ref.WeakReference
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
 
 class MainActivity : SkinnedActivity() {
 
     private companion object {
-        const val UPDATE_PREFS_NAME = "github_release_updates"
         /** 旧版本共用的成功检查时间（升级后作为稳定版渠道的历史时间迁移读取）。 */
         const val PREF_LAST_SUCCESSFUL_UPDATE_CHECK = "last_successful_check_ms"
         /** 各渠道独立的成功检查时间，避免切换渠道后 24 小时节流误跳过新渠道检查。 */
         const val PREF_LAST_CHECK_STABLE = "last_successful_check_ms_stable"
         const val PREF_LAST_CHECK_PREVIEW = "last_successful_check_ms_preview"
-        const val PREF_UPDATE_CHANNEL = "update_channel"
         const val AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1_000L
 
         /** 仅允许仍处于前台的设置 Activity 完成用户已确认的系统页跳转。 */
@@ -160,6 +167,12 @@ class MainActivity : SkinnedActivity() {
             toast(getString(messageRes))
             recreate()
         }
+    }
+
+    private val liquidBackgroundPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) importLiquidBackground(uri)
     }
 
     private var adskipEnabled = true
@@ -274,7 +287,7 @@ class MainActivity : SkinnedActivity() {
     private var advancedExpanded = false
 
     /** 免 Root 配置只在用户明确开启后同步；回调不得持有 Activity 或 View。 */
-    private var noRootPrefsBridge: YukiHookPrefsBridge? = null
+    private var noRootPrefsBridge: SharedPreferences? = null
     private var noRootSwitch: com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch? = null
     private var noRootStatusView: NativeTextView? = null
     private var noRootProgrammaticSwitch = false
@@ -288,6 +301,10 @@ class MainActivity : SkinnedActivity() {
     /** 当前活动的确认弹窗：Activity 销毁时主动 dismiss，避免 WindowLeaked */
     private var activeConfirmDialog: Dialog? = null
 
+    /** Liquid 专用共享回弹层；滚动内容和根背景切片在同一 RenderNode 中形变。 */
+    private var liquidStretchScrollTarget: View? = null
+    private var liquidStretchViewport: View? = null
+
     /** 用户条款状态只在 Activity 创建时解析；决定落盘后随 recreate/finish 更新生命周期。 */
     private var userTermsDecision = UserTermsDecision.UNDECIDED
     private var termsDecisionActionInProgress = false
@@ -298,6 +315,16 @@ class MainActivity : SkinnedActivity() {
     /** 皮肤选择的同步写入和退场动画只允许单飞，避免重复动画吞掉 recreate 回调。 */
     private var skinSelectionActionInProgress = false
     private var skinSummaryView: NativeTextView? = null
+
+    /** 自定义背景导入只允许单飞；文件解码、哈希和原子替换全部离开主线程。 */
+    private val liquidBackgroundWorker = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "liquid-background-import").apply { isDaemon = true }
+    }
+    private var liquidBackgroundTask: Future<*>? = null
+    private var liquidBackgroundImportInProgress = false
+    private var liquidBackgroundSummaryView: NativeTextView? = null
+    private var liquidBackgroundDialog: Dialog? = null
+    private var liquidBackgroundDialogContainer: NativeLinearLayout? = null
 
     /** GitHub 请求只允许单飞；切换渠道时保留最后一次手动请求并抑制过期结果。 */
     private val updateCheckCoordinator = UpdateCheckCoordinator()
@@ -476,7 +503,8 @@ class MainActivity : SkinnedActivity() {
         noRootProgrammaticSwitch = false
         noRootStatusView?.setText(noRootStatusText(state))
 
-        val rootActive = YukiHookAPI.Status.isXposedModuleActive
+        val framework = RemoteHookConfigStore.status()
+        val rootActive = framework.capable
         val activation = NoRootSupportState.activationDecision(rootActive, state)
         activationCardView?.background = roundedColor(
             if (activation.activated) monetColors.primary else monetColors.surfaceVariant
@@ -489,14 +517,14 @@ class MainActivity : SkinnedActivity() {
         )
         activationSourceView?.apply {
             text = when {
-                rootActive && YukiHookAPI.Status.Executor.apiLevel > 0 -> getString(
+                rootActive && framework.apiVersion > 0 -> getString(
                     R.string.activated_by,
-                    YukiHookAPI.Status.Executor.name,
-                    YukiHookAPI.Status.Executor.apiLevel
+                    framework.name,
+                    framework.apiVersion
                 )
                 rootActive -> getString(
                     R.string.activated_by_noapi,
-                    YukiHookAPI.Status.Executor.name
+                    framework.name
                 )
                 activation.byNoRoot -> getString(R.string.no_root_activated_by_npatch)
                 else -> ""
@@ -569,7 +597,7 @@ class MainActivity : SkinnedActivity() {
     }
 
     private fun shouldUseNoRootRestartFlow(): Boolean {
-        if (YukiHookAPI.Status.isXposedModuleActive) return false
+        if (RemoteHookConfigStore.status().capable) return false
         if (NoRootSupportStore.isDesiredEnabled(applicationContext)) return true
         return when (currentNoRootDisplayState()) {
             NoRootDisplayState.DISABLE_RESTART_REQUIRED,
@@ -1065,11 +1093,10 @@ class MainActivity : SkinnedActivity() {
     ) {
         if (termsDecisionActionInProgress) return
         termsDecisionActionInProgress = true
-        val hookPrefs = runCatching { prefs() }.getOrNull()
         val persisted = if (accepted) {
-            UserTermsConsentStore.accept(applicationContext, hookPrefs)
+            UserTermsConsentStore.accept(applicationContext)
         } else {
-            UserTermsConsentStore.decline(applicationContext, hookPrefs)
+            UserTermsConsentStore.decline(applicationContext)
         }
         if (!persisted) {
             termsDecisionActionInProgress = false
@@ -1245,6 +1272,257 @@ class MainActivity : SkinnedActivity() {
             ?: getString(R.string.skin_backend_initializing)
         return getString(R.string.skin_current_liquid, backendLabel)
     }
+
+    private fun currentLiquidBackgroundSummary(): String {
+        val state = LiquidBackgroundStore.read(applicationContext)
+        if (state.config.mode == LiquidBackgroundMode.AUTOMATIC) {
+            return getString(R.string.liquid_background_summary_automatic)
+        }
+        if (!state.assetPresent) {
+            return getString(R.string.liquid_background_summary_unavailable)
+        }
+        return getString(
+            if (isLiquidSkinRequested) R.string.liquid_background_summary_active
+            else R.string.liquid_background_summary_saved
+        )
+    }
+
+    /** 实验性功能中的自定义背景配置；选择器只授权单个 image URI，不申请媒体库权限。 */
+    private fun showLiquidBackgroundDialog() {
+        if (liquidBackgroundImportInProgress) return
+        val density = resources.displayMetrics.density
+        val state = LiquidBackgroundStore.read(applicationContext)
+        val dialog = Dialog(this)
+        val container = createModalContainer()
+        liquidBackgroundDialog = dialog
+        liquidBackgroundDialogContainer = container
+        dialog.setOnDismissListener {
+            if (liquidBackgroundDialog === dialog) {
+                liquidBackgroundDialog = null
+                liquidBackgroundDialogContainer = null
+            }
+        }
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.liquid_background_dialog_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 17f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.liquid_background_dialog_description)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 13f
+                alpha = 0.78f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (8 * density).toInt() }
+        )
+
+        if (state.config.mode == LiquidBackgroundMode.CUSTOM && state.assetPresent) {
+            val preview = android.widget.ImageView(this).apply {
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                contentDescription = getString(R.string.liquid_background_preview_description)
+                background = GradientDrawable().apply {
+                    cornerRadius = 16f * density
+                    setColor(monetColors.surfaceVariant)
+                }
+                clipToOutline = true
+                outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+            }
+            container.addView(
+                preview,
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    (150 * density).toInt()
+                ).apply { topMargin = (14 * density).toInt() }
+            )
+            loadLiquidBackgroundPreview(dialog, preview, state.config)
+        }
+
+        val chooseTitle = getString(
+            if (state.config.mode == LiquidBackgroundMode.CUSTOM) {
+                R.string.liquid_background_replace
+            } else R.string.liquid_background_choose
+        )
+        container.addView(
+            createGitHubMenuRow(
+                title = chooseTitle,
+                subtitle = getString(R.string.liquid_background_choose_description),
+                highlight = false
+            ) {
+                if (!liquidBackgroundImportInProgress) {
+                    liquidBackgroundPicker.launch(arrayOf("image/*"))
+                }
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (14 * density).toInt() }
+        )
+
+        if (state.config.mode == LiquidBackgroundMode.CUSTOM) {
+            container.addView(
+                createGitHubMenuRow(
+                    title = getString(R.string.liquid_background_restore_automatic),
+                    subtitle = getString(R.string.liquid_background_restore_description),
+                    highlight = false
+                ) { restoreAutomaticLiquidBackground() },
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = (6 * density).toInt() }
+            )
+        }
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.liquid_background_backup_notice)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 12f
+                alpha = 0.64f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (12 * density).toInt() }
+        )
+
+        val closeRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            addView(NativeTextView(this@MainActivity).apply {
+                text = getString(R.string.dialog_close)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(
+                    (20 * density).toInt(),
+                    (11 * density).toInt(),
+                    (20 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    if (!liquidBackgroundImportInProgress) {
+                        dismissWithAnimation(dialog, container) {}
+                    }
+                }
+            })
+        }
+        container.addView(
+            closeRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (16 * density).toInt() }
+        )
+        presentModalDialog(dialog, container)
+    }
+
+    private fun loadLiquidBackgroundPreview(
+        dialog: Dialog,
+        preview: android.widget.ImageView,
+        config: LiquidBackgroundConfig
+    ) {
+        val backgroundColor = monetColors.background
+        val dark = ColorUtils.calculateLuminance(monetColors.surface) < 0.5
+        liquidBackgroundWorker.execute {
+            val bitmap = LiquidBackgroundStore.decodeBackdrop(
+                context = applicationContext,
+                config = config,
+                targetWidth = 640,
+                targetHeight = 360,
+                backgroundColor = backgroundColor,
+                dark = dark
+            ) ?: return@execute
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed && dialog.isShowing &&
+                    liquidBackgroundDialog === dialog
+                ) {
+                    preview.setImageBitmap(bitmap)
+                } else bitmap.recycle()
+            }
+        }
+    }
+
+    private fun importLiquidBackground(uri: Uri) {
+        if (liquidBackgroundImportInProgress) return
+        liquidBackgroundImportInProgress = true
+        liquidBackgroundDialog?.setCancelable(false)
+        toast(getString(R.string.liquid_background_processing))
+        liquidBackgroundTask = liquidBackgroundWorker.submit {
+            val result = LiquidBackgroundStore.importFromUri(applicationContext, uri)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                liquidBackgroundImportInProgress = false
+                liquidBackgroundDialog?.setCancelable(true)
+                when (result) {
+                    is LiquidBackgroundImportResult.Success -> {
+                        toast(getString(R.string.liquid_background_import_success))
+                        finishLiquidBackgroundChange()
+                    }
+                    is LiquidBackgroundImportResult.Failure -> toast(
+                        getString(liquidBackgroundFailureText(result.reason))
+                    )
+                }
+            }
+        }
+    }
+
+    private fun restoreAutomaticLiquidBackground() {
+        if (liquidBackgroundImportInProgress) return
+        liquidBackgroundImportInProgress = true
+        liquidBackgroundDialog?.setCancelable(false)
+        liquidBackgroundTask = liquidBackgroundWorker.submit {
+            val restored = LiquidBackgroundStore.restoreAutomatic(applicationContext)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                liquidBackgroundImportInProgress = false
+                liquidBackgroundDialog?.setCancelable(true)
+                if (restored) {
+                    toast(getString(R.string.liquid_background_restore_success))
+                    finishLiquidBackgroundChange()
+                } else toast(getString(R.string.liquid_background_storage_failed))
+            }
+        }
+    }
+
+    private fun finishLiquidBackgroundChange() {
+        liquidBackgroundSummaryView?.text = currentLiquidBackgroundSummary()
+        val dialog = liquidBackgroundDialog
+        val container = liquidBackgroundDialogContainer
+        if (dialog != null && container != null && dialog.isShowing) {
+            dismissWithAnimation(dialog, container) {
+                if (!isFinishing && !isDestroyed) recreate()
+            }
+        } else if (!isFinishing && !isDestroyed) recreate()
+    }
+
+    @StringRes
+    private fun liquidBackgroundFailureText(reason: LiquidBackgroundImportFailure): Int =
+        when (reason) {
+            LiquidBackgroundImportFailure.READ_FAILED -> R.string.liquid_background_read_failed
+            LiquidBackgroundImportFailure.FILE_TOO_LARGE -> R.string.liquid_background_file_too_large
+            LiquidBackgroundImportFailure.UNSUPPORTED_IMAGE -> R.string.liquid_background_unsupported
+            LiquidBackgroundImportFailure.DIMENSIONS_TOO_LARGE ->
+                R.string.liquid_background_dimensions_too_large
+            LiquidBackgroundImportFailure.ENCODE_FAILED -> R.string.liquid_background_encode_failed
+            LiquidBackgroundImportFailure.STORAGE_FAILED -> R.string.liquid_background_storage_failed
+        }
 
     @StringRes
     private fun liquidBackendLabelRes(backendName: String?): Int? = when (backendName) {
@@ -1559,7 +1837,7 @@ class MainActivity : SkinnedActivity() {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
         val container = createModalContainer()
-        val updatePrefs = applicationContext.getSharedPreferences(UPDATE_PREFS_NAME, MODE_PRIVATE)
+        val updatePrefs = applicationContext.getSharedPreferences(UpdateChannelStore.PREF_FILE, MODE_PRIVATE)
         val current = readUpdateChannel(updatePrefs)
 
         container.addView(
@@ -1868,11 +2146,9 @@ class MainActivity : SkinnedActivity() {
 
     /** 保存渠道选择并立即按新渠道检查一次；检查失败保留渠道，下次可继续。 */
     private fun applyUpdateChannel(channel: GitHubReleaseChecker.UpdateChannel) {
-        val updatePrefs = applicationContext.getSharedPreferences(UPDATE_PREFS_NAME, MODE_PRIVATE)
+        val updatePrefs = applicationContext.getSharedPreferences(UpdateChannelStore.PREF_FILE, MODE_PRIVATE)
         if (readUpdateChannel(updatePrefs) == channel) return
-        updatePrefs.edit()
-            .putString(PREF_UPDATE_CHANNEL, channel.storageValue)
-            .apply()
+        UpdateChannelStore.write(applicationContext, channel)
         checkForUpdates(manual = true)
     }
 
@@ -1880,7 +2156,9 @@ class MainActivity : SkinnedActivity() {
     private fun readUpdateChannel(
         prefs: android.content.SharedPreferences
     ): GitHubReleaseChecker.UpdateChannel =
-        GitHubReleaseChecker.UpdateChannel.fromStorageValue(prefs.getString(PREF_UPDATE_CHANNEL, null))
+        GitHubReleaseChecker.UpdateChannel.fromStorageValue(
+            prefs.getString(UpdateChannelStore.KEY_CHANNEL, null)
+        )
 
     /** 渠道对应的成功检查时间 key；稳定版优先新 key，缺失时迁移读取旧版本共用时间。 */
     private fun lastCheckKey(
@@ -1910,7 +2188,7 @@ class MainActivity : SkinnedActivity() {
 
     /** GitHub 二级菜单中「更新渠道」行下方动态显示的当前选择。 */
     private fun channelSubtitleRes(): Int {
-        val prefs = applicationContext.getSharedPreferences(UPDATE_PREFS_NAME, MODE_PRIVATE)
+        val prefs = applicationContext.getSharedPreferences(UpdateChannelStore.PREF_FILE, MODE_PRIVATE)
         return when (readUpdateChannel(prefs)) {
             GitHubReleaseChecker.UpdateChannel.STABLE -> R.string.update_channel_current_stable
             GitHubReleaseChecker.UpdateChannel.PREVIEW -> R.string.update_channel_current_preview
@@ -1922,7 +2200,7 @@ class MainActivity : SkinnedActivity() {
      * 手动检查始终执行并反馈结果。切换渠道后会自动发起一次新渠道检查。
      */
     private fun checkForUpdates(manual: Boolean) {
-        val updatePrefs = applicationContext.getSharedPreferences(UPDATE_PREFS_NAME, MODE_PRIVATE)
+        val updatePrefs = applicationContext.getSharedPreferences(UpdateChannelStore.PREF_FILE, MODE_PRIVATE)
         val channel = readUpdateChannel(updatePrefs)
         if (!manual) {
             val now = System.currentTimeMillis()
@@ -2034,7 +2312,7 @@ class MainActivity : SkinnedActivity() {
         retryCount: Int = 0
     ) {
         if (isFinishing || isDestroyed) return
-        val updatePrefs = applicationContext.getSharedPreferences(UPDATE_PREFS_NAME, MODE_PRIVATE)
+        val updatePrefs = applicationContext.getSharedPreferences(UpdateChannelStore.PREF_FILE, MODE_PRIVATE)
         if (readUpdateChannel(updatePrefs) != channel) return
         if (activeConfirmDialog?.isShowing == true) {
             if (retryCount < 20) {
@@ -3292,9 +3570,18 @@ class MainActivity : SkinnedActivity() {
     }
 
     override fun onDestroy() {
+        finishPreparedLiquidStretch(liquidStretchViewport)
+        liquidStretchViewport = null
+        liquidStretchScrollTarget = null
         // Activity 销毁时主动关闭弹窗，避免 WindowLeaked（Activity has leaked window）
         activeConfirmDialog?.dismiss()
         activeConfirmDialog = null
+        liquidBackgroundDialog?.dismiss()
+        liquidBackgroundDialog = null
+        liquidBackgroundDialogContainer = null
+        liquidBackgroundTask?.cancel(true)
+        liquidBackgroundTask = null
+        liquidBackgroundWorker.shutdownNow()
         // 清理 View 引用字段，彻底断开对 hierarchy 的持有
         experimentalContent?.animate()?.setListener(null)
         experimentalContent?.animate()?.cancel()
@@ -3327,6 +3614,7 @@ class MainActivity : SkinnedActivity() {
         commentKeywordSummaryView = null
         commentLevelSummaryView = null
         skinSummaryView = null
+        liquidBackgroundSummaryView = null
         SettingsBackupTransitionOriginRegistry.clear(settingsBackupEntryView)
         settingsBackupEntryView = null
         settingsBackupEntryTitleView = null
@@ -3365,7 +3653,7 @@ class MainActivity : SkinnedActivity() {
                 check(
                     SettingsImportApplier.recoverPending(
                         applicationContext,
-                        YukiModuleSettingsStore(modulePrefs)
+                        ModuleSettingsStore(modulePrefs)
                     )
                 ) { "pending settings import is not fully recovered" }
             }.onFailure { throwable ->
@@ -3820,7 +4108,7 @@ class MainActivity : SkinnedActivity() {
                     },
                     init = {
                         gravity = Gravity.CENTER or Gravity.START
-                        background = roundedColor(if (YukiHookAPI.Status.isXposedModuleActive) monetColors.primary else monetColors.surfaceVariant)
+                        background = roundedColor(if (RemoteHookConfigStore.status().capable) monetColors.primary else monetColors.surfaceVariant)
                         activationCardView = this
                     }
                 ) {
@@ -3832,7 +4120,7 @@ class MainActivity : SkinnedActivity() {
                     ) {
                         activationIconView = this
                         setImageResource(when {
-                            YukiHookAPI.Status.isXposedModuleActive -> R.mipmap.ic_success
+                            RemoteHookConfigStore.status().capable -> R.mipmap.ic_success
                             else -> R.mipmap.ic_warn
                         })
                         imageTintList = stateColorResource(R.color.white)
@@ -3855,7 +4143,7 @@ class MainActivity : SkinnedActivity() {
                             textColor = colorResource(R.color.white)
                             textSize = 18f
                             text = stringResource(when {
-                                YukiHookAPI.Status.isXposedModuleActive -> R.string.module_is_activated
+                                RemoteHookConfigStore.status().capable -> R.string.module_is_activated
                                 else -> R.string.module_not_activated
                             })
                         }
@@ -3909,10 +4197,11 @@ class MainActivity : SkinnedActivity() {
                             ellipsize = TextUtils.TruncateAt.END
                             textColor = colorResource(R.color.white)
                             textSize = 11f
-                            text = if (YukiHookAPI.Status.Executor.apiLevel > 0)
-                                stringResource(R.string.activated_by, YukiHookAPI.Status.Executor.name, YukiHookAPI.Status.Executor.apiLevel)
-                            else stringResource(R.string.activated_by_noapi, YukiHookAPI.Status.Executor.name)
-                            isVisible = YukiHookAPI.Status.isXposedModuleActive
+                            val framework = RemoteHookConfigStore.status()
+                            text = if (framework.apiVersion > 0)
+                                stringResource(R.string.activated_by, framework.name, framework.apiVersion)
+                            else stringResource(R.string.activated_by_noapi, framework.name)
+                            isVisible = framework.capable
                         }
                     }
                 }
@@ -3921,6 +4210,7 @@ class MainActivity : SkinnedActivity() {
                         updateMargins(vertical = 10.dp)
                     },
                     init = {
+                        liquidStretchScrollTarget = this
                         isFillViewport = true
                         isVerticalFadingEdgeEnabled = true
                     }
@@ -6641,6 +6931,38 @@ class MainActivity : SkinnedActivity() {
                                     textColor = colorResource(R.color.colorTextDark)
                                     textSize = 12f
                                 }
+                                LinearLayout(
+                                    lparams = LayoutParams(widthMatchParent = true) {
+                                        bottomMargin = 10.dp
+                                    },
+                                    init = {
+                                        orientation = LinearLayout.VERTICAL
+                                        background = selfRippleBackground(10f)
+                                        updatePadding(horizontal = 4.dp, vertical = 9.dp)
+                                        isClickable = true
+                                        isFocusable = true
+                                        setOnClickListener { showLiquidBackgroundDialog() }
+                                    }
+                                ) {
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        text = stringResource(R.string.liquid_background_setting_title)
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 4.dp
+                                        }
+                                    ) {
+                                        alpha = 0.72f
+                                        liquidBackgroundSummaryView = this
+                                        text = currentLiquidBackgroundSummary()
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                }
                                 MaterialSwitch(
                                     lparams = LayoutParams(widthMatchParent = true) {
                                         bottomMargin = 5.dp
@@ -7029,6 +7351,9 @@ class MainActivity : SkinnedActivity() {
             }
         }
 
+        liquidStretchViewport = liquidStretchScrollTarget?.let {
+            installPreparedLiquidStretch(it)
+        }
         val skinRoot = findViewById<View>(Android_R.id.content)
         bindPreparedSkinRoot(
             skinRoot,

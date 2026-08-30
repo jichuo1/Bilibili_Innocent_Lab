@@ -1,11 +1,11 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import com.highcapable.yukihookapi.hook.xposed.prefs.YukiHookPrefsBridge
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadPoolExecutor
@@ -36,7 +36,7 @@ internal object NoRootUpgradeRecoveryCoordinator {
     private data class Attempt(
         val id: Long,
         val context: Context,
-        val bridge: YukiHookPrefsBridge,
+        val bridge: SharedPreferences,
         val authorized: Boolean
     )
 
@@ -46,7 +46,7 @@ internal object NoRootUpgradeRecoveryCoordinator {
     private var activeAttemptId = 0L
     private var retryNotBeforeElapsedMs = 0L
     private var recoveryContext: Context? = null
-    private var recoveryBridge: YukiHookPrefsBridge? = null
+    private var recoveryBridge: SharedPreferences? = null
     private var recoveryAuthorized = false
     private var startRequested = false
     private var nextWaiterId = 0L
@@ -76,7 +76,7 @@ internal object NoRootUpgradeRecoveryCoordinator {
      */
     fun initialize(
         context: Context,
-        bridge: YukiHookPrefsBridge,
+        bridge: SharedPreferences,
         authorized: Boolean
     ) {
         val pendingAttempt = synchronized(stateLock) {

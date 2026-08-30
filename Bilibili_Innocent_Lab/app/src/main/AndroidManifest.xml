@@ -36,6 +36,7 @@
     <application
         android:name=".application.DefaultApplication"
         android:allowBackup="false"
+        android:description="@string/xposed_desc"
         android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -44,19 +45,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AppDefault"
         tools:targetApi="33">
-
-        <meta-data
-            android:name="xposedmodule"
-            android:value="true" />
-        <meta-data
-            android:name="xposedscope"
-            android:resource="@array/module_scope" />
-        <meta-data
-            android:name="xposeddescription"
-            android:value="@string/xposed_desc" />
-        <meta-data
-            android:name="xposedminversion"
-            android:value="93" />
 
         <!--
             Android 12 及以下由 AppCompat 保存应用语言；Android 13+ 交由系统
