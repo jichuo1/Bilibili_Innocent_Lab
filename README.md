@@ -63,6 +63,14 @@ Bilibili Innocent Lab 是一个面向 Android 哔哩哔哩客户端的 Xposed/LS
 
 > 本说明会跟随版本更迭即时修改，始终保证 ROOT 权限使用透明化；项目承诺不会滥用 ROOT 权限进行任何危害宿主设备的行为，详细参见项目最新开源代码。
 
+**NPatch 免 Root 支持说明**
+
+本模块现已提供实验性的 NPatch 免 Root 支持，可在不使用 Root/LSPosed 的设备环境中，通过 NPatch Manager 将模块加载到经本地修补的哔哩哔哩客户端；该能力是独立的可选兼容路径，不会改变原有 Root/LSPosed 的安装与使用方式。当前要求 Android 9 及以上、NPatch Manager 1.0.7 及以上，并使用本地/管理器模式；请先在 NPatch Manager 中添加并启用本模块，再在模块设置中开启“免 Root 支持（NPatch，实验性）”。
+
+启用后，模块会将当前支持的功能配置同步到 NPatch，并由已修补的哔哩哔哩进程加载对应 Hook。开启、关闭或修改相关设置后，需要手动强制停止并重新打开哔哩哔哩；只有在授权与完整配置校验通过后，目标进程才会安装模块功能，模块界面收到并验证宿主回执后才会显示为已激活。
+
+> NPatch 支持仍属于实验性能力，实际稳定性会受到 Android 版本、ROM、NPatch Manager 版本、哔哩哔哩版本及其他注入模块影响，不能视为对所有 Root/LSPosed 场景的完整替代。使用前请自行备份配置，并保留恢复原版应用的能力。
+
 ---
 
 ## 功能介绍
@@ -252,7 +260,7 @@ Bilibili Innocent Lab 是一个面向 Android 哔哩哔哩客户端的 Xposed/LS
 | Root / Hook 环境 | 建议使用 Magisk + LSPosed |
 | 目标应用 | 官方 Android 哔哩哔哩，包名 `tv.danmaku.bili` |
 | 模块框架 | Xposed / LSPosed 兼容环境 |
-| 已验证客户端 | 8.90.2、9.0.0，以及 9.1.0～9.9.0 的主要版本路径 |
+| 已验证客户端 | 8.84.0～9.9.0 的主要版本路径 |
 | 漫游扩展 | 需要用户另行安装并启用兼容的哔哩漫游版本 |
 | 预见式返回 | 主要面向 AOSP Android 14 及以上系统 |
 
