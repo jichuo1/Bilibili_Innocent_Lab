@@ -4,6 +4,7 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Build
@@ -79,6 +80,9 @@ internal class ReplyTopologyPanelView(
     private var expandedHeightPx = 0
     private var compactAnimator: ValueAnimator? = null
     private var compactAnimating = false
+    private val compactInterpolator = PathInterpolator(0f, 0f, 0.2f, 1f)
+    private val systemBarInsets = Rect()
+    private val reusableMovementBounds = MovementBounds()
 
     /** 退出动画期间面板对触摸完全透明：DOWN 不再进入本子树，事件直接落到宿主页面
      *  （对齐自由复制气泡退出的"关闭即穿透"纪律）。仅主线程读写。 */
@@ -337,13 +341,13 @@ internal class ReplyTopologyPanelView(
             } else {
                 ReplyTopologyCompactMotionSpec.EXPAND_DURATION_MS
             }
-            interpolator = PathInterpolator(0f, 0f, 0.2f, 1f)
+            interpolator = compactInterpolator
             addUpdateListener { animation ->
                 if (isReleased) {
                     animation.cancel()
                     return@addUpdateListener
                 }
-                val progress = animation.animatedValue as Float
+                val progress = animation.animatedFraction
                 params.height = ReplyTopologyCompactMotionSpec.heightAt(progress, fromPx, toPx)
                 layoutParams = params
                 setOpacityRowHeight(
@@ -680,23 +684,29 @@ internal class ReplyTopologyPanelView(
     private fun movementBounds(): MovementBounds? {
         val parent = boundsParentRef?.get() ?: return null
         if (parent.width <= 0 || parent.height <= 0 || width <= 0 || height <= 0) return null
-        val insets = readInsets(parent)
+        readInsets(parent, systemBarInsets)
         val edge = dp(8).toFloat()
-        val minX = insets.left + edge
-        val minY = insets.top + edge
-        val maxX = (parent.width - insets.right - width - edge).coerceAtLeast(minX)
-        val maxY = (parent.height - insets.bottom - height - edge).coerceAtLeast(minY)
-        return MovementBounds(minX, maxX, minY, maxY)
+        val minX = systemBarInsets.left + edge
+        val minY = systemBarInsets.top + edge
+        reusableMovementBounds.set(
+            minX = minX,
+            maxX = (parent.width - systemBarInsets.right - width - edge).coerceAtLeast(minX),
+            minY = minY,
+            maxY = (parent.height - systemBarInsets.bottom - height - edge).coerceAtLeast(minY)
+        )
+        return reusableMovementBounds
     }
 
-    private fun readInsets(view: View): EdgeInsets {
-        val windowInsets = view.rootWindowInsets ?: return EdgeInsets.ZERO
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+    private fun readInsets(view: View, out: Rect) {
+        val windowInsets = view.rootWindowInsets
+        if (windowInsets == null) {
+            out.setEmpty()
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val insets = windowInsets.getInsets(WindowInsets.Type.systemBars())
-            EdgeInsets(insets.left, insets.top, insets.right, insets.bottom)
+            out.set(insets.left, insets.top, insets.right, insets.bottom)
         } else {
             @Suppress("DEPRECATION")
-            EdgeInsets(
+            out.set(
                 windowInsets.systemWindowInsetLeft,
                 windowInsets.systemWindowInsetTop,
                 windowInsets.systemWindowInsetRight,
@@ -751,21 +761,21 @@ internal class ReplyTopologyPanelView(
     private fun withAlpha(color: Int, alpha: Float): Int =
         (color and 0x00FFFFFF) or ((alpha.coerceIn(0f, 1f) * 255f).roundToInt() shl 24)
 
-    private data class MovementBounds(
-        val minX: Float,
-        val maxX: Float,
-        val minY: Float,
-        val maxY: Float
-    )
+    private class MovementBounds {
+        var minX = 0f
+            private set
+        var maxX = 0f
+            private set
+        var minY = 0f
+            private set
+        var maxY = 0f
+            private set
 
-    private data class EdgeInsets(
-        val left: Int,
-        val top: Int,
-        val right: Int,
-        val bottom: Int
-    ) {
-        companion object {
-            val ZERO = EdgeInsets(0, 0, 0, 0)
+        fun set(minX: Float, maxX: Float, minY: Float, maxY: Float) {
+            this.minX = minX
+            this.maxX = maxX
+            this.minY = minY
+            this.maxY = maxY
         }
     }
 }

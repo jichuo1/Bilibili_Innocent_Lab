@@ -67,6 +67,8 @@ internal class SettingsBackupMotionHost(
         isSingleLine = true
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         visibility = View.INVISIBLE
+        pivotX = 0f
+        pivotY = 0f
     }
     private val inputBlocker = View(context).apply {
         isClickable = true
@@ -77,6 +79,7 @@ internal class SettingsBackupMotionHost(
 
     private var currentPage: View? = null
     private var currentToolbarTitle: TextView? = null
+    private val motionFrame = SettingsBackupMotionFrameBuffer()
 
     var expansion: Float = 1f
         private set
@@ -105,9 +108,12 @@ internal class SettingsBackupMotionHost(
             return
         }
         surface.setFrame(
-            SettingsBackupMotionRect(0f, 0f, width.toFloat(), height.toFloat()),
-            0f,
-            expandedSurfaceColor
+            left = 0f,
+            top = 0f,
+            right = width.toFloat(),
+            bottom = height.toFloat(),
+            cornerRadiusPx = 0f,
+            color = expandedSurfaceColor
         )
         if (expansion >= 0.999f) backdropClip.clearMotionOutline()
     }
@@ -150,7 +156,8 @@ internal class SettingsBackupMotionHost(
     ) {
         val clamped = value.coerceIn(0f, 1f)
         expansion = clamped
-        val frame = SettingsBackupMotionSpec.frame(
+        SettingsBackupMotionSpec.fillFrame(
+            out = motionFrame,
             expansion = clamped,
             collapsedBounds = geometry.collapsedBounds,
             expandedBounds = geometry.expandedBounds,
@@ -163,25 +170,40 @@ internal class SettingsBackupMotionHost(
             contentTiming = contentTiming
         )
 
-        surface.visibility = View.VISIBLE
-        backdropClip.visibility = View.VISIBLE
-        backdropClip.alpha = frame.surfaceAlpha
+        if (surface.visibility != View.VISIBLE) surface.visibility = View.VISIBLE
+        if (backdropClip.visibility != View.VISIBLE) backdropClip.visibility = View.VISIBLE
+        backdropClip.alpha = motionFrame.surfaceAlpha
         surface.setFrame(
-            bounds = frame.bounds,
-            cornerRadiusPx = frame.cornerRadiusPx,
+            left = motionFrame.left,
+            top = motionFrame.top,
+            right = motionFrame.right,
+            bottom = motionFrame.bottom,
+            cornerRadiusPx = motionFrame.cornerRadiusPx,
             color = ColorUtils.blendARGB(
                 collapsedSurfaceColor,
                 expandedSurfaceColor,
                 clamped
             )
         )
-        surface.alpha = frame.surfaceAlpha
-        backdropClip.setMotionOutline(frame.bounds, frame.cornerRadiusPx)
-        pageClip.setMotionOutline(frame.bounds, frame.cornerRadiusPx)
+        surface.alpha = motionFrame.surfaceAlpha
+        backdropClip.setMotionOutline(
+            motionFrame.left,
+            motionFrame.top,
+            motionFrame.right,
+            motionFrame.bottom,
+            motionFrame.cornerRadiusPx
+        )
+        pageClip.setMotionOutline(
+            motionFrame.left,
+            motionFrame.top,
+            motionFrame.right,
+            motionFrame.bottom,
+            motionFrame.cornerRadiusPx
+        )
 
         currentPage?.apply {
-            alpha = frame.contentAlpha
-            translationY = frame.contentTranslationYPx
+            alpha = motionFrame.contentAlpha
+            translationY = motionFrame.contentTranslationYPx
         }
 
         val sourceTakeoverAlpha = SettingsBackupMotionSpec.smoothStep(0.02f, 0.14f, clamped)
@@ -201,20 +223,19 @@ internal class SettingsBackupMotionHost(
         currentToolbarTitle?.alpha = toolbarAlpha
 
         transitionTitle.apply {
-            visibility = if (titleMode == SettingsBackupTransitionTitleMode.HIDDEN) {
+            val targetVisibility = if (titleMode == SettingsBackupTransitionTitleMode.HIDDEN) {
                 View.INVISIBLE
             } else {
                 View.VISIBLE
             }
-            x = frame.titleX
-            y = frame.titleY
+            if (visibility != targetVisibility) visibility = targetVisibility
+            x = motionFrame.titleX
+            y = motionFrame.titleY
             val baseTextSize = geometry.expandedTitleTextSizePx.coerceAtLeast(1f)
             if (abs(textSize - baseTextSize) > 0.5f) {
                 setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, baseTextSize)
             }
-            val titleScale = frame.titleTextSizePx / baseTextSize
-            pivotX = 0f
-            pivotY = 0f
+            val titleScale = motionFrame.titleTextSizePx / baseTextSize
             scaleX = titleScale
             scaleY = titleScale
             alpha = titleAlpha
@@ -234,12 +255,18 @@ internal class SettingsBackupMotionHost(
             clamped
         }
         expansion = clamped
-        val fullBounds = SettingsBackupMotionRect(0f, 0f, width.toFloat(), height.toFloat())
-        surface.visibility = View.VISIBLE
-        backdropClip.visibility = View.VISIBLE
+        if (surface.visibility != View.VISIBLE) surface.visibility = View.VISIBLE
+        if (backdropClip.visibility != View.VISIBLE) backdropClip.visibility = View.VISIBLE
         backdropClip.alpha = clamped
-        backdropClip.setMotionOutline(fullBounds, 0f)
-        surface.setFrame(fullBounds, 0f, expandedSurfaceColor)
+        backdropClip.setMotionOutline(0f, 0f, width.toFloat(), height.toFloat(), 0f)
+        surface.setFrame(
+            0f,
+            0f,
+            width.toFloat(),
+            height.toFloat(),
+            0f,
+            expandedSurfaceColor
+        )
         surface.alpha = clamped
         pageClip.clearMotionOutline()
         currentPage?.apply {
@@ -262,9 +289,12 @@ internal class SettingsBackupMotionHost(
         surface.visibility = View.VISIBLE
         if (width > 0 && height > 0) {
             surface.setFrame(
-                SettingsBackupMotionRect(0f, 0f, width.toFloat(), height.toFloat()),
-                0f,
-                expandedSurfaceColor
+                left = 0f,
+                top = 0f,
+                right = width.toFloat(),
+                bottom = height.toFloat(),
+                cornerRadiusPx = 0f,
+                color = expandedSurfaceColor
             )
         }
         surface.alpha = 1f
@@ -300,12 +330,22 @@ internal class SettingsBackupMotionHost(
         private var cornerRadiusPx = 0f
 
         fun setFrame(
-            bounds: SettingsBackupMotionRect,
+            left: Float,
+            top: Float,
+            right: Float,
+            bottom: Float,
             cornerRadiusPx: Float,
             color: Int
         ) {
-            this.bounds.set(bounds.left, bounds.top, bounds.right, bounds.bottom)
-            this.cornerRadiusPx = cornerRadiusPx.coerceAtLeast(0f)
+            val normalizedRadius = cornerRadiusPx.coerceAtLeast(0f)
+            if (bounds.left == left && bounds.top == top &&
+                bounds.right == right && bounds.bottom == bottom &&
+                this.cornerRadiusPx == normalizedRadius && paint.color == color
+            ) {
+                return
+            }
+            this.bounds.set(left, top, right, bottom)
+            this.cornerRadiusPx = normalizedRadius
             paint.color = color
             invalidate()
         }
@@ -338,9 +378,22 @@ internal class SettingsBackupMotionHost(
             }
         }
 
-        fun setMotionOutline(bounds: SettingsBackupMotionRect, radiusPx: Float) {
-            motionBounds.set(bounds.left, bounds.top, bounds.right, bounds.bottom)
-            motionRadius = radiusPx.coerceAtLeast(0f)
+        fun setMotionOutline(
+            left: Float,
+            top: Float,
+            right: Float,
+            bottom: Float,
+            radiusPx: Float
+        ) {
+            val normalizedRadius = radiusPx.coerceAtLeast(0f)
+            if (clipToOutline && motionBounds.left == left && motionBounds.top == top &&
+                motionBounds.right == right && motionBounds.bottom == bottom &&
+                motionRadius == normalizedRadius
+            ) {
+                return
+            }
+            motionBounds.set(left, top, right, bottom)
+            motionRadius = normalizedRadius
             clipToOutline = true
             invalidateOutline()
         }
