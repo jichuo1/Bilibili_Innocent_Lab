@@ -17,6 +17,9 @@
     <string name="user_terms_read_again">重新阅读条款</string>
     <string name="user_terms_exit">退出</string>
     <string name="user_terms_save_failed">无法保存您的决定，请重试。</string>
+    <string name="user_terms_need_lsposed_enable">尚未连接 LSPosed 服务：请先在 LSPosed 管理器中启用本模块并勾选作用域，返回后点击「同意」重试。</string>
+    <string name="user_terms_need_api102">当前 LSPosed / 框架版本不支持远程配置同步（需要 API 102），请升级 LSPosed 后重试。</string>
+    <string name="user_terms_open_lsposed">打开 LSPosed</string>
     <string name="app_language">应用语言</string>
     <string name="app_language_tip">选择模块界面与模块注入界面使用的语言</string>
     <string name="app_language_current">当前：%1$s</string>
@@ -254,6 +257,8 @@
     <string name="restart_bilibili">重启哔哩哔哩</string>
     <string name="restart_bilibili_done">已重启哔哩哔哩</string>
     <string name="restart_bilibili_failed">重启哔哩哔哩失败</string>
+    <string name="restart_root_missing">未检测到可用的 Root 权限：请先完成 Root（如 Magisk / KernelSU）后重试</string>
+    <string name="restart_root_denied">Root 授权被拒绝：请在 Root 管理器中允许本模块获取 Root 权限后重试</string>
     <string name="restart_bilibili_confirm_title">确认保存并重新启动哔哩哔哩？</string>
     <string name="adapt_manual">重新适配当前版本</string>
     <string name="adapt_manual_done">已清除适配记录，重启哔哩哔哩后将自动重新适配</string>
