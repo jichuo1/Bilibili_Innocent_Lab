@@ -34,6 +34,69 @@ internal data class SettingsBackupMotionFrame(
     val titleTextSizePx: Float
 )
 
+/** UI 动画热路径复用的帧缓冲；避免每个 progress 创建 Frame 与 Rect。 */
+internal class SettingsBackupMotionFrameBuffer {
+    var left = 0f
+        private set
+    var top = 0f
+        private set
+    var right = 0f
+        private set
+    var bottom = 0f
+        private set
+    var cornerRadiusPx = 0f
+        private set
+    var surfaceAlpha = 0f
+        private set
+    var contentAlpha = 0f
+        private set
+    var contentTranslationYPx = 0f
+        private set
+    var titleX = 0f
+        private set
+    var titleY = 0f
+        private set
+    var titleTextSizePx = 1f
+        private set
+
+    internal fun set(
+        left: Float,
+        top: Float,
+        right: Float,
+        bottom: Float,
+        cornerRadiusPx: Float,
+        surfaceAlpha: Float,
+        contentAlpha: Float,
+        contentTranslationYPx: Float,
+        titleX: Float,
+        titleY: Float,
+        titleTextSizePx: Float
+    ) {
+        this.left = left
+        this.top = top
+        this.right = right
+        this.bottom = bottom
+        this.cornerRadiusPx = cornerRadiusPx
+        this.surfaceAlpha = surfaceAlpha
+        this.contentAlpha = contentAlpha
+        this.contentTranslationYPx = contentTranslationYPx
+        this.titleX = titleX
+        this.titleY = titleY
+        this.titleTextSizePx = titleTextSizePx
+    }
+
+    internal fun snapshot(): SettingsBackupMotionFrame = SettingsBackupMotionFrame(
+        bounds = SettingsBackupMotionRect(left, top, right, bottom),
+        cornerRadiusPx = cornerRadiusPx,
+        surfaceAlpha = surfaceAlpha,
+        contentAlpha = contentAlpha,
+        contentTranslationYPx = contentTranslationYPx,
+        titleX = titleX,
+        titleY = titleY,
+        titleTextSizePx = titleTextSizePx
+    )
+}
+
 internal enum class SettingsBackupContentTiming {
     TIMED,
     PREDICTIVE
@@ -63,6 +126,36 @@ internal object SettingsBackupMotionSpec {
         contentTravelPx: Float,
         contentTiming: SettingsBackupContentTiming = SettingsBackupContentTiming.TIMED
     ): SettingsBackupMotionFrame {
+        val buffer = SettingsBackupMotionFrameBuffer()
+        fillFrame(
+            out = buffer,
+            expansion = expansion,
+            collapsedBounds = collapsedBounds,
+            expandedBounds = expandedBounds,
+            collapsedTitleBounds = collapsedTitleBounds,
+            expandedTitleBounds = expandedTitleBounds,
+            collapsedTitleTextSizePx = collapsedTitleTextSizePx,
+            expandedTitleTextSizePx = expandedTitleTextSizePx,
+            collapsedCornerRadiusPx = collapsedCornerRadiusPx,
+            contentTravelPx = contentTravelPx,
+            contentTiming = contentTiming
+        )
+        return buffer.snapshot()
+    }
+
+    internal fun fillFrame(
+        out: SettingsBackupMotionFrameBuffer,
+        expansion: Float,
+        collapsedBounds: SettingsBackupMotionRect,
+        expandedBounds: SettingsBackupMotionRect,
+        collapsedTitleBounds: SettingsBackupMotionRect,
+        expandedTitleBounds: SettingsBackupMotionRect,
+        collapsedTitleTextSizePx: Float,
+        expandedTitleTextSizePx: Float,
+        collapsedCornerRadiusPx: Float,
+        contentTravelPx: Float,
+        contentTiming: SettingsBackupContentTiming = SettingsBackupContentTiming.TIMED
+    ) {
         require(collapsedBounds.isValid) { "Collapsed bounds must be valid" }
         require(expandedBounds.isValid) { "Expanded bounds must be valid" }
         require(collapsedTitleBounds.isValid) { "Collapsed title bounds must be valid" }
@@ -70,13 +163,11 @@ internal object SettingsBackupMotionSpec {
 
         val fraction = expansion.coerceIn(0f, 1f)
         val contentFraction = contentFraction(fraction, contentTiming)
-        return SettingsBackupMotionFrame(
-            bounds = SettingsBackupMotionRect(
-                left = lerp(collapsedBounds.left, expandedBounds.left, fraction),
-                top = lerp(collapsedBounds.top, expandedBounds.top, fraction),
-                right = lerp(collapsedBounds.right, expandedBounds.right, fraction),
-                bottom = lerp(collapsedBounds.bottom, expandedBounds.bottom, fraction)
-            ),
+        out.set(
+            left = lerp(collapsedBounds.left, expandedBounds.left, fraction),
+            top = lerp(collapsedBounds.top, expandedBounds.top, fraction),
+            right = lerp(collapsedBounds.right, expandedBounds.right, fraction),
+            bottom = lerp(collapsedBounds.bottom, expandedBounds.bottom, fraction),
             cornerRadiusPx = lerp(collapsedCornerRadiusPx.coerceAtLeast(0f), 0f, fraction),
             // 精确收拢时让下层真实卡片接管，避免最后一帧出现同名标题双影。
             surfaceAlpha = smoothStep(0f, 0.1f, fraction),

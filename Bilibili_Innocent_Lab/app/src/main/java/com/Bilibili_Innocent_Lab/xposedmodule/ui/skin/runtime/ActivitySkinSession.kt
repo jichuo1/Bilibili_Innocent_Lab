@@ -118,12 +118,10 @@ internal class ActivitySkinSession private constructor(
     @MainThread
     fun installStretchViewport(
         scrollTarget: View,
-        overlayColor: Int,
         isStretchAllowed: () -> Boolean
     ): View? = if (!isClosed && effectiveSkin == SkinId.LIQUID) {
         liquidRenderer?.installStretchViewport(
             scrollTarget = scrollTarget,
-            overlayColor = overlayColor,
             isStretchAllowed = isStretchAllowed
         )
     } else null

@@ -62,7 +62,6 @@ internal class LiquidActivityRenderer(
         color = palette.background
     }
     private val surfaceViews = WeakHashMap<View, Unit>()
-    private val backdropViewportViews = WeakHashMap<View, Unit>()
     private val retiredBackdropSources = LinkedHashSet<LiquidBackdropSource>()
 
     private var backendDriver: LiquidBackendDriver? = null
@@ -146,14 +145,11 @@ internal class LiquidActivityRenderer(
         role = role
     )
 
-    /**
-     * 将现有滚动容器包进共享 stretch viewport；失败时保持原层级和原根背景，不上报皮肤失败。
-     */
+    /** 将现有滚动容器包进透明 stretch viewport；失败时保持原层级，不上报皮肤失败。 */
     @MainThread
     @SuppressLint("ReplaceWithAndroidVersion")
     fun installStretchViewport(
         scrollTarget: View,
-        overlayColor: Int,
         isStretchAllowed: () -> Boolean
     ): View? {
         if (closed || Build.VERSION.SDK_INT < 31 ||
@@ -164,11 +160,6 @@ internal class LiquidActivityRenderer(
         return runCatching {
             LiquidStretchViewport.installAround(
                 scrollTarget = scrollTarget,
-                backdrop = LiquidBackdropViewportDrawable(
-                    renderer = this,
-                    fallbackColor = palette.background,
-                    overlayColor = overlayColor
-                ),
                 isStretchAllowed = isStretchAllowed
             )
         }.getOrNull()
@@ -194,7 +185,6 @@ internal class LiquidActivityRenderer(
     private fun releaseGraphicsForMemoryPressure() {
         forceTranslucentAndReleaseBackdrop()
         boundRoot?.invalidate()
-        invalidateBackdropViewports()
         invalidateRegisteredSurfaces()
     }
 
@@ -219,35 +209,6 @@ internal class LiquidActivityRenderer(
         } else {
             rootFallbackPaint.color = ColorUtils.setAlphaComponent(fallbackColor, alpha)
             canvas.drawRect(bounds, rootFallbackPaint)
-        }
-    }
-
-    internal fun drawBackdropViewport(
-        canvas: Canvas,
-        bounds: Rect,
-        alpha: Int,
-        viewX: Int,
-        viewY: Int,
-        fallbackColor: Int,
-        overlayColor: Int
-    ) {
-        val source = backdropSource
-        if (!closed && !fatalPosted && source != null && !source.isClosed) {
-            source.drawViewport(
-                canvas = canvas,
-                bounds = bounds,
-                alpha = alpha,
-                offsetX = viewX - rootScreenLocation[0],
-                offsetY = viewY - rootScreenLocation[1]
-            )
-        } else {
-            rootFallbackPaint.color = ColorUtils.setAlphaComponent(fallbackColor, alpha)
-            canvas.drawRect(bounds, rootFallbackPaint)
-        }
-        val overlayAlpha = Color.alpha(overlayColor) * alpha.coerceIn(0, 255) / 255
-        if (overlayAlpha > 0) {
-            overlayPaint.color = ColorUtils.setAlphaComponent(overlayColor, overlayAlpha)
-            canvas.drawRect(bounds, overlayPaint)
         }
     }
 
@@ -399,7 +360,6 @@ internal class LiquidActivityRenderer(
             existing.updateFullSize(width, height)
             bindPreparedBackendsToBackdrop(existing)
             root.invalidate()
-            invalidateBackdropViewports()
             invalidateRegisteredSurfaces()
             scheduleCustomBackdropIfNeeded(root, width, height)
             return
@@ -417,7 +377,6 @@ internal class LiquidActivityRenderer(
         backdropSource = created
         bindPreparedBackendsToBackdrop(created)
         root.invalidate()
-        invalidateBackdropViewports()
         invalidateRegisteredSurfaces()
         if (existing != null) retireBackdropAfterFrame(root, existing)
         scheduleCustomBackdropIfNeeded(root, width, height)
@@ -499,7 +458,6 @@ internal class LiquidActivityRenderer(
                 customBackdropRequest = null
                 bindPreparedBackendsToBackdrop(source)
                 root.invalidate()
-                invalidateBackdropViewports()
                 invalidateRegisteredSurfaces()
                 if (previous != null) retireBackdropAfterFrame(root, previous)
             }
@@ -517,19 +475,6 @@ internal class LiquidActivityRenderer(
     /** Surface Drawable 在首次 draw 时登记 callback View；弱键避免 renderer 反向延长 View 生命周期。 */
     internal fun registerSurfaceView(view: View) {
         if (!closed) surfaceViews[view] = Unit
-    }
-
-    internal fun registerBackdropViewport(view: View) {
-        if (!closed) backdropViewportViews[view] = Unit
-    }
-
-    private fun invalidateBackdropViewports() {
-        val iterator = backdropViewportViews.keys.iterator()
-        while (iterator.hasNext()) {
-            val view = iterator.next()
-            if (!view.isAttachedToWindow) iterator.remove()
-            else if (view.isShown) view.invalidate()
-        }
     }
 
     private fun invalidateRegisteredSurfaces() {
@@ -662,10 +607,6 @@ internal class LiquidActivityRenderer(
         }
         rootScrollListener = null
         surfaceViews.clear()
-        backdropViewportViews.keys.toList().forEach { view ->
-            (view as? LiquidStretchViewport)?.finishStretch()
-        }
-        backdropViewportViews.clear()
         onFirstVisibleDraw = null
         onFatalFailure = null
         preparedDrivers.values.forEach(LiquidBackendDriver::close)
@@ -678,46 +619,6 @@ internal class LiquidActivityRenderer(
         boundRoot = null
         rootDrawable = null
     }
-}
-
-private class LiquidBackdropViewportDrawable(
-    private val renderer: LiquidActivityRenderer,
-    private val fallbackColor: Int,
-    private val overlayColor: Int
-) : Drawable() {
-    private val location = IntArray(2)
-    private var drawableAlpha = 255
-
-    override fun draw(canvas: Canvas) {
-        val view = callback as? View
-        if (view != null) {
-            renderer.registerBackdropViewport(view)
-            view.getLocationOnScreen(location)
-        } else {
-            location[0] = 0
-            location[1] = 0
-        }
-        renderer.drawBackdropViewport(
-            canvas = canvas,
-            bounds = bounds,
-            alpha = drawableAlpha,
-            viewX = location[0],
-            viewY = location[1],
-            fallbackColor = fallbackColor,
-            overlayColor = overlayColor
-        )
-    }
-
-    override fun setAlpha(alpha: Int) {
-        drawableAlpha = alpha.coerceIn(0, 255)
-        invalidateSelf()
-    }
-
-    override fun getAlpha(): Int = drawableAlpha
-    override fun setColorFilter(colorFilter: ColorFilter?) = Unit
-
-    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
-    override fun getOpacity(): Int = PixelFormat.OPAQUE
 }
 
 private class LiquidRootDrawable(
