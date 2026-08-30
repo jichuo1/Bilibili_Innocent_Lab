@@ -124,6 +124,9 @@ class MainActivity : SkinnedActivity() {
         const val PREF_LAST_CHECK_PREVIEW = "last_successful_check_ms_preview"
         const val AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1_000L
 
+        /** LSPosed 管理器包名：条款保存失败（服务未连接）时的快捷跳转目标，不存在则隐藏入口。 */
+        private const val LSPOSED_MANAGER_PACKAGE = "org.lsposed.manager"
+
         /** 仅允许仍处于前台的设置 Activity 完成用户已确认的系统页跳转。 */
         fun openBilibiliAppDetails(activity: MainActivity): Boolean {
             val intent = Intent(
@@ -308,6 +311,10 @@ class MainActivity : SkinnedActivity() {
     /** 用户条款状态只在 Activity 创建时解析；决定落盘后随 recreate/finish 更新生命周期。 */
     private var userTermsDecision = UserTermsDecision.UNDECIDED
     private var termsDecisionActionInProgress = false
+
+    /** 条款弹窗内的失败原因提示与 LSPosed 快捷入口：仅弹窗存活期持有，dismiss 时清空。 */
+    private var termsDialogHintView: NativeTextView? = null
+    private var termsDialogLsposedLauncher: NativeTextView? = null
 
     /** Liquid renderer 的同一 Activity 失败只处理一次，避免重复 toast/recreate。 */
     private var skinFailureHandled = false
@@ -958,6 +965,53 @@ class MainActivity : SkinnedActivity() {
             }
         )
 
+        // 保存失败的原因提示与 LSPosed 快捷入口：默认隐藏，仅在保存失败时展示，
+        // 让「无法保存」从笼统报错变成可行动的指引（启用模块/升级框架）
+        val hintView = NativeTextView(this).apply {
+            visibility = View.GONE
+            textColor = getColor(R.color.colorTextDark)
+            textSize = 13f
+            setLineSpacing(4 * density, 1f)
+        }
+        termsDialogHintView = hintView
+        container.addView(
+            hintView,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (12 * density).toInt() }
+        )
+        val lsposedLauncher = NativeTextView(this).apply {
+            visibility = View.GONE
+            text = getString(R.string.user_terms_open_lsposed)
+            textColor = monetColors.primary
+            textSize = 14f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            val content = GradientDrawable().apply {
+                cornerRadius = 12 * density
+                setColor(monetColors.surfaceVariant)
+            }
+            background = content
+            setPadding((14 * density).toInt(), (9 * density).toInt(), (14 * density).toInt(), (9 * density).toInt())
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                val intent = runCatching {
+                    packageManager.getLaunchIntentForPackage(LSPOSED_MANAGER_PACKAGE)
+                }.getOrNull() ?: return@setOnClickListener
+                runCatching { startActivity(intent) }
+                    .onFailure { isVisible = false }
+            }
+        }
+        termsDialogLsposedLauncher = lsposedLauncher
+        container.addView(
+            lsposedLauncher,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (12 * density).toInt() }
+        )
+
         val buttonRow = NativeLinearLayout(this).apply {
             orientation = NativeLinearLayout.HORIZONTAL
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
@@ -1028,6 +1082,8 @@ class MainActivity : SkinnedActivity() {
         dialog.setOnCancelListener { finish() }
         dialog.setOnDismissListener {
             if (activeConfirmDialog === dialog) activeConfirmDialog = null
+            termsDialogHintView = null
+            termsDialogLsposedLauncher = null
         }
         activeConfirmDialog = dialog
         dialog.show()
@@ -1103,7 +1159,7 @@ class MainActivity : SkinnedActivity() {
         }
         if (!persisted) {
             termsDecisionActionInProgress = false
-            toast(getString(R.string.user_terms_save_failed))
+            showUserTermsSaveFailureHint()
             return
         }
 
@@ -1114,6 +1170,37 @@ class MainActivity : SkinnedActivity() {
         }
         dismissWithAnimation(dialog, container) {
             if (accepted) recreate() else finish()
+        }
+    }
+
+    /**
+     * 条款决定保存失败的原因提示：按框架连接/能力状态给出可行动的指引，替代原先
+     * 笼统的「请重试」。最常见的死锁是全新用户尚未在 LSPosed 启用模块（服务永不绑定，
+     * publish 必失败），此时展示启用指引并提供 LSPosed 管理器快捷入口（管理器不存在
+     * 或拉起失败时隐藏该入口）；已连接但不支持 API 102 则提示升级框架；其余保持原
+     * 通用文案。提示条在弹窗内展示（非 toast），用户可直接按「同意」重试。
+     */
+    private fun showUserTermsSaveFailureHint() {
+        val status = RemoteHookConfigStore.status()
+        val messageRes = when {
+            !status.connected -> R.string.user_terms_need_lsposed_enable
+            !status.capable -> R.string.user_terms_need_api102
+            else -> R.string.user_terms_save_failed
+        }
+        val hintView = termsDialogHintView
+        if (hintView == null) {
+            // 弹窗已不在（理论上不可能：失败分支在 dismiss 前执行），退回 toast 兜底
+            toast(getString(messageRes))
+            return
+        }
+        hintView.text = getString(messageRes)
+        hintView.isVisible = true
+        val launcher = termsDialogLsposedLauncher
+        if (launcher != null) {
+            val managerAvailable = !status.connected && runCatching {
+                packageManager.getLaunchIntentForPackage(LSPOSED_MANAGER_PACKAGE)
+            }.getOrNull() != null
+            launcher.isVisible = managerAvailable
         }
     }
 
@@ -3336,13 +3423,34 @@ class MainActivity : SkinnedActivity() {
         // 不再持有 Activity，避免 Activity 销毁后无法回收的内存泄漏。
         val appContext = applicationContext
         // 提前探测 su 路径（不同 root 方案 su 位置不同：KernelSU 在 /system/bin/su、
-        // Magisk 新版在 /product/bin/su，硬编码会失败）
+        // Magisk 新版在 /product/bin/su，硬编码会失败）；null 表示常见路径均无 su
         val suPath = findSuPath()
         Thread {
+            // 先做一次幂等的授权探测（su -c id）：首次使用会触发 Root 管理器的授权
+            // 弹窗，用户当场允许即继续；失败时区分「无 su 二进制」与「su 被拒绝」，
+            // 给出对应指引而不是笼统的「重启失败」。
+            val rootFailureRes = runCatching {
+                val probeExit = execShell(suPath ?: "su", "-c", "id")
+                check(probeExit == 0) { "su probe exited with $probeExit" }
+                null
+            }.getOrElse { throwable ->
+                Log.e("BilibiliInnocentLab", "su probe failed: $throwable")
+                if (suPath == null) {
+                    R.string.restart_root_missing
+                } else {
+                    R.string.restart_root_denied
+                }
+            }
+            if (rootFailureRes != null) {
+                Handler(Looper.getMainLooper()).post {
+                    appContext.toast(appContext.getString(rootFailureRes))
+                }
+                return@Thread
+            }
             try {
                 // 1. 杀死 B 站（root）；execShell 消费输出流，防止 buffer 满导致 waitFor 死锁
                 val stopExitCode = execShell(
-                    suPath,
+                    suPath ?: "su",
                     "-c",
                     "am force-stop ${HookEntry.TARGET_PACKAGE}"
                 )
@@ -3350,7 +3458,7 @@ class MainActivity : SkinnedActivity() {
                 // 2. 延迟后重新拉起（am start 指定主 Activity；不用 monkey，避免误开自动旋转）
                 Thread.sleep(800)
                 val startExitCode = execShell(
-                    suPath,
+                    suPath ?: "su",
                     "-c",
                     "am start -n ${HookEntry.TARGET_PACKAGE}/.MainActivityV2"
                 )
@@ -3419,10 +3527,11 @@ class MainActivity : SkinnedActivity() {
     /**
      * 探测可用的 su 路径。不同 root 方案 su 位置不同：
      * KernelSU 通常在 /system/bin/su，Magisk 新版（Android 10+）在 /product/bin/su，
-     * 旧版 Magisk/SuperSU 在 /system/xbin/su 或 /sbin/su。按常见顺序探测第一个存在的，
-     * 都不存在则兜底返回 "su"（依赖 shell PATH）。
+     * 旧版 Magisk/SuperSU 在 /system/xbin/su 或 /sbin/su。按常见顺序探测第一个存在的。
+     * @return null 表示所有已知路径均不存在（设备可能未 Root，或 su 仅在非常规 PATH），
+     *         调用方仍可用裸 "su" 尝试并由授权探测区分失败原因。
      */
-    private fun findSuPath(): String {
+    private fun findSuPath(): String? {
         val candidates = arrayOf(
             "/product/bin/su",       // 新版 Magisk（Android 10+，如本次 9.0.0 小米设备）
             "/system/bin/su",        // KernelSU / 旧版 Magisk
@@ -3438,7 +3547,7 @@ class MainActivity : SkinnedActivity() {
                 // 忽略无权限读取的路径，继续探测下一个
             }
         }
-        return "su"
+        return null
     }
 
     /**
