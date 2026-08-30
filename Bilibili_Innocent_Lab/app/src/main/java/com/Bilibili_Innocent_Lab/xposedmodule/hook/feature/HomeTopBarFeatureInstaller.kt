@@ -33,7 +33,7 @@ internal class HomeTopBarFeatureInstaller(
             gameReady = point != null && runCatching {
                 environment.registrar.adapted("home.top_bar.game_menu", point) {
                     before {
-                        val target = instance
+                        val target = instance ?: return@before
                         if (hasGameMenuAction(target, point.viewField)) {
                             result = null
                             environment.logInfo(

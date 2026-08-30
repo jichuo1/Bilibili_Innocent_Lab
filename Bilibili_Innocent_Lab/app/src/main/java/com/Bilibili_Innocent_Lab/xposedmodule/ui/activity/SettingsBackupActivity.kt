@@ -31,7 +31,6 @@ import android.view.animation.PathInterpolator
 import android.widget.LinearLayout
 import android.widget.Button
 import android.widget.ProgressBar
-import android.widget.ScrollView
 import android.widget.Space
 import android.widget.TextView
 import androidx.activity.BackEventCompat
@@ -40,6 +39,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.doOnPreDraw
+import androidx.core.widget.NestedScrollView
 import androidx.lifecycle.ViewModelProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.R
@@ -59,11 +59,11 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsBackupFact
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsBackupFormatException
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportPlanner
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.YukiModuleSettingsStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ModuleSettingsStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
-import com.highcapable.yukihookapi.hook.factory.prefs
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.text.DateFormat
@@ -93,7 +93,7 @@ class SettingsBackupActivity : SkinnedActivity() {
         BLOCKED
     }
 
-    private val settingsStore by lazy { YukiModuleSettingsStore(prefs()) }
+    private val settingsStore by lazy { ModuleSettingsStore(prefs()) }
     private val backupViewModel by lazy {
         ViewModelProvider(this)[SettingsBackupViewModel::class.java]
     }
@@ -122,6 +122,7 @@ class SettingsBackupActivity : SkinnedActivity() {
     private var gestureStartExpansion = 1f
     private var predictiveMotionActive = false
     private var finishingAfterMotion = false
+    private var pageStretchViewport: View? = null
 
     private val enterInterpolator = PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
     private val closeInterpolator = PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
@@ -148,19 +149,27 @@ class SettingsBackupActivity : SkinnedActivity() {
             finish()
             return
         }
+        prepareSkinSession()
         suppressSystemActivityTransitions()
         window.decorView.setBackgroundColor(Color.TRANSPARENT)
         launchOrigin = SettingsBackupTransitionOrigin.from(intent)
         allowLaunchOriginForExit = savedInstanceState == null
         motionHost = SettingsBackupMotionHost(
             context = this,
-            collapsedSurfaceColor = monetColors.surfaceVariant,
-            expandedSurfaceColor = monetColors.background,
+            collapsedSurfaceColor = if (isLiquidSkinEffective) {
+                ColorUtils.setAlphaComponent(monetColors.surface, 0x74)
+            } else monetColors.surfaceVariant,
+            expandedSurfaceColor = if (isLiquidSkinEffective) {
+                ColorUtils.setAlphaComponent(monetColors.surface, 0x28)
+            } else monetColors.background,
             titleColor = getColor(R.color.colorTextGray),
             sourceTitle = getString(R.string.settings_backup_title)
         )
         motionHost.onWindowSizeChangedDuringMotion = ::handleMotionWindowSizeChange
         setContentView(motionHost)
+        bindPreparedSkinRoot(motionHost.liquidBackdropRoot()) {
+            if (!isFinishing && !isDestroyed) recreate()
+        }
         applyPredictiveBackFromPrefs()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackStarted(backEvent: BackEventCompat) {
@@ -194,6 +203,8 @@ class SettingsBackupActivity : SkinnedActivity() {
     }
 
     override fun onDestroy() {
+        finishPageStretch()
+        pageStretchViewport = null
         cancelMotionAnimator()
         if (::motionHost.isInitialized) {
             motionHost.onWindowSizeChangedDuringMotion = null
@@ -326,6 +337,7 @@ class SettingsBackupActivity : SkinnedActivity() {
             } else {
                 SettingsBackupTransitionTitleMode.HIDDEN
             }
+            finishPageStretch()
             motionHost.beginMotion()
             motionHost.applyExpansion(
                 geometry = geometry,
@@ -349,6 +361,7 @@ class SettingsBackupActivity : SkinnedActivity() {
     }
 
     private fun prepareExitMotion(contentTiming: SettingsBackupContentTiming) {
+        finishPageStretch()
         motionGeometry = resolveMotionGeometry()
         motionContentTiming = contentTiming
         motionTitleMode = when {
@@ -932,7 +945,7 @@ class SettingsBackupActivity : SkinnedActivity() {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(11), dp(11), dp(11), dp(11))
-            background = rounded(monetColors.surface, 11f)
+            background = skinCardBackground(monetColors.surface, 11f)
         }
         val label = entry.spec?.let { getString(it.labelRes) } ?: previewSafeText(entry.id)
         row.addView(bodyText(label).apply {
@@ -1015,6 +1028,7 @@ class SettingsBackupActivity : SkinnedActivity() {
     }
 
     private fun setScaffold(title: String, populate: (LinearLayout) -> Unit) {
+        finishPageStretch()
         if (motionAnimator != null || motionHost.expansion < 0.999f) {
             cancelMotionAnimator()
             motionHost.showExpandedImmediately()
@@ -1032,7 +1046,7 @@ class SettingsBackupActivity : SkinnedActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(4), dp(4), dp(16), dp(4))
-            setBackgroundColor(monetColors.surfaceVariant)
+            background = skinCardBackground(monetColors.surfaceVariant, 0f)
         }
         toolbar.addView(TextView(this).apply {
             text = "←"
@@ -1062,13 +1076,31 @@ class SettingsBackupActivity : SkinnedActivity() {
             setPadding(dp(15), dp(14), dp(15), dp(22))
         }
         populate(content)
-        root.addView(ScrollView(this).apply {
+        val scrollView = NestedScrollView(this).apply {
             isFillViewport = true
             addView(content)
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        }
+        root.addView(
+            scrollView,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        )
+        pageStretchViewport = installPreparedLiquidStretch(
+            scrollTarget = scrollView,
+            overlayColor = ColorUtils.setAlphaComponent(monetColors.surface, 0x28)
+        ) {
+            motionAnimator == null &&
+                ::motionHost.isInitialized &&
+                motionHost.expansion >= 0.999f &&
+                !predictiveMotionActive &&
+                !finishingAfterMotion
+        }
         toolbarTitleView = toolbarTitle
         currentPageTitle = title
         motionHost.replacePage(root, toolbarTitle)
+    }
+
+    private fun finishPageStretch() {
+        finishPreparedLiquidStretch(pageStretchViewport)
     }
 
     private fun operationCard(
@@ -1085,11 +1117,14 @@ class SettingsBackupActivity : SkinnedActivity() {
     private fun card(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(16), dp(16), dp(16), dp(16))
-        background = rounded(monetColors.surfaceVariant, 15f)
+        background = skinCardBackground(monetColors.surfaceVariant, 15f)
     }
 
     private fun infoCard(message: String, accent: Int): View = card().apply {
-        background = rounded(ColorUtils.blendARGB(monetColors.surfaceVariant, accent, 0.14f), 15f)
+        background = skinCardBackground(
+            ColorUtils.blendARGB(monetColors.surfaceVariant, accent, 0.14f),
+            15f
+        )
         addView(bodyText(message))
     }
 

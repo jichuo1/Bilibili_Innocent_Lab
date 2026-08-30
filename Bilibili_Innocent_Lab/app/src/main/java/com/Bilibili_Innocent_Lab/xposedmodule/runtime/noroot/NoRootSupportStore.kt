@@ -2,20 +2,20 @@ package com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.AtomicFile
 import androidx.core.content.edit
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingValue
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.YukiModuleSettingsStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ModuleSettingsStore
 import com.highcapable.betterandroid.system.extension.component.versionCodeCompat
-import com.highcapable.yukihookapi.hook.xposed.prefs.YukiHookPrefsBridge
 import java.io.File
 import kotlin.math.max
 
 /** 模块 App 私有的免 Root 用户意图、同步状态与宿主回执。 */
 internal object NoRootSupportStore {
-    private const val PREF_FILE = "innocent_lab_no_root_support"
+    internal const val PREF_FILE = "innocent_lab_no_root_support"
     private const val SNAPSHOT_FILE = "no_root_hook_config.json"
 
     private const val KEY_DESIRED_ENABLED = "desired_enabled"
@@ -78,6 +78,30 @@ internal object NoRootSupportStore {
             .remove(KEY_DISABLE_WAS_ACTIVE)
             .commit()
     }
+
+    /**
+     * 设置后端迁移只恢复用户是否启用的意图；旧 CE 文件中的同步代次、心跳、错误状态和
+     * 适配器重置标记都属于另一存储世代，必须一次提交中清除，避免“复活”历史运行态。
+     */
+    @SuppressLint("UseKtx")
+    fun restoreDesiredForMigration(context: Context, enabled: Boolean): Boolean =
+        synchronized(ioLock) {
+            prefs(context).edit()
+                .putBoolean(KEY_DESIRED_ENABLED, enabled)
+                .remove(KEY_ADAPTER_RESET_REVISION)
+                .remove(KEY_SYNC_STATE)
+                .remove(KEY_SYNC_DETAIL)
+                .remove(KEY_SYNC_REVISION)
+                .remove(KEY_REMOTE_SYNCED_REVISION)
+                .remove(KEY_HEARTBEAT_REVISION)
+                .remove(KEY_HEARTBEAT_MODULE_VERSION)
+                .remove(KEY_HEARTBEAT_TARGET_VERSION)
+                .remove(KEY_HEARTBEAT_TARGET_UPDATE_TIME)
+                .remove(KEY_HEARTBEAT_TARGET_PACKAGE)
+                .remove(KEY_HEARTBEAT_RECEIVED_AT)
+                .remove(KEY_DISABLE_WAS_ACTIVE)
+                .commit()
+        }
 
     /**
      * 关闭必须先持久化更高 revision 的 tombstone，再提交 UI 意图和清理旧 heartbeat。
@@ -293,10 +317,10 @@ internal object NoRootSupportStore {
     /** 从当前 70 项白名单构造完整快照；内容未变化时保留 revision。 */
     fun upsertEnabledSnapshot(
         context: Context,
-        bridge: YukiHookPrefsBridge
+        bridge: SharedPreferences
     ): NoRootConfigSnapshot? = synchronized(ioLock) {
         if (!isDesiredEnabled(context)) return@synchronized null
-        val settingsStore = YukiModuleSettingsStore(bridge)
+        val settingsStore = ModuleSettingsStore(bridge)
         val values = linkedMapOf<String, Any>()
         SettingsCatalog.specs.forEach { spec ->
             val storedValue = settingsStore.read(spec).value

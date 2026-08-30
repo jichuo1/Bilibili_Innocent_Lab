@@ -5,8 +5,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
-import com.highcapable.yukihookapi.hook.xposed.prefs.YukiHookPrefsBridge
 
 internal enum class UserTermsDecision {
     UNDECIDED,
@@ -19,8 +19,8 @@ internal enum class UserTermsDecision {
 }
 
 /**
- * 模块自身的用户条款状态以独立私有文件为权威来源。默认 Yuki prefs 只保存同版本的
- * 决定镜像，供 LSPosed 宿主只读校验；该镜像不进入 SettingsCatalog 或设置备份。
+ * 模块自身的用户条款状态以独立私有文件为权威来源。Remote Preferences 发布器把决定
+ * 连同完整设置写入 LSPosed 数据库，供宿主只读校验；该配置不进入设置备份。
  *
  * 首个上线版本只在状态缺失时识别历史用户；识别结果会同步持久化，因此后续读取幂等。
  * 已存在但损坏、或条款版本不匹配的记录一律回到未决定状态，避免错误放行。
@@ -39,8 +39,6 @@ internal object UserTermsConsentStore {
     internal const val PREF_FILE = "user_terms_consent"
     internal const val KEY_DECISION = "decision"
     internal const val KEY_TERMS_VERSION = "terms_version"
-    internal const val HOOK_MIRROR_KEY_DECISION = "user_terms_hook_decision"
-    internal const val HOOK_MIRROR_KEY_TERMS_VERSION = "user_terms_hook_version"
     private const val LEGACY_PREFS_ALIVE_KEY = "prefs_alive_ts"
     private val lock = Any()
 
@@ -80,39 +78,36 @@ internal object UserTermsConsentStore {
         if (persist(preferences, initial)) initial else UserTermsDecision.UNDECIDED
     }
 
-    fun accept(context: Context, hookPrefs: YukiHookPrefsBridge?): Boolean {
-        val mirror = hookPrefs ?: return false
+    fun accept(context: Context): Boolean {
         val previous = readOrInitialize(context)
         if (!write(context, UserTermsDecision.ACCEPTED)) return false
-        if (syncHookMirror(mirror, UserTermsDecision.ACCEPTED)) return true
-        // 镜像未确认时不能让界面权威状态单独前进；尽力回滚以免下次启动补写半成品。
+        if (RemoteHookConfigStore.publish(
+                context,
+                UserTermsDecision.ACCEPTED
+            ).also(RemoteHookConfigStore::logFailure).succeeded
+        ) {
+            return true
+        }
+        // 宿主配置未确认时不能让界面权威状态单独前进；尽力回滚到原决定。
         write(context, previous)
+        RemoteHookConfigStore.publish(context, previous).also(RemoteHookConfigStore::logFailure)
         return false
     }
 
-    fun decline(context: Context, hookPrefs: YukiHookPrefsBridge?): Boolean {
-        val mirror = hookPrefs ?: return false
-        val previous = readOrInitialize(context)
+    fun decline(context: Context): Boolean {
+        readOrInitialize(context)
         // 必须先同步撤销宿主可见的正向授权；撤销未确认时不得只改私有权威文件。
-        if (!syncHookMirror(mirror, UserTermsDecision.DECLINED)) return false
+        if (!RemoteHookConfigStore.publish(
+                context,
+                UserTermsDecision.DECLINED
+            ).also(RemoteHookConfigStore::logFailure).succeeded
+        ) {
+            return false
+        }
         if (write(context, UserTermsDecision.DECLINED)) return true
-        // 私有提交失败时恢复原镜像；若恢复也失败，宿主仍停留在更安全的关闭态。
-        syncHookMirror(mirror, previous)
+        // 私有提交失败也保留宿主侧关闭态，不能为了状态一致性重新放行 Hook。
         return false
     }
-
-    /** 将权威决定同步落盘为默认偏好中的最小只读镜像，并读回确认本次写入。 */
-    fun syncHookMirror(
-        hookPrefs: YukiHookPrefsBridge,
-        decision: UserTermsDecision
-    ): Boolean = runCatching {
-        val editor = hookPrefs.edit()
-        editor.putString(HOOK_MIRROR_KEY_DECISION, decision.name)
-        editor.putInt(HOOK_MIRROR_KEY_TERMS_VERSION, CURRENT_TERMS_VERSION)
-        if (!editor.commit()) return@runCatching false
-        hookPrefs.getString(HOOK_MIRROR_KEY_DECISION, "") == decision.name &&
-            hookPrefs.getInt(HOOK_MIRROR_KEY_TERMS_VERSION, -1) == CURRENT_TERMS_VERSION
-    }.getOrDefault(false)
 
     internal fun inferInitialDecision(
         firstInstallTime: Long?,

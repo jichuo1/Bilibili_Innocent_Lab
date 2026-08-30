@@ -2,7 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import de.robv.android.xposed.XposedHelpers
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 
 /** 暂停页广告 P1 请求层 + P2 面板层 + P3 倒计时层安装器。 */
 internal class PausedAdFeatureInstaller(
@@ -85,7 +85,7 @@ internal class PausedAdFeatureInstaller(
                             it?.javaClass?.name?.contains(PANEL_DATA_NAME) == true
                         }
                         if (data != null) {
-                            runCatching { XposedHelpers.callMethod(instance, "dismissPanel") }
+                            runCatching { ReflectAccess.callMethod(instance, "dismissPanel") }
                                 .onSuccess {
                                     environment.logInfo(
                                         "paused_p2_dismiss",
@@ -106,7 +106,7 @@ internal class PausedAdFeatureInstaller(
                             it?.javaClass?.name?.contains(PANEL_DATA_NAME) == true
                         }
                         if (data != null) runCatching {
-                            XposedHelpers.callMethod(instance, "dismissPanel")
+                            ReflectAccess.callMethod(instance, "dismissPanel")
                         }
                     }
                 }

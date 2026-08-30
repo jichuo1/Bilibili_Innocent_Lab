@@ -54,6 +54,8 @@ internal class SettingsBackupMotionHost(
     sourceTitle: CharSequence
 ) : FrameLayout(context) {
 
+    private val backdropClip = MotionClipFrameLayout(context)
+    private val backdropRoot = View(context)
     private val surface = MorphSurfaceView(context)
     private val pageClip = MotionClipFrameLayout(context)
     private val transitionTitle = TextView(context).apply {
@@ -84,6 +86,11 @@ internal class SettingsBackupMotionHost(
     init {
         clipChildren = false
         clipToPadding = false
+        backdropClip.addView(
+            backdropRoot,
+            LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+        )
+        addView(backdropClip, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(surface, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(pageClip, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(transitionTitle, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
@@ -102,7 +109,11 @@ internal class SettingsBackupMotionHost(
             0f,
             expandedSurfaceColor
         )
+        if (expansion >= 0.999f) backdropClip.clearMotionOutline()
     }
+
+    /** Liquid renderer 绑定到该层；其父容器始终跟随形变 surface 裁剪。 */
+    fun liquidBackdropRoot(): View = backdropRoot
 
     fun replacePage(page: View, toolbarTitle: TextView) {
         currentToolbarTitle?.alpha = 1f
@@ -117,6 +128,7 @@ internal class SettingsBackupMotionHost(
     }
 
     fun prepareFirstFrameForEntry() {
+        backdropClip.visibility = View.INVISIBLE
         surface.visibility = View.INVISIBLE
         currentPage?.alpha = 0f
         currentToolbarTitle?.alpha = 0f
@@ -125,6 +137,7 @@ internal class SettingsBackupMotionHost(
     }
 
     fun beginMotion() {
+        backdropClip.visibility = View.VISIBLE
         transitionTitle.visibility = View.VISIBLE
         blockInteraction(true)
     }
@@ -151,6 +164,8 @@ internal class SettingsBackupMotionHost(
         )
 
         surface.visibility = View.VISIBLE
+        backdropClip.visibility = View.VISIBLE
+        backdropClip.alpha = frame.surfaceAlpha
         surface.setFrame(
             bounds = frame.bounds,
             cornerRadiusPx = frame.cornerRadiusPx,
@@ -161,6 +176,7 @@ internal class SettingsBackupMotionHost(
             )
         )
         surface.alpha = frame.surfaceAlpha
+        backdropClip.setMotionOutline(frame.bounds, frame.cornerRadiusPx)
         pageClip.setMotionOutline(frame.bounds, frame.cornerRadiusPx)
 
         currentPage?.apply {
@@ -220,6 +236,9 @@ internal class SettingsBackupMotionHost(
         expansion = clamped
         val fullBounds = SettingsBackupMotionRect(0f, 0f, width.toFloat(), height.toFloat())
         surface.visibility = View.VISIBLE
+        backdropClip.visibility = View.VISIBLE
+        backdropClip.alpha = clamped
+        backdropClip.setMotionOutline(fullBounds, 0f)
         surface.setFrame(fullBounds, 0f, expandedSurfaceColor)
         surface.alpha = clamped
         pageClip.clearMotionOutline()
@@ -237,6 +256,9 @@ internal class SettingsBackupMotionHost(
 
     fun showExpandedImmediately() {
         expansion = 1f
+        backdropClip.visibility = View.VISIBLE
+        backdropClip.alpha = 1f
+        backdropClip.clearMotionOutline()
         surface.visibility = View.VISIBLE
         if (width > 0 && height > 0) {
             surface.setFrame(

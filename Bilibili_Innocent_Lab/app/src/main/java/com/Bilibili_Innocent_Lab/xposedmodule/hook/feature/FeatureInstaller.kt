@@ -2,7 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
-import com.highcapable.yukihookapi.hook.core.YukiMemberHookCreator.MemberHookCreator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import java.lang.reflect.Constructor
 
 internal interface HookRegistrar {
@@ -10,14 +10,14 @@ internal interface HookRegistrar {
         id: String,
         className: String,
         methodName: String,
-        block: MemberHookCreator.() -> Unit
+        block: ModernMemberHookCreator.() -> Unit
     )
 
     fun all(
         id: String,
         className: String,
         methodName: String,
-        block: MemberHookCreator.() -> Unit
+        block: ModernMemberHookCreator.() -> Unit
     )
 
     fun exact(
@@ -25,19 +25,19 @@ internal interface HookRegistrar {
         owner: Class<*>,
         methodName: String,
         vararg parameterTypes: Class<*>,
-        block: MemberHookCreator.() -> Unit
+        block: ModernMemberHookCreator.() -> Unit
     )
 
     fun adapted(
         id: String,
         point: VersionAdapter.HookPoint,
-        block: MemberHookCreator.() -> Unit
+        block: ModernMemberHookCreator.() -> Unit
     )
 
     fun constructor(
         id: String,
         constructor: Constructor<*>,
-        block: MemberHookCreator.() -> Unit
+        block: ModernMemberHookCreator.() -> Unit
     )
 }
 

@@ -15,22 +15,23 @@ class SkinRenderSessionRegistryTest {
     )
 
     @Test
-    fun `new activity owner makes old success callback stale`() {
+    fun `main and secondary activity owners remain active together`() {
         val registry = SkinRenderSessionRegistry()
         val oldActivity = requireNotNull(registry.claim(pending, "owner-old"))
         val newActivity = requireNotNull(registry.claim(pending, "owner-new"))
 
-        assertFalse(registry.isActiveFor(oldActivity, pending))
+        assertTrue(registry.isActiveFor(oldActivity, pending))
         assertTrue(registry.isActiveFor(newActivity, pending))
     }
 
     @Test
-    fun `old activity close cannot release new activity owner`() {
+    fun `one activity close does not release another activity owner`() {
         val registry = SkinRenderSessionRegistry()
         val oldActivity = requireNotNull(registry.claim(pending, "owner-old"))
         val newActivity = requireNotNull(registry.claim(pending, "owner-new"))
 
-        assertFalse(registry.release(oldActivity))
+        assertTrue(registry.release(oldActivity))
+        assertFalse(registry.isActiveFor(oldActivity, pending))
         assertTrue(registry.isActiveFor(newActivity, pending))
     }
 
@@ -41,6 +42,18 @@ class SkinRenderSessionRegistryTest {
 
         assertTrue(registry.release(owner))
         assertFalse(registry.isActiveFor(owner, pending))
+    }
+
+    @Test
+    fun `skin selection invalidates every concurrent activity owner`() {
+        val registry = SkinRenderSessionRegistry()
+        val main = requireNotNull(registry.claim(pending, "owner-main"))
+        val secondary = requireNotNull(registry.claim(pending, "owner-secondary"))
+
+        registry.invalidate()
+
+        assertFalse(registry.isActiveFor(main, pending))
+        assertFalse(registry.isActiveFor(secondary, pending))
     }
 
     @Test

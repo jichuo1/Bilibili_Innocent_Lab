@@ -16,25 +16,22 @@ import com.highcapable.betterandroid.ui.extension.view.textToString
 import com.highcapable.kavaref.extension.classOf
 import com.highcapable.kavaref.extension.isStatic
 import com.highcapable.kavaref.extension.isSubclassOf
-import com.highcapable.yukihookapi.annotation.xposed.InjectYukiHookWithXposed
-import com.highcapable.yukihookapi.hook.core.YukiMemberHookCreator.MemberHookCreator
-import com.highcapable.yukihookapi.hook.factory.configs
-import com.highcapable.yukihookapi.hook.factory.encase
-import com.highcapable.yukihookapi.hook.xposed.proxy.IYukiHookXposedInit
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XSharedPreferences
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
+import io.github.libxposed.api.XposedModule
+import io.github.libxposed.api.XposedModuleInterface
 import java.lang.reflect.Constructor
 import java.lang.reflect.Method
 import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.CrossAppBroadcastCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.HookConfigSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.SnapshotHookConfigSource
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.YukiHookConfigSource
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookParam
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookRuntime
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMethodHook
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BlockUpdateFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BottomBarFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentPurifyFeatureInstaller
@@ -65,15 +62,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SplashAdFeatureInstal
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TeenagersModeFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoRelateFilterFeatureInstaller
-import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
-import com.Bilibili_Innocent_Lab.xposedmodule.receiver.RoamingOpenReceiver
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HookRuntimeMode
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootConfigSnapshot
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootRuntimeDetector
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootTargetConfigBridge
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingValue
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigDecodeResult
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.BubbleDrawable
 
 /**
@@ -112,17 +103,31 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.BubbleDrawable
  *    且每次 key 只打印一次（logOnce 思路），降低频繁磁盘 I/O。
  *  - 重复的 hook 模板抽取为局部 hookMethod helper，减少样板代码、降低出错面。
  */
-@InjectYukiHookWithXposed
-class HookEntry : IYukiHookXposedInit {
+class HookEntry : XposedModule() {
+
+    private val modernRuntime = ModernHookRuntime(this)
+    private val targetHooksStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val systemHooksStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    @Volatile
+    private var loadedProcessName: String = ""
 
     companion object {
         const val TARGET_PACKAGE = "tv.danmaku.bili"
+
+        @Volatile
+        private var moduleInstance: HookEntry? = null
+
+        private fun frameworkLog(message: String, throwable: Throwable? = null) {
+            if (throwable == null) ModernHookLog.info(message)
+            else ModernHookLog.error(message, throwable)
+        }
 
         // 自由复制（高版本 9.x：评论正文渲染 handler，持有 CommentItem + 评论正文 TextView）
         const val CLASS_COMMENT_HANDLER_V2 = "com.bilibili.app.comment3.ui.nextholderexp3.handle.CommentNextExperiment3ContentRichTextHandler"
         const val METHOD_COMMENT_BIND_V2 = "b"
 
-        /** XC_MethodHook.MethodHookParam 内保存本次同步绑定快照的私有 key。 */
+        /** ModernHookParam 内保存本次同步绑定快照的私有 key。 */
         private const val COMMENT_BIND_SNAPSHOT_KEY =
             "Bilibili_Innocent_Lab.free_copy.comment_binding_snapshot"
 
@@ -244,407 +249,28 @@ class HookEntry : IYukiHookXposedInit {
             }
         }
 
-        private data class FreeCopyRuntimeConfig(
-            val commentEnabled: Boolean,
-            val descriptionEnabled: Boolean,
-            val revision: Long,
-            val source: String
-        )
-
-        private const val FREE_COPY_CACHE_PREFS = "innocent_lab_free_copy_config"
-        private const val FREE_COPY_CACHE_VALID = "valid"
-        private const val FREE_COPY_CACHE_COMMENT = "comment_enabled"
-        private const val FREE_COPY_CACHE_DESCRIPTION = "description_enabled"
-        private const val FREE_COPY_CACHE_REVISION = "revision"
         private const val MODULE_PACKAGE = "com.Bilibili_Innocent_Lab.xposedmodule"
-        private const val HOOK_AUTHORIZATION_RECEIVER_CLASS =
-            "com.Bilibili_Innocent_Lab.xposedmodule.receiver.RoamingOpenReceiver"
-        private const val HOOK_AUTHORIZATION_TIMEOUT_MS = 800L
-
-        private data class NoRootBootstrapEnvelope(
-            val valid: Boolean,
-            val enabled: Boolean,
-            val revision: Long,
-            val payload: String?,
-            val source: String
-        )
-
-        private data class HookBootstrap(
-            val authorized: Boolean,
-            val noRoot: NoRootBootstrapEnvelope?
-        )
 
         /**
-         * 标准 LSPosed 优先读取默认偏好中的最小授权镜像；镜像缺失时兼容尝试独立
-         * 权威文件。两者都复用模块侧版本校验，不推断历史用户，也不保存宿主缓存。
-         * 全部缺失时返回 null，由 attach 同步路径安全关闭本次安装；不能等 IPC 后再
-         * 延迟补装，因为兼容层 Hook 必须早于其他模块的 Application.onCreate 回调。
+         * 标准 LSPosed 只读取 API 102 Remote Preferences 白名单配置。协议会一次性校验目录、
+         * 类型、摘要、条款和运行时修订号；失败时不回退到应用私有 prefs，避免把不可读或半更新配置
+         * 当作默认值继续安装。读取必须在 attach 同步完成，不能等待 IPC 后延迟补装。
          */
-        private fun queryXposedHookAuthorization(): Boolean? {
-            val mirroredDecision = runCatching<Boolean?> {
-                val mirror = XSharedPreferences(MODULE_PACKAGE)
-                mirror.makeWorldReadable()
-                mirror.reload()
-                if (!mirror.contains(UserTermsConsentStore.HOOK_MIRROR_KEY_DECISION)) {
-                    return@runCatching null
-                }
-                UserTermsConsentStore.resolvePersistedDecision(
-                    hasDecision = true,
-                    rawDecision = mirror.getString(
-                        UserTermsConsentStore.HOOK_MIRROR_KEY_DECISION,
-                        null
-                    ),
-                    storedVersion = mirror.getInt(
-                        UserTermsConsentStore.HOOK_MIRROR_KEY_TERMS_VERSION,
-                        -1
-                    )
-                )?.isAuthorized ?: false
-            }.onFailure { throwable ->
-                XposedBridge.log(
-                    "[BIL] LSPosed 默认授权镜像读取失败: " +
-                        "${throwable.javaClass.simpleName}: ${throwable.message}"
-                )
-            }.getOrNull()
-            if (mirroredDecision != null) return mirroredDecision
-
-            return runCatching<Boolean?> {
-                val preferences = XSharedPreferences(
-                    MODULE_PACKAGE,
-                    UserTermsConsentStore.PREF_FILE
-                )
-                preferences.makeWorldReadable()
-                preferences.reload()
-                val hasDecision = preferences.contains(UserTermsConsentStore.KEY_DECISION)
-                if (!hasDecision) {
-                    val file = preferences.file
-                    XposedBridge.log(
-                        "[BIL] LSPosed 授权镜像与私有快照均无可读记录" +
-                            "(path=${file.absolutePath}, exists=${file.exists()}, " +
-                            "readable=${file.canRead()})"
-                    )
-                    return@runCatching null
-                }
-                UserTermsConsentStore.resolvePersistedDecision(
-                    hasDecision = true,
-                    rawDecision = preferences.getString(UserTermsConsentStore.KEY_DECISION, null),
-                    storedVersion = preferences.getInt(UserTermsConsentStore.KEY_TERMS_VERSION, -1)
-                )?.isAuthorized ?: false
-            }.onFailure { throwable ->
-                XposedBridge.log(
-                    "[BIL] LSPosed 私有授权快照读取失败: " +
-                        "${throwable.javaClass.simpleName}: ${throwable.message}"
-                )
-            }.getOrNull()
-        }
-
-        /**
-         * NPatch 在 Application.onCreate 前通过有界等待取得授权和完整配置。Provider 是常规通道；
-         * 对已知会隔离跨应用 authority 的宿主环境，并行发送显式 ordered broadcast，
-         * 两条通道都由模块进程直接读 UserTermsConsentStore。宿主不保存正向授权缓存。
-         *
-         * 工作线程和广播最终回调只会竞争写入一次性布尔结果，绝不持有 Hook 安装
-         * 回调；因此即使 IPC 在超时后迟到，也无法在宿主进程中追加启用功能。
-         */
-        private fun queryHookBootstrap(
-            context: Context,
-            requireNoRoot: Boolean
-        ): HookBootstrap? {
-            val appContext = context.applicationContext ?: context
-            val timeoutMs = HOOK_AUTHORIZATION_TIMEOUT_MS
-            val deadlineNanos = System.nanoTime() +
-                java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(timeoutMs)
-            val resolved = java.util.concurrent.atomic.AtomicReference<HookBootstrap?>(null)
-            val resultReady = java.util.concurrent.CountDownLatch(1)
-
-            fun offerResult(value: HookBootstrap?) {
-                if (value == null) return
-                // 标准 Xposed 只需明确授权；NPatch 在授权为 true 时还必须携带
-                // 本次启动的完整权威 envelope，旧 ordered bool 不能抢先放行。
-                if (requireNoRoot && value.authorized && value.noRoot == null) return
-                if (resolved.compareAndSet(null, value)) {
-                    resultReady.countDown()
-                }
-            }
-
-            val cancellationSignal = android.os.CancellationSignal()
-            val providerThread = Thread({
-                val providerResult = runCatching<HookBootstrap?> {
-                    val projection = if (requireNoRoot) {
-                        arrayOf(
-                            RoamingCompatProvider.COLUMN_HOOK_AUTHORIZED,
-                            RoamingCompatProvider.COLUMN_NO_ROOT_VALID,
-                            RoamingCompatProvider.COLUMN_NO_ROOT_ENABLED,
-                            RoamingCompatProvider.COLUMN_NO_ROOT_REVISION,
-                            RoamingCompatProvider.COLUMN_NO_ROOT_PAYLOAD
-                        )
-                    } else {
-                        arrayOf(RoamingCompatProvider.COLUMN_HOOK_AUTHORIZED)
-                    }
-                    appContext.contentResolver.query(
-                        RoamingCompatProvider.HOOK_AUTHORIZATION_URI,
-                        projection,
-                        null,
-                        null,
-                        null,
-                        cancellationSignal
-                    )?.use { cursor ->
-                        if (!cursor.moveToFirst()) return@use null
-                        val authIndex = cursor.getColumnIndex(
-                            RoamingCompatProvider.COLUMN_HOOK_AUTHORIZED
-                        )
-                        if (authIndex < 0) return@use null
-                        val authorized = when (cursor.getInt(authIndex)) {
-                            0 -> false
-                            1 -> true
-                            else -> return@use null
-                        }
-                        val validIndex = cursor.getColumnIndex(
-                            RoamingCompatProvider.COLUMN_NO_ROOT_VALID
-                        )
-                        val enabledIndex = cursor.getColumnIndex(
-                            RoamingCompatProvider.COLUMN_NO_ROOT_ENABLED
-                        )
-                        val revisionIndex = cursor.getColumnIndex(
-                            RoamingCompatProvider.COLUMN_NO_ROOT_REVISION
-                        )
-                        val payloadIndex = cursor.getColumnIndex(
-                            RoamingCompatProvider.COLUMN_NO_ROOT_PAYLOAD
-                        )
-                        val envelope = if (
-                            validIndex >= 0 && enabledIndex >= 0 &&
-                            revisionIndex >= 0 && payloadIndex >= 0
-                        ) {
-                            NoRootBootstrapEnvelope(
-                                valid = cursor.getInt(validIndex) == 1,
-                                enabled = cursor.getInt(enabledIndex) == 1,
-                                revision = cursor.getLong(revisionIndex),
-                                payload = if (cursor.isNull(payloadIndex)) null
-                                else cursor.getString(payloadIndex),
-                                source = "provider"
-                            )
-                        } else {
-                            null
-                        }
-                        HookBootstrap(authorized, envelope)
-                    }
-                }.onFailure { throwable ->
-                    XposedBridge.log(
-                        "[BIL] Hook 授权 Provider 查询失败: " +
-                            "${throwable.javaClass.simpleName}: ${throwable.message}"
-                    )
-                }.getOrNull()
-                offerResult(providerResult)
-            }, "BIL-hook-authorization-provider").apply {
-                isDaemon = true
-            }
-            runCatching { providerThread.start() }
-
-            val broadcastThread = android.os.HandlerThread("BIL-hook-authorization-result")
-            var callbackReceiver: android.content.BroadcastReceiver? = null
-            var callbackRegistered = false
-            var bootstrapPendingIntent: android.app.PendingIntent? = null
-            runCatching {
-                broadcastThread.start()
-                val resultHandler = android.os.Handler(broadcastThread.looper)
-                val nonce = if (requireNoRoot) java.util.UUID.randomUUID().toString() else ""
-                if (requireNoRoot) {
-                    val callbackAction = "$MODULE_PACKAGE.NO_ROOT_BOOTSTRAP.$nonce"
-                    val secureCallbackReceiver = object : android.content.BroadcastReceiver() {
-                        override fun onReceive(
-                            receiverContext: Context,
-                            receiverIntent: android.content.Intent
-                        ) {
-                            if (receiverIntent.getStringExtra(
-                                    RoamingOpenReceiver.EXTRA_BOOTSTRAP_NONCE
-                                ) != nonce
-                            ) return
-                            offerResult(
-                                HookBootstrap(
-                                    authorized = receiverIntent.getBooleanExtra(
-                                        RoamingOpenReceiver.EXTRA_HOOK_AUTHORIZED,
-                                        false
-                                    ),
-                                    noRoot = NoRootBootstrapEnvelope(
-                                        valid = receiverIntent.getBooleanExtra(
-                                            RoamingCompatProvider.COLUMN_NO_ROOT_VALID,
-                                            false
-                                        ),
-                                        enabled = receiverIntent.getBooleanExtra(
-                                            RoamingCompatProvider.COLUMN_NO_ROOT_ENABLED,
-                                            false
-                                        ),
-                                        revision = receiverIntent.getLongExtra(
-                                            RoamingCompatProvider.COLUMN_NO_ROOT_REVISION,
-                                            0L
-                                        ),
-                                        payload = receiverIntent.getStringExtra(
-                                            RoamingCompatProvider.COLUMN_NO_ROOT_PAYLOAD
-                                        ),
-                                        source = "pending-intent"
-                                    )
-                                )
-                            )
-                        }
-                    }
-                    callbackReceiver = secureCallbackReceiver
-                    CrossAppBroadcastCompat.registerPrivateCallbackReceiver(
-                        appContext,
-                        secureCallbackReceiver,
-                        android.content.IntentFilter(callbackAction),
-                        resultHandler
-                    )
-                    callbackRegistered = true
-                    val pendingFlags = android.app.PendingIntent.FLAG_ONE_SHOT or
-                        android.app.PendingIntent.FLAG_CANCEL_CURRENT or
-                        if (AndroidVersion.isAtLeast(AndroidVersion.S)) {
-                            android.app.PendingIntent.FLAG_MUTABLE
-                        } else {
-                            0
-                        }
-                    bootstrapPendingIntent = android.app.PendingIntent.getBroadcast(
-                        appContext,
-                        nonce.hashCode(),
-                        android.content.Intent(callbackAction).setPackage(appContext.packageName),
-                        pendingFlags
-                    )
-                }
-                val resultReceiver = object : android.content.BroadcastReceiver() {
-                    override fun onReceive(
-                        receiverContext: Context,
-                        receiverIntent: android.content.Intent
-                    ) {
-                        val extras = getResultExtras(false)
-                        val broadcastResult = if (
-                            extras?.getBoolean(
-                                RoamingOpenReceiver.EXTRA_HOOK_AUTHORIZATION_HANDLED,
-                                false
-                            ) == true
-                        ) {
-                            HookBootstrap(
-                                authorized = extras.getBoolean(
-                                    RoamingOpenReceiver.EXTRA_HOOK_AUTHORIZED,
-                                    false
-                                ),
-                                noRoot = null
-                            )
-                        } else {
-                            null
-                        }
-                        offerResult(broadcastResult)
-                    }
-                }
-                val request = android.content.Intent(
-                    RoamingOpenReceiver.ACTION_QUERY_HOOK_AUTHORIZATION
-                )
-                    .setComponent(
-                        android.content.ComponentName(
-                            MODULE_PACKAGE,
-                            HOOK_AUTHORIZATION_RECEIVER_CLASS
-                        )
-                    )
-                    // 模块设置 App 被用户手动停止时 Provider 可能无法拉起；
-                    // 显式广播仍允许触达这个只读权威查询，不执行任何写入。
-                    .addFlags(android.content.Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
-                    .apply {
-                        bootstrapPendingIntent?.let { callback ->
-                            putExtra(RoamingOpenReceiver.EXTRA_BOOTSTRAP_CALLBACK, callback)
-                            putExtra(RoamingOpenReceiver.EXTRA_BOOTSTRAP_NONCE, nonce)
-                        }
-                    }
-                CrossAppBroadcastCompat.sendOrderedBroadcast(
-                    context = appContext,
-                    intent = request,
-                    resultReceiver = resultReceiver,
-                    scheduler = resultHandler
-                )
-            }.onFailure { throwable ->
-                XposedBridge.log(
-                    "[BIL] Hook 授权广播发送失败: " +
-                        "${throwable.javaClass.simpleName}: ${throwable.message}"
-                )
-            }
-
-            val completed = try {
-                if (resolved.get() != null) {
-                    true
-                } else {
-                    val remainingNanos = deadlineNanos - System.nanoTime()
-                    remainingNanos > 0L && resultReady.await(
-                        remainingNanos,
-                        java.util.concurrent.TimeUnit.NANOSECONDS
-                    )
-                }
-            } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt()
-                false
-            } finally {
-                runCatching { cancellationSignal.cancel() }
-                providerThread.interrupt()
-                if (callbackRegistered && callbackReceiver != null) {
-                    runCatching { appContext.unregisterReceiver(callbackReceiver) }
-                }
-                runCatching { bootstrapPendingIntent?.cancel() }
-                runCatching { broadcastThread.quitSafely() }
-            }
-            if (!completed) {
-                XposedBridge.log("[BIL] Hook 授权查询超时(${timeoutMs}ms)")
-            }
-            return if (completed) resolved.get() else null
-        }
-
-        /**
-         * 在后台线程读取模块 Provider；失败时使用 B 站进程上次成功同步的本地缓存。
-         * 两处均无值代表 UNKNOWN，由调用方按功能默认值（开启）处理，避免一次早期
-         * XSharedPreferences 失真永久跳过 Hook。
-         */
-        private fun queryFreeCopyRuntimeConfig(context: Context): FreeCopyRuntimeConfig? {
-            val appContext = context.applicationContext ?: context
-            val providerConfig = runCatching {
-                appContext.contentResolver.query(
-                    RoamingCompatProvider.FREE_COPY_CONFIG_URI,
-                    null,
-                    null,
-                    null,
-                    null
-                )?.use { cursor ->
-                    if (!cursor.moveToFirst()) return@use null
-                    val valid = cursor.getInt(cursor.getColumnIndexOrThrow("valid")) == 1
-                    val revision = cursor.getLong(cursor.getColumnIndexOrThrow("revision"))
-                    if (!valid || revision <= 0L) return@use null
-                    FreeCopyRuntimeConfig(
-                        commentEnabled = cursor.getInt(
-                            cursor.getColumnIndexOrThrow("comment_enabled")
-                        ) == 1,
-                        descriptionEnabled = cursor.getInt(
-                            cursor.getColumnIndexOrThrow("description_enabled")
-                        ) == 1,
-                        revision = revision,
-                        source = "provider"
-                    )
-                }
-            }.getOrNull()
-            if (providerConfig != null) {
-                runCatching {
-                    appContext.getSharedPreferences(FREE_COPY_CACHE_PREFS, Context.MODE_PRIVATE)
-                        .edit()
-                        .putBoolean(FREE_COPY_CACHE_VALID, true)
-                        .putBoolean(FREE_COPY_CACHE_COMMENT, providerConfig.commentEnabled)
-                        .putBoolean(FREE_COPY_CACHE_DESCRIPTION, providerConfig.descriptionEnabled)
-                        .putLong(FREE_COPY_CACHE_REVISION, providerConfig.revision)
-                        .apply()
-                }
-                return providerConfig
-            }
+        private fun queryRemoteHookConfig(): RemoteHookConfigSnapshot? {
             return runCatching {
-                val cache = appContext.getSharedPreferences(FREE_COPY_CACHE_PREFS, Context.MODE_PRIVATE)
-                if (!cache.getBoolean(FREE_COPY_CACHE_VALID, false)) return@runCatching null
-                val revision = cache.getLong(FREE_COPY_CACHE_REVISION, 0L)
-                if (revision <= 0L) return@runCatching null
-                FreeCopyRuntimeConfig(
-                    commentEnabled = cache.getBoolean(FREE_COPY_CACHE_COMMENT, true),
-                    descriptionEnabled = cache.getBoolean(FREE_COPY_CACHE_DESCRIPTION, true),
-                    revision = revision,
-                    source = "target-cache"
+                val preferences = moduleInstance?.getRemotePreferences(RemoteHookConfigContract.GROUP)
+                    ?: return@runCatching null
+                when (val decoded = RemoteHookConfigContract.decode(preferences.all)) {
+                    is RemoteHookConfigDecodeResult.Ready -> decoded.snapshot
+                    is RemoteHookConfigDecodeResult.Invalid -> {
+                        frameworkLog("[BIL] API 102 Remote Preferences 配置无效(reason=${decoded.reason})")
+                        null
+                    }
+                }
+            }.onFailure { throwable ->
+                frameworkLog(
+                    "[BIL] API 102 Remote Preferences 读取失败: " +
+                        "${throwable.javaClass.simpleName}: ${throwable.message}"
                 )
             }.getOrNull()
         }
@@ -1550,12 +1176,12 @@ class HookEntry : IYukiHookXposedInit {
 
         /** 精简档也输出的显著错误日志（每次 key 只打印一次） */
         private fun logError(key: String, msg: String) {
-            if (logEnabled && onceLogged.add(key)) XposedBridge.log(msg)
+            if (logEnabled && onceLogged.add(key)) frameworkLog(msg)
         }
 
         /** 仅完整档输出的详细日志（每次 key 只打印一次） */
         private fun logInfo(key: String, msg: String) {
-            if (logEnabled && logVerbose && onceLogged.add(key)) XposedBridge.log(msg)
+            if (logEnabled && logVerbose && onceLogged.add(key)) frameworkLog(msg)
         }
 
         /**
@@ -2452,7 +2078,7 @@ class HookEntry : IYukiHookXposedInit {
          * 同一个 Handler 同时存在 A0(binding) 和 G0(CommentItem, binding, ...) 时不会互相
          * 污染。缓存失效（复用/签名漂移）会立即撤销并重新扫描，不把一次失败固化到进程结束。
          */
-        private fun extractBindingRootFromArgs(param: XC_MethodHook.MethodHookParam): View? {
+        private fun extractBindingRootFromArgs(param: ModernHookParam): View? {
             val method = param.method
             cViewBindingArgIndexByMethod[method]?.let { cachedIndex ->
                 val cachedRoot = param.args.getOrNull(cachedIndex)?.let { binding ->
@@ -2490,7 +2116,7 @@ class HookEntry : IYukiHookXposedInit {
         )
 
         private fun extractCommentItemForBinding(
-            param: XC_MethodHook.MethodHookParam,
+            param: ModernHookParam,
             handler: Any
         ): BoundCommentItem? {
             val method = param.method
@@ -2690,32 +2316,34 @@ class HookEntry : IYukiHookXposedInit {
         }
     }
 
-    override fun onInit() = configs {
-        // 性能：debugLog/isDebug 关闭——hook 框架自身的 verbose 输出（每个 hook 注册
-        // 与回调都写磁盘日志）会显著拖慢 B 站冷启动与高频回调路径；排查问题时可临时开启
-        debugLog {
-            isEnable = false
-        }
-        isDebug = false
-        isEnableDataChannel = true
+    override fun onModuleLoaded(param: XposedModuleInterface.ModuleLoadedParam) {
+        moduleInstance = this
+        loadedProcessName = param.processName
+        ModernHookLog.bind(modernRuntime)
+        frameworkLog("[BIL] API 102 模块入口已加载(process=${param.processName})")
     }
 
-    override fun onHook() = encase {
-        loadApp(name = TARGET_PACKAGE) {
+    override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
+        if (param.packageName != TARGET_PACKAGE || !targetHooksStarted.compareAndSet(false, true)) {
+            return
+        }
+        installTargetHooks(param.classLoader, loadedProcessName)
+    }
+
+    private fun installTargetHooks(biliClassLoader: ClassLoader, processName: String) {
             // 目标 app（B 站）的 ClassLoader，用于加载其私有类构造空 section。
             // 注意：不能用 replaceAny 回调里的 instance（static 工厂方法的 instance 为 null，会 NPE）。
-            val biliClassLoader = appClassLoader
             val hookPointRegistry = HookPointRegistry(biliClassLoader)
 
             fun installResolvedHook(
                 id: String,
                 method: Method,
-                block: MemberHookCreator.() -> Unit
+                block: ModernMemberHookCreator.() -> Unit
             ) {
                 try {
                     // 存量 Hook 暂不启用去重：保持评论自由复制的多层兜底语义不变。
                     // 新功能安装器会在调用此边界前显式 claim 逻辑 Hook 点。
-                    method.hook { block() }
+                    modernRuntime.install(id, method, block)
                     hookPointRegistry.markInstalled(id, method)
                 } catch (throwable: Throwable) {
                     hookPointRegistry.markFailed(id, method, throwable)
@@ -2726,7 +2354,7 @@ class HookEntry : IYukiHookXposedInit {
             fun installClaimedHook(
                 id: String,
                 method: Method,
-                block: MemberHookCreator.() -> Unit
+                block: ModernMemberHookCreator.() -> Unit
             ) {
                 if (!hookPointRegistry.claim(id, method)) return
                 installResolvedHook(id, method, block)
@@ -2735,11 +2363,11 @@ class HookEntry : IYukiHookXposedInit {
             fun installClaimedConstructor(
                 id: String,
                 constructor: Constructor<*>,
-                block: MemberHookCreator.() -> Unit
+                block: ModernMemberHookCreator.() -> Unit
             ) {
                 if (!hookPointRegistry.claim(id, constructor)) return
                 try {
-                    constructor.hook { block() }
+                    modernRuntime.install(id, constructor, block)
                     hookPointRegistry.markInstalled(id, constructor)
                 } catch (throwable: Throwable) {
                     hookPointRegistry.markFailed(id, constructor, throwable)
@@ -2748,13 +2376,13 @@ class HookEntry : IYukiHookXposedInit {
             }
 
             /**
-             * KavaRef → Yuki Member Hook 的统一边界。成员定位失败直接抛出，让各功能原有的
+             * KavaRef → API 102 interceptor 的统一边界。成员定位失败直接抛出，让各功能原有的
              * runCatching/try-catch 正确记录未命中；Hook 回调本身不经过额外包装。
              */
             fun hookFirstMethod(
                 className: String,
                 methodName: String,
-                block: MemberHookCreator.() -> Unit
+                block: ModernMemberHookCreator.() -> Unit
             ) {
                 val id = "legacy:$className#$methodName:first"
                 val method = hookPointRegistry.resolveFirst(id, className, methodName)
@@ -2766,7 +2394,7 @@ class HookEntry : IYukiHookXposedInit {
                 owner: Class<*>,
                 methodName: String,
                 vararg parameterTypes: Class<*>,
-                block: MemberHookCreator.() -> Unit
+                block: ModernMemberHookCreator.() -> Unit
             ) {
                 val id = "legacy:${owner.name}#$methodName:exact"
                 val method = hookPointRegistry.resolveExact(id, owner, methodName, *parameterTypes)
@@ -2779,7 +2407,7 @@ class HookEntry : IYukiHookXposedInit {
                     id: String,
                     className: String,
                     methodName: String,
-                    block: MemberHookCreator.() -> Unit
+                    block: ModernMemberHookCreator.() -> Unit
                 ) {
                     val method = hookPointRegistry.resolveFirst(id, className, methodName)
                         ?: throw NoSuchMethodException("$className#$methodName")
@@ -2790,7 +2418,7 @@ class HookEntry : IYukiHookXposedInit {
                     id: String,
                     className: String,
                     methodName: String,
-                    block: MemberHookCreator.() -> Unit
+                    block: ModernMemberHookCreator.() -> Unit
                 ) {
                     val methods = hookPointRegistry.resolveAll(id, className, methodName)
                     if (methods.isEmpty()) throw NoSuchMethodException("$className#$methodName")
@@ -2802,7 +2430,7 @@ class HookEntry : IYukiHookXposedInit {
                     owner: Class<*>,
                     methodName: String,
                     vararg parameterTypes: Class<*>,
-                    block: MemberHookCreator.() -> Unit
+                    block: ModernMemberHookCreator.() -> Unit
                 ) {
                     val method = hookPointRegistry.resolveExact(id, owner, methodName, *parameterTypes)
                         ?: throw NoSuchMethodException("${owner.name}#$methodName")
@@ -2812,7 +2440,7 @@ class HookEntry : IYukiHookXposedInit {
                 override fun adapted(
                     id: String,
                     point: VersionAdapter.HookPoint,
-                    block: MemberHookCreator.() -> Unit
+                    block: ModernMemberHookCreator.() -> Unit
                 ) {
                     val method = hookPointRegistry.resolveAdapted(
                         id,
@@ -2826,7 +2454,7 @@ class HookEntry : IYukiHookXposedInit {
                 override fun constructor(
                     id: String,
                     constructor: Constructor<*>,
-                    block: MemberHookCreator.() -> Unit
+                    block: ModernMemberHookCreator.() -> Unit
                 ) {
                     installClaimedConstructor(id, constructor, block)
                 }
@@ -2839,40 +2467,32 @@ class HookEntry : IYukiHookXposedInit {
             val scanResultReported = java.util.concurrent.atomic.AtomicBoolean(false)
             val authorizedInstallerRef =
                 java.util.concurrent.atomic.AtomicReference<((Context) -> Unit)?>(null)
-            val selectedNoRootSnapshot =
-                java.util.concurrent.atomic.AtomicReference<NoRootConfigSnapshot?>(null)
             val activeHookConfig =
                 java.util.concurrent.atomic.AtomicReference<HookConfigSource?>(null)
 
             fun installAuthorizedHooks(authorizationContext: Context) {
 
-            val yukiPrefs = prefs
-            val noRootSnapshot = selectedNoRootSnapshot.get()
-            val hookConfig = activeHookConfig.get() ?: YukiHookConfigSource(yukiPrefs)
-            // 局部遮蔽仅统一本安装链的只读调用；原始 Yuki bridge 仍由 yukiPrefs 持有。
-            val prefs: HookConfigSource = hookConfig
-            val versionAdapterPrefs = if (noRootSnapshot == null) yukiPrefs else null
-            if (noRootSnapshot != null &&
-                TargetProcess.isMainProcess(authorizationContext, TARGET_PACKAGE)
-            ) {
-                NoRootTargetConfigBridge.applyAdapterResetIfNeeded(
-                    authorizationContext,
-                    noRootSnapshot.adapterResetRevision
-                ) {
-                    VersionAdapter.clearCache(authorizationContext, null)
-                }
+            val hookConfig = checkNotNull(activeHookConfig.get()) {
+                "Authorized hook config was not selected"
             }
+            // 局部遮蔽把功能安装链统一约束在只读配置接口上。
+            val prefs: HookConfigSource = hookConfig
+            val versionAdapterResetTimestamp = hookConfig.getLong(
+                RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP,
+                0L
+            )
 
             // 每个宿主进程只做一次实时结构探测。优先实时结果，避免版本升级后的旧文件缓存
             // 在 Application.attach 写入新缓存前误导 loadApp 阶段的 Hook 注册。
             val hostAdaptResult by lazy(LazyThreadSafetyMode.NONE) {
                 biliClassLoader?.let { VersionAdapter.quickLocate(it) }
-                    ?: VersionAdapter.loadCached(null, null)
+                    ?: VersionAdapter.loadCached(null, 0L)
             }
 
             // 读取日志开关 + 详细度档位（默认：开启 + 完整）
             logEnabled = hookConfig.getBoolean(PREF_LOG_ENABLED, true)
             logVerbose = hookConfig.getString(PREF_LOG_LEVEL, LOG_LEVEL_COMPLETE) != LOG_LEVEL_MINIMAL
+            RoamingCompatHook.configure(logEnabled, logVerbose, modernRuntime)
 
             // 读取自由复制亮色模式开关（默认：暗色）
             freeCopyLightMode = hookConfig.getBoolean(PREF_FREE_COPY_LIGHT_MODE, false)
@@ -2893,8 +2513,6 @@ class HookEntry : IYukiHookXposedInit {
                 java.util.concurrent.atomic.AtomicReference<(() -> Unit)?>(null)
             val freeCopyHookRetryOnAdapt =
                 java.util.concurrent.atomic.AtomicReference<(() -> Unit)?>(null)
-            val freeCopyConfigOnAttach =
-                java.util.concurrent.atomic.AtomicReference<((Context) -> Unit)?>(null)
 
             fun retryFreeCopyHooksAfterAdapt() {
                 val retry = freeCopyHookRetryOnAdapt.getAndSet(null) ?: return
@@ -2902,34 +2520,15 @@ class HookEntry : IYukiHookXposedInit {
                 if (handler != null) handler.post(retry) else retry()
             }
 
-            // DataChannel 仅供模块设置页展示主进程状态；子进程上报没有可见收益。
-            // 某些 LSPosed 类加载环境缺少其传递依赖，首次 LinkageError 后本进程
-            // 直接熔断，避免每个安装器重复解析同一缺失类并刷写详细日志。
+            // Modern API 不再提供旧 DataChannel。状态只写模块日志；它不参与功能判定，
+            // 因而不会因为诊断通道不可用而截断核心 Hook 注册链。
             val statusChannelAvailable = java.util.concurrent.atomic.AtomicBoolean(
                 processName == TARGET_PACKAGE
             )
 
             fun reportChannelStatus(key: String, value: String) {
                 if (!statusChannelAvailable.get()) return
-                runCatching {
-                    dataChannel.put(key = key, value = value)
-                }.onFailure { t ->
-                    // DataChannel 只服务模块界面状态展示，不是宿主 Hook 的功能依赖。
-                    // 上报失败必须 fail-open，避免截断后续自由复制等核心注册链路。
-                    if (t is LinkageError) {
-                        if (statusChannelAvailable.compareAndSet(true, false)) {
-                            logError(
-                                "channel_status_unavailable",
-                                "[BIL] 状态通道在当前宿主不可用，已停止本进程后续上报: $t"
-                            )
-                        }
-                    } else {
-                        logError(
-                            "channel_status_$key",
-                            "[BIL] 状态通道上报失败(key=$key, value=$value): $t"
-                        )
-                    }
-                }
+                logInfo("channel_status_$key", "[BIL] 状态(key=$key, value=$value)")
             }
 
             val hookEnvironment = HookEnvironment(
@@ -2943,57 +2542,7 @@ class HookEntry : IYukiHookXposedInit {
             )
             val featureInstallCoordinator = FeatureInstallCoordinator(hookEnvironment)
 
-            val roamingCompatPrefs = yukiPrefs
-            val freeCopyConfigSyncStarted = java.util.concurrent.atomic.AtomicBoolean(false)
-            if (noRootSnapshot == null) freeCopyConfigOnAttach.set syncFreeCopyConfig@{ attachedContext ->
-                val appContext = attachedContext.applicationContext ?: attachedContext
-                if (!TargetProcess.isMainProcess(appContext, TARGET_PACKAGE) ||
-                    !freeCopyConfigSyncStarted.compareAndSet(false, true)
-                ) return@syncFreeCopyConfig
-                // 只需一次同步；清掉桥接 lambda，避免 Application.attach hook 在进程全寿命
-                // 间接持有 Context。后台任务只持 applicationContext。
-                freeCopyConfigOnAttach.set(null)
-                Thread({
-                    val providerOrCache = queryFreeCopyRuntimeConfig(appContext)
-                    // Provider 不可见且尚无目标缓存时，只有带修订号的完整 prefs 快照才
-                    // 可作为权威值；旧版本没有修订号的 false 继续归为 UNKNOWN。
-                    val latePrefs = if (providerOrCache == null) runCatching {
-                        val revision = roamingCompatPrefs.getLong(PREF_FREE_COPY_CONFIG_REVISION, 0L)
-                        if (revision <= 0L) null else FreeCopyRuntimeConfig(
-                            commentEnabled = roamingCompatPrefs.getBoolean(PREF_FREE_COPY_ENABLED, true),
-                            descriptionEnabled = roamingCompatPrefs.getBoolean(
-                                PREF_FREE_COPY_DESC_ENABLED,
-                                true
-                            ),
-                            revision = revision,
-                            source = "late-prefs"
-                        )
-                    }.getOrNull() else null
-                    val resolved = providerOrCache ?: latePrefs
-                    val commentEnabled = resolved?.commentEnabled ?: true
-                    val descriptionEnabled = resolved?.descriptionEnabled ?: true
-                    val source = resolved?.source ?: "default-on"
-                    val revision = resolved?.revision ?: 0L
-                    val applyConfig = {
-                        runtimeCommentFreeCopyEnabled = commentEnabled
-                        runtimeDescriptionFreeCopyEnabled = descriptionEnabled
-                        if (commentEnabled) commentFreeCopyInstallerRef.get()?.invoke()
-                        if (commentEnabled || descriptionEnabled) {
-                            descriptionFreeCopyInstallerRef.get()?.invoke()
-                        }
-                        logInfo(
-                            "free_copy_config_sync",
-                            "[BIL] 自由复制配置已同步(source=$source, revision=$revision, " +
-                                "comment=$commentEnabled, desc=$descriptionEnabled)"
-                        )
-                    }
-                    val handler = mainHandlerOrNull()
-                    if (handler != null) handler.post(applyConfig) else applyConfig()
-                }, "BIL-free-copy-config").apply {
-                    isDaemon = true
-                    start()
-                }
-            }
+            val roamingCompatPrefs = hookConfig
 
             // 已授权安装链所需的宿主 Context；只在当前调用栈使用，不进入长期缓存。
             val attachedContext = authorizationContext.applicationContext ?: authorizationContext
@@ -3547,8 +3096,8 @@ class HookEntry : IYukiHookXposedInit {
                 // 8.63.0 漂移：handler 类名变为 comment3.ui.holder.handle.CommentContentRichTextHandler
                 //（绑定方法 G(CommentItem, jv.u, v0, r, int)，字段 h 存 CommentItem）——适配
                 // 缓存自动定位（sv=6 新特征），缓存缺失时入口按「任一候选类存在」判定。
-                // 注意：9.0.0 更新后 b 增加 b(long,boolean) 重载（探测方法），YukiHookAPI
-                // 无参数匹配可能 hook 错重载——用 XposedHelpers 精确签名 b(Pj.J, boolean)。
+                // 注意：9.0.0 更新后 b 增加 b(long,boolean) 重载（探测方法），必须按
+                // Method 精确注册 b(Pj.J, boolean)，不能只按名称命中第一个重载。
                 // 双路径并行注册（t0 与 V2 都挂，不互斥）：9.x 的 t0 是残留旧类（o0 已
                 // 不用于评论绑定）、部分版本 V2 类存在但不用于绑定——运行期哪个方法实际
                 // 触发就生效（afterHook 幂等），彻底避免「类存在但方法漂移/残留」的
@@ -3567,8 +3116,8 @@ class HookEntry : IYukiHookXposedInit {
                         // 共享绑定回调：从 handler 字段 i 取 CommentItem + 动态定位 itemView
                         // （参数 ViewBinding → 字段 a / 遍历 View 字段；否则 handler 字段找
                         // View 实例，首次缓存字段名）
-                        val bindHook = object : XC_MethodHook() {
-                            override fun beforeHookedMethod(param: MethodHookParam) {
+                        val bindHook = object : ModernMethodHook() {
+                            override fun beforeHookedMethod(param: ModernHookParam) {
                                 if (!runtimeCommentFreeCopyEnabled) return
                                 val handler = param.thisObject ?: return
                                 // 9.8.0 d/e 没有 CommentItem 实参，但宿主马上会从同一个 handler
@@ -3584,7 +3133,7 @@ class HookEntry : IYukiHookXposedInit {
                                 )
                             }
 
-                            override fun afterHookedMethod(param: MethodHookParam) {
+                            override fun afterHookedMethod(param: ModernHookParam) {
                                 if (!runtimeCommentFreeCopyEnabled) return
                                 val handler = param.thisObject ?: return
                                 // 含 CommentItem 实参的方法（8.90.2 G0 等）必须取本次调用
@@ -3660,7 +3209,13 @@ class HookEntry : IYukiHookXposedInit {
                             )
                         }
                         runCatching {
-                            XposedHelpers.findAndHookMethod(handlerClass, highMethod, *cacheParams, bindHook)
+                            val method = hookPointRegistry.resolveExact(
+                                "free-copy:comment-high:cached",
+                                handlerClass,
+                                highMethod,
+                                *cacheParams
+                            ) ?: throw NoSuchMethodException("${handlerClass.name}#$highMethod")
+                            modernRuntime.install("free-copy:comment-high:${method.toGenericString()}", method, bindHook)
                             registered.add("$highMethod${cacheParams.joinToString(",") { it.name }}")
                         }.onFailure { t ->
                             logError("free_copy_v2_err", "[BIL] 9.x 评论 hook 注册失败(缓存签名): $t")
@@ -3684,7 +3239,7 @@ class HookEntry : IYukiHookXposedInit {
                             }
                             if (!isBinding) continue
                             runCatching {
-                                XposedHelpers.findAndHookMethod(handlerClass, m.name, *m.parameterTypes, bindHook)
+                                modernRuntime.install("free-copy:comment-high:${m.toGenericString()}", m, bindHook)
                                 registered.add(sig)
                             }
                         }
@@ -3730,7 +3285,7 @@ class HookEntry : IYukiHookXposedInit {
                                         biliClassLoader,
                                         "com.bilibili.lib.ui.util.NightTheme"
                                     ) ?: return@runCatching null
-                                    XposedHelpers.callStaticMethod(c, "isNightTheme", ctx) as? Boolean
+                                    ReflectAccess.callStaticMethod(c, "isNightTheme", ctx) as? Boolean
                                 }.getOrNull()
                                 if (night != null) {
                                     freeCopyLightCache = !night // B 站亮色 → 气泡亮色
@@ -3764,12 +3319,12 @@ class HookEntry : IYukiHookXposedInit {
                 var descHookOk = false
                 runCatching {
                     // desc view 发现 hook：优先收窄到两个已知版本的 ExpandableTextView 类
-                    //（Xposed findAndHookMethod 只匹配类内「声明」的方法，B 站 ExpandableTextView
+                    //（按声明 Method 精确注册，B 站 ExpandableTextView
                     // 自声明 setText——收窄后评论区 rebind 的普通 TextView 全部不再过
-                    // Xposed 桥，这是拖动跟手性最后一块可削减的热路径开销）；两个类都
+                    // 现代拦截器，这是拖动跟手性最后一块可削减的热路径开销）；两个类都
                     // 不存在/未声明时回退全局 TextView.setText（未知版本兼容）。
-                    val descTextHook = object : XC_MethodHook() {
-                        override fun afterHookedMethod(param: MethodHookParam) {
+                    val descTextHook = object : ModernMethodHook() {
+                        override fun afterHookedMethod(param: ModernHookParam) {
                             if (!runtimeDescriptionFreeCopyEnabled) return
                             if (descViewId == View.NO_ID) {
                                 val v0 = param.thisObject as? View ?: return
@@ -3790,9 +3345,16 @@ class HookEntry : IYukiHookXposedInit {
                         runCatching {
                             val owner = KavaMemberLookup.classOrNull(biliClassLoader, cn)
                                 ?: return@runCatching
-                            XposedHelpers.findAndHookMethod(
+                            val method = hookPointRegistry.resolveExact(
+                                "free-copy:description:set-text:$cn",
                                 owner,
-                                "setText", classOf<CharSequence>(), classOf<TextView.BufferType>(),
+                                "setText",
+                                classOf<CharSequence>(),
+                                classOf<TextView.BufferType>()
+                            ) ?: return@runCatching
+                            modernRuntime.install(
+                                "free-copy:description:set-text:${method.toGenericString()}",
+                                method,
                                 descTextHook
                             )
                             narrowed = true
@@ -4227,7 +3789,7 @@ class HookEntry : IYukiHookXposedInit {
                                 }
                         }
                     }
-                    logInfo("free_copy_desc_ok", "[BIL] 简介自由复制 hook 已注册(YukiHookAPI setText+steal+touch)")
+                    logInfo("free_copy_desc_ok", "[BIL] 简介自由复制 hook 已注册(API 102 setText+steal+touch)")
                     // 官方震动拦截（长按窗口内）：8.90.2 官方长按检测（mall.a RunnableC0238a）
                     // 在 DOWN 后 ~400ms 触发官方 performHapticFeedback——与我们的震动叠加成
                     // 连续两次马达震动。长按窗口内（touch 标志非空）拦官方震动，只保留
@@ -4237,10 +3799,11 @@ class HookEntry : IYukiHookXposedInit {
                         for (m in KavaMemberLookup.declaredMethods(viewClass)) {
                             if (m.name != "performHapticFeedback") continue
                             runCatching {
-                                XposedHelpers.findAndHookMethod(
-                                    viewClass, "performHapticFeedback", *m.parameterTypes,
-                                    object : XC_MethodHook() {
-                                        override fun beforeHookedMethod(param: MethodHookParam) {
+                                modernRuntime.install(
+                                    "free-copy:haptic:${m.toGenericString()}",
+                                    m,
+                                    object : ModernMethodHook() {
+                                        override fun beforeHookedMethod(param: ModernHookParam) {
                                             // 长按窗口内拦官方震动：handled（弹泡后保持到
                                             // 下次 DOWN）覆盖官方 Runnable 延迟触发场景；
                                             // touch 标志覆盖长按进行中场景。我们的震动走
@@ -4271,10 +3834,11 @@ class HookEntry : IYukiHookXposedInit {
                             for (m in KavaMemberLookup.declaredMethods(pwClass)) {
                                 if (m.name != mn) continue
                                 runCatching {
-                                    XposedHelpers.findAndHookMethod(
-                                        pwClass, mn, *m.parameterTypes,
-                                        object : XC_MethodHook() {
-                                            override fun beforeHookedMethod(param: MethodHookParam) {
+                                    modernRuntime.install(
+                                        "free-copy:popup:${m.toGenericString()}",
+                                        m,
+                                        object : ModernMethodHook() {
+                                            override fun beforeHookedMethod(param: ModernHookParam) {
                                                 if (!runtimeCommentFreeCopyEnabled &&
                                                     !runtimeDescriptionFreeCopyEnabled
                                                 ) return
@@ -4311,7 +3875,7 @@ class HookEntry : IYukiHookXposedInit {
                                                 }
                                             }
 
-                                            override fun afterHookedMethod(param: MethodHookParam) {
+                                            override fun afterHookedMethod(param: ModernHookParam) {
                                                 if (param.getObjectExtra("bil_suppress_popup_after_show") == true) {
                                                     runCatching {
                                                         (param.thisObject as? android.widget.PopupWindow)
@@ -4331,10 +3895,11 @@ class HookEntry : IYukiHookXposedInit {
                         for (m in KavaMemberLookup.declaredMethods(dlgClass)) {
                             if (m.name != "show") continue
                             runCatching {
-                                XposedHelpers.findAndHookMethod(
-                                    dlgClass, "show", *m.parameterTypes,
-                                    object : XC_MethodHook() {
-                                        override fun beforeHookedMethod(param: MethodHookParam) {
+                                modernRuntime.install(
+                                    "free-copy:dialog:${m.toGenericString()}",
+                                    m,
+                                    object : ModernMethodHook() {
+                                        override fun beforeHookedMethod(param: ModernHookParam) {
                                             if (!runtimeCommentFreeCopyEnabled &&
                                                 !runtimeDescriptionFreeCopyEnabled
                                             ) return
@@ -4348,7 +3913,7 @@ class HookEntry : IYukiHookXposedInit {
                                             }
                                         }
 
-                                        override fun afterHookedMethod(param: MethodHookParam) {
+                                        override fun afterHookedMethod(param: ModernHookParam) {
                                             if (param.getObjectExtra("bil_suppress_dialog_after_show") == true) {
                                                 runCatching {
                                                     (param.thisObject as? android.app.Dialog)
@@ -4387,11 +3952,12 @@ class HookEntry : IYukiHookXposedInit {
             RoamingCompatHook.onApplicationAttach(
                 attachedContext,
                 biliClassLoader,
-                roamingCompatPrefs,
-                authoritativeEnabled = noRootSnapshot?.values
-                    ?.get(PREF_ROAMING_COMPAT_ENABLED) as? Boolean
+                prefs = null,
+                authoritativeEnabled = roamingCompatPrefs.getBoolean(
+                    PREF_ROAMING_COMPAT_ENABLED,
+                    false
+                )
             )
-            freeCopyConfigOnAttach.get()?.invoke(attachedContext)
             if (biliClassLoader != null &&
                 TargetProcess.isMainProcess(attachedContext, TARGET_PACKAGE) &&
                 !versionAdaptCheckedThisProcess
@@ -4401,7 +3967,7 @@ class HookEntry : IYukiHookXposedInit {
                     VersionAdapter.ensureAdapted(
                         attachedContext,
                         biliClassLoader,
-                        versionAdapterPrefs,
+                        versionAdapterResetTimestamp,
                         object : VersionAdapter.AdaptCallback {
                             override fun onAdaptStarted() {
                                 VersionAdapter.showAdaptToast(
@@ -4455,167 +4021,16 @@ class HookEntry : IYukiHookXposedInit {
                 RoamingCompatHook.reportScanResult(context, biliClassLoader)
             }
 
-            val runtimeClaimProperty =
-                "com.Bilibili_Innocent_Lab.xposedmodule.runtime_owner"
-
-            fun runtimeClaimedByOther(mode: HookRuntimeMode): Boolean {
-                val expectedOwner = when (mode) {
-                    HookRuntimeMode.STANDARD_XPOSED -> "standard"
-                    HookRuntimeMode.NPATCH_LEGACY -> "npatch"
-                }
-                val properties = System.getProperties()
-                return synchronized(properties) {
-                    System.getProperty(runtimeClaimProperty)?.let { it != expectedOwner } == true
-                }
-            }
-
-            fun claimRuntime(mode: HookRuntimeMode): Boolean {
-                val properties = System.getProperties()
-                return synchronized(properties) {
-                    val current = System.getProperty(runtimeClaimProperty)
-                    when (mode) {
-                        HookRuntimeMode.STANDARD_XPOSED -> {
-                            if (current == null || current == "standard") {
-                                System.setProperty(runtimeClaimProperty, "standard")
-                                true
-                            } else {
-                                false
-                            }
-                        }
-                        HookRuntimeMode.NPATCH_LEGACY -> {
-                            if (current == null || current == "npatch") {
-                                System.setProperty(runtimeClaimProperty, "npatch")
-                                true
-                            } else {
-                                false
-                            }
-                        }
-                    }
-                }
-            }
-
             fun performAuthorizationAndInstall(
                 appContext: Context,
-                runtimeMode: HookRuntimeMode,
-                knownBootstrap: HookBootstrap? = null
+                config: RemoteHookConfigSnapshot
             ) {
-                val bootstrap = knownBootstrap ?: runCatching {
-                    queryHookBootstrap(appContext, requireNoRoot = true)
-                }.getOrNull()
-                if (bootstrap?.authorized != true) {
+                if (!config.authorized) {
                     authorizedInstallerRef.set(null)
-                    XposedBridge.log("[BIL] Hook 授权未确认，当前宿主进程不安装任何功能")
+                    frameworkLog("[BIL] Hook 授权未确认，当前宿主进程不安装任何功能")
                     return
                 }
-                when (runtimeMode) {
-                    HookRuntimeMode.STANDARD_XPOSED -> {
-                        selectedNoRootSnapshot.set(null)
-                        activeHookConfig.set(YukiHookConfigSource(prefs))
-                    }
-                    HookRuntimeMode.NPATCH_LEGACY -> {
-                        val envelope = bootstrap.noRoot
-                        val resolution = if (envelope == null) {
-                            NoRootTargetConfigBridge.Resolution.Unavailable
-                        } else {
-                            NoRootTargetConfigBridge.resolve(
-                                valid = envelope.valid,
-                                enabled = envelope.enabled,
-                                revision = envelope.revision,
-                                payload = envelope.payload,
-                                source = envelope.source
-                            )
-                        }
-                        if (resolution is NoRootTargetConfigBridge.Resolution.Disabled) {
-                            authorizedInstallerRef.set(null)
-                            if (resolution.revision > 0L &&
-                                TargetProcess.isMainProcess(appContext, TARGET_PACKAGE)
-                            ) {
-                                Thread({
-                                    val targetInfo = runCatching {
-                                        appContext.packageManager.getPackageInfo(
-                                            TARGET_PACKAGE,
-                                            0
-                                        )
-                                    }.getOrNull()
-                                    NoRootTargetConfigBridge.reportRuntimeState(
-                                        context = appContext,
-                                        revision = resolution.revision,
-                                        moduleVersionCode = com.Bilibili_Innocent_Lab
-                                            .xposedmodule.BuildConfig.VERSION_CODE.toLong(),
-                                        targetVersionCode = targetInfo?.let {
-                                            @Suppress("DEPRECATION")
-                                            if (AndroidVersion.isAtLeast(AndroidVersion.P)) {
-                                                it.longVersionCode
-                                            } else {
-                                                it.versionCode.toLong()
-                                            }
-                                        } ?: 0L,
-                                        targetUpdateTime = targetInfo?.lastUpdateTime ?: 0L,
-                                        processName = processName,
-                                        active = false
-                                    )
-                                }, "BIL-no-root-disabled-ack").apply {
-                                    isDaemon = true
-                                    start()
-                                }
-                            }
-                            XposedBridge.log(
-                                "[BIL] NPatch 免 Root 已关闭，当前宿主进程不安装任何功能"
-                            )
-                            return
-                        }
-                        val ready = resolution as? NoRootTargetConfigBridge.Resolution.Ready
-                        val snapshot = ready?.snapshot
-                        val expectedKeys = SettingsCatalog.specs
-                            .asSequence()
-                            .map { it.storageKey }
-                            .toSet()
-                        val valuesValid = snapshot?.let { candidate ->
-                            SettingsCatalog.specs.all { spec ->
-                                val settingValue = when (val raw = candidate.values[spec.storageKey]) {
-                                    is Boolean -> SettingValue.Bool(raw)
-                                    is Int -> SettingValue.IntValue(raw)
-                                    is String -> SettingValue.Text(raw)
-                                    else -> null
-                                }
-                                settingValue != null && spec.accepts(settingValue)
-                            }
-                        } == true
-                        if (snapshot == null || !snapshot.enabled ||
-                            snapshot.catalogVersion != SettingsCatalog.CATALOG_VERSION ||
-                            snapshot.values.keys != expectedKeys || !valuesValid
-                        ) {
-                            authorizedInstallerRef.set(null)
-                            val reason = when (resolution) {
-                                is NoRootTargetConfigBridge.Resolution.Disabled -> "disabled"
-                                NoRootTargetConfigBridge.Resolution.Invalid -> "invalid"
-                                NoRootTargetConfigBridge.Resolution.Unavailable -> "unavailable"
-                                is NoRootTargetConfigBridge.Resolution.Ready -> "incomplete"
-                            }
-                            XposedBridge.log(
-                                "[BIL] NPatch 免 Root 配置未就绪(reason=$reason)，" +
-                                    "当前宿主进程不安装任何功能"
-                            )
-                            return
-                        }
-                        selectedNoRootSnapshot.set(snapshot)
-                        activeHookConfig.set(SnapshotHookConfigSource(snapshot.values))
-                        XposedBridge.log(
-                            "[BIL] NPatch 免 Root 配置已加载" +
-                                "(source=${ready.source}, " +
-                                "revision=${snapshot.revision})"
-                        )
-                    }
-                }
-                // 只有完成授权与配置校验后才声明进程所有权；失败后不会阻断另一
-                // 后端。NPatch 又被延迟到 onCreate.before，因此 standard 可优先声明。
-                if (!claimRuntime(runtimeMode)) {
-                    authorizedInstallerRef.set(null)
-                    XposedBridge.log(
-                        "[BIL] 当前进程已由另一 Hook 后端接管，跳过重复安装"
-                    )
-                    return
-                }
+                activeHookConfig.set(SnapshotHookConfigSource(config.values))
                 if (!authorizedInstallStarted.compareAndSet(false, true)) {
                     authorizedInstallerRef.set(null)
                     return
@@ -4626,92 +4041,33 @@ class HookEntry : IYukiHookXposedInit {
                 }.onSuccess {
                     authorizedHooksInstalled.set(true)
                     reportScanResultIfReady(appContext)
-                    val noRootSnapshot = selectedNoRootSnapshot.get()
-                    if (noRootSnapshot != null &&
-                        TargetProcess.isMainProcess(appContext, TARGET_PACKAGE)
-                    ) {
-                        Thread({
-                            val targetInfo = runCatching {
-                                appContext.packageManager.getPackageInfo(TARGET_PACKAGE, 0)
-                            }.getOrNull()
-                            val targetVersionCode = targetInfo?.let {
-                                @Suppress("DEPRECATION")
-                                if (AndroidVersion.isAtLeast(AndroidVersion.P)) {
-                                    it.longVersionCode
-                                } else {
-                                    it.versionCode.toLong()
-                                }
-                            } ?: 0L
-                            val dispatched = NoRootTargetConfigBridge.reportRuntimeState(
-                                context = appContext,
-                                revision = noRootSnapshot.revision,
-                                moduleVersionCode = noRootSnapshot.moduleVersionCode,
-                                targetVersionCode = targetVersionCode,
-                                targetUpdateTime = targetInfo?.lastUpdateTime ?: 0L,
-                                processName = processName,
-                                active = true
-                            )
-                            XposedBridge.log(
-                                "[BIL] NPatch 免 Root 宿主回执" +
-                                    "(revision=${noRootSnapshot.revision}, " +
-                                    "dispatched=$dispatched)"
-                            )
-                        }, "BIL-no-root-heartbeat").apply {
-                            isDaemon = true
-                            start()
-                        }
-                    }
                 }.onFailure { throwable ->
-                    XposedBridge.log("[BIL] 已授权 Hook 安装链异常: $throwable")
+                    frameworkLog("[BIL] 已授权 Hook 安装链异常", throwable)
                 }
             }
 
-            fun authorizeAndInstall(context: Context?, deferNoRootAtAttach: Boolean) {
-                if (context == null || authorizationAttempted.get()) return
+            fun authorizeAndInstall(context: Context?) {
+                if (context == null || !authorizationAttempted.compareAndSet(false, true)) return
                 val appContext = context.applicationContext ?: context
-                val runtimeMode = NoRootRuntimeDetector.detect(
-                    context = appContext,
-                    frameworkClassLoader = XposedBridge::class.java.classLoader,
-                    moduleClassLoader = HookEntry::class.java.classLoader
-                )
-                // 标准 LSPosed 只同步读取本地授权快照，并在 attach 原时序内完成
-                // Hook 安装。禁止后台延迟补装：RoamingCompatHook 必须早于其他模块的
-                // Application.onCreate 回调。NPatch 仍在 callApplicationOnCreate.before
-                // 同步取得完整 envelope，维持其既有启动顺序。
-                if (runtimeMode == HookRuntimeMode.NPATCH_LEGACY && deferNoRootAtAttach) return
-                if (runtimeMode == HookRuntimeMode.STANDARD_XPOSED && !deferNoRootAtAttach) return
-                if (!authorizationAttempted.compareAndSet(false, true)) return
-                // 混合安装时，标准 LSPosed 通常已在 attach.before 完成接管；NPatch
-                // 备用入口无需再等待 Provider/广播。最终 claimRuntime 校验仍覆盖并发竞态。
-                if (runtimeClaimedByOther(runtimeMode)) {
+                val config = queryRemoteHookConfig()
+                if (config == null) {
                     authorizedInstallerRef.set(null)
-                    XposedBridge.log("[BIL] 当前进程已由另一 Hook 后端接管，跳过授权查询")
+                    frameworkLog(
+                        "[BIL] API 102 Remote Preferences 不可用；请打开一次模块界面后重启 B 站，" +
+                            "当前宿主进程不安装任何功能"
+                    )
                     return
                 }
-                if (runtimeMode == HookRuntimeMode.STANDARD_XPOSED) {
-                    val authorized = queryXposedHookAuthorization()
-                    if (authorized == null) {
-                        authorizedInstallerRef.set(null)
-                        XposedBridge.log(
-                            "[BIL] LSPosed 授权快照缺失；请先打开一次模块界面，" +
-                                "当前宿主进程不安装任何功能"
-                        )
-                        return
-                    }
-                    XposedBridge.log("[BIL] Hook 授权由 LSPosed 偏好快照确认")
-                    performAuthorizationAndInstall(
-                        appContext,
-                        runtimeMode,
-                        HookBootstrap(authorized = authorized, noRoot = null)
-                    )
-                } else {
-                    performAuthorizationAndInstall(appContext, runtimeMode)
-                }
+                frameworkLog(
+                    "[BIL] API 102 Remote Preferences 验证成功" +
+                        "(generation=${config.generation}, authorized=${config.authorized})"
+                )
+                performAuthorizationAndInstall(appContext, config)
             }
 
-            // 未授权前仅保留两个宿主生命周期 bootstrap。标准 LSPosed 在 attach.before
-            // 读取本地快照并同步安装；NPatch 在 callApplicationOnCreate.before 查询完整
-            // envelope。每个进程只尝试一次，且只有明确授权才安装完整 Hook。
+            // 未授权前只保留两个宿主生命周期 bootstrap。attach.before 同步读取 API 102
+            // Remote Preferences；Instrumentation 仅作为 Application.attach 被改写时的兜底。
+            // 每个进程只尝试一次，且只有明确授权才安装完整 Hook。
             runCatching {
                 hookExactMethod(
                     classOf<android.app.Application>(),
@@ -4719,14 +4075,11 @@ class HookEntry : IYukiHookXposedInit {
                     classOf<Context>()
                 ) {
                     before {
-                        authorizeAndInstall(
-                            args.firstOrNull() as? Context,
-                            deferNoRootAtAttach = true
-                        )
+                        authorizeAndInstall(args.firstOrNull() as? Context)
                     }
                 }
             }.onFailure { throwable ->
-                XposedBridge.log("[BIL] Application.attach 授权 bootstrap 注册失败: $throwable")
+                frameworkLog("[BIL] Application.attach 授权 bootstrap 注册失败", throwable)
             }
             runCatching {
                 hookExactMethod(
@@ -4735,10 +4088,7 @@ class HookEntry : IYukiHookXposedInit {
                     classOf<android.app.Application>()
                 ) {
                     before {
-                        authorizeAndInstall(
-                            args.firstOrNull() as? Context,
-                            deferNoRootAtAttach = false
-                        )
+                        authorizeAndInstall(args.firstOrNull() as? Context)
                     }
                     after {
                         applicationOnCreateCompleted.set(true)
@@ -4746,9 +4096,7 @@ class HookEntry : IYukiHookXposedInit {
                     }
                 }
             }.onFailure { throwable ->
-                XposedBridge.log(
-                    "[BIL] callApplicationOnCreate 授权 bootstrap 注册失败: $throwable"
-                )
+                frameworkLog("[BIL] callApplicationOnCreate 授权 bootstrap 注册失败", throwable)
             }
         }
         // ====== system_server：允许模块 App 在后台启动界面（代开漫游设置） ======
@@ -4760,16 +4108,21 @@ class HookEntry : IYukiHookXposedInit {
         // 导致接收器里的 startActivity 被静默丢弃。此处 hook 该方法，仅对本模块包
         // 放行（返回 false=不拦），其余调用方行为不变。普通设备上模块可见性正常、
         // 直接 startActivity 即可，本 hook 不起作用也不影响任何行为。
-        loadSystem {
+    override fun onSystemServerStarting(param: XposedModuleInterface.SystemServerStartingParam) {
+        if (!systemHooksStarted.compareAndSet(false, true)) return
+        installSystemHooks(param.classLoader)
+    }
+
+    private fun installSystemHooks(systemClassLoader: ClassLoader) {
             runCatching {
-                val cl = appClassLoader
+                val cl = systemClassLoader
                 val starterClass = KavaMemberLookup.classOrNull(cl, "com.android.server.wm.ActivityStarter")
                     ?: throw ClassNotFoundException("com.android.server.wm.ActivityStarter")
                 val wpcClass = KavaMemberLookup.classOrNull(cl, "com.android.server.wm.WindowProcessController")
                     ?: throw ClassNotFoundException("com.android.server.wm.WindowProcessController")
                 val pirClass = KavaMemberLookup.classOrNull(cl, "com.android.server.am.PendingIntentRecord")
                     ?: throw ClassNotFoundException("com.android.server.am.PendingIntentRecord")
-                de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                val method = KavaMemberLookup.methodOrNull(
                     starterClass,
                     "shouldAbortBackgroundActivityStart",
                     classOf<Int>(),
@@ -4781,45 +4134,44 @@ class HookEntry : IYukiHookXposedInit {
                     pirClass,
                     classOf<Boolean>(),
                     classOf<android.content.Intent>(),
-                    classOf<android.app.ActivityOptions>(),
-                    object : de.robv.android.xposed.XC_MethodHook() {
-                        override fun beforeHookedMethod(param: MethodHookParam) {
-                            // 仅对本模块包放行（其接收器代开漫游设置界面时处于后台）
-                            if (param.args.getOrNull(2) == "com.Bilibili_Innocent_Lab.xposedmodule") {
-                                param.result = false
-                            }
+                    classOf<android.app.ActivityOptions>()
+                ) ?: throw NoSuchMethodException("ActivityStarter#shouldAbortBackgroundActivityStart")
+                modernRuntime.install("system:allow-module-background-start", method) {
+                    before {
+                        // 仅对本模块包放行（其接收器代开漫游设置界面时处于后台）
+                        if (args.getOrNull(2) == MODULE_PACKAGE) {
+                            result = false
                         }
                     }
-                )
+                }
             }.onFailure {
-                de.robv.android.xposed.XposedBridge.log("[BIL-System] ActivityStarter hook 注册失败: $it")
+                frameworkLog("[BIL-System] ActivityStarter hook 注册失败", it)
             }
             // MIUI 第二层检查：com.android.server.wm.ActivityStarterImpl#isAllowedStartActivity
             // （miui-services.jar）在 AOSP 的 shouldAbortBackgroundActivityStart 之后执行，
             // 未通过时把启动重定向到安全中心的确认弹窗（wakepath）。同样仅对本模块包放行。
             runCatching {
-                val cl = appClassLoader
+                val cl = systemClassLoader
                 val starterImplClass = KavaMemberLookup.classOrNull(
                     cl,
                     "com.android.server.wm.ActivityStarterImpl"
                 ) ?: throw ClassNotFoundException("com.android.server.wm.ActivityStarterImpl")
-                de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                val method = KavaMemberLookup.methodOrNull(
                     starterImplClass,
                     "isAllowedStartActivity",
                     classOf<Int>(),
                     classOf<Int>(),
-                    classOf<String>(),
-                    object : de.robv.android.xposed.XC_MethodHook() {
-                        override fun beforeHookedMethod(param: MethodHookParam) {
-                            if (param.args.getOrNull(2) == "com.Bilibili_Innocent_Lab.xposedmodule") {
-                                param.result = true
-                            }
+                    classOf<String>()
+                ) ?: throw NoSuchMethodException("ActivityStarterImpl#isAllowedStartActivity")
+                modernRuntime.install("system:allow-module-background-start-miui", method) {
+                    before {
+                        if (args.getOrNull(2) == MODULE_PACKAGE) {
+                            result = true
                         }
                     }
-                )
+                }
             }.onFailure {
-                de.robv.android.xposed.XposedBridge.log("[BIL-System] ActivityStarterImpl hook 注册失败: $it")
+                frameworkLog("[BIL-System] ActivityStarterImpl hook 注册失败", it)
             }
-        }
     }
 }
