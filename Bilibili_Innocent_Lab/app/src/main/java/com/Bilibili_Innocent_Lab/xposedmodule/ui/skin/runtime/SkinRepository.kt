@@ -11,17 +11,18 @@ import java.util.UUID
  * recreate 必须继续看到 pending，等待 renderer 健康确认；否则两阶段激活永远无法完成。
  */
 internal object SkinRepository {
+    /** UI 调用方不得自行传入 renderer 版本；协议升级只在此处单点递增。 */
+    private const val CURRENT_LIQUID_RENDERER_VERSION = 2
+
     private val stateHolder = SkinProcessStateHolder()
     private val renderSessions = SkinRenderSessionRegistry()
-    private val currentLiquidRendererVersion: Int? = null
 
     fun resolveRequestedSkin(context: Context): SkinId = state(context).selectedSkin
 
     @Synchronized
     fun beginSelection(
         context: Context,
-        target: SkinId,
-        liquidRendererVersion: Int
+        target: SkinId
     ): SkinStateMutationResult {
         val result = stateHolder.mutate(
             loader = { loadForProcessStart(context) },
@@ -29,7 +30,7 @@ internal object SkinRepository {
                 SkinRecoveryGuard.beginSelection(
                     current = current,
                     target = target,
-                    currentLiquidRendererVersion = liquidRendererVersion,
+                    currentLiquidRendererVersion = CURRENT_LIQUID_RENDERER_VERSION,
                     newActivationAttemptId = newOpaqueId()
                 )
             },
@@ -103,7 +104,7 @@ internal object SkinRepository {
         stateHolder.current { loadForProcessStart(context) }
 
     private fun loadForProcessStart(context: Context): SkinPreferenceState =
-        SkinPrefs.readForProcessStart(context, currentLiquidRendererVersion).state
+        SkinPrefs.readForProcessStart(context, CURRENT_LIQUID_RENDERER_VERSION).state
 
     private fun staleResult(
         state: SkinPreferenceState,

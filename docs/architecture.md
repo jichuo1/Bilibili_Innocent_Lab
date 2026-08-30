@@ -191,6 +191,114 @@ cannot release the new Activity's owner. Future Liquid code must use
 and release that owner during renderer teardown; it must not call the pure recovery
 guard directly.
 
+## Module UI Liquid renderer (M1a)
+
+M1a activates renderer protocol version 1 without changing the Material You
+default. MainActivity exposes a single-choice "Interface appearance" entry as the
+first item under Experimental features. A selection is synchronously persisted
+before the dialog leaves or the Activity is recreated. A failed write keeps the
+current Activity and skin; a renderer failure recreates only after the repository
+can confirm that the Material You rollback was persisted, preventing a recovery
+write failure from becoming a recreate loop.
+
+The MainActivity terms gate remains the first boundary. `prepareSkinSession()` is
+called only after an authorized decision; undecided and declined screens continue
+to use the original Material palette and do not read skin preferences. The content
+root is bound only after Hikage has installed the layout. FreeCopyActivity,
+SettingsBackupActivity, the predictive-back motion host, and host-process overlays
+do not create Liquid sessions in M1a. This is required while the validation registry
+has one process-wide owner: a translucent SettingsBackupActivity may coexist with
+MainActivity and must not invalidate its renderer owner.
+
+`LiquidActivityRenderer` tries one-way backends in this order:
+
+1. API 33+, hardware Canvas: an isolated RuntimeShader refraction backend;
+2. API 31+, hardware Canvas: an isolated RenderNode/RenderEffect blur backend;
+3. API 27+, software Canvas, low memory, or graphics failure: a resource-free
+   translucent surface backend.
+
+Failure in a higher backend advances once and never retries it in the same Activity
+session. The translucent backend remains a valid Liquid presentation; only failure
+of the complete renderer invokes the persisted Material You rollback. The UI shows
+the backend actually held by the session and uses an explicit initializing or
+unavailable label instead of reporting an unknown backend as translucent.
+
+GPU backends share one Activity-scoped static Monet backdrop. It is generated at
+0.25x dimensions, capped at 524,288 ARGB_8888 pixels (2 MiB), and is never produced
+by capturing the Window or View tree. Consequently, rendered Liquid surfaces are
+not recursively sampled. Bitmap, RuntimeShader, RenderEffect, and RenderNode setup
+occurs only during bind, size change, or fallback; Drawable draw calls reuse all
+objects and update only coordinates and uniforms. Critical trim-memory events
+release the sampled source and permanently move that Activity session to the
+translucent backend. Activity destruction closes the backend, sampled source, and
+layout listener idempotently.
+
+Pending Liquid is promoted only after a visible root Drawable draw succeeds and its
+posted callback still owns both the persisted activation attempt and the current
+process renderer owner. A stale Activity silently retires its renderer; it cannot
+show a failure, write a rollback, or compete with the replacement Activity. A
+failed health-confirmation commit is treated as renderer validation failure and
+must persist Material You before MainActivity may recreate.
+
+M1a routes only ordinary top-level `surfaceVariant` setting cards and project modal
+containers through the skin surface factory. Activation/status cards, accent
+buttons, editors, and the logging slider retain their semantic colors. The former
+`createGlassContainer`/`presentGlassDialog` helpers are named
+`createModalContainer`/`presentModalDialog`; "Liquid" is now the only term for the
+new skin. The Material path preserves the previous modal radius, fill, and subtle
+white stroke.
+
+The API 33 refraction program is an Android View/Drawable adaptation of
+Kyant0/AndroidLiquidGlass commit `65ab177e90e5c1d8c62e70cf7755841982da65f6`.
+Its source header, `THIRD_PARTY_NOTICES.md`, and the complete Apache-2.0 license in
+`third_party/AndroidLiquidGlass-LICENSE.txt` are part of the implementation.
+
+## Module UI Liquid background pipeline (M1b)
+
+Renderer protocol version 2 supersedes M1a's background presentation while keeping
+the same skin selection, recovery owner, and one-way backend order. The root window
+is now an independent underlay rather than another glass surface. It always draws a
+stable Material background plus two low-intensity, oversized radial Monet washes;
+the top and bottom return to the exact background color. CARD and MODAL are the only
+roles that apply refraction/blur and tint. Existing white edge-highlight width and
+alpha are unchanged.
+
+The underlay remains a static 0.25x ARGB_8888 bitmap with the same 2 MiB cap and is
+still never produced by Window/View-tree capture. It is now retained consistently
+for REFRACTION, BLUR, and TRANSLUCENT so API level or a graphics fallback cannot
+silently replace the page background with a different design. GPU CARD tint is
+lighter and neutral; MODAL tint is independently stronger, while software Canvas
+and TRANSLUCENT use separate opaque-enough fallbacks for text readability.
+
+API 33 sampling explicitly uses linear BitmapShader filtering. Bitmap-to-root scale
+and the surface's root-space origin are RuntimeShader uniforms; mutating a child
+Shader local matrix after `setInputShader()` is forbidden because the parent shader
+may retain the child's earlier native instance. Root and surface locations use
+screen coordinates so Activity and Dialog windows share one coordinate system.
+The refraction shader also includes safe gradient normalization, small-radius
+stability, and restrained linear-sRGB saturation adapted from
+QmDeve/AndroidLiquidGlassView v1.0.5. Full contrast/white-point processing,
+seven-sample dispersion, per-frame View-tree recording, and a new production
+dependency are intentionally not included.
+
+Nested scrolling invalidates the weakly registered visible Liquid surface Views so
+their root-space sampling origins are re-recorded instead of moving with stale
+hardware display lists. A temporary software Canvas draws only the local translucent
+fallback and never advances the Activity's persistent backend. Root size changes are
+coalesced by frame, reuse the bitmap when sampled dimensions are unchanged, and swap
+new sources before retiring old ownership. Submitted bitmaps are never explicitly
+`recycle()`d as a substitute for a GPU fence.
+
+Memory callbacks are classified semantically: UI-hidden/background levels do not
+permanently downgrade a renderer; running-critical, complete, and `onLowMemory()` do.
+After the root becomes a raw underlay, pending Liquid health is confirmed only after
+the first visible CARD/MODAL draw has exercised its actual backend.
+
+The QmDeve-derived shader portions retain their MIT attribution in the source,
+`THIRD_PARTY_NOTICES.md`, and
+`third_party/AndroidLiquidGlassView-LICENSE.txt`; the pre-existing Kyant Apache-2.0
+attribution remains separate.
+
 ## Intentional boundaries
 
 - `hookinfo.pb` parsing and write semantics remain unchanged; its behavior is
