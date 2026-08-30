@@ -155,6 +155,42 @@ switch at an intermediate expansion. Internal preview/error back navigation
 never runs the cross-Activity morph. Restored or incompatible window geometry
 falls back to a neutral fade/scale rather than targeting stale screen coordinates.
 
+## Module UI skin foundation (M0)
+
+The module UI has a passive skin foundation under `ui/skin`. Material You remains
+the only effective renderer in M0: there is no user-visible skin selector, Liquid
+renderer, shader, backdrop capture, Window mutation, or host-process overlay. The
+three existing Activities inherit `SkinnedActivity`, but their existing layout,
+transition, language, predictive-back, and system-bar order remains authoritative.
+
+`SkinnedActivity.monetColors` is deliberately independent from the skin repository.
+It performs the same Activity-scoped `MonetColors.fromWallpaper()` call as before
+and caches only the resulting integer palette. This lets MainActivity color its
+terms gate before authorization without reading or repairing skin preferences.
+The reserved `prepareSkinSession()` entry is not called in M0; a future renderer
+must call it only after the Activity-specific terms gate and other existing early
+returns have succeeded. Session shutdown is idempotent, runs before the base
+Activity is destroyed, and cannot be resurrected after the lifecycle tombstone.
+
+Skin selection uses the independent `ui_skin_preferences` file and is excluded
+from `SettingsCatalog`, settings backup, Yuki preferences, Hook mirrors, and NPatch
+snapshots. The persisted protocol is strictly decoded: missing data means Material
+You, while corrupt, unknown, type-mismatched, or inconsistent data fails closed to
+Material You. A Liquid selection is written as pending before any renderer may be
+installed. A new process rolls an unfinished pending state back once; ordinary
+Activity recreation reads the in-process state and must not misinterpret the same
+pending activation as a crash.
+
+Asynchronous renderer results require two independent identities. The persisted
+`activationAttemptId` separates user selections and same-version retries. The
+process-local `LiquidRenderSessionOwner` separates Activity/renderer instances
+within one activation. A new renderer claim atomically invalidates the old owner;
+success and failure callbacks must pass both checks, and closing an old Activity
+cannot release the new Activity's owner. Future Liquid code must use
+`SkinRepository.claimLiquidRenderSession()`, report through the returned owner,
+and release that owner during renderer teardown; it must not call the pure recovery
+guard directly.
+
 ## Intentional boundaries
 
 - `hookinfo.pb` parsing and write semantics remain unchanged; its behavior is

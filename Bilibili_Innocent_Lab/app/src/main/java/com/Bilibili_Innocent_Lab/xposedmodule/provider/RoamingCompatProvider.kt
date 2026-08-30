@@ -14,6 +14,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootUpgradeRecoveryCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 
 /**
@@ -79,7 +80,9 @@ class RoamingCompatProvider : ContentProvider() {
         val authorized = isHookAuthorized()
         if (uri.pathSegments == listOf(PATH_HOOK_AUTHORIZATION)) {
             return if (projection?.contains(COLUMN_NO_ROOT_PAYLOAD) == true) {
-                hookBootstrapCursor(authorized)
+                val cursor = hookBootstrapCursor(authorized)
+                if (authorized) NoRootUpgradeRecoveryCoordinator.pokeIfRetryable()
+                cursor
             } else {
                 MatrixCursor(arrayOf(COLUMN_HOOK_AUTHORIZED)).apply {
                     addRow(arrayOf(if (authorized) 1 else 0))
@@ -115,7 +118,9 @@ class RoamingCompatProvider : ContentProvider() {
             }
         }
         if (uri.pathSegments == listOf(PATH_NO_ROOT_CONFIG)) {
-            return noRootConfigCursor(authorized)
+            val cursor = noRootConfigCursor(authorized)
+            if (authorized) NoRootUpgradeRecoveryCoordinator.pokeIfRetryable()
+            return cursor
         }
         if (uri.pathSegments != listOf(PATH_ENABLED)) return null
         // 读取模块 App 自身 prefs（与 MainActivity 开关写入的是同一份文件：

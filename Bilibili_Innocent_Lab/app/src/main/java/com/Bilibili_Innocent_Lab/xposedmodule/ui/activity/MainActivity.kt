@@ -37,6 +37,7 @@ import androidx.core.view.isVisible
 import androidx.core.view.setPadding
 import androidx.core.view.updateMargins
 import androidx.core.view.updatePadding
+import androidx.lifecycle.Lifecycle
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.highcapable.betterandroid.system.extension.component.disableComponent
@@ -44,7 +45,6 @@ import com.highcapable.betterandroid.system.extension.component.enableComponent
 import com.highcapable.betterandroid.system.extension.component.isComponentEnabled
 import com.highcapable.betterandroid.system.extension.component.versionCodeCompat
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
-import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
 import com.highcapable.betterandroid.ui.extension.view.parentOrNull
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.betterandroid.ui.extension.view.textToString
@@ -86,7 +86,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.YukiModuleSettings
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
 import android.app.Dialog
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -103,7 +103,7 @@ import android.R as Android_R
 import java.io.File
 import java.lang.ref.WeakReference
 
-class MainActivity : AppViewsActivity() {
+class MainActivity : SkinnedActivity() {
 
     private companion object {
         const val UPDATE_PREFS_NAME = "github_release_updates"
@@ -114,6 +114,22 @@ class MainActivity : AppViewsActivity() {
         const val PREF_LAST_CHECK_PREVIEW = "last_successful_check_ms_preview"
         const val PREF_UPDATE_CHANNEL = "update_channel"
         const val AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1_000L
+
+        /** 仅允许仍处于前台的设置 Activity 完成用户已确认的系统页跳转。 */
+        fun openBilibiliAppDetails(activity: MainActivity): Boolean {
+            val intent = Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                "package:${HookEntry.TARGET_PACKAGE}".toUri()
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            return runCatching {
+                activity.startActivity(intent)
+                true
+            }.getOrElse { throwable ->
+                Log.e("BilibiliInnocentLab", "open Bilibili app details failed", throwable)
+                activity.toast(activity.getString(R.string.no_root_restart_open_failed))
+                false
+            }
+        }
     }
 
     private enum class AppLanguage(
@@ -163,6 +179,8 @@ class MainActivity : AppViewsActivity() {
     private var homeTabHiddenRules = ""
     private var homeComponentHiddenRules = ""
     private var bottomBarHiddenRules = ""
+    private var recommendVideoMinDurationSeconds = 0
+    private var recommendVideoMaxDurationSeconds = 0
     private var removeStoryAds = false
     private var removeStoryLive = false
     private var removeStoryGames = false
@@ -231,6 +249,7 @@ class MainActivity : AppViewsActivity() {
     private var homeComponentRulesSummaryView: NativeTextView? = null
     private var mineComponentRulesSummaryView: NativeTextView? = null
     private var bottomBarRulesSummaryView: NativeTextView? = null
+    private var recommendVideoDurationSummaryView: NativeTextView? = null
     private var commentKeywordSummaryView: NativeTextView? = null
     private var commentLevelSummaryView: NativeTextView? = null
     /** 设置备份入口及标题：用于跨 Activity 容器形变的来源坐标。 */
@@ -289,9 +308,6 @@ class MainActivity : AppViewsActivity() {
     // 不复用上方插值器，避免改变弹窗、日志滑块等已有动画的节奏。
     private val secondaryExpandInterpolator = PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
     private val secondaryCollapseInterpolator = PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
-
-    /** Material You 动态取色调色板（从壁纸提取种子色） */
-    private val monetColors by lazy { MonetColors.fromWallpaper(this) }
 
     /** 生成圆角背景（应用 Monet 动态色） */
     private fun roundedColor(color: Int): GradientDrawable =
@@ -650,7 +666,11 @@ class MainActivity : AppViewsActivity() {
                 isFocusable = true
                 setOnClickListener {
                     dismissWithAnimation(dialog, container) {
-                        if (useNoRootFlow) openBilibiliAppDetails() else restartBilibili()
+                        if (useNoRootFlow) {
+                            flushNoRootSupportBeforeOpeningDetails()
+                        } else {
+                            restartBilibili()
+                        }
                     }
                 }
             },
@@ -2273,6 +2293,272 @@ class MainActivity : AppViewsActivity() {
         presentGlassDialog(dialog, container)
     }
 
+    /** 推荐视频时长范围编辑器：空输入表示不限制，非法区间保持弹窗等待修正。 */
+    private fun showRecommendVideoDurationRangeDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createGlassContainer()
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.recommend_video_duration_dialog_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 17f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        fun addDurationEditor(
+            @StringRes labelRes: Int,
+            initialValue: Int
+        ): NativeEditText {
+            val editorId = View.generateViewId()
+            container.addView(
+                NativeTextView(this).apply {
+                    text = getString(labelRes)
+                    textColor = getColor(R.color.colorTextGray)
+                    textSize = 13f
+                    labelFor = editorId
+                },
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = (14 * density).toInt() }
+            )
+            return NativeEditText(this).apply {
+                id = editorId
+                setText(initialValue.takeIf { it > 0 }?.toString().orEmpty())
+                setSelection(text.length)
+                hint = getString(R.string.recommend_video_duration_input_hint)
+                textColor = getColor(R.color.colorTextDark)
+                setHintTextColor(
+                    ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x99)
+                )
+                textSize = 14f
+                gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                isSingleLine = true
+                filters = arrayOf(android.text.InputFilter.LengthFilter(10))
+                setPadding(
+                    (14 * density).toInt(),
+                    (12 * density).toInt(),
+                    (14 * density).toInt(),
+                    (12 * density).toInt()
+                )
+                background = GradientDrawable().apply {
+                    cornerRadius = 14 * density
+                    setColor(monetColors.surfaceVariant)
+                    setStroke(
+                        density.toInt().coerceAtLeast(1),
+                        ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x38)
+                    )
+                }
+                container.addView(
+                    this,
+                    NativeLinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = (6 * density).toInt() }
+                )
+            }
+        }
+
+        val minEditor = addDurationEditor(
+            R.string.recommend_video_min_duration,
+            recommendVideoMinDurationSeconds
+        ).apply {
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_NEXT
+        }
+        val maxEditor = addDurationEditor(
+            R.string.recommend_video_max_duration,
+            recommendVideoMaxDurationSeconds
+        ).apply {
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+        }
+
+        val errorView = NativeTextView(this).apply {
+            visibility = View.GONE
+            textColor = if (ColorUtils.calculateLuminance(monetColors.surface) < 0.5) {
+                0xFFFFB4AB.toInt()
+            } else {
+                0xFFBA1A1A.toInt()
+            }
+            textSize = 12f
+            setLineSpacing(4 * density, 1f)
+        }
+        container.addView(
+            errorView,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (10 * density).toInt() }
+        )
+
+        fun showError(@StringRes messageRes: Int, target: NativeEditText) {
+            errorView.text = getString(messageRes)
+            errorView.visibility = View.VISIBLE
+            errorView.announceForAccessibility(errorView.text)
+            target.requestFocus()
+            target.setSelection(target.text.length)
+        }
+
+        fun parseDuration(editor: NativeEditText): Int? {
+            val raw = editor.textToString().trim()
+            if (raw.isEmpty()) return 0
+            val parsed = raw.toLongOrNull() ?: return null
+            return parsed.takeIf { it in 1L..Int.MAX_VALUE.toLong() }?.toInt()
+        }
+
+        val buttonRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        buttonRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.dialog_cancel)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(
+                    (20 * density).toInt(),
+                    (11 * density).toInt(),
+                    (20 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { dismissWithAnimation(dialog, container) {} }
+            }
+        )
+        buttonRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.dialog_confirm)
+                textColor = monetColors.onPrimary
+                textSize = 15f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(
+                    (22 * density).toInt(),
+                    (11 * density).toInt(),
+                    (22 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                val radius = 20 * density
+                val content = GradientDrawable().apply {
+                    cornerRadius = radius
+                    setColor(monetColors.primary)
+                }
+                val rippleMask = GradientDrawable().apply {
+                    cornerRadius = radius
+                    setColor(Color.WHITE)
+                }
+                background = RippleDrawable(
+                    ColorStateList.valueOf(
+                        ColorUtils.setAlphaComponent(monetColors.onPrimary, 0x33)
+                    ),
+                    content,
+                    rippleMask
+                )
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    errorView.visibility = View.GONE
+                    val minSeconds = parseDuration(minEditor)
+                    if (minSeconds == null) {
+                        showError(R.string.recommend_video_duration_invalid_number, minEditor)
+                        return@setOnClickListener
+                    }
+                    val maxSeconds = parseDuration(maxEditor)
+                    if (maxSeconds == null) {
+                        showError(R.string.recommend_video_duration_invalid_number, maxEditor)
+                        return@setOnClickListener
+                    }
+                    if (minSeconds > 0 && maxSeconds > 0 && minSeconds > maxSeconds) {
+                        showError(R.string.recommend_video_duration_invalid_range, maxEditor)
+                        return@setOnClickListener
+                    }
+
+                    recommendVideoMinDurationSeconds = minSeconds
+                    recommendVideoMaxDurationSeconds = maxSeconds
+                    runCatching {
+                        prefs().edit {
+                            putInt(
+                                FeaturePreferences.RECOMMEND_VIDEO_MIN_DURATION_SECONDS,
+                                minSeconds
+                            )
+                            putInt(
+                                FeaturePreferences.RECOMMEND_VIDEO_MAX_DURATION_SECONDS,
+                                maxSeconds
+                            )
+                        }
+                    }.onFailure { throwable ->
+                        Log.e(
+                            "BilibiliInnocentLab",
+                            "write recommended video duration prefs failed",
+                            throwable
+                        )
+                    }
+                    updateRecommendVideoDurationSummary()
+                    dismissWithAnimation(dialog, container) {}
+                }
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = (16 * density).toInt() }
+        )
+        container.addView(
+            buttonRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (18 * density).toInt() }
+        )
+        presentGlassDialog(dialog, container)
+    }
+
+    private fun updateRecommendVideoDurationSummary() {
+        recommendVideoDurationSummaryView?.text =
+            getString(R.string.recommend_video_duration_range) + "\n" +
+                recommendVideoDurationSummary()
+    }
+
+    private fun recommendVideoDurationSummary(): String = when {
+        recommendVideoMinDurationSeconds <= 0 && recommendVideoMaxDurationSeconds <= 0 ->
+            getString(R.string.recommend_video_duration_range_empty)
+        recommendVideoMaxDurationSeconds <= 0 -> getString(
+            R.string.recommend_video_duration_min_only,
+            formatDurationSeconds(recommendVideoMinDurationSeconds)
+        )
+        recommendVideoMinDurationSeconds <= 0 -> getString(
+            R.string.recommend_video_duration_max_only,
+            formatDurationSeconds(recommendVideoMaxDurationSeconds)
+        )
+        else -> getString(
+            R.string.recommend_video_duration_both,
+            formatDurationSeconds(recommendVideoMinDurationSeconds),
+            formatDurationSeconds(recommendVideoMaxDurationSeconds)
+        )
+    }
+
+    private fun formatDurationSeconds(totalSeconds: Int): String {
+        val hours = totalSeconds / 3_600
+        val minutes = (totalSeconds % 3_600) / 60
+        val seconds = totalSeconds % 60
+        val paddedMinutes = minutes.toString().padStart(2, '0')
+        val paddedSeconds = seconds.toString().padStart(2, '0')
+        return if (hours > 0) {
+            "$hours:$paddedMinutes:$paddedSeconds"
+        } else {
+            "${totalSeconds / 60}:$paddedSeconds"
+        }
+    }
+
     private fun ruleSummary(value: String): String = if (value.isBlank()) {
         getString(R.string.custom_hide_rules_empty)
     } else {
@@ -2635,16 +2921,53 @@ class MainActivity : AppViewsActivity() {
         }.start()
     }
 
-    /** 免 Root 模式没有 force-stop 权限，只引导用户进入系统应用详情手动停止并重开。 */
-    private fun openBilibiliAppDetails() {
-        val intent = Intent(
-            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-            "package:${HookEntry.TARGET_PACKAGE}".toUri()
-        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        runCatching { startActivity(intent) }.onFailure { throwable ->
-            Log.e("BilibiliInnocentLab", "open Bilibili app details failed", throwable)
-            toast(getString(R.string.no_root_restart_open_failed))
+    /** 重启前确保当前 enabled 快照或关闭 tombstone 已完成一次有界 NPatch 写入。 */
+    private fun flushNoRootSupportBeforeOpeningDetails() {
+        val bridge = noRootPrefsBridge
+        if (bridge == null) {
+            toast(getString(R.string.no_root_restart_sync_failed))
+            openBilibiliAppDetails(this)
+            return
         }
+        noRootStatusView?.setText(R.string.no_root_status_syncing)
+        val appContext = applicationContext
+        val activityRef = WeakReference(this)
+        NoRootSupportController.flushBeforeRestart(appContext, bridge) { result ->
+            Handler(Looper.getMainLooper()).post {
+                activityRef.get()?.finishNoRootRestartFlush(result)
+            }
+        }
+    }
+
+    /**
+     * Dialog dismiss 后焦点可能晚一帧回到 Activity；仅在 RESUMED 时短暂复查一次，
+     * 真正退到后台或 Activity 已销毁时绝不拉起系统页面。
+     */
+    private fun finishNoRootRestartFlush(
+        result: NoRootSupportController.FlushResult,
+        allowFocusRetry: Boolean = true
+    ) {
+        if (isFinishing || isDestroyed ||
+            !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        ) return
+        if (!hasWindowFocus()) {
+            if (allowFocusRetry) {
+                window.decorView.postDelayed(
+                    { finishNoRootRestartFlush(result, allowFocusRetry = false) },
+                    100L
+                )
+            }
+            return
+        }
+        renderNoRootUi()
+        val messageRes = when (result) {
+            NoRootSupportController.FlushResult.SUCCESS -> null
+            NoRootSupportController.FlushResult.FAILED -> R.string.no_root_restart_sync_failed
+            NoRootSupportController.FlushResult.TIMED_OUT ->
+                R.string.no_root_restart_sync_timeout
+        }
+        messageRes?.let { toast(getString(it)) }
+        openBilibiliAppDetails(this)
     }
 
     /**
@@ -2835,6 +3158,7 @@ class MainActivity : AppViewsActivity() {
         homeComponentRulesSummaryView = null
         mineComponentRulesSummaryView = null
         bottomBarRulesSummaryView = null
+        recommendVideoDurationSummaryView = null
         commentKeywordSummaryView = null
         commentLevelSummaryView = null
         SettingsBackupTransitionOriginRegistry.clear(settingsBackupEntryView)
@@ -2972,6 +3296,30 @@ class MainActivity : AppViewsActivity() {
         bottomBarHiddenRules = runCatching {
             modulePrefs?.getString(FeaturePreferences.BOTTOM_BAR_HIDDEN_RULES, "").orEmpty()
         }.getOrDefault("")
+        recommendVideoMinDurationSeconds = runCatching {
+            (modulePrefs?.getInt(
+                FeaturePreferences.RECOMMEND_VIDEO_MIN_DURATION_SECONDS,
+                0
+            ) ?: 0).coerceAtLeast(0)
+        }.onFailure { throwable ->
+            Log.e(
+                "BilibiliInnocentLab",
+                "read recommended video minimum duration prefs failed",
+                throwable
+            )
+        }.getOrDefault(0)
+        recommendVideoMaxDurationSeconds = runCatching {
+            (modulePrefs?.getInt(
+                FeaturePreferences.RECOMMEND_VIDEO_MAX_DURATION_SECONDS,
+                0
+            ) ?: 0).coerceAtLeast(0)
+        }.onFailure { throwable ->
+            Log.e(
+                "BilibiliInnocentLab",
+                "read recommended video maximum duration prefs failed",
+                throwable
+            )
+        }.getOrDefault(0)
         removeStoryAds = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.REMOVE_STORY_ADS, false) ?: false
         }.getOrDefault(false)
@@ -4351,6 +4699,36 @@ class MainActivity : AppViewsActivity() {
                             ) {
                                 alpha = 0.6f
                                 text = stringResource(R.string.custom_bottom_bar_hide_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                }
+                            ) {
+                                recommendVideoDurationSummaryView = this
+                                text = stringResource(R.string.recommend_video_duration_range) +
+                                    "\n" + recommendVideoDurationSummary()
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                maxLines = 3
+                                ellipsize = TextUtils.TruncateAt.END
+                                setLineSpacing(5f, 1f)
+                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                background = selfRippleBackground(10f)
+                                isClickable = true
+                                isFocusable = true
+                                setOnClickListener {
+                                    showRecommendVideoDurationRangeDialog()
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.recommend_video_duration_tip)
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }

@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.os.Parcel
 import android.os.RemoteException
+import android.os.SystemClock
 import androidx.core.net.toUri
 import java.io.Serializable
 import java.util.concurrent.ArrayBlockingQueue
@@ -15,6 +16,7 @@ import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * NPatch v1.0.7 Remote Provider 的最小模块侧网关。
@@ -32,6 +34,7 @@ internal object NPatchRemoteGateway {
     private const val KEY_BINDER = "binder"
     private const val GROUP = "innocent_lab_v1"
     private const val CONNECT_TIMEOUT_SECONDS = 3L
+    private const val CONNECTION_RETRY_COOLDOWN_SECONDS = 15L
     private const val SERVICE_DESCRIPTOR = "io.github.libxposed.service.IXposedService"
     private const val TRANSACTION_UPDATE_REMOTE_PREFERENCES = 22
 
@@ -53,6 +56,7 @@ internal object NPatchRemoteGateway {
     private val connectionExecutor by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         boundedExecutor("BIL-NPatch-Provider", ThreadPoolExecutor.AbortPolicy())
     }
+    private val connectionBlockedUntilNanos = AtomicLong(0L)
 
     /** 调用方必须先确认用户已开启免 Root；关闭路径不会触发此对象的 executor。 */
     fun syncAsync(
@@ -118,6 +122,10 @@ internal object NPatchRemoteGateway {
         diff: Bundle,
         stillCurrent: () -> Boolean
     ): SyncResult? {
+        val nowNanos = SystemClock.elapsedRealtimeNanos()
+        if (isConnectionCircuitOpen(nowNanos, connectionBlockedUntilNanos.get())) {
+            throw ConnectionTimeoutException()
+        }
         val call = try {
             connectionExecutor.submit<SyncResult?> {
                 if (!isStillCurrent(stillCurrent)) return@submit null
@@ -127,6 +135,7 @@ internal object NPatchRemoteGateway {
                 SyncResult.Success
             }
         } catch (exception: RejectedExecutionException) {
+            openConnectionCircuit()
             throw ConnectionTimeoutException(exception)
         }
         val result = try {
@@ -134,6 +143,7 @@ internal object NPatchRemoteGateway {
         } catch (exception: TimeoutException) {
             call.cancel(true)
             connectionExecutor.purge()
+            openConnectionCircuit()
             throw ConnectionTimeoutException(exception)
         } catch (exception: InterruptedException) {
             call.cancel(true)
@@ -143,6 +153,7 @@ internal object NPatchRemoteGateway {
         } catch (exception: ExecutionException) {
             throw unwrap(exception)
         }
+        connectionBlockedUntilNanos.set(0L)
         return result
     }
 
@@ -166,6 +177,10 @@ internal object NPatchRemoteGateway {
      * 不使用 API 33 的 writeTypedObject，保持项目 minSdk 27 兼容性。
      */
     private fun updateRemotePreferences(binder: IBinder, diff: Bundle) {
+        val descriptor = binder.interfaceDescriptor
+        if (!acceptsServiceDescriptor(descriptor)) {
+            throw IncompatibleServiceException(descriptor)
+        }
         val data = Parcel.obtain()
         val reply = Parcel.obtain()
         try {
@@ -201,8 +216,22 @@ internal object NPatchRemoteGateway {
         }
     }
 
-    private class ConnectionTimeoutException(cause: Throwable) :
-        IllegalStateException("NPatch connection timed out", cause)
+    private class ConnectionTimeoutException(cause: Throwable? = null) :
+        IllegalStateException("NPatch connection unavailable", cause)
+
+    private class IncompatibleServiceException(descriptor: String?) :
+        RemoteException("Unexpected NPatch service descriptor: ${descriptor ?: "null"}")
+
+    private fun openConnectionCircuit() {
+        val cooldownNanos = TimeUnit.SECONDS.toNanos(CONNECTION_RETRY_COOLDOWN_SECONDS)
+        connectionBlockedUntilNanos.set(SystemClock.elapsedRealtimeNanos() + cooldownNanos)
+    }
+
+    internal fun acceptsServiceDescriptor(descriptor: String?): Boolean =
+        descriptor == SERVICE_DESCRIPTOR
+
+    internal fun isConnectionCircuitOpen(nowNanos: Long, blockedUntilNanos: Long): Boolean =
+        blockedUntilNanos != 0L && blockedUntilNanos - nowNanos > 0L
 
     private fun boundedExecutor(
         threadName: String,

@@ -1,10 +1,44 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HomeRecommendPurifyFeatureInstallerTest {
+
+    private fun environment(statuses: MutableList<Pair<String, String>>) = HookEnvironment(
+        processName = "tv.danmaku.bili",
+        classLoader = javaClass.classLoader,
+        hookPoints = HookPointRegistry(javaClass.classLoader),
+        registrar = TestHookRegistrar,
+        logInfo = { _, _ -> },
+        logError = { _, _ -> },
+        reportStatus = { channel, status -> statuses += channel to status }
+    )
+
+    private fun installer(
+        minSeconds: Int,
+        maxSeconds: Int,
+        removeAds: Boolean = false,
+        points: VersionAdapter.HomeRecommendFeedPoints? =
+            VersionAdapter.locateHomeRecommendFeed(requireNotNull(javaClass.classLoader))
+    ) = HomeRecommendPurifyFeatureInstaller(
+        removeAds = removeAds,
+        removePictures = false,
+        removeGamePromotions = false,
+        titleFilterEnabled = false,
+        rawTitleKeywords = "",
+        removeLive = false,
+        removeCourses = false,
+        removeVertical = false,
+        removeLarge = false,
+        minDurationSeconds = minSeconds,
+        maxDurationSeconds = maxSeconds,
+        points = points
+    )
 
     @Test
     fun `classifies ads pictures and game promotions from explicit signals`() {
@@ -64,6 +98,53 @@ class HomeRecommendPurifyFeatureInstallerTest {
             HomeRecommendPurifyFeatureInstaller.isLive(
                 HomeRecommendPurifyFeatureInstaller.Signals(title = "直播录像")
             )
+        )
+    }
+
+    @Test
+    fun `duration-only configuration installs while an empty range stays hook free`() {
+        val durationStatuses = mutableListOf<Pair<String, String>>()
+        val disabledStatuses = mutableListOf<Pair<String, String>>()
+        val points = requireNotNull(
+            VersionAdapter.locateHomeRecommendFeed(requireNotNull(javaClass.classLoader))
+        )
+
+        assertEquals(
+            FeatureInstallResult.Installed(points.responseItemGetters.size),
+            installer(minSeconds = 30, maxSeconds = 0, points = points)
+                .install(environment(durationStatuses))
+        )
+        assertEquals(
+            FeatureInstallResult.Skipped("disabled"),
+            installer(minSeconds = 0, maxSeconds = 0, points = null)
+                .install(environment(disabledStatuses))
+        )
+        assertEquals(listOf("home_recommend_purify_status" to "success"), durationStatuses)
+        assertEquals(listOf("home_recommend_purify_status" to "disabled"), disabledStatuses)
+    }
+
+    @Test
+    fun `missing duration accessor does not disable an existing content filter`() {
+        val statuses = mutableListOf<Pair<String, String>>()
+        val points = requireNotNull(
+            VersionAdapter.locateHomeRecommendFeed(requireNotNull(javaClass.classLoader))
+        ).copy(playerArgsGetter = null, playerArgsDurationField = null)
+
+        assertEquals(
+            FeatureInstallResult.Installed(points.responseItemGetters.size),
+            installer(
+                minSeconds = 30,
+                maxSeconds = 0,
+                removeAds = true,
+                points = points
+            ).install(environment(statuses))
+        )
+        assertEquals(
+            listOf(
+                "home_recommend_purify_status" to
+                    "partial:missing-duration-accessor"
+            ),
+            statuses
         )
     }
 }

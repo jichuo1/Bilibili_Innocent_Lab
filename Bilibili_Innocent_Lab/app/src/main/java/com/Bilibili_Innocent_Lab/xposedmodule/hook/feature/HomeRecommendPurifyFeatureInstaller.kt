@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import java.lang.reflect.Field
 import java.lang.reflect.Method
 
 /** 在首页推荐响应的公开 List 边界过滤广告、图文和游戏推广。 */
@@ -14,6 +15,8 @@ internal class HomeRecommendPurifyFeatureInstaller(
     private val removeCourses: Boolean,
     private val removeVertical: Boolean,
     private val removeLarge: Boolean,
+    minDurationSeconds: Int,
+    maxDurationSeconds: Int,
     private val points: VersionAdapter.HomeRecommendFeedPoints?
 ) : FeatureInstaller {
 
@@ -22,15 +25,29 @@ internal class HomeRecommendPurifyFeatureInstaller(
     } else {
         emptySet()
     }
+    private val durationRange = VideoDurationRange(minDurationSeconds, maxDurationSeconds)
 
     override val id: String = ID
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
-        if (!removeAds && !removePictures && !removeGamePromotions &&
-            titleKeywords.isEmpty() && !removeLive && !removeCourses &&
-            !removeVertical && !removeLarge) {
-            environment.reportStatus(CHANNEL_STATUS, "disabled")
-            return FeatureInstallResult.Skipped("disabled")
+        val hasContentFilter = removeAds || removePictures || removeGamePromotions ||
+            titleKeywords.isNotEmpty() || removeLive || removeCourses || removeVertical ||
+            removeLarge
+        if (durationRange.isConfigured && !durationRange.isValid) {
+            environment.logError(
+                "home_recommend_duration_invalid",
+                "[BIL] 推荐视频时长范围无效，已保守放行: " +
+                    "min=${durationRange.minSeconds},max=${durationRange.maxSeconds}"
+            )
+        }
+        if (!hasContentFilter && !durationRange.isEnabled) {
+            val reason = if (durationRange.isConfigured && !durationRange.isValid) {
+                "invalid-duration-range"
+            } else {
+                "disabled"
+            }
+            environment.reportStatus(CHANNEL_STATUS, reason)
+            return FeatureInstallResult.Skipped(reason)
         }
         if (environment.processName != TARGET_PACKAGE) {
             return FeatureInstallResult.Skipped("non-main-process")
@@ -46,8 +63,18 @@ internal class HomeRecommendPurifyFeatureInstaller(
             uri = resolveOptional(environment, "uri", adapted.uriGetter),
             title = resolveOptional(environment, "title", adapted.titleGetter),
             subtitle = resolveOptional(environment, "subtitle", adapted.subtitleGetter),
-            desc = resolveOptional(environment, "desc", adapted.descGetter)
+            desc = resolveOptional(environment, "desc", adapted.descGetter),
+            duration = resolveDuration(environment, adapted)
         )
+        var partialReason: String? = null
+        if (durationRange.isEnabled && accessors.duration == null) {
+            if (!hasContentFilter) return missing(environment, "missing-duration-accessor")
+            partialReason = "missing-duration-accessor"
+            environment.logError(
+                "home_recommend_duration_missing",
+                "[BIL] 首页推荐时长读取适配不完整，其他推荐过滤继续生效"
+            )
+        }
 
         var installed = 0
         adapted.responseItemGetters.forEachIndexed { index, point ->
@@ -77,10 +104,14 @@ internal class HomeRecommendPurifyFeatureInstaller(
             }
         }
         if (installed == 0) return missing(environment, "registration-failed")
-        environment.reportStatus(CHANNEL_STATUS, "success")
+        environment.reportStatus(
+            CHANNEL_STATUS,
+            partialReason?.let { "partial:$it" } ?: "success"
+        )
         environment.logInfo(
             "home_recommend_purify_ok",
-            "[BIL] 首页推荐服务端过滤已安装，hooks=$installed"
+            "[BIL] 首页推荐服务端过滤已安装，hooks=$installed," +
+                "duration=${durationRange.isEnabled}"
         )
         return FeatureInstallResult.Installed(installed)
     }
@@ -93,7 +124,8 @@ internal class HomeRecommendPurifyFeatureInstaller(
             (removeLive && isLive(signals)) ||
             (removeCourses && isCourse(signals)) ||
             (removeVertical && isVertical(signals)) ||
-            (removeLarge && isLarge(signals))
+            (removeLarge && isLarge(signals)) ||
+            durationRange.shouldRemove(signals.durationSeconds)
 
     private fun signals(item: Any, accessors: Accessors): Signals {
         val needsRoute = removePictures || removeGamePromotions || removeLive ||
@@ -120,8 +152,35 @@ internal class HomeRecommendPurifyFeatureInstaller(
             subtitle = if (removeGamePromotions) invokeString(accessors.subtitle, item) else null,
             desc = if (removeGamePromotions) invokeString(accessors.desc, item) else null,
             hasAdInfo = (removeAds || removeGamePromotions) &&
-                invokeCompatible(accessors.adInfo, item) != null
+                invokeCompatible(accessors.adInfo, item) != null,
+            durationSeconds = if (durationRange.isEnabled) {
+                accessors.duration?.let { duration ->
+                    VideoDurationReader.fromField(
+                        item,
+                        duration.playerArgsGetter,
+                        duration.durationField
+                    )
+                }
+            } else {
+                null
+            }
         )
+    }
+
+    private fun resolveDuration(
+        environment: HookEnvironment,
+        points: VersionAdapter.HomeRecommendFeedPoints
+    ): DurationAccessor? {
+        if (!durationRange.isEnabled) return null
+        val getterPoint = points.playerArgsGetter ?: return null
+        val fieldName = points.playerArgsDurationField ?: return null
+        val getter = resolve(environment, "player_args", getterPoint) ?: return null
+        val field = environment.hookPoints.resolveField(
+            "home.recommend.resolve.player_args_duration",
+            getter.returnType,
+            fieldName
+        ) ?: return null
+        return DurationAccessor(getter, field)
     }
 
     private fun resolveOptional(
@@ -170,7 +229,8 @@ internal class HomeRecommendPurifyFeatureInstaller(
         val title: String? = null,
         val subtitle: String? = null,
         val desc: String? = null,
-        val hasAdInfo: Boolean = false
+        val hasAdInfo: Boolean = false,
+        val durationSeconds: Long? = null
     )
 
     private data class Accessors(
@@ -182,7 +242,13 @@ internal class HomeRecommendPurifyFeatureInstaller(
         val uri: Method?,
         val title: Method?,
         val subtitle: Method?,
-        val desc: Method?
+        val desc: Method?,
+        val duration: DurationAccessor?
+    )
+
+    private data class DurationAccessor(
+        val playerArgsGetter: Method,
+        val durationField: Field
     )
 
     companion object {

@@ -163,13 +163,24 @@ class VersionAdapterTest {
                 "com.bilibili.pegasus.data.base.BasePegasusData",
                 "getDesc",
                 emptyList()
-            )
+            ),
+            playerArgsGetter = VersionAdapter.HookPoint(
+                "com.bilibili.pegasus.data.base.BasePegasusData",
+                "getPlayerArgs",
+                emptyList()
+            ),
+            playerArgsDurationField = "fakeDuration"
         ),
         videoRelate = VersionAdapter.VideoRelatePoints(
             responseItemGetters = listOf(
                 VersionAdapter.HookPoint(
                     "com.bapis.bilibili.app.viewunite.v1.Relates",
                     "getCardsList",
+                    emptyList()
+                ),
+                VersionAdapter.HookPoint(
+                    "com.bapis.bilibili.app.view.v1.RelatesFeedReply",
+                    "getRelatesList",
                     emptyList()
                 )
             ),
@@ -180,8 +191,59 @@ class VersionAdapterTest {
                     emptyList()
                 )
             ),
-            gotoGetters = emptyList(),
-            cardTypeGetters = emptyList()
+            gotoGetters = listOf(
+                VersionAdapter.HookPoint(
+                    "com.bapis.bilibili.app.view.v1.Relate",
+                    "getGoto",
+                    emptyList()
+                )
+            ),
+            cardTypeGetters = emptyList(),
+            directDurationGetters = listOf(
+                VersionAdapter.HookPoint(
+                    "com.bapis.bilibili.app.view.v1.Relate",
+                    "getDuration",
+                    emptyList()
+                )
+            ),
+            durationChains = listOf(
+                VersionAdapter.DurationMethodChain(
+                    itemGetter = VersionAdapter.HookPoint(
+                        "com.bapis.bilibili.app.viewunite.common.RelateCard",
+                        "getAv",
+                        emptyList()
+                    ),
+                    durationGetter = VersionAdapter.HookPoint(
+                        "com.bapis.bilibili.app.viewunite.common.RelateAVCard",
+                        "getDuration",
+                        emptyList()
+                    )
+                ),
+                VersionAdapter.DurationMethodChain(
+                    itemGetter = VersionAdapter.HookPoint(
+                        "com.bapis.bilibili.app.viewunite.common.RelateCard",
+                        "getHistoryAv",
+                        emptyList()
+                    ),
+                    durationGetter = VersionAdapter.HookPoint(
+                        "com.bapis.bilibili.app.viewunite.common.RelateHistoryAVCard",
+                        "getDuration",
+                        emptyList()
+                    )
+                ),
+                VersionAdapter.DurationMethodChain(
+                    itemGetter = VersionAdapter.HookPoint(
+                        "com.bapis.bilibili.app.viewunite.common.RelateCard",
+                        "getAiCard",
+                        emptyList()
+                    ),
+                    durationGetter = VersionAdapter.HookPoint(
+                        "com.bapis.bilibili.app.viewunite.common.RelatedAICard",
+                        "getDuration",
+                        emptyList()
+                    )
+                )
+            )
         ),
         homeTabs = VersionAdapter.HomeTabPoints(
             buildMethod = VersionAdapter.HookPoint(
@@ -515,9 +577,21 @@ class VersionAdapterTest {
         val invalid = JSONObject(result().toJson().toString()).apply {
             getJSONObject("low").put("m", "")
         }
+        val incompleteHomeDuration = JSONObject(result().toJson().toString()).apply {
+            getJSONObject("home_recommend_feed").remove("player_args_duration")
+        }
+        val invalidRelateDurationChain = JSONObject(result().toJson().toString()).apply {
+            getJSONObject("video_relate")
+                .getJSONArray("duration_chains")
+                .getJSONObject(0)
+                .getJSONObject("duration")
+                .put("m", "")
+        }
 
         assertNull(VersionAdapter.AdaptResult.fromJson(stale))
         assertNull(VersionAdapter.AdaptResult.fromJson(invalid))
+        assertNull(VersionAdapter.AdaptResult.fromJson(incompleteHomeDuration))
+        assertNull(VersionAdapter.AdaptResult.fromJson(invalidRelateDurationChain))
     }
 
     @Test
@@ -631,16 +705,44 @@ class VersionAdapterTest {
         assertEquals("getBizType", points?.bizTypeGetter?.methodName)
         assertEquals("getAdInfo", points?.adInfoGetter?.methodName)
         assertEquals("getTitle", points?.titleGetter?.methodName)
+        assertEquals("getPlayerArgs", points?.playerArgsGetter?.methodName)
+        assertEquals(
+            "com.bilibili.pegasus.data.base.BasePegasusData",
+            points?.playerArgsGetter?.className
+        )
+        assertEquals("fakeDuration", points?.playerArgsDurationField)
     }
 
     @Test
-    fun `locates related video response and exact card type getter`() {
+    fun `locates related video direct and nested duration getters`() {
         val points = VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader))
 
-        assertEquals(1, points?.responseItemGetters?.size)
-        assertEquals("getCardsList", points?.responseItemGetters?.single()?.methodName)
+        assertEquals(
+            setOf("getCardsList", "getRelatesList"),
+            points?.responseItemGetters?.map { it.methodName }?.toSet()
+        )
         assertEquals(1, points?.cardCaseGetters?.size)
         assertEquals("getCardCase", points?.cardCaseGetters?.single()?.methodName)
+        assertEquals("getGoto", points?.gotoGetters?.single()?.methodName)
+        assertEquals("getDuration", points?.directDurationGetters?.single()?.methodName)
+        assertEquals(
+            "com.bapis.bilibili.app.view.v1.Relate",
+            points?.directDurationGetters?.single()?.className
+        )
+        assertEquals(
+            mapOf(
+                "getAv" to "com.bapis.bilibili.app.viewunite.common.RelateAVCard",
+                "getHistoryAv" to
+                    "com.bapis.bilibili.app.viewunite.common.RelateHistoryAVCard",
+                "getAiCard" to "com.bapis.bilibili.app.viewunite.common.RelatedAICard"
+            ),
+            points?.durationChains?.associate {
+                it.itemGetter.methodName to it.durationGetter.className
+            }
+        )
+        assertTrue(points?.durationChains.orEmpty().all {
+            it.durationGetter.methodName == "getDuration"
+        })
     }
 
     @Test

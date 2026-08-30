@@ -62,8 +62,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportPlan
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.YukiModuleSettingsStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
-import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
 import com.highcapable.yukihookapi.hook.factory.prefs
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -77,7 +76,7 @@ import kotlin.math.abs
 import kotlin.math.roundToLong
 
 /** SAF 驱动的设置备份、兼容性预览和确认导入页面。 */
-class SettingsBackupActivity : AppViewsActivity() {
+class SettingsBackupActivity : SkinnedActivity() {
 
     private enum class Page {
         HOME,
@@ -94,7 +93,6 @@ class SettingsBackupActivity : AppViewsActivity() {
         BLOCKED
     }
 
-    private val monetColors by lazy { MonetColors.fromWallpaper(this) }
     private val settingsStore by lazy { YukiModuleSettingsStore(prefs()) }
     private val backupViewModel by lazy {
         ViewModelProvider(this)[SettingsBackupViewModel::class.java]
@@ -197,7 +195,9 @@ class SettingsBackupActivity : AppViewsActivity() {
 
     override fun onDestroy() {
         cancelMotionAnimator()
-        motionHost.onWindowSizeChangedDuringMotion = null
+        if (::motionHost.isInitialized) {
+            motionHost.onWindowSizeChangedDuringMotion = null
+        }
         operationGeneration += 1L
         activeFuture?.cancel(true)
         worker.shutdownNow()

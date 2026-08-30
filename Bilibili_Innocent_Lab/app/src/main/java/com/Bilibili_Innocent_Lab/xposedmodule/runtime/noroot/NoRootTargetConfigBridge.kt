@@ -8,6 +8,7 @@ import androidx.core.content.edit
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.receiver.RoamingOpenReceiver
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.CrossAppBroadcastCompat
 
 /** NPatch Legacy 目标进程的纯配置解析与一次性运行状态回执。 */
 internal object NoRootTargetConfigBridge {
@@ -108,7 +109,7 @@ internal object NoRootTargetConfigBridge {
                 appContext.packageName
             )
             .putExtra(RoamingCompatProvider.EXTRA_NO_ROOT_PROCESS, processName)
-        appContext.sendBroadcast(report)
+        CrossAppBroadcastCompat.sendBroadcast(appContext, report)
         true
     }.getOrDefault(false)
 }

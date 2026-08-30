@@ -92,7 +92,8 @@
 
         <!--
             覆盖安装不会自动打开模块设置页；由系统替换广播启动模块进程，
-            让 DefaultApplication 在 B 站下次启动前刷新版本化授权镜像。
+            让 DefaultApplication 刷新版本化授权镜像，再由接收器在 B 站下次启动前
+            重建、同步用户仍开启的当前版本严格配置快照。
         -->
         <receiver
             android:name=".receiver.TermsMirrorRefreshReceiver"

@@ -7,6 +7,7 @@ import com.highcapable.yukihookapi.hook.factory.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportApplier
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.YukiModuleSettingsStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootUpgradeRecoveryCoordinator
 
 class DefaultApplication : ModuleApplication() {
 
@@ -39,5 +40,12 @@ class DefaultApplication : ModuleApplication() {
         }.onFailure { throwable ->
             Log.w("BilibiliInnocentLab", "recover pending settings import failed", throwable)
         }
+        // 这里只登记进程级依赖；覆盖升级 Receiver 或宿主完成当前严格快照查询后
+        // 再启动后台恢复，避免 Application 冷启动时与宿主 800ms 查询争用快照锁。
+        NoRootUpgradeRecoveryCoordinator.initialize(
+            context = applicationContext,
+            bridge = modulePrefs,
+            authorized = termsDecision.isAuthorized
+        )
     }
 }
