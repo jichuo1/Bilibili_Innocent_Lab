@@ -9,6 +9,7 @@ import androidx.core.content.IntentCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootUpgradeRecoveryCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
 import java.util.concurrent.atomic.AtomicLong
@@ -66,6 +67,7 @@ class RoamingOpenReceiver : BroadcastReceiver() {
                 putBoolean(EXTRA_HOOK_AUTHORIZED, authorized)
             }
             sendSecureBootstrapReply(context, intent, authorized)
+            if (authorized) NoRootUpgradeRecoveryCoordinator.pokeIfRetryable()
             return
         }
         if (intent.action == ACTION_REPORT_NO_ROOT_HEARTBEAT) {

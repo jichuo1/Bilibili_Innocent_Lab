@@ -77,6 +77,18 @@
     <string name="custom_bottom_bar_hide_tip">填写要隐藏的底栏名称，多个名称可用逗号、分号或换行分隔；系统会始终保留至少一个入口。</string>
     <string name="custom_bottom_bar_hide_dialog_title">底栏隐藏规则</string>
     <string name="custom_bottom_bar_hide_hint">例如：动态, 会员购</string>
+    <string name="recommend_video_duration_range">按视频时长过滤推荐</string>
+    <string name="recommend_video_duration_range_empty">当前未限制视频时长，点击编辑</string>
+    <string name="recommend_video_duration_min_only">最短：%1$s</string>
+    <string name="recommend_video_duration_max_only">最长：%1$s</string>
+    <string name="recommend_video_duration_both">范围：%1$s ～ %2$s</string>
+    <string name="recommend_video_duration_dialog_title">推荐视频时长范围</string>
+    <string name="recommend_video_min_duration">推荐视频最短时长（秒）</string>
+    <string name="recommend_video_max_duration">推荐视频最长时长（秒）</string>
+    <string name="recommend_video_duration_input_hint">留空表示不限制</string>
+    <string name="recommend_video_duration_invalid_number">请输入 1 至 2,147,483,647 的整数，或将输入框留空。</string>
+    <string name="recommend_video_duration_invalid_range">最长时长不能短于最短时长。</string>
+    <string name="recommend_video_duration_tip">低于最短时长或高于最长时长的视频，将从首页推荐和视频详情页底部推荐中移除；任一项留空表示不限制该边界。重启哔哩哔哩后生效。</string>
     <string name="mine_page_settings">“我的”页</string>
     <string name="hide_mine_vip">隐藏大会员卡片</string>
     <string name="hide_mine_vip_tip">开启后，隐藏“我的”页大会员卡片，其他入口不受影响。重启哔哩哔哩后生效。</string>
@@ -329,5 +341,7 @@
     <string name="no_root_restart_confirm_title">手动重新启动哔哩哔哩？</string>
     <string name="no_root_restart_confirm_message">免 Root 模式无法强制停止其他应用。请打开哔哩哔哩的应用详情，在系统界面强制停止后再重新打开。</string>
     <string name="no_root_restart_open_app_details">打开应用详情</string>
+    <string name="no_root_restart_sync_failed">未能确认 NPatch 同步；仍将打开应用详情，请先返回模块重试同步，再重新打开哔哩哔哩。</string>
+    <string name="no_root_restart_sync_timeout">NPatch 同步超时；仍将打开应用详情，请先返回模块重试同步，再重新打开哔哩哔哩。</string>
     <string name="no_root_restart_open_failed">无法打开哔哩哔哩应用详情</string>
 </resources>

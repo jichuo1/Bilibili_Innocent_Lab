@@ -20,7 +20,6 @@ import android.os.Bundle
 import android.view.Gravity
 import android.widget.LinearLayout
 import androidx.core.view.updatePadding
-import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.hikage.core.layout.LayoutParams
 import com.highcapable.hikage.extension.setContentView
@@ -30,16 +29,14 @@ import com.highcapable.hikage.widget.androidx.core.widget.NestedScrollView
 import com.highcapable.yukihookapi.hook.factory.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
 
-class FreeCopyActivity : AppViewsActivity() {
+class FreeCopyActivity : SkinnedActivity() {
 
     companion object {
         /** 防御性上限：即使未来重新暴露 Activity，也不接受无限大的外部文本。 */
         private const val MAX_TEXT_LENGTH = 12_000
     }
-
-    private val monetColors by lazy { MonetColors.fromWallpaper(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

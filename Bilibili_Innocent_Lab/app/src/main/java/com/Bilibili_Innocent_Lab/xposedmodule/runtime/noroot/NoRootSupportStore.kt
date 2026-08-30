@@ -221,6 +221,13 @@ internal object NoRootSupportStore {
             .commit()
     }
 
+    fun isRemoteSynced(context: Context, revision: Long): Boolean = synchronized(ioLock) {
+        if (revision <= 0L || !isDesiredEnabled(context)) return@synchronized false
+        val snapshot = readSnapshotLocked(context) ?: return@synchronized false
+        snapshot.enabled && snapshot.revision == revision &&
+            prefs(context).getLong(KEY_REMOTE_SYNCED_REVISION, 0L) == revision
+    }
+
     @SuppressLint("UseKtx")
     fun recordHeartbeat(
         context: Context,
@@ -313,17 +320,14 @@ internal object NoRootSupportStore {
             enabled = true,
             values = values
         )
-        val resolved = if (previous != null && draft.hasSameContent(previous)) {
-            previous
-        } else {
-            draft.copy(revision = nextRevision(previous?.revision ?: 0L))
-        }
         if (!isDesiredEnabled(context)) return@synchronized null
-        if (!writeSnapshotLocked(context, resolved)) return@synchronized null
-        if (previous?.revision != resolved.revision) {
-            clearHeartbeat(context)
-            prefs(context).edit { remove(KEY_REMOTE_SYNCED_REVISION) }
+        if (previous != null && draft.hasSameContent(previous)) {
+            return@synchronized previous
         }
+        val resolved = draft.copy(revision = nextRevision(previous?.revision ?: 0L))
+        if (!writeSnapshotLocked(context, resolved)) return@synchronized null
+        clearHeartbeat(context)
+        prefs(context).edit { remove(KEY_REMOTE_SYNCED_REVISION) }
         resolved
     }
 

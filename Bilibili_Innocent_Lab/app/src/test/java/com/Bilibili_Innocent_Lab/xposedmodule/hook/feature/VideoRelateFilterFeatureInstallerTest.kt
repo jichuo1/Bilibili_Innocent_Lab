@@ -1,10 +1,23 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VideoRelateFilterFeatureInstallerTest {
+
+    private fun environment(statuses: MutableList<Pair<String, String>>) = HookEnvironment(
+        processName = "tv.danmaku.bili",
+        classLoader = javaClass.classLoader,
+        hookPoints = HookPointRegistry(javaClass.classLoader),
+        registrar = TestHookRegistrar,
+        logInfo = { _, _ -> },
+        logError = { _, _ -> },
+        reportStatus = { channel, status -> statuses += channel to status }
+    )
 
     @Test
     fun `normalizes protobuf card type prefix and matches exact type`() {
@@ -19,6 +32,84 @@ class VideoRelateFilterFeatureInstallerTest {
                 "BANGUMI_AV",
                 setOf("AV")
             )
+        )
+    }
+
+    @Test
+    fun `duration-only configuration installs while an empty range stays hook free`() {
+        val durationStatuses = mutableListOf<Pair<String, String>>()
+        val disabledStatuses = mutableListOf<Pair<String, String>>()
+        val points = requireNotNull(
+            VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader))
+        )
+
+        assertEquals(
+            FeatureInstallResult.Installed(points.responseItemGetters.size),
+            VideoRelateFilterFeatureInstaller(
+                hiddenTypes = emptySet(),
+                minDurationSeconds = 30,
+                maxDurationSeconds = 0,
+                points = points
+            ).install(environment(durationStatuses))
+        )
+        assertEquals(
+            FeatureInstallResult.Skipped("disabled"),
+            VideoRelateFilterFeatureInstaller(
+                hiddenTypes = emptySet(),
+                minDurationSeconds = 0,
+                maxDurationSeconds = 0,
+                points = null
+            ).install(environment(disabledStatuses))
+        )
+        assertEquals(listOf("video_relate_filter_status" to "success"), durationStatuses)
+        assertEquals(listOf("video_relate_filter_status" to "disabled"), disabledStatuses)
+    }
+
+    @Test
+    fun `missing duration paths do not disable an existing type filter`() {
+        val statuses = mutableListOf<Pair<String, String>>()
+        val points = requireNotNull(
+            VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader))
+        ).copy(directDurationGetters = emptyList(), durationChains = emptyList())
+
+        assertEquals(
+            FeatureInstallResult.Installed(points.responseItemGetters.size),
+            VideoRelateFilterFeatureInstaller(
+                hiddenTypes = setOf("game"),
+                minDurationSeconds = 30,
+                maxDurationSeconds = 0,
+                points = points
+            ).install(environment(statuses))
+        )
+        assertEquals(
+            listOf("video_relate_filter_status" to "partial:missing-duration-accessor"),
+            statuses
+        )
+    }
+
+    @Test
+    fun `missing type getters do not disable an adapted duration filter`() {
+        val statuses = mutableListOf<Pair<String, String>>()
+        val points = requireNotNull(
+            VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader))
+        ).copy(
+            cardCaseGetters = emptyList(),
+            gotoGetters = emptyList(),
+            cardTypeGetters = emptyList()
+        )
+
+        assertEquals(
+            FeatureInstallResult.Installed(points.responseItemGetters.size),
+            VideoRelateFilterFeatureInstaller(
+                hiddenTypes = setOf("game"),
+                minDurationSeconds = 30,
+                maxDurationSeconds = 0,
+                points = points
+            ).install(environment(statuses))
+        )
+        assertEquals(
+            listOf("video_relate_filter_status" to "partial:missing-type-getter"),
+            statuses
         )
     }
 }

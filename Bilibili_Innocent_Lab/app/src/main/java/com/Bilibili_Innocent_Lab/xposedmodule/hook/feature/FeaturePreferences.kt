@@ -16,6 +16,8 @@ internal object FeaturePreferences {
     const val REMOVE_HOME_RECOMMEND_LARGE = "remove_home_recommend_large"
     const val HOME_TAB_HIDDEN_RULES = "home_tab_hidden_rules"
     const val HOME_COMPONENT_HIDDEN_RULES = "home_component_hidden_rules"
+    const val RECOMMEND_VIDEO_MIN_DURATION_SECONDS = "recommend_video_min_duration_seconds"
+    const val RECOMMEND_VIDEO_MAX_DURATION_SECONDS = "recommend_video_max_duration_seconds"
     const val HIDE_MINE_VIP = "hide_mine_vip"
     const val KEEP_MINE_VIP_SPACE = "keep_mine_vip_space"
     const val BLOCK_APP_UPDATE = "block_app_update"

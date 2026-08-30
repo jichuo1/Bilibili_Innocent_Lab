@@ -76,6 +76,18 @@
     <string name="custom_bottom_bar_hide_tip">Enter bottom-bar names to hide. Separate multiple names with commas, semicolons, or line breaks; at least one entry is always kept.</string>
     <string name="custom_bottom_bar_hide_dialog_title">Hidden bottom-bar rules</string>
     <string name="custom_bottom_bar_hide_hint">Example: Dynamic, Mall</string>
+    <string name="recommend_video_duration_range">Filter recommended videos by duration</string>
+    <string name="recommend_video_duration_range_empty">No duration limits configured; tap to edit</string>
+    <string name="recommend_video_duration_min_only">Minimum: %1$s</string>
+    <string name="recommend_video_duration_max_only">Maximum: %1$s</string>
+    <string name="recommend_video_duration_both">Range: %1$s – %2$s</string>
+    <string name="recommend_video_duration_dialog_title">Recommended video duration range</string>
+    <string name="recommend_video_min_duration">Minimum recommended video duration (seconds)</string>
+    <string name="recommend_video_max_duration">Maximum recommended video duration (seconds)</string>
+    <string name="recommend_video_duration_input_hint">Leave blank for no limit</string>
+    <string name="recommend_video_duration_invalid_number">Enter a whole number from 1 to 2,147,483,647, or leave the field blank.</string>
+    <string name="recommend_video_duration_invalid_range">The maximum duration cannot be shorter than the minimum duration.</string>
+    <string name="recommend_video_duration_tip">Videos shorter than the minimum or longer than the maximum are removed from Home recommendations and the recommendations below video details. A blank field leaves that boundary unrestricted. Restart Bilibili to apply.</string>
     <string name="mine_page_settings">Mine page</string>
     <string name="hide_mine_vip">Hide the VIP card</string>
     <string name="hide_mine_vip_tip">When enabled, hides the VIP card on the Mine page. Other entries remain available. Restart Bilibili to apply.</string>
@@ -328,5 +340,7 @@
     <string name="no_root_restart_confirm_title">Restart Bilibili manually?</string>
     <string name="no_root_restart_confirm_message">No-root mode cannot force-stop another app. Open the Bilibili app details, force stop it there, then launch it again.</string>
     <string name="no_root_restart_open_app_details">Open app details</string>
+    <string name="no_root_restart_sync_failed">NPatch synchronization could not be confirmed. App details will still open; retry synchronization before relaunching Bilibili.</string>
+    <string name="no_root_restart_sync_timeout">NPatch synchronization timed out. App details will still open; retry synchronization before relaunching Bilibili.</string>
     <string name="no_root_restart_open_failed">Could not open the Bilibili app details</string>
 </resources>

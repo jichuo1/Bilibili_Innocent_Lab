@@ -31,6 +31,7 @@ import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.CrossAppBroadcastCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.HookConfigSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.SnapshotHookConfigSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.YukiHookConfigSource
@@ -486,13 +487,11 @@ class HookEntry : IYukiHookXposedInit {
                         }
                     }
                     callbackReceiver = secureCallbackReceiver
-                    androidx.core.content.ContextCompat.registerReceiver(
+                    CrossAppBroadcastCompat.registerPrivateCallbackReceiver(
                         appContext,
                         secureCallbackReceiver,
                         android.content.IntentFilter(callbackAction),
-                        null,
-                        resultHandler,
-                        androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+                        resultHandler
                     )
                     callbackRegistered = true
                     val pendingFlags = android.app.PendingIntent.FLAG_ONE_SHOT or
@@ -552,15 +551,11 @@ class HookEntry : IYukiHookXposedInit {
                             putExtra(RoamingOpenReceiver.EXTRA_BOOTSTRAP_NONCE, nonce)
                         }
                     }
-                @Suppress("DEPRECATION")
-                appContext.sendOrderedBroadcast(
-                    request,
-                    null,
-                    resultReceiver,
-                    resultHandler,
-                    0,
-                    null,
-                    null
+                CrossAppBroadcastCompat.sendOrderedBroadcast(
+                    context = appContext,
+                    intent = request,
+                    resultReceiver = resultReceiver,
+                    scheduler = resultHandler
                 )
             }.onFailure { throwable ->
                 XposedBridge.log(
@@ -3175,6 +3170,14 @@ class HookEntry : IYukiHookXposedInit {
                             FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE,
                             false
                         ),
+                        minDurationSeconds = prefs.getInt(
+                            FeaturePreferences.RECOMMEND_VIDEO_MIN_DURATION_SECONDS,
+                            0
+                        ),
+                        maxDurationSeconds = prefs.getInt(
+                            FeaturePreferences.RECOMMEND_VIDEO_MAX_DURATION_SECONDS,
+                            0
+                        ),
                         points = hostAdaptResult?.homeRecommendFeed
                     )
                 )
@@ -3311,6 +3314,14 @@ class HookEntry : IYukiHookXposedInit {
                                     false
                                 )) add("SPECIAL")
                         },
+                        minDurationSeconds = prefs.getInt(
+                            FeaturePreferences.RECOMMEND_VIDEO_MIN_DURATION_SECONDS,
+                            0
+                        ),
+                        maxDurationSeconds = prefs.getInt(
+                            FeaturePreferences.RECOMMEND_VIDEO_MAX_DURATION_SECONDS,
+                            0
+                        ),
                         points = hostAdaptResult?.videoRelate
                     )
                 )
@@ -4447,6 +4458,17 @@ class HookEntry : IYukiHookXposedInit {
             val runtimeClaimProperty =
                 "com.Bilibili_Innocent_Lab.xposedmodule.runtime_owner"
 
+            fun runtimeClaimedByOther(mode: HookRuntimeMode): Boolean {
+                val expectedOwner = when (mode) {
+                    HookRuntimeMode.STANDARD_XPOSED -> "standard"
+                    HookRuntimeMode.NPATCH_LEGACY -> "npatch"
+                }
+                val properties = System.getProperties()
+                return synchronized(properties) {
+                    System.getProperty(runtimeClaimProperty)?.let { it != expectedOwner } == true
+                }
+            }
+
             fun claimRuntime(mode: HookRuntimeMode): Boolean {
                 val properties = System.getProperties()
                 return synchronized(properties) {
@@ -4659,6 +4681,13 @@ class HookEntry : IYukiHookXposedInit {
                 if (runtimeMode == HookRuntimeMode.NPATCH_LEGACY && deferNoRootAtAttach) return
                 if (runtimeMode == HookRuntimeMode.STANDARD_XPOSED && !deferNoRootAtAttach) return
                 if (!authorizationAttempted.compareAndSet(false, true)) return
+                // 混合安装时，标准 LSPosed 通常已在 attach.before 完成接管；NPatch
+                // 备用入口无需再等待 Provider/广播。最终 claimRuntime 校验仍覆盖并发竞态。
+                if (runtimeClaimedByOther(runtimeMode)) {
+                    authorizedInstallerRef.set(null)
+                    XposedBridge.log("[BIL] 当前进程已由另一 Hook 后端接管，跳过授权查询")
+                    return
+                }
                 if (runtimeMode == HookRuntimeMode.STANDARD_XPOSED) {
                     val authorized = queryXposedHookAuthorization()
                     if (authorized == null) {
