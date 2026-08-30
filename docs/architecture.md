@@ -64,32 +64,62 @@ decision, while outside-touch dismissal is disabled.
 immediately when the decision is unauthorized, so an internal Activity launch
 or restored Activity stack cannot bypass the gate.
 
-Authorization has two parallel, live module-process channels and no positive
-host cache. The exported compatibility provider exposes a read-only
-`/hook_authorization` snapshot through the existing Binder-caller allowlist. In
-parallel, Bilibili sends an explicit ordered broadcast to
-`RoamingOpenReceiver`; the receiver accepts no state input, reads
-`UserTermsConsentStore` itself, and returns handled/authorized result extras.
-This second channel remains available on known hosts that isolate cross-package
-provider authorities. Android 14+ additionally checks the framework-reported
-sender package for the broadcast response. Android 13 and lower do not expose
-that sender identity to this receiver, so the fallback intentionally has no
-intent filter, accepts no state input, and returns only one read-only Boolean;
-it can neither mutate consent nor start the settings UI through this action.
+API 102-capable frameworks use one authorization bootstrap. The module app
+publishes a strictly allowlisted `hook_config` Remote Preferences group through
+`XposedService`; Bilibili reads that group synchronously in
+`Application.attach.before` and installs the complete Hook chain in the same
+ordering window. The host never opens the module app's private files and never
+falls back to Provider, ordered broadcast, or a legacy preference bridge.
+Schema, catalog, exact key set, value types/ranges, generation, terms decision
+and SHA-256 digest must all validate before either authorization or feature
+settings are consumed. Missing, partial, corrupt, or service-unavailable state
+disables every feature.
 
 While unauthorized, the provider's locale, free-copy, and roaming routes return
 safe disabled/default snapshots, and the roaming settings action also refuses
-to start another Activity. Bilibili installs only the minimal
-Application/Instrumentation authorization bootstrap before this decision.
-During `Application.attach`, the provider task and ordered-broadcast result
-handler share one 800 ms deadline and race to atomically publish the first
-explicit Boolean result; an unknown/failed channel does not resolve the race.
-Only an explicit authorized result installs the complete hook chain once. An
-explicit denial, two failed/unknown channels, missing state, corruption, or
-timeout all fail closed, discard the installer reference, and cannot enable
-hooks later from a delayed result. Accepting terms does not retrofit hooks into
-an already-running unauthorized Bilibili process, so that process must be
-restarted.
+to start another Activity. Bilibili installs only the minimal Application and
+Instrumentation bootstrap before this decision. Accepting terms does not
+retrofit hooks into an already-running unauthorized Bilibili process, so that
+process must be restarted.
+
+## Modern API 102 entry and host configuration
+
+The only module entry is `HookEntry : XposedModule`. Package hooks are installed
+from `onPackageReady`, and the narrowly scoped system-server hooks are installed
+from `onSystemServerStarting`. Packaging uses only
+`META-INF/xposed/java_init.list`, `module.prop`, and `scope.list`; the legacy
+`assets/xposed_init`, Yuki initializer resource, manifest `xposedminversion`,
+YukiHookAPI dependency and rovo89 API dependency are absent.
+
+The module's ordinary default preferences remain private and authoritative for
+the settings UI and backup system. `RemoteHookConfigStore` resolves every
+catalog record to its effective value and writes only the `hook_config` Remote
+Preferences group. The allowlist additionally contains the free-copy revision
+and adapter-reset timestamp. Metadata records schema, catalog, generation,
+terms version/decision, readiness and a canonical SHA-256 digest. Arbitrary
+preferences, credentials, update throttles, UI state, language, skin state and
+framework operational data cannot enter this group.
+
+Module startup registers one `XposedServiceHelper` listener. Relevant source
+changes are coalesced on one daemon publisher; a publication uses one editor
+transaction followed by a full protocol read-back. Semantically unchanged
+values retain their generation and avoid another write. Each host process reads
+the group once, validates the exact document and converts it into an immutable
+`SnapshotHookConfigSource`; bind, scroll, draw and Hook callbacks perform no
+cross-process preference I/O.
+
+Accepting terms commits the private authoritative decision and then publishes
+an authorized configuration; publication failure rolls the private decision
+back. Declining publishes the denied configuration before committing the
+private decision, so a write failure cannot leave a previously authorized host
+snapshot active. Neither decision retrofits hooks into an already-running
+Bilibili process.
+
+The private preference filename is deliberately unchanged, so settings already
+owned by the module UI remain available after the framework migration. Missing
+settings use catalog defaults, and malformed individual source values are
+normalized only in the Remote Preferences mirror rather than deleting the
+private source.
 
 ## Shared runtime helpers
 
@@ -126,7 +156,7 @@ Android's Storage Access Framework, displays the complete plan, and never asks
 for broad storage permission. Confirmed writes use the Yuki preferences bridge
 and synchronous `commit()`; they never call `clear()` or write unknown keys.
 
-The v1 catalog contains 70 records. Sixty-nine are automatically restorable.
+The current catalog contains 72 records. Seventy-one are automatically restorable.
 Roaming compatibility remains in the file and preview as `MANUAL`, including
 its backup and current values, but the importer never writes it. Old invalid
 QN, comment-level, and logging enum values are exported using the same effective

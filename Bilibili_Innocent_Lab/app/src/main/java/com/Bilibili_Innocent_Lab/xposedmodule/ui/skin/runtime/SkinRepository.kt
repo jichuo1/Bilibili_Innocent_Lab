@@ -12,7 +12,7 @@ import java.util.UUID
  */
 internal object SkinRepository {
     /** UI 调用方不得自行传入 renderer 版本；协议升级只在此处单点递增。 */
-    private const val CURRENT_LIQUID_RENDERER_VERSION = 2
+    private const val CURRENT_LIQUID_RENDERER_VERSION = 4
 
     private val stateHolder = SkinProcessStateHolder()
     private val renderSessions = SkinRenderSessionRegistry()

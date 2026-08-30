@@ -4,6 +4,7 @@ import android.app.LocaleManager
 import android.content.Context
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.edit
+import androidx.core.os.LocaleListCompat
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
 import com.highcapable.kavaref.extension.classOf
 
@@ -16,7 +17,7 @@ import com.highcapable.kavaref.extension.classOf
  */
 internal object InjectedUiLocaleStore {
 
-    private const val PREF_FILE = "innocent_lab_injected_ui_locale"
+    internal const val PREF_FILE = "innocent_lab_injected_ui_locale"
     private const val PREF_SELECTION_TAG = "selection_tag"
 
     /** 缺失或损坏时回退跟随系统；镜像从不把未知语言扩散到宿主进程。 */
@@ -37,6 +38,28 @@ internal object InjectedUiLocaleStore {
             }
         }
         return normalized
+    }
+
+    /** 设置存储迁移专用：同步提交并读回白名单语言标签。 */
+    @android.annotation.SuppressLint("UseKtx")
+    fun restoreForMigration(context: Context, selectionTag: String?): Boolean {
+        val normalized = InjectedUiLocale.normalizeSelectionTag(selectionTag)
+        val preferences = runCatching {
+            context.applicationContext.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
+        }.getOrNull() ?: return false
+        val committed = runCatching {
+            preferences.edit()
+                .putString(PREF_SELECTION_TAG, normalized)
+                .commit()
+        }.getOrDefault(false)
+        if (!committed || read(context) != normalized) return false
+        if (!AndroidVersion.isAtLeast(AndroidVersion.T)) {
+            val tags = if (normalized == InjectedUiLocale.TAG_SYSTEM) "" else normalized
+            runCatching {
+                AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(tags))
+            }.getOrElse { return false }
+        }
+        return true
     }
 
     /**

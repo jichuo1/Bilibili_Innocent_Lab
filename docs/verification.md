@@ -42,6 +42,22 @@ structure and the canonical project URL, and keep the maintainer-supplied
 Simplified Chinese body and both decision-button labels byte-for-byte equivalent
 after Android newline decoding.
 
+The API 102 host-configuration tests lock the catalog allowlist, the two runtime
+revision fields, typed defaults and normalization, all four terms decisions,
+schema/catalog/generation validation, exact key sets and digest tampering. Run
+one fixed-policy suite:
+
+```powershell
+.\gradlew.bat testDebugUnitTest --console=plain --no-daemon
+```
+
+The packaged APK must contain `META-INF/xposed/java_init.list`, `module.prop`
+with `minApiVersion=102`/`targetApiVersion=102`, and `scope.list`. It must not
+contain `assets/xposed_init`, `META-INF/yukihookapi_init`, an
+`xposedminversion` manifest entry, YukiHookAPI classes, or rovo89 API classes.
+JVM protocol success does not prove framework service binding or device Hook
+execution; those remain device checks.
+
 ## Device checks
 
 1. In Bilibili's main process, toggle roaming compatibility on and off while
@@ -140,16 +156,31 @@ after Android newline decoding.
     Make the private preference read and first migration commit fail where
     practical; both failures must remain unauthorized rather than falling into
     legacy inference.
-24. Exercise the two live authorization channels independently. With the
-    provider authority hidden/isolated from Bilibili, the explicit ordered
-    broadcast must still return the current authorized state and permit hook
-    installation. With broadcast delivery unavailable, the provider must still
-    authorize. If both channels fail or remain unknown, the shared wait must
-    remain bounded to approximately 800 ms, fail closed, and never install hooks
-    from either late result. An explicit true or false from either channel must
-    be the first-and-only resolved result. Confirm this race runs once per host
-    process and never appears on a bind, scroll, draw, or other hook hot path.
+24. On each supported API 102 framework, open the module UI and confirm the
+    service status reports connected, API 102 and Remote Preferences capable.
+    If the service is unavailable, the host must fail closed and install no
+    feature Hook; it must not fall back to the compatibility Provider or an
+    ordered broadcast authorization race.
 25. Repeat the gate, declined page, save-failure path, and accepted settings page
     in English, Simplified Chinese, and Traditional Chinese with dark mode,
     large font, rotation, and TalkBack. Confirm all text and buttons remain
     reachable and Activity recreation never creates two terms dialogs.
+26. Install the API 102 build over the existing installation and open the module
+    once. Confirm the private UI settings remain unchanged and the framework's
+    `hook_config` Remote Preferences group contains exactly the catalog values,
+    two documented runtime fields and seven metadata fields, with no arbitrary
+    default-preference key.
+27. Restart Bilibili main, web, download and player processes. Every process must
+    log `API 102 Remote Preferences 验证成功` with the same generation and must not
+    log an API 82 file or authorization-mirror fallback. Verify free copy, then enable
+    reply topology and sample at least one home, player and comment feature.
+28. Change representative Boolean, integer and text settings in one session,
+    immediately restart Bilibili, and confirm one complete newer generation is
+    consumed. Verify free-copy revision and manual adapter-reset timestamp reach
+    the host without a private-file or Provider fallback.
+29. In a Debug-only fault setup, remove a key, change a type, alter schema/catalog,
+    set generation to zero and corrupt the digest.
+    Each case must log an exact reason and install no feature Hook. Test ACCEPTED,
+    DECLINED, UNDECIDED and LEGACY_EXEMPT separately; decline must publish denial
+    before the private decision, and acceptance publication failure must leave
+    the UI decision rolled back.

@@ -53,6 +53,25 @@ abstract class SkinnedActivity : AppViewsActivity() {
         return skinSessionOrNull?.bindRoot(root, onFailure) ?: false
     }
 
+    /**
+     * 让一个已在层级中的滚动 View 与 Liquid 背景切片共享系统 stretch；Material/低版本为 no-op。
+     */
+    @MainThread
+    protected fun installPreparedLiquidStretch(
+        scrollTarget: View,
+        overlayColor: Int = android.graphics.Color.TRANSPARENT,
+        isStretchAllowed: () -> Boolean = { true }
+    ): View? = skinSessionOrNull?.installStretchViewport(
+        scrollTarget = scrollTarget,
+        overlayColor = overlayColor,
+        isStretchAllowed = isStretchAllowed
+    )
+
+    @MainThread
+    protected fun finishPreparedLiquidStretch(view: View?) {
+        skinSessionOrNull?.finishStretchViewport(view)
+    }
+
     /** 当前持久化选择是否请求 Liquid；未准备会话时保持 false。 */
     protected val isLiquidSkinRequested: Boolean
         get() = skinSessionOrNull?.requestedSkin == SkinId.LIQUID

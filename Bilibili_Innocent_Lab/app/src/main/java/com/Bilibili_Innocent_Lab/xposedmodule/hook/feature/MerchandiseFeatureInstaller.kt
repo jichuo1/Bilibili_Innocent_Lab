@@ -5,7 +5,7 @@ import android.view.View
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.highcapable.kavaref.extension.classOf
-import de.robv.android.xposed.XposedHelpers
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 
 /** 隐藏视频简介区的“UP 主分享好物”商品模块。 */
 internal class MerchandiseFeatureInstaller(
@@ -29,7 +29,7 @@ internal class MerchandiseFeatureInstaller(
             after {
                 val viewEntry = result ?: return@after
                 val root = runCatching {
-                    XposedHelpers.callMethod(viewEntry, "getRoot") as? View
+                    ReflectAccess.callMethod(viewEntry, "getRoot") as? View
                 }.getOrNull() ?: return@after
                 runCatching {
                     collapse(root)
