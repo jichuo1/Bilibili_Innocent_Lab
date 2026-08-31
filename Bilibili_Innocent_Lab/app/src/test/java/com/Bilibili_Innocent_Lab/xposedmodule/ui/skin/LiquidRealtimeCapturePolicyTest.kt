@@ -30,10 +30,45 @@ class LiquidRealtimeCapturePolicyTest {
     }
 
     @Test
-    fun `frame pacing targets thirty fps without negative delay`() {
-        assertEquals(33L, LiquidRealtimeCapturePolicy.nextFrameDelayMs(0L))
-        assertEquals(17L, LiquidRealtimeCapturePolicy.nextFrameDelayMs(16L))
-        assertEquals(0L, LiquidRealtimeCapturePolicy.nextFrameDelayMs(60L))
+    fun `frame pacing follows the fastest supported mode up to one hundred twenty hertz`() {
+        assertEquals(
+            120f,
+            LiquidRealtimeCapturePolicy.targetRefreshRate(
+                currentRefreshRate = 60f,
+                supportedRefreshRates = listOf(60f, 90f, 120f, 144f)
+            ),
+            0f
+        )
+        assertEquals(
+            90f,
+            LiquidRealtimeCapturePolicy.targetRefreshRate(
+                currentRefreshRate = 90f,
+                supportedRefreshRates = listOf(60f, 90f, 144f)
+            ),
+            0f
+        )
+        assertEquals(8_333_333L, LiquidRealtimeCapturePolicy.frameIntervalNanos(120f))
+        assertFalse(LiquidRealtimeCapturePolicy.isFrameDue(8_000_000L, 8_333_333L))
+        assertTrue(LiquidRealtimeCapturePolicy.isFrameDue(8_333_333L, 8_333_333L))
         assertTrue(LiquidRealtimeCapturePolicy.BASE_SUPPRESSION_ALPHA in 0xC0..0xF0)
+    }
+
+    @Test
+    fun `stretch optics rise smoothly and stay bounded`() {
+        val idle = LiquidRealtimeCapturePolicy.stretchOpticalIntensity(0f)
+        val middle = LiquidRealtimeCapturePolicy.stretchOpticalIntensity(0.09f)
+        val maximum = LiquidRealtimeCapturePolicy.stretchOpticalIntensity(0.18f)
+
+        assertEquals(1f, idle, 0f)
+        assertTrue(middle > idle)
+        assertTrue(maximum > middle)
+        assertEquals(maximum, LiquidRealtimeCapturePolicy.stretchOpticalIntensity(1f), 0f)
+    }
+
+    @Test
+    fun `stretch feedback band stays inside the visible outer gutter`() {
+        assertEquals(0f, LiquidRealtimeCapturePolicy.stretchFeedbackBandDp(-1f), 0f)
+        assertEquals(8f, LiquidRealtimeCapturePolicy.stretchFeedbackBandDp(8f), 0f)
+        assertEquals(12f, LiquidRealtimeCapturePolicy.stretchFeedbackBandDp(34f), 0f)
     }
 }
