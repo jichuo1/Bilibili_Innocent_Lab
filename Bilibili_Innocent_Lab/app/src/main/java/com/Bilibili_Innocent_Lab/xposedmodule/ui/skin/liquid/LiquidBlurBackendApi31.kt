@@ -26,11 +26,12 @@ internal class LiquidBlurBackendApi31(
     private var blurEffect: RenderEffect? = null
     private var backdropScaleX = 1f
     private var backdropScaleY = 1f
+    private var sampledBlurRadius = Float.NaN
 
     override fun bindBackdrop(source: LiquidBackdropSource) {
         check(!source.isClosed) { "Cannot bind a closed Liquid backdrop" }
-        renderNode?.discardDisplayList()
-        val node = RenderNode("BilibiliInnocentLab-LiquidBackdrop")
+        val node = renderNode ?: RenderNode("BilibiliInnocentLab-LiquidBackdrop")
+        node.discardDisplayList()
         check(node.setPosition(0, 0, source.bitmap.width, source.bitmap.height)) {
             "Unable to position Liquid blur RenderNode"
         }
@@ -42,16 +43,19 @@ internal class LiquidBlurBackendApi31(
         }
         backdropScaleX = source.fullWidth.toFloat() / source.bitmap.width.toFloat()
         backdropScaleY = source.fullHeight.toFloat() / source.bitmap.height.toFloat()
-        val sampledBlurRadius = (
+        val nextBlurRadius = (
             blurRadiusPx / maxOf(backdropScaleX, backdropScaleY)
             ).coerceAtLeast(0.1f)
-        val effect = RenderEffect.createBlurEffect(
-            sampledBlurRadius,
-            sampledBlurRadius,
-            Shader.TileMode.CLAMP
-        )
-        node.setRenderEffect(effect)
-        blurEffect = effect
+        if (blurEffect == null || sampledBlurRadius != nextBlurRadius) {
+            val effect = RenderEffect.createBlurEffect(
+                nextBlurRadius,
+                nextBlurRadius,
+                Shader.TileMode.CLAMP
+            )
+            node.setRenderEffect(effect)
+            blurEffect = effect
+            sampledBlurRadius = nextBlurRadius
+        }
         renderNode = node
     }
 
@@ -85,5 +89,6 @@ internal class LiquidBlurBackendApi31(
         renderNode?.discardDisplayList()
         renderNode = null
         blurEffect = null
+        sampledBlurRadius = Float.NaN
     }
 }

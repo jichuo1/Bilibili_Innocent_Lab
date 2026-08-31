@@ -110,6 +110,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroun
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundImportResult
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundMode
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundStore
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidRealtimeCaptureStore
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SkinId
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinRepository
 import android.app.Dialog
@@ -314,6 +315,26 @@ class MainActivity : SkinnedActivity() {
     private var advancedContent: View? = null
     private var advancedChevron: View? = null
     private var advancedExpanded = false
+
+    /** 进阶设置内部的四个折叠分类；只重组 View 层级，不复制或重建业务控件。 */
+    private enum class AdvancedSettingsCategory {
+        HOME_NAVIGATION,
+        INTERFACE,
+        PLAYBACK,
+        COMMENT
+    }
+
+    private data class AdvancedCategorySection(
+        val header: View,
+        val content: View,
+        val chevron: View,
+        var expanded: Boolean = false
+    )
+
+    private val advancedCategoryMarkers =
+        linkedMapOf<AdvancedSettingsCategory, NativeTextView>()
+    private val advancedCategorySections =
+        linkedMapOf<AdvancedSettingsCategory, AdvancedCategorySection>()
 
     /** 免 Root 配置只在用户明确开启后同步；回调不得持有 Activity 或 View。 */
     private var noRootPrefsBridge: SharedPreferences? = null
@@ -1468,6 +1489,17 @@ class MainActivity : SkinnedActivity() {
         )
     }
 
+    private fun isLiquidRealtimeCaptureSupported(): Boolean = AndroidVersion.code >= 31
+
+    private fun liquidRealtimeCaptureSummary(enabled: Boolean): String = getString(
+        when {
+            !isLiquidRealtimeCaptureSupported() ->
+                R.string.liquid_realtime_capture_summary_unsupported
+            enabled -> R.string.liquid_realtime_capture_summary_enabled
+            else -> R.string.liquid_realtime_capture_summary_disabled
+        }
+    )
+
     /** 实验性功能中的自定义背景配置；选择器只授权单个 image URI，不申请媒体库权限。 */
     private fun showLiquidBackgroundDialog() {
         if (liquidBackgroundImportInProgress) return
@@ -1477,13 +1509,6 @@ class MainActivity : SkinnedActivity() {
         val container = createModalContainer()
         liquidBackgroundDialog = dialog
         liquidBackgroundDialogContainer = container
-        dialog.setOnDismissListener {
-            if (liquidBackgroundDialog === dialog) {
-                liquidBackgroundDialog = null
-                liquidBackgroundDialogContainer = null
-            }
-        }
-
         container.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.liquid_background_dialog_title)
@@ -1566,6 +1591,33 @@ class MainActivity : SkinnedActivity() {
             )
         }
 
+        val realtimeCaptureEnabled = LiquidRealtimeCaptureStore.isEnabled(applicationContext)
+        container.addView(
+            createGitHubMenuRow(
+                title = getString(R.string.liquid_realtime_capture_title),
+                subtitle = liquidRealtimeCaptureSummary(realtimeCaptureEnabled),
+                highlight = realtimeCaptureEnabled
+            ) {
+                when {
+                    !isLiquidRealtimeCaptureSupported() ->
+                        toast(getString(R.string.liquid_realtime_capture_unsupported))
+                    realtimeCaptureEnabled -> applyLiquidRealtimeCaptureEnabled(false)
+                    else -> beginLiquidRealtimeCaptureConfirmation()
+                }
+            }.apply {
+                contentDescription = buildString {
+                    append(getString(R.string.liquid_realtime_capture_title))
+                    append('，')
+                    append(liquidRealtimeCaptureSummary(realtimeCaptureEnabled))
+                }
+                if (!isLiquidRealtimeCaptureSupported()) alpha = 0.55f
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (6 * density).toInt() }
+        )
+
         container.addView(
             NativeTextView(this).apply {
                 text = getString(R.string.liquid_background_backup_notice)
@@ -1612,6 +1664,151 @@ class MainActivity : SkinnedActivity() {
             ).apply { topMargin = (16 * density).toInt() }
         )
         presentModalDialog(dialog, container)
+        dialog.setOnDismissListener {
+            if (activeConfirmDialog === dialog) activeConfirmDialog = null
+            if (liquidBackgroundDialog === dialog) {
+                liquidBackgroundDialog = null
+                liquidBackgroundDialogContainer = null
+            }
+        }
+    }
+
+    private fun beginLiquidRealtimeCaptureConfirmation() {
+        val backgroundDialog = liquidBackgroundDialog
+        val backgroundContainer = liquidBackgroundDialogContainer
+        if (backgroundDialog != null && backgroundContainer != null && backgroundDialog.isShowing) {
+            dismissWithAnimation(backgroundDialog, backgroundContainer) {
+                if (!isFinishing && !isDestroyed) showLiquidRealtimeCaptureConfirmDialog()
+            }
+        } else showLiquidRealtimeCaptureConfirmDialog()
+    }
+
+    /** 高负载模式首次开启必须由用户显式确认；关闭保持一键可逆。 */
+    private fun showLiquidRealtimeCaptureConfirmDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createModalContainer()
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.liquid_realtime_capture_confirm_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 17f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.liquid_realtime_capture_confirm_message)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 13f
+                alpha = 0.82f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (10 * density).toInt() }
+        )
+
+        val buttonRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        buttonRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.dialog_cancel)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(
+                    (20 * density).toInt(),
+                    (11 * density).toInt(),
+                    (20 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    dismissWithAnimation(dialog, container) {
+                        if (!isFinishing && !isDestroyed) showLiquidBackgroundDialog()
+                    }
+                }
+            }
+        )
+        buttonRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.liquid_realtime_capture_confirm_enable)
+                textColor = monetColors.onPrimary
+                textSize = 15f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(
+                    (22 * density).toInt(),
+                    (11 * density).toInt(),
+                    (22 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                val radius = 20 * density
+                val content = GradientDrawable().apply {
+                    cornerRadius = radius
+                    setColor(monetColors.primary)
+                }
+                val rippleMask = GradientDrawable().apply {
+                    cornerRadius = radius
+                    setColor(Color.WHITE)
+                }
+                background = RippleDrawable(
+                    ColorStateList.valueOf(
+                        ColorUtils.setAlphaComponent(monetColors.onPrimary, 0x33)
+                    ),
+                    content,
+                    rippleMask
+                )
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    dismissWithAnimation(dialog, container) {
+                        applyLiquidRealtimeCaptureEnabled(true)
+                    }
+                }
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = (16 * density).toInt() }
+        )
+        container.addView(
+            buttonRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (22 * density).toInt() }
+        )
+
+        presentModalDialog(dialog, container)
+    }
+
+    private fun applyLiquidRealtimeCaptureEnabled(enabled: Boolean) {
+        if (!LiquidRealtimeCaptureStore.setEnabled(applicationContext, enabled)) {
+            toast(getString(R.string.liquid_realtime_capture_save_failed))
+            if (liquidBackgroundDialog == null && !isFinishing && !isDestroyed) {
+                showLiquidBackgroundDialog()
+            }
+            return
+        }
+        toast(
+            getString(
+                if (enabled) R.string.liquid_realtime_capture_enabled
+                else R.string.liquid_realtime_capture_disabled
+            )
+        )
+        finishLiquidBackgroundChange()
     }
 
     private fun loadLiquidBackgroundPreview(
@@ -3958,6 +4155,181 @@ class MainActivity : SkinnedActivity() {
         animateSecondarySection(content, chevron, advancedExpanded)
     }
 
+    /** 把原有四段进阶设置在首帧前重组为默认折叠的协调式卡片。 */
+    private fun installAdvancedCategorySections() {
+        val root = advancedContent as? ViewGroup ?: return
+        if (advancedCategorySections.isNotEmpty()) return
+        val categories = AdvancedSettingsCategory.entries
+        if (advancedCategoryMarkers.keys.toList() != categories.toList()) return
+
+        val originalChildren = List(root.childCount, root::getChildAt)
+        val markers = categories.map { category ->
+            advancedCategoryMarkers[category] ?: return
+        }
+        val markerIndices = markers.map(originalChildren::indexOf)
+        val ranges = AdvancedCategoryLayoutPolicy.resolve(
+            markerIndices = markerIndices,
+            childCount = originalChildren.size
+        ) ?: return
+
+        val density = resources.displayMetrics.density
+        val horizontalPadding = (12f * density).toInt()
+        val headerVerticalPadding = (11f * density).toInt()
+        root.removeAllViews()
+
+        categories.forEachIndexed { index, category ->
+            val title = markers[index].apply {
+                alpha = 0.92f
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 14f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            val chevron = android.widget.ImageView(this).apply {
+                setImageResource(R.drawable.ic_chevron_down)
+                imageTintList = ColorStateList.valueOf(getColor(R.color.colorTextGray))
+                alpha = 0.82f
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            val content = NativeLinearLayout(this).apply {
+                orientation = NativeLinearLayout.VERTICAL
+                visibility = View.GONE
+                setPadding(
+                    horizontalPadding,
+                    0,
+                    horizontalPadding,
+                    (12f * density).toInt()
+                )
+                ranges[index].let { range ->
+                    for (childIndex in range.startInclusive until range.endExclusive) {
+                        addView(originalChildren[childIndex])
+                    }
+                }
+            }
+            val header = NativeLinearLayout(this).apply {
+                orientation = NativeLinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = (48f * density).toInt()
+                setPadding(
+                    horizontalPadding,
+                    headerVerticalPadding,
+                    horizontalPadding,
+                    headerVerticalPadding
+                )
+                foreground = selfRippleBackground(12f)
+                isClickable = true
+                isFocusable = true
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                contentDescription = title.text
+                addView(
+                    View(this@MainActivity).apply {
+                        background = GradientDrawable().apply {
+                            cornerRadius = 2f * density
+                            setColor(monetColors.primary)
+                        }
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    },
+                    NativeLinearLayout.LayoutParams(
+                        (3f * density).toInt().coerceAtLeast(1),
+                        (18f * density).toInt()
+                    ).apply { marginEnd = (10f * density).toInt() }
+                )
+                addView(
+                    title,
+                    NativeLinearLayout.LayoutParams(
+                        0,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        1f
+                    )
+                )
+                addView(
+                    chevron,
+                    NativeLinearLayout.LayoutParams(
+                        (18f * density).toInt(),
+                        (18f * density).toInt()
+                    )
+                )
+                setOnClickListener { toggleAdvancedCategory(category) }
+            }
+            val card = NativeLinearLayout(this).apply {
+                orientation = NativeLinearLayout.VERTICAL
+                background = skinCardBackground(monetColors.surface, 12f)
+                addView(
+                    header,
+                    NativeLinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                )
+                addView(
+                    content,
+                    NativeLinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                )
+            }
+            root.addView(
+                card,
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = ((if (index == 0) 4f else 8f) * density).toInt()
+                }
+            )
+            advancedCategorySections[category] = AdvancedCategorySection(
+                header = header,
+                content = content,
+                chevron = chevron
+            )
+        }
+    }
+
+    /** 分类使用手风琴行为，避免同时展开后重新形成超长页面。 */
+    private fun toggleAdvancedCategory(category: AdvancedSettingsCategory) {
+        val target = advancedCategorySections[category] ?: return
+        setAdvancedCategoryExpanded(category, expanded = !target.expanded)
+    }
+
+    private fun setAdvancedCategoryExpanded(
+        category: AdvancedSettingsCategory,
+        expanded: Boolean
+    ) {
+        if (expanded) {
+            advancedCategorySections.forEach { (otherCategory, section) ->
+                if (otherCategory != category && section.expanded) {
+                    section.expanded = false
+                    section.header.isActivated = false
+                    animateSecondarySection(section.content, section.chevron, expanded = false)
+                }
+            }
+        }
+        val section = advancedCategorySections[category] ?: return
+        if (section.expanded == expanded) return
+        section.expanded = expanded
+        section.header.isActivated = expanded
+        animateSecondarySection(section.content, section.chevron, expanded)
+    }
+
+    /** 设置搜索命中隐藏分类时，先展开其所属卡片再滚动和高亮。 */
+    private fun expandAdvancedCategoryContaining(target: View): Boolean {
+        val match = advancedCategorySections.entries.firstOrNull { (_, section) ->
+            target === section.header || target.isSameOrDescendantOf(section.content)
+        } ?: return false
+        if (match.value.expanded) return false
+        setAdvancedCategoryExpanded(match.key, expanded = true)
+        return true
+    }
+
+    private fun View.isSameOrDescendantOf(ancestor: View): Boolean {
+        var candidate: View? = this
+        while (candidate != null) {
+            if (candidate === ancestor) return true
+            candidate = candidate.parent as? View
+        }
+        return false
+    }
+
     /**
      * 二级菜单公共动效。
      *
@@ -4450,6 +4822,9 @@ class MainActivity : SkinnedActivity() {
                 else -> inheritedSection
             }
             val collapsedSectionRoot = view === advancedContent || view === experimentalContent
+                || advancedCategorySections.values.any { section ->
+                    section.content === view
+                }
             if (!collapsedSectionRoot && view.visibility != View.VISIBLE) return
 
             when {
@@ -4723,7 +5098,7 @@ class MainActivity : SkinnedActivity() {
     }
 
     private fun revealSettingsSearchTarget(target: RuntimeSettingsSearchTarget) {
-        val sectionDelay = when (target.section) {
+        val primarySectionDelay = when (target.section) {
             SettingsSearchSection.ADVANCED -> {
                 if (!advancedExpanded) {
                     advancedExpanded = true
@@ -4748,6 +5123,13 @@ class MainActivity : SkinnedActivity() {
             }
             SettingsSearchSection.GENERAL -> 0L
         }
+        val categoryDelay = if (
+            target.section == SettingsSearchSection.ADVANCED &&
+            expandAdvancedCategoryContaining(target.view)
+        ) {
+            300L
+        } else 0L
+        val sectionDelay = maxOf(primarySectionDelay, categoryDelay)
         val scrollView = settingsSearchScrollView ?: return
         scrollView.postDelayed({
             if (isFinishing || isDestroyed || target.view.parent == null) return@postDelayed
@@ -4818,6 +5200,13 @@ class MainActivity : SkinnedActivity() {
         advancedContent?.animate()?.setListener(null)
         advancedContent?.animate()?.cancel()
         advancedChevron?.animate()?.cancel()
+        advancedCategorySections.values.forEach { section ->
+            section.content.animate().setListener(null)
+            section.content.animate().cancel()
+            section.chevron.animate().cancel()
+        }
+        advancedCategorySections.clear()
+        advancedCategoryMarkers.clear()
         experimentalContent = null
         experimentalChevron = null
         advancedContent = null
@@ -6046,6 +6435,9 @@ class MainActivity : SkinnedActivity() {
                                     bottomMargin = 4.dp
                                 }
                             ) {
+                                advancedCategoryMarkers[
+                                    AdvancedSettingsCategory.HOME_NAVIGATION
+                                ] = this
                                 alpha = 0.9f
                                 isSingleLine = true
                                 text = stringResource(R.string.advanced_home_navigation_category)
@@ -6551,12 +6943,15 @@ class MainActivity : SkinnedActivity() {
                                     setBackgroundColor(ColorUtils.setAlphaComponent(colorResource(R.color.colorTextGray), 0x40))
                                 }
                             )
-                            // 分类：界面与提示
+                            // 分类：页面与显示
                             TextView(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     bottomMargin = 4.dp
                                 }
                             ) {
+                                advancedCategoryMarkers[
+                                    AdvancedSettingsCategory.INTERFACE
+                                ] = this
                                 alpha = 0.9f
                                 isSingleLine = true
                                 text = stringResource(R.string.advanced_interface_category)
@@ -7028,6 +7423,9 @@ class MainActivity : SkinnedActivity() {
                                     bottomMargin = 4.dp
                                 }
                             ) {
+                                advancedCategoryMarkers[
+                                    AdvancedSettingsCategory.PLAYBACK
+                                ] = this
                                 alpha = 0.9f
                                 isSingleLine = true
                                 text = stringResource(R.string.advanced_playback_category)
@@ -7579,6 +7977,9 @@ class MainActivity : SkinnedActivity() {
                                     bottomMargin = 4.dp
                                 }
                             ) {
+                                advancedCategoryMarkers[
+                                    AdvancedSettingsCategory.COMMENT
+                                ] = this
                                 alpha = 0.9f
                                 isSingleLine = true
                                 text = stringResource(R.string.advanced_comment_category)
@@ -8751,7 +9152,8 @@ class MainActivity : SkinnedActivity() {
                 if (!isFinishing && !isDestroyed) skinSummaryView?.text = currentSkinSummary()
             }
         }
-        // setContentView 返回后尚未进入首帧绘制，此时重排不会产生界面跳动。
+        // setContentView 返回后尚未进入首帧绘制，此时重组/重排不会产生界面跳动。
+        installAdvancedCategorySections()
         placeAdvancedBelowExperimental()
         renderNoRootUi()
         // 布局完成后定位日志档位滑块（宽度收缩为一半 + 对齐当前档位）

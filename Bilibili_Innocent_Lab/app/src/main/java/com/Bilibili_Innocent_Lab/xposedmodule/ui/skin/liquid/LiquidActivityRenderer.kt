@@ -2,20 +2,27 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid
 
 import android.annotation.SuppressLint
 import android.content.pm.ApplicationInfo
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorFilter
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.view.PixelCopy
 import android.view.View
 import android.view.ViewTreeObserver
 import android.view.WindowManager
 import androidx.annotation.MainThread
 import androidx.core.graphics.ColorUtils
+import androidx.core.graphics.createBitmap
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
 import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundMode
@@ -40,8 +47,9 @@ internal interface LiquidMotionSurfaceFrameProvider {
 /**
  * MainActivity 首批使用的 Activity 级 Liquid renderer。
  *
- * 每个实例只持有一个静态 backdrop source；Surface Drawable 共享该 source 与当前后端。Bitmap、
- * RuntimeShader、RenderEffect 都在绑定/降级路径创建，draw 只更新位置和 uniform。
+ * 每个实例持有一个稳定 root underlay；用户启用高负载模式后，Surface Drawable 可改采三缓冲
+ * PixelCopy source。Bitmap、RuntimeShader、RenderEffect 都在绑定/切换路径创建，draw 只更新位置
+ * 和 uniform。
  */
 internal class LiquidActivityRenderer(
     private val activity: AppViewsActivity,
@@ -49,6 +57,15 @@ internal class LiquidActivityRenderer(
 ) : AutoCloseable {
     private val density = activity.resources.displayMetrics.density
     private val darkPalette = ColorUtils.calculateLuminance(palette.surface) < 0.5
+    private val hardwareAccelerated = activity.isHardwareAccelerationRequested()
+    private val realtimeCaptureRequested = LiquidRealtimeCaptureStore.isEnabled(activity)
+    private val realtimeCaptureSupported = LiquidRealtimeCapturePolicy.isSupported(
+        sdkInt = AndroidVersion.code,
+        hardwareAccelerated = hardwareAccelerated
+    )
+    private val effectProfile = if (realtimeCaptureRequested && realtimeCaptureSupported) {
+        LiquidEffectProfile.REALTIME_CAPTURE
+    } else LiquidEffectProfile.STANDARD
     private val visualTuning = LiquidVisualTuningPolicy.resolve(
         dark = darkPalette
     )
@@ -56,10 +73,13 @@ internal class LiquidActivityRenderer(
     private val backgroundWorker = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "liquid-background-loader").apply { isDaemon = true }
     }
-    private val parameters: LiquidParameters = LiquidTokenResolver.resolve(visualTuning)
+    private val parameters: LiquidParameters = LiquidTokenResolver.resolve(
+        tuning = visualTuning,
+        profile = effectProfile
+    )
     private val backendCandidates = LiquidCapabilityPolicy.candidateOrder(
         sdkInt = AndroidVersion.code,
-        hardwareAccelerated = activity.isHardwareAccelerationRequested()
+        hardwareAccelerated = hardwareAccelerated
     )
     private val fallbackPlan = LiquidBackendFallbackPlan(backendCandidates)
     private val preparedDrivers = linkedMapOf<LiquidRenderBackend, LiquidBackendDriver>()
@@ -68,14 +88,33 @@ internal class LiquidActivityRenderer(
         style = Paint.Style.STROKE
         strokeWidth = parameters.highlightWidthDp * density
     }
+    private val outlineGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = parameters.highlightGlowWidthDp * density
+    }
     private val rootFallbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.background
     }
     private val surfaceViews = WeakHashMap<View, Unit>()
     private val retiredBackdropSources = LinkedHashSet<LiquidBackdropSource>()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val realtimeCaptureCanvas = Canvas()
+    private val realtimeCaptureMask = Path()
+    private val realtimeCaptureBounds = Rect()
+    private val realtimeCaptureSourceRect = Rect()
+    private val realtimeRootLocation = IntArray(2)
+    private val realtimeSurfaceLocation = IntArray(2)
 
     private var backendDriver: LiquidBackendDriver? = null
     private var backdropSource: LiquidBackdropSource? = null
+    private var realtimeBackdropSource: LiquidBackdropSource? = null
+    private var realtimeCaptureSources: List<LiquidBackdropSource> = emptyList()
+    private var realtimeCaptureNextIndex = 0
+    private var realtimeCaptureInFlight: LiquidBackdropSource? = null
+    private var realtimeCaptureRequestStartedAt = 0L
+    private var realtimeCaptureFailureCount = 0
+    private var realtimeCaptureSuspended = false
+    private var activityVisible = false
     private var boundRoot: View? = null
     private var rootDrawable: LiquidRootDrawable? = null
     private var rootLayoutListener: View.OnLayoutChangeListener? = null
@@ -92,6 +131,10 @@ internal class LiquidActivityRenderer(
     private var fatalPosted = false
     private var closed = false
     private val rootScreenLocation = IntArray(2)
+    private val realtimeCaptureRunnable = Runnable { requestRealtimeCapture() }
+    private val pixelCopyFinishedListener = PixelCopy.OnPixelCopyFinishedListener { result ->
+        handleRealtimeCaptureResult(result)
+    }
 
     val backend: LiquidRenderBackend?
         get() = backendDriver?.backend ?: fallbackPlan.current
@@ -141,7 +184,21 @@ internal class LiquidActivityRenderer(
         root.background = drawable
 
         root.invalidate()
+        if (activityVisible) scheduleRealtimeCapture(LiquidRealtimeCapturePolicy.INITIAL_DELAY_MS)
         return true
+    }
+
+    @MainThread
+    fun onActivityStarted() {
+        if (closed) return
+        activityVisible = true
+        scheduleRealtimeCapture(LiquidRealtimeCapturePolicy.INITIAL_DELAY_MS)
+    }
+
+    @MainThread
+    fun onActivityStopped() {
+        activityVisible = false
+        boundRoot?.removeCallbacks(realtimeCaptureRunnable)
     }
 
     fun createSurfaceDrawable(
@@ -193,6 +250,7 @@ internal class LiquidActivityRenderer(
     }
 
     private fun releaseGraphicsForMemoryPressure() {
+        suspendRealtimeCapture(releaseBuffers = true)
         forceTranslucentAndReleaseBackdrop()
         boundRoot?.invalidate()
         invalidateRegisteredSurfaces()
@@ -262,7 +320,9 @@ internal class LiquidActivityRenderer(
 
         drawWithFallback { driver ->
             if (driver.backend != LiquidRenderBackend.TRANSLUCENT) {
-                checkNotNull(backdropSource) { "GPU Liquid backend has no backdrop source" }
+                checkNotNull(realtimeBackdropSource ?: backdropSource) {
+                    "GPU Liquid backend has no backdrop source"
+                }
                 driver.drawBackdrop(
                     canvas,
                     bounds,
@@ -307,10 +367,31 @@ internal class LiquidActivityRenderer(
             bounds.right.toFloat(), bounds.bottom.toFloat(),
             radiusPx, radiusPx, overlayPaint
         )
-        // 用户已确认该高光观感良好：宽度、颜色和 0x66 alpha 保持不变。
+        if (parameters.highlightGlowAlpha > 0f && outlineGlowPaint.strokeWidth > 0f &&
+            bounds.width() > outlineGlowPaint.strokeWidth &&
+            bounds.height() > outlineGlowPaint.strokeWidth
+        ) {
+            outlineGlowPaint.color = ColorUtils.setAlphaComponent(
+                Color.WHITE,
+                (parameters.highlightGlowAlpha * 255f * alpha / 255f)
+                    .toInt()
+                    .coerceIn(0, 255)
+            )
+            val glowInset = outlineGlowPaint.strokeWidth * 0.5f
+            canvas.drawRoundRect(
+                bounds.left + glowInset,
+                bounds.top + glowInset,
+                bounds.right - glowInset,
+                bounds.bottom - glowInset,
+                (radiusPx - glowInset).coerceAtLeast(0f),
+                (radiusPx - glowInset).coerceAtLeast(0f),
+                outlineGlowPaint
+            )
+        }
+        // 标准档保持既有 0x66 高光；实时档使用更亮、更宽且带柔和内圈的双层边缘。
         outlinePaint.color = ColorUtils.setAlphaComponent(
             Color.WHITE,
-            (0x66 * alpha / 255f).toInt().coerceIn(0, 255)
+            (parameters.highlightAlpha * 255f * alpha / 255f).toInt().coerceIn(0, 255)
         )
         val inset = outlinePaint.strokeWidth * 0.5f
         canvas.drawRoundRect(
@@ -496,6 +577,201 @@ internal class LiquidActivityRenderer(
         }
     }
 
+    /** 以目标 30 FPS 排队；任何时刻只允许一个 PixelCopy 请求在飞行。 */
+    private fun scheduleRealtimeCapture(delayMs: Long) {
+        val root = boundRoot ?: return
+        if (closed || !activityVisible || realtimeCaptureSuspended ||
+            effectProfile != LiquidEffectProfile.REALTIME_CAPTURE ||
+            realtimeCaptureInFlight != null
+        ) {
+            return
+        }
+        root.removeCallbacks(realtimeCaptureRunnable)
+        root.postOnAnimationDelayed(realtimeCaptureRunnable, delayMs.coerceAtLeast(0L))
+    }
+
+    private fun requestRealtimeCapture() {
+        val root = boundRoot ?: return
+        if (closed || !activityVisible || realtimeCaptureSuspended ||
+            effectProfile != LiquidEffectProfile.REALTIME_CAPTURE ||
+            realtimeCaptureInFlight != null
+        ) {
+            return
+        }
+        if (!root.isAttachedToWindow || !root.isShown ||
+            root.windowVisibility != View.VISIBLE || surfaceViews.isEmpty()
+        ) {
+            scheduleRealtimeCapture(LiquidRealtimeCapturePolicy.RETRY_DELAY_MS)
+            return
+        }
+        val captureSources = ensureRealtimeCaptureSources(root) ?: return
+        val sourceIndex = realtimeCaptureNextIndex.mod(captureSources.size)
+        val captureSource = captureSources[sourceIndex]
+        realtimeCaptureNextIndex = (sourceIndex + 1).mod(captureSources.size)
+
+        root.getLocationInWindow(realtimeRootLocation)
+        realtimeCaptureSourceRect.set(
+            realtimeRootLocation[0],
+            realtimeRootLocation[1],
+            realtimeRootLocation[0] + root.width,
+            realtimeRootLocation[1] + root.height
+        )
+        realtimeCaptureInFlight = captureSource
+        realtimeCaptureRequestStartedAt = SystemClock.uptimeMillis()
+        val requested = runCatching {
+            PixelCopy.request(
+                activity.window,
+                realtimeCaptureSourceRect,
+                captureSource.bitmap,
+                pixelCopyFinishedListener,
+                mainHandler
+            )
+        }.isSuccess
+        if (!requested) handleRealtimeCaptureResult(PixelCopy.ERROR_SOURCE_INVALID)
+    }
+
+    private fun handleRealtimeCaptureResult(result: Int) {
+        val captureSource = realtimeCaptureInFlight ?: return
+        realtimeCaptureInFlight = null
+        if (closed || !activityVisible || realtimeCaptureSuspended ||
+            effectProfile != LiquidEffectProfile.REALTIME_CAPTURE
+        ) {
+            return
+        }
+
+        if (result == PixelCopy.SUCCESS && sanitizeRealtimeCapture(captureSource)) {
+            realtimeCaptureFailureCount = 0
+            realtimeBackdropSource = captureSource
+            bindPreparedBackendsToBackdrop(captureSource)
+            invalidateRegisteredSurfaces()
+            val elapsed = SystemClock.uptimeMillis() - realtimeCaptureRequestStartedAt
+            scheduleRealtimeCapture(LiquidRealtimeCapturePolicy.nextFrameDelayMs(elapsed))
+            return
+        }
+
+        if (result != PixelCopy.ERROR_SOURCE_NO_DATA) realtimeCaptureFailureCount += 1
+        if (LiquidRealtimeCapturePolicy.shouldSuspend(realtimeCaptureFailureCount)) {
+            suspendRealtimeCapture(releaseBuffers = true)
+        } else {
+            scheduleRealtimeCapture(LiquidRealtimeCapturePolicy.RETRY_DELAY_MS)
+        }
+    }
+
+    /**
+     * 把已绘制玻璃区域以 0xDC 的稳定底图覆盖，仍保留约 14% 上一帧轮廓作为内部景深。
+     * 该递推强度严格小于 1，可抑制无限反馈，同时让实时画面在边缘折射中保持可感知。
+     */
+    private fun sanitizeRealtimeCapture(captureSource: LiquidBackdropSource): Boolean {
+        val root = boundRoot ?: return false
+        val stableBackdrop = backdropSource ?: return false
+        if (captureSource.isClosed || stableBackdrop.isClosed || root.width <= 0 || root.height <= 0) {
+            return false
+        }
+
+        val bitmap = captureSource.bitmap
+        val scaleX = bitmap.width.toFloat() / root.width.toFloat()
+        val scaleY = bitmap.height.toFloat() / root.height.toFloat()
+        root.getLocationOnScreen(realtimeRootLocation)
+        realtimeCaptureMask.reset()
+        var hasMask = false
+        val iterator = surfaceViews.keys.iterator()
+        while (iterator.hasNext()) {
+            val surface = iterator.next()
+            if (!surface.isAttachedToWindow) {
+                iterator.remove()
+                continue
+            }
+            if (!surface.isShown || surface.alpha <= 0f || surface.rootView !== root.rootView) continue
+            surface.getLocationOnScreen(realtimeSurfaceLocation)
+            val left = ((realtimeSurfaceLocation[0] - realtimeRootLocation[0]) * scaleX)
+                .coerceIn(0f, bitmap.width.toFloat())
+            val top = ((realtimeSurfaceLocation[1] - realtimeRootLocation[1]) * scaleY)
+                .coerceIn(0f, bitmap.height.toFloat())
+            val right = (left + surface.width * scaleX).coerceAtMost(bitmap.width.toFloat())
+            val bottom = (top + surface.height * scaleY).coerceAtMost(bitmap.height.toFloat())
+            if (right > left && bottom > top) {
+                realtimeCaptureMask.addRect(left, top, right, bottom, Path.Direction.CW)
+                hasMask = true
+            }
+        }
+        if (!hasMask) return false
+
+        realtimeCaptureBounds.set(0, 0, bitmap.width, bitmap.height)
+        realtimeCaptureCanvas.setBitmap(bitmap)
+        val saveCount = realtimeCaptureCanvas.save()
+        return try {
+            realtimeCaptureCanvas.clipPath(realtimeCaptureMask)
+            stableBackdrop.drawRoot(
+                realtimeCaptureCanvas,
+                realtimeCaptureBounds,
+                LiquidRealtimeCapturePolicy.BASE_SUPPRESSION_ALPHA
+            )
+            true
+        } finally {
+            realtimeCaptureCanvas.restoreToCount(saveCount)
+            realtimeCaptureCanvas.setBitmap(null)
+        }
+    }
+
+    private fun ensureRealtimeCaptureSources(root: View): List<LiquidBackdropSource>? {
+        val width = root.width
+        val height = root.height
+        if (width <= 0 || height <= 0) {
+            scheduleRealtimeCapture(LiquidRealtimeCapturePolicy.RETRY_DELAY_MS)
+            return null
+        }
+        val target = LiquidRealtimeCapturePolicy.resolveSize(width, height)
+        val existing = realtimeCaptureSources
+        if (existing.size == LiquidRealtimeCapturePolicy.BUFFER_COUNT &&
+            existing.all {
+                !it.isClosed && it.fullWidth == width && it.fullHeight == height &&
+                    it.bitmap.width == target.width && it.bitmap.height == target.height
+            }
+        ) {
+            return existing
+        }
+
+        releaseRealtimeCaptureSources(rebindStableBackdrop = true)
+        val created = ArrayList<LiquidBackdropSource>(LiquidRealtimeCapturePolicy.BUFFER_COUNT)
+        val result = runCatching {
+            repeat(LiquidRealtimeCapturePolicy.BUFFER_COUNT) {
+                val bitmap = createBitmap(target.width, target.height, Bitmap.Config.ARGB_8888)
+                bitmap.eraseColor(palette.background)
+                created += LiquidBackdropSource.fromRealtimeBitmap(bitmap, width, height)
+            }
+            created.toList()
+        }.getOrElse {
+            created.forEach { source ->
+                source.close()
+                if (!source.bitmap.isRecycled) source.bitmap.recycle()
+            }
+            realtimeCaptureSuspended = true
+            return null
+        }
+        realtimeCaptureSources = result
+        realtimeCaptureNextIndex = 0
+        return result
+    }
+
+    private fun suspendRealtimeCapture(releaseBuffers: Boolean) {
+        realtimeCaptureSuspended = true
+        boundRoot?.removeCallbacks(realtimeCaptureRunnable)
+        if (releaseBuffers) releaseRealtimeCaptureSources(rebindStableBackdrop = true)
+    }
+
+    private fun releaseRealtimeCaptureSources(rebindStableBackdrop: Boolean) {
+        val stableBackdrop = backdropSource
+        realtimeBackdropSource = null
+        if (rebindStableBackdrop && stableBackdrop != null && !stableBackdrop.isClosed &&
+            backendDriver?.backend != LiquidRenderBackend.TRANSLUCENT
+        ) {
+            bindPreparedBackendsToBackdrop(stableBackdrop)
+        }
+        realtimeCaptureSources.forEach(LiquidBackdropSource::close)
+        realtimeCaptureSources = emptyList()
+        realtimeCaptureNextIndex = 0
+    }
+
     /** 只选择 bind 阶段已准备的实例；该方法允许从 draw 调用，但绝不创建图形资源。 */
     private fun selectCurrentPreparedBackend(): Boolean {
         while (!closed) {
@@ -603,6 +879,10 @@ internal class LiquidActivityRenderer(
     override fun close() {
         if (closed) return
         closed = true
+        activityVisible = false
+        realtimeCaptureSuspended = true
+        boundRoot?.removeCallbacks(realtimeCaptureRunnable)
+        realtimeCaptureInFlight = null
         customBackdropLoadGeneration += 1L
         customBackdropFuture?.cancel(true)
         customBackdropFuture = null
@@ -622,6 +902,8 @@ internal class LiquidActivityRenderer(
         preparedDrivers.values.forEach(LiquidBackendDriver::close)
         preparedDrivers.clear()
         backendDriver = null
+        releaseRealtimeCaptureSources(rebindStableBackdrop = false)
+        realtimeCaptureCanvas.setBitmap(null)
         backdropSource?.close()
         backdropSource = null
         retiredBackdropSources.forEach(LiquidBackdropSource::close)
