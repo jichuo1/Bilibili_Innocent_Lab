@@ -194,6 +194,42 @@ class NoRootSupportStateTest {
         )
     }
 
+    @Test
+    fun `activation card distinguishes framework settling from unavailable`() {
+        assertEquals(
+            ActivationDisplayState.ACTIVE_LSPOSED,
+            NoRootSupportState.activationDisplayState(
+                rootActive = true,
+                frameworkCheckPending = true,
+                displayState = NoRootDisplayState.ACTIVE
+            )
+        )
+        assertEquals(
+            ActivationDisplayState.ACTIVE_NPATCH,
+            NoRootSupportState.activationDisplayState(
+                rootActive = false,
+                frameworkCheckPending = true,
+                displayState = NoRootDisplayState.ACTIVE
+            )
+        )
+        assertEquals(
+            ActivationDisplayState.CHECKING,
+            NoRootSupportState.activationDisplayState(
+                rootActive = false,
+                frameworkCheckPending = true,
+                displayState = NoRootDisplayState.DISABLED
+            )
+        )
+        assertEquals(
+            ActivationDisplayState.UNAVAILABLE,
+            NoRootSupportState.activationDisplayState(
+                rootActive = false,
+                frameworkCheckPending = false,
+                displayState = NoRootDisplayState.DISABLED
+            )
+        )
+    }
+
     private fun snapshot() = NoRootConfigSnapshot(
         schemaVersion = NoRootConfigSnapshotCodec.CURRENT_SCHEMA_VERSION,
         catalogVersion = 3,
