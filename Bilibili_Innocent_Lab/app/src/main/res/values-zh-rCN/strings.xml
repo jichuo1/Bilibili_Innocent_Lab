@@ -279,6 +279,9 @@
     <string name="liquid_background_dialog_title">配置 Liquid Glass 背景</string>
     <string name="liquid_background_dialog_description">选择一张本地图片作为图形化界面的底层背景，页面根背景和玻璃表面会采样同一张处理后的图片。</string>
     <string name="liquid_background_preview_description">当前自定义 Liquid Glass 背景预览</string>
+    <string name="material_color_spec_title">使用 SPEC 2025</string>
+    <string name="material_color_spec_summary">开启时使用 SPEC 2025，关闭时使用 SPEC 2021；Material You 与 Liquid Glass 共用所选规范，切换后会立即重新生成配色。</string>
+    <string name="material_color_spec_save_failed">配色规范保存失败，已保持当前设置。</string>
     <string name="liquid_background_choose">选择图片</string>
     <string name="liquid_background_replace">更换图片</string>
     <string name="liquid_background_choose_description">通过系统文件选择器导入，并将经过限幅、去除元数据的图片复制到应用私有目录。</string>

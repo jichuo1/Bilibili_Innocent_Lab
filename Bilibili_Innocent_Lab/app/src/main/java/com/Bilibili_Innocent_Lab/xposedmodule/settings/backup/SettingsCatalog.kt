@@ -5,6 +5,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpec
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpecStore
 
 /**
  * 可备份用户意图的唯一白名单。
@@ -15,13 +17,14 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 3
+    const val CATALOG_VERSION = 4
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
     const val ID_FREE_COPY_DESCRIPTION = "free_copy.description.enabled"
     const val ID_RECOMMEND_VIDEO_MIN_DURATION =
         "recommend.video_duration.minimum_seconds"
     const val ID_RECOMMEND_VIDEO_MAX_DURATION =
         "recommend.video_duration.maximum_seconds"
+    const val ID_MATERIAL_COLOR_SPEC = "module_ui.material_color_spec"
 
     private fun bool(
         id: String,
@@ -243,6 +246,18 @@ internal object SettingsCatalog {
                 ImportEffect.RECREATE_MODULE_UI
             )
         ),
+        text(
+            ID_MATERIAL_COLOR_SPEC,
+            MaterialColorSpecStore.PREF_KEY,
+            R.string.material_color_spec_title,
+            default = MaterialColorSpec.DEFAULT.storageValue,
+            allowed = setOf(
+                MaterialColorSpec.SPEC_2021.storageValue,
+                MaterialColorSpec.SPEC_2025.storageValue
+            ),
+            introducedCatalogVersion = 4,
+            effects = setOf(ImportEffect.RECREATE_MODULE_UI)
+        ),
         bool("diagnostics.logging.enabled", HookEntry.PREF_LOG_ENABLED, R.string.log_capture_enable, default = true),
         text(
             "diagnostics.logging.level",
@@ -256,7 +271,7 @@ internal object SettingsCatalog {
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
 
     init {
-        check(specs.size == 75) { "Expected 75 catalog settings, found ${specs.size}" }
+        check(specs.size == 76) { "Expected 76 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"
