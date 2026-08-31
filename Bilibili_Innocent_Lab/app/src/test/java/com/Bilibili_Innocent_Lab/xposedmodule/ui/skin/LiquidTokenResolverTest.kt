@@ -30,6 +30,7 @@ class LiquidTokenResolverTest {
             )
             assertEquals(tuning.saturation, parameters.saturation, 0f)
             assertFalse(parameters.chromaticAberration)
+            assertEquals(0f, parameters.scatteringStrength, 0f)
             assertEquals(1.1f, parameters.highlightWidthDp, 0f)
         }
     }
@@ -84,6 +85,8 @@ class LiquidTokenResolverTest {
         assertTrue(realtime.interiorDistortionDp > 0f)
         assertTrue(realtime.chromaticAberration)
         assertTrue(realtime.chromaticShiftDp > 0f)
+        assertTrue(realtime.scatteringRadiusDp > 0f)
+        assertTrue(realtime.scatteringStrength > 0f)
         assertTrue(realtime.surfaceAlpha < standard.surfaceAlpha)
         assertTrue(realtime.highlightWidthDp > standard.highlightWidthDp)
         assertTrue(realtime.highlightGlowAlpha > 0f)
