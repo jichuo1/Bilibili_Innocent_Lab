@@ -1,11 +1,13 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin
 
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidSurfaceAlphaPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidEffectProfile
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidTokenResolver
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidVisualTuningPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SurfaceRole
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LiquidTokenResolverTest {
@@ -66,5 +68,25 @@ class LiquidTokenResolverTest {
             LiquidSurfaceAlphaPolicy.resolve(SurfaceRole.MOTION_SURFACE, true, parameters),
             0f
         )
+    }
+
+    @Test
+    fun `realtime profile exaggerates optics while preserving readable fallback`() {
+        val tuning = LiquidVisualTuningPolicy.resolve(dark = true)
+        val standard = LiquidTokenResolver.resolve(tuning)
+        val realtime = LiquidTokenResolver.resolve(
+            tuning,
+            LiquidEffectProfile.REALTIME_CAPTURE
+        )
+
+        assertTrue(realtime.refractionHeightDp > standard.refractionHeightDp)
+        assertTrue(realtime.refractionAmountDp > standard.refractionAmountDp)
+        assertTrue(realtime.interiorDistortionDp > 0f)
+        assertTrue(realtime.chromaticAberration)
+        assertTrue(realtime.chromaticShiftDp > 0f)
+        assertTrue(realtime.surfaceAlpha < standard.surfaceAlpha)
+        assertTrue(realtime.highlightWidthDp > standard.highlightWidthDp)
+        assertTrue(realtime.highlightGlowAlpha > 0f)
+        assertEquals(standard.fallbackSurfaceAlpha, realtime.fallbackSurfaceAlpha, 0f)
     }
 }

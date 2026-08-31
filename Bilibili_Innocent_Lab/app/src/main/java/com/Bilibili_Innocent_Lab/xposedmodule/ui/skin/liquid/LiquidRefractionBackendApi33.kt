@@ -37,8 +37,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.LiquidRenderBackend
  * safe rounded-rectangle gradient and color treatment from AndroidLiquidGlassView v1.0.5.
  *
  * Modifications: extracted the rounded-rectangle refraction program, removed Compose/Skia wrappers,
- * uses one Android RuntimeShader per Activity backend, binds the module-owned static Monet backdrop,
- * and supplies equal corner radii from the View Drawable contract.
+ * uses one Android RuntimeShader per Activity backend, binds the module-owned stable or real-time
+ * backdrop, and supplies equal corner radii from the View Drawable contract.
  */
 @RequiresApi(33)
 internal class LiquidRefractionBackendApi33(
@@ -61,6 +61,11 @@ internal class LiquidRefractionBackendApi33(
         )
         shader.setFloatUniform("refractionAmount", parameters.refractionAmountDp * density)
         shader.setFloatUniform("depthEffect", parameters.depthEffect)
+        shader.setFloatUniform(
+            "interiorDistortion",
+            parameters.interiorDistortionDp * density
+        )
+        shader.setFloatUniform("chromaticShift", parameters.chromaticShiftDp * density)
         shader.setFloatUniform("chromaMultiplier", parameters.saturation)
     }
 
@@ -117,6 +122,8 @@ uniform float4 cornerRadii;
 uniform float refractionHeight;
 uniform float refractionAmount;
 uniform float depthEffect;
+uniform float interiorDistortion;
+uniform float chromaticShift;
 uniform float chromaMultiplier;
 
 const half3 rgbToY = half3(0.2126, 0.7152, 0.0722);
@@ -184,14 +191,33 @@ half4 sampleContent(float2 canvasCoord) {
     return content.eval(rootCoord * backdropScale);
 }
 
+half4 sampleRefracted(float2 canvasCoord, float2 direction) {
+    half4 center = sampleContent(canvasCoord);
+    if (chromaticShift <= 0.001) return center;
+    float2 axis = safeNormalize(direction, float2(1.0, 0.0));
+    half red = sampleContent(canvasCoord + axis * chromaticShift).r;
+    half blue = sampleContent(canvasCoord - axis * chromaticShift).b;
+    return half4(red, center.g, blue, center.a);
+}
+
 half4 main(float2 coord) {
     float2 halfSize = size * 0.5;
     float2 centeredCoord = (coord + offset) - halfSize;
     float radius = radiusAt(centeredCoord, cornerRadii);
 
+    float2 safeHalfSize = max(halfSize, float2(1.0));
+    float2 normalizedCoord = centeredCoord / safeHalfSize;
+    float radial = clamp(length(normalizedCoord), 0.0, 1.0);
+    float interiorLens = max(1.0 - radial * radial, 0.0);
+    float2 interiorOffset = normalizedCoord * interiorDistortion * interiorLens;
+    float2 interiorDirection = safeNormalize(centeredCoord, float2(1.0, 0.0));
+
     float sd = sdRoundedRect(centeredCoord, halfSize, radius);
     if (-sd >= refractionHeight) {
-        return saturateColor(sampleContent(coord), chromaMultiplier);
+        return saturateColor(
+            sampleRefracted(coord + interiorOffset, interiorDirection),
+            chromaMultiplier
+        );
     }
     sd = min(sd, 0.0);
 
@@ -202,7 +228,7 @@ half4 main(float2 coord) {
     float2 depthGrad = safeNormalize(centeredCoord, shapeGrad);
     float2 grad = safeNormalize(shapeGrad + depthEffect * depthGrad, shapeGrad);
 
-    float2 refractedCoord = coord + d * grad;
-    return saturateColor(sampleContent(refractedCoord), chromaMultiplier);
+    float2 refractedCoord = coord + interiorOffset + d * grad;
+    return saturateColor(sampleRefracted(refractedCoord, grad), chromaMultiplier);
 }
 """

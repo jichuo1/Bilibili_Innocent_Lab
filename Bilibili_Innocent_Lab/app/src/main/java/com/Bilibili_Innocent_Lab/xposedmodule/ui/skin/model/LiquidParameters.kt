@@ -11,6 +11,8 @@ internal data class LiquidParameters(
     val refractionHeightDp: Float,
     val refractionAmountDp: Float,
     val depthEffect: Float,
+    val interiorDistortionDp: Float,
+    val chromaticShiftDp: Float,
     val chromaticAberration: Boolean,
     val saturation: Float,
     val surfaceAlpha: Float,
@@ -20,6 +22,9 @@ internal data class LiquidParameters(
     val fallbackModalSurfaceAlpha: Float,
     val fallbackMotionSurfaceAlpha: Float,
     val highlightWidthDp: Float,
+    val highlightAlpha: Float,
+    val highlightGlowWidthDp: Float,
+    val highlightGlowAlpha: Float,
     val highlightBlurRadiusDp: Float,
     val highlightAngleDegrees: Float,
     val effectPaddingDp: Float

@@ -152,6 +152,16 @@ abstract class SkinnedActivity : AppViewsActivity() {
                 }
             }
 
+    override fun onStart() {
+        super.onStart()
+        skinSessionOrNull?.onActivityStarted()
+    }
+
+    override fun onStop() {
+        skinSessionOrNull?.onActivityStopped()
+        super.onStop()
+    }
+
     override fun onTrimMemory(level: Int) {
         skinSessionOrNull?.onTrimMemory(level)
         super.onTrimMemory(level)
