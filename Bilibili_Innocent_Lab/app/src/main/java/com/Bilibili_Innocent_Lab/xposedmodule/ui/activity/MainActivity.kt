@@ -88,6 +88,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportAppl
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ModuleSettingsStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatus
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatusListener
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigPublishState
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
@@ -309,6 +310,7 @@ class MainActivity : SkinnedActivity() {
     private var activationIconView: android.widget.ImageView? = null
     private var activationTitleView: NativeTextView? = null
     private var activationSourceView: NativeTextView? = null
+    private var diagnosticsSummaryView: NativeTextView? = null
     private val activationMainHandler = Handler(Looper.getMainLooper())
     private var frameworkStatusCheckPending = true
     private var frameworkServiceObserved = false
@@ -606,6 +608,32 @@ class MainActivity : SkinnedActivity() {
                     )
             }
             isVisible = true
+        }
+        diagnosticsSummaryView?.apply {
+            val publishState = RemoteHookConfigStore.diagnostics().state
+            val skinFallback = currentSkinDiagnostics()?.fallbackReason != null
+            val noRootNeedsAttention = when (noRootState) {
+                NoRootDisplayState.MANAGER_MISSING,
+                NoRootDisplayState.MODULE_NOT_REGISTERED,
+                NoRootDisplayState.RESTART_REQUIRED,
+                NoRootDisplayState.DISABLE_RESTART_REQUIRED,
+                NoRootDisplayState.DISABLE_RESTART_REQUIRED_ACTIVE,
+                NoRootDisplayState.CONNECTION_TIMEOUT,
+                NoRootDisplayState.ERROR -> true
+                else -> false
+            }
+            setText(
+                when {
+                    displayState == ActivationDisplayState.CHECKING ->
+                        R.string.diagnostics_entry_checking
+                    displayState == ActivationDisplayState.UNAVAILABLE ->
+                        R.string.diagnostics_entry_action_required
+                    publishState == RemoteHookConfigPublishState.FAILED ||
+                        skinFallback || noRootNeedsAttention ->
+                        R.string.diagnostics_entry_attention
+                    else -> R.string.diagnostics_entry_ready
+                }
+            )
         }
     }
 
@@ -3966,6 +3994,7 @@ class MainActivity : SkinnedActivity() {
         activationIconView = null
         activationTitleView = null
         activationSourceView = null
+        diagnosticsSummaryView = null
         logLevelColorAnimator?.cancel()
         logLevelColorAnimator = null
         logLevelThumb?.animate()?.cancel()
@@ -4487,6 +4516,13 @@ class MainActivity : SkinnedActivity() {
                         gravity = Gravity.CENTER or Gravity.START
                         // 首次绘制使用中性确认态；布局完成后由单快照 renderer 统一收敛。
                         background = roundedColor(monetColors.surfaceVariant)
+                        foreground = selfRippleBackground(15f)
+                        isClickable = true
+                        isFocusable = true
+                        contentDescription = stringResource(R.string.diagnostics_title)
+                        setOnClickListener {
+                            startActivity(Intent(this@MainActivity, DiagnosticsActivity::class.java))
+                        }
                         activationCardView = this
                     }
                 ) {
@@ -4571,6 +4607,19 @@ class MainActivity : SkinnedActivity() {
                             textSize = 11f
                             text = stringResource(R.string.module_activation_waiting_framework)
                             isVisible = true
+                        }
+                        TextView(
+                            lparams = LayoutParams {
+                                topMargin = 7.dp
+                            }
+                        ) {
+                            diagnosticsSummaryView = this
+                            alpha = 0.82f
+                            isSingleLine = true
+                            ellipsize = TextUtils.TruncateAt.END
+                            textColor = colorResource(R.color.white)
+                            textSize = 12f
+                            text = stringResource(R.string.diagnostics_entry_checking)
                         }
                     }
                 }

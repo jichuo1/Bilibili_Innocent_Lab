@@ -37,6 +37,26 @@ internal data class ModernFrameworkStatus(
     val apiVersion: Int
 )
 
+internal enum class RemoteHookConfigPublishState {
+    NOT_INITIALIZED,
+    WAITING_FOR_SERVICE,
+    PUBLISHING,
+    READY,
+    FAILED
+}
+
+/**
+ * 仅供模块自身诊断页读取的有界状态；不保留设置值、异常对象、路径或 Binder 句柄。
+ */
+internal data class RemoteHookConfigDiagnostics(
+    val state: RemoteHookConfigPublishState,
+    val lastAttemptAtEpochMs: Long,
+    val lastSuccessAtEpochMs: Long,
+    val generation: Long,
+    val failureCode: String?,
+    val publishPending: Boolean
+)
+
 internal fun interface ModernFrameworkStatusListener {
     fun onFrameworkStatusChanged(status: ModernFrameworkStatus)
 }
@@ -70,6 +90,14 @@ internal object RemoteHookConfigStore {
         name = "",
         apiVersion = 0
     )
+    @Volatile private var publishDiagnostics = RemoteHookConfigDiagnostics(
+        state = RemoteHookConfigPublishState.NOT_INITIALIZED,
+        lastAttemptAtEpochMs = 0L,
+        lastSuccessAtEpochMs = 0L,
+        generation = 0L,
+        failureCode = null,
+        publishPending = false
+    )
 
     fun initialize(context: Context, decision: UserTermsDecision): RemoteHookConfigPublishResult {
         val appContext = context.applicationContext ?: context
@@ -98,15 +126,49 @@ internal object RemoteHookConfigStore {
         val appContext = context.applicationContext ?: context
         applicationContext = appContext
         requestedDecision = decision
-        val activeService = service ?: return@synchronized RemoteHookConfigPublishResult.Failure(
-            "Xposed service is not connected"
+        val attemptAt = System.currentTimeMillis().coerceAtLeast(1L)
+        publishDiagnostics = publishDiagnostics.copy(
+            state = RemoteHookConfigPublishState.PUBLISHING,
+            lastAttemptAtEpochMs = attemptAt,
+            failureCode = null,
+            publishPending = true
         )
-        if (!frameworkStatus.capable) {
-            return@synchronized RemoteHookConfigPublishResult.Failure(
+        val activeService = service
+        val result = when {
+            activeService == null -> RemoteHookConfigPublishResult.Failure(
+                "Xposed service is not connected"
+            )
+            !frameworkStatus.capable -> RemoteHookConfigPublishResult.Failure(
                 "Xposed framework does not provide API 102 remote preferences"
             )
+            else -> publishWithService(appContext, decision, activeService)
         }
-        runCatching {
+        publishDiagnostics = when (result) {
+            is RemoteHookConfigPublishResult.Success -> publishDiagnostics.copy(
+                state = RemoteHookConfigPublishState.READY,
+                lastSuccessAtEpochMs = System.currentTimeMillis().coerceAtLeast(attemptAt),
+                generation = result.generation,
+                failureCode = null,
+                publishPending = false
+            )
+            is RemoteHookConfigPublishResult.Failure -> publishDiagnostics.copy(
+                state = if (activeService == null) {
+                    RemoteHookConfigPublishState.WAITING_FOR_SERVICE
+                } else {
+                    RemoteHookConfigPublishState.FAILED
+                },
+                failureCode = result.toFailureCode(),
+                publishPending = false
+            )
+        }
+        result
+    }
+
+    private fun publishWithService(
+        appContext: Context,
+        decision: UserTermsDecision,
+        activeService: XposedService
+    ): RemoteHookConfigPublishResult = runCatching {
             val values = RemoteHookConfigContract.resolveSourceValues(
                 appContext.modulePreferences().all
             )
@@ -116,7 +178,7 @@ internal object RemoteHookConfigStore {
                 current.snapshot.decision == decision &&
                 current.snapshot.values == values
             ) {
-                return@synchronized RemoteHookConfigPublishResult.Success(
+                return@runCatching RemoteHookConfigPublishResult.Success(
                     generation = current.snapshot.generation,
                     changed = false
                 )
@@ -158,9 +220,15 @@ internal object RemoteHookConfigStore {
                 throwable
             )
         }
-    }
 
     fun status(): ModernFrameworkStatus = frameworkStatus
+
+    fun diagnostics(): RemoteHookConfigDiagnostics = synchronized(lock) {
+        publishDiagnostics.copy(
+            publishPending = publishDiagnostics.publishPending ||
+                publishScheduled.get() || publishDirty.get()
+        )
+    }
 
     /**
      * 框架服务由 LSPosed 异步投递；订阅时立即回送当前快照，消除 Activity 首次绘制与
@@ -268,5 +336,12 @@ internal object RemoteHookConfigStore {
         this < 1L -> 1L
         this == Long.MAX_VALUE -> Long.MAX_VALUE
         else -> this + 1L
+    }
+
+    private fun RemoteHookConfigPublishResult.Failure.toFailureCode(): String = when (reason) {
+        "Xposed service is not connected" -> "service_not_connected"
+        "Xposed framework does not provide API 102 remote preferences" ->
+            "remote_preferences_unsupported"
+        else -> "publish_failed"
     }
 }
