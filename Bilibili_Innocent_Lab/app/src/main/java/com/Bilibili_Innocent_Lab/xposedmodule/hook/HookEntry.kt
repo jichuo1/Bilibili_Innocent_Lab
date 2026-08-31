@@ -23,6 +23,7 @@ import java.lang.reflect.Method
 import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotReporter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.HookConfigSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.SnapshotHookConfigSource
@@ -2540,18 +2541,9 @@ class HookEntry : XposedModule() {
                 logInfo = { key, message -> logInfo(key, message) },
                 logError = { key, message -> logError(key, message) },
                 reportStatus = { channel, status -> reportChannelStatus(channel, status) },
-                // 宿主剪枝时把可屏蔽项快照写入模块私有 prefs（模块 App 用同一文件读，勾选列表数据源）
+                // 宿主 uid 不能写模块私有 prefs：经受限 Provider/显式广播交给模块 uid 落盘。
                 writeMineScanSnapshot = { json ->
-                    runCatching {
-                        // 写模块自身私有 prefs（跨进程通道：模块 App 用同文件读取做勾选列表）。
-                        // 宿主进程内包名是宿主（tv.danmaku.bili），必须显式用模块包名拼 prefs 名。
-                        authorizationContext.applicationContext
-                            ?.getSharedPreferences(
-                                "com.Bilibili_Innocent_Lab.xposedmodule_preferences",
-                                android.content.Context.MODE_PRIVATE
-                            )?.edit()?.putString(FeaturePreferences.MINE_COMPONENT_SCAN_SNAPSHOT, json)
-                            ?.apply()
-                    }
+                    MineComponentSnapshotReporter.report(authorizationContext, json)
                 }
             )
             val featureInstallCoordinator = FeatureInstallCoordinator(hookEnvironment)
@@ -2641,6 +2633,10 @@ class HookEntry : XposedModule() {
                         ).orEmpty()
                             .split(Regex("[,，;；\\r\\n]+"))
                             .filter { it.isNotBlank() },
+                        selectors = prefs.getString(
+                            FeaturePreferences.MINE_COMPONENT_HIDDEN_SELECTORS,
+                            ""
+                        ).orEmpty(),
                         points = hostAdaptResult?.mineComponents,
                         accountMinePoints = hostAdaptResult?.mineAccountMine
                     )
