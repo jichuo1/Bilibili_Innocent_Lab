@@ -127,7 +127,7 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 35
+    private const val SCHEMA_VERSION = 36
     private const val ADAPTER_RULE_VERSION = 28
 
     enum class AdaptState {
@@ -564,6 +564,9 @@ object VersionAdapter {
     data class MineComponentPoints(
         val itemListGetters: List<HookPoint>,
         val itemTitleGetters: List<HookPoint>,
+        val itemIdGetters: List<HookPoint> = emptyList(),
+        val itemUriGetters: List<HookPoint> = emptyList(),
+        val groupTitleGetters: List<HookPoint> = emptyList(),
         val legacyBuildMethods: List<HookPoint> = emptyList(),
         val legacyGroupListField: String? = null,
         val legacyAdapterField: String? = null,
@@ -575,6 +578,9 @@ object VersionAdapter {
         fun toJson(): JSONObject = JSONObject().apply {
             put("lists", JSONArray().apply { itemListGetters.forEach { put(it.toJson()) } })
             put("titles", JSONArray().apply { itemTitleGetters.forEach { put(it.toJson()) } })
+            put("ids", JSONArray().apply { itemIdGetters.forEach { put(it.toJson()) } })
+            put("uris", JSONArray().apply { itemUriGetters.forEach { put(it.toJson()) } })
+            put("group_titles", JSONArray().apply { groupTitleGetters.forEach { put(it.toJson()) } })
             if (legacyBuildMethods.isNotEmpty()) {
                 put("legacy_build", JSONArray().apply {
                     legacyBuildMethods.forEach { put(it.toJson()) }
@@ -596,6 +602,9 @@ object VersionAdapter {
                 return MineComponentPoints(
                     itemListGetters = points("lists"),
                     itemTitleGetters = points("titles"),
+                    itemIdGetters = points("ids"),
+                    itemUriGetters = points("uris"),
+                    groupTitleGetters = points("group_titles"),
                     legacyBuildMethods = points("legacy_build"),
                     legacyGroupListField = o.optString("legacy_groups").takeIf { it.isNotBlank() },
                     legacyAdapterField = o.optString("legacy_adapter").takeIf { it.isNotBlank() },
@@ -624,34 +633,34 @@ object VersionAdapter {
         val accountMineClass: String,
         val sectionListV2Field: String,
         val groupClass: String,
-        val groupTitleField: String,
+        val groupTitleField: String?,
         val groupItemListField: String,
         val itemClass: String,
         val itemTitleField: String,
-        val itemIdField: String,
-        val itemUriField: String,
-        val itemVisibleField: String,
-        val itemLocalShowField: String,
-        val liveTipField: String,
-        val vipSectionRightField: String,
-        val sectionButtonField: String
+        val itemIdField: String?,
+        val itemUriField: String?,
+        val itemVisibleField: String?,
+        val itemLocalShowField: String?,
+        val liveTipField: String?,
+        val vipSectionRightField: String?,
+        val sectionButtonField: String?
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("build", JSONArray().apply { buildMethods.forEach { put(it.toJson()) } })
             put("account_mine", accountMineClass)
             put("sections", sectionListV2Field)
             put("group", groupClass)
-            put("group_title", groupTitleField)
+            groupTitleField?.let { put("group_title", it) }
             put("group_items", groupItemListField)
             put("item", itemClass)
             put("item_title", itemTitleField)
-            put("item_id", itemIdField)
-            put("item_uri", itemUriField)
-            put("item_visible", itemVisibleField)
-            put("item_local_show", itemLocalShowField)
-            put("live_tip", liveTipField)
-            put("vip_section_right", vipSectionRightField)
-            put("section_button", sectionButtonField)
+            itemIdField?.let { put("item_id", it) }
+            itemUriField?.let { put("item_uri", it) }
+            itemVisibleField?.let { put("item_visible", it) }
+            itemLocalShowField?.let { put("item_local_show", it) }
+            liveTipField?.let { put("live_tip", it) }
+            vipSectionRightField?.let { put("vip_section_right", it) }
+            sectionButtonField?.let { put("section_button", it) }
         }
 
         companion object {
@@ -664,17 +673,18 @@ object VersionAdapter {
                     accountMineClass = o.getString("account_mine"),
                     sectionListV2Field = o.getString("sections"),
                     groupClass = o.getString("group"),
-                    groupTitleField = o.getString("group_title"),
+                    groupTitleField = o.optString("group_title").takeIf { it.isNotBlank() },
                     groupItemListField = o.getString("group_items"),
                     itemClass = o.getString("item"),
                     itemTitleField = o.getString("item_title"),
-                    itemIdField = o.getString("item_id"),
-                    itemUriField = o.getString("item_uri"),
-                    itemVisibleField = o.getString("item_visible"),
-                    itemLocalShowField = o.getString("item_local_show"),
-                    liveTipField = o.getString("live_tip"),
-                    vipSectionRightField = o.getString("vip_section_right"),
-                    sectionButtonField = o.getString("section_button")
+                    itemIdField = o.optString("item_id").takeIf { it.isNotBlank() },
+                    itemUriField = o.optString("item_uri").takeIf { it.isNotBlank() },
+                    itemVisibleField = o.optString("item_visible").takeIf { it.isNotBlank() },
+                    itemLocalShowField = o.optString("item_local_show").takeIf { it.isNotBlank() },
+                    liveTipField = o.optString("live_tip").takeIf { it.isNotBlank() },
+                    vipSectionRightField = o.optString("vip_section_right")
+                        .takeIf { it.isNotBlank() },
+                    sectionButtonField = o.optString("section_button").takeIf { it.isNotBlank() }
                 )
             }
         }
@@ -2990,7 +3000,7 @@ object VersionAdapter {
      * “我的”页入口的数据层剪枝定位：以 AccountMine 为锚，在 Fragment 的静态构建方法
      * (Fragment, AccountMine) -> Unit 之后做原地剪枝。复用 locateMineEntry 的
      * AccountMine/Item 定位结论，但这里采集的是“运行时字段读写所需的字段名快照”。
-     * 字段缺失任一即返回 null（调用方回退 getter 路径）。
+     * 只有 sections、group.itemList 和 item.title 是剪枝必需字段；附件字段缺失时保留对应组件。
      */
     fun locateMineAccountMinePoints(loader: ClassLoader): MineAccountMinePoints? = runCatching {
         val fragmentName = MINE_FRAGMENT_CLASS
@@ -3014,39 +3024,35 @@ object VersionAdapter {
 
         fun fieldName(owner: Class<*>, predicate: (java.lang.reflect.Field) -> Boolean): String? =
             KavaMemberLookup.declaredFields(owner, makeAccessible = true) { predicate(it) }
-                .singleOrNull()
+                .firstOrNull()
                 ?.name
 
         val sectionsField = fieldName(accountMine) {
-            it.type.isAssignableFrom(java.util.List::class.java) &&
-                it.name.startsWith("sectionList")
+            it.name == "sectionListV2" && java.util.List::class.java.isAssignableFrom(it.type)
+        } ?: fieldName(accountMine) {
+            it.name.startsWith("sectionListV2") && java.util.List::class.java.isAssignableFrom(it.type)
         } ?: return@runCatching null
         val groupTitleField = fieldName(group) {
             it.name == "title" && it.type == classOf<String>()
-        } ?: return@runCatching null
+        }
         val groupItemsField = fieldName(group) {
             !it.isStatic && !java.lang.reflect.Modifier.isFinal(it.modifiers) &&
-                it.type.isAssignableFrom(java.util.List::class.java) &&
+                java.util.List::class.java.isAssignableFrom(it.type) &&
                 (it.genericType as? java.lang.reflect.ParameterizedType)
                     ?.actualTypeArguments?.singleOrNull()?.rawClassOrNull()?.name == itemName
         } ?: return@runCatching null
         val itemTitleField = fieldName(item) {
             it.name == "title" && it.type == classOf<String>()
         } ?: return@runCatching null
-        val itemIdField = fieldName(item) { it.name == "id" } ?: return@runCatching null
+        val itemIdField = fieldName(item) { it.name == "id" }
         val itemUriField = fieldName(item) {
             it.name == "uri" && it.type == classOf<String>()
-        } ?: return@runCatching null
+        }
         val itemVisibleField = fieldName(item) { it.name == "visible" }
-            ?: return@runCatching null
         val itemLocalShowField = fieldName(item) { it.name == "localShow" }
-            ?: return@runCatching null
         val liveTipField = fieldName(accountMine) { it.name == "liveTip" }
-            ?: return@runCatching null
         val vipSectionRightField = fieldName(accountMine) { it.name == "vipSectionRight" }
-            ?: return@runCatching null
         val sectionButtonField = fieldName(group) { it.name == "button" }
-            ?: return@runCatching null
 
         MineAccountMinePoints(
             buildMethods = builds,
@@ -3105,8 +3111,48 @@ object VersionAdapter {
             .distinctBy(Method::toGenericString)
             .map { it.toHookPoint() }
             .toList()
+        fun itemGetter(name: String, requireString: Boolean): List<HookPoint> =
+            MINE_MENU_ITEM_CLASS_CANDIDATES.asSequence()
+                .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+                .flatMap { owner ->
+                    KavaMemberLookup.methods(
+                        owner,
+                        includeSuperclasses = true,
+                        makeAccessible = true
+                    ) { method ->
+                        method.name == name && method.parameterCount == 0 && !method.isStatic &&
+                            method.returnType != Void.TYPE &&
+                            (!requireString || method.returnType == classOf<String>())
+                    }.asSequence()
+                }
+                .distinctBy(Method::toGenericString)
+                .map { it.toHookPoint() }
+                .toList()
+        val ids = itemGetter("getId", requireString = false)
+        val uris = itemGetter("getUri", requireString = true)
+        val groupTitles = MINE_MENU_GROUP_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.methods(
+                    owner,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    method.name == "getTitle" && method.parameterCount == 0 && !method.isStatic &&
+                        method.returnType == classOf<String>()
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
         if (lists.isNotEmpty() && titles.isNotEmpty()) {
-            return@runCatching MineComponentPoints(lists, titles)
+            return@runCatching MineComponentPoints(
+                itemListGetters = lists,
+                itemTitleGetters = titles,
+                itemIdGetters = ids,
+                itemUriGetters = uris,
+                groupTitleGetters = groupTitles
+            )
         }
         locateLegacyMineComponents(loader, mineEntry ?: locateMineEntry(loader))
     }.getOrNull()

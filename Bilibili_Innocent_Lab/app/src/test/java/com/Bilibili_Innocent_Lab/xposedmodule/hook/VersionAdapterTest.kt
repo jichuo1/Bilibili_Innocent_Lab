@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -775,6 +776,21 @@ class VersionAdapterTest {
 
         assertEquals(setOf("getItemList"), points?.itemListGetters?.map { it.methodName }?.toSet())
         assertEquals(setOf("getTitle"), points?.itemTitleGetters?.map { it.methodName }?.toSet())
+    }
+
+    @Test
+    fun `mine account model selects sectionListV2 when both section lists exist`() {
+        val points = VersionAdapter.locateMineAccountMinePoints(
+            requireNotNull(javaClass.classLoader)
+        )
+
+        assertNotNull(points)
+        assertEquals("sectionListV2", points?.sectionListV2Field)
+        assertTrue(requireNotNull(points).buildMethods.isNotEmpty())
+        assertEquals(
+            points,
+            points.toJson().let(VersionAdapter.MineAccountMinePoints::fromJson)
+        )
     }
 
     @Test

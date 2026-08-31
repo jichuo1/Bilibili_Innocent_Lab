@@ -70,7 +70,10 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.RoamingCompatHook
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentFilterFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentScanEntry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSelectionCodec
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshot
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshotCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.RuleSetCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.GitHubReleaseChecker
@@ -132,6 +135,7 @@ class MainActivity : SkinnedActivity() {
         const val PREF_LAST_CHECK_PREVIEW = "last_successful_check_ms_preview"
         const val AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1_000L
         const val FRAMEWORK_STATUS_SETTLE_MS = 1_500L
+        const val MINE_COMPONENT_SNAPSHOT_STALE_MS = 7L * 24L * 60L * 60L * 1_000L
 
         /** LSPosed 管理器包名：条款保存失败（服务未连接）时的快捷跳转目标，不存在则隐藏入口。 */
         private const val LSPOSED_MANAGER_PACKAGE = "org.lsposed.manager"
@@ -2786,22 +2790,31 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
-    /** 读宿主剪枝写入的可屏蔽项快照 JSON；空白/无效返回 ""（调用方回退手动输入）。 */
-    private fun readMineComponentSnapshot(): String = runCatching {
+    /** 快照严格校验失败时返回 null，由调用方明确提示并回退手动规则。 */
+    private fun readMineComponentSnapshot(): MineComponentSnapshot? = runCatching {
         prefs().getString(FeaturePreferences.MINE_COMPONENT_SCAN_SNAPSHOT, "").orEmpty()
-    }.getOrNull().orEmpty()
+    }.getOrNull()?.let(MineComponentSnapshotCodec::decodeOrNull)
+
+    private fun showMineManualRuleEditor() {
+        showRuleEditorDialog(
+            R.string.custom_mine_component_hide_dialog_title,
+            R.string.custom_mine_component_hide_hint,
+            mineComponentHiddenRules
+        ) { value ->
+            mineComponentHiddenRules = value
+            prefs().edit {
+                putString(FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES, value)
+            }
+            mineComponentRulesSummaryView?.text =
+                getString(R.string.custom_mine_component_hide) + "\n" + mineComponentSummary()
+        }
+    }
 
     /**
-     * “我的”页可屏蔽项动态勾选列表：读取宿主剪枝快照，逐条勾选隐藏，确认后写回
-     * hidden_ids（逗号分隔）。沿用项目模态弹窗 + 统一退场动画；无快照时不进入。
+     * 动态勾选只写稳定 selector；旧 id 和用户手写标题规则仅作为兼容输入，不会被覆盖。
      */
-    private fun showMineComponentPickerDialog(snapshotJson: String) {
-        val entries = runCatching {
-            val arr = JSONObject(snapshotJson).optJSONArray("items") ?: return
-            (0 until arr.length()).mapNotNull { i ->
-                MineComponentFilterFeatureInstaller.MineScanEntry.fromJson(arr.getJSONObject(i))
-            }
-        }.getOrNull() ?: return
+    private fun showMineComponentPickerDialog(snapshot: MineComponentSnapshot) {
+        val entries = snapshot.entries
         if (entries.isEmpty()) return
 
         val density = resources.displayMetrics.density
@@ -2821,14 +2834,43 @@ class MainActivity : SkinnedActivity() {
             )
         )
 
-        // 已勾选隐藏集合（新 UI 勾选；旧 title 规则一并视为已隐藏）
+        val snapshotAge = (System.currentTimeMillis() - snapshot.generatedAt)
+            .coerceAtLeast(0L)
+        container.addView(
+            NativeTextView(this).apply {
+                text = when {
+                    snapshot.generatedAt <= 0L ->
+                        getString(R.string.custom_mine_component_snapshot_legacy)
+                    snapshotAge > MINE_COMPONENT_SNAPSHOT_STALE_MS ->
+                        getString(R.string.custom_mine_component_snapshot_stale)
+                    else -> getString(
+                        R.string.custom_mine_component_snapshot_ready,
+                        entries.count(MineComponentScanEntry::selectable)
+                    )
+                }
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 12f
+                setPadding(0, (8 * density).toInt(), 0, 0)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        val initialSelectors = MineComponentSelectionCodec.decode(
+            prefs().getString(
+                FeaturePreferences.MINE_COMPONENT_HIDDEN_SELECTORS,
+                ""
+            ).orEmpty()
+        )
         val initialHiddenIds = prefs().getString(
             FeaturePreferences.MINE_COMPONENT_HIDDEN_IDS, ""
-        ).orEmpty().split(Regex("[,，;；\\r\\n]+")).filter { it.isNotBlank() }.toMutableSet()
+        ).orEmpty().split(Regex("[,，;；\\r\\n]+")).filter { it.isNotBlank() }.toSet()
         val initialHiddenRules = RuleSetCodec.parse(
             prefs().getString(FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES, "").orEmpty()
         )
-        fun entryHidden(e: MineComponentFilterFeatureInstaller.MineScanEntry): Boolean =
+        fun legacyHidden(e: MineComponentScanEntry): Boolean =
             (e.id != null && e.id in initialHiddenIds) ||
                 (e.title != null && RuleSetCodec.matches(initialHiddenRules, e.title))
 
@@ -2845,14 +2887,20 @@ class MainActivity : SkinnedActivity() {
         }
         val checkboxes = ArrayList<android.widget.CheckBox>()
         entries.forEach { entry ->
+            val legacyLocked = legacyHidden(entry)
             val box = android.widget.CheckBox(this).apply {
                 text = buildString {
                     append(entry.title ?: entry.id ?: "(未命名)")
                     entry.uri?.let { append("  ·  ").append(it) }
+                    if (legacyLocked) append(getString(R.string.custom_mine_component_legacy_locked))
+                    else if (!entry.selectable) {
+                        append(getString(R.string.custom_mine_component_not_selectable))
+                    }
                 }
                 textSize = 14f
                 setTextColor(getColor(R.color.colorTextDark))
-                isChecked = entryHidden(entry)
+                isChecked = legacyLocked || entry.key in initialSelectors
+                isEnabled = entry.selectable && !legacyLocked
             }
             checkboxes.add(box)
             rowContainer.addView(
@@ -2885,6 +2933,27 @@ class MainActivity : SkinnedActivity() {
         }
         buttonRow.addView(
             NativeTextView(this).apply {
+                text = getString(R.string.custom_mine_component_manual_rules)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 14f
+                setPadding(
+                    (16 * density).toInt(), (11 * density).toInt(),
+                    (16 * density).toInt(), (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    dismissWithAnimation(dialog, container, ::showMineManualRuleEditor)
+                }
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        buttonRow.addView(
+            NativeTextView(this).apply {
                 text = getString(R.string.dialog_cancel)
                 textColor = getColor(R.color.colorTextGray)
                 textSize = 14f
@@ -2907,29 +2976,29 @@ class MainActivity : SkinnedActivity() {
                 text = getString(R.string.dialog_confirm),
                 filled = true
             ) {
-                val hiddenIds = entries.mapIndexedNotNull { index, entry ->
-                    if (checkboxes.getOrNull(index)?.isChecked == true) entry.id else null
-                }.filterNotNull()
+                val editableKeys = entries.mapIndexedNotNull { index, entry ->
+                    if (entry.selectable && checkboxes.getOrNull(index)?.isEnabled == true) {
+                        entry.key
+                    } else {
+                        null
+                    }
+                }.toSet()
+                val checkedSelectors = entries.mapIndexedNotNull { index, entry ->
+                    if (entry.selectable &&
+                        checkboxes.getOrNull(index)?.isEnabled == true &&
+                        checkboxes[index].isChecked
+                    ) entry.key else null
+                }.toSet()
+                val hiddenSelectors = (initialSelectors - editableKeys) + checkedSelectors
                 prefs().edit {
                     putString(
-                        FeaturePreferences.MINE_COMPONENT_HIDDEN_IDS,
-                        hiddenIds.joinToString(",")
-                    )
-                    // 保留标题规则（供旧手动输入与 data 层 title 匹配）。
-                    val titleHides = entries.mapIndexedNotNull { index, entry ->
-                        if (checkboxes.getOrNull(index)?.isChecked == true) entry.title else null
-                    }.filterNotNull()
-                    putString(
-                        FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES,
-                        titleHides.joinToString(",")
+                        FeaturePreferences.MINE_COMPONENT_HIDDEN_SELECTORS,
+                        MineComponentSelectionCodec.encode(hiddenSelectors)
                     )
                 }
-                mineComponentHiddenRules = runCatching {
-                    prefs().getString(FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES, "").orEmpty()
-                }.getOrDefault("")
                 mineComponentRulesSummaryView?.text =
-                    getString(R.string.custom_mine_component_hide) + "\n" +
-                        ruleSummary(mineComponentHiddenRules)
+                    getString(R.string.custom_mine_component_hide) + "\n" + mineComponentSummary()
+                toast(getString(R.string.custom_mine_component_restart_required))
                 dismissWithAnimation(dialog, container) {}
             },
             NativeLinearLayout.LayoutParams(
@@ -3352,6 +3421,24 @@ class MainActivity : SkinnedActivity() {
         getString(R.string.custom_hide_rules_empty)
     } else {
         getString(R.string.custom_hide_rules_current, value)
+    }
+
+    private fun mineComponentSummary(): String {
+        val selectorCount = MineComponentSelectionCodec.decode(
+            prefs().getString(
+                FeaturePreferences.MINE_COMPONENT_HIDDEN_SELECTORS,
+                ""
+            ).orEmpty()
+        ).size
+        val selectorSummary = if (selectorCount > 0) {
+            getString(R.string.custom_mine_component_selected_count, selectorCount)
+        } else {
+            ""
+        }
+        val manualSummary = ruleSummary(mineComponentHiddenRules)
+        return if (selectorSummary.isEmpty()) manualSummary
+        else if (mineComponentHiddenRules.isBlank()) selectorSummary
+        else "$selectorSummary\n$manualSummary"
     }
 
     private fun openExternalUrl(url: String) {
@@ -5749,7 +5836,7 @@ class MainActivity : SkinnedActivity() {
                             ) {
                                 mineComponentRulesSummaryView = this
                                 text = stringResource(R.string.custom_mine_component_hide) + "\n" +
-                                    ruleSummary(mineComponentHiddenRules)
+                                    mineComponentSummary()
                                 textColor = colorResource(R.color.colorTextGray)
                                 textSize = 15f
                                 maxLines = 3
@@ -5760,27 +5847,13 @@ class MainActivity : SkinnedActivity() {
                                 isClickable = true
                                 isFocusable = true
                                 setOnClickListener {
-                                    // 优先展示动态勾选列表（宿主扫描快照）；无快照时回退手动输入
+                                    // 有效快照展示稳定选择器；无快照明确提示后回退手动输入。
                                     val snapshot = readMineComponentSnapshot()
-                                    if (snapshot.isNotEmpty()) {
+                                    if (snapshot != null && snapshot.entries.isNotEmpty()) {
                                         showMineComponentPickerDialog(snapshot)
                                     } else {
-                                        showRuleEditorDialog(
-                                            R.string.custom_mine_component_hide_dialog_title,
-                                            R.string.custom_mine_component_hide_hint,
-                                            mineComponentHiddenRules
-                                        ) { value ->
-                                            mineComponentHiddenRules = value
-                                            prefs().edit {
-                                                putString(
-                                                    FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES,
-                                                    value
-                                                )
-                                            }
-                                            mineComponentRulesSummaryView?.text =
-                                                stringResource(R.string.custom_mine_component_hide) + "\n" +
-                                                    ruleSummary(value)
-                                        }
+                                        toast(getString(R.string.custom_mine_component_snapshot_missing))
+                                        showMineManualRuleEditor()
                                     }
                                 }
                             }

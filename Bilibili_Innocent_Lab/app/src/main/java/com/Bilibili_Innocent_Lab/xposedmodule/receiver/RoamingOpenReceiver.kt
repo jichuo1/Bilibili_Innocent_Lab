@@ -8,6 +8,7 @@ import android.os.SystemClock
 import androidx.core.content.IntentCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootUpgradeRecoveryCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
@@ -43,6 +44,11 @@ class RoamingOpenReceiver : BroadcastReceiver() {
         const val EXTRA_CALLER_PROOF = "no_root_caller_proof"
         const val EXTRA_NO_ROOT_ACTIVE = "no_root_active"
 
+        /** Provider 被包可见性隔离时的“我的”页扫描快照回退上报。 */
+        const val ACTION_REPORT_MINE_COMPONENT_SNAPSHOT =
+            "com.Bilibili_Innocent_Lab.xposedmodule.REPORT_MINE_COMPONENT_SNAPSHOT"
+        const val EXTRA_MINE_SNAPSHOT_CALLER_PROOF = "mine_snapshot_caller_proof"
+
         /** B 站进程发送的广播 action（RoamingCompatHook 中点击入口时发送） */
         const val ACTION_OPEN_ROAMING_SETTINGS = "com.Bilibili_Innocent_Lab.xposedmodule.OPEN_ROAMING_SETTINGS"
         const val EXTRA_REQUEST_ELAPSED_REALTIME = "request_elapsed_realtime"
@@ -72,6 +78,10 @@ class RoamingOpenReceiver : BroadcastReceiver() {
         }
         if (intent.action == ACTION_REPORT_NO_ROOT_HEARTBEAT) {
             receiveNoRootHeartbeat(context, intent)
+            return
+        }
+        if (intent.action == ACTION_REPORT_MINE_COMPONENT_SNAPSHOT) {
+            receiveMineComponentSnapshot(context, intent)
             return
         }
         if (intent.action != ACTION_OPEN_ROAMING_SETTINGS) return
@@ -185,5 +195,25 @@ class RoamingOpenReceiver : BroadcastReceiver() {
                 targetPackage = targetPackage
             )
         }
+    }
+
+    private fun receiveMineComponentSnapshot(context: Context, intent: Intent) {
+        if (AndroidVersion.isAtLeast(AndroidVersion.U) &&
+            sentFromPackage != HookEntry.TARGET_PACKAGE
+        ) return
+        val callerProof = IntentCompat.getParcelableExtra(
+            intent,
+            EXTRA_MINE_SNAPSHOT_CALLER_PROOF,
+            PendingIntent::class.java
+        ) ?: return
+        if (callerProof.creatorPackage != HookEntry.TARGET_PACKAGE) return
+        val authorized = runCatching {
+            UserTermsConsentStore.readOrInitialize(context).isAuthorized
+        }.getOrDefault(false)
+        if (!authorized) return
+        val payload = intent.getStringExtra(
+            RoamingCompatProvider.EXTRA_MINE_COMPONENT_SNAPSHOT
+        ).orEmpty()
+        MineComponentSnapshotStore.write(context, payload)
     }
 }
