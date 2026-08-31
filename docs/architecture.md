@@ -60,7 +60,7 @@ checks. An undecided user sees the scrollable terms gate; a declined user sees
 only a locked page with exit and review actions. Accept and decline use a
 synchronous commit. The back key exits an undecided gate without writing a
 decision, while outside-touch dismissal is disabled.
-`FreeCopyActivity` and `SettingsBackupActivity` apply the same check and finish
+`FreeCopyActivity`, `SettingsBackupActivity`, and `DiagnosticsActivity` apply the same check and finish
 immediately when the decision is unauthorized, so an internal Activity launch
 or restored Activity stack cannot bypass the gate.
 
@@ -121,6 +121,37 @@ settings use catalog defaults, and malformed individual source values are
 normalized only in the Remote Preferences mirror rather than deleting the
 private source.
 
+## Local diagnostics center
+
+`DiagnosticsActivity` is an unexported, read-only module Activity. It reuses the
+same terms gate, Activity-scoped skin session, fixed Liquid underlay, foreground-only
+stretch viewport, and predictive-back preference as the other module UI. Collection
+runs on one ViewModel-owned worker; Activity recreation does not retain a View,
+renderer, Binder, PackageInfo, or Context in the diagnostic model.
+
+Diagnostics distinguish four evidence levels: locally configured intent, a Remote
+Preferences snapshot that the module publisher wrote and fully read back, a runtime
+observation such as a framework service or version-matched NPatch heartbeat, and an
+explicit unavailable boundary. Framework API capability is not treated as proof that
+an individual host hook adapted successfully. The module process cannot safely read
+Bilibili's private `VersionAdapter` cache, so host adaptation remains `UNKNOWN` until
+a future authenticated host receipt protocol exists; the diagnostic page does not
+add a Provider, broadcast, reverse Binder call, or private-path probe to guess it.
+
+`RemoteHookConfigStore` exposes an in-memory bounded publication diagnostic
+(`NOT_INITIALIZED`, `WAITING_FOR_SERVICE`, `PUBLISHING`, `READY`, or `FAILED`) with
+attempt/success timestamps, generation, pending state, and one of a small failure-code
+set. It never retains preference values or exports the original Throwable. MainActivity
+uses only already-resolved activation/NPatch state plus this in-memory summary, so the
+new overview entry adds no package query or `AtomicFile` read to its render path.
+
+The optional SAF report is a versioned UTF-8 JSON allowlist and is reopened, compared
+byte-for-byte, and structurally validated before success is shown. It includes module
+and target versions, framework capability, bounded runtime state, skin backend, catalog
+counts, and assessment codes. Preference values, custom rules, file paths, log text,
+exception details, and host class/member names are structurally absent. No storage
+permission or network operation is used.
+
 ## Shared runtime helpers
 
 `runtime/TargetAppStorage` centralizes Bilibili cache path construction and
@@ -156,7 +187,7 @@ Android's Storage Access Framework, displays the complete plan, and never asks
 for broad storage permission. Confirmed writes use the Yuki preferences bridge
 and synchronous `commit()`; they never call `clear()` or write unknown keys.
 
-The current catalog contains 72 records. Seventy-one are automatically restorable.
+The current catalog contains 74 records. Seventy-three are automatically restorable.
 Roaming compatibility remains in the file and preview as `MANUAL`, including
 its backup and current values, but the importer never writes it. Old invalid
 QN, comment-level, and logging enum values are exported using the same effective
