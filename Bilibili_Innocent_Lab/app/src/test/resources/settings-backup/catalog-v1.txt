@@ -40,6 +40,7 @@ home.tabs.hidden_rules
 home.top_bar.game_menu.hidden
 home.top_bar.search_word.hidden
 home.vertical.open_detail
+mine.components.hidden_ids
 mine.components.hidden_rules
 mine.vip.hidden
 mine.vip.space_kept

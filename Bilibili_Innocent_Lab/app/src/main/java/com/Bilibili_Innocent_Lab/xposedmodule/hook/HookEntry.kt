@@ -39,6 +39,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureI
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentTopologyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentSectionFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DynamicTabsFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailAppPromotionFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FullNumberFeatureInstaller
@@ -2538,7 +2539,20 @@ class HookEntry : XposedModule() {
                 registrar = featureHookRegistrar,
                 logInfo = { key, message -> logInfo(key, message) },
                 logError = { key, message -> logError(key, message) },
-                reportStatus = { channel, status -> reportChannelStatus(channel, status) }
+                reportStatus = { channel, status -> reportChannelStatus(channel, status) },
+                // 宿主剪枝时把可屏蔽项快照写入模块私有 prefs（模块 App 用同一文件读，勾选列表数据源）
+                writeMineScanSnapshot = { json ->
+                    runCatching {
+                        // 写模块自身私有 prefs（跨进程通道：模块 App 用同文件读取做勾选列表）。
+                        // 宿主进程内包名是宿主（tv.danmaku.bili），必须显式用模块包名拼 prefs 名。
+                        authorizationContext.applicationContext
+                            ?.getSharedPreferences(
+                                "com.Bilibili_Innocent_Lab.xposedmodule_preferences",
+                                android.content.Context.MODE_PRIVATE
+                            )?.edit()?.putString(FeaturePreferences.MINE_COMPONENT_SCAN_SNAPSHOT, json)
+                            ?.apply()
+                    }
+                }
             )
             val featureInstallCoordinator = FeatureInstallCoordinator(hookEnvironment)
 
@@ -2560,6 +2574,17 @@ class HookEntry : XposedModule() {
                 listOf(
                     GamePromotionFeatureInstaller(
                         enabled = prefs.getBoolean(PREF_GAMECARD_ENABLED, true)
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    DetailAppPromotionFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION,
+                            false
+                        )
                     )
                 )
             )
@@ -2610,7 +2635,14 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES,
                             ""
                         ).orEmpty(),
-                        points = hostAdaptResult?.mineComponents
+                        hiddenIds = prefs.getString(
+                            FeaturePreferences.MINE_COMPONENT_HIDDEN_IDS,
+                            ""
+                        ).orEmpty()
+                            .split(Regex("[,，;；\\r\\n]+"))
+                            .filter { it.isNotBlank() },
+                        points = hostAdaptResult?.mineComponents,
+                        accountMinePoints = hostAdaptResult?.mineAccountMine
                     )
                 )
             )

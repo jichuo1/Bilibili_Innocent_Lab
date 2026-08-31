@@ -7,6 +7,11 @@
     <string name="module_version">模組版本：%1$s</string>
     <string name="module_not_activated">模組尚未啟用</string>
     <string name="module_is_activated">模組已啟用</string>
+    <string name="module_activation_checking">正在確認模組啟用狀態</string>
+    <string name="module_activation_not_detected">未偵測到模組啟用</string>
+    <string name="module_activation_waiting_framework">正在等待 LSPosed 服務</string>
+    <string name="module_activation_service_unavailable">尚未連接 LSPosed 服務</string>
+    <string name="module_activation_framework_unsupported">目前框架不支援所需的 API 102 服務</string>
     <string name="display_settings">顯示設定</string>
     <string name="user_terms_dialog_title">使用者條款與風險提示</string>
     <string name="user_terms_body">使用者須知：\n\n本專案是非官方、非商業性質的個人學習與研究專案，與嗶哩嗶哩及其關聯公司不存在隸屬、授權、合作或背書關係。\n\n使用 Xposed/LSPosed 模組可能改變目標應用程式的執行行為，並可能受到用戶端更新、系統安全策略、廠商 ROM、帳號實驗分組或其他模組影響。使用者應自行評估風險，並對安裝、啟用、資料備份及裝置環境負責。\n\n本專案不提供任何內容資源，不參與帳號交易，不提供存取憑證，也不保證第三方擴充服務的可用性。請在遵守所在地法律法規、目標平台規則及開源專案授權條款的前提下使用。\n\n為確保專案穩定維護，請勿將本專案相關內容以包括但不限於檔案、文字、圖示、連結、圖片、影片、程式碼等形式，在公開社群媒體進行不定向傳播。本專案為非營利性專案，不會以任何方式收取軟體服務費用，也不會在未經同意的前提下主動取得並傳輸您的個人資訊。若您懷疑從其他管道取得的檔案與上述宗旨相違背，請務必對照對應版本的 Release HASH；若檔案 HASH 不一致，該檔案可能已遭第三方竄改，本專案無法保證其安全性。若您知悉後仍繼續使用，由此產生的一切風險與後果請自行承擔。\n\n附加免責聲明與風險提示詳見：https://github.com/jichuo1/Bilibili_Innocent_Lab\n\n請務必閱讀完畢摘要內容與完整附加內容，再作決定。</string>
@@ -17,6 +22,9 @@
     <string name="user_terms_read_again">重新閱讀條款</string>
     <string name="user_terms_exit">退出</string>
     <string name="user_terms_save_failed">無法儲存您的決定，請重試。</string>
+    <string name="user_terms_need_lsposed_enable">尚未連接 LSPosed 服務：請先在 LSPosed 管理器中啟用本模組並勾選作用域，返回後點擊「同意」重試。</string>
+    <string name="user_terms_need_api102">當前 LSPosed / 框架版本不支援遠端設定同步（需要 API 102），請升級 LSPosed 後重試。</string>
+    <string name="user_terms_open_lsposed">開啟 LSPosed</string>
     <string name="app_language">應用程式語言</string>
     <string name="app_language_tip">選擇模組介面與注入宿主的介面所使用的語言</string>
     <string name="app_language_current">目前：%1$s</string>
@@ -35,6 +43,8 @@
     <string name="gamecard_ad_settings">影片詳細頁廣告</string>
     <string name="gamecard_ad_enable">隱藏影片提及區域中的遊戲廣告</string>
     <string name="gamecard_ad_tip">啟用後，淨化帶有遊戲標籤之影片下方的「影片提及」廣告</string>
+    <string name="hide_video_detail_app_promotion">隱藏影片詳細頁應用程式推廣</string>
+    <string name="hide_video_detail_app_promotion_tip">啟用後隱藏影片播放器下方的應用程式推廣卡片，重新啟動 Bilibili 後生效。</string>
     <string name="banner_ad_settings">首頁大型卡片輪播</string>
     <string name="banner_ad_enable">隱藏首頁大型卡片輪播推薦</string>
     <string name="banner_ad_tip">啟用後，淨化漫遊模組已無法處理的首頁輪播內容</string>
@@ -254,6 +264,8 @@
     <string name="restart_bilibili">重新啟動 Bilibili</string>
     <string name="restart_bilibili_done">已重新啟動 Bilibili</string>
     <string name="restart_bilibili_failed">重新啟動 Bilibili 失敗</string>
+    <string name="restart_root_missing">未偵測到可用的 Root 權限：請先完成 Root（如 Magisk / KernelSU）後重試</string>
+    <string name="restart_root_denied">Root 授權被拒絕：請在 Root 管理器中允許本模組取得 Root 權限後重試</string>
     <string name="restart_bilibili_confirm_title">確認儲存並重新啟動 Bilibili？</string>
     <string name="adapt_manual">重新適配目前版本</string>
     <string name="adapt_manual_done">已清除適配記錄，重新啟動 Bilibili 後將自動重新適配</string>

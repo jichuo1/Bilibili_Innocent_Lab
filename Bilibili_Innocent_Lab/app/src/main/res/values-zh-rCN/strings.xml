@@ -7,6 +7,11 @@
     <string name="module_version">模块版本：%1$s</string>
     <string name="module_not_activated">模块未激活</string>
     <string name="module_is_activated">模块已激活</string>
+    <string name="module_activation_checking">正在确认模块激活状态</string>
+    <string name="module_activation_not_detected">未检测到模块激活</string>
+    <string name="module_activation_waiting_framework">正在等待 LSPosed 服务</string>
+    <string name="module_activation_service_unavailable">未连接到 LSPosed 服务</string>
+    <string name="module_activation_framework_unsupported">当前框架不支持所需的 API 102 服务</string>
     <string name="display_settings">显示设置</string>
     <string name="user_terms_dialog_title">用户条款与风险提示</string>
     <string name="user_terms_body">用户须知：\n\n本项目是非官方、非商业性质的个人学习与研究项目，与哔哩哔哩及其关联公司不存在隶属、授权、合作或背书关系。\n\n使用 Xposed/LSPosed 模块可能改变目标应用运行行为，并可能受到客户端更新、系统安全策略、厂商 ROM、账号实验分组或其他模块的影响。使用者应自行评估风险，并对安装、启用、数据备份和设备环境负责。\n\n本项目不提供任何内容资源，不参与账号交易，不提供访问凭证，也不保证第三方扩展服务的可用性。请在遵守所在地法律法规、目标平台规则和开源项目许可的前提下使用。\n\n为保证项目稳定维护，请勿将本项目相关内容以包括但不限于以文件，文本，图标，链接，图片，视频，代码等形式在公开的社交媒体进行不定向传播。本项目为非盈利性项目，不会以任何方式收取软件服务费用，不会以任何方式在未经同意的前提下主动获取并传输您的个人信息，若您怀疑从其他渠道获取的文件与以上宗旨相违背，请务必对照对应版本Release HASH，若您发现文件HASH不一致，则该文件可能经过第三方篡改，本项目无法保证其安全性，若您已知并继续使用，由此带来的一切风险与后果请自行承担。\n\n附加免责声明与风险提示详见：https://github.com/jichuo1/Bilibili_Innocent_Lab\n\n请确保阅读完毕摘要内容和完整附加内容，而后决定。</string>
@@ -38,6 +43,8 @@
     <string name="gamecard_ad_settings">视频详细页广告</string>
     <string name="gamecard_ad_enable">隐藏视频提及区域中的游戏广告</string>
     <string name="gamecard_ad_tip">开启后净化带有游戏标签的视频下的“视频提及”广告</string>
+    <string name="hide_video_detail_app_promotion">隐藏视频详细页应用推广</string>
+    <string name="hide_video_detail_app_promotion_tip">开启后隐藏视频播放器下方的应用推广卡片，重启哔哩哔哩后生效。</string>
     <string name="banner_ad_settings">首页大卡轮播</string>
     <string name="banner_ad_enable">隐藏首页大卡轮播推荐</string>
     <string name="banner_ad_tip">开启后补全漫游失效的首页轮播净化</string>

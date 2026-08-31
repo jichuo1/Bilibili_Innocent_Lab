@@ -70,6 +70,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.RoamingCompatHook
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentFilterFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.RuleSetCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.GitHubReleaseChecker
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
@@ -77,12 +79,15 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ShellCommandRunner
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateCheckCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateChannelStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.ActivationDisplayState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootDisplayState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportController
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportApplier
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ModuleSettingsStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatus
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatusListener
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
@@ -109,6 +114,8 @@ import android.widget.TextView as NativeTextView
 import androidx.core.graphics.ColorUtils
 import androidx.core.content.edit
 import android.R as Android_R
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.lang.ref.WeakReference
 import java.util.concurrent.Executors
@@ -123,6 +130,7 @@ class MainActivity : SkinnedActivity() {
         const val PREF_LAST_CHECK_STABLE = "last_successful_check_ms_stable"
         const val PREF_LAST_CHECK_PREVIEW = "last_successful_check_ms_preview"
         const val AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1_000L
+        const val FRAMEWORK_STATUS_SETTLE_MS = 1_500L
 
         /** LSPosed 管理器包名：条款保存失败（服务未连接）时的快捷跳转目标，不存在则隐藏入口。 */
         private const val LSPOSED_MANAGER_PACKAGE = "org.lsposed.manager"
@@ -180,6 +188,7 @@ class MainActivity : SkinnedActivity() {
 
     private var adskipEnabled = true
     private var gamecardAdEnabled = true
+    private var hideVideoDetailAppPromotion = false
     private var bannerAdEnabled = true
     private var merchAdEnabled = true
     private var hideHomeGameMenu = false
@@ -300,6 +309,35 @@ class MainActivity : SkinnedActivity() {
     private var activationIconView: android.widget.ImageView? = null
     private var activationTitleView: NativeTextView? = null
     private var activationSourceView: NativeTextView? = null
+    private val activationMainHandler = Handler(Looper.getMainLooper())
+    private var frameworkStatusCheckPending = true
+    private var frameworkServiceObserved = false
+    private val frameworkStatusTimeout = Runnable {
+        frameworkStatusCheckPending = false
+        if (userTermsDecision.isAuthorized &&
+            lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+        ) {
+            renderActivationUi()
+        }
+    }
+    private val frameworkStatusListener = ModernFrameworkStatusListener { status ->
+        activationMainHandler.post {
+            if (status.connected) {
+                frameworkServiceObserved = true
+                frameworkStatusCheckPending = false
+                activationMainHandler.removeCallbacks(frameworkStatusTimeout)
+            } else if (frameworkServiceObserved) {
+                // 已连接服务死亡与首次等待不同：立即显示连接中断，不重新伪装成“确认中”。
+                frameworkStatusCheckPending = false
+                activationMainHandler.removeCallbacks(frameworkStatusTimeout)
+            }
+            if (userTermsDecision.isAuthorized &&
+                lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            ) {
+                renderActivationUi(status)
+            }
+        }
+    }
 
     /** 当前活动的确认弹窗：Activity 销毁时主动 dismiss，避免 WindowLeaked */
     private var activeConfirmDialog: Dialog? = null
@@ -497,7 +535,7 @@ class MainActivity : SkinnedActivity() {
         NoRootDisplayState.ERROR -> R.string.no_root_status_error
     }
 
-    /** 刷新免 Root 状态与激活卡片；只有有效 heartbeat 才能计为激活。 */
+    /** 刷新免 Root 状态；激活卡片使用同一份已校验状态快照单独归并。 */
     private fun renderNoRootUi() {
         val state = currentNoRootDisplayState()
         noRootDesiredEnabled = NoRootSupportStore.isDesiredEnabled(applicationContext)
@@ -513,33 +551,61 @@ class MainActivity : SkinnedActivity() {
         noRootProgrammaticSwitch = false
         noRootStatusView?.setText(noRootStatusText(state))
 
-        val framework = RemoteHookConfigStore.status()
-        val rootActive = framework.capable
-        val activation = NoRootSupportState.activationDecision(rootActive, state)
+        renderActivationUi(noRootState = state)
+    }
+
+    /**
+     * 单快照渲染激活卡片，避免 Binder 在背景、图标、标题分别读取状态时到达而出现混合 UI。
+     */
+    private fun renderActivationUi(
+        framework: ModernFrameworkStatus = RemoteHookConfigStore.status(),
+        noRootState: NoRootDisplayState = currentNoRootDisplayState()
+    ) {
+        val displayState = NoRootSupportState.activationDisplayState(
+            rootActive = framework.capable,
+            frameworkCheckPending = frameworkStatusCheckPending && !framework.connected,
+            displayState = noRootState
+        )
+        val activated = displayState == ActivationDisplayState.ACTIVE_LSPOSED ||
+            displayState == ActivationDisplayState.ACTIVE_NPATCH
         activationCardView?.background = roundedColor(
-            if (activation.activated) monetColors.primary else monetColors.surfaceVariant
+            if (activated) monetColors.primary else monetColors.surfaceVariant
         )
         activationIconView?.setImageResource(
-            if (activation.activated) R.mipmap.ic_success else R.mipmap.ic_warn
+            if (activated) R.mipmap.ic_success else R.mipmap.ic_warn
         )
         activationTitleView?.setText(
-            if (activation.activated) R.string.module_is_activated else R.string.module_not_activated
+            when (displayState) {
+                ActivationDisplayState.CHECKING -> R.string.module_activation_checking
+                ActivationDisplayState.ACTIVE_LSPOSED,
+                ActivationDisplayState.ACTIVE_NPATCH -> R.string.module_is_activated
+                ActivationDisplayState.UNAVAILABLE -> R.string.module_activation_not_detected
+            }
         )
         activationSourceView?.apply {
-            text = when {
-                rootActive && framework.apiVersion > 0 -> getString(
+            text = when (displayState) {
+                ActivationDisplayState.ACTIVE_LSPOSED -> if (framework.apiVersion > 0) getString(
                     R.string.activated_by,
                     framework.name,
                     framework.apiVersion
-                )
-                rootActive -> getString(
+                ) else getString(
                     R.string.activated_by_noapi,
                     framework.name
                 )
-                activation.byNoRoot -> getString(R.string.no_root_activated_by_npatch)
-                else -> ""
+                ActivationDisplayState.ACTIVE_NPATCH ->
+                    getString(R.string.no_root_activated_by_npatch)
+                ActivationDisplayState.CHECKING ->
+                    getString(R.string.module_activation_waiting_framework)
+                ActivationDisplayState.UNAVAILABLE ->
+                    getString(
+                        if (framework.connected) {
+                            R.string.module_activation_framework_unsupported
+                        } else {
+                            R.string.module_activation_service_unavailable
+                        }
+                    )
             }
-            isVisible = activation.activated
+            isVisible = true
         }
     }
 
@@ -2692,6 +2758,168 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
+    /** 读宿主剪枝写入的可屏蔽项快照 JSON；空白/无效返回 ""（调用方回退手动输入）。 */
+    private fun readMineComponentSnapshot(): String = runCatching {
+        prefs().getString(FeaturePreferences.MINE_COMPONENT_SCAN_SNAPSHOT, "").orEmpty()
+    }.getOrNull().orEmpty()
+
+    /**
+     * “我的”页可屏蔽项动态勾选列表：读取宿主剪枝快照，逐条勾选隐藏，确认后写回
+     * hidden_ids（逗号分隔）。沿用项目模态弹窗 + 统一退场动画；无快照时不进入。
+     */
+    private fun showMineComponentPickerDialog(snapshotJson: String) {
+        val entries = runCatching {
+            val arr = JSONObject(snapshotJson).optJSONArray("items") ?: return
+            (0 until arr.length()).mapNotNull { i ->
+                MineComponentFilterFeatureInstaller.MineScanEntry.fromJson(arr.getJSONObject(i))
+            }
+        }.getOrNull() ?: return
+        if (entries.isEmpty()) return
+
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createModalContainer()
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.custom_mine_component_hide_dialog_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 17f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        // 已勾选隐藏集合（新 UI 勾选；旧 title 规则一并视为已隐藏）
+        val initialHiddenIds = prefs().getString(
+            FeaturePreferences.MINE_COMPONENT_HIDDEN_IDS, ""
+        ).orEmpty().split(Regex("[,，;；\\r\\n]+")).filter { it.isNotBlank() }.toMutableSet()
+        val initialHiddenRules = RuleSetCodec.parse(
+            prefs().getString(FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES, "").orEmpty()
+        )
+        fun entryHidden(e: MineComponentFilterFeatureInstaller.MineScanEntry): Boolean =
+            (e.id != null && e.id in initialHiddenIds) ||
+                (e.title != null && RuleSetCodec.matches(initialHiddenRules, e.title))
+
+        // 勾选行（标题 + 副标 uri/id）
+        val listBody = NativeScrollView(this).apply {
+            isFillViewport = true
+        }
+        val rowContainer = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.VERTICAL
+            setPadding(
+                (4 * density).toInt(), (2 * density).toInt(),
+                (4 * density).toInt(), (2 * density).toInt()
+            )
+        }
+        val checkboxes = ArrayList<android.widget.CheckBox>()
+        entries.forEach { entry ->
+            val box = android.widget.CheckBox(this).apply {
+                text = buildString {
+                    append(entry.title ?: entry.id ?: "(未命名)")
+                    entry.uri?.let { append("  ·  ").append(it) }
+                }
+                textSize = 14f
+                setTextColor(getColor(R.color.colorTextDark))
+                isChecked = entryHidden(entry)
+            }
+            checkboxes.add(box)
+            rowContainer.addView(
+                box,
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = (6 * density).toInt()
+                    bottomMargin = (6 * density).toInt()
+                }
+            )
+        }
+        listBody.addView(rowContainer)
+        container.addView(
+            listBody,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            ).apply {
+                topMargin = (12 * density).toInt()
+                bottomMargin = (12 * density).toInt()
+            }
+        )
+
+        val buttonRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        buttonRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.dialog_cancel)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 14f
+                setPadding(
+                    (20 * density).toInt(), (11 * density).toInt(),
+                    (20 * density).toInt(), (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { dismissWithAnimation(dialog, container) {} }
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        buttonRow.addView(
+            createTermsActionButton(
+                text = getString(R.string.dialog_confirm),
+                filled = true
+            ) {
+                val hiddenIds = entries.mapIndexedNotNull { index, entry ->
+                    if (checkboxes.getOrNull(index)?.isChecked == true) entry.id else null
+                }.filterNotNull()
+                prefs().edit {
+                    putString(
+                        FeaturePreferences.MINE_COMPONENT_HIDDEN_IDS,
+                        hiddenIds.joinToString(",")
+                    )
+                    // 保留标题规则（供旧手动输入与 data 层 title 匹配）。
+                    val titleHides = entries.mapIndexedNotNull { index, entry ->
+                        if (checkboxes.getOrNull(index)?.isChecked == true) entry.title else null
+                    }.filterNotNull()
+                    putString(
+                        FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES,
+                        titleHides.joinToString(",")
+                    )
+                }
+                mineComponentHiddenRules = runCatching {
+                    prefs().getString(FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES, "").orEmpty()
+                }.getOrDefault("")
+                mineComponentRulesSummaryView?.text =
+                    getString(R.string.custom_mine_component_hide) + "\n" +
+                        ruleSummary(mineComponentHiddenRules)
+                dismissWithAnimation(dialog, container) {}
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = (8 * density).toInt() }
+        )
+        container.addView(
+            buttonRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (10 * density).toInt() }
+        )
+
+        presentModalDialog(dialog, container)
+    }
+
     /** 自定义隐藏规则编辑器：沿用项目模态弹窗与统一退场动画。 */
     private fun showRuleEditorDialog(
         @StringRes titleRes: Int,
@@ -3646,6 +3874,24 @@ class MainActivity : SkinnedActivity() {
         parent.addView(advancedCard, parent.indexOfChild(experimentalCard) + 1)
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (!userTermsDecision.isAuthorized) return
+
+        val framework = RemoteHookConfigStore.status()
+        frameworkServiceObserved = frameworkServiceObserved || framework.connected
+        frameworkStatusCheckPending = !framework.connected && !frameworkServiceObserved
+        activationMainHandler.removeCallbacks(frameworkStatusTimeout)
+        if (frameworkStatusCheckPending) {
+            activationMainHandler.postDelayed(
+                frameworkStatusTimeout,
+                FRAMEWORK_STATUS_SETTLE_MS
+            )
+        }
+        RemoteHookConfigStore.addStatusListener(frameworkStatusListener)
+        renderActivationUi(framework)
+    }
+
     override fun onResume() {
         super.onResume()
         if (!userTermsDecision.isAuthorized) return
@@ -3653,6 +3899,12 @@ class MainActivity : SkinnedActivity() {
         InjectedUiLocale.setMirrorAndBroadcast(applicationContext, selectionTag)
         renderNoRootUi()
         synchronizeNoRootSupportIfEnabled()
+    }
+
+    override fun onStop() {
+        RemoteHookConfigStore.removeStatusListener(frameworkStatusListener)
+        activationMainHandler.removeCallbacks(frameworkStatusTimeout)
+        super.onStop()
     }
 
     override fun onPause() {
@@ -3682,6 +3934,8 @@ class MainActivity : SkinnedActivity() {
     }
 
     override fun onDestroy() {
+        RemoteHookConfigStore.removeStatusListener(frameworkStatusListener)
+        activationMainHandler.removeCallbacks(frameworkStatusTimeout)
         finishPreparedLiquidStretch(liquidStretchViewport)
         liquidStretchViewport = null
         liquidStretchScrollTarget = null
@@ -3792,6 +4046,14 @@ class MainActivity : SkinnedActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read gamecard prefs failed", t)
         }.getOrDefault(true)
+        hideVideoDetailAppPromotion = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read video detail app promotion prefs failed", t)
+        }.getOrDefault(false)
         bannerAdEnabled = runCatching {
             modulePrefs?.getBoolean(HookEntry.PREF_BANNER_ENABLED, true) ?: true
         }.onFailure { t ->
@@ -4223,7 +4485,8 @@ class MainActivity : SkinnedActivity() {
                     },
                     init = {
                         gravity = Gravity.CENTER or Gravity.START
-                        background = roundedColor(if (RemoteHookConfigStore.status().capable) monetColors.primary else monetColors.surfaceVariant)
+                        // 首次绘制使用中性确认态；布局完成后由单快照 renderer 统一收敛。
+                        background = roundedColor(monetColors.surfaceVariant)
                         activationCardView = this
                     }
                 ) {
@@ -4234,10 +4497,7 @@ class MainActivity : SkinnedActivity() {
                         }
                     ) {
                         activationIconView = this
-                        setImageResource(when {
-                            RemoteHookConfigStore.status().capable -> R.mipmap.ic_success
-                            else -> R.mipmap.ic_warn
-                        })
+                        setImageResource(R.mipmap.ic_warn)
                         imageTintList = stateColorResource(R.color.white)
                     }
                     LinearLayout(
@@ -4257,10 +4517,7 @@ class MainActivity : SkinnedActivity() {
                             ellipsize = TextUtils.TruncateAt.END
                             textColor = colorResource(R.color.white)
                             textSize = 18f
-                            text = stringResource(when {
-                                RemoteHookConfigStore.status().capable -> R.string.module_is_activated
-                                else -> R.string.module_not_activated
-                            })
+                            text = stringResource(R.string.module_activation_checking)
                         }
                         LinearLayout(
                             lparams = LayoutParams {
@@ -4312,11 +4569,8 @@ class MainActivity : SkinnedActivity() {
                             ellipsize = TextUtils.TruncateAt.END
                             textColor = colorResource(R.color.white)
                             textSize = 11f
-                            val framework = RemoteHookConfigStore.status()
-                            text = if (framework.apiVersion > 0)
-                                stringResource(R.string.activated_by, framework.name, framework.apiVersion)
-                            else stringResource(R.string.activated_by_noapi, framework.name)
-                            isVisible = framework.capable
+                            text = stringResource(R.string.module_activation_waiting_framework)
+                            isVisible = true
                         }
                     }
                 }
@@ -4605,6 +4859,44 @@ class MainActivity : SkinnedActivity() {
                                 alpha = 0.6f
                                 setLineSpacing(6f, 1f)
                                 text = stringResource(R.string.gamecard_ad_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.hide_video_detail_app_promotion)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = hideVideoDetailAppPromotion
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    hideVideoDetailAppPromotion = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write video detail app promotion prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.hide_video_detail_app_promotion_tip)
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }
@@ -5419,21 +5711,27 @@ class MainActivity : SkinnedActivity() {
                                 isClickable = true
                                 isFocusable = true
                                 setOnClickListener {
-                                    showRuleEditorDialog(
-                                        R.string.custom_mine_component_hide_dialog_title,
-                                        R.string.custom_mine_component_hide_hint,
-                                        mineComponentHiddenRules
-                                    ) { value ->
-                                        mineComponentHiddenRules = value
-                                        prefs().edit {
-                                            putString(
-                                                FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES,
-                                                value
-                                            )
+                                    // 优先展示动态勾选列表（宿主扫描快照）；无快照时回退手动输入
+                                    val snapshot = readMineComponentSnapshot()
+                                    if (snapshot.isNotEmpty()) {
+                                        showMineComponentPickerDialog(snapshot)
+                                    } else {
+                                        showRuleEditorDialog(
+                                            R.string.custom_mine_component_hide_dialog_title,
+                                            R.string.custom_mine_component_hide_hint,
+                                            mineComponentHiddenRules
+                                        ) { value ->
+                                            mineComponentHiddenRules = value
+                                            prefs().edit {
+                                                putString(
+                                                    FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES,
+                                                    value
+                                                )
+                                            }
+                                            mineComponentRulesSummaryView?.text =
+                                                stringResource(R.string.custom_mine_component_hide) + "\n" +
+                                                    ruleSummary(value)
                                         }
-                                        mineComponentRulesSummaryView?.text =
-                                            stringResource(R.string.custom_mine_component_hide) + "\n" +
-                                                ruleSummary(value)
                                     }
                                 }
                             }

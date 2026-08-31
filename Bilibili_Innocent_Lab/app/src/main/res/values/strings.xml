@@ -6,6 +6,11 @@
     <string name="module_version">Module version: %1$s</string>
     <string name="module_not_activated">Module not activated</string>
     <string name="module_is_activated">Module is activated</string>
+    <string name="module_activation_checking">Checking module activation</string>
+    <string name="module_activation_not_detected">Module activation not detected</string>
+    <string name="module_activation_waiting_framework">Waiting for the LSPosed service</string>
+    <string name="module_activation_service_unavailable">LSPosed service is not connected</string>
+    <string name="module_activation_framework_unsupported">The connected framework does not support the required API 102 service</string>
     <string name="display_settings">Display settings</string>
     <string name="user_terms_dialog_title">Terms and risk notice</string>
     <string name="user_terms_body" tools:ignore="Typos">User Notice:\n\nThis project is an unofficial, non-commercial personal learning and research project. It is not affiliated with, authorized by, partnered with, or endorsed by Bilibili or any of its affiliates.\n\nUsing an Xposed/LSPosed module may change how the target app behaves and may be affected by client updates, system security policies, vendor ROMs, account experiment groups, or other modules. Users must assess the risks themselves and are responsible for installation, activation, data backups, and their device environment.\n\nThis project does not provide any content resources, participate in account trading, provide access credentials, or guarantee the availability of third-party extension services. Use it only in compliance with applicable local laws and regulations, target-platform rules, and open-source project licenses.\n\nTo support stable project maintenance, do not indiscriminately distribute project-related content on public social media in forms including, but not limited to, files, text, icons, links, images, videos, or code. This is a non-profit project. It does not charge software service fees in any way and does not proactively collect and transmit your personal information without consent. If you suspect that a file obtained from another source conflicts with these principles, be sure to compare it with the Release HASH for the corresponding version. A mismatched HASH may indicate third-party tampering, and this project cannot guarantee the safety of that file. If you knowingly continue to use it, you assume all resulting risks and consequences.\n\nAdditional disclaimers and risk notices: https://github.com/jichuo1/Bilibili_Innocent_Lab\n\nPlease read both this summary and the complete additional content before making your decision.</string>
@@ -37,6 +42,8 @@
     <string name="gamecard_ad_settings">Video detail page ads</string>
     <string name="gamecard_ad_enable">Hide game ads inside the \"Video mentioned\" section</string>
     <string name="gamecard_ad_tip">Cleans up the \"Video mentioned\" ads under videos with game tags</string>
+    <string name="hide_video_detail_app_promotion">Hide app promotions on video detail pages</string>
+    <string name="hide_video_detail_app_promotion_tip">Hides app promotion cards shown directly below the video player. Restart Bilibili to apply.</string>
     <string name="banner_ad_settings">Home banner carousel</string>
     <string name="banner_ad_enable">Hide home banner carousel</string>
     <string name="banner_ad_tip">Cleans up the home banner carousel that BiliRoaming can no longer handle</string>

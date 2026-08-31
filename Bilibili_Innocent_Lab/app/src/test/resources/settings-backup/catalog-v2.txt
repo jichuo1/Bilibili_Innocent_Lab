@@ -2,6 +2,7 @@ ads.game_card.hidden
 ads.home_banner.hidden
 ads.merchandise.hidden
 ads.pause.hidden
+ads.video_detail.app_promotion.hidden
 client.update_prompt.blocked
 comments.empty_guide.removed
 comments.follow_buttons.removed
@@ -40,6 +41,7 @@ home.tabs.hidden_rules
 home.top_bar.game_menu.hidden
 home.top_bar.search_word.hidden
 home.vertical.open_detail
+mine.components.hidden_ids
 mine.components.hidden_rules
 mine.vip.hidden
 mine.vip.space_kept

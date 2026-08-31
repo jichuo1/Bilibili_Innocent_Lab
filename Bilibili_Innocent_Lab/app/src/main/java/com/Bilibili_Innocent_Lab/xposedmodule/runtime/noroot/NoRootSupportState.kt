@@ -20,6 +20,13 @@ internal data class ActivationDecision(
     val byNoRoot: Boolean
 )
 
+internal enum class ActivationDisplayState {
+    CHECKING,
+    ACTIVE_LSPOSED,
+    ACTIVE_NPATCH,
+    UNAVAILABLE
+}
+
 /** 纯状态归并，避免把“开关已开”或“Manager 可连接”误显示成已激活。 */
 internal object NoRootSupportState {
     const val MIN_SUPPORTED_SDK = 28
@@ -84,5 +91,22 @@ internal object NoRootSupportState {
             displayState == NoRootDisplayState.DISABLE_RESTART_REQUIRED_ACTIVE ->
             ActivationDecision(activated = true, byNoRoot = true)
         else -> ActivationDecision(activated = false, byNoRoot = false)
+    }
+
+    /**
+     * 首页激活卡片的纯状态归并。LSPosed Binder 尚在异步投递时保留“确认中”，但经过
+     * 严格版本校验的 NPatch heartbeat 可以立即确认激活，不需要等待 Root 框架结果。
+     */
+    fun activationDisplayState(
+        rootActive: Boolean,
+        frameworkCheckPending: Boolean,
+        displayState: NoRootDisplayState
+    ): ActivationDisplayState = when {
+        rootActive -> ActivationDisplayState.ACTIVE_LSPOSED
+        displayState == NoRootDisplayState.ACTIVE ||
+            displayState == NoRootDisplayState.DISABLE_RESTART_REQUIRED_ACTIVE ->
+            ActivationDisplayState.ACTIVE_NPATCH
+        frameworkCheckPending -> ActivationDisplayState.CHECKING
+        else -> ActivationDisplayState.UNAVAILABLE
     }
 }
