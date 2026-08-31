@@ -107,6 +107,30 @@ abstract class SkinnedActivity : AppViewsActivity() {
         role = SurfaceRole.MODAL
     )
 
+    /** 入口与全屏形变共享的语义表面；普通皮肤仍返回等价的 Material 背景。 */
+    protected fun skinMotionSurfaceBackground(
+        color: Int,
+        radiusDp: Float
+    ): Drawable = skinBackground(
+        color,
+        radiusDp,
+        materialOutline = false,
+        role = SurfaceRole.MOTION_SURFACE
+    )
+
+    /** 动态形变层只在 Liquid renderer 已生效时接管，避免普通 Drawable 覆盖自绘动态边界。 */
+    protected fun liquidMotionSurfaceBackgroundOrNull(
+        color: Int,
+        radiusDp: Float
+    ): Drawable? = if (isLiquidSkinEffective) {
+        skinSessionOrNull?.surfaceBackground(
+            color,
+            radiusDp,
+            materialOutline = false,
+            role = SurfaceRole.MOTION_SURFACE
+        )
+    } else null
+
     private fun skinBackground(
         color: Int,
         radiusDp: Float,

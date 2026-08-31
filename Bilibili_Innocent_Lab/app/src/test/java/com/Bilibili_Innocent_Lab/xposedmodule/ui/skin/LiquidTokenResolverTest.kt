@@ -18,8 +18,14 @@ class LiquidTokenResolverTest {
 
             assertEquals(tuning.cardGlassAlpha, parameters.surfaceAlpha, 0f)
             assertEquals(tuning.modalGlassAlpha, parameters.modalSurfaceAlpha, 0f)
+            assertEquals(tuning.motionGlassAlpha, parameters.motionSurfaceAlpha, 0f)
             assertEquals(tuning.cardFallbackAlpha, parameters.fallbackSurfaceAlpha, 0f)
             assertEquals(tuning.modalFallbackAlpha, parameters.fallbackModalSurfaceAlpha, 0f)
+            assertEquals(
+                tuning.motionFallbackAlpha,
+                parameters.fallbackMotionSurfaceAlpha,
+                0f
+            )
             assertEquals(tuning.saturation, parameters.saturation, 0f)
             assertFalse(parameters.chromaticAberration)
             assertEquals(1.1f, parameters.highlightWidthDp, 0f)
@@ -48,6 +54,16 @@ class LiquidTokenResolverTest {
         assertEquals(
             parameters.fallbackModalSurfaceAlpha,
             LiquidSurfaceAlphaPolicy.resolve(SurfaceRole.MODAL, true, parameters),
+            0f
+        )
+        assertEquals(
+            parameters.motionSurfaceAlpha,
+            LiquidSurfaceAlphaPolicy.resolve(SurfaceRole.MOTION_SURFACE, false, parameters),
+            0f
+        )
+        assertEquals(
+            parameters.fallbackMotionSurfaceAlpha,
+            LiquidSurfaceAlphaPolicy.resolve(SurfaceRole.MOTION_SURFACE, true, parameters),
             0f
         )
     }

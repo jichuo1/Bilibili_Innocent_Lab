@@ -20,10 +20,15 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.text.Editable
+import android.text.SpannableString
+import android.text.Spanned
 import android.util.Log
 import android.text.TextUtils
 import android.text.TextWatcher
 import android.text.method.LinkMovementMethod
+import android.text.style.BackgroundColorSpan
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import android.text.util.Linkify
 import android.view.Gravity
 import android.view.KeyEvent
@@ -139,6 +144,8 @@ class MainActivity : SkinnedActivity() {
         const val AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1_000L
         const val FRAMEWORK_STATUS_SETTLE_MS = 1_500L
         const val MINE_COMPONENT_SNAPSHOT_STALE_MS = 7L * 24L * 60L * 60L * 1_000L
+        const val SETTINGS_SEARCH_HIGHLIGHT_DELAY_MS = 240L
+        const val SETTINGS_SEARCH_HIGHLIGHT_DURATION_MS = 420L
 
         /** LSPosed 管理器包名：条款保存失败（服务未连接）时的快捷跳转目标，不存在则隐藏入口。 */
         private const val LSPOSED_MANAGER_PACKAGE = "org.lsposed.manager"
@@ -362,6 +369,10 @@ class MainActivity : SkinnedActivity() {
     /** 设置搜索只持有当前 Activity 的控件树，销毁时与其他 View 引用一起释放。 */
     private var settingsSearchRoot: ViewGroup? = null
     private var settingsSearchScrollView: androidx.core.widget.NestedScrollView? = null
+    private var settingsSearchHighlightView: View? = null
+    private var settingsSearchHighlightDrawable: GradientDrawable? = null
+    private var settingsSearchHighlightAnimator: ValueAnimator? = null
+    private var settingsSearchHighlightRunnable: Runnable? = null
 
     /** 用户条款状态只在 Activity 创建时解析；决定落盘后随 recreate/finish 更新生命周期。 */
     private var userTermsDecision = UserTermsDecision.UNDECIDED
@@ -4411,6 +4422,38 @@ class MainActivity : SkinnedActivity() {
             }
         )
 
+    private fun highlightedSettingsSearchText(
+        value: String,
+        ranges: List<IntRange>
+    ): CharSequence {
+        if (value.isEmpty() || ranges.isEmpty()) return value
+        return SpannableString(value).apply {
+            ranges.forEach { range ->
+                val start = range.first.coerceIn(0, value.length)
+                val end = (range.last + 1).coerceIn(start, value.length)
+                if (start >= end) return@forEach
+                setSpan(
+                    BackgroundColorSpan(ColorUtils.setAlphaComponent(monetColors.primary, 0x32)),
+                    start,
+                    end,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                setSpan(
+                    ForegroundColorSpan(monetColors.primary),
+                    start,
+                    end,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                setSpan(
+                    StyleSpan(Typeface.BOLD),
+                    start,
+                    end,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+        }
+    }
+
     /** 从当前本地化控件树构建索引，避免功能新增后还要维护第二份易失真的搜索目录。 */
     private fun collectSettingsSearchTargets(): List<RuntimeSettingsSearchTarget> {
         val root = settingsSearchRoot ?: return emptyList()
@@ -4529,7 +4572,7 @@ class MainActivity : SkinnedActivity() {
 
         fun renderResults(query: String) {
             resultContainer.removeAllViews()
-            val results = SettingsSearchMatcher.search(
+            val results = SettingsSearchMatcher.searchMatches(
                 query = query,
                 items = runtimeTargets.map(RuntimeSettingsSearchTarget::item)
             )
@@ -4559,7 +4602,8 @@ class MainActivity : SkinnedActivity() {
                 return
             }
 
-            results.forEach { item ->
+            results.forEach { match ->
+                val item = match.item
                 val target = targetByKey[item.key] ?: return@forEach
                 resultContainer.addView(
                     NativeLinearLayout(this).apply {
@@ -4576,14 +4620,30 @@ class MainActivity : SkinnedActivity() {
                         contentDescription = "${item.title}. ${item.section}"
                         addView(
                             NativeTextView(this@MainActivity).apply {
-                                text = item.title
+                                text = highlightedSettingsSearchText(item.title, match.titleRanges)
                                 textColor = getColor(R.color.colorTextDark)
                                 textSize = 15f
                             }
                         )
+                        if (item.detail.isNotBlank()) {
+                            addView(
+                                NativeTextView(this@MainActivity).apply {
+                                    text = highlightedSettingsSearchText(item.detail, match.detailRanges)
+                                    textColor = getColor(R.color.colorTextGray)
+                                    textSize = 12f
+                                    alpha = 0.82f
+                                    maxLines = 2
+                                    ellipsize = TextUtils.TruncateAt.END
+                                },
+                                NativeLinearLayout.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.WRAP_CONTENT
+                                ).apply { topMargin = (3 * density).toInt() }
+                            )
+                        }
                         addView(
                             NativeTextView(this@MainActivity).apply {
-                                text = item.section
+                                text = highlightedSettingsSearchText(item.section, match.sectionRanges)
                                 textColor = getColor(R.color.colorTextGray)
                                 textSize = 11f
                                 alpha = 0.68f
@@ -4634,6 +4694,78 @@ class MainActivity : SkinnedActivity() {
         }, 220L)
     }
 
+    private fun clearSettingsSearchTargetHighlight() {
+        val highlightView = settingsSearchHighlightView
+        val highlightDrawable = settingsSearchHighlightDrawable
+        val highlightAnimator = settingsSearchHighlightAnimator
+        val highlightRunnable = settingsSearchHighlightRunnable
+        settingsSearchHighlightView = null
+        settingsSearchHighlightDrawable = null
+        settingsSearchHighlightAnimator = null
+        settingsSearchHighlightRunnable = null
+        if (highlightRunnable != null) highlightView?.removeCallbacks(highlightRunnable)
+        highlightAnimator?.cancel()
+        if (highlightDrawable != null) highlightView?.overlay?.remove(highlightDrawable)
+    }
+
+    private fun scheduleSettingsSearchTargetHighlight(targetView: View) {
+        clearSettingsSearchTargetHighlight()
+        settingsSearchHighlightView = targetView
+        val highlightRunnable = object : Runnable {
+            override fun run() {
+                if (settingsSearchHighlightRunnable !== this) return
+                settingsSearchHighlightRunnable = null
+                if (isFinishing || isDestroyed || !targetView.isAttachedToWindow ||
+                    targetView.width <= 0 || targetView.height <= 0
+                ) {
+                    clearSettingsSearchTargetHighlight()
+                    return
+                }
+
+                val density = resources.displayMetrics.density
+                val highlightDrawable = GradientDrawable().apply {
+                    cornerRadius = 12f * density
+                    setColor(ColorUtils.setAlphaComponent(monetColors.primary, 0x42))
+                    setStroke(
+                        (2f * density).toInt().coerceAtLeast(1),
+                        ColorUtils.setAlphaComponent(monetColors.primary, 0xD0)
+                    )
+                    bounds = Rect(0, 0, targetView.width, targetView.height)
+                    alpha = 0
+                }
+                targetView.overlay.add(highlightDrawable)
+                settingsSearchHighlightDrawable = highlightDrawable
+
+                val highlightAnimator = ValueAnimator.ofFloat(0f, 1f, 0f).apply {
+                    duration = SETTINGS_SEARCH_HIGHLIGHT_DURATION_MS
+                    interpolator = emphasizedDecelerate
+                    addUpdateListener { animator ->
+                        highlightDrawable.alpha =
+                            (255f * (animator.animatedValue as Float)).toInt()
+                    }
+                    addListener(object : AnimatorListenerAdapter() {
+                        private fun finish(animation: Animator) {
+                            targetView.overlay.remove(highlightDrawable)
+                            if (settingsSearchHighlightAnimator === animation) {
+                                settingsSearchHighlightAnimator = null
+                                settingsSearchHighlightDrawable = null
+                                settingsSearchHighlightView = null
+                            }
+                        }
+
+                        override fun onAnimationEnd(animation: Animator) = finish(animation)
+
+                        override fun onAnimationCancel(animation: Animator) = finish(animation)
+                    })
+                }
+                settingsSearchHighlightAnimator = highlightAnimator
+                highlightAnimator.start()
+            }
+        }
+        settingsSearchHighlightRunnable = highlightRunnable
+        targetView.postDelayed(highlightRunnable, SETTINGS_SEARCH_HIGHLIGHT_DELAY_MS)
+    }
+
     private fun revealSettingsSearchTarget(target: RuntimeSettingsSearchTarget) {
         val sectionDelay = when (target.section) {
             SettingsSearchSection.ADVANCED -> {
@@ -4668,15 +4800,7 @@ class MainActivity : SkinnedActivity() {
             scrollView.offsetDescendantRectToMyCoords(target.view, rect)
             val topPadding = (28 * resources.displayMetrics.density).toInt()
             scrollView.smoothScrollTo(0, (rect.top - topPadding).coerceAtLeast(0))
-
-            val originalAlpha = target.view.alpha
-            target.view.animate().cancel()
-            target.view.alpha = originalAlpha * 0.48f
-            target.view.animate()
-                .alpha(originalAlpha)
-                .setDuration(420L)
-                .setInterpolator(emphasizedDecelerate)
-                .start()
+            scheduleSettingsSearchTargetHighlight(target.view)
         }, sectionDelay)
     }
 
@@ -4719,6 +4843,7 @@ class MainActivity : SkinnedActivity() {
         finishPreparedLiquidStretch(liquidStretchViewport)
         liquidStretchViewport = null
         liquidStretchScrollTarget = null
+        clearSettingsSearchTargetHighlight()
         settingsSearchRoot = null
         settingsSearchScrollView = null
         // Activity 销毁时主动关闭弹窗，避免 WindowLeaked（Activity has leaked window）
@@ -5379,16 +5504,22 @@ class MainActivity : SkinnedActivity() {
                             init = {
                                 orientation = LinearLayout.VERTICAL
                                 gravity = Gravity.CENTER
-                                background = GradientDrawable().apply {
-                                    val density = resources.displayMetrics.density
-                                    val neutralColor = colorResource(R.color.colorTextGray)
+                                val density = resources.displayMetrics.density
+                                val neutralColor = colorResource(R.color.colorTextGray)
+                                val darkTheme = (resources.configuration.uiMode and
+                                    android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                                    android.content.res.Configuration.UI_MODE_NIGHT_YES
+                                val surfaceColor = ColorUtils.setAlphaComponent(
+                                    neutralColor,
+                                    DiagnosticsEntryVisualSpec.scrimAlpha(darkTheme)
+                                )
+                                background = skinMotionSurfaceBackground(
+                                    surfaceColor,
+                                    DiagnosticsEntryVisualSpec.CORNER_RADIUS_DP
+                                )
+                                val outline = GradientDrawable().apply {
                                     cornerRadius = DiagnosticsEntryVisualSpec.CORNER_RADIUS_DP * density
-                                    setColor(
-                                        ColorUtils.setAlphaComponent(
-                                            neutralColor,
-                                            DiagnosticsEntryVisualSpec.SCRIM_ALPHA
-                                        )
-                                    )
+                                    setColor(android.graphics.Color.TRANSPARENT)
                                     setStroke(
                                         (DiagnosticsEntryVisualSpec.STROKE_WIDTH_DP * density)
                                             .toInt()
@@ -5399,8 +5530,13 @@ class MainActivity : SkinnedActivity() {
                                         )
                                     )
                                 }
-                                foreground = selfRippleBackground(
-                                    DiagnosticsEntryVisualSpec.CORNER_RADIUS_DP
+                                foreground = android.graphics.drawable.LayerDrawable(
+                                    arrayOf(
+                                        outline,
+                                        selfRippleBackground(
+                                            DiagnosticsEntryVisualSpec.CORNER_RADIUS_DP
+                                        )
+                                    )
                                 )
                                 updatePadding(horizontal = 9.dp, vertical = 7.dp)
                                 isClickable = true

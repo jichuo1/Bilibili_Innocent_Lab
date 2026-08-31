@@ -183,12 +183,16 @@ class DiagnosticsActivity : SkinnedActivity() {
             ColorUtils.setAlphaComponent(monetColors.surface, 0x28)
         } else monetColors.background
         val sourceNeutralColor = getColor(R.color.colorTextGray)
+        val darkTheme = (resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val collapsedSurfaceColor = ColorUtils.setAlphaComponent(
+            sourceNeutralColor,
+            DiagnosticsEntryVisualSpec.scrimAlpha(darkTheme)
+        )
         motionHost = SettingsBackupMotionHost(
             context = this,
-            collapsedSurfaceColor = ColorUtils.setAlphaComponent(
-                sourceNeutralColor,
-                DiagnosticsEntryVisualSpec.SCRIM_ALPHA
-            ),
+            collapsedSurfaceColor = collapsedSurfaceColor,
             expandedSurfaceColor = transitionSurfaceColor,
             titleColor = sourceNeutralColor,
             sourceTitle = getString(R.string.diagnostics_title),
@@ -199,6 +203,12 @@ class DiagnosticsActivity : SkinnedActivity() {
             ),
             collapsedStrokeWidthPx = DiagnosticsEntryVisualSpec.STROKE_WIDTH_DP *
                 resources.displayMetrics.density
+        )
+        motionHost.setLiquidMotionSurfaceBackground(
+            liquidMotionSurfaceBackgroundOrNull(
+                collapsedSurfaceColor,
+                DiagnosticsEntryVisualSpec.CORNER_RADIUS_DP
+            )
         )
         motionHost.onWindowSizeChangedDuringMotion = ::handleMotionWindowSizeChange
         PredictiveBack.apply(
@@ -535,7 +545,9 @@ class DiagnosticsActivity : SkinnedActivity() {
         if (motionHost.width <= 0 || motionHost.height <= 0) return null
         val display = motionHost.display ?: return null
         val tolerancePx = 4.dp
-        val liveOrigin = DiagnosticsTransitionOriginRegistry.snapshot()
+        val liveOrigin = DiagnosticsTransitionOriginRegistry.snapshot(
+            allowHidden = preferLiveOrigin
+        )
         val originCandidates = if (allowLaunchOriginForExit) {
             if (preferLiveOrigin) {
                 sequenceOf(liveOrigin, launchOrigin)
@@ -543,19 +555,29 @@ class DiagnosticsActivity : SkinnedActivity() {
                 sequenceOf(launchOrigin, liveOrigin)
             }
         } else {
-            sequenceOf(DiagnosticsTransitionOriginRegistry.snapshot())
+            sequenceOf(
+                DiagnosticsTransitionOriginRegistry.snapshot(
+                    allowHidden = preferLiveOrigin
+                )
+            )
         }
         val origin = originCandidates.filterNotNull().firstOrNull { candidate ->
             candidate.displayId == display.displayId &&
-                candidate.displayRotation == display.rotation &&
-                abs(candidate.sourceWindowWidth - motionHost.width) <= tolerancePx &&
-                abs(candidate.sourceWindowHeight - motionHost.height) <= tolerancePx
+                candidate.displayRotation == display.rotation
         } ?: return null
 
         val hostLocation = IntArray(2)
         motionHost.getLocationOnScreen(hostLocation)
-        val collapsedBounds = origin.entryBoundsOnScreen.toLocal(hostLocation)
-        val collapsedTitleBounds = origin.titleBoundsOnScreen.toLocal(hostLocation)
+        val mappedOrigin = DiagnosticsTransitionCoordinateMapper.map(
+            origin = origin,
+            destinationWindowWidth = motionHost.width,
+            destinationWindowHeight = motionHost.height,
+            destinationWindowLeftOnScreen = hostLocation[0].toFloat(),
+            destinationWindowTopOnScreen = hostLocation[1].toFloat(),
+            tolerancePx = tolerancePx.toFloat()
+        ) ?: return null
+        val collapsedBounds = mappedOrigin.entryBounds
+        val collapsedTitleBounds = mappedOrigin.titleBounds
         val expandedBounds = SettingsBackupMotionRect(
             left = 0f,
             top = 0f,
@@ -564,21 +586,11 @@ class DiagnosticsActivity : SkinnedActivity() {
         )
         val destinationTitle = toolbarTitleView ?: return null
         if (destinationTitle.width <= 0 || destinationTitle.height <= 0) return null
-        val expandedTitleBounds = destinationTitle.boundsOnScreen().toLocal(hostLocation)
-        val withinWindow = collapsedBounds.left >= -tolerancePx &&
-            collapsedBounds.top >= -tolerancePx &&
-            collapsedBounds.right <= expandedBounds.right + tolerancePx &&
-            collapsedBounds.bottom <= expandedBounds.bottom + tolerancePx
-        val titleWithinWindow = collapsedTitleBounds.left >= -tolerancePx &&
-            collapsedTitleBounds.top >= -tolerancePx &&
-            collapsedTitleBounds.right <= expandedBounds.right + tolerancePx &&
-            collapsedTitleBounds.bottom <= expandedBounds.bottom + tolerancePx
+        val expandedTitleBounds = destinationTitle.boundsWithin(motionHost) ?: return null
         if (
             !collapsedBounds.isValid ||
             !collapsedTitleBounds.isValid ||
-            !expandedTitleBounds.isValid ||
-            !withinWindow ||
-            !titleWithinWindow
+            !expandedTitleBounds.isValid
         ) {
             return null
         }
@@ -600,25 +612,6 @@ class DiagnosticsActivity : SkinnedActivity() {
                 expandedIsLeftToRight =
                     destinationTitle.layoutDirection == View.LAYOUT_DIRECTION_LTR
             )
-        )
-    }
-
-    private fun SettingsBackupMotionRect.toLocal(hostLocation: IntArray) =
-        SettingsBackupMotionRect(
-            left = left - hostLocation[0],
-            top = top - hostLocation[1],
-            right = right - hostLocation[0],
-            bottom = bottom - hostLocation[1]
-        )
-
-    private fun View.boundsOnScreen(): SettingsBackupMotionRect {
-        val location = IntArray(2)
-        getLocationOnScreen(location)
-        return SettingsBackupMotionRect(
-            left = location[0].toFloat(),
-            top = location[1].toFloat(),
-            right = (location[0] + width).toFloat(),
-            bottom = (location[1] + height).toFloat()
         )
     }
 

@@ -25,6 +25,7 @@ class LiquidVisualTuningPolicyTest {
 
             assertTrue(tuning.cardGlassAlpha < tuning.cardFallbackAlpha)
             assertTrue(tuning.modalGlassAlpha < tuning.modalFallbackAlpha)
+            assertTrue(tuning.motionGlassAlpha < tuning.motionFallbackAlpha)
             assertTrue(tuning.cardGlassAlpha <= 0.24f)
             assertTrue(tuning.modalGlassAlpha <= 0.38f)
             assertTrue(tuning.cardFallbackAlpha < 0.8f)
@@ -39,6 +40,10 @@ class LiquidVisualTuningPolicyTest {
 
             assertTrue(tuning.modalGlassAlpha > tuning.cardGlassAlpha)
             assertTrue(tuning.modalFallbackAlpha > tuning.cardFallbackAlpha)
+            assertTrue(tuning.motionGlassAlpha > tuning.cardGlassAlpha)
+            assertTrue(tuning.motionGlassAlpha <= tuning.modalGlassAlpha)
+            assertTrue(tuning.motionFallbackAlpha > tuning.cardFallbackAlpha)
+            assertTrue(tuning.motionFallbackAlpha < tuning.modalFallbackAlpha)
         }
     }
 }
