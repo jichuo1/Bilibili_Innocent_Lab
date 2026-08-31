@@ -26,7 +26,8 @@ abstract class SkinnedActivity : AppViewsActivity() {
     /**
      * 兼容现有调用点的纯 Material 调色板入口。
      *
-     * 这里故意不读取 SkinPrefs，保证 MainActivity 条款页在门禁前保持原有着色且无新增 I/O。
+     * 这里故意不读取 SkinPrefs 或启动 renderer；调色板只读取独立的配色规范用户设置，
+     * 让条款页与授权后的界面保持同一组 Material 颜色。
      */
     protected val monetColors: MonetColors
         get() = materialPaletteOrNull
