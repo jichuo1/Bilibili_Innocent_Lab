@@ -109,13 +109,17 @@ internal object LiquidStretchOverscrollPolicy {
  * 让滚动前景共享同一个 Android 12+ stretch RenderNode，底层 Activity 背景保持静止。
  *
  * 内部滚动容器不再自己绘制 EdgeEffect；它先把未消费距离交给本父层，本父层在完成 child 绘制后
- * 调用 EdgeEffect.draw。viewport 本身保持透明，因此系统 stretch 只作用于控件前景。
+ * 调用 EdgeEffect.draw。viewport 不复制根底图，只在 child 下方绘制有界折射环，因此系统 stretch
+ * 仍只作用于折射环、控件和透明高光组成的前景 RenderNode。
  */
 @SuppressLint("ViewConstructor")
 internal class LiquidStretchViewport private constructor(
     context: Context,
     private val scrollTarget: View,
-    private val isStretchAllowed: () -> Boolean
+    private val isStretchAllowed: () -> Boolean,
+    private val drawBoundaryUnderlay: (Canvas, View, Float, Float) -> Unit,
+    private val drawBoundaryHighlight: (Canvas, View, Float, Float) -> Unit,
+    private val onStretchDistance: (Float) -> Unit
 ) : FrameLayout(context), NestedScrollingParent3 {
 
     private val nestedParentHelper = NestedScrollingParentHelper(this)
@@ -160,11 +164,19 @@ internal class LiquidStretchViewport private constructor(
     }
 
     override fun draw(canvas: Canvas) {
-        super.draw(canvas)
         if (!isAllowedNow()) {
+            super.draw(canvas)
             finishStretch()
             return
         }
+        var topDistance = EdgeEffectCompat.getDistance(topEffect)
+        var bottomDistance = EdgeEffectCompat.getDistance(bottomEffect)
+        onStretchDistance(maxOf(topDistance, bottomDistance))
+        // 宽幅实时折射必须先于 child 绘制；否则它会把四边控件重新覆盖成背景，表现为裁剪。
+        runCatching { drawBoundaryUnderlay(canvas, this, topDistance, bottomDistance) }
+        super.draw(canvas)
+        // 控件上方只保留透明高光/焦散，不再重绘实时背景。
+        runCatching { drawBoundaryHighlight(canvas, this, topDistance, bottomDistance) }
         var continueDrawing = false
         if (!topEffect.isFinished) {
             continueDrawing = topEffect.draw(canvas) || continueDrawing
@@ -178,6 +190,9 @@ internal class LiquidStretchViewport private constructor(
                 continueDrawing = bottomEffect.draw(this) || continueDrawing
             }
         }
+        topDistance = EdgeEffectCompat.getDistance(topEffect)
+        bottomDistance = EdgeEffectCompat.getDistance(bottomEffect)
+        onStretchDistance(maxOf(topDistance, bottomDistance))
         if (continueDrawing) postInvalidateOnAnimation()
     }
 
@@ -394,6 +409,7 @@ internal class LiquidStretchViewport private constructor(
         lastFlingVelocityY = 0f
         nonTouchAbsorbed = false
         nonTouchAdjusted = false
+        onStretchDistance(0f)
         if (hadEffect) invalidate()
     }
 
@@ -451,7 +467,10 @@ internal class LiquidStretchViewport private constructor(
     companion object {
         fun installAround(
             scrollTarget: View,
-            isStretchAllowed: () -> Boolean
+            isStretchAllowed: () -> Boolean,
+            drawBoundaryUnderlay: (Canvas, View, Float, Float) -> Unit,
+            drawBoundaryHighlight: (Canvas, View, Float, Float) -> Unit,
+            onStretchDistance: (Float) -> Unit
         ): LiquidStretchViewport? {
             val parent = scrollTarget.parentOrNull() ?: return null
             val index = parent.indexOfChild(scrollTarget).takeIf { it >= 0 } ?: return null
@@ -461,7 +480,10 @@ internal class LiquidStretchViewport private constructor(
                 val viewport = LiquidStretchViewport(
                     context = scrollTarget.context,
                     scrollTarget = scrollTarget,
-                    isStretchAllowed = isStretchAllowed
+                    isStretchAllowed = isStretchAllowed,
+                    drawBoundaryUnderlay = drawBoundaryUnderlay,
+                    drawBoundaryHighlight = drawBoundaryHighlight,
+                    onStretchDistance = onStretchDistance
                 )
                 parent.addView(viewport, index, originalLayoutParams)
                 viewport

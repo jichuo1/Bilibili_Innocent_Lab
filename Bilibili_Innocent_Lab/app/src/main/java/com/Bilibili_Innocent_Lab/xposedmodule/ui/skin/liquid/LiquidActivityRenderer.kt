@@ -15,7 +15,7 @@ import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
+import android.view.Choreographer
 import android.view.PixelCopy
 import android.view.View
 import android.view.ViewTreeObserver
@@ -34,6 +34,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
 import java.util.WeakHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 
@@ -42,6 +43,23 @@ internal interface LiquidMotionSurfaceFrameProvider {
     fun copyLiquidMotionBounds(outBounds: RectF)
     fun liquidMotionCornerRadiusPx(): Float
     fun liquidMotionFallbackColor(): Int
+}
+
+/** Surface 的真实 Drawable 几何；只在已有对象上更新，实时反馈遮罩逐帧零分配。 */
+private class LiquidSurfaceFootprint {
+    var left = 0
+    var top = 0
+    var right = 0
+    var bottom = 0
+    var radiusPx = 0f
+
+    fun update(bounds: Rect, radiusPx: Float) {
+        left = bounds.left
+        top = bounds.top
+        right = bounds.right
+        bottom = bounds.bottom
+        this.radiusPx = radiusPx
+    }
 }
 
 /**
@@ -95,15 +113,24 @@ internal class LiquidActivityRenderer(
     private val rootFallbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.background
     }
-    private val surfaceViews = WeakHashMap<View, Unit>()
+    private val surfaceViews = WeakHashMap<View, LiquidSurfaceFootprint>()
+    private val stretchViewports = WeakHashMap<View, Unit>()
     private val retiredBackdropSources = LinkedHashSet<LiquidBackdropSource>()
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val choreographer = Choreographer.getInstance()
     private val realtimeCaptureCanvas = Canvas()
     private val realtimeCaptureMask = Path()
     private val realtimeCaptureBounds = Rect()
     private val realtimeCaptureSourceRect = Rect()
     private val realtimeRootLocation = IntArray(2)
     private val realtimeSurfaceLocation = IntArray(2)
+    private val stretchBounds = Rect()
+    private val stretchBoundaryPath = Path().apply { fillType = Path.FillType.EVEN_ODD }
+    private val stretchLocation = IntArray(2)
+    private val stretchEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
 
     private var backendDriver: LiquidBackendDriver? = null
     private var backdropSource: LiquidBackdropSource? = null
@@ -111,9 +138,18 @@ internal class LiquidActivityRenderer(
     private var realtimeCaptureSources: List<LiquidBackdropSource> = emptyList()
     private var realtimeCaptureNextIndex = 0
     private var realtimeCaptureInFlight: LiquidBackdropSource? = null
-    private var realtimeCaptureRequestStartedAt = 0L
     private var realtimeCaptureFailureCount = 0
     private var realtimeCaptureSuspended = false
+    private var realtimeFrameCallbackPosted = false
+    private var realtimeNextCaptureNanos = Long.MAX_VALUE
+    private var realtimeFrameIntervalNanos =
+        LiquidRealtimeCapturePolicy.frameIntervalNanos(60f)
+    private var realtimeTargetRefreshRate = 60f
+    private var originalPreferredRefreshRate: Float? = null
+    private var appliedPreferredRefreshRate: Float? = null
+    private var originalPreferredDisplayModeId: Int? = null
+    private var appliedPreferredDisplayModeId: Int? = null
+    private var stretchOpticalIntensity = 1f
     private var activityVisible = false
     private var boundRoot: View? = null
     private var rootDrawable: LiquidRootDrawable? = null
@@ -131,7 +167,7 @@ internal class LiquidActivityRenderer(
     private var fatalPosted = false
     private var closed = false
     private val rootScreenLocation = IntArray(2)
-    private val realtimeCaptureRunnable = Runnable { requestRealtimeCapture() }
+    private val realtimeFrameCallback = Choreographer.FrameCallback(::onRealtimeFrame)
     private val pixelCopyFinishedListener = PixelCopy.OnPixelCopyFinishedListener { result ->
         handleRealtimeCaptureResult(result)
     }
@@ -184,6 +220,7 @@ internal class LiquidActivityRenderer(
         root.background = drawable
 
         root.invalidate()
+        configureRealtimeRefreshRate(root)
         if (activityVisible) scheduleRealtimeCapture(LiquidRealtimeCapturePolicy.INITIAL_DELAY_MS)
         return true
     }
@@ -198,7 +235,7 @@ internal class LiquidActivityRenderer(
     @MainThread
     fun onActivityStopped() {
         activityVisible = false
-        boundRoot?.removeCallbacks(realtimeCaptureRunnable)
+        removeRealtimeFrameCallback()
     }
 
     fun createSurfaceDrawable(
@@ -227,7 +264,10 @@ internal class LiquidActivityRenderer(
         return runCatching {
             LiquidStretchViewport.installAround(
                 scrollTarget = scrollTarget,
-                isStretchAllowed = isStretchAllowed
+                isStretchAllowed = isStretchAllowed,
+                drawBoundaryUnderlay = ::drawStretchBoundaryUnderlay,
+                drawBoundaryHighlight = ::drawStretchBoundaryHighlight,
+                onStretchDistance = ::onStretchDistanceChanged
             )
         }.getOrNull()
     }
@@ -235,6 +275,130 @@ internal class LiquidActivityRenderer(
     @MainThread
     fun finishStretchViewport(view: View?) {
         (view as? LiquidStretchViewport)?.finishStretch()
+    }
+
+    /**
+     * 为整个可滚动 viewport 绘制一圈采样折射；它与 child 位于同一前景 RenderNode，系统
+     * stretch 会一起形变，而 Activity 稳定底图仍完全静止。
+     */
+    private fun drawStretchBoundaryUnderlay(
+        canvas: Canvas,
+        viewport: View,
+        topDistance: Float,
+        bottomDistance: Float
+    ) {
+        if (closed || effectProfile != LiquidEffectProfile.REALTIME_CAPTURE ||
+            !canvas.isHardwareAccelerated || viewport.width <= 0 || viewport.height <= 0 ||
+            backdropSource == null
+        ) {
+            return
+        }
+        stretchViewports[viewport] = Unit
+        stretchBounds.set(0, 0, viewport.width, viewport.height)
+        viewport.getLocationOnScreen(stretchLocation)
+        val bandPx = (parameters.effectPaddingDp * density).coerceAtMost(
+            minOf(viewport.width, viewport.height) * 0.32f
+        )
+        val radiusPx = (18f * density).coerceAtMost(
+            minOf(viewport.width, viewport.height) * 0.5f
+        )
+        stretchBoundaryPath.rewind()
+        stretchBoundaryPath.fillType = Path.FillType.EVEN_ODD
+        stretchBoundaryPath.addRoundRect(
+            0f,
+            0f,
+            viewport.width.toFloat(),
+            viewport.height.toFloat(),
+            radiusPx,
+            radiusPx,
+            Path.Direction.CW
+        )
+        if (viewport.width > bandPx * 2f && viewport.height > bandPx * 2f) {
+            stretchBoundaryPath.addRoundRect(
+                bandPx,
+                bandPx,
+                viewport.width - bandPx,
+                viewport.height - bandPx,
+                (radiusPx - bandPx).coerceAtLeast(0f),
+                (radiusPx - bandPx).coerceAtLeast(0f),
+                Path.Direction.CW
+            )
+        }
+        val intensity = maxOf(
+            stretchOpticalIntensity,
+            LiquidRealtimeCapturePolicy.stretchOpticalIntensity(
+                maxOf(topDistance, bottomDistance)
+            )
+        )
+        val saveCount = canvas.save()
+        try {
+            canvas.clipPath(stretchBoundaryPath)
+            drawWithFallback { driver ->
+                if (driver.backend != LiquidRenderBackend.TRANSLUCENT) {
+                    driver.drawBackdrop(
+                        canvas = canvas,
+                        bounds = stretchBounds,
+                        radiusPx = radiusPx,
+                        viewX = stretchLocation[0] - rootScreenLocation[0],
+                        viewY = stretchLocation[1] - rootScreenLocation[1],
+                        opticalIntensity = intensity
+                    )
+                }
+            }
+        } finally {
+            canvas.restoreToCount(saveCount)
+        }
+    }
+
+    /** 控件上方只画透明高光；不采样或覆盖实时背景，因此不会遮住四边内容。 */
+    private fun drawStretchBoundaryHighlight(
+        canvas: Canvas,
+        viewport: View,
+        topDistance: Float,
+        bottomDistance: Float
+    ) {
+        if (closed || effectProfile != LiquidEffectProfile.REALTIME_CAPTURE ||
+            !canvas.isHardwareAccelerated || viewport.width <= 0 || viewport.height <= 0 ||
+            backdropSource == null
+        ) {
+            return
+        }
+        val radiusPx = (18f * density).coerceAtMost(
+            minOf(viewport.width, viewport.height) * 0.5f
+        )
+        val intensity = maxOf(
+            stretchOpticalIntensity,
+            LiquidRealtimeCapturePolicy.stretchOpticalIntensity(
+                maxOf(topDistance, bottomDistance)
+            )
+        )
+        // 多层内收亮边随系统距离连续增强，在 stretch 最陡处遮住前景与静态底图的接缝。
+        val boost = ((intensity - 1f) / 0.85f).coerceIn(0f, 1f)
+        repeat(3) { layer ->
+            val layerAlpha = ((0.11f + 0.13f * boost) * 255f / (layer + 1f))
+                .toInt()
+                .coerceIn(0, 255)
+            stretchEdgePaint.color = ColorUtils.setAlphaComponent(Color.WHITE, layerAlpha)
+            stretchEdgePaint.strokeWidth = (1.1f + layer * 2.1f) * density
+            val inset = stretchEdgePaint.strokeWidth * 0.5f
+            canvas.drawRoundRect(
+                inset,
+                inset,
+                viewport.width - inset,
+                viewport.height - inset,
+                (radiusPx - inset).coerceAtLeast(0f),
+                (radiusPx - inset).coerceAtLeast(0f),
+                stretchEdgePaint
+            )
+        }
+    }
+
+    private fun onStretchDistanceChanged(distance: Float) {
+        if (closed || effectProfile != LiquidEffectProfile.REALTIME_CAPTURE) return
+        val next = LiquidRealtimeCapturePolicy.stretchOpticalIntensity(distance)
+        if (abs(next - stretchOpticalIntensity) < 0.002f) return
+        stretchOpticalIntensity = next
+        invalidateRegisteredSurfaces()
     }
 
     @MainThread
@@ -331,7 +495,10 @@ internal class LiquidActivityRenderer(
                     bounds,
                     effectiveRadiusPx,
                     viewX - rootScreenLocation[0],
-                    viewY - rootScreenLocation[1]
+                    viewY - rootScreenLocation[1],
+                    if (effectProfile == LiquidEffectProfile.REALTIME_CAPTURE) {
+                        stretchOpticalIntensity
+                    } else 1f
                 )
             }
             drawSurfaceLayers(
@@ -566,34 +733,117 @@ internal class LiquidActivityRenderer(
         }
     }
 
-    /** Surface Drawable 在首次 draw 时登记 callback View；弱键避免 renderer 反向延长 View 生命周期。 */
-    internal fun registerSurfaceView(view: View) {
-        if (!closed) surfaceViews[view] = Unit
+    /** Surface Drawable 在 draw 时更新真实几何；弱键避免 renderer 反向延长 View 生命周期。 */
+    internal fun registerSurfaceView(view: View, bounds: Rect, radiusPx: Float) {
+        if (closed) return
+        val footprint = surfaceViews[view] ?: LiquidSurfaceFootprint().also {
+            surfaceViews[view] = it
+        }
+        footprint.update(bounds, radiusPx)
     }
 
     private fun invalidateRegisteredSurfaces() {
-        val iterator = surfaceViews.keys.iterator()
-        while (iterator.hasNext()) {
-            val view = iterator.next()
-            if (!view.isAttachedToWindow) iterator.remove()
+        val surfaceIterator = surfaceViews.keys.iterator()
+        while (surfaceIterator.hasNext()) {
+            val view = surfaceIterator.next()
+            if (!view.isAttachedToWindow) surfaceIterator.remove()
+            else if (view.isShown) view.invalidate()
+        }
+        val stretchIterator = stretchViewports.keys.iterator()
+        while (stretchIterator.hasNext()) {
+            val view = stretchIterator.next()
+            if (!view.isAttachedToWindow) stretchIterator.remove()
             else if (view.isShown) view.invalidate()
         }
     }
 
-    /** 以目标 30 FPS 排队；任何时刻只允许一个 PixelCopy 请求在飞行。 */
+    /** 根据当前分辨率的真实 display mode 请求最高不超过 120Hz 的窗口刷新率。 */
+    @Suppress("DEPRECATION")
+    private fun configureRealtimeRefreshRate(root: View) {
+        if (effectProfile != LiquidEffectProfile.REALTIME_CAPTURE) return
+        val display = root.display ?: return
+        val currentMode = display.mode
+        val matchingModes = display.supportedModes.asSequence()
+            .filter {
+                it.physicalWidth == currentMode.physicalWidth &&
+                    it.physicalHeight == currentMode.physicalHeight
+            }
+            .toList()
+        val supportedRates = matchingModes.asSequence()
+            .map { it.refreshRate }
+            .toList()
+        realtimeTargetRefreshRate = LiquidRealtimeCapturePolicy.targetRefreshRate(
+            currentRefreshRate = display.refreshRate,
+            supportedRefreshRates = supportedRates
+        )
+        realtimeFrameIntervalNanos = LiquidRealtimeCapturePolicy.frameIntervalNanos(
+            realtimeTargetRefreshRate
+        )
+        val attributes = activity.window.attributes
+        if (originalPreferredRefreshRate == null) {
+            originalPreferredRefreshRate = attributes.preferredRefreshRate
+            originalPreferredDisplayModeId = attributes.preferredDisplayModeId
+        }
+        val targetMode = matchingModes
+            .filter { abs(it.refreshRate - realtimeTargetRefreshRate) <= 0.5f }
+            .maxByOrNull { it.refreshRate }
+        val targetModeId = targetMode?.modeId
+        if (abs(attributes.preferredRefreshRate - realtimeTargetRefreshRate) >= 0.01f ||
+            targetModeId != null && attributes.preferredDisplayModeId != targetModeId
+        ) {
+            attributes.preferredRefreshRate = realtimeTargetRefreshRate
+            if (targetModeId != null) attributes.preferredDisplayModeId = targetModeId
+            activity.window.attributes = attributes
+        }
+        appliedPreferredRefreshRate = realtimeTargetRefreshRate
+        appliedPreferredDisplayModeId = targetModeId
+    }
+
+    /** 由 VSync 驱动目标最高 120Hz；PixelCopy 始终单飞，慢设备自然按完成速度降频。 */
     private fun scheduleRealtimeCapture(delayMs: Long) {
-        val root = boundRoot ?: return
+        if (boundRoot == null) return
         if (closed || !activityVisible || realtimeCaptureSuspended ||
-            effectProfile != LiquidEffectProfile.REALTIME_CAPTURE ||
-            realtimeCaptureInFlight != null
+            effectProfile != LiquidEffectProfile.REALTIME_CAPTURE
         ) {
             return
         }
-        root.removeCallbacks(realtimeCaptureRunnable)
-        root.postOnAnimationDelayed(realtimeCaptureRunnable, delayMs.coerceAtLeast(0L))
+        realtimeNextCaptureNanos = System.nanoTime() +
+            delayMs.coerceAtLeast(0L) * NANOS_PER_MILLISECOND
+        postRealtimeFrameCallback()
     }
 
-    private fun requestRealtimeCapture() {
+    private fun postRealtimeFrameCallback() {
+        if (realtimeFrameCallbackPosted || closed || !activityVisible ||
+            realtimeCaptureSuspended || effectProfile != LiquidEffectProfile.REALTIME_CAPTURE
+        ) {
+            return
+        }
+        realtimeFrameCallbackPosted = true
+        choreographer.postFrameCallback(realtimeFrameCallback)
+    }
+
+    private fun removeRealtimeFrameCallback() {
+        if (!realtimeFrameCallbackPosted) return
+        realtimeFrameCallbackPosted = false
+        choreographer.removeFrameCallback(realtimeFrameCallback)
+    }
+
+    private fun onRealtimeFrame(frameTimeNanos: Long) {
+        realtimeFrameCallbackPosted = false
+        if (closed || !activityVisible || realtimeCaptureSuspended ||
+            effectProfile != LiquidEffectProfile.REALTIME_CAPTURE
+        ) {
+            return
+        }
+        if (realtimeCaptureInFlight == null &&
+            LiquidRealtimeCapturePolicy.isFrameDue(frameTimeNanos, realtimeNextCaptureNanos)
+        ) {
+            requestRealtimeCapture(frameTimeNanos)
+        }
+        postRealtimeFrameCallback()
+    }
+
+    private fun requestRealtimeCapture(frameTimeNanos: Long) {
         val root = boundRoot ?: return
         if (closed || !activityVisible || realtimeCaptureSuspended ||
             effectProfile != LiquidEffectProfile.REALTIME_CAPTURE ||
@@ -602,9 +852,11 @@ internal class LiquidActivityRenderer(
             return
         }
         if (!root.isAttachedToWindow || !root.isShown ||
-            root.windowVisibility != View.VISIBLE || surfaceViews.isEmpty()
+            root.windowVisibility != View.VISIBLE ||
+            (surfaceViews.isEmpty() && stretchViewports.isEmpty())
         ) {
-            scheduleRealtimeCapture(LiquidRealtimeCapturePolicy.RETRY_DELAY_MS)
+            realtimeNextCaptureNanos = frameTimeNanos +
+                LiquidRealtimeCapturePolicy.RETRY_DELAY_MS * NANOS_PER_MILLISECOND
             return
         }
         val captureSources = ensureRealtimeCaptureSources(root) ?: return
@@ -620,7 +872,7 @@ internal class LiquidActivityRenderer(
             realtimeRootLocation[1] + root.height
         )
         realtimeCaptureInFlight = captureSource
-        realtimeCaptureRequestStartedAt = SystemClock.uptimeMillis()
+        realtimeNextCaptureNanos = frameTimeNanos + realtimeFrameIntervalNanos
         val requested = runCatching {
             PixelCopy.request(
                 activity.window,
@@ -647,8 +899,6 @@ internal class LiquidActivityRenderer(
             realtimeBackdropSource = captureSource
             bindPreparedBackendsToBackdrop(captureSource)
             invalidateRegisteredSurfaces()
-            val elapsed = SystemClock.uptimeMillis() - realtimeCaptureRequestStartedAt
-            scheduleRealtimeCapture(LiquidRealtimeCapturePolicy.nextFrameDelayMs(elapsed))
             return
         }
 
@@ -656,7 +906,8 @@ internal class LiquidActivityRenderer(
         if (LiquidRealtimeCapturePolicy.shouldSuspend(realtimeCaptureFailureCount)) {
             suspendRealtimeCapture(releaseBuffers = true)
         } else {
-            scheduleRealtimeCapture(LiquidRealtimeCapturePolicy.RETRY_DELAY_MS)
+            realtimeNextCaptureNanos = System.nanoTime() +
+                LiquidRealtimeCapturePolicy.RETRY_DELAY_MS * NANOS_PER_MILLISECOND
         }
     }
 
@@ -676,24 +927,80 @@ internal class LiquidActivityRenderer(
         val scaleY = bitmap.height.toFloat() / root.height.toFloat()
         root.getLocationOnScreen(realtimeRootLocation)
         realtimeCaptureMask.reset()
+        realtimeCaptureMask.fillType = Path.FillType.WINDING
         var hasMask = false
-        val iterator = surfaceViews.keys.iterator()
+        val paddingPx = parameters.effectPaddingDp * density
+        val iterator = surfaceViews.entries.iterator()
         while (iterator.hasNext()) {
-            val surface = iterator.next()
+            val entry = iterator.next()
+            val surface = entry.key
+            val footprint = entry.value
             if (!surface.isAttachedToWindow) {
                 iterator.remove()
                 continue
             }
             if (!surface.isShown || surface.alpha <= 0f || surface.rootView !== root.rootView) continue
             surface.getLocationOnScreen(realtimeSurfaceLocation)
+            val rawLeft = realtimeSurfaceLocation[0] - realtimeRootLocation[0] +
+                footprint.left - paddingPx
+            val rawTop = realtimeSurfaceLocation[1] - realtimeRootLocation[1] +
+                footprint.top - paddingPx
+            val rawRight = realtimeSurfaceLocation[0] - realtimeRootLocation[0] +
+                footprint.right + paddingPx
+            val rawBottom = realtimeSurfaceLocation[1] - realtimeRootLocation[1] +
+                footprint.bottom + paddingPx
+            if (rawRight <= 0f || rawBottom <= 0f || rawLeft >= root.width ||
+                rawTop >= root.height
+            ) {
+                continue
+            }
+            val left = (rawLeft * scaleX)
+                .coerceIn(0f, bitmap.width.toFloat())
+            val top = (rawTop * scaleY)
+                .coerceIn(0f, bitmap.height.toFloat())
+            val right = (rawRight * scaleX)
+                .coerceIn(0f, bitmap.width.toFloat())
+            val bottom = (rawBottom * scaleY)
+                .coerceIn(0f, bitmap.height.toFloat())
+            if (right > left && bottom > top) {
+                realtimeCaptureMask.addRoundRect(
+                    left,
+                    top,
+                    right,
+                    bottom,
+                    (footprint.radiusPx + paddingPx) * scaleX,
+                    (footprint.radiusPx + paddingPx) * scaleY,
+                    Path.Direction.CW
+                )
+                hasMask = true
+            }
+        }
+        val stretchIterator = stretchViewports.keys.iterator()
+        val stretchBandPx = LiquidRealtimeCapturePolicy
+            .stretchFeedbackBandDp(parameters.effectPaddingDp) * density
+        while (stretchIterator.hasNext()) {
+            val viewport = stretchIterator.next()
+            if (!viewport.isAttachedToWindow) {
+                stretchIterator.remove()
+                continue
+            }
+            if (!viewport.isShown || viewport.alpha <= 0f || viewport.rootView !== root.rootView) {
+                continue
+            }
+            viewport.getLocationOnScreen(realtimeSurfaceLocation)
             val left = ((realtimeSurfaceLocation[0] - realtimeRootLocation[0]) * scaleX)
                 .coerceIn(0f, bitmap.width.toFloat())
             val top = ((realtimeSurfaceLocation[1] - realtimeRootLocation[1]) * scaleY)
                 .coerceIn(0f, bitmap.height.toFloat())
-            val right = (left + surface.width * scaleX).coerceAtMost(bitmap.width.toFloat())
-            val bottom = (top + surface.height * scaleY).coerceAtMost(bitmap.height.toFloat())
-            if (right > left && bottom > top) {
-                realtimeCaptureMask.addRect(left, top, right, bottom, Path.Direction.CW)
+            val right = (left + viewport.width * scaleX).coerceAtMost(bitmap.width.toFloat())
+            val bottom = (top + viewport.height * scaleY).coerceAtMost(bitmap.height.toFloat())
+            val bandX = (stretchBandPx * scaleX).coerceAtMost((right - left) * 0.5f)
+            val bandY = (stretchBandPx * scaleY).coerceAtMost((bottom - top) * 0.5f)
+            if (right > left && bottom > top && bandX > 0f && bandY > 0f) {
+                realtimeCaptureMask.addRect(left, top, right, top + bandY, Path.Direction.CW)
+                realtimeCaptureMask.addRect(left, bottom - bandY, right, bottom, Path.Direction.CW)
+                realtimeCaptureMask.addRect(left, top + bandY, left + bandX, bottom - bandY, Path.Direction.CW)
+                realtimeCaptureMask.addRect(right - bandX, top + bandY, right, bottom - bandY, Path.Direction.CW)
                 hasMask = true
             }
         }
@@ -758,7 +1065,8 @@ internal class LiquidActivityRenderer(
 
     private fun suspendRealtimeCapture(releaseBuffers: Boolean) {
         realtimeCaptureSuspended = true
-        boundRoot?.removeCallbacks(realtimeCaptureRunnable)
+        removeRealtimeFrameCallback()
+        restorePreferredRefreshRate()
         if (releaseBuffers) releaseRealtimeCaptureSources(rebindStableBackdrop = true)
     }
 
@@ -864,7 +1172,7 @@ internal class LiquidActivityRenderer(
         closed = true
         activityVisible = false
         realtimeCaptureSuspended = true
-        boundRoot?.removeCallbacks(realtimeCaptureRunnable)
+        removeRealtimeFrameCallback()
         realtimeCaptureInFlight = null
         customBackdropLoadGeneration += 1L
         customBackdropFuture?.cancel(true)
@@ -880,6 +1188,7 @@ internal class LiquidActivityRenderer(
         }
         rootScrollListener = null
         surfaceViews.clear()
+        stretchViewports.clear()
         onFirstVisibleDraw = null
         onFatalFailure = null
         preparedDrivers.values.forEach(LiquidBackendDriver::close)
@@ -891,10 +1200,40 @@ internal class LiquidActivityRenderer(
         backdropSource = null
         retiredBackdropSources.forEach(LiquidBackdropSource::close)
         retiredBackdropSources.clear()
+        restorePreferredRefreshRate()
         boundRoot = null
         rootDrawable = null
     }
+
+    @Suppress("DEPRECATION")
+    private fun restorePreferredRefreshRate() {
+        val applied = appliedPreferredRefreshRate ?: return
+        val original = originalPreferredRefreshRate ?: return
+        val attributes = activity.window.attributes
+        val appliedModeId = appliedPreferredDisplayModeId
+        val originalModeId = originalPreferredDisplayModeId
+        var changed = false
+        if (abs(attributes.preferredRefreshRate - applied) < 0.01f) {
+            attributes.preferredRefreshRate = original
+            changed = true
+        }
+        if (appliedModeId != null && originalModeId != null &&
+            attributes.preferredDisplayModeId == appliedModeId
+        ) {
+            attributes.preferredDisplayModeId = originalModeId
+            changed = true
+        }
+        if (changed) {
+            activity.window.attributes = attributes
+        }
+        appliedPreferredRefreshRate = null
+        originalPreferredRefreshRate = null
+        appliedPreferredDisplayModeId = null
+        originalPreferredDisplayModeId = null
+    }
 }
+
+private const val NANOS_PER_MILLISECOND = 1_000_000L
 
 private class LiquidRootDrawable(
     private val renderer: LiquidActivityRenderer,
@@ -941,7 +1280,6 @@ private class LiquidSurfaceDrawable(
     override fun draw(canvas: Canvas) {
         val view = callback as? View
         if (view != null) {
-            renderer.registerSurfaceView(view)
             view.getLocationOnScreen(location)
         }
         else {
@@ -970,6 +1308,7 @@ private class LiquidSurfaceDrawable(
                 drawY += motionBounds.top
             }
         }
+        if (view != null) renderer.registerSurfaceView(view, drawBounds, drawRadiusPx)
         renderer.drawSurface(
             canvas,
             drawBounds,

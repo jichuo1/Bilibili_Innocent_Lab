@@ -13,6 +13,8 @@ internal data class LiquidParameters(
     val depthEffect: Float,
     val interiorDistortionDp: Float,
     val chromaticShiftDp: Float,
+    val scatteringRadiusDp: Float,
+    val scatteringStrength: Float,
     val chromaticAberration: Boolean,
     val saturation: Float,
     val surfaceAlpha: Float,
