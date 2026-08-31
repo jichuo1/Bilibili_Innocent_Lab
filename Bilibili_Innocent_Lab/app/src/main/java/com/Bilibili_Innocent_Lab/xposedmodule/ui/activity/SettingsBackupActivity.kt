@@ -73,7 +73,6 @@ import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import kotlin.math.abs
-import kotlin.math.roundToLong
 
 /** SAF 驱动的设置备份、兼容性预览和确认导入页面。 */
 class SettingsBackupActivity : SkinnedActivity() {
@@ -125,7 +124,18 @@ class SettingsBackupActivity : SkinnedActivity() {
     private var pageStretchViewport: View? = null
 
     private val enterInterpolator = PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
-    private val closeInterpolator = PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
+    private val closeInterpolator = PathInterpolator(
+        SettingsBackupMotionSpec.CLOSE_EASING_X1,
+        SettingsBackupMotionSpec.CLOSE_EASING_Y1,
+        SettingsBackupMotionSpec.CLOSE_EASING_X2,
+        SettingsBackupMotionSpec.CLOSE_EASING_Y2
+    )
+    private val commitInterpolator = PathInterpolator(
+        SettingsBackupMotionSpec.COMMIT_EASING_X1,
+        SettingsBackupMotionSpec.COMMIT_EASING_Y1,
+        SettingsBackupMotionSpec.COMMIT_EASING_X2,
+        SettingsBackupMotionSpec.COMMIT_EASING_Y2
+    )
     private val cancelInterpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
     private val predictiveBackInterpolator = PathInterpolator(0f, 0f, 0f, 1f)
 
@@ -390,13 +400,15 @@ class SettingsBackupActivity : SkinnedActivity() {
         } else {
             CLOSE_DURATION_MS
         }
-        val duration = (baseDuration * currentExpansion)
-            .roundToLong()
-            .coerceIn(MIN_CLOSE_DURATION_MS, baseDuration)
+        val duration = SettingsBackupMotionSpec.closeDurationMs(
+            baseDurationMs = baseDuration,
+            currentExpansion = currentExpansion,
+            minimumDurationMs = MIN_CLOSE_DURATION_MS
+        )
         animateMotionTo(
             targetExpansion = 0f,
             durationMs = duration,
-            interpolator = closeInterpolator,
+            interpolator = if (interactiveCommit) commitInterpolator else closeInterpolator,
             onEnd = ::finishAfterMotion
         )
     }
@@ -464,8 +476,13 @@ class SettingsBackupActivity : SkinnedActivity() {
         if (finishingAfterMotion || isFinishing || isDestroyed) return
         finishingAfterMotion = true
         motionHost.blockInteraction(true)
-        finish()
-        suppressLegacyCloseTransition()
+        // 让完全收拢的透明交接帧先完成一次绘制，再结束 Activity；否则 onEnd 同帧
+        // finish 会让来源卡片或系统栏在最后一帧出现短促闪现。
+        motionHost.postOnAnimation {
+            if (isFinishing || isDestroyed) return@postOnAnimation
+            finish()
+            suppressLegacyCloseTransition()
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -1291,10 +1308,10 @@ class SettingsBackupActivity : SkinnedActivity() {
         const val OUTCOME_VERIFIED = "verified"
         const val OUTCOME_POSSIBLY_CHANGED = "possibly_changed"
         private const val ENTER_DURATION_MS = 370L
-        private const val CLOSE_DURATION_MS = 270L
-        private const val BACK_COMMIT_DURATION_MS = 160L
+        private const val CLOSE_DURATION_MS = 300L
+        private const val BACK_COMMIT_DURATION_MS = 200L
         private const val BACK_CANCEL_DURATION_MS = 210L
-        private const val MIN_CLOSE_DURATION_MS = 60L
+        private const val MIN_CLOSE_DURATION_MS = 80L
         private const val SOURCE_CORNER_RADIUS_DP = 15f
         private const val CONTENT_TRAVEL_DP = 12f
         private const val ID_PLAYER_DEFAULT_QUALITY = "player.default_quality.qn"

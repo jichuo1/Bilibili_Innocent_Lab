@@ -59,9 +59,11 @@ JVM protocol success does not prove framework service binding or device Hook
 execution; those remain device checks.
 
 Diagnostics tests lock the pure severity/evidence matrix and the local report's
-version, size limit, privacy exclusions, and read-back schema. A passing JVM test
-does not prove LSPosed binding, an NPatch heartbeat, host adaptation, SAF provider
-behavior, Liquid rendering, or device accessibility.
+version, size limit, privacy exclusions, and read-back schema. The transition test
+also locks the dedicated entry/full-window endpoints, staged content reveal, title
+trajectory, and the wider predictive-back content profile. A passing JVM test does
+not prove LSPosed binding, an NPatch heartbeat, host adaptation, SAF provider behavior,
+Liquid rendering, RenderThread timing, or device accessibility.
 
 ## Device checks
 
@@ -191,7 +193,14 @@ behavior, Liquid rendering, or device accessibility.
     the UI decision rolled back.
 30. Open the diagnostics center from the activation card in Material You and Liquid
     modes, in all supported locales, with large font, TalkBack, rotation, and Android
-    predictive back. Verify manual refresh converges after the framework service binds;
+    predictive back. Verify only the dedicated diagnostics row is clickable; its rounded
+    bounds expand continuously to the full window and its title moves into the toolbar.
+    Drag predictive back slowly, cancel once, then commit once: the same geometry must
+    follow every progress sample, cancellation must return to a fully interactive page,
+    and commit must finish at the live entry without a framework transition flash.
+    During entry/cancel/close, diagnostics result delivery must not rebuild the list and
+    Liquid overscroll must not remain attached; rapid repeated Back must be consumed.
+    Verify manual refresh converges after the framework service binds;
     a current-version NPatch heartbeat is observed, an old-version heartbeat is not;
     Remote Preferences publication and host adaptation remain separate rows; and the
     adaptation row stays unknown rather than claiming success. Export through the

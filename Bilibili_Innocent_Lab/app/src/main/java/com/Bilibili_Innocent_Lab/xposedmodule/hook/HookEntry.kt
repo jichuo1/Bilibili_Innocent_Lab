@@ -23,7 +23,7 @@ import java.lang.reflect.Method
 import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotReporter
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotHostBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.HookConfigSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.SnapshotHookConfigSource
@@ -2533,6 +2533,16 @@ class HookEntry : XposedModule() {
                 logInfo("channel_status_$key", "[BIL] 状态(key=$key, value=$value)")
             }
 
+            if (processName == TARGET_PACKAGE) {
+                MineComponentSnapshotHostBridge.initialize(
+                    context = authorizationContext,
+                    processName = processName,
+                    logError = { message ->
+                        logError("mine_snapshot_query_receiver", "[BIL] $message")
+                    }
+                )
+            }
+
             val hookEnvironment = HookEnvironment(
                 processName = processName,
                 classLoader = biliClassLoader,
@@ -2541,9 +2551,15 @@ class HookEntry : XposedModule() {
                 logInfo = { key, message -> logInfo(key, message) },
                 logError = { key, message -> logError(key, message) },
                 reportStatus = { channel, status -> reportChannelStatus(channel, status) },
-                // 宿主 uid 不能写模块私有 prefs：经受限 Provider/显式广播交给模块 uid 落盘。
+                // 扫描热路径只更新宿主内存/私有缓存；模块设置页再主动拉取并校验落盘。
                 writeMineScanSnapshot = { json ->
-                    MineComponentSnapshotReporter.report(authorizationContext, json)
+                    MineComponentSnapshotHostBridge.update(
+                        context = authorizationContext,
+                        payload = json,
+                        logError = { message ->
+                            logError("mine_snapshot_host_cache", "[BIL] $message")
+                        }
+                    )
                 }
             )
             val featureInstallCoordinator = FeatureInstallCoordinator(hookEnvironment)

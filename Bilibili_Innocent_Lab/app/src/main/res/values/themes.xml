@@ -26,6 +26,17 @@
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
     </style>
 
+    <!-- 诊断中心沿用同一套代码形变，透明窗口让收缩过程露出主界面入口。 -->
+    <style name="Theme.DiagnosticsTransition" parent="Theme.AppDefault">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+    </style>
+
     <!-- 自由复制气泡 Dialog：全屏透窗（非 floating），代码手动 setX/setY 定位气泡。
          注意：不要用 windowIsFloating=true——部分 ROM（HyperOS/MIUI 实测）会按自己的
          浮动窗口样式给窗口画默认背景/硬阴影（表现为圆角气泡外一圈黑色直角边框，

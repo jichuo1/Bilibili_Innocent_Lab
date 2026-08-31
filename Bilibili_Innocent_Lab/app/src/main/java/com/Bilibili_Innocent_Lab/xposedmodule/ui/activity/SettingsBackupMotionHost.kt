@@ -5,6 +5,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.RectF
@@ -20,6 +21,7 @@ import com.highcapable.betterandroid.ui.extension.view.textColor
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.roundToInt
 
 internal data class SettingsBackupMotionGeometry(
     val collapsedBounds: SettingsBackupMotionRect,
@@ -51,7 +53,10 @@ internal class SettingsBackupMotionHost(
     private val collapsedSurfaceColor: Int,
     private val expandedSurfaceColor: Int,
     titleColor: Int,
-    sourceTitle: CharSequence
+    sourceTitle: CharSequence,
+    private val surfaceHandoffExpansion: Float = 0.1f,
+    private val collapsedStrokeColor: Int = Color.TRANSPARENT,
+    private val collapsedStrokeWidthPx: Float = 0f
 ) : FrameLayout(context) {
 
     private val backdropClip = MotionClipFrameLayout(context)
@@ -173,6 +178,7 @@ internal class SettingsBackupMotionHost(
         if (surface.visibility != View.VISIBLE) surface.visibility = View.VISIBLE
         if (backdropClip.visibility != View.VISIBLE) backdropClip.visibility = View.VISIBLE
         backdropClip.alpha = motionFrame.surfaceAlpha
+        val collapsedChromeFraction = SettingsBackupMotionSpec.collapsedChromeFraction(clamped)
         surface.setFrame(
             left = motionFrame.left,
             top = motionFrame.top,
@@ -183,9 +189,16 @@ internal class SettingsBackupMotionHost(
                 collapsedSurfaceColor,
                 expandedSurfaceColor,
                 clamped
-            )
+            ),
+            strokeColor = collapsedStrokeColor.withMultipliedAlpha(
+                collapsedChromeFraction
+            ),
+            strokeWidthPx = collapsedStrokeWidthPx * collapsedChromeFraction
         )
-        surface.alpha = motionFrame.surfaceAlpha
+        surface.alpha = SettingsBackupMotionSpec.transitionSurfaceAlpha(
+            expansion = clamped,
+            handoffExpansion = surfaceHandoffExpansion
+        )
         backdropClip.setMotionOutline(
             motionFrame.left,
             motionFrame.top,
@@ -324,9 +337,18 @@ internal class SettingsBackupMotionHost(
         }
     }
 
+    private fun Int.withMultipliedAlpha(fraction: Float): Int = ColorUtils.setAlphaComponent(
+        this,
+        (Color.alpha(this) * fraction.coerceIn(0f, 1f)).roundToInt()
+    )
+
     private class MorphSurfaceView(context: Context) : View(context) {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+        }
         private val bounds = RectF()
+        private val strokeBounds = RectF()
         private var cornerRadiusPx = 0f
 
         fun setFrame(
@@ -335,24 +357,38 @@ internal class SettingsBackupMotionHost(
             right: Float,
             bottom: Float,
             cornerRadiusPx: Float,
-            color: Int
+            color: Int,
+            strokeColor: Int = Color.TRANSPARENT,
+            strokeWidthPx: Float = 0f
         ) {
             val normalizedRadius = cornerRadiusPx.coerceAtLeast(0f)
+            val normalizedStrokeWidth = strokeWidthPx.coerceAtLeast(0f)
             if (bounds.left == left && bounds.top == top &&
                 bounds.right == right && bounds.bottom == bottom &&
-                this.cornerRadiusPx == normalizedRadius && paint.color == color
+                this.cornerRadiusPx == normalizedRadius && paint.color == color &&
+                strokePaint.color == strokeColor &&
+                strokePaint.strokeWidth == normalizedStrokeWidth
             ) {
                 return
             }
             this.bounds.set(left, top, right, bottom)
             this.cornerRadiusPx = normalizedRadius
             paint.color = color
+            strokePaint.color = strokeColor
+            strokePaint.strokeWidth = normalizedStrokeWidth
             invalidate()
         }
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             canvas.drawRoundRect(bounds, cornerRadiusPx, cornerRadiusPx, paint)
+            if (strokePaint.strokeWidth > 0f && Color.alpha(strokePaint.color) > 0) {
+                val halfStroke = strokePaint.strokeWidth / 2f
+                strokeBounds.set(bounds)
+                strokeBounds.inset(halfStroke, halfStroke)
+                val strokeRadius = (cornerRadiusPx - halfStroke).coerceAtLeast(0f)
+                canvas.drawRoundRect(strokeBounds, strokeRadius, strokeRadius, strokePaint)
+            }
         }
     }
 
