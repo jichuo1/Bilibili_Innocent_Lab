@@ -610,6 +610,76 @@ object VersionAdapter {
         }
     }
 
+    /**
+     * “我的”页数据层剪枝边界（9.9.x 的 V2 动态流 / 部分 8.x 走 AccountMine 静态模型）。
+     *
+     * 锚定在 HomeUserCenterFragment 消费 AccountMine 的静态构建方法
+     * (Fragment, AccountMine) -> Unit 上：在该方法 after 钩子内、后续 UI 渲染前，
+     * 对 sectionListV2[].itemList 做原地剪枝（对哔哩漫游“数据层剪枝”思路的框架化移植——
+     * 不引入 FastJSON 全局 hook，而是复用项目已发布的 mine 入口结构化定位）。
+     * 字段名在适配期探测并缓存为 HookPoint/字段名快照，运行期直接 Field 读写，不扫描 View 树。
+     */
+    data class MineAccountMinePoints(
+        val buildMethods: List<HookPoint>,
+        val accountMineClass: String,
+        val sectionListV2Field: String,
+        val groupClass: String,
+        val groupTitleField: String,
+        val groupItemListField: String,
+        val itemClass: String,
+        val itemTitleField: String,
+        val itemIdField: String,
+        val itemUriField: String,
+        val itemVisibleField: String,
+        val itemLocalShowField: String,
+        val liveTipField: String,
+        val vipSectionRightField: String,
+        val sectionButtonField: String
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("build", JSONArray().apply { buildMethods.forEach { put(it.toJson()) } })
+            put("account_mine", accountMineClass)
+            put("sections", sectionListV2Field)
+            put("group", groupClass)
+            put("group_title", groupTitleField)
+            put("group_items", groupItemListField)
+            put("item", itemClass)
+            put("item_title", itemTitleField)
+            put("item_id", itemIdField)
+            put("item_uri", itemUriField)
+            put("item_visible", itemVisibleField)
+            put("item_local_show", itemLocalShowField)
+            put("live_tip", liveTipField)
+            put("vip_section_right", vipSectionRightField)
+            put("section_button", sectionButtonField)
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): MineAccountMinePoints {
+                val build = o.getJSONArray("build")
+                return MineAccountMinePoints(
+                    buildMethods = (0 until build.length()).map {
+                        HookPoint.fromJson(build.getJSONObject(it))
+                    },
+                    accountMineClass = o.getString("account_mine"),
+                    sectionListV2Field = o.getString("sections"),
+                    groupClass = o.getString("group"),
+                    groupTitleField = o.getString("group_title"),
+                    groupItemListField = o.getString("group_items"),
+                    itemClass = o.getString("item"),
+                    itemTitleField = o.getString("item_title"),
+                    itemIdField = o.getString("item_id"),
+                    itemUriField = o.getString("item_uri"),
+                    itemVisibleField = o.getString("item_visible"),
+                    itemLocalShowField = o.getString("item_local_show"),
+                    liveTipField = o.getString("live_tip"),
+                    vipSectionRightField = o.getString("vip_section_right"),
+                    sectionButtonField = o.getString("section_button")
+                )
+            }
+        }
+    }
+
     /** Story 响应/播放器列表边界与 StoryDetail 精确类型判定方法。 */
     data class StoryFeedPoints(
         val responseItemGetters: List<HookPoint>,
@@ -1063,6 +1133,8 @@ object VersionAdapter {
         val homeComponents: HomeComponentPoints?,
         /** “我的”页组件自定义隐藏的数据边界。 */
         val mineComponents: MineComponentPoints?,
+        /** “我的”页数据层剪枝边界（AccountMine.sectionListV2 原地剪枝，9.9.x 主路径）。 */
+        val mineAccountMine: MineAccountMinePoints? = null,
         /** Story 竖屏流响应与精确类型读取边界。 */
         val storyFeed: StoryFeedPoints?,
         /** 首页底栏单项绑定与条目元数据边界。 */
@@ -1107,6 +1179,7 @@ object VersionAdapter {
             homeTabs?.let { put("home_tabs", it.toJson()) }
             homeComponents?.let { put("home_components", it.toJson()) }
             mineComponents?.let { put("mine_components", it.toJson()) }
+            mineAccountMine?.let { put("mine_account_mine", it.toJson()) }
             storyFeed?.let { put("story_feed", it.toJson()) }
             bottomBar?.let { put("bottom_bar", it.toJson()) }
             playerQuality?.let { put("player_quality", it.toJson()) }
@@ -1348,6 +1421,8 @@ object VersionAdapter {
                         ?.let(HomeComponentPoints::fromJson),
                     mineComponents = o.optJSONObject("mine_components")
                         ?.let(MineComponentPoints::fromJson),
+                    mineAccountMine = o.optJSONObject("mine_account_mine")
+                        ?.let(MineAccountMinePoints::fromJson),
                     storyFeed = o.optJSONObject("story_feed")?.let(StoryFeedPoints::fromJson),
                     bottomBar = o.optJSONObject("bottom_bar")?.let(BottomBarPoints::fromJson),
                     playerQuality = o.optJSONObject("player_quality")
@@ -1797,6 +1872,7 @@ object VersionAdapter {
         val homeTabs = locateHomeTabs(loader)
         val homeComponents = locateHomeComponents(loader)
         val mineComponents = locateMineComponents(loader, mine)
+        val mineAccountMine = locateMineAccountMinePoints(loader)
         val storyFeed = locateStoryFeed(loader)
         val bottomBar = locateBottomBar(loader)
         val playerQuality = locateDefaultVideoQuality(loader)
@@ -1814,7 +1890,7 @@ object VersionAdapter {
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
             playerStatusBar == null && homeRecommendFeed == null && videoRelate == null &&
             homeTabs == null && homeComponents == null && mineComponents == null &&
-            storyFeed == null && bottomBar == null &&
+            mineAccountMine == null && storyFeed == null && bottomBar == null &&
             playerQuality == null && teenagersMode == null && commentPurify == null &&
             commentFilter == null && commentTopology == null && commentSection == null &&
             splashAds == null) return null
@@ -1838,6 +1914,7 @@ object VersionAdapter {
             homeTabs = homeTabs,
             homeComponents = homeComponents,
             mineComponents = mineComponents,
+            mineAccountMine = mineAccountMine,
             storyFeed = storyFeed,
             bottomBar = bottomBar,
             playerQuality = playerQuality,
@@ -1885,6 +1962,7 @@ object VersionAdapter {
         val homeTabs = locateHomeTabs(loader)
         val homeComponents = locateHomeComponents(loader)
         val mineComponents = locateMineComponents(loader, mine)
+        val mineAccountMine = locateMineAccountMinePoints(loader)
         val storyFeed = locateStoryFeed(loader)
         val bottomBar = locateBottomBar(loader)
         val playerQuality = locateDefaultVideoQuality(loader)
@@ -1940,7 +2018,7 @@ object VersionAdapter {
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
             playerStatusBar == null && homeRecommendFeed == null && videoRelate == null &&
             homeTabs == null && homeComponents == null && mineComponents == null &&
-            storyFeed == null && bottomBar == null &&
+            mineAccountMine == null && storyFeed == null && bottomBar == null &&
             playerQuality == null && teenagersMode == null && commentPurify == null &&
             commentFilter == null && commentTopology == null && commentSection == null &&
             splashAds == null &&
@@ -1965,6 +2043,7 @@ object VersionAdapter {
             homeTabs = homeTabs,
             homeComponents = homeComponents,
             mineComponents = mineComponents,
+            mineAccountMine = mineAccountMine,
             storyFeed = storyFeed,
             bottomBar = bottomBar,
             playerQuality = playerQuality,
@@ -2905,6 +2984,87 @@ object VersionAdapter {
             ?.takeIf { !it.isStatic && it.returnType.name == HOST_FRAGMENT_CLASS }
             ?: return@runCatching null
         HomeComponentPoints(onViewCreated.toHookPoint(), parent.toHookPoint())
+    }.getOrNull()
+
+    /**
+     * “我的”页入口的数据层剪枝定位：以 AccountMine 为锚，在 Fragment 的静态构建方法
+     * (Fragment, AccountMine) -> Unit 之后做原地剪枝。复用 locateMineEntry 的
+     * AccountMine/Item 定位结论，但这里采集的是“运行时字段读写所需的字段名快照”。
+     * 字段缺失任一即返回 null（调用方回退 getter 路径）。
+     */
+    fun locateMineAccountMinePoints(loader: ClassLoader): MineAccountMinePoints? = runCatching {
+        val fragmentName = MINE_FRAGMENT_CLASS
+        val accountMineName = "tv.danmaku.bili.ui.main2.api.AccountMine"
+        val groupName = "com.bilibili.lib.homepage.mine.MenuGroup"
+        val itemName = "com.bilibili.lib.homepage.mine.MenuGroup\$Item"
+        val fragment = KavaMemberLookup.classOrNull(loader, fragmentName)
+            ?: return@runCatching null
+        val accountMine = KavaMemberLookup.classOrNull(loader, accountMineName)
+            ?: return@runCatching null
+        val group = KavaMemberLookup.classOrNull(loader, groupName)
+            ?: return@runCatching null
+        val item = KavaMemberLookup.classOrNull(loader, itemName)
+            ?: return@runCatching null
+
+        val builds = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
+            it.isStatic && it.returnType == Void.TYPE &&
+                it.parameterTypes.contentEquals(arrayOf(fragment, accountMine))
+        }.map { it.toHookPoint() }
+        if (builds.isEmpty()) return@runCatching null
+
+        fun fieldName(owner: Class<*>, predicate: (java.lang.reflect.Field) -> Boolean): String? =
+            KavaMemberLookup.declaredFields(owner, makeAccessible = true) { predicate(it) }
+                .singleOrNull()
+                ?.name
+
+        val sectionsField = fieldName(accountMine) {
+            it.type.isAssignableFrom(java.util.List::class.java) &&
+                it.name.startsWith("sectionList")
+        } ?: return@runCatching null
+        val groupTitleField = fieldName(group) {
+            it.name == "title" && it.type == classOf<String>()
+        } ?: return@runCatching null
+        val groupItemsField = fieldName(group) {
+            !it.isStatic && !java.lang.reflect.Modifier.isFinal(it.modifiers) &&
+                it.type.isAssignableFrom(java.util.List::class.java) &&
+                (it.genericType as? java.lang.reflect.ParameterizedType)
+                    ?.actualTypeArguments?.singleOrNull()?.rawClassOrNull()?.name == itemName
+        } ?: return@runCatching null
+        val itemTitleField = fieldName(item) {
+            it.name == "title" && it.type == classOf<String>()
+        } ?: return@runCatching null
+        val itemIdField = fieldName(item) { it.name == "id" } ?: return@runCatching null
+        val itemUriField = fieldName(item) {
+            it.name == "uri" && it.type == classOf<String>()
+        } ?: return@runCatching null
+        val itemVisibleField = fieldName(item) { it.name == "visible" }
+            ?: return@runCatching null
+        val itemLocalShowField = fieldName(item) { it.name == "localShow" }
+            ?: return@runCatching null
+        val liveTipField = fieldName(accountMine) { it.name == "liveTip" }
+            ?: return@runCatching null
+        val vipSectionRightField = fieldName(accountMine) { it.name == "vipSectionRight" }
+            ?: return@runCatching null
+        val sectionButtonField = fieldName(group) { it.name == "button" }
+            ?: return@runCatching null
+
+        MineAccountMinePoints(
+            buildMethods = builds,
+            accountMineClass = accountMineName,
+            sectionListV2Field = sectionsField,
+            groupClass = groupName,
+            groupTitleField = groupTitleField,
+            groupItemListField = groupItemsField,
+            itemClass = itemName,
+            itemTitleField = itemTitleField,
+            itemIdField = itemIdField,
+            itemUriField = itemUriField,
+            itemVisibleField = itemVisibleField,
+            itemLocalShowField = itemLocalShowField,
+            liveTipField = liveTipField,
+            vipSectionRightField = vipSectionRightField,
+            sectionButtonField = sectionButtonField
+        )
     }.getOrNull()
 
     /**

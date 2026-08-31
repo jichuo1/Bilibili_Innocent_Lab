@@ -29,6 +29,7 @@ internal object SettingsCatalog {
         labelRes: Int,
         default: Boolean = false,
         restorePolicy: RestorePolicy = RestorePolicy.AUTOMATIC,
+        introducedCatalogVersion: Int = 1,
         effects: Set<ImportEffect> = setOf(
             ImportEffect.RECREATE_MODULE_UI,
             ImportEffect.RESTART_BILIBILI
@@ -40,6 +41,7 @@ internal object SettingsCatalog {
         type = SettingValueType.BOOLEAN,
         defaultValue = SettingValue.Bool(default),
         restorePolicy = restorePolicy,
+        introducedCatalogVersion = introducedCatalogVersion,
         effects = effects
     )
 
@@ -90,6 +92,12 @@ internal object SettingsCatalog {
     val specs: List<SettingSpec> = listOf(
         bool("ads.pause.hidden", HookEntry.PREF_ENABLED, R.string.paused_page_ad_enable, default = true),
         bool("ads.game_card.hidden", HookEntry.PREF_GAMECARD_ENABLED, R.string.gamecard_ad_enable, default = true),
+        bool(
+            "ads.video_detail.app_promotion.hidden",
+            FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION,
+            R.string.hide_video_detail_app_promotion,
+            introducedCatalogVersion = 2
+        ),
         bool("ads.home_banner.hidden", HookEntry.PREF_BANNER_ENABLED, R.string.banner_ad_enable, default = true),
         bool("ads.merchandise.hidden", HookEntry.PREF_MERCH_ENABLED, R.string.merch_ad_enable, default = true),
 
@@ -111,6 +119,7 @@ internal object SettingsCatalog {
         bool("mine.vip.hidden", FeaturePreferences.HIDE_MINE_VIP, R.string.hide_mine_vip),
         bool("mine.vip.space_kept", FeaturePreferences.KEEP_MINE_VIP_SPACE, R.string.keep_mine_vip_space),
         text("mine.components.hidden_rules", FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES, R.string.custom_mine_component_hide),
+        text("mine.components.hidden_ids", FeaturePreferences.MINE_COMPONENT_HIDDEN_IDS, R.string.custom_mine_component_hide),
         bool("client.update_prompt.blocked", FeaturePreferences.BLOCK_APP_UPDATE, R.string.block_app_update),
         bool("dynamic.city_tab.hidden", FeaturePreferences.HIDE_DYNAMIC_CITY_TAB, R.string.hide_dynamic_city_tab),
         bool("dynamic.school_tab.hidden", FeaturePreferences.HIDE_DYNAMIC_SCHOOL_TAB, R.string.hide_dynamic_school_tab),
@@ -239,7 +248,7 @@ internal object SettingsCatalog {
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
 
     init {
-        check(specs.size == 72) { "Expected 72 catalog settings, found ${specs.size}" }
+        check(specs.size == 74) { "Expected 74 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

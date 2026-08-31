@@ -7,6 +7,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.modulePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
 import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
+import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
@@ -36,6 +37,10 @@ internal data class ModernFrameworkStatus(
     val apiVersion: Int
 )
 
+internal fun interface ModernFrameworkStatusListener {
+    fun onFrameworkStatusChanged(status: ModernFrameworkStatus)
+}
+
 /**
  * 模块进程中的 API 102 Remote Preferences 发布器和服务状态单点。
  *
@@ -49,6 +54,7 @@ internal object RemoteHookConfigStore {
     private val publishScheduled = AtomicBoolean(false)
     private val publishDirty = AtomicBoolean(false)
     private val listenerRegistered = AtomicBoolean(false)
+    private val statusListeners = CopyOnWriteArraySet<ModernFrameworkStatusListener>()
     private val publishExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "bil-remote-config").apply { isDaemon = true }
     }
@@ -156,6 +162,19 @@ internal object RemoteHookConfigStore {
 
     fun status(): ModernFrameworkStatus = frameworkStatus
 
+    /**
+     * 框架服务由 LSPosed 异步投递；订阅时立即回送当前快照，消除 Activity 首次绘制与
+     * Binder 到达之间的竞态。监听器必须由调用方按生命周期移除。
+     */
+    fun addStatusListener(listener: ModernFrameworkStatusListener) {
+        statusListeners.add(listener)
+        notifyStatusListener(listener, frameworkStatus)
+    }
+
+    fun removeStatusListener(listener: ModernFrameworkStatusListener) {
+        statusListeners.remove(listener)
+    }
+
     fun logFailure(result: RemoteHookConfigPublishResult) {
         if (result !is RemoteHookConfigPublishResult.Failure) return
         Log.w(TAG, "publish remote hook config failed: ${result.reason}", result.throwable)
@@ -167,26 +186,66 @@ internal object RemoteHookConfigStore {
             override fun onServiceBind(boundService: XposedService) {
                 val capable = boundService.apiVersion >= XposedService.API_102 &&
                     boundService.frameworkProperties and XposedService.PROP_CAP_REMOTE != 0L
-                if (capable || service == null) service = boundService
-                frameworkStatus = ModernFrameworkStatus(
+                val newStatus = ModernFrameworkStatus(
                     connected = true,
                     capable = capable,
                     name = boundService.frameworkName,
                     apiVersion = boundService.apiVersion
                 )
+                val changed = synchronized(lock) {
+                    if (!capable && service != null) {
+                        false
+                    } else {
+                        service = boundService
+                        if (frameworkStatus == newStatus) {
+                            false
+                        } else {
+                            frameworkStatus = newStatus
+                            true
+                        }
+                    }
+                }
+                if (changed) notifyStatusListeners(newStatus)
                 applicationContext?.let(::requestPublish)
             }
 
             override fun onServiceDied(deadService: XposedService) {
-                if (service === deadService) service = null
-                frameworkStatus = ModernFrameworkStatus(
+                val disconnected = ModernFrameworkStatus(
                     connected = false,
                     capable = false,
                     name = "",
                     apiVersion = 0
                 )
+                val changed = synchronized(lock) {
+                    if (service !== deadService) {
+                        false
+                    } else {
+                        service = null
+                        if (frameworkStatus == disconnected) {
+                            false
+                        } else {
+                            frameworkStatus = disconnected
+                            true
+                        }
+                    }
+                }
+                if (changed) notifyStatusListeners(disconnected)
             }
         })
+    }
+
+    private fun notifyStatusListeners(status: ModernFrameworkStatus) {
+        statusListeners.forEach { listener -> notifyStatusListener(listener, status) }
+    }
+
+    private fun notifyStatusListener(
+        listener: ModernFrameworkStatusListener,
+        status: ModernFrameworkStatus
+    ) {
+        runCatching { listener.onFrameworkStatusChanged(status) }
+            .onFailure { throwable ->
+                Log.w(TAG, "framework status listener failed", throwable)
+            }
     }
 
     private fun requestPublish(context: Context) {
