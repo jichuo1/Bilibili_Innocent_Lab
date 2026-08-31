@@ -118,6 +118,10 @@ internal class LiquidActivityRenderer(
     private val retiredBackdropSources = LinkedHashSet<LiquidBackdropSource>()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val choreographer = Choreographer.getInstance()
+    private val performanceController =
+        if (effectProfile == LiquidEffectProfile.REALTIME_CAPTURE) {
+            LiquidPerformanceController(activity, ::onThermalStatusChanged)
+        } else null
     private val realtimeCaptureCanvas = Canvas()
     private val realtimeCaptureMask = Path()
     private val realtimeCaptureBounds = Rect()
@@ -229,6 +233,12 @@ internal class LiquidActivityRenderer(
     fun onActivityStarted() {
         if (closed) return
         activityVisible = true
+        if (effectProfile == LiquidEffectProfile.REALTIME_CAPTURE &&
+            !realtimeCaptureSuspended
+        ) {
+            performanceController?.start(realtimeFrameIntervalNanos)
+            boundRoot?.let(::configureRealtimeRefreshRate)
+        }
         scheduleRealtimeCapture(LiquidRealtimeCapturePolicy.INITIAL_DELAY_MS)
     }
 
@@ -236,6 +246,8 @@ internal class LiquidActivityRenderer(
     fun onActivityStopped() {
         activityVisible = false
         removeRealtimeFrameCallback()
+        performanceController?.stop()
+        restorePreferredRefreshRate()
     }
 
     fun createSurfaceDrawable(
@@ -757,9 +769,13 @@ internal class LiquidActivityRenderer(
         }
     }
 
-    /** 根据当前分辨率的真实 display mode 请求最高不超过 120Hz 的窗口刷新率。 */
+    /** 根据 display mode 与热状态请求窗口刷新率，并同步 ADPF 目标周期。 */
     @Suppress("DEPRECATION")
-    private fun configureRealtimeRefreshRate(root: View) {
+    private fun configureRealtimeRefreshRate(
+        root: View,
+        thermalStatus: Int = performanceController?.currentThermalStatus
+            ?: LiquidPerformancePolicy.THERMAL_STATUS_NONE
+    ) {
         if (effectProfile != LiquidEffectProfile.REALTIME_CAPTURE) return
         val display = root.display ?: return
         val currentMode = display.mode
@@ -772,13 +788,18 @@ internal class LiquidActivityRenderer(
         val supportedRates = matchingModes.asSequence()
             .map { it.refreshRate }
             .toList()
-        realtimeTargetRefreshRate = LiquidRealtimeCapturePolicy.targetRefreshRate(
+        val requestedRefreshRate = LiquidRealtimeCapturePolicy.targetRefreshRate(
             currentRefreshRate = display.refreshRate,
             supportedRefreshRates = supportedRates
+        )
+        realtimeTargetRefreshRate = LiquidPerformancePolicy.targetRefreshRate(
+            requestedRefreshRate = requestedRefreshRate,
+            thermalStatus = thermalStatus
         )
         realtimeFrameIntervalNanos = LiquidRealtimeCapturePolicy.frameIntervalNanos(
             realtimeTargetRefreshRate
         )
+        performanceController?.updateTargetWorkDuration(realtimeFrameIntervalNanos)
         val attributes = activity.window.attributes
         if (originalPreferredRefreshRate == null) {
             originalPreferredRefreshRate = attributes.preferredRefreshRate
@@ -787,16 +808,27 @@ internal class LiquidActivityRenderer(
         val targetMode = matchingModes
             .filter { abs(it.refreshRate - realtimeTargetRefreshRate) <= 0.5f }
             .maxByOrNull { it.refreshRate }
-        val targetModeId = targetMode?.modeId
+        val targetModeId = targetMode?.modeId ?: 0
         if (abs(attributes.preferredRefreshRate - realtimeTargetRefreshRate) >= 0.01f ||
-            targetModeId != null && attributes.preferredDisplayModeId != targetModeId
+            attributes.preferredDisplayModeId != targetModeId
         ) {
             attributes.preferredRefreshRate = realtimeTargetRefreshRate
-            if (targetModeId != null) attributes.preferredDisplayModeId = targetModeId
+            attributes.preferredDisplayModeId = targetModeId
             activity.window.attributes = attributes
         }
         appliedPreferredRefreshRate = realtimeTargetRefreshRate
         appliedPreferredDisplayModeId = targetModeId
+    }
+
+    private fun onThermalStatusChanged(status: Int) {
+        if (closed || !activityVisible || realtimeCaptureSuspended ||
+            effectProfile != LiquidEffectProfile.REALTIME_CAPTURE
+        ) {
+            return
+        }
+        val root = boundRoot ?: return
+        configureRealtimeRefreshRate(root, status)
+        realtimeNextCaptureNanos = System.nanoTime() + realtimeFrameIntervalNanos
     }
 
     /** 由 VSync 驱动目标最高 120Hz；PixelCopy 始终单飞，慢设备自然按完成速度降频。 */
@@ -887,27 +919,34 @@ internal class LiquidActivityRenderer(
 
     private fun handleRealtimeCaptureResult(result: Int) {
         val captureSource = realtimeCaptureInFlight ?: return
-        realtimeCaptureInFlight = null
-        if (closed || !activityVisible || realtimeCaptureSuspended ||
-            effectProfile != LiquidEffectProfile.REALTIME_CAPTURE
-        ) {
-            return
-        }
+        val workStartedNanos = System.nanoTime()
+        try {
+            realtimeCaptureInFlight = null
+            if (closed || !activityVisible || realtimeCaptureSuspended ||
+                effectProfile != LiquidEffectProfile.REALTIME_CAPTURE
+            ) {
+                return
+            }
 
-        if (result == PixelCopy.SUCCESS && sanitizeRealtimeCapture(captureSource)) {
-            realtimeCaptureFailureCount = 0
-            realtimeBackdropSource = captureSource
-            bindPreparedBackendsToBackdrop(captureSource)
-            invalidateRegisteredSurfaces()
-            return
-        }
+            if (result == PixelCopy.SUCCESS && sanitizeRealtimeCapture(captureSource)) {
+                realtimeCaptureFailureCount = 0
+                realtimeBackdropSource = captureSource
+                bindPreparedBackendsToBackdrop(captureSource)
+                invalidateRegisteredSurfaces()
+                return
+            }
 
-        if (result != PixelCopy.ERROR_SOURCE_NO_DATA) realtimeCaptureFailureCount += 1
-        if (LiquidRealtimeCapturePolicy.shouldSuspend(realtimeCaptureFailureCount)) {
-            suspendRealtimeCapture(releaseBuffers = true)
-        } else {
-            realtimeNextCaptureNanos = System.nanoTime() +
-                LiquidRealtimeCapturePolicy.RETRY_DELAY_MS * NANOS_PER_MILLISECOND
+            if (result != PixelCopy.ERROR_SOURCE_NO_DATA) realtimeCaptureFailureCount += 1
+            if (LiquidRealtimeCapturePolicy.shouldSuspend(realtimeCaptureFailureCount)) {
+                suspendRealtimeCapture(releaseBuffers = true)
+            } else {
+                realtimeNextCaptureNanos = System.nanoTime() +
+                    LiquidRealtimeCapturePolicy.RETRY_DELAY_MS * NANOS_PER_MILLISECOND
+            }
+        } finally {
+            performanceController?.reportActualWorkDuration(
+                System.nanoTime() - workStartedNanos
+            )
         }
     }
 
@@ -1066,6 +1105,7 @@ internal class LiquidActivityRenderer(
     private fun suspendRealtimeCapture(releaseBuffers: Boolean) {
         realtimeCaptureSuspended = true
         removeRealtimeFrameCallback()
+        performanceController?.stop()
         restorePreferredRefreshRate()
         if (releaseBuffers) releaseRealtimeCaptureSources(rebindStableBackdrop = true)
     }
@@ -1173,6 +1213,7 @@ internal class LiquidActivityRenderer(
         activityVisible = false
         realtimeCaptureSuspended = true
         removeRealtimeFrameCallback()
+        performanceController?.close()
         realtimeCaptureInFlight = null
         customBackdropLoadGeneration += 1L
         customBackdropFuture?.cancel(true)
