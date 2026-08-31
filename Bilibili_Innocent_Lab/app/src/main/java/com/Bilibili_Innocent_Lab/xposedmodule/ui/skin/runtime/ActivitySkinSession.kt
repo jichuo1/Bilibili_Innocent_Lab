@@ -132,6 +132,16 @@ internal class ActivitySkinSession private constructor(
     }
 
     @MainThread
+    fun onActivityStarted() {
+        if (!isClosed) liquidRenderer?.onActivityStarted()
+    }
+
+    @MainThread
+    fun onActivityStopped() {
+        if (!isClosed) liquidRenderer?.onActivityStopped()
+    }
+
+    @MainThread
     fun onTrimMemory(level: Int) {
         if (!isClosed) liquidRenderer?.onTrimMemory(level)
     }

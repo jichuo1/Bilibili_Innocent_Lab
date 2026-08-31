@@ -55,7 +55,7 @@
     <string name="settings_search_empty">No matching settings</string>
     <string name="settings_search_section_general">General settings</string>
     <string name="advanced_home_navigation_category">Home and navigation</string>
-    <string name="advanced_interface_category">Pages and prompts</string>
+    <string name="advanced_interface_category">Pages and display</string>
     <string name="advanced_playback_category">Playback and video</string>
     <string name="advanced_comment_category">Comments</string>
     <string name="home_top_bar_settings">Home top bar</string>
@@ -283,6 +283,17 @@
     <string name="liquid_background_choose_description">Uses the system file picker and copies a bounded, metadata-free image into private app storage.</string>
     <string name="liquid_background_restore_automatic">Restore automatic background</string>
     <string name="liquid_background_restore_description">Remove the private image copy and return to the dynamic-color background.</string>
+    <string name="liquid_realtime_capture_title">Fullscreen real-time sampling</string>
+    <string name="liquid_realtime_capture_summary_disabled">Off · Stable-backdrop refraction</string>
+    <string name="liquid_realtime_capture_summary_enabled">On · 30 FPS fullscreen sampling and enhanced lighting</string>
+    <string name="liquid_realtime_capture_summary_unsupported">Requires Android 12 or later</string>
+    <string name="liquid_realtime_capture_unsupported">Fullscreen real-time Liquid sampling is not supported on this system.</string>
+    <string name="liquid_realtime_capture_confirm_title">Enable fullscreen real-time sampling?</string>
+    <string name="liquid_realtime_capture_confirm_message">This mode continuously captures the module window, updates a triple-buffered backdrop at about 30 FPS, and enables dual-layer highlights. Devices with refraction support also use stronger edge optics and subtle interior distortion. It may significantly increase GPU and memory usage, battery drain, and heat. The enhancement stops automatically under low memory or repeated capture failures.</string>
+    <string name="liquid_realtime_capture_confirm_enable">Enable anyway</string>
+    <string name="liquid_realtime_capture_enabled">Fullscreen real-time sampling is enabled.</string>
+    <string name="liquid_realtime_capture_disabled">Fullscreen real-time sampling is disabled.</string>
+    <string name="liquid_realtime_capture_save_failed">Could not save the real-time sampling state. No setting was changed.</string>
     <string name="liquid_background_backup_notice">The image itself is not included in settings backup files. After reinstalling or moving to another device, select the image again.</string>
     <string name="liquid_background_processing">Processing the background image…</string>
     <string name="liquid_background_import_success">Custom background saved.</string>

@@ -15,15 +15,15 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
 import kotlin.math.roundToInt
 
 /**
- * 每个 Activity 唯一的静态 Monet underlay/backdrop。
+ * Activity 的稳定 underlay，或高负载模式下由 PixelCopy 三缓冲持有的实时采样 source。
  *
- * 它不捕获 Window 或 View 树，因而不会递归采样已经绘制的 Liquid 表面。背景以稳定底色和
- * 两处低强度、超大径向色洗组成，避免旧三段对角渐变的明显分区；绘制路径只更新复用的
- * AGSL 坐标 uniform，并始终映射同一张静态位图。
+ * 普通 create/custom 路径不捕获 Window 或 View 树；实时 source 只接管预先分配的可变 Bitmap，
+ * 捕获调度与反馈抑制仍由 Activity renderer 负责。
  */
 internal class LiquidBackdropSource private constructor(
     val bitmap: Bitmap,
     val customAssetId: String?,
+    val isRealtime: Boolean,
     fullWidth: Int,
     fullHeight: Int
 ) : AutoCloseable {
@@ -119,7 +119,13 @@ internal class LiquidBackdropSource private constructor(
                     ambientPaint
                 )
                 bitmap.prepareToDraw()
-                return LiquidBackdropSource(bitmap, null, fullWidth, fullHeight)
+                return LiquidBackdropSource(
+                    bitmap = bitmap,
+                    customAssetId = null,
+                    isRealtime = false,
+                    fullWidth = fullWidth,
+                    fullHeight = fullHeight
+                )
             } catch (throwable: Throwable) {
                 bitmap.recycle()
                 throw throwable
@@ -140,7 +146,34 @@ internal class LiquidBackdropSource private constructor(
                 "Custom backdrop bitmap does not match the bounded sample size"
             }
             bitmap.prepareToDraw()
-            return LiquidBackdropSource(bitmap, assetId, fullWidth, fullHeight)
+            return LiquidBackdropSource(
+                bitmap = bitmap,
+                customAssetId = assetId,
+                isRealtime = false,
+                fullWidth = fullWidth,
+                fullHeight = fullHeight
+            )
+        }
+
+        /** 由 PixelCopy 三缓冲拥有的可变窗口截图；source 只建立长期复用的采样 Shader。 */
+        fun fromRealtimeBitmap(
+            bitmap: Bitmap,
+            fullWidth: Int,
+            fullHeight: Int
+        ): LiquidBackdropSource {
+            require(!bitmap.isRecycled && bitmap.isMutable) {
+                "Realtime backdrop bitmap must be mutable and available"
+            }
+            require(fullWidth > 0 && fullHeight > 0) {
+                "Realtime backdrop dimensions must be positive"
+            }
+            return LiquidBackdropSource(
+                bitmap = bitmap,
+                customAssetId = null,
+                isRealtime = true,
+                fullWidth = fullWidth,
+                fullHeight = fullHeight
+            )
         }
 
         private fun drawAmbientWash(
