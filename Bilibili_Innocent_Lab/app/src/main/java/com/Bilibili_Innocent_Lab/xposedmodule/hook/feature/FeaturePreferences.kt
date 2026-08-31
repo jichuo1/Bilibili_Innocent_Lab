@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 /** 新增功能的稳定配置键；旧功能键在完成迁移前仍保留在 HookEntry。 */
 internal object FeaturePreferences {
+    const val HIDE_VIDEO_DETAIL_APP_PROMOTION = "hide_video_detail_app_promotion"
     const val HIDE_HOME_GAME_MENU = "hide_home_game_menu"
     const val HIDE_HOME_SEARCH_DEFAULT_WORD = "hide_home_search_default_word"
     const val HOME_VERTICAL_OPEN_DETAIL = "home_vertical_open_detail"
@@ -33,6 +34,10 @@ internal object FeaturePreferences {
     const val REMOVE_RELATE_COURSE = "remove_relate_course"
     const val REMOVE_RELATE_SPECIAL = "remove_relate_special"
     const val MINE_COMPONENT_HIDDEN_RULES = "mine_component_hidden_rules"
+    /** “我的”页勾选隐藏的组件 id 集合（新 UI 勾选列表持久化，换行/逗号分隔的字符串）。 */
+    const val MINE_COMPONENT_HIDDEN_IDS = "mine_component_hidden_ids"
+    /** 宿主剪枝时写入的可屏蔽项快照 JSON（模块 UI 勾选列表数据源；仅宿主写、模块 App 读）。 */
+    const val MINE_COMPONENT_SCAN_SNAPSHOT = "mine_component_scan_snapshot"
     const val REMOVE_STORY_ADS = "remove_story_ads"
     const val REMOVE_STORY_LIVE = "remove_story_live"
     const val REMOVE_STORY_GAMES = "remove_story_games"

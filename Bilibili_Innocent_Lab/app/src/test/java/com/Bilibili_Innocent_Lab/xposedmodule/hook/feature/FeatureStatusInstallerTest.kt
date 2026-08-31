@@ -46,6 +46,14 @@ class FeatureStatusInstallerTest {
     }
 
     @Test
+    fun `video detail app promotion reports disabled without resolving host classes`() {
+        val result = DetailAppPromotionFeatureInstaller(enabled = false).install(environment)
+
+        assertEquals(FeatureInstallResult.Skipped("disabled"), result)
+        assertEquals(listOf("detail_app_promotion_status" to "disabled"), statuses)
+    }
+
+    @Test
     fun `home top bar reports disabled without resolving hook points`() {
         val result = HomeTopBarFeatureInstaller(
             hideGameMenu = false,

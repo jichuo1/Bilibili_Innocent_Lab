@@ -55,7 +55,9 @@ internal data class HookEnvironment(
     val registrar: HookRegistrar,
     val logInfo: (String, String) -> Unit,
     val logError: (String, String) -> Unit,
-    val reportStatus: (String, String) -> Unit
+    val reportStatus: (String, String) -> Unit,
+    /** 写“我的”页可屏蔽项快照（宿主剪枝时产出，供模块 UI 勾选列表读取）。null = 不启用快照。 */
+    val writeMineScanSnapshot: ((String) -> Unit)? = null
 )
 
 internal sealed interface FeatureInstallResult {
