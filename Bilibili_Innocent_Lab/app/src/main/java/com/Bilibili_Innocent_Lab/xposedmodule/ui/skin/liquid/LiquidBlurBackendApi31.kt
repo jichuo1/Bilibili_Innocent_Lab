@@ -64,7 +64,8 @@ internal class LiquidBlurBackendApi31(
         bounds: Rect,
         radiusPx: Float,
         viewX: Int,
-        viewY: Int
+        viewY: Int,
+        opticalIntensity: Float
     ) {
         val node = checkNotNull(renderNode) { "Liquid blur backdrop is not bound" }
         clipBounds.set(bounds)

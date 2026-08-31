@@ -285,11 +285,11 @@
     <string name="liquid_background_restore_description">Remove the private image copy and return to the dynamic-color background.</string>
     <string name="liquid_realtime_capture_title">Fullscreen real-time sampling</string>
     <string name="liquid_realtime_capture_summary_disabled">Off · Stable-backdrop refraction</string>
-    <string name="liquid_realtime_capture_summary_enabled">On · 30 FPS fullscreen sampling and enhanced lighting</string>
+    <string name="liquid_realtime_capture_summary_enabled">On · Up to 120 FPS fullscreen sampling and enhanced optics</string>
     <string name="liquid_realtime_capture_summary_unsupported">Requires Android 12 or later</string>
     <string name="liquid_realtime_capture_unsupported">Fullscreen real-time Liquid sampling is not supported on this system.</string>
     <string name="liquid_realtime_capture_confirm_title">Enable fullscreen real-time sampling?</string>
-    <string name="liquid_realtime_capture_confirm_message">This mode continuously captures the module window, updates a triple-buffered backdrop at about 30 FPS, and enables dual-layer highlights. Devices with refraction support also use stronger edge optics and subtle interior distortion. It may significantly increase GPU and memory usage, battery drain, and heat. The enhancement stops automatically under low memory or repeated capture failures.</string>
+    <string name="liquid_realtime_capture_confirm_message">This mode continuously captures the module window and follows the display refresh rate to update a triple-buffered backdrop at up to 120 FPS; actual frame rate depends on the display and capture throughput. Devices with refraction support also enable stronger edge and interior distortion, scattering, and rebound lighting. It may significantly increase GPU and memory usage, battery drain, and heat. The enhancement stops automatically under low memory or repeated capture failures.</string>
     <string name="liquid_realtime_capture_confirm_enable">Enable anyway</string>
     <string name="liquid_realtime_capture_enabled">Fullscreen real-time sampling is enabled.</string>
     <string name="liquid_realtime_capture_disabled">Fullscreen real-time sampling is disabled.</string>

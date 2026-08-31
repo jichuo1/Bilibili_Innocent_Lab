@@ -18,7 +18,8 @@ internal interface LiquidBackendDriver : AutoCloseable {
         bounds: Rect,
         radiusPx: Float,
         viewX: Int,
-        viewY: Int
+        viewY: Int,
+        opticalIntensity: Float
     )
 }
 
@@ -34,7 +35,8 @@ internal class LiquidTranslucentBackend : LiquidBackendDriver {
         bounds: Rect,
         radiusPx: Float,
         viewX: Int,
-        viewY: Int
+        viewY: Int,
+        opticalIntensity: Float
     ) = Unit
 
     override fun close() = Unit

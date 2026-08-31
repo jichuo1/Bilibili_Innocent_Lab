@@ -66,6 +66,8 @@ internal class LiquidRefractionBackendApi33(
             parameters.interiorDistortionDp * density
         )
         shader.setFloatUniform("chromaticShift", parameters.chromaticShiftDp * density)
+        shader.setFloatUniform("scatteringRadius", parameters.scatteringRadiusDp * density)
+        shader.setFloatUniform("scatteringStrength", parameters.scatteringStrength)
         shader.setFloatUniform("chromaMultiplier", parameters.saturation)
     }
 
@@ -87,13 +89,15 @@ internal class LiquidRefractionBackendApi33(
         bounds: Rect,
         radiusPx: Float,
         viewX: Int,
-        viewY: Int
+        viewY: Int,
+        opticalIntensity: Float
     ) {
         checkNotNull(source) { "Liquid refraction backdrop is not bound" }
         shader.setFloatUniform("size", bounds.width().toFloat(), bounds.height().toFloat())
         shader.setFloatUniform("offset", -bounds.left.toFloat(), -bounds.top.toFloat())
         shader.setFloatUniform("backdropOrigin", viewX.toFloat(), viewY.toFloat())
         shader.setFloatUniform("cornerRadii", radiusPx, radiusPx, radiusPx, radiusPx)
+        shader.setFloatUniform("opticalIntensity", opticalIntensity.coerceIn(1f, 1.85f))
         canvas.drawRoundRect(
             bounds.left.toFloat(),
             bounds.top.toFloat(),
@@ -124,7 +128,10 @@ uniform float refractionAmount;
 uniform float depthEffect;
 uniform float interiorDistortion;
 uniform float chromaticShift;
+uniform float scatteringRadius;
+uniform float scatteringStrength;
 uniform float chromaMultiplier;
+uniform float opticalIntensity;
 
 const half3 rgbToY = half3(0.2126, 0.7152, 0.0722);
 
@@ -174,10 +181,6 @@ float2 gradSdRoundedRect(float2 coord, float2 halfSize, float radius) {
     }
 }
 
-float circleMap(float x) {
-    return 1.0 - sqrt(1.0 - x * x);
-}
-
 half4 saturateColor(half4 color, float amount) {
     half3 linear = toLinearSrgb(color.rgb);
     float y = dot(linear, rgbToY);
@@ -195,9 +198,37 @@ half4 sampleRefracted(float2 canvasCoord, float2 direction) {
     half4 center = sampleContent(canvasCoord);
     if (chromaticShift <= 0.001) return center;
     float2 axis = safeNormalize(direction, float2(1.0, 0.0));
-    half red = sampleContent(canvasCoord + axis * chromaticShift).r;
-    half blue = sampleContent(canvasCoord - axis * chromaticShift).b;
+    float shift = chromaticShift * opticalIntensity;
+    half red = sampleContent(canvasCoord + axis * shift).r;
+    half blue = sampleContent(canvasCoord - axis * shift).b;
     return half4(red, center.g, blue, center.a);
+}
+
+half4 sampleScattered(
+    float2 canvasCoord,
+    float2 direction,
+    float edgeWeight,
+    float interiorLens
+) {
+    half4 core = sampleRefracted(canvasCoord, direction);
+    if (scatteringStrength <= 0.001 || scatteringRadius <= 0.001) return core;
+
+    float2 normal = safeNormalize(direction, float2(0.0, 1.0));
+    float2 tangent = float2(-normal.y, normal.x);
+    float spatialWeight = clamp(edgeWeight * 0.82 + interiorLens * 0.34, 0.0, 1.0);
+    float radius = scatteringRadius * opticalIntensity * mix(0.42, 1.0, edgeWeight);
+    half4 tangentPositive = sampleContent(canvasCoord + tangent * radius);
+    half4 tangentNegative = sampleContent(canvasCoord - tangent * radius);
+    half4 normalPositive = sampleContent(canvasCoord + normal * radius * 0.58);
+    half4 normalNegative = sampleContent(canvasCoord - normal * radius * 0.58);
+    half4 diffused = core * 0.46
+        + (tangentPositive + tangentNegative) * 0.16
+        + (normalPositive + normalNegative) * 0.11;
+    float amount = clamp(scatteringStrength * spatialWeight, 0.0, 0.72);
+    half4 scattered = mix(core, diffused, amount);
+    float caustic = edgeWeight * scatteringStrength * 0.075 * opticalIntensity;
+    scattered.rgb = mix(scattered.rgb, half3(1.0), clamp(caustic, 0.0, 0.12));
+    return scattered;
 }
 
 half4 main(float2 coord) {
@@ -209,26 +240,31 @@ half4 main(float2 coord) {
     float2 normalizedCoord = centeredCoord / safeHalfSize;
     float radial = clamp(length(normalizedCoord), 0.0, 1.0);
     float interiorLens = max(1.0 - radial * radial, 0.0);
-    float2 interiorOffset = normalizedCoord * interiorDistortion * interiorLens;
+    float2 interiorOffset = normalizedCoord * interiorDistortion * interiorLens
+        * opticalIntensity;
     float2 interiorDirection = safeNormalize(centeredCoord, float2(1.0, 0.0));
 
     float sd = sdRoundedRect(centeredCoord, halfSize, radius);
-    if (-sd >= refractionHeight) {
-        return saturateColor(
-            sampleRefracted(coord + interiorOffset, interiorDirection),
-            chromaMultiplier
-        );
-    }
-    sd = min(sd, 0.0);
-
-    float d = circleMap(1.0 - -sd / refractionHeight) * refractionAmount;
-    float smoothRadius = max(radius * 1.5, 30.0);
+    float insideDistance = max(-sd, 0.0);
+    float edgePhase = clamp(1.0 - insideDistance / max(refractionHeight, 0.1), 0.0, 1.0);
+    // Cubic smoothstep has zero derivatives at both ends, preventing a flashing band when
+    // the real-time source advances to the next buffer.
+    float edgeWeight = edgePhase * edgePhase * (3.0 - 2.0 * edgePhase);
+    float d = edgeWeight * refractionAmount * opticalIntensity;
+    float smoothRadius = max(radius * 1.5, min(refractionHeight * 1.6, 48.0));
     float gradRadius = min(smoothRadius, min(halfSize.x, halfSize.y));
     float2 shapeGrad = gradSdRoundedRect(centeredCoord, halfSize, gradRadius);
     float2 depthGrad = safeNormalize(centeredCoord, shapeGrad);
-    float2 grad = safeNormalize(shapeGrad + depthEffect * depthGrad, shapeGrad);
+    float2 grad = safeNormalize(
+        shapeGrad + depthEffect * edgeWeight * depthGrad,
+        shapeGrad
+    );
+    float2 direction = safeNormalize(mix(interiorDirection, grad, edgeWeight), grad);
 
     float2 refractedCoord = coord + interiorOffset + d * grad;
-    return saturateColor(sampleRefracted(refractedCoord, grad), chromaMultiplier);
+    return saturateColor(
+        sampleScattered(refractedCoord, direction, edgeWeight, interiorLens),
+        chromaMultiplier
+    );
 }
 """
