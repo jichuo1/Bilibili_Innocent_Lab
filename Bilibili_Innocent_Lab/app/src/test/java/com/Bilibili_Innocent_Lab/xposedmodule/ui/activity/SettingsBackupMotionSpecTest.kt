@@ -77,6 +77,17 @@ class SettingsBackupMotionSpecTest {
     }
 
     @Test
+    fun closeCurveSettlesAtEndpointAndKeepsBoundedContinuationTime() {
+        assertEquals(1f, SettingsBackupMotionSpec.CLOSE_EASING_Y2, 0f)
+        assertEquals(1f, SettingsBackupMotionSpec.COMMIT_EASING_Y2, 0f)
+        assertTrue(SettingsBackupMotionSpec.CLOSE_EASING_X2 > SettingsBackupMotionSpec.COMMIT_EASING_X1)
+        assertEquals(300L, SettingsBackupMotionSpec.closeDurationMs(300L, 1f, 80L))
+        assertEquals(150L, SettingsBackupMotionSpec.closeDurationMs(300L, 0.5f, 80L))
+        assertEquals(80L, SettingsBackupMotionSpec.closeDurationMs(300L, 0.1f, 80L))
+        assertEquals(300L, SettingsBackupMotionSpec.closeDurationMs(300L, 3f, 80L))
+    }
+
+    @Test
     fun movingTitleRequiresSingleLineLeftToRightEndpoints() {
         assertTrue(SettingsBackupMotionSpec.canMoveTitle(1, 1, true, true))
         assertEquals(false, SettingsBackupMotionSpec.canMoveTitle(2, 1, true, true))

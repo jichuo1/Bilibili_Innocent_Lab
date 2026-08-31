@@ -4,31 +4,45 @@
     "ReplaceWithCoroutinesExtension",
     "ReplaceWithKavaRefExtension",
     "ReplaceWithTextViewExtension",
-    "ReplaceWithToastExtension"
+    "ReplaceWithToastExtension",
+    // 诊断页需要完整接收 predictive back 的 start/progress/cancel/commit 生命周期。
+    "ReplaceWithBackPressedExtension",
+    // API 34 的公开 transition override 需要显式版本守卫，便于 Android Lint 识别。
+    "ReplaceWithAndroidVersion"
 )
 
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import android.content.res.ColorStateList
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Bundle
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.PathInterpolator
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.BackEventCompat
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.core.graphics.ColorUtils
+import androidx.core.view.doOnPreDraw
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.R
@@ -50,11 +64,34 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 
 /** 只读、本地优先的统一诊断中心。 */
 class DiagnosticsActivity : SkinnedActivity() {
     private companion object {
         const val FRAMEWORK_STATUS_SETTLE_MS = 1_500L
+        const val ENTER_DURATION_MS = 370L
+        const val CLOSE_DURATION_MS = 320L
+        const val BACK_COMMIT_DURATION_MS = 210L
+        const val BACK_CANCEL_DURATION_MS = 210L
+        const val MIN_CLOSE_DURATION_MS = 80L
+        const val CONTENT_TRAVEL_DP = 12f
+    }
+
+    private enum class BackTarget {
+        NONE,
+        FINISH_ACTIVITY,
+        BLOCKED
+    }
+
+    private enum class MotionState {
+        PREPARING_ENTRY,
+        ENTERING,
+        EXPANDED,
+        PREDICTIVE_BACK,
+        CANCELLING_BACK,
+        CLOSING,
+        FINISHED
     }
 
     private val viewModel by lazy {
@@ -66,9 +103,42 @@ class DiagnosticsActivity : SkinnedActivity() {
     private var currentSnapshot: ModuleDiagnosticSnapshot? = null
     private var activeDialog: AlertDialog? = null
     private var stretchViewport: View? = null
+    private var stretchScrollTarget: View? = null
+    private lateinit var motionHost: SettingsBackupMotionHost
+    private var toolbarTitleView: TextView? = null
+    private var launchOrigin: DiagnosticsTransitionOrigin? = null
+    private var allowLaunchOriginForExit = true
+    private var motionGeometry: SettingsBackupMotionGeometry? = null
+    private var motionAnimator: ValueAnimator? = null
+    private var motionTitleMode = SettingsBackupTransitionTitleMode.SOURCE_TITLE
+    private var motionContentTiming = SettingsBackupContentTiming.TIMED
+    private var motionState = MotionState.PREPARING_ENTRY
+    private var backTarget = BackTarget.NONE
+    private var gestureStartExpansion = 1f
+    private var predictiveMotionActive = false
+    private var finishingAfterMotion = false
+    private var pickerOpen = false
+    private var exportRunning = false
+    private var pendingScreenState: DiagnosticsScreenState? = null
     private lateinit var content: LinearLayout
     private lateinit var refreshButton: TextView
     private lateinit var exportButton: TextView
+
+    private val enterInterpolator = PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
+    private val closeInterpolator = PathInterpolator(
+        SettingsBackupMotionSpec.CLOSE_EASING_X1,
+        SettingsBackupMotionSpec.CLOSE_EASING_Y1,
+        SettingsBackupMotionSpec.CLOSE_EASING_X2,
+        SettingsBackupMotionSpec.CLOSE_EASING_Y2
+    )
+    private val commitInterpolator = PathInterpolator(
+        SettingsBackupMotionSpec.COMMIT_EASING_X1,
+        SettingsBackupMotionSpec.COMMIT_EASING_Y1,
+        SettingsBackupMotionSpec.COMMIT_EASING_X2,
+        SettingsBackupMotionSpec.COMMIT_EASING_Y2
+    )
+    private val cancelInterpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
+    private val predictiveBackInterpolator = PathInterpolator(0f, 0f, 0f, 1f)
 
     private val frameworkTimeout = Runnable {
         frameworkCheckPending = false
@@ -93,6 +163,7 @@ class DiagnosticsActivity : SkinnedActivity() {
     private val createDocumentLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
+        pickerOpen = false
         val snapshot = currentSnapshot
         if (uri != null && snapshot != null) viewModel.export(applicationContext, uri, snapshot)
     }
@@ -104,16 +175,62 @@ class DiagnosticsActivity : SkinnedActivity() {
             return
         }
         prepareSkinSession()
+        suppressSystemActivityTransitions()
+        window.decorView.setBackgroundColor(Color.TRANSPARENT)
+        launchOrigin = DiagnosticsTransitionOrigin.from(intent)
+        allowLaunchOriginForExit = savedInstanceState == null
+        val transitionSurfaceColor = if (isLiquidSkinEffective) {
+            ColorUtils.setAlphaComponent(monetColors.surface, 0x28)
+        } else monetColors.background
+        val sourceNeutralColor = getColor(R.color.colorTextGray)
+        motionHost = SettingsBackupMotionHost(
+            context = this,
+            collapsedSurfaceColor = ColorUtils.setAlphaComponent(
+                sourceNeutralColor,
+                DiagnosticsEntryVisualSpec.SCRIM_ALPHA
+            ),
+            expandedSurfaceColor = transitionSurfaceColor,
+            titleColor = sourceNeutralColor,
+            sourceTitle = getString(R.string.diagnostics_title),
+            surfaceHandoffExpansion = DiagnosticsEntryVisualSpec.SURFACE_HANDOFF_EXPANSION,
+            collapsedStrokeColor = ColorUtils.setAlphaComponent(
+                sourceNeutralColor,
+                DiagnosticsEntryVisualSpec.STROKE_ALPHA
+            ),
+            collapsedStrokeWidthPx = DiagnosticsEntryVisualSpec.STROKE_WIDTH_DP *
+                resources.displayMetrics.density
+        )
+        motionHost.onWindowSizeChangedDuringMotion = ::handleMotionWindowSizeChange
         PredictiveBack.apply(
             window,
             prefs().getBoolean(HookEntry.PREF_PREDICTIVE_BACK_ENABLED, false)
         )
         val root = buildRoot()
-        setContentView(root)
-        bindPreparedSkinRoot(root) {
+        setContentView(motionHost)
+        motionHost.replacePage(root, requireNotNull(toolbarTitleView))
+        bindPreparedSkinRoot(motionHost.liquidBackdropRoot()) {
             if (!isFinishing && !isDestroyed) recreate()
         }
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackStarted(backEvent: BackEventCompat) {
+                beginPredictiveBack()
+            }
+
+            override fun handleOnBackProgressed(backEvent: BackEventCompat) {
+                progressPredictiveBack(backEvent.progress)
+            }
+
+            override fun handleOnBackCancelled() {
+                cancelPredictiveBack()
+            }
+
+            override fun handleOnBackPressed() {
+                commitBack()
+            }
+        })
+        renderLoading()
         observeState()
+        scheduleInitialMotion(savedInstanceState == null)
     }
 
     override fun onStart() {
@@ -140,20 +257,416 @@ class DiagnosticsActivity : SkinnedActivity() {
         mainHandler.removeCallbacksAndMessages(null)
         activeDialog?.dismiss()
         activeDialog = null
+        finishPageStretch()
+        stretchViewport = null
+        stretchScrollTarget = null
+        cancelMotionAnimator()
+        if (::motionHost.isInitialized) {
+            motionHost.onWindowSizeChangedDuringMotion = null
+        }
+        super.onDestroy()
+    }
+
+    private fun handleMotionWindowSizeChange() {
+        cancelMotionAnimator()
+        backTarget = BackTarget.NONE
+        predictiveMotionActive = false
+        motionGeometry = null
+        completeExpandedMotion()
+    }
+
+    private fun beginPredictiveBack() {
+        predictiveMotionActive = false
+        backTarget = resolveBackTarget()
+        if (backTarget != BackTarget.FINISH_ACTIVITY || !ValueAnimator.areAnimatorsEnabled()) {
+            return
+        }
+        cancelMotionAnimator()
+        prepareExitMotion(SettingsBackupContentTiming.PREDICTIVE)
+        gestureStartExpansion = motionHost.expansion
+        predictiveMotionActive = true
+        motionState = MotionState.PREDICTIVE_BACK
+    }
+
+    private fun progressPredictiveBack(rawProgress: Float) {
+        if (backTarget != BackTarget.FINISH_ACTIVITY || !predictiveMotionActive) return
+        if (!ValueAnimator.areAnimatorsEnabled()) {
+            predictiveMotionActive = false
+            completeExpandedMotion()
+            return
+        }
+        val progress = predictiveBackInterpolator.getInterpolation(rawProgress.coerceIn(0f, 1f))
+        applyMotionExpansion(gestureStartExpansion * (1f - progress))
+    }
+
+    private fun cancelPredictiveBack() {
+        if (backTarget == BackTarget.FINISH_ACTIVITY && predictiveMotionActive) {
+            predictiveMotionActive = false
+            motionState = MotionState.CANCELLING_BACK
+            animateMotionTo(
+                targetExpansion = 1f,
+                durationMs = BACK_CANCEL_DURATION_MS,
+                interpolator = cancelInterpolator,
+                onEnd = ::completeExpandedMotion
+            )
+        }
+        predictiveMotionActive = false
+        backTarget = BackTarget.NONE
+    }
+
+    private fun commitBack() {
+        val target = if (backTarget == BackTarget.NONE) resolveBackTarget() else backTarget
+        val hadInteractiveStart = predictiveMotionActive
+        predictiveMotionActive = false
+        backTarget = BackTarget.NONE
+        if (target == BackTarget.FINISH_ACTIVITY) {
+            requestClose(interactiveCommit = hadInteractiveStart)
+        }
+    }
+
+    private fun resolveBackTarget(): BackTarget = when {
+        motionState != MotionState.EXPANDED ||
+            motionAnimator != null ||
+            motionHost.expansion < 0.999f -> BackTarget.BLOCKED
+        exportRunning || pickerOpen || activeDialog != null -> BackTarget.BLOCKED
+        else -> BackTarget.FINISH_ACTIVITY
+    }
+
+    private fun suppressSystemActivityTransitions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            overrideActivityTransition(Activity.OVERRIDE_TRANSITION_OPEN, 0, 0)
+            overrideActivityTransition(Activity.OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        }
+    }
+
+    private fun scheduleInitialMotion(isFreshLaunch: Boolean) {
+        val canResolveOrigin = launchOrigin != null ||
+            DiagnosticsTransitionOriginRegistry.snapshot() != null
+        val shouldAnimate = isFreshLaunch &&
+            canResolveOrigin &&
+            ValueAnimator.areAnimatorsEnabled()
+        if (shouldAnimate) motionHost.prepareFirstFrameForEntry()
+        motionHost.doOnPreDraw {
+            if (!shouldAnimate) {
+                completeExpandedMotion()
+                return@doOnPreDraw
+            }
+            val geometry = resolveMotionGeometry()
+            if (geometry == null) {
+                completeExpandedMotion()
+                return@doOnPreDraw
+            }
+            motionGeometry = geometry
+            motionContentTiming = SettingsBackupContentTiming.TIMED
+            motionTitleMode = if (geometry.titleMotionEnabled) {
+                SettingsBackupTransitionTitleMode.SOURCE_TITLE
+            } else {
+                SettingsBackupTransitionTitleMode.HIDDEN
+            }
+            finishPageStretch()
+            motionState = MotionState.ENTERING
+            motionHost.beginMotion()
+            motionHost.applyExpansion(
+                geometry = geometry,
+                value = 0f,
+                titleMode = motionTitleMode,
+                contentTiming = motionContentTiming
+            )
+            motionHost.post {
+                if (isFinishing || isDestroyed) return@post
+                animateMotionTo(
+                    targetExpansion = 1f,
+                    durationMs = ENTER_DURATION_MS,
+                    interpolator = enterInterpolator,
+                    onEnd = ::completeExpandedMotion
+                )
+            }
+        }
+    }
+
+    private fun prepareExitMotion(contentTiming: SettingsBackupContentTiming) {
+        finishPageStretch()
+        motionGeometry = resolveMotionGeometry(preferLiveOrigin = true)
+        motionContentTiming = contentTiming
+        motionTitleMode = if (motionGeometry?.titleMotionEnabled == true) {
+            SettingsBackupTransitionTitleMode.SOURCE_TITLE
+        } else {
+            SettingsBackupTransitionTitleMode.HIDDEN
+        }
+        motionHost.beginMotion()
+        applyMotionExpansion(motionHost.expansion)
+    }
+
+    private fun requestClose(interactiveCommit: Boolean) {
+        if (finishingAfterMotion || motionState == MotionState.FINISHED) return
+        cancelMotionAnimator()
+        if (!interactiveCommit) prepareExitMotion(SettingsBackupContentTiming.TIMED)
+        motionState = MotionState.CLOSING
+        val currentExpansion = motionHost.expansion
+        if (!ValueAnimator.areAnimatorsEnabled() || currentExpansion <= 0.001f) {
+            applyMotionExpansion(0f)
+            finishAfterMotion()
+            return
+        }
+        val baseDuration = if (interactiveCommit) {
+            BACK_COMMIT_DURATION_MS
+        } else {
+            CLOSE_DURATION_MS
+        }
+        val duration = SettingsBackupMotionSpec.closeDurationMs(
+            baseDurationMs = baseDuration,
+            currentExpansion = currentExpansion,
+            minimumDurationMs = MIN_CLOSE_DURATION_MS
+        )
+        animateMotionTo(
+            targetExpansion = 0f,
+            durationMs = duration,
+            interpolator = if (interactiveCommit) commitInterpolator else closeInterpolator,
+            onEnd = ::finishAfterMotion
+        )
+    }
+
+    private fun animateMotionTo(
+        targetExpansion: Float,
+        durationMs: Long,
+        interpolator: android.animation.TimeInterpolator,
+        onEnd: () -> Unit
+    ) {
+        cancelMotionAnimator()
+        val startExpansion = motionHost.expansion
+        if (
+            !ValueAnimator.areAnimatorsEnabled() ||
+            durationMs <= 0L ||
+            abs(startExpansion - targetExpansion) <= 0.001f
+        ) {
+            applyMotionExpansion(targetExpansion)
+            onEnd()
+            return
+        }
+        val animator = ValueAnimator.ofFloat(startExpansion, targetExpansion)
+        val expansionDelta = targetExpansion - startExpansion
+        motionAnimator = animator
+        animator.duration = durationMs
+        animator.interpolator = interpolator
+        animator.addUpdateListener { valueAnimator ->
+            applyMotionExpansion(startExpansion + expansionDelta * valueAnimator.animatedFraction)
+        }
+        animator.addListener(object : AnimatorListenerAdapter() {
+            private var cancelled = false
+
+            override fun onAnimationCancel(animation: Animator) {
+                cancelled = true
+            }
+
+            override fun onAnimationEnd(animation: Animator) {
+                if (motionAnimator === animator) motionAnimator = null
+                if (!cancelled && !isDestroyed) onEnd()
+            }
+        })
+        animator.start()
+    }
+
+    private fun applyMotionExpansion(expansion: Float) {
+        val geometry = motionGeometry
+        if (geometry != null) {
+            motionHost.applyExpansion(
+                geometry = geometry,
+                value = expansion,
+                titleMode = motionTitleMode,
+                contentTiming = motionContentTiming
+            )
+        } else {
+            motionHost.applyFallbackExpansion(
+                value = expansion,
+                contentTravelPx = CONTENT_TRAVEL_DP * resources.displayMetrics.density,
+                contentTiming = motionContentTiming
+            )
+            motionHost.blockInteraction(true)
+        }
+    }
+
+    private fun completeExpandedMotion() {
+        if (isFinishing || isDestroyed || finishingAfterMotion) return
+        motionHost.showExpandedImmediately()
+        motionGeometry = null
+        motionContentTiming = SettingsBackupContentTiming.TIMED
+        motionState = MotionState.EXPANDED
+        predictiveMotionActive = false
+        backTarget = BackTarget.NONE
+        installPageStretch()
+        pendingScreenState?.let { state ->
+            pendingScreenState = null
+            renderScreenState(state)
+        }
+    }
+
+    private fun finishAfterMotion() {
+        if (finishingAfterMotion || isFinishing || isDestroyed) return
+        finishingAfterMotion = true
+        motionState = MotionState.FINISHED
+        motionHost.blockInteraction(true)
+        // Animator 的最终 update 与 onEnd 发生在同一帧；延后一帧 finish，确保 expansion=0
+        // 已提交给合成器，让下层真实入口自然接管，避免关闭末尾闪现。
+        motionHost.postOnAnimation {
+            if (isFinishing || isDestroyed) return@postOnAnimation
+            finish()
+            suppressLegacyCloseTransition()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun suppressLegacyCloseTransition() {
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.TIRAMISU) {
+            overridePendingTransition(0, 0)
+        }
+    }
+
+    private fun cancelMotionAnimator() {
+        val animator = motionAnimator ?: return
+        motionAnimator = null
+        animator.removeAllUpdateListeners()
+        animator.removeAllListeners()
+        animator.cancel()
+    }
+
+    private fun resolveMotionGeometry(
+        preferLiveOrigin: Boolean = false
+    ): SettingsBackupMotionGeometry? {
+        if (motionHost.width <= 0 || motionHost.height <= 0) return null
+        val display = motionHost.display ?: return null
+        val tolerancePx = 4.dp
+        val liveOrigin = DiagnosticsTransitionOriginRegistry.snapshot()
+        val originCandidates = if (allowLaunchOriginForExit) {
+            if (preferLiveOrigin) {
+                sequenceOf(liveOrigin, launchOrigin)
+            } else {
+                sequenceOf(launchOrigin, liveOrigin)
+            }
+        } else {
+            sequenceOf(DiagnosticsTransitionOriginRegistry.snapshot())
+        }
+        val origin = originCandidates.filterNotNull().firstOrNull { candidate ->
+            candidate.displayId == display.displayId &&
+                candidate.displayRotation == display.rotation &&
+                abs(candidate.sourceWindowWidth - motionHost.width) <= tolerancePx &&
+                abs(candidate.sourceWindowHeight - motionHost.height) <= tolerancePx
+        } ?: return null
+
+        val hostLocation = IntArray(2)
+        motionHost.getLocationOnScreen(hostLocation)
+        val collapsedBounds = origin.entryBoundsOnScreen.toLocal(hostLocation)
+        val collapsedTitleBounds = origin.titleBoundsOnScreen.toLocal(hostLocation)
+        val expandedBounds = SettingsBackupMotionRect(
+            left = 0f,
+            top = 0f,
+            right = motionHost.width.toFloat(),
+            bottom = motionHost.height.toFloat()
+        )
+        val destinationTitle = toolbarTitleView ?: return null
+        if (destinationTitle.width <= 0 || destinationTitle.height <= 0) return null
+        val expandedTitleBounds = destinationTitle.boundsOnScreen().toLocal(hostLocation)
+        val withinWindow = collapsedBounds.left >= -tolerancePx &&
+            collapsedBounds.top >= -tolerancePx &&
+            collapsedBounds.right <= expandedBounds.right + tolerancePx &&
+            collapsedBounds.bottom <= expandedBounds.bottom + tolerancePx
+        val titleWithinWindow = collapsedTitleBounds.left >= -tolerancePx &&
+            collapsedTitleBounds.top >= -tolerancePx &&
+            collapsedTitleBounds.right <= expandedBounds.right + tolerancePx &&
+            collapsedTitleBounds.bottom <= expandedBounds.bottom + tolerancePx
+        if (
+            !collapsedBounds.isValid ||
+            !collapsedTitleBounds.isValid ||
+            !expandedTitleBounds.isValid ||
+            !withinWindow ||
+            !titleWithinWindow
+        ) {
+            return null
+        }
+        return SettingsBackupMotionGeometry(
+            collapsedBounds = collapsedBounds,
+            expandedBounds = expandedBounds,
+            collapsedTitleBounds = collapsedTitleBounds,
+            expandedTitleBounds = expandedTitleBounds,
+            collapsedTitleTextSizePx = origin.titleTextSizePx,
+            expandedTitleTextSizePx = destinationTitle.textSize,
+            collapsedCornerRadiusPx = DiagnosticsEntryVisualSpec.CORNER_RADIUS_DP *
+                resources.displayMetrics.density,
+            contentTravelPx = CONTENT_TRAVEL_DP * resources.displayMetrics.density,
+            titleMotionEnabled = SettingsBackupMotionSpec.canMoveTitle(
+                collapsedLineCount = origin.titleLineCount,
+                expandedLineCount = destinationTitle.lineCount,
+                collapsedIsLeftToRight =
+                    origin.titleLayoutDirection == View.LAYOUT_DIRECTION_LTR,
+                expandedIsLeftToRight =
+                    destinationTitle.layoutDirection == View.LAYOUT_DIRECTION_LTR
+            )
+        )
+    }
+
+    private fun SettingsBackupMotionRect.toLocal(hostLocation: IntArray) =
+        SettingsBackupMotionRect(
+            left = left - hostLocation[0],
+            top = top - hostLocation[1],
+            right = right - hostLocation[0],
+            bottom = bottom - hostLocation[1]
+        )
+
+    private fun View.boundsOnScreen(): SettingsBackupMotionRect {
+        val location = IntArray(2)
+        getLocationOnScreen(location)
+        return SettingsBackupMotionRect(
+            left = location[0].toFloat(),
+            top = location[1].toFloat(),
+            right = (location[0] + width).toFloat(),
+            bottom = (location[1] + height).toFloat()
+        )
+    }
+
+    private fun installPageStretch() {
+        if (stretchViewport != null) return
+        val scrollTarget = stretchScrollTarget ?: return
+        stretchViewport = installPreparedLiquidStretch(scrollTarget) {
+            motionState == MotionState.EXPANDED &&
+                motionAnimator == null &&
+                motionHost.expansion >= 0.999f &&
+                !predictiveMotionActive &&
+                !finishingAfterMotion
+        }
+    }
+
+    private fun finishPageStretch() {
         finishPreparedLiquidStretch(stretchViewport)
         stretchViewport = null
-        super.onDestroy()
+    }
+
+    private fun renderOrDefer(state: DiagnosticsScreenState) {
+        if (motionState != MotionState.EXPANDED || motionAnimator != null) {
+            pendingScreenState = state
+            return
+        }
+        renderScreenState(state)
+    }
+
+    private fun renderScreenState(state: DiagnosticsScreenState) {
+        when (state) {
+            DiagnosticsScreenState.Loading -> renderLoading()
+            is DiagnosticsScreenState.Ready -> {
+                currentSnapshot = state.snapshot
+                exportButton.isEnabled = !exportRunning
+                renderSnapshot(state.snapshot)
+            }
+            is DiagnosticsScreenState.Failed -> renderFailure()
+        }
     }
 
     private fun buildRoot(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(monetColors.background)
         }
         root.addView(buildToolbar(), linearMatch(height = 60.dp))
         val scroll = ScrollView(this).apply {
             isFillViewport = true
-            isVerticalFadingEdgeEnabled = true
+            isVerticalFadingEdgeEnabled = false
             clipToPadding = false
             setPadding(15.dp, 8.dp, 15.dp, 28.dp)
         }
@@ -162,7 +675,7 @@ class DiagnosticsActivity : SkinnedActivity() {
         }
         scroll.addView(content, ViewGroup.LayoutParams(matchParent, wrapContent))
         root.addView(scroll, LinearLayout.LayoutParams(matchParent, 0, 1f))
-        stretchViewport = installPreparedLiquidStretch(scroll)
+        stretchScrollTarget = scroll
         return root
     }
 
@@ -173,8 +686,9 @@ class DiagnosticsActivity : SkinnedActivity() {
             onBackPressedDispatcher.onBackPressed()
         }, LinearLayout.LayoutParams(48.dp, 48.dp))
         addView(TextView(this@DiagnosticsActivity).apply {
+            toolbarTitleView = this
             text = getString(R.string.diagnostics_title)
-            textSize = 20f
+            textSize = 17f
             setTextColor(getColor(R.color.colorTextGray))
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             isSingleLine = true
@@ -204,18 +718,11 @@ class DiagnosticsActivity : SkinnedActivity() {
 
     private fun observeState() {
         viewModel.screenState.observe(this) { state ->
-            when (state) {
-                DiagnosticsScreenState.Loading -> renderLoading()
-                is DiagnosticsScreenState.Ready -> {
-                    currentSnapshot = state.snapshot
-                    exportButton.isEnabled = true
-                    renderSnapshot(state.snapshot)
-                }
-                is DiagnosticsScreenState.Failed -> renderFailure()
-            }
+            renderOrDefer(state)
         }
         viewModel.exportState.observe(this) { state ->
             val running = state is DiagnosticsExportState.Running
+            exportRunning = running
             refreshButton.isEnabled = !running
             exportButton.isEnabled = !running && currentSnapshot != null
             when (state) {
@@ -529,7 +1036,24 @@ class DiagnosticsActivity : SkinnedActivity() {
             .setNegativeButton(R.string.diagnostics_report_cancel, null)
             .setPositiveButton(R.string.diagnostics_report_choose_location) { _, _ ->
                 val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                createDocumentLauncher.launch("BILab_Diagnostics_$timestamp.json")
+                pickerOpen = true
+                try {
+                    createDocumentLauncher.launch("BILab_Diagnostics_$timestamp.json")
+                } catch (_: ActivityNotFoundException) {
+                    pickerOpen = false
+                    Toast.makeText(
+                        this,
+                        R.string.diagnostics_export_failed,
+                        Toast.LENGTH_LONG
+                    ).show()
+                } catch (_: RuntimeException) {
+                    pickerOpen = false
+                    Toast.makeText(
+                        this,
+                        R.string.diagnostics_export_failed,
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
             .create()
             .also { dialog ->
@@ -566,11 +1090,18 @@ class DiagnosticsActivity : SkinnedActivity() {
     )
 
     private fun severityColor(severity: DiagnosticSeverity): Int = when (severity) {
-        DiagnosticSeverity.OK -> monetColors.primary
-        DiagnosticSeverity.INFO -> monetColors.secondary
-        DiagnosticSeverity.ATTENTION -> 0xFFF59E0B.toInt()
-        DiagnosticSeverity.ACTION_REQUIRED -> 0xFFDC2626.toInt()
-        DiagnosticSeverity.UNKNOWN -> getColor(R.color.colorTextGray)
+        DiagnosticSeverity.OK -> DiagnosticStatusTone.OK
+        DiagnosticSeverity.INFO -> DiagnosticStatusTone.INFO
+        DiagnosticSeverity.ATTENTION -> DiagnosticStatusTone.ATTENTION
+        DiagnosticSeverity.ACTION_REQUIRED -> DiagnosticStatusTone.ACTION_REQUIRED
+        DiagnosticSeverity.UNKNOWN -> DiagnosticStatusTone.UNKNOWN
+    }.let { tone ->
+        DiagnosticStatusPalette.color(
+            tone,
+            darkTheme = (resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+        )
     }
 
     private fun card(padding: Int = 16.dp) = LinearLayout(this).apply {

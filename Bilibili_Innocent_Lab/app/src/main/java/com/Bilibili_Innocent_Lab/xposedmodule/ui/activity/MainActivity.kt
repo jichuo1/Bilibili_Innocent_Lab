@@ -11,6 +11,7 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -18,8 +19,10 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.text.Editable
 import android.util.Log
 import android.text.TextUtils
+import android.text.TextWatcher
 import android.text.method.LinkMovementMethod
 import android.text.util.Linkify
 import android.view.Gravity
@@ -52,7 +55,6 @@ import com.highcapable.betterandroid.ui.extension.view.textToString
 import com.highcapable.betterandroid.ui.extension.view.toast
 import com.highcapable.betterandroid.ui.extension.view.updateMargins
 import com.highcapable.betterandroid.ui.extension.view.updatePadding
-import com.highcapable.betterandroid.ui.extension.view.updateTypeface
 import com.highcapable.hikage.core.base.Hikagable
 import com.highcapable.hikage.core.layout.Layout
 import com.highcapable.hikage.core.layout.LayoutParams
@@ -73,12 +75,13 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureI
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentScanEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSelectionCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshot
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshotCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.RuleSetCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.GitHubReleaseChecker
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotQueryClient
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ShellCommandRunner
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateCheckCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateChannelStore
@@ -228,6 +231,7 @@ class MainActivity : SkinnedActivity() {
     private var hideMineVip = false
     private var keepMineVipSpace = false
     private var mineComponentHiddenRules = ""
+    private var mineComponentSnapshotQueryInFlight = false
     private var blockAppUpdate = false
     private var hideDynamicCityTab = false
     private var hideDynamicSchoolTab = false
@@ -284,6 +288,7 @@ class MainActivity : SkinnedActivity() {
     private var recommendVideoDurationSummaryView: NativeTextView? = null
     private var commentKeywordSummaryView: NativeTextView? = null
     private var commentLevelSummaryView: NativeTextView? = null
+    private var portraitContentFilterSummaryView: NativeTextView? = null
     /** 设置备份入口及标题：用于跨 Activity 容器形变的来源坐标。 */
     private var settingsBackupEntryView: View? = null
     private var settingsBackupEntryTitleView: NativeTextView? = null
@@ -314,6 +319,9 @@ class MainActivity : SkinnedActivity() {
     private var activationIconView: android.widget.ImageView? = null
     private var activationTitleView: NativeTextView? = null
     private var activationSourceView: NativeTextView? = null
+    /** 诊断中心入口及标题：用于从点击区域连续形变到全屏页面。 */
+    private var diagnosticsEntryView: View? = null
+    private var diagnosticsEntryTitleView: NativeTextView? = null
     private var diagnosticsSummaryView: NativeTextView? = null
     private val activationMainHandler = Handler(Looper.getMainLooper())
     private var frameworkStatusCheckPending = true
@@ -351,6 +359,9 @@ class MainActivity : SkinnedActivity() {
     /** Liquid 专用共享回弹层；滚动内容和根背景切片在同一 RenderNode 中形变。 */
     private var liquidStretchScrollTarget: View? = null
     private var liquidStretchViewport: View? = null
+    /** 设置搜索只持有当前 Activity 的控件树，销毁时与其他 View 引用一起释放。 */
+    private var settingsSearchRoot: ViewGroup? = null
+    private var settingsSearchScrollView: androidx.core.widget.NestedScrollView? = null
 
     /** 用户条款状态只在 Activity 创建时解析；决定落盘后随 recreate/finish 更新生命周期。 */
     private var userTermsDecision = UserTermsDecision.UNDECIDED
@@ -626,18 +637,33 @@ class MainActivity : SkinnedActivity() {
                 NoRootDisplayState.ERROR -> true
                 else -> false
             }
-            setText(
-                when {
-                    displayState == ActivationDisplayState.CHECKING ->
-                        R.string.diagnostics_entry_checking
-                    displayState == ActivationDisplayState.UNAVAILABLE ->
-                        R.string.diagnostics_entry_action_required
-                    publishState == RemoteHookConfigPublishState.FAILED ||
-                        skinFallback || noRootNeedsAttention ->
-                        R.string.diagnostics_entry_attention
-                    else -> R.string.diagnostics_entry_ready
-                }
+            val (statusRes, statusTone) = when {
+                displayState == ActivationDisplayState.CHECKING ->
+                    R.string.diagnostics_entry_checking to DiagnosticStatusTone.INFO
+                displayState == ActivationDisplayState.UNAVAILABLE ->
+                    R.string.diagnostics_entry_action_required to
+                        DiagnosticStatusTone.ACTION_REQUIRED
+                publishState == RemoteHookConfigPublishState.FAILED ||
+                    skinFallback || noRootNeedsAttention ->
+                    R.string.diagnostics_entry_attention to DiagnosticStatusTone.ATTENTION
+                else -> R.string.diagnostics_entry_ready to DiagnosticStatusTone.OK
+            }
+            setText(statusRes)
+            alpha = 1f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(
+                DiagnosticStatusPalette.color(
+                    statusTone,
+                    darkTheme = (resources.configuration.uiMode and
+                        android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                        android.content.res.Configuration.UI_MODE_NIGHT_YES
+                )
             )
+            diagnosticsEntryView?.contentDescription = buildString {
+                append(getString(R.string.diagnostics_title))
+                append(". ")
+                append(getString(statusRes))
+            }
         }
     }
 
@@ -2790,10 +2816,59 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
-    /** 快照严格校验失败时返回 null，由调用方明确提示并回退手动规则。 */
-    private fun readMineComponentSnapshot(): MineComponentSnapshot? = runCatching {
-        prefs().getString(FeaturePreferences.MINE_COMPONENT_SCAN_SNAPSHOT, "").orEmpty()
-    }.getOrNull()?.let(MineComponentSnapshotCodec::decodeOrNull)
+    /** 新协议快照同时校验来源版本；旧快照仍按原有协议兼容读取。 */
+    private fun readMineComponentSnapshot(): MineComponentSnapshot? =
+        MineComponentSnapshotStore.read(this)
+
+    private fun queryMineComponentSnapshotAndOpenPicker() {
+        if (mineComponentSnapshotQueryInFlight) return
+        mineComponentSnapshotQueryInFlight = true
+        toast(getString(R.string.custom_mine_component_snapshot_querying))
+        MineComponentSnapshotQueryClient.query(this) { result ->
+            mineComponentSnapshotQueryInFlight = false
+            if (isFinishing || isDestroyed ||
+                !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            ) return@query
+            when (result.status) {
+                MineComponentSnapshotQueryClient.Status.READY -> {
+                    val snapshot = result.snapshot
+                    if (snapshot != null && snapshot.entries.isNotEmpty()) {
+                        showMineComponentPickerDialog(snapshot)
+                    } else {
+                        showMineSnapshotFallback(R.string.custom_mine_component_snapshot_invalid)
+                    }
+                }
+
+                MineComponentSnapshotQueryClient.Status.WAITING_PAGE ->
+                    showMineSnapshotFallback(R.string.custom_mine_component_snapshot_waiting_page)
+
+                MineComponentSnapshotQueryClient.Status.TARGET_UNAVAILABLE ->
+                    showMineSnapshotFallback(R.string.custom_mine_component_snapshot_unavailable)
+
+                MineComponentSnapshotQueryClient.Status.INVALID_RESPONSE ->
+                    showMineSnapshotFallback(R.string.custom_mine_component_snapshot_invalid)
+
+                MineComponentSnapshotQueryClient.Status.STORE_FAILED ->
+                    showMineSnapshotFallback(
+                        R.string.custom_mine_component_snapshot_store_failed,
+                        result.snapshot
+                    )
+            }
+        }
+    }
+
+    private fun showMineSnapshotFallback(
+        @StringRes messageRes: Int,
+        transientSnapshot: MineComponentSnapshot? = null
+    ) {
+        toast(getString(messageRes))
+        val snapshot = transientSnapshot ?: readMineComponentSnapshot()
+        if (snapshot != null && snapshot.entries.isNotEmpty()) {
+            showMineComponentPickerDialog(snapshot)
+        } else {
+            showMineManualRuleEditor()
+        }
+    }
 
     private fun showMineManualRuleEditor() {
         showRuleEditorDialog(
@@ -4028,6 +4103,583 @@ class MainActivity : SkinnedActivity() {
         super.onPause()
     }
 
+    private enum class SettingsSearchSection {
+        GENERAL,
+        ADVANCED,
+        EXPERIMENTAL
+    }
+
+    private data class RuntimeSettingsSearchTarget(
+        val item: SettingsSearchItem,
+        val view: View,
+        val section: SettingsSearchSection
+    )
+
+    private fun portraitContentFilterValues(): Map<String, Boolean> = mapOf(
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_VERTICAL to removeHomeRecommendVertical,
+        FeaturePreferences.REMOVE_STORY_ADS to removeStoryAds,
+        FeaturePreferences.REMOVE_STORY_LIVE to removeStoryLive,
+        FeaturePreferences.REMOVE_STORY_GAMES to removeStoryGames,
+        FeaturePreferences.REMOVE_STORY_COURSES to removeStoryCourses,
+        FeaturePreferences.REMOVE_STORY_SHORT_DRAMA to removeStoryShortDrama,
+        FeaturePreferences.REMOVE_STORY_SHOPPING to removeStoryShopping,
+        FeaturePreferences.REMOVE_STORY_MUSIC to removeStoryMusic,
+        FeaturePreferences.REMOVE_STORY_BANGUMI to removeStoryBangumi,
+        FeaturePreferences.REMOVE_STORY_MOVIES to removeStoryMovies,
+        FeaturePreferences.REMOVE_STORY_DOCUMENTARIES to removeStoryDocumentaries,
+        FeaturePreferences.REMOVE_STORY_TV to removeStoryTv,
+        FeaturePreferences.REMOVE_STORY_VARIETY to removeStoryVariety
+    )
+
+    private fun portraitContentFilterSummary(): String {
+        val selected = portraitContentFilterValues().values.count { it }
+        return if (selected == 0) {
+            getString(R.string.portrait_content_filter_summary_none)
+        } else {
+            getString(
+                R.string.portrait_content_filter_summary_selected,
+                selected,
+                PortraitContentFilterCatalog.options.size
+            )
+        }
+    }
+
+    @StringRes
+    private fun portraitContentFilterLabel(preferenceKey: String): Int = when (preferenceKey) {
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_VERTICAL ->
+            R.string.remove_home_recommend_vertical
+        FeaturePreferences.REMOVE_STORY_ADS -> R.string.remove_story_ads
+        FeaturePreferences.REMOVE_STORY_LIVE -> R.string.remove_story_live
+        FeaturePreferences.REMOVE_STORY_GAMES -> R.string.remove_story_games
+        FeaturePreferences.REMOVE_STORY_COURSES -> R.string.remove_story_courses
+        FeaturePreferences.REMOVE_STORY_SHORT_DRAMA -> R.string.remove_story_short_drama
+        FeaturePreferences.REMOVE_STORY_SHOPPING -> R.string.remove_story_shopping
+        FeaturePreferences.REMOVE_STORY_MUSIC -> R.string.remove_story_music
+        FeaturePreferences.REMOVE_STORY_BANGUMI -> R.string.remove_story_bangumi
+        FeaturePreferences.REMOVE_STORY_MOVIES -> R.string.remove_story_movies
+        FeaturePreferences.REMOVE_STORY_DOCUMENTARIES -> R.string.remove_story_documentaries
+        FeaturePreferences.REMOVE_STORY_TV -> R.string.remove_story_tv
+        FeaturePreferences.REMOVE_STORY_VARIETY -> R.string.remove_story_variety
+        else -> error("Unknown portrait filter key: $preferenceKey")
+    }
+
+    @StringRes
+    private fun portraitContentFilterGroupLabel(group: PortraitContentFilterGroup): Int =
+        when (group) {
+            PortraitContentFilterGroup.HOME -> R.string.portrait_content_filter_group_home
+            PortraitContentFilterGroup.STORY -> R.string.portrait_content_filter_group_story
+            PortraitContentFilterGroup.SERIES -> R.string.portrait_content_filter_group_series
+        }
+
+    private fun applyPortraitContentFilterValue(preferenceKey: String, enabled: Boolean) {
+        when (preferenceKey) {
+            FeaturePreferences.REMOVE_HOME_RECOMMEND_VERTICAL ->
+                removeHomeRecommendVertical = enabled
+            FeaturePreferences.REMOVE_STORY_ADS -> removeStoryAds = enabled
+            FeaturePreferences.REMOVE_STORY_LIVE -> removeStoryLive = enabled
+            FeaturePreferences.REMOVE_STORY_GAMES -> removeStoryGames = enabled
+            FeaturePreferences.REMOVE_STORY_COURSES -> removeStoryCourses = enabled
+            FeaturePreferences.REMOVE_STORY_SHORT_DRAMA -> removeStoryShortDrama = enabled
+            FeaturePreferences.REMOVE_STORY_SHOPPING -> removeStoryShopping = enabled
+            FeaturePreferences.REMOVE_STORY_MUSIC -> removeStoryMusic = enabled
+            FeaturePreferences.REMOVE_STORY_BANGUMI -> removeStoryBangumi = enabled
+            FeaturePreferences.REMOVE_STORY_MOVIES -> removeStoryMovies = enabled
+            FeaturePreferences.REMOVE_STORY_DOCUMENTARIES -> removeStoryDocumentaries = enabled
+            FeaturePreferences.REMOVE_STORY_TV -> removeStoryTv = enabled
+            FeaturePreferences.REMOVE_STORY_VARIETY -> removeStoryVariety = enabled
+            else -> error("Unknown portrait filter key: $preferenceKey")
+        }
+    }
+
+    /**
+     * 13 个既有开关使用草稿式编辑：返回/取消不落盘，保存时只在同一个 Editor 中写变化项。
+     * “全部番剧影视”只改变子项的可编辑状态，不改写子项原值。
+     */
+    private fun showPortraitContentFilterDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createModalContainer()
+        val draft = PortraitContentFilterDraft(portraitContentFilterValues())
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.portrait_content_filter_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 19f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+        )
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.portrait_content_filter_dialog_description)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 12f
+                alpha = 0.72f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (7 * density).toInt() }
+        )
+
+        val quickActions = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        quickActions.addView(
+            createTermsActionButton(
+                getString(R.string.portrait_content_filter_select_all),
+                filled = false
+            ) {},
+            NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        quickActions.addView(
+            createTermsActionButton(
+                getString(R.string.portrait_content_filter_clear),
+                filled = false
+            ) {},
+            NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = (8 * density).toInt()
+            }
+        )
+        container.addView(
+            quickActions,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (12 * density).toInt() }
+        )
+
+        val listBody = NativeScrollView(this).apply {
+            isFillViewport = true
+        }
+        val rowContainer = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.VERTICAL
+            setPadding(0, (4 * density).toInt(), 0, (4 * density).toInt())
+        }
+        val checkboxes = linkedMapOf<String, android.widget.CheckBox>()
+        var currentGroup: PortraitContentFilterGroup? = null
+        PortraitContentFilterCatalog.options.forEach { option ->
+            if (currentGroup != option.group) {
+                currentGroup = option.group
+                rowContainer.addView(
+                    NativeTextView(this).apply {
+                        text = getString(portraitContentFilterGroupLabel(option.group))
+                        textColor = monetColors.primary
+                        textSize = 12f
+                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    },
+                    NativeLinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        topMargin = ((if (checkboxes.isEmpty()) 8 else 15) * density).toInt()
+                        bottomMargin = (4 * density).toInt()
+                    }
+                )
+            }
+            val box = android.widget.CheckBox(this).apply {
+                textSize = 14f
+                setTextColor(getColor(R.color.colorTextDark))
+                isChecked = draft[option.preferenceKey]
+                isFocusable = true
+            }
+            checkboxes[option.preferenceKey] = box
+            rowContainer.addView(
+                box,
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = (4 * density).toInt()
+                    bottomMargin = (4 * density).toInt()
+                }
+            )
+        }
+        listBody.addView(rowContainer)
+        val listHeight = minOf(
+            (390 * density).toInt(),
+            (resources.displayMetrics.heightPixels * 0.48f).toInt()
+        )
+        container.addView(
+            listBody,
+            NativeLinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, listHeight).apply {
+                topMargin = (7 * density).toInt()
+                bottomMargin = (8 * density).toInt()
+            }
+        )
+
+        val buttonRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        val cancelButton = createTermsActionButton(
+            getString(R.string.dialog_cancel),
+            filled = false
+        ) { dismissWithAnimation(dialog, container) {} }
+        lateinit var refreshUi: () -> Unit
+        lateinit var saveButton: NativeTextView
+        var updating = false
+
+        refreshUi = {
+            updating = true
+            PortraitContentFilterCatalog.options.forEach { option ->
+                checkboxes.getValue(option.preferenceKey).apply {
+                    val covered = draft.isCovered(option)
+                    isChecked = draft[option.preferenceKey]
+                    isEnabled = !covered
+                    alpha = if (covered) 0.55f else 1f
+                    text = buildString {
+                        append(getString(portraitContentFilterLabel(option.preferenceKey)))
+                        if (covered) {
+                            append(getString(R.string.portrait_content_filter_covered_suffix))
+                        }
+                    }
+                }
+            }
+            saveButton.text = getString(
+                R.string.portrait_content_filter_save,
+                draft.selectedCount()
+            )
+            updating = false
+        }
+        checkboxes.forEach { (key, box) ->
+            box.setOnCheckedChangeListener { _, checked ->
+                if (!updating) {
+                    draft[key] = checked
+                    refreshUi()
+                }
+            }
+        }
+        quickActions.getChildAt(0).setOnClickListener {
+            draft.selectAll()
+            refreshUi()
+        }
+        quickActions.getChildAt(1).setOnClickListener {
+            draft.clear()
+            refreshUi()
+        }
+
+        saveButton = createTermsActionButton("", filled = true) {
+            val changed = draft.changedValues()
+            if (changed.isEmpty()) {
+                dismissWithAnimation(dialog, container) {}
+                return@createTermsActionButton
+            }
+            val saved = runCatching {
+                prefs().edit {
+                    changed.forEach { (key, value) -> putBoolean(key, value) }
+                }
+            }.isSuccess
+            if (!saved) {
+                toast(getString(R.string.portrait_content_filter_save_failed))
+                return@createTermsActionButton
+            }
+            changed.forEach { (key, value) -> applyPortraitContentFilterValue(key, value) }
+            portraitContentFilterSummaryView?.text = portraitContentFilterSummary()
+            toast(getString(R.string.portrait_content_filter_applied))
+            dismissWithAnimation(dialog, container) {}
+        }
+        buttonRow.addView(
+            cancelButton,
+            NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        buttonRow.addView(
+            saveButton,
+            NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = (8 * density).toInt()
+            }
+        )
+        container.addView(
+            buttonRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        refreshUi()
+        presentModalDialog(dialog, container)
+    }
+
+    private fun settingsSearchSectionLabel(section: SettingsSearchSection): String =
+        getString(
+            when (section) {
+                SettingsSearchSection.GENERAL -> R.string.settings_search_section_general
+                SettingsSearchSection.ADVANCED -> R.string.advanced_settings
+                SettingsSearchSection.EXPERIMENTAL -> R.string.experimental_features
+            }
+        )
+
+    /** 从当前本地化控件树构建索引，避免功能新增后还要维护第二份易失真的搜索目录。 */
+    private fun collectSettingsSearchTargets(): List<RuntimeSettingsSearchTarget> {
+        val root = settingsSearchRoot ?: return emptyList()
+        val targets = mutableListOf<RuntimeSettingsSearchTarget>()
+        var nextKey = 0
+
+        fun collectText(view: View, output: MutableList<String>) {
+            if (view is NativeTextView) {
+                view.text?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let(output::add)
+            }
+            if (view is ViewGroup) {
+                for (index in 0 until view.childCount) collectText(view.getChildAt(index), output)
+            }
+        }
+
+        fun addTarget(view: View, section: SettingsSearchSection) {
+            val texts = mutableListOf<String>()
+            collectText(view, texts)
+            val title = texts.firstOrNull()?.lineSequence()?.firstOrNull()?.trim().orEmpty()
+            if (title.isBlank()) return
+            val key = "setting-${nextKey++}"
+            targets += RuntimeSettingsSearchTarget(
+                item = SettingsSearchItem(
+                    key = key,
+                    title = title,
+                    detail = texts.drop(1).joinToString(" "),
+                    section = settingsSearchSectionLabel(section)
+                ),
+                view = view,
+                section = section
+            )
+        }
+
+        fun visit(view: View, inheritedSection: SettingsSearchSection) {
+            val section = when (view) {
+                advancedContent -> SettingsSearchSection.ADVANCED
+                experimentalContent -> SettingsSearchSection.EXPERIMENTAL
+                else -> inheritedSection
+            }
+            val collapsedSectionRoot = view === advancedContent || view === experimentalContent
+            if (!collapsedSectionRoot && view.visibility != View.VISIBLE) return
+
+            when {
+                view is com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch ->
+                    addTarget(view, section)
+                view !== root && view is ViewGroup && view.isClickable ->
+                    addTarget(view, section)
+                view is NativeTextView && view.isClickable -> addTarget(view, section)
+                view is ViewGroup -> {
+                    for (index in 0 until view.childCount) {
+                        visit(view.getChildAt(index), section)
+                    }
+                }
+            }
+        }
+
+        visit(root, SettingsSearchSection.GENERAL)
+        return targets
+    }
+
+    private fun showSettingsSearchDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createModalContainer()
+        val runtimeTargets = collectSettingsSearchTargets()
+        val targetByKey = runtimeTargets.associateBy { it.item.key }
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.settings_search_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 19f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+        )
+        val editor = NativeEditText(this).apply {
+            hint = getString(R.string.settings_search_hint)
+            textColor = getColor(R.color.colorTextDark)
+            setHintTextColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x99))
+            textSize = 15f
+            isSingleLine = true
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+            setPadding(
+                (14 * density).toInt(),
+                (11 * density).toInt(),
+                (14 * density).toInt(),
+                (11 * density).toInt()
+            )
+            background = skinCardBackground(monetColors.surfaceVariant)
+        }
+        container.addView(
+            editor,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (12 * density).toInt() }
+        )
+
+        val resultContainer = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.VERTICAL
+        }
+        val resultScroll = NativeScrollView(this).apply {
+            isFillViewport = true
+            addView(resultContainer)
+        }
+        val resultHeight = minOf(
+            (360 * density).toInt(),
+            (resources.displayMetrics.heightPixels * 0.44f).toInt()
+        )
+        container.addView(
+            resultScroll,
+            NativeLinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, resultHeight).apply {
+                topMargin = (10 * density).toInt()
+            }
+        )
+
+        fun renderResults(query: String) {
+            resultContainer.removeAllViews()
+            val results = SettingsSearchMatcher.search(
+                query = query,
+                items = runtimeTargets.map(RuntimeSettingsSearchTarget::item)
+            )
+            if (query.isBlank() || results.isEmpty()) {
+                resultContainer.addView(
+                    NativeTextView(this).apply {
+                        text = getString(
+                            if (query.isBlank()) R.string.settings_search_prompt
+                            else R.string.settings_search_empty
+                        )
+                        gravity = Gravity.CENTER
+                        textColor = getColor(R.color.colorTextGray)
+                        textSize = 13f
+                        alpha = 0.72f
+                        setPadding(
+                            (12 * density).toInt(),
+                            (36 * density).toInt(),
+                            (12 * density).toInt(),
+                            (36 * density).toInt()
+                        )
+                    },
+                    NativeLinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                )
+                return
+            }
+
+            results.forEach { item ->
+                val target = targetByKey[item.key] ?: return@forEach
+                resultContainer.addView(
+                    NativeLinearLayout(this).apply {
+                        orientation = NativeLinearLayout.VERTICAL
+                        background = selfRippleBackground(10f)
+                        setPadding(
+                            (12 * density).toInt(),
+                            (10 * density).toInt(),
+                            (12 * density).toInt(),
+                            (10 * density).toInt()
+                        )
+                        isClickable = true
+                        isFocusable = true
+                        contentDescription = "${item.title}. ${item.section}"
+                        addView(
+                            NativeTextView(this@MainActivity).apply {
+                                text = item.title
+                                textColor = getColor(R.color.colorTextDark)
+                                textSize = 15f
+                            }
+                        )
+                        addView(
+                            NativeTextView(this@MainActivity).apply {
+                                text = item.section
+                                textColor = getColor(R.color.colorTextGray)
+                                textSize = 11f
+                                alpha = 0.68f
+                            },
+                            NativeLinearLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.WRAP_CONTENT
+                            ).apply { topMargin = (3 * density).toInt() }
+                        )
+                        setOnClickListener {
+                            dismissWithAnimation(dialog, container) {
+                                revealSettingsSearchTarget(target)
+                            }
+                        }
+                    },
+                    NativeLinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = (4 * density).toInt() }
+                )
+            }
+        }
+
+        editor.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(editable: Editable?) {
+                renderResults(editable?.toString().orEmpty())
+            }
+        })
+        renderResults("")
+        container.addView(
+            createTermsActionButton(getString(R.string.dialog_cancel), filled = false) {
+                dismissWithAnimation(dialog, container) {}
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (8 * density).toInt() }
+        )
+
+        presentModalDialog(dialog, container)
+        dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        editor.requestFocus()
+        editor.postDelayed({
+            getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+                ?.showSoftInput(editor, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }, 220L)
+    }
+
+    private fun revealSettingsSearchTarget(target: RuntimeSettingsSearchTarget) {
+        val sectionDelay = when (target.section) {
+            SettingsSearchSection.ADVANCED -> {
+                if (!advancedExpanded) {
+                    advancedExpanded = true
+                    val content = advancedContent
+                    val chevron = advancedChevron
+                    if (content != null && chevron != null) {
+                        animateSecondarySection(content, chevron, expanded = true)
+                    }
+                    300L
+                } else 0L
+            }
+            SettingsSearchSection.EXPERIMENTAL -> {
+                if (!experimentalExpanded) {
+                    experimentalExpanded = true
+                    val content = experimentalContent
+                    val chevron = experimentalChevron
+                    if (content != null && chevron != null) {
+                        animateSecondarySection(content, chevron, expanded = true)
+                    }
+                    300L
+                } else 0L
+            }
+            SettingsSearchSection.GENERAL -> 0L
+        }
+        val scrollView = settingsSearchScrollView ?: return
+        scrollView.postDelayed({
+            if (isFinishing || isDestroyed || target.view.parent == null) return@postDelayed
+            val rect = Rect()
+            target.view.getDrawingRect(rect)
+            scrollView.offsetDescendantRectToMyCoords(target.view, rect)
+            val topPadding = (28 * resources.displayMetrics.density).toInt()
+            scrollView.smoothScrollTo(0, (rect.top - topPadding).coerceAtLeast(0))
+
+            val originalAlpha = target.view.alpha
+            target.view.animate().cancel()
+            target.view.alpha = originalAlpha * 0.48f
+            target.view.animate()
+                .alpha(originalAlpha)
+                .setDuration(420L)
+                .setInterpolator(emphasizedDecelerate)
+                .start()
+        }, sectionDelay)
+    }
+
     private fun launchSettingsBackup() {
         val card = settingsBackupEntryView
         val title = settingsBackupEntryTitleView
@@ -4038,6 +4690,19 @@ class MainActivity : SkinnedActivity() {
         val launchIntent = Intent(this, SettingsBackupActivity::class.java)
         SettingsBackupTransitionOriginRegistry.snapshot()?.putInto(launchIntent)
         settingsBackupLauncher.launch(launchIntent)
+        suppressLegacyActivityTransition()
+    }
+
+    private fun launchDiagnostics() {
+        val entry = diagnosticsEntryView
+        val title = diagnosticsEntryTitleView
+        val sourceWindow = findViewById<View>(Android_R.id.content)
+        if (entry != null && title != null) {
+            DiagnosticsTransitionOriginRegistry.register(entry, title, sourceWindow)
+        }
+        val launchIntent = Intent(this, DiagnosticsActivity::class.java)
+        DiagnosticsTransitionOriginRegistry.snapshot()?.putInto(launchIntent)
+        startActivity(launchIntent)
         suppressLegacyActivityTransition()
     }
 
@@ -4054,6 +4719,8 @@ class MainActivity : SkinnedActivity() {
         finishPreparedLiquidStretch(liquidStretchViewport)
         liquidStretchViewport = null
         liquidStretchScrollTarget = null
+        settingsSearchRoot = null
+        settingsSearchScrollView = null
         // Activity 销毁时主动关闭弹窗，避免 WindowLeaked（Activity has leaked window）
         activeConfirmDialog?.dismiss()
         activeConfirmDialog = null
@@ -4081,6 +4748,9 @@ class MainActivity : SkinnedActivity() {
         activationIconView = null
         activationTitleView = null
         activationSourceView = null
+        DiagnosticsTransitionOriginRegistry.clear(diagnosticsEntryView)
+        diagnosticsEntryView = null
+        diagnosticsEntryTitleView = null
         diagnosticsSummaryView = null
         logLevelColorAnimator?.cancel()
         logLevelColorAnimator = null
@@ -4098,6 +4768,7 @@ class MainActivity : SkinnedActivity() {
         recommendVideoDurationSummaryView = null
         commentKeywordSummaryView = null
         commentLevelSummaryView = null
+        portraitContentFilterSummaryView = null
         skinSummaryView = null
         liquidBackgroundSummaryView = null
         SettingsBackupTransitionOriginRegistry.clear(settingsBackupEntryView)
@@ -4556,17 +5227,19 @@ class MainActivity : SkinnedActivity() {
                         updatePadding(top = 13.dp, bottom = 5.dp)
                     }
                 ) {
-                    TextView(
-                        lparams = LayoutParams {
-                            weight = 1f
+                    ImageView(
+                        lparams = LayoutParams(27.dp, 27.dp) {
+                            marginStart = 5.dp
                         }
                     ) {
-                        isSingleLine = true
-                        text = stringResource(R.string.app_name)
-                        textColor = colorResource(R.color.colorTextGray)
-                        textSize = 25f
-                        updateTypeface(Typeface.BOLD)
+                        background = selfRippleBackground(14f)
+                        alpha = 0.85f
+                        setImageResource(R.drawable.ic_search)
+                        imageTintList = stateColorResource(R.color.colorTextGray)
+                        contentDescription = stringResource(R.string.settings_search_description)
+                        setOnClickListener { showSettingsSearchDialog() }
                     }
+                    Space(lparams = LayoutParams { weight = 1f })
                     ImageView(
                         lparams = LayoutParams(27.dp, 27.dp) {
                             marginEnd = 12.dp
@@ -4603,13 +5276,6 @@ class MainActivity : SkinnedActivity() {
                         gravity = Gravity.CENTER or Gravity.START
                         // 首次绘制使用中性确认态；布局完成后由单快照 renderer 统一收敛。
                         background = roundedColor(monetColors.surfaceVariant)
-                        foreground = selfRippleBackground(15f)
-                        isClickable = true
-                        isFocusable = true
-                        contentDescription = stringResource(R.string.diagnostics_title)
-                        setOnClickListener {
-                            startActivity(Intent(this@MainActivity, DiagnosticsActivity::class.java))
-                        }
                         activationCardView = this
                     }
                 ) {
@@ -4626,87 +5292,158 @@ class MainActivity : SkinnedActivity() {
                     LinearLayout(
                         lparams = LayoutParams(widthMatchParent = true),
                         init = {
-                            orientation = LinearLayout.VERTICAL
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
                             updatePadding(horizontal = 20.dp, vertical = 10.dp)
                         }
                     ) {
-                        TextView(
-                            lparams = LayoutParams { 
-                                bottomMargin = 5.dp
-                            }
-                        ) { 
-                            activationTitleView = this
-                            isSingleLine = true
-                            ellipsize = TextUtils.TruncateAt.END
-                            textColor = colorResource(R.color.white)
-                            textSize = 18f
-                            text = stringResource(R.string.module_activation_checking)
-                        }
                         LinearLayout(
-                            lparams = LayoutParams {
-                                bottomMargin = 5.dp
-                            },
+                            lparams = LayoutParams { weight = 1f },
                             init = {
-                                gravity = Gravity.CENTER or Gravity.START
+                                orientation = LinearLayout.VERTICAL
                             }
-                        ) { 
+                        ) {
+                            TextView(
+                                lparams = LayoutParams {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                activationTitleView = this
+                                isSingleLine = true
+                                ellipsize = TextUtils.TruncateAt.END
+                                textColor = colorResource(R.color.white)
+                                textSize = 18f
+                                text = stringResource(R.string.module_activation_checking)
+                            }
+                            TextView(
+                                lparams = LayoutParams {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                activationSourceView = this
+                                alpha = 0.6f
+                                isSingleLine = true
+                                ellipsize = TextUtils.TruncateAt.END
+                                textColor = colorResource(R.color.white)
+                                textSize = 11f
+                                text = stringResource(R.string.module_activation_waiting_framework)
+                                isVisible = true
+                            }
+                            LinearLayout(
+                                lparams = LayoutParams {
+                                    bottomMargin = 5.dp
+                                },
+                                init = {
+                                    gravity = Gravity.CENTER or Gravity.START
+                                }
+                            ) {
+                                TextView {
+                                    alpha = 0.8f
+                                    isSingleLine = true
+                                    ellipsize = TextUtils.TruncateAt.END
+                                    textColor = colorResource(R.color.white)
+                                    textSize = 13f
+                                    text = stringResource(
+                                        R.string.module_version,
+                                        BuildConfig.VERSION_NAME
+                                    )
+                                }
+                                TextView(
+                                    lparams = LayoutParams {
+                                        leftMargin = 5.dp
+                                    }
+                                ) {
+                                    background = roundedColor(monetColors.tertiary)
+                                    updatePadding(horizontal = 5.dp, vertical = 2.dp)
+                                    isSingleLine = true
+                                    ellipsize = TextUtils.TruncateAt.END
+                                    textColor = colorResource(R.color.white)
+                                    textSize = 11f
+                                    isVisible = false
+                                }
+                            }
+                            // 模板遗留占位文本：隐藏（无实际信息，与整体 UI 不一致）
                             TextView {
                                 alpha = 0.8f
                                 isSingleLine = true
                                 ellipsize = TextUtils.TruncateAt.END
                                 textColor = colorResource(R.color.white)
                                 textSize = 13f
-                                text = stringResource(R.string.module_version, BuildConfig.VERSION_NAME)
-                            }
-                            TextView(
-                                lparams = LayoutParams { 
-                                    leftMargin = 5.dp
-                                }
-                            ) {
-                                background = roundedColor(monetColors.tertiary)
-                                updatePadding(horizontal = 5.dp, vertical = 2.dp)
-                                isSingleLine = true
-                                ellipsize = TextUtils.TruncateAt.END
-                                textColor = colorResource(R.color.white)
-                                textSize = 11f
                                 isVisible = false
                             }
                         }
-                        // 模板遗留占位文本：隐藏（无实际信息，与整体 UI 不一致）
-                        TextView {
-                            alpha = 0.8f
-                            isSingleLine = true
-                            ellipsize = TextUtils.TruncateAt.END
-                            textColor = colorResource(R.color.white)
-                            textSize = 13f
-                            isVisible = false
-                        }
-                        TextView(
-                            lparams = LayoutParams { 
-                                topMargin = 5.dp
+                        LinearLayout(
+                            lparams = LayoutParams(96.dp, 72.dp) {
+                                marginStart = 10.dp
+                            },
+                            init = {
+                                orientation = LinearLayout.VERTICAL
+                                gravity = Gravity.CENTER
+                                background = GradientDrawable().apply {
+                                    val density = resources.displayMetrics.density
+                                    val neutralColor = colorResource(R.color.colorTextGray)
+                                    cornerRadius = DiagnosticsEntryVisualSpec.CORNER_RADIUS_DP * density
+                                    setColor(
+                                        ColorUtils.setAlphaComponent(
+                                            neutralColor,
+                                            DiagnosticsEntryVisualSpec.SCRIM_ALPHA
+                                        )
+                                    )
+                                    setStroke(
+                                        (DiagnosticsEntryVisualSpec.STROKE_WIDTH_DP * density)
+                                            .toInt()
+                                            .coerceAtLeast(2),
+                                        ColorUtils.setAlphaComponent(
+                                            neutralColor,
+                                            DiagnosticsEntryVisualSpec.STROKE_ALPHA
+                                        )
+                                    )
+                                }
+                                foreground = selfRippleBackground(
+                                    DiagnosticsEntryVisualSpec.CORNER_RADIUS_DP
+                                )
+                                updatePadding(horizontal = 9.dp, vertical = 7.dp)
+                                isClickable = true
+                                isFocusable = true
+                                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                                contentDescription = stringResource(R.string.diagnostics_title)
+                                diagnosticsEntryView = this
+                                setOnClickListener { launchDiagnostics() }
                             }
                         ) {
-                            activationSourceView = this
-                            alpha = 0.6f
-                            isSingleLine = true
-                            ellipsize = TextUtils.TruncateAt.END
-                            textColor = colorResource(R.color.white)
-                            textSize = 11f
-                            text = stringResource(R.string.module_activation_waiting_framework)
-                            isVisible = true
-                        }
-                        TextView(
-                            lparams = LayoutParams {
-                                topMargin = 7.dp
+                            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                                diagnosticsEntryTitleView = this
+                                gravity = Gravity.CENTER
+                                text = stringResource(R.string.diagnostics_title)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 12f
+                                setTypeface(typeface, Typeface.BOLD)
+                                isSingleLine = true
+                                ellipsize = TextUtils.TruncateAt.END
+                                post {
+                                    val entry = diagnosticsEntryView ?: return@post
+                                    DiagnosticsTransitionOriginRegistry.register(
+                                        entry,
+                                        this,
+                                        this@MainActivity.findViewById(Android_R.id.content)
+                                    )
+                                }
                             }
-                        ) {
-                            diagnosticsSummaryView = this
-                            alpha = 0.82f
-                            isSingleLine = true
-                            ellipsize = TextUtils.TruncateAt.END
-                            textColor = colorResource(R.color.white)
-                            textSize = 12f
-                            text = stringResource(R.string.diagnostics_entry_checking)
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 5.dp
+                                }
+                            ) {
+                                diagnosticsSummaryView = this
+                                gravity = Gravity.CENTER
+                                alpha = 1f
+                                isSingleLine = true
+                                ellipsize = TextUtils.TruncateAt.END
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 11f
+                                setTypeface(typeface, Typeface.BOLD)
+                                text = stringResource(R.string.diagnostics_entry_checking)
+                            }
                         }
                     }
                 }
@@ -4716,6 +5453,7 @@ class MainActivity : SkinnedActivity() {
                     },
                     init = {
                         liquidStretchScrollTarget = this
+                        settingsSearchScrollView = this
                         isFillViewport = true
                         isVerticalFadingEdgeEnabled = true
                     }
@@ -4724,6 +5462,7 @@ class MainActivity : SkinnedActivity() {
                         lparams = LayoutParams(widthMatchParent = true),
                         init = {
                             orientation = LinearLayout.VERTICAL
+                            settingsSearchRoot = this
                         }
                     ) {
                         LinearLayout(
@@ -5525,27 +6264,6 @@ class MainActivity : SkinnedActivity() {
                                     bottomMargin = 5.dp
                                 }
                             ) {
-                                text = stringResource(R.string.remove_home_recommend_vertical)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeHomeRecommendVertical
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeHomeRecommendVertical = checked
-                                    prefs().edit {
-                                        putBoolean(
-                                            FeaturePreferences.REMOVE_HOME_RECOMMEND_VERTICAL,
-                                            checked
-                                        )
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
                                 text = stringResource(R.string.remove_home_recommend_large)
                                 isAllCaps = false
                                 textColor = colorResource(R.color.colorTextGray)
@@ -5847,14 +6565,7 @@ class MainActivity : SkinnedActivity() {
                                 isClickable = true
                                 isFocusable = true
                                 setOnClickListener {
-                                    // 有效快照展示稳定选择器；无快照明确提示后回退手动输入。
-                                    val snapshot = readMineComponentSnapshot()
-                                    if (snapshot != null && snapshot.entries.isNotEmpty()) {
-                                        showMineComponentPickerDialog(snapshot)
-                                    } else {
-                                        toast(getString(R.string.custom_mine_component_snapshot_missing))
-                                        showMineManualRuleEditor()
-                                    }
+                                    queryMineComponentSnapshotAndOpenPicker()
                                 }
                             }
                             TextView(
@@ -6307,22 +7018,58 @@ class MainActivity : SkinnedActivity() {
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }
-                            TextView(
+                            LinearLayout(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     topMargin = 14.dp
-                                    bottomMargin = 4.dp
+                                    bottomMargin = 8.dp
+                                },
+                                init = {
+                                    orientation = LinearLayout.HORIZONTAL
+                                    gravity = Gravity.CENTER_VERTICAL
+                                    background = selfRippleBackground(10f)
+                                    updatePadding(horizontal = 4.dp, vertical = 9.dp)
+                                    isClickable = true
+                                    isFocusable = true
+                                    contentDescription = stringResource(
+                                        R.string.portrait_content_filter_title
+                                    )
+                                    setOnClickListener { showPortraitContentFilterDialog() }
                                 }
                             ) {
-                                alpha = 0.7f
-                                text = stringResource(R.string.story_purify_settings)
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 11f
+                                LinearLayout(
+                                    lparams = LayoutParams { weight = 1f },
+                                    init = { orientation = LinearLayout.VERTICAL }
+                                ) {
+                                    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                                        text = stringResource(R.string.portrait_content_filter_title)
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 4.dp
+                                        }
+                                    ) {
+                                        portraitContentFilterSummaryView = this
+                                        alpha = 0.68f
+                                        text = portraitContentFilterSummary()
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                }
+                                ImageView(lparams = LayoutParams(18.dp, 18.dp)) {
+                                    setImageResource(R.drawable.ic_chevron_down)
+                                    rotation = -90f
+                                    alpha = 0.8f
+                                    imageTintList = stateColorResource(R.color.colorTextGray)
+                                }
                             }
                             MaterialSwitch(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     bottomMargin = 5.dp
                                 }
                             ) {
+                                visibility = View.GONE
                                 text = stringResource(R.string.remove_story_ads)
                                 isAllCaps = false
                                 textColor = colorResource(R.color.colorTextGray)
@@ -6341,6 +7088,7 @@ class MainActivity : SkinnedActivity() {
                                     bottomMargin = 5.dp
                                 }
                             ) {
+                                visibility = View.GONE
                                 text = stringResource(R.string.remove_story_live)
                                 isAllCaps = false
                                 textColor = colorResource(R.color.colorTextGray)
@@ -6359,6 +7107,7 @@ class MainActivity : SkinnedActivity() {
                                     bottomMargin = 5.dp
                                 }
                             ) {
+                                visibility = View.GONE
                                 text = stringResource(R.string.remove_story_games)
                                 isAllCaps = false
                                 textColor = colorResource(R.color.colorTextGray)
@@ -6377,6 +7126,7 @@ class MainActivity : SkinnedActivity() {
                                     bottomMargin = 5.dp
                                 }
                             ) {
+                                visibility = View.GONE
                                 text = stringResource(R.string.remove_story_bangumi)
                                 isAllCaps = false
                                 textColor = colorResource(R.color.colorTextGray)
@@ -6395,6 +7145,7 @@ class MainActivity : SkinnedActivity() {
                                     bottomMargin = 5.dp
                                 }
                             ) {
+                                visibility = View.GONE
                                 text = stringResource(R.string.remove_story_courses)
                                 isAllCaps = false
                                 textColor = colorResource(R.color.colorTextGray)
@@ -6413,6 +7164,7 @@ class MainActivity : SkinnedActivity() {
                                     bottomMargin = 5.dp
                                 }
                             ) {
+                                visibility = View.GONE
                                 text = stringResource(R.string.remove_story_short_drama)
                                 isAllCaps = false
                                 textColor = colorResource(R.color.colorTextGray)
@@ -6434,6 +7186,7 @@ class MainActivity : SkinnedActivity() {
                                     bottomMargin = 5.dp
                                 }
                             ) {
+                                visibility = View.GONE
                                 text = stringResource(R.string.remove_story_shopping)
                                 isAllCaps = false
                                 textColor = colorResource(R.color.colorTextGray)
@@ -6455,6 +7208,7 @@ class MainActivity : SkinnedActivity() {
                                     bottomMargin = 5.dp
                                 }
                             ) {
+                                visibility = View.GONE
                                 text = stringResource(R.string.remove_story_movies)
                                 isAllCaps = false
                                 textColor = colorResource(R.color.colorTextGray)
@@ -6473,6 +7227,7 @@ class MainActivity : SkinnedActivity() {
                                     bottomMargin = 5.dp
                                 }
                             ) {
+                                visibility = View.GONE
                                 text = stringResource(R.string.remove_story_documentaries)
                                 isAllCaps = false
                                 textColor = colorResource(R.color.colorTextGray)
@@ -6494,6 +7249,7 @@ class MainActivity : SkinnedActivity() {
                                     bottomMargin = 5.dp
                                 }
                             ) {
+                                visibility = View.GONE
                                 text = stringResource(R.string.remove_story_tv)
                                 isAllCaps = false
                                 textColor = colorResource(R.color.colorTextGray)
@@ -6512,6 +7268,7 @@ class MainActivity : SkinnedActivity() {
                                     bottomMargin = 5.dp
                                 }
                             ) {
+                                visibility = View.GONE
                                 text = stringResource(R.string.remove_story_variety)
                                 isAllCaps = false
                                 textColor = colorResource(R.color.colorTextGray)
@@ -6530,6 +7287,7 @@ class MainActivity : SkinnedActivity() {
                                     bottomMargin = 5.dp
                                 }
                             ) {
+                                visibility = View.GONE
                                 text = stringResource(R.string.remove_story_music)
                                 isAllCaps = false
                                 textColor = colorResource(R.color.colorTextGray)
@@ -6545,6 +7303,7 @@ class MainActivity : SkinnedActivity() {
                             TextView(
                                 lparams = LayoutParams(widthMatchParent = true)
                             ) {
+                                visibility = View.GONE
                                 alpha = 0.6f
                                 setLineSpacing(6f, 1f)
                                 text = stringResource(R.string.story_purify_tip)

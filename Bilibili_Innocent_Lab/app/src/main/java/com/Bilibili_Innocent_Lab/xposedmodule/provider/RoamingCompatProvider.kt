@@ -13,7 +13,6 @@ import androidx.core.net.toUri
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootUpgradeRecoveryCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
@@ -29,7 +28,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentSto
  * （模块 App 用自己的 uid 读自己的 prefs，天然可读），跨进程可靠。
  *
  * Provider 主要是只读通道，目前暴露 Hook 授权、漫游开关、自由复制配置、模块注入 UI
- * 的语言标签与免 Root 完整快照；只额外接受受限的免 Root 心跳和“我的”页扫描快照 call。
+ * 的语言标签与免 Root 完整快照；只额外接受受限的免 Root 心跳 call。
  * 每条路径均复用同一 Binder caller UID 白名单。条款未授权时，除授权查询本身外均
  * 只返回安全关闭态，不会暴露可被宿主继续使用的派生配置。
  */
@@ -58,10 +57,6 @@ class RoamingCompatProvider : ContentProvider() {
         const val EXTRA_NO_ROOT_TARGET_PACKAGE = "target_package"
         const val EXTRA_NO_ROOT_PROCESS = "process"
         const val RESULT_NO_ROOT_ACCEPTED = "accepted"
-
-        const val METHOD_REPORT_MINE_COMPONENT_SNAPSHOT = "report_mine_component_snapshot"
-        const val EXTRA_MINE_COMPONENT_SNAPSHOT = "mine_component_snapshot"
-        const val RESULT_MINE_COMPONENT_ACCEPTED = "mine_component_accepted"
 
         val CONTENT_URI: Uri = "content://$AUTHORITY/$PATH_ENABLED".toUri()
         val FREE_COPY_CONFIG_URI: Uri = "content://$AUTHORITY/$PATH_FREE_COPY_CONFIG".toUri()
@@ -156,14 +151,6 @@ class RoamingCompatProvider : ContentProvider() {
                 enforceTrustedCaller()
                 val accepted = isHookAuthorized() && recordNoRootHeartbeat(extras)
                 Bundle().apply { putBoolean(RESULT_NO_ROOT_ACCEPTED, accepted) }
-            }
-            METHOD_REPORT_MINE_COMPONENT_SNAPSHOT -> {
-                enforceTrustedCaller()
-                val payload = extras?.getString(EXTRA_MINE_COMPONENT_SNAPSHOT).orEmpty()
-                val accepted = isHookAuthorized() && context?.let { providerContext ->
-                    MineComponentSnapshotStore.write(providerContext, payload)
-                } == true
-                Bundle().apply { putBoolean(RESULT_MINE_COMPONENT_ACCEPTED, accepted) }
             }
             else -> super.call(method, arg, extras)
         }
