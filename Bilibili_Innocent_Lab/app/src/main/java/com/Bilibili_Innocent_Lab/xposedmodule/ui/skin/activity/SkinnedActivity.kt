@@ -6,6 +6,7 @@ import android.view.View
 import androidx.annotation.MainThread
 import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.ActivitySkinSession
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinSessionDiagnostics
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SkinId
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SurfaceRole
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
@@ -79,6 +80,10 @@ abstract class SkinnedActivity : AppViewsActivity() {
     /** 当前实际后端名称；Material You 或尚未准备时为 null。 */
     protected val liquidBackendName: String?
         get() = skinSessionOrNull?.liquidBackendName
+
+    /** 当前 Activity 的无引用诊断摘要；调用方不能由此接触 renderer 或 View。 */
+    internal fun currentSkinDiagnostics(): SkinSessionDiagnostics? =
+        skinSessionOrNull?.diagnostics
 
     /** 卡片语义背景；不向公开/受保护 API 暴露 internal token 或 SurfaceRole 类型。 */
     protected fun skinCardBackground(

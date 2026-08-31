@@ -58,6 +58,11 @@ contain `assets/xposed_init`, `META-INF/yukihookapi_init`, an
 JVM protocol success does not prove framework service binding or device Hook
 execution; those remain device checks.
 
+Diagnostics tests lock the pure severity/evidence matrix and the local report's
+version, size limit, privacy exclusions, and read-back schema. A passing JVM test
+does not prove LSPosed binding, an NPatch heartbeat, host adaptation, SAF provider
+behavior, Liquid rendering, or device accessibility.
+
 ## Device checks
 
 1. In Bilibili's main process, toggle roaming compatibility on and off while
@@ -184,3 +189,12 @@ execution; those remain device checks.
     DECLINED, UNDECIDED and LEGACY_EXEMPT separately; decline must publish denial
     before the private decision, and acceptance publication failure must leave
     the UI decision rolled back.
+30. Open the diagnostics center from the activation card in Material You and Liquid
+    modes, in all supported locales, with large font, TalkBack, rotation, and Android
+    predictive back. Verify manual refresh converges after the framework service binds;
+    a current-version NPatch heartbeat is observed, an old-version heartbeat is not;
+    Remote Preferences publication and host adaptation remain separate rows; and the
+    adaptation row stays unknown rather than claiming success. Export through the
+    system Documents provider and one third-party provider, then confirm success appears
+    only after byte-for-byte read-back and parsing. Inspect the JSON to confirm it has no
+    setting values, custom rules, paths, logs, exception detail, or host member names.
