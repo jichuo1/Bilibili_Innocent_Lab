@@ -251,7 +251,10 @@ internal class LiquidActivityRenderer(
 
     private fun releaseGraphicsForMemoryPressure() {
         suspendRealtimeCapture(releaseBuffers = true)
-        forceTranslucentAndReleaseBackdrop()
+        // 高阶折射/模糊和实时三缓冲可以在压力下永久降级，但最多 2 MiB 的稳定 underlay
+        // 仍是用户可见背景本身。释放它会让当前 Activity 无重建地退回纯色，表现为自定义
+        // 图片“过一段时间丢失”；保留稳定 source，同时切到零额外资源的 TRANSLUCENT 表面。
+        advanceToTranslucent()
         boundRoot?.invalidate()
         invalidateRegisteredSurfaces()
     }
@@ -821,26 +824,6 @@ internal class LiquidActivityRenderer(
         if (backendDriver?.backend != LiquidRenderBackend.TRANSLUCENT) {
             backendDriver = null
             selectCurrentPreparedBackend()
-        }
-    }
-
-    private fun forceTranslucentAndReleaseBackdrop() {
-        advanceToTranslucent()
-        val source = backdropSource
-        backdropSource = null
-        val root = boundRoot
-        if (source != null) {
-            if (root != null && root.isAttachedToWindow &&
-                root.isShown && root.windowVisibility == View.VISIBLE
-            ) {
-                retireBackdropAfterFrame(root, source)
-            } else source.close()
-        }
-        if (root == null || !root.isAttachedToWindow || !root.isShown ||
-            root.windowVisibility != View.VISIBLE
-        ) {
-            retiredBackdropSources.forEach(LiquidBackdropSource::close)
-            retiredBackdropSources.clear()
         }
     }
 
