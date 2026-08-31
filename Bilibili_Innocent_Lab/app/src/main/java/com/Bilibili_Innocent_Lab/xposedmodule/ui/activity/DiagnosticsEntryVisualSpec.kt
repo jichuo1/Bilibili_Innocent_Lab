@@ -4,7 +4,14 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 internal object DiagnosticsEntryVisualSpec {
     const val CORNER_RADIUS_DP = 12f
     const val STROKE_WIDTH_DP = 2f
-    const val SCRIM_ALPHA = 0x38
+    private const val LIGHT_SCRIM_ALPHA = 0x52
+    private const val DARK_SCRIM_ALPHA = 0x48
     const val STROKE_ALPHA = 0xA0
     const val SURFACE_HANDOFF_EXPANSION = 0.025f
+
+    fun scrimAlpha(darkTheme: Boolean): Int = if (darkTheme) {
+        DARK_SCRIM_ALPHA
+    } else {
+        LIGHT_SCRIM_ALPHA
+    }
 }
