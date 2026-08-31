@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
+import kotlin.math.roundToLong
+
 /** 不依赖 Android UI 的矩形，供设置备份页形变计算和 JVM 单测共用。 */
 internal data class SettingsBackupMotionRect(
     val left: Float,
@@ -104,6 +106,30 @@ internal enum class SettingsBackupContentTiming {
 
 internal object SettingsBackupMotionSpec {
 
+    /** 普通关闭使用均衡的 Fast-out-slow-in：中段完成主要位移，末尾稳定减速而不拖尾。 */
+    const val CLOSE_EASING_X1 = 0.4f
+    const val CLOSE_EASING_Y1 = 0f
+    const val CLOSE_EASING_X2 = 0.2f
+    const val CLOSE_EASING_Y2 = 1f
+
+    /** 预测式返回松手后承接已有速度，只做 Linear-out-slow-in 续播，避免重新缓入的停顿。 */
+    const val COMMIT_EASING_X1 = 0f
+    const val COMMIT_EASING_Y1 = 0f
+    const val COMMIT_EASING_X2 = 0.2f
+    const val COMMIT_EASING_Y2 = 1f
+
+    fun closeDurationMs(
+        baseDurationMs: Long,
+        currentExpansion: Float,
+        minimumDurationMs: Long
+    ): Long {
+        require(baseDurationMs > 0L) { "Base close duration must be positive" }
+        val minimum = minimumDurationMs.coerceIn(0L, baseDurationMs)
+        return (baseDurationMs * currentExpansion.coerceIn(0f, 1f))
+            .roundToLong()
+            .coerceIn(minimum, baseDurationMs)
+    }
+
     fun canMoveTitle(
         collapsedLineCount: Int,
         expandedLineCount: Int,
@@ -200,6 +226,20 @@ internal object SettingsBackupMotionSpec {
         val fraction = ((value - edgeStart) / (edgeEnd - edgeStart)).coerceIn(0f, 1f)
         return fraction * fraction * (3f - 2f * fraction)
     }
+
+    /** 只在形变接近来源卡片时渐显其边框，避免全屏阶段出现无意义的外框。 */
+    internal fun collapsedChromeFraction(expansion: Float): Float =
+        1f - smoothStep(0f, 0.28f, expansion)
+
+    /** 遮罩仅在抵达来源端的最后一小段交给下层真实入口，避免提前消失或终点双层叠色。 */
+    internal fun transitionSurfaceAlpha(
+        expansion: Float,
+        handoffExpansion: Float
+    ): Float = smoothStep(
+        0f,
+        handoffExpansion.coerceIn(0.001f, 1f),
+        expansion
+    )
 
     private fun lerp(start: Float, end: Float, fraction: Float): Float =
         start + (end - start) * fraction
