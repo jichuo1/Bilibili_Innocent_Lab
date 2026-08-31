@@ -56,7 +56,7 @@
     <string name="settings_search_empty">沒有相符的設定</string>
     <string name="settings_search_section_general">一般設定</string>
     <string name="advanced_home_navigation_category">首頁與導覽</string>
-    <string name="advanced_interface_category">頁面與提示</string>
+    <string name="advanced_interface_category">頁面與顯示</string>
     <string name="advanced_playback_category">播放與影片</string>
     <string name="advanced_comment_category">評論區</string>
     <string name="home_top_bar_settings">首頁頂端列</string>
@@ -284,6 +284,17 @@
     <string name="liquid_background_choose_description">透過系統檔案選擇器匯入，並將經過限幅、移除中繼資料的圖片複製到應用程式私人目錄。</string>
     <string name="liquid_background_restore_automatic">恢復自動背景</string>
     <string name="liquid_background_restore_description">刪除應用程式私人目錄中的圖片副本，恢復動態配色背景。</string>
+    <string name="liquid_realtime_capture_title">全螢幕即時取樣</string>
+    <string name="liquid_realtime_capture_summary_disabled">關閉 · 使用穩定底圖折射</string>
+    <string name="liquid_realtime_capture_summary_enabled">已開啟 · 30 FPS 全螢幕取樣與增強光效</string>
+    <string name="liquid_realtime_capture_summary_unsupported">需要 Android 12 或以上版本</string>
+    <string name="liquid_realtime_capture_unsupported">目前系統不支援全螢幕即時液態取樣。</string>
+    <string name="liquid_realtime_capture_confirm_title">啟用全螢幕即時取樣？</string>
+    <string name="liquid_realtime_capture_confirm_message">此模式會持續擷取目前模組視窗，以約 30 FPS 更新三緩衝背景並啟用雙層高光；支援折射的裝置還會使用更強的邊緣折射和內部微扭曲。它可能明顯增加 GPU、記憶體占用、耗電和發熱；低記憶體或連續取樣失敗時會自動停止本次增強效果。</string>
+    <string name="liquid_realtime_capture_confirm_enable">仍然開啟</string>
+    <string name="liquid_realtime_capture_enabled">已開啟全螢幕即時取樣。</string>
+    <string name="liquid_realtime_capture_disabled">已關閉全螢幕即時取樣。</string>
+    <string name="liquid_realtime_capture_save_failed">無法儲存全螢幕即時取樣狀態，設定未變更。</string>
     <string name="liquid_background_backup_notice">設定備份檔不包含圖片本身；解除安裝後重裝或更換裝置後需要重新選擇圖片。</string>
     <string name="liquid_background_processing">正在處理背景圖片…</string>
     <string name="liquid_background_import_success">自訂背景已儲存。</string>
