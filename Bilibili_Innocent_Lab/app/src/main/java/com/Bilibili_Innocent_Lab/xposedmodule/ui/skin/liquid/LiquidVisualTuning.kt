@@ -14,8 +14,10 @@ internal data class LiquidVisualTuning(
     val secondaryWashAlpha: Int,
     val cardGlassAlpha: Float,
     val modalGlassAlpha: Float,
+    val motionGlassAlpha: Float,
     val cardFallbackAlpha: Float,
     val modalFallbackAlpha: Float,
+    val motionFallbackAlpha: Float,
     val saturation: Float
 ) {
     init {
@@ -23,10 +25,13 @@ internal data class LiquidVisualTuning(
         require(secondaryWashAlpha in 0..255)
         require(cardGlassAlpha in 0f..1f)
         require(modalGlassAlpha in 0f..1f)
+        require(motionGlassAlpha in 0f..1f)
         require(cardFallbackAlpha in 0f..1f)
         require(modalFallbackAlpha in 0f..1f)
+        require(motionFallbackAlpha in 0f..1f)
         require(cardFallbackAlpha >= cardGlassAlpha)
         require(modalFallbackAlpha >= modalGlassAlpha)
+        require(motionFallbackAlpha >= motionGlassAlpha)
         require(saturation in 0f..2f)
     }
 }
@@ -39,8 +44,10 @@ internal object LiquidVisualTuningPolicy {
             secondaryWashAlpha = 0x14,
             cardGlassAlpha = 0.24f,
             modalGlassAlpha = 0.38f,
+            motionGlassAlpha = 0.34f,
             cardFallbackAlpha = 0.72f,
             modalFallbackAlpha = 0.88f,
+            motionFallbackAlpha = 0.78f,
             saturation = 1.06f
         )
     } else {
@@ -49,14 +56,16 @@ internal object LiquidVisualTuningPolicy {
             secondaryWashAlpha = 0x10,
             cardGlassAlpha = 0.20f,
             modalGlassAlpha = 0.36f,
+            motionGlassAlpha = 0.30f,
             cardFallbackAlpha = 0.78f,
             modalFallbackAlpha = 0.92f,
+            motionFallbackAlpha = 0.82f,
             saturation = 1.03f
         )
     }
 }
 
-/** CARD/MODAL 与 GPU/fallback 的四种透明度映射，集中为可穷举测试的纯策略。 */
+/** 普通、模态与形变表面在 GPU/fallback 下的透明度映射，集中为可穷举测试的纯策略。 */
 internal object LiquidSurfaceAlphaPolicy {
     fun resolve(
         role: SurfaceRole,
@@ -66,6 +75,9 @@ internal object LiquidSurfaceAlphaPolicy {
         role == SurfaceRole.MODAL && translucentFallback ->
             parameters.fallbackModalSurfaceAlpha
         role == SurfaceRole.MODAL -> parameters.modalSurfaceAlpha
+        role == SurfaceRole.MOTION_SURFACE && translucentFallback ->
+            parameters.fallbackMotionSurfaceAlpha
+        role == SurfaceRole.MOTION_SURFACE -> parameters.motionSurfaceAlpha
         translucentFallback -> parameters.fallbackSurfaceAlpha
         else -> parameters.surfaceAlpha
     }

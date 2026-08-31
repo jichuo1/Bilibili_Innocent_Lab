@@ -9,13 +9,26 @@ internal data class SettingsSearchItem(
     val section: String
 )
 
+internal data class SettingsSearchMatch(
+    val item: SettingsSearchItem,
+    val titleRanges: List<IntRange>,
+    val detailRanges: List<IntRange>,
+    val sectionRanges: List<IntRange>
+)
+
 /** 纯文本匹配层；索引来自当前已渲染、已本地化的设置控件，不复制业务配置目录。 */
 internal object SettingsSearchMatcher {
     fun search(
         query: String,
         items: List<SettingsSearchItem>,
         limit: Int = 40
-    ): List<SettingsSearchItem> {
+    ): List<SettingsSearchItem> = searchMatches(query, items, limit).map(SettingsSearchMatch::item)
+
+    fun searchMatches(
+        query: String,
+        items: List<SettingsSearchItem>,
+        limit: Int = 40
+    ): List<SettingsSearchMatch> {
         val tokens = normalize(query).split(Regex("\\s+")).filter(String::isNotBlank)
         if (tokens.isEmpty() || limit <= 0) return emptyList()
 
@@ -30,16 +43,54 @@ internal object SettingsSearchMatcher {
                         tokens.all(title::contains) -> 1
                         else -> 2
                     }
-                    score to item
+                    score to SettingsSearchMatch(
+                        item = item,
+                        titleRanges = findRanges(item.title, tokens),
+                        detailRanges = findRanges(item.detail, tokens),
+                        sectionRanges = findRanges(item.section, tokens)
+                    )
                 } else {
                     null
                 }
             }
-            .sortedWith(compareBy<Pair<Int, SettingsSearchItem>> { it.first }
-                .thenBy { it.second.title.length })
-            .map(Pair<Int, SettingsSearchItem>::second)
+            .sortedWith(compareBy<Pair<Int, SettingsSearchMatch>> { it.first }
+                .thenBy { it.second.item.title.length })
+            .map(Pair<Int, SettingsSearchMatch>::second)
             .take(limit)
             .toList()
+    }
+
+    private fun findRanges(value: String, tokens: List<String>): List<IntRange> {
+        if (value.isEmpty()) return emptyList()
+        val ranges = tokens.distinct().flatMap { token ->
+            buildList {
+                var startIndex = 0
+                while (startIndex <= value.length - token.length) {
+                    val matchIndex = value.indexOf(
+                        string = token,
+                        startIndex = startIndex,
+                        ignoreCase = true
+                    )
+                    if (matchIndex < 0) break
+                    add(matchIndex until matchIndex + token.length)
+                    startIndex = matchIndex + token.length.coerceAtLeast(1)
+                }
+            }
+        }.sortedBy(IntRange::first)
+        if (ranges.isEmpty()) return emptyList()
+
+        return buildList {
+            var current = ranges.first()
+            ranges.drop(1).forEach { next ->
+                if (next.first <= current.last + 1) {
+                    current = current.first..maxOf(current.last, next.last)
+                } else {
+                    add(current)
+                    current = next
+                }
+            }
+            add(current)
+        }
     }
 
     private fun normalize(value: String): String =

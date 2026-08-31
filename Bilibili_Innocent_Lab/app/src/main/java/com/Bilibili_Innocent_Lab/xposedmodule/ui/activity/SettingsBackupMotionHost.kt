@@ -10,6 +10,7 @@ import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -17,6 +18,7 @@ import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.core.graphics.ColorUtils
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidMotionSurfaceFrameProvider
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -125,6 +127,11 @@ internal class SettingsBackupMotionHost(
 
     /** Liquid renderer 绑定到该层；其父容器始终跟随形变 surface 裁剪。 */
     fun liquidBackdropRoot(): View = backdropRoot
+
+    /** 仅诊断页在 Liquid 生效时设置；备份页继续使用原有自绘 surface。 */
+    fun setLiquidMotionSurfaceBackground(background: Drawable?) {
+        surface.background = background
+    }
 
     fun replacePage(page: View, toolbarTitle: TextView) {
         currentToolbarTitle?.alpha = 1f
@@ -342,7 +349,9 @@ internal class SettingsBackupMotionHost(
         (Color.alpha(this) * fraction.coerceIn(0f, 1f)).roundToInt()
     )
 
-    private class MorphSurfaceView(context: Context) : View(context) {
+    private class MorphSurfaceView(context: Context) :
+        View(context),
+        LiquidMotionSurfaceFrameProvider {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
@@ -381,7 +390,9 @@ internal class SettingsBackupMotionHost(
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
-            canvas.drawRoundRect(bounds, cornerRadiusPx, cornerRadiusPx, paint)
+            if (background == null) {
+                canvas.drawRoundRect(bounds, cornerRadiusPx, cornerRadiusPx, paint)
+            }
             if (strokePaint.strokeWidth > 0f && Color.alpha(strokePaint.color) > 0) {
                 val halfStroke = strokePaint.strokeWidth / 2f
                 strokeBounds.set(bounds)
@@ -390,6 +401,14 @@ internal class SettingsBackupMotionHost(
                 canvas.drawRoundRect(strokeBounds, strokeRadius, strokeRadius, strokePaint)
             }
         }
+
+        override fun copyLiquidMotionBounds(outBounds: RectF) {
+            outBounds.set(bounds)
+        }
+
+        override fun liquidMotionCornerRadiusPx(): Float = cornerRadiusPx
+
+        override fun liquidMotionFallbackColor(): Int = paint.color
     }
 
     private class MotionClipFrameLayout(context: Context) : FrameLayout(context) {
