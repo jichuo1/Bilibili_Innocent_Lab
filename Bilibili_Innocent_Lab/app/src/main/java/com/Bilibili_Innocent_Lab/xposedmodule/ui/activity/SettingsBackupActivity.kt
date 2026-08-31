@@ -1308,8 +1308,9 @@ class SettingsBackupActivity : SkinnedActivity() {
         const val OUTCOME_VERIFIED = "verified"
         const val OUTCOME_POSSIBLY_CHANGED = "possibly_changed"
         private const val ENTER_DURATION_MS = 370L
-        private const val CLOSE_DURATION_MS = 300L
-        private const val BACK_COMMIT_DURATION_MS = 200L
+        /** 与统一功能诊断保持相同的收回尾段速率，避免同源卡片出现不同的停靠手感。 */
+        private const val CLOSE_DURATION_MS = 320L
+        private const val BACK_COMMIT_DURATION_MS = 210L
         private const val BACK_CANCEL_DURATION_MS = 210L
         private const val MIN_CLOSE_DURATION_MS = 80L
         private const val SOURCE_CORNER_RADIUS_DP = 15f

@@ -145,7 +145,7 @@ class MainActivity : SkinnedActivity() {
         const val FRAMEWORK_STATUS_SETTLE_MS = 1_500L
         const val MINE_COMPONENT_SNAPSHOT_STALE_MS = 7L * 24L * 60L * 60L * 1_000L
         const val SETTINGS_SEARCH_HIGHLIGHT_DELAY_MS = 240L
-        const val SETTINGS_SEARCH_HIGHLIGHT_DURATION_MS = 420L
+        const val SETTINGS_SEARCH_HIGHLIGHT_DURATION_MS = 560L
 
         /** LSPosed 管理器包名：条款保存失败（服务未连接）时的快捷跳转目标，不存在则隐藏入口。 */
         private const val LSPOSED_MANAGER_PACKAGE = "org.lsposed.manager"
@@ -760,19 +760,7 @@ class MainActivity : SkinnedActivity() {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
         val useNoRootFlow = shouldUseNoRootRestartFlow()
-
-        // 模态容器：surface 色 + 大圆角 + 细白描边高光
-        val container = NativeLinearLayout(this).apply {
-            orientation = NativeLinearLayout.VERTICAL
-            setPadding((24 * density).toInt(), (26 * density).toInt(), (24 * density).toInt(), (18 * density).toInt())
-            background = GradientDrawable().apply {
-                cornerRadius = 28 * density
-                setColor(monetColors.surface)
-                setStroke((1 * density).toInt(), ColorUtils.setAlphaComponent(Color.WHITE, 0x18))
-            }
-            // 无遮罩后，用柔和阴影增强弹窗与背景的层次区分
-            elevation = 12 * density
-        }
+        val container = createModalContainer()
 
         // 标题
         container.addView(
@@ -868,39 +856,7 @@ class MainActivity : SkinnedActivity() {
             }
         )
 
-        // 根布局（透明、无遮罩）：居中容器
-        val root = NativeFrameLayout(this)
-        root.addView(container, NativeFrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            gravity = Gravity.CENTER
-            setMargins((32 * density).toInt(), 0, (32 * density).toInt(), 0)
-        })
-
-        // 初始状态（show 前设置，避免闪烁）
-        container.scaleX = 0.85f
-        container.scaleY = 0.85f
-        container.alpha = 0f
-
-        dialog.window?.apply {
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            setDimAmount(0f) // 去除系统默认的背景变暗
-        }
-        dialog.setContentView(root)
-        // 记录当前弹窗，供 onDestroy 主动 dismiss（防 WindowLeaked）；dismiss 后清空引用
-        dialog.setOnDismissListener {
-            if (activeConfirmDialog === dialog) activeConfirmDialog = null
-        }
-        activeConfirmDialog = dialog
-        dialog.show()
-
-        // 入场动画（scale + fade，GPU 加速）
-        container.post {
-            container.animate()
-                .scaleX(1f).scaleY(1f).alpha(1f)
-                .setDuration(260L)
-                .setInterpolator(emphasizedDecelerate)
-                .start()
-        }
+        presentModalDialog(dialog, container)
     }
 
     /** 弹窗退场动画（scale 缩小 + fade out），结束后 dismiss 并回调 */
