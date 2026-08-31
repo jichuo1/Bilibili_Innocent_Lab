@@ -114,12 +114,35 @@ class SettingsImportPlannerTest {
 
         val plan = SettingsImportPlanner(
             durationSpecs,
-            SettingsCatalog.CATALOG_VERSION
+            2
         ).plan(source, current)
 
         assertEquals(2, plan.entries.size)
         assertTrue(plan.entries.all { it.status == ImportStatus.NEW_IN_CURRENT })
         assertTrue(plan.entries.none { it.willWrite })
+        assertTrue(plan.migrationWarnings.isEmpty())
+    }
+
+    @Test
+    fun `catalog v2 import reports mine selectors as a new current setting`() {
+        val selectorSpec = requireNotNull(
+            SettingsCatalog.byId["mine.components.hidden_selectors"]
+        )
+        val current = SettingsSnapshot(
+            mapOf(
+                selectorSpec.id to StoredSetting(
+                    explicit = true,
+                    value = SettingValue.Text("[\"item:id:1\"]")
+                )
+            )
+        )
+        val source = document(catalogVersion = 2, records = emptyList())
+
+        val plan = SettingsImportPlanner(listOf(selectorSpec), 3).plan(source, current)
+
+        assertEquals(1, plan.entries.size)
+        assertEquals(ImportStatus.NEW_IN_CURRENT, plan.entries.single().status)
+        assertFalse(plan.entries.single().willWrite)
         assertTrue(plan.migrationWarnings.isEmpty())
     }
 
@@ -289,7 +312,11 @@ class SettingsImportPlannerTest {
     fun `missing migration still restores a self describing safe subset`() {
         val current = snapshot(enabledSpec to StoredSetting(false, SettingValue.Bool(false)))
         val source = document(1, listOf(record(enabledSpec, true, SettingValue.Bool(true))))
-        val plan = SettingsImportPlanner(listOf(enabledSpec), 3).plan(source, current)
+        val plan = SettingsImportPlanner(
+            catalog = listOf(enabledSpec),
+            currentCatalogVersion = 3,
+            migrations = SettingsMigrationRegistry()
+        ).plan(source, current)
 
         assertEquals(ImportStatus.EXACT, plan.entries.single().status)
         assertTrue(plan.canApply)
