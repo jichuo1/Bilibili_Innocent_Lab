@@ -36,6 +36,8 @@ internal object FeaturePreferences {
     const val MINE_COMPONENT_HIDDEN_RULES = "mine_component_hidden_rules"
     /** “我的”页勾选隐藏的组件 id 集合（新 UI 勾选列表持久化，换行/逗号分隔的字符串）。 */
     const val MINE_COMPONENT_HIDDEN_IDS = "mine_component_hidden_ids"
+    /** 新版勾选项的稳定选择键 JSON 数组；旧 id/标题规则继续作为兼容输入保留。 */
+    const val MINE_COMPONENT_HIDDEN_SELECTORS = "mine_component_hidden_selectors"
     /** 宿主剪枝时写入的可屏蔽项快照 JSON（模块 UI 勾选列表数据源；仅宿主写、模块 App 读）。 */
     const val MINE_COMPONENT_SCAN_SNAPSHOT = "mine_component_scan_snapshot"
     const val REMOVE_STORY_ADS = "remove_story_ads"

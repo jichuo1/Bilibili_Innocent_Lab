@@ -33,7 +33,7 @@ internal sealed interface RemoteHookConfigDecodeResult {
  */
 internal object RemoteHookConfigContract {
     const val GROUP = "hook_config"
-    const val SCHEMA_VERSION = 2
+    const val SCHEMA_VERSION = 3
 
     const val KEY_READY = "__remote_ready"
     const val KEY_SCHEMA_VERSION = "__remote_schema_version"

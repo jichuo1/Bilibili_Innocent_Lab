@@ -15,7 +15,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 2
+    const val CATALOG_VERSION = 3
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
     const val ID_FREE_COPY_DESCRIPTION = "free_copy.description.enabled"
     const val ID_RECOMMEND_VIDEO_MIN_DURATION =
@@ -51,6 +51,7 @@ internal object SettingsCatalog {
         labelRes: Int,
         default: String = "",
         allowed: Set<String>? = null,
+        introducedCatalogVersion: Int = 1,
         effects: Set<ImportEffect> = setOf(
             ImportEffect.RECREATE_MODULE_UI,
             ImportEffect.RESTART_BILIBILI
@@ -62,6 +63,7 @@ internal object SettingsCatalog {
         type = SettingValueType.STRING,
         defaultValue = SettingValue.Text(default),
         allowedStrings = allowed,
+        introducedCatalogVersion = introducedCatalogVersion,
         effects = effects
     )
 
@@ -120,6 +122,12 @@ internal object SettingsCatalog {
         bool("mine.vip.space_kept", FeaturePreferences.KEEP_MINE_VIP_SPACE, R.string.keep_mine_vip_space),
         text("mine.components.hidden_rules", FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES, R.string.custom_mine_component_hide),
         text("mine.components.hidden_ids", FeaturePreferences.MINE_COMPONENT_HIDDEN_IDS, R.string.custom_mine_component_hide),
+        text(
+            "mine.components.hidden_selectors",
+            FeaturePreferences.MINE_COMPONENT_HIDDEN_SELECTORS,
+            R.string.custom_mine_component_hide,
+            introducedCatalogVersion = 3
+        ),
         bool("client.update_prompt.blocked", FeaturePreferences.BLOCK_APP_UPDATE, R.string.block_app_update),
         bool("dynamic.city_tab.hidden", FeaturePreferences.HIDE_DYNAMIC_CITY_TAB, R.string.hide_dynamic_city_tab),
         bool("dynamic.school_tab.hidden", FeaturePreferences.HIDE_DYNAMIC_SCHOOL_TAB, R.string.hide_dynamic_school_tab),
@@ -248,7 +256,7 @@ internal object SettingsCatalog {
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
 
     init {
-        check(specs.size == 74) { "Expected 74 catalog settings, found ${specs.size}" }
+        check(specs.size == 75) { "Expected 75 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"
