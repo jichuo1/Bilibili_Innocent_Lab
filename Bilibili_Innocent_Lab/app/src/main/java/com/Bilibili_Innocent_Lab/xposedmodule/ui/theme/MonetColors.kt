@@ -3,7 +3,11 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.theme
 import android.app.WallpaperManager
 import android.content.Context
 import android.content.res.Configuration
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpec
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpecStore
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import com.kyant.m3color.dynamiccolor.ColorSpec
+import com.kyant.m3color.dynamiccolor.DynamicScheme
 import com.kyant.m3color.dynamiccolor.MaterialDynamicColors
 import com.kyant.m3color.hct.Hct
 import com.kyant.m3color.scheme.SchemeTonalSpot
@@ -39,13 +43,31 @@ class MonetColors(
         fun fromWallpaper(context: Context): MonetColors {
             val isDark = context.isSystemInDarkMode()
             val seed = extractSeedColor(context) ?: FALLBACK_SEED
-            return fromSeed(seed, isDark)
+            return fromSeed(seed, isDark, MaterialColorSpecStore.read(context))
         }
 
         /** 从指定种子色生成 Monet 调色板 */
-        fun fromSeed(seedArgb: Int, isDark: Boolean): MonetColors {
+        fun fromSeed(seedArgb: Int, isDark: Boolean): MonetColors =
+            fromSeed(seedArgb, isDark, MaterialColorSpec.DEFAULT)
+
+        /** 按用户选择的 Material 规范从指定种子色生成调色板。 */
+        internal fun fromSeed(
+            seedArgb: Int,
+            isDark: Boolean,
+            colorSpec: MaterialColorSpec
+        ): MonetColors {
             val hct = Hct.fromInt(seedArgb)
-            val scheme = SchemeTonalSpot(hct, isDark, 0.0)
+            val specVersion = when (colorSpec) {
+                MaterialColorSpec.SPEC_2021 -> ColorSpec.SpecVersion.SPEC_2021
+                MaterialColorSpec.SPEC_2025 -> ColorSpec.SpecVersion.SPEC_2025
+            }
+            val scheme = SchemeTonalSpot(
+                hct,
+                isDark,
+                0.0,
+                specVersion,
+                DynamicScheme.Platform.PHONE
+            )
             val dynamicColors = MaterialDynamicColors()
             return MonetColors(
                 primary = dynamicColors.primary().getArgb(scheme),

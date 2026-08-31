@@ -97,6 +97,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportApplier
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ModuleSettingsStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpec
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpecStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatus
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatusListener
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigPublishState
@@ -410,6 +412,7 @@ class MainActivity : SkinnedActivity() {
     /** 皮肤选择的同步写入和退场动画只允许单飞，避免重复动画吞掉 recreate 回调。 */
     private var skinSelectionActionInProgress = false
     private var skinSummaryView: NativeTextView? = null
+    private var materialColorSpecProgrammaticSwitch = false
 
     /** 自定义背景导入只允许单飞；文件解码、哈希和原子替换全部离开主线程。 */
     private val liquidBackgroundWorker = Executors.newSingleThreadExecutor { runnable ->
@@ -8701,6 +8704,49 @@ class MainActivity : SkinnedActivity() {
                                         textColor = colorResource(R.color.colorTextDark)
                                         textSize = 12f
                                     }
+                                }
+                                MaterialSwitch(
+                                    lparams = LayoutParams(widthMatchParent = true) {
+                                        bottomMargin = 5.dp
+                                    }
+                                ) {
+                                    text = stringResource(R.string.material_color_spec_title)
+                                    isAllCaps = false
+                                    textColor = colorResource(R.color.colorTextGray)
+                                    textSize = 15f
+                                    isChecked = MaterialColorSpecStore.read(applicationContext) ==
+                                        MaterialColorSpec.SPEC_2025
+                                    setOnCheckedChangeListener { button, checked ->
+                                        if (materialColorSpecProgrammaticSwitch) {
+                                            return@setOnCheckedChangeListener
+                                        }
+                                        val target = if (checked) {
+                                            MaterialColorSpec.SPEC_2025
+                                        } else {
+                                            MaterialColorSpec.SPEC_2021
+                                        }
+                                        if (MaterialColorSpecStore.write(applicationContext, target)) {
+                                            button.post {
+                                                if (!isFinishing && !isDestroyed) recreate()
+                                            }
+                                        } else {
+                                            materialColorSpecProgrammaticSwitch = true
+                                            button.isChecked = !checked
+                                            materialColorSpecProgrammaticSwitch = false
+                                            toast(stringResource(R.string.material_color_spec_save_failed))
+                                        }
+                                    }
+                                }
+                                TextView(
+                                    lparams = LayoutParams(widthMatchParent = true) {
+                                        bottomMargin = 10.dp
+                                    }
+                                ) {
+                                    alpha = 0.6f
+                                    setLineSpacing(6f, 1f)
+                                    text = stringResource(R.string.material_color_spec_summary)
+                                    textColor = colorResource(R.color.colorTextDark)
+                                    textSize = 12f
                                 }
                                 MaterialSwitch(
                                     lparams = LayoutParams(widthMatchParent = true) {

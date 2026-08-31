@@ -278,6 +278,9 @@
     <string name="liquid_background_dialog_title">Configure Liquid Glass background</string>
     <string name="liquid_background_dialog_description">Choose a local image for the interface underlay. The root background and glass surfaces will sample the same processed image.</string>
     <string name="liquid_background_preview_description">Current custom Liquid Glass background preview</string>
+    <string name="material_color_spec_title">Use SPEC 2025</string>
+    <string name="material_color_spec_summary">On uses SPEC 2025; off uses SPEC 2021. Material You and Liquid Glass share the selected specification, and colors are regenerated immediately after switching.</string>
+    <string name="material_color_spec_save_failed">Could not save the color specification. The current setting was kept.</string>
     <string name="liquid_background_choose">Choose image</string>
     <string name="liquid_background_replace">Replace image</string>
     <string name="liquid_background_choose_description">Uses the system file picker and copies a bounded, metadata-free image into private app storage.</string>
