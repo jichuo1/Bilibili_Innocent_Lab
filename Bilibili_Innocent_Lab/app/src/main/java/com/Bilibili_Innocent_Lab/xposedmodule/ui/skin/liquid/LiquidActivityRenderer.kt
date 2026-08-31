@@ -8,6 +8,7 @@ import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.view.View
@@ -26,6 +27,15 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
 import java.util.WeakHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import kotlin.math.ceil
+import kotlin.math.floor
+
+/** 动态形变表面向 Liquid Drawable 暴露当前帧，不把 renderer 泄漏给业务 View。 */
+internal interface LiquidMotionSurfaceFrameProvider {
+    fun copyLiquidMotionBounds(outBounds: RectF)
+    fun liquidMotionCornerRadiusPx(): Float
+    fun liquidMotionFallbackColor(): Int
+}
 
 /**
  * MainActivity 首批使用的 Activity 级 Liquid renderer。
@@ -659,6 +669,8 @@ private class LiquidSurfaceDrawable(
     private val role: SurfaceRole
 ) : Drawable() {
     private val location = IntArray(2)
+    private val motionBoundsF = RectF()
+    private val motionBounds = Rect()
     private var drawableAlpha = 255
 
     override fun draw(canvas: Canvas) {
@@ -671,14 +683,36 @@ private class LiquidSurfaceDrawable(
             location[0] = 0
             location[1] = 0
         }
+        var drawBounds = bounds
+        var drawRadiusPx = radiusPx
+        var drawFallbackColor = fallbackColor
+        var drawX = location[0]
+        var drawY = location[1]
+        val motionProvider = view as? LiquidMotionSurfaceFrameProvider
+        if (motionProvider != null) {
+            motionProvider.copyLiquidMotionBounds(motionBoundsF)
+            if (motionBoundsF.width() > 0f && motionBoundsF.height() > 0f) {
+                motionBounds.set(
+                    floor(motionBoundsF.left).toInt(),
+                    floor(motionBoundsF.top).toInt(),
+                    ceil(motionBoundsF.right).toInt(),
+                    ceil(motionBoundsF.bottom).toInt()
+                )
+                drawBounds = motionBounds
+                drawRadiusPx = motionProvider.liquidMotionCornerRadiusPx()
+                drawFallbackColor = motionProvider.liquidMotionFallbackColor()
+                drawX += motionBounds.left
+                drawY += motionBounds.top
+            }
+        }
         renderer.drawSurface(
             canvas,
-            bounds,
-            radiusPx,
+            drawBounds,
+            drawRadiusPx,
             drawableAlpha,
-            location[0],
-            location[1],
-            fallbackColor,
+            drawX,
+            drawY,
+            drawFallbackColor,
             role
         )
     }

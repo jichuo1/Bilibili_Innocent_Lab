@@ -34,4 +34,32 @@ class SettingsSearchMatcherTest {
         assertTrue(SettingsSearchMatcher.search("  ", items).isEmpty())
         assertTrue(SettingsSearchMatcher.search("设置", items, limit = 0).isEmpty())
     }
+
+    @Test
+    fun `search match exposes title and section keyword ranges`() {
+        val match = SettingsSearchMatcher.searchMatches("竖屏 进阶", items).single()
+
+        assertEquals(
+            listOf("竖屏"),
+            match.titleRanges.map { match.item.title.substring(it) }
+        )
+        assertEquals(
+            listOf("进阶"),
+            match.sectionRanges.map { match.item.section.substring(it) }
+        )
+        assertTrue(match.detailRanges.isEmpty())
+    }
+
+    @Test
+    fun `search match exposes every separated detail keyword range`() {
+        val match = SettingsSearchMatcher.searchMatches("选择 的", items)
+            .single { it.item.key == "portrait" }
+
+        assertEquals(
+            listOf("选择", "的"),
+            match.detailRanges.map { match.item.detail.substring(it) }
+        )
+        assertTrue(match.titleRanges.isEmpty())
+        assertTrue(match.sectionRanges.isEmpty())
+    }
 }
