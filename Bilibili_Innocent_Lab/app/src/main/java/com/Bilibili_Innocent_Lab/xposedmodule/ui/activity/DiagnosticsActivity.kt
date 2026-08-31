@@ -13,14 +13,17 @@
 
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
+import android.annotation.SuppressLint
 import android.content.res.ColorStateList
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.app.Dialog
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Bundle
@@ -29,9 +32,11 @@ import android.os.Handler
 import android.os.Looper
 import android.text.TextUtils
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.PathInterpolator
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -40,7 +45,6 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.BackEventCompat
 import androidx.activity.OnBackPressedCallback
-import androidx.appcompat.app.AlertDialog
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.doOnPreDraw
 import androidx.lifecycle.Lifecycle
@@ -101,7 +105,7 @@ class DiagnosticsActivity : SkinnedActivity() {
     private var frameworkCheckPending = true
     private var frameworkServiceObserved = false
     private var currentSnapshot: ModuleDiagnosticSnapshot? = null
-    private var activeDialog: AlertDialog? = null
+    private var activeDialog: Dialog? = null
     private var stretchViewport: View? = null
     private var stretchScrollTarget: View? = null
     private lateinit var motionHost: SettingsBackupMotionHost
@@ -139,6 +143,7 @@ class DiagnosticsActivity : SkinnedActivity() {
     )
     private val cancelInterpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
     private val predictiveBackInterpolator = PathInterpolator(0f, 0f, 0f, 1f)
+    private val modalExitInterpolator = PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
 
     private val frameworkTimeout = Runnable {
         frameworkCheckPending = false
@@ -1020,39 +1025,204 @@ class DiagnosticsActivity : SkinnedActivity() {
         DiagnosticNoRootState.ERROR -> R.string.no_root_status_error
     }
 
+    // Dialog Window 自己消费返回并播放统一退场；底层 Activity 的 predictive back 仍保持 BLOCKED。
+    @SuppressLint("GestureBackNavigation")
     private fun showExportPreview() {
         if (currentSnapshot == null || viewModel.exportState.value is DiagnosticsExportState.Running) return
         activeDialog?.dismiss()
-        activeDialog = AlertDialog.Builder(this)
-            .setTitle(R.string.diagnostics_report_preview_title)
-            .setMessage(R.string.diagnostics_report_preview_body)
-            .setNegativeButton(R.string.diagnostics_report_cancel, null)
-            .setPositiveButton(R.string.diagnostics_report_choose_location) { _, _ ->
-                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                pickerOpen = true
-                try {
-                    createDocumentLauncher.launch("BILab_Diagnostics_$timestamp.json")
-                } catch (_: ActivityNotFoundException) {
-                    pickerOpen = false
-                    Toast.makeText(
-                        this,
-                        R.string.diagnostics_export_failed,
-                        Toast.LENGTH_LONG
-                    ).show()
-                } catch (_: RuntimeException) {
-                    pickerOpen = false
-                    Toast.makeText(
-                        this,
-                        R.string.diagnostics_export_failed,
-                        Toast.LENGTH_LONG
-                    ).show()
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            minimumWidth = (292 * density).toInt()
+            setPadding(
+                (24 * density).toInt(),
+                (26 * density).toInt(),
+                (24 * density).toInt(),
+                (18 * density).toInt()
+            )
+            background = skinModalBackground(monetColors.surface)
+            elevation = 12 * density
+            scaleX = 0.85f
+            scaleY = 0.85f
+            alpha = 0f
+        }
+        container.addView(
+            TextView(this).apply {
+                setText(R.string.diagnostics_report_preview_title)
+                setTextColor(getColor(R.color.colorTextGray))
+                textSize = 19f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        container.addView(
+            TextView(this).apply {
+                setText(R.string.diagnostics_report_preview_body)
+                setTextColor(getColor(R.color.colorTextDark))
+                textSize = 14f
+                setLineSpacing(4 * density, 1f)
+            },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (12 * density).toInt() }
+        )
+        val buttonRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        buttonRow.addView(
+            modalButton(
+                textRes = R.string.diagnostics_report_cancel,
+                filled = false
+            ) {
+                dismissExportPreviewDialog(dialog, container)
+            }
+        )
+        buttonRow.addView(
+            modalButton(
+                textRes = R.string.diagnostics_report_choose_location,
+                filled = true
+            ) {
+                dismissExportPreviewDialog(dialog, container, ::launchDiagnosticsExportPicker)
+            },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = (12 * density).toInt() }
+        )
+        container.addView(
+            buttonRow,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (22 * density).toInt() }
+        )
+        val root = FrameLayout(this).apply {
+            addView(
+                container,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.CENTER
+                    setMargins((32 * density).toInt(), 0, (32 * density).toInt(), 0)
                 }
+            )
+        }
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setDimAmount(0f)
+        }
+        dialog.setContentView(root)
+        dialog.setCanceledOnTouchOutside(false)
+        dialog.setOnKeyListener { _, keyCode, event ->
+            if (keyCode == KeyEvent.KEYCODE_BACK) {
+                if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) {
+                    dismissExportPreviewDialog(dialog, container)
+                }
+                true
+            } else false
+        }
+        dialog.setOnDismissListener { if (activeDialog === dialog) activeDialog = null }
+        activeDialog = dialog
+        dialog.show()
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        container.post {
+            container.animate()
+                .scaleX(1f)
+                .scaleY(1f)
+                .alpha(1f)
+                .setDuration(260L)
+                .setInterpolator(enterInterpolator)
+                .start()
+        }
+    }
+
+    private fun modalButton(
+        textRes: Int,
+        filled: Boolean,
+        onClick: () -> Unit
+    ): TextView {
+        val density = resources.displayMetrics.density
+        val radius = 20 * density
+        return TextView(this).apply {
+            setText(textRes)
+            setTextColor(if (filled) monetColors.onPrimary else getColor(R.color.colorTextGray))
+            textSize = 14f
+            if (filled) typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(
+                (18 * density).toInt(),
+                (10 * density).toInt(),
+                (18 * density).toInt(),
+                (10 * density).toInt()
+            )
+            val mask = GradientDrawable().apply {
+                cornerRadius = radius
+                setColor(Color.WHITE)
             }
-            .create()
-            .also { dialog ->
-                dialog.setOnDismissListener { if (activeDialog === dialog) activeDialog = null }
-                dialog.show()
+            val content = if (filled) GradientDrawable().apply {
+                cornerRadius = radius
+                setColor(monetColors.primary)
+            } else null
+            background = RippleDrawable(
+                ColorStateList.valueOf(
+                    ColorUtils.setAlphaComponent(
+                        if (filled) monetColors.onPrimary else getColor(R.color.colorTextGray),
+                        0x33
+                    )
+                ),
+                content,
+                mask
+            )
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
+    }
+
+    private fun dismissExportPreviewDialog(
+        dialog: Dialog,
+        container: View,
+        afterDismiss: () -> Unit = {}
+    ) {
+        if (!dialog.isShowing || container.hasTransientState()) return
+        container.setHasTransientState(true)
+        container.animate().cancel()
+        container.animate()
+            .scaleX(0.92f)
+            .scaleY(0.92f)
+            .alpha(0f)
+            .setDuration(180L)
+            .setInterpolator(modalExitInterpolator)
+            .withEndAction {
+                container.setHasTransientState(false)
+                if (dialog.isShowing) dialog.dismiss()
+                afterDismiss()
             }
+            .start()
+    }
+
+    private fun launchDiagnosticsExportPicker() {
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        pickerOpen = true
+        try {
+            createDocumentLauncher.launch("BILab_Diagnostics_$timestamp.json")
+        } catch (_: ActivityNotFoundException) {
+            pickerOpen = false
+            Toast.makeText(this, R.string.diagnostics_export_failed, Toast.LENGTH_LONG).show()
+        } catch (_: RuntimeException) {
+            pickerOpen = false
+            Toast.makeText(this, R.string.diagnostics_export_failed, Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun overallText(severity: DiagnosticSeverity): String = getString(

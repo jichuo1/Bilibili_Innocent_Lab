@@ -347,6 +347,7 @@ class MainActivity : SkinnedActivity() {
     private var activationIconView: android.widget.ImageView? = null
     private var activationTitleView: NativeTextView? = null
     private var activationSourceView: NativeTextView? = null
+    private var activationVersionView: NativeTextView? = null
     /** 诊断中心入口及标题：用于从点击区域连续形变到全屏页面。 */
     private var diagnosticsEntryView: View? = null
     private var diagnosticsEntryTitleView: NativeTextView? = null
@@ -617,12 +618,39 @@ class MainActivity : SkinnedActivity() {
         )
         val activated = displayState == ActivationDisplayState.ACTIVE_LSPOSED ||
             displayState == ActivationDisplayState.ACTIVE_NPATCH
-        activationCardView?.background = roundedColor(
-            if (activated) monetColors.primary else monetColors.surfaceVariant
+        val liquidCard = isLiquidSkinEffective
+        val darkTheme = (resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val accentColor = DiagnosticStatusPalette.color(
+            ActivationCardVisualSpec.tone(displayState),
+            darkTheme
         )
-        activationIconView?.setImageResource(
-            if (activated) R.mipmap.ic_success else R.mipmap.ic_warn
+        activationCardView?.apply {
+            background = if (liquidCard) {
+                skinCardBackground(
+                    monetColors.surfaceVariant,
+                    ActivationCardVisualSpec.CORNER_RADIUS_DP
+                )
+            } else {
+                roundedColor(if (activated) monetColors.primary else monetColors.surfaceVariant)
+            }
+            foreground = if (liquidCard) {
+                ActivationCardAccentDrawable(accentColor, resources.displayMetrics.density)
+            } else null
+        }
+        val activationContentColor = getColor(
+            if (liquidCard) R.color.colorTextGray else R.color.white
         )
+        activationIconView?.apply {
+            setImageResource(if (activated) R.mipmap.ic_success else R.mipmap.ic_warn)
+            imageTintList = ColorStateList.valueOf(
+                if (liquidCard) accentColor else activationContentColor
+            )
+        }
+        activationTitleView?.textColor = activationContentColor
+        activationSourceView?.textColor = activationContentColor
+        activationVersionView?.textColor = activationContentColor
         activationTitleView?.setText(
             when (displayState) {
                 ActivationDisplayState.CHECKING -> R.string.module_activation_checking
@@ -2928,7 +2956,11 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
-    private fun presentModalDialog(dialog: Dialog, container: NativeLinearLayout) {
+    private fun presentModalDialog(
+        dialog: Dialog,
+        container: NativeLinearLayout,
+        onBackDismiss: () -> Unit = {}
+    ) {
         activeConfirmDialog?.dismiss()
         val density = resources.displayMetrics.density
         val root = NativeFrameLayout(this).apply {
@@ -2954,7 +2986,7 @@ class MainActivity : SkinnedActivity() {
         dialog.setOnKeyListener { _, keyCode, event ->
             if (keyCode == KeyEvent.KEYCODE_BACK) {
                 if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) {
-                    dismissWithAnimation(dialog, container) {}
+                    dismissWithAnimation(dialog, container, onBackDismiss)
                 }
                 true
             } else {
@@ -3716,20 +3748,9 @@ class MainActivity : SkinnedActivity() {
      * @param onCancel  取消回调（开关 UI 复位）
      */
     private fun showAutoLightConfirmDialog(onConfirm: () -> Unit, onCancel: () -> Unit) {
-        activeConfirmDialog?.dismiss()
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
-
-        val container = NativeLinearLayout(this).apply {
-            orientation = NativeLinearLayout.VERTICAL
-            setPadding((24 * density).toInt(), (26 * density).toInt(), (24 * density).toInt(), (18 * density).toInt())
-            background = GradientDrawable().apply {
-                cornerRadius = 28 * density
-                setColor(monetColors.surface)
-                setStroke((1 * density).toInt(), ColorUtils.setAlphaComponent(Color.WHITE, 0x18))
-            }
-            elevation = 12 * density
-        }
+        val container = createModalContainer()
 
         container.addView(
             NativeTextView(this).apply {
@@ -3797,38 +3818,7 @@ class MainActivity : SkinnedActivity() {
             }
         )
 
-        val root = NativeFrameLayout(this)
-        root.addView(container, NativeFrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            gravity = Gravity.CENTER
-            setMargins((32 * density).toInt(), 0, (32 * density).toInt(), 0)
-        })
-
-        // 初始状态（show 前设置，避免闪烁）
-        container.scaleX = 0.85f
-        container.scaleY = 0.85f
-        container.alpha = 0f
-
-        dialog.window?.apply {
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            setDimAmount(0f)
-        }
-        dialog.setContentView(root)
-        // 记录当前弹窗，供 onDestroy 主动 dismiss（防 WindowLeaked）；dismiss 后清空引用
-        dialog.setOnDismissListener {
-            if (activeConfirmDialog === dialog) activeConfirmDialog = null
-        }
-        activeConfirmDialog = dialog
-        dialog.show()
-
-        // 入场动画（scale + fade，GPU 加速）
-        container.post {
-            container.animate()
-                .scaleX(1f).scaleY(1f).alpha(1f)
-                .setDuration(180L)
-                .setInterpolator(emphasizedDecelerate)
-                .start()
-        }
+        presentModalDialog(dialog, container, onCancel)
     }
 
     /** 手动亮色开关生效（写 prefs + 更新状态，供确认对话框确认后调用） */
@@ -3877,21 +3867,9 @@ class MainActivity : SkinnedActivity() {
      * 确认后清除版本适配缓存（VersionAdapter.clearCache），重启 B 站后自动重新定位。
      */
     private fun showAdaptConfirmDialog() {
-        // 防御：若已有确认弹窗未关闭（理论上模态互斥），先关掉，保证引用唯一
-        activeConfirmDialog?.dismiss()
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
-
-        val container = NativeLinearLayout(this).apply {
-            orientation = NativeLinearLayout.VERTICAL
-            setPadding((24 * density).toInt(), (26 * density).toInt(), (24 * density).toInt(), (18 * density).toInt())
-            background = GradientDrawable().apply {
-                cornerRadius = 28 * density
-                setColor(monetColors.surface)
-                setStroke((1 * density).toInt(), ColorUtils.setAlphaComponent(Color.WHITE, 0x18))
-            }
-            elevation = 12 * density
-        }
+        val container = createModalContainer()
 
         container.addView(
             NativeTextView(this).apply {
@@ -3963,35 +3941,7 @@ class MainActivity : SkinnedActivity() {
             }
         )
 
-        val root = NativeFrameLayout(this)
-        root.addView(container, NativeFrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            gravity = Gravity.CENTER
-            setMargins((32 * density).toInt(), 0, (32 * density).toInt(), 0)
-        })
-
-        container.scaleX = 0.85f
-        container.scaleY = 0.85f
-        container.alpha = 0f
-
-        dialog.window?.apply {
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            setDimAmount(0f)
-        }
-        dialog.setContentView(root)
-        dialog.setOnDismissListener {
-            if (activeConfirmDialog === dialog) activeConfirmDialog = null
-        }
-        activeConfirmDialog = dialog
-        dialog.show()
-
-        container.post {
-            container.animate()
-                .scaleX(1f).scaleY(1f).alpha(1f)
-                .setDuration(260L)
-                .setInterpolator(emphasizedDecelerate)
-                .start()
-        }
+        presentModalDialog(dialog, container)
     }
 
     /**
@@ -5218,6 +5168,7 @@ class MainActivity : SkinnedActivity() {
         activationIconView = null
         activationTitleView = null
         activationSourceView = null
+        activationVersionView = null
         DiagnosticsTransitionOriginRegistry.clear(diagnosticsEntryView)
         diagnosticsEntryView = null
         diagnosticsEntryTitleView = null
@@ -5808,6 +5759,7 @@ class MainActivity : SkinnedActivity() {
                                 }
                             ) {
                                 TextView {
+                                    activationVersionView = this
                                     alpha = 0.8f
                                     isSingleLine = true
                                     ellipsize = TextUtils.TruncateAt.END
