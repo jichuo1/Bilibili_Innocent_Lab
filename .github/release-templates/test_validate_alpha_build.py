@@ -13,7 +13,9 @@ class ValidateAlphaBuildTest(unittest.TestCase):
         self.addCleanup(temp_dir.cleanup)
         path = Path(temp_dir.name) / "gradle.properties"
         path.write_text(
-            f"project.app.versionName={version_name}\nproject.app.versionCode={version_code}\n",
+            f"project.app.versionName={version_name}\n"
+            f"project.app.versionCode={version_code}\n"
+            "project.app.packageName=com.example.module\n",
             encoding="utf-8",
         )
         return path
@@ -23,6 +25,7 @@ class ValidateAlphaBuildTest(unittest.TestCase):
         self.assertEqual("1.0.6", identity.base_version)
         self.assertEqual("1.0.7-alpha.2", identity.build_version_name)
         self.assertEqual(7, identity.version_code)
+        self.assertEqual("com.example.module", identity.package_name)
 
     def test_push_build_keeps_source_controlled_base_version(self) -> None:
         identity = resolve_build_identity(self.write_properties(), "")
