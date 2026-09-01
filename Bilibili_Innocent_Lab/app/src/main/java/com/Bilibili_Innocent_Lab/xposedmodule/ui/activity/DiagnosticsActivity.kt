@@ -52,6 +52,11 @@ import androidx.lifecycle.ViewModelProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticActivationState
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticEvidence
+import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticFeatureInstallState
+import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticHostFeature
+import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticHostConfigState
+import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticHostInstallChainState
+import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticHostQueryState
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticItem
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticItemId
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticNoRootState
@@ -813,6 +818,8 @@ class DiagnosticsActivity : SkinnedActivity() {
                 DiagnosticItemId.FRAMEWORK_SERVICE,
                 DiagnosticItemId.REMOTE_CONFIG,
                 DiagnosticItemId.NO_ROOT,
+                DiagnosticItemId.HOST_BOOTSTRAP,
+                DiagnosticItemId.FEATURE_COVERAGE,
                 DiagnosticItemId.HOST_ADAPTATION
             ),
             snapshot
@@ -905,6 +912,8 @@ class DiagnosticsActivity : SkinnedActivity() {
             DiagnosticItemId.REMOTE_CONFIG -> R.string.diagnostics_item_remote_config
             DiagnosticItemId.ACTIVATION -> R.string.diagnostics_item_activation
             DiagnosticItemId.NO_ROOT -> R.string.diagnostics_item_no_root
+            DiagnosticItemId.HOST_BOOTSTRAP -> R.string.diagnostics_item_host_bootstrap
+            DiagnosticItemId.FEATURE_COVERAGE -> R.string.diagnostics_item_feature_coverage
             DiagnosticItemId.HOST_ADAPTATION -> R.string.diagnostics_item_adaptation
             DiagnosticItemId.INTERFACE_SKIN -> R.string.diagnostics_item_skin
             DiagnosticItemId.SETTINGS_CATALOG -> R.string.diagnostics_item_catalog
@@ -973,6 +982,8 @@ class DiagnosticsActivity : SkinnedActivity() {
                 }
             )
             DiagnosticItemId.NO_ROOT -> getString(noRootText(input.noRootState))
+            DiagnosticItemId.HOST_BOOTSTRAP -> hostBootstrapDetail(snapshot)
+            DiagnosticItemId.FEATURE_COVERAGE -> featureCoverageDetail(snapshot)
             DiagnosticItemId.HOST_ADAPTATION -> if (input.hostRuntimeReceiptAvailable) {
                 val summary = getString(
                     R.string.diagnostics_adaptation_receipt,
@@ -980,7 +991,13 @@ class DiagnosticsActivity : SkinnedActivity() {
                     input.hostObservedFeatureCount,
                     input.hostAppliedFeatureCount
                 )
-                val features = input.hostFeatures.joinToString(separator = "\n") { feature ->
+                val features = input.hostFeatures
+                    .filter {
+                        it.evidence != DiagnosticEvidence.NOT_AVAILABLE ||
+                            it.runtimeEvidenceExpected &&
+                            it.installState == DiagnosticFeatureInstallState.INSTALLED
+                    }
+                    .joinToString(separator = "\n") { feature ->
                     "${hostFeatureTitle(feature.featureId)}：${evidenceText(feature.evidence)}"
                 }
                 if (features.isBlank()) summary else "$summary\n$features"
@@ -1021,6 +1038,106 @@ class DiagnosticsActivity : SkinnedActivity() {
         }
     }
 
+    private fun hostBootstrapDetail(snapshot: ModuleDiagnosticSnapshot): String {
+        val input = snapshot.inputs
+        if (!input.hostRuntimeReceiptAvailable) {
+            return getString(
+                if (input.hostQueryState == DiagnosticHostQueryState.INVALID_RESPONSE) {
+                    R.string.diagnostics_bootstrap_invalid
+                } else {
+                    R.string.diagnostics_bootstrap_unavailable
+                }
+            )
+        }
+        return when {
+            input.hostConfigState == DiagnosticHostConfigState.REJECTED -> getString(
+                R.string.diagnostics_bootstrap_config_rejected,
+                input.hostConfigReasonCode ?: "unknown"
+            )
+            input.hostConfigState == DiagnosticHostConfigState.NOT_AUTHORIZED ->
+                getString(R.string.diagnostics_bootstrap_not_authorized)
+            input.hostInstallChainState == DiagnosticHostInstallChainState.FAILED ->
+                getString(R.string.diagnostics_bootstrap_install_failed)
+            input.hostConfigState == DiagnosticHostConfigState.ACCEPTED &&
+                input.hostInstallChainState == DiagnosticHostInstallChainState.COMPLETED ->
+                getString(
+                    R.string.diagnostics_bootstrap_ready,
+                    input.hostConfigGeneration,
+                    input.hostHookPointInstalledCount,
+                    input.hostHookPointResolvedCount,
+                    input.hostHookPointMissingCount,
+                    input.hostHookPointFailedCount
+                )
+            else -> getString(
+                R.string.diagnostics_bootstrap_waiting,
+                input.hostConfigState.name,
+                input.hostInstallChainState.name
+            )
+        }
+    }
+
+    private fun featureCoverageDetail(snapshot: ModuleDiagnosticSnapshot): String {
+        val input = snapshot.inputs
+        if (!input.hostRuntimeReceiptAvailable) {
+            return getString(R.string.diagnostics_feature_coverage_unavailable)
+        }
+        val summary = getString(
+            R.string.diagnostics_feature_coverage_summary,
+            input.hostInstalledFeatureCount,
+            input.hostFailedFeatureCount,
+            input.hostFeatures.size
+        )
+        val lines = input.hostFeatures
+            .sortedWith(
+                compareBy<DiagnosticHostFeature> {
+                    featureInstallPriority(it.installState)
+                }.thenBy { it.featureId }
+            )
+            .joinToString(separator = "\n") { feature ->
+                val runtime = if (feature.runtimeEvidenceExpected ||
+                    feature.evidence != DiagnosticEvidence.NOT_AVAILABLE
+                ) {
+                    " · ${evidenceText(feature.evidence)}"
+                } else {
+                    ""
+                }
+                "${hostFeatureTitle(feature.featureId)}：${featureInstallText(feature)}$runtime"
+            }
+        return if (lines.isBlank()) summary else "$summary\n$lines"
+    }
+
+    private fun featureInstallPriority(state: DiagnosticFeatureInstallState): Int = when (state) {
+        DiagnosticFeatureInstallState.FAILED,
+        DiagnosticFeatureInstallState.SKIPPED -> 0
+        DiagnosticFeatureInstallState.NOT_REPORTED -> 1
+        DiagnosticFeatureInstallState.INSTALLED -> 2
+        DiagnosticFeatureInstallState.DISABLED,
+        DiagnosticFeatureInstallState.NOT_APPLICABLE -> 3
+    }
+
+    private fun featureInstallText(
+        feature: DiagnosticHostFeature
+    ): String = when (feature.installState) {
+        DiagnosticFeatureInstallState.INSTALLED -> getString(
+            R.string.diagnostics_feature_install_installed,
+            feature.installedHookCount
+        )
+        DiagnosticFeatureInstallState.DISABLED ->
+            getString(R.string.diagnostics_feature_install_disabled)
+        DiagnosticFeatureInstallState.NOT_APPLICABLE ->
+            getString(R.string.diagnostics_feature_install_not_applicable)
+        DiagnosticFeatureInstallState.NOT_REPORTED ->
+            getString(R.string.diagnostics_feature_install_not_reported)
+        DiagnosticFeatureInstallState.SKIPPED -> getString(
+            R.string.diagnostics_feature_install_skipped,
+            feature.installReasonCode ?: "OTHER"
+        )
+        DiagnosticFeatureInstallState.FAILED -> getString(
+            R.string.diagnostics_feature_install_failed,
+            feature.installReasonCode ?: "INSTALLER_EXCEPTION"
+        )
+    }
+
     private fun noRootText(state: DiagnosticNoRootState): Int = when (state) {
         DiagnosticNoRootState.UNSUPPORTED_OS -> R.string.no_root_status_unsupported_os
         DiagnosticNoRootState.DISABLED -> R.string.no_root_status_disabled
@@ -1039,13 +1156,35 @@ class DiagnosticsActivity : SkinnedActivity() {
 
     private fun hostFeatureTitle(featureId: String): String = getString(
         when (featureId) {
+            "paused_ad" -> R.string.paused_page_ad_enable
+            "game_mentioned_promotion" -> R.string.gamecard_ad_enable
+            "detail_app_promotion" -> R.string.hide_video_detail_app_promotion
+            "home_banner" -> R.string.banner_ad_enable
+            "merchandise" -> R.string.merch_ad_enable
+            "home_top_bar_purify" -> R.string.home_top_bar_settings
+            "home_vertical_detail" -> R.string.home_vertical_open_detail
             "home_recommend_purify" -> R.string.diagnostics_host_feature_home_feed
+            "home_tab_filter" -> R.string.custom_home_tab_hide
+            "home_component_filter" -> R.string.custom_home_component_hide
+            "bottom_bar" -> R.string.custom_bottom_bar_hide
+            "story_purify" -> R.string.story_purify_settings
+            "dynamic_tabs_purify" -> R.string.dynamic_page_settings
+            "mine_vip_purify" -> R.string.hide_mine_vip
             "video_relate_filter" -> R.string.diagnostics_host_feature_relate
+            "player_portrait_control" -> R.string.hide_player_portrait_control
+            "player_status_bar" -> R.string.transparent_player_status_bar
             "comment_filter" -> R.string.diagnostics_host_feature_comment_filter
             "comment_purify" -> R.string.diagnostics_host_feature_comment_purify
+            "comment_section" -> R.string.hide_comment_section
+            "comment_topology" -> R.string.reply_topology_enabled
+            "free_copy" -> R.string.free_copy_enable
             "player_default_quality" -> R.string.diagnostics_host_feature_quality
             "splash_ad_purify" -> R.string.diagnostics_host_feature_splash
             "mine_component_filter" -> R.string.diagnostics_host_feature_mine
+            "block_app_update" -> R.string.block_app_update
+            "full_number_display" -> R.string.show_full_numbers
+            "teenagers_mode_prompt" -> R.string.block_teenagers_mode_prompt
+            "roaming_compat" -> R.string.roaming_compat_enable
             else -> R.string.diagnostics_host_feature_unknown
         }
     )

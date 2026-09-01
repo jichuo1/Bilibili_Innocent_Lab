@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticReportCodec
+import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticHostQueryState
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.ModuleDiagnosticSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.ModuleDiagnosticsCollector
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsQueryClient
@@ -49,7 +50,14 @@ internal class DiagnosticsViewModel : ViewModel() {
         HostRuntimeDiagnosticsQueryClient.query(appContext) { queryResult ->
             val hostRuntime = queryResult.snapshot
                 .takeIf { queryResult.status == HostRuntimeDiagnosticsQueryClient.Status.READY }
-            collectAsync(request, appContext, skin, frameworkCheckPending, hostRuntime)
+            collectAsync(
+                request,
+                appContext,
+                skin,
+                frameworkCheckPending,
+                hostRuntime,
+                DiagnosticHostQueryState.valueOf(queryResult.status.name)
+            )
         }
     }
 
@@ -58,7 +66,8 @@ internal class DiagnosticsViewModel : ViewModel() {
         context: Context,
         skin: SkinSessionDiagnostics?,
         frameworkCheckPending: Boolean,
-        hostRuntime: HostRuntimeDiagnosticsSnapshot?
+        hostRuntime: HostRuntimeDiagnosticsSnapshot?,
+        hostQueryState: DiagnosticHostQueryState
     ) {
         worker.submit {
             runCatching {
@@ -66,7 +75,8 @@ internal class DiagnosticsViewModel : ViewModel() {
                     context = context,
                     skin = skin,
                     frameworkCheckPending = frameworkCheckPending,
-                    hostRuntime = hostRuntime
+                    hostRuntime = hostRuntime,
+                    hostQueryState = hostQueryState
                 )
             }.onSuccess { snapshot ->
                 if (generation.get() == request) {

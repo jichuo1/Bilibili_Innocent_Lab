@@ -465,6 +465,8 @@
     <string name="diagnostics_item_remote_config">Hook configuration snapshot</string>
     <string name="diagnostics_item_activation">Activation</string>
     <string name="diagnostics_item_no_root">NPatch channel</string>
+    <string name="diagnostics_item_host_bootstrap">Host bootstrap and authorization</string>
+    <string name="diagnostics_item_feature_coverage">Feature installation coverage</string>
     <string name="diagnostics_item_adaptation">Host adaptation</string>
     <string name="diagnostics_item_skin">Interface skin</string>
     <string name="diagnostics_item_catalog">Settings catalog</string>
@@ -497,6 +499,21 @@
     <string name="diagnostics_activation_npatch">A heartbeat matching the current module and Bilibili version was received.</string>
     <string name="diagnostics_activation_checking">Waiting for activation evidence…</string>
     <string name="diagnostics_activation_unavailable">No valid LSPosed service or matching NPatch heartbeat is currently available.</string>
+    <string name="diagnostics_bootstrap_unavailable">No activated Bilibili main process is reachable. Start Bilibili, then refresh diagnostics.</string>
+    <string name="diagnostics_bootstrap_invalid">A host receipt was returned, but its protocol, source version, or digest validation failed. Restart Bilibili and refresh.</string>
+    <string name="diagnostics_bootstrap_config_rejected">The host started, but API 102 configuration validation was rejected (%1$s). Open the module UI once to publish, then cold-start Bilibili.</string>
+    <string name="diagnostics_bootstrap_not_authorized">The host read the configuration, but no hooks were installed because the user terms have not been accepted.</string>
+    <string name="diagnostics_bootstrap_install_failed">Configuration was authorized, but the isolated feature installation chain failed. Export this report and correlate it with LSPosed logs.</string>
+    <string name="diagnostics_bootstrap_ready" tools:ignore="PluralsCandidate">Configuration generation %1$d was authorized and installation completed. Hook points: %2$d installed, %3$d only resolved, %4$d missing/ambiguous, %5$d failed.</string>
+    <string name="diagnostics_bootstrap_waiting">The host receipt is available. Configuration state: %1$s; installation chain: %2$s. Refresh after the host finishes starting.</string>
+    <string name="diagnostics_feature_coverage_unavailable">No trusted host receipt is available, so per-feature registration cannot be assessed.</string>
+    <string name="diagnostics_feature_coverage_summary" tools:ignore="PluralsCandidate">%1$d features installed; %2$d need attention; %3$d are registered for diagnostics. These states describe Hook installation and do not treat an unvisited page as a failure.</string>
+    <string name="diagnostics_feature_install_installed" tools:ignore="PluralsCandidate">%1$d hooks installed</string>
+    <string name="diagnostics_feature_install_disabled">Disabled by configuration</string>
+    <string name="diagnostics_feature_install_not_applicable">Not applicable to this process</string>
+    <string name="diagnostics_feature_install_not_reported">No installation receipt yet</string>
+    <string name="diagnostics_feature_install_skipped">Safely skipped (%1$s)</string>
+    <string name="diagnostics_feature_install_failed">Installation failure isolated (%1$s)</string>
     <string name="diagnostics_adaptation_unknown">The module process cannot safely read the host app’s private adaptation cache. Open Bilibili and verify the actual feature behavior.</string>
     <string name="diagnostics_adaptation_receipt">Verified host receipt: %1$d features adapted, %2$d observed at runtime, and %3$d actually applied. Not observed does not mean broken; the relevant page or content may not have appeared yet.</string>
     <string name="diagnostics_host_feature_home_feed">Home feed purification</string>
@@ -515,7 +532,7 @@
     <string name="diagnostics_logging_minimal">Logging is on at the minimal level. Log text is not included in exports.</string>
     <string name="diagnostics_logging_complete">Logging is on at the complete level. Log text is not included in exports.</string>
     <string name="diagnostics_report_preview_title">Export local diagnostic report?</string>
-    <string name="diagnostics_report_preview_body">Included: module and target versions, framework capability, bounded state codes, skin backend, and settings catalog counts.\n\nExcluded: setting values, custom rules, file paths, logs, exception details, and host class/member names.</string>
+    <string name="diagnostics_report_preview_body">Included: module and target versions, framework capability, host bootstrap/authorization/installation state, feature installation coverage, skin backend, and settings catalog counts.\n\nExcluded: setting values, custom rules, file paths, logs, exception details, and host class/member names.</string>
     <string name="diagnostics_report_choose_location">Choose save location</string>
     <string name="diagnostics_report_cancel">Cancel</string>
     <string name="diagnostics_export_running">Writing and verifying the report…</string>
