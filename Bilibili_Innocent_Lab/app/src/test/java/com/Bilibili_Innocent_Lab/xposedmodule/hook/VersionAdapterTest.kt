@@ -290,6 +290,42 @@ class VersionAdapterTest {
                         )
                     )
                 )
+            ),
+            commercialEvidenceChains = listOf(
+                VersionAdapter.BooleanMethodChain(
+                    steps = listOf(
+                        VersionAdapter.HookPoint(
+                            "com.bapis.bilibili.app.viewunite.common.RelateCard",
+                            "getThreePoint",
+                            emptyList()
+                        ),
+                        VersionAdapter.HookPoint(
+                            "com.bapis.bilibili.app.viewunite.common.RelateThreePoint",
+                            "hasFeedback",
+                            emptyList()
+                        )
+                    )
+                )
+            ),
+            detailRelateService = VersionAdapter.DetailRelateServicePoint(
+                componentFactory = VersionAdapter.HookPoint(
+                    "com.bilibili.ship.theseus.united.page.intro.module.relate.DetailRelateService",
+                    "d",
+                    listOf(
+                        "com.bilibili.ship.theseus.united.page.intro.module.relate.D0"
+                    )
+                ),
+                typeField = "type",
+                typeGetter = VersionAdapter.HookPoint(
+                    "com.bilibili.ship.theseus.united.page.intro.module.relate.D0",
+                    "getType",
+                    emptyList()
+                ),
+                titleGetter = VersionAdapter.HookPoint(
+                    "com.bilibili.ship.theseus.united.page.intro.module.relate.D0",
+                    "d",
+                    emptyList()
+                )
             )
         ),
         homeTabs = VersionAdapter.HomeTabPoints(
@@ -673,6 +709,20 @@ class VersionAdapterTest {
                 .getJSONObject(0)
                 .put("m", "")
         }
+        val invalidRelateCommercialChain = JSONObject(result().toJson().toString()).apply {
+            getJSONObject("video_relate")
+                .getJSONArray("commercial_evidence_chains")
+                .getJSONObject(0)
+                .getJSONArray("steps")
+                .getJSONObject(1)
+                .put("m", "")
+        }
+        val invalidRelateService = JSONObject(result().toJson().toString()).apply {
+            getJSONObject("video_relate")
+                .getJSONObject("detail_relate_service")
+                .getJSONObject("factory")
+                .put("m", "")
+        }
 
         assertNull(VersionAdapter.AdaptResult.fromJson(stale))
         assertNull(VersionAdapter.AdaptResult.fromJson(invalid))
@@ -681,6 +731,8 @@ class VersionAdapterTest {
         assertNull(VersionAdapter.AdaptResult.fromJson(invalidRelateSourceType))
         assertNull(VersionAdapter.AdaptResult.fromJson(invalidRelateSourceTypeChain))
         assertNull(VersionAdapter.AdaptResult.fromJson(invalidRelateReasonChain))
+        assertNull(VersionAdapter.AdaptResult.fromJson(invalidRelateCommercialChain))
+        assertNull(VersionAdapter.AdaptResult.fromJson(invalidRelateService))
     }
 
     @Test
@@ -810,16 +862,28 @@ class VersionAdapterTest {
 
         assertEquals(
             setOf(
+                "com.bapis.bilibili.app.viewunite.common.Relates#getCardsList",
                 "com.bapis.bilibili.app.viewunite.v1.Relates#getCardsList",
                 "com.bapis.bilibili.app.viewunite.v1.RelatesFeedReply#getRelatesList",
                 "com.bapis.bilibili.app.view.v1.RelatesFeedReply#getListList",
                 "com.bapis.bilibili.app.view.v1.ViewReply#getRelatesList"
             ),
             points?.responseItemGetters
-                ?.map { "${it.className}#${it.methodName}" }
-                ?.toSet()
-        )
-        assertEquals(1, points?.cardCaseGetters?.size)
+                  ?.map { "${it.className}#${it.methodName}" }
+                  ?.toSet()
+          )
+          assertTrue(points?.responseItemGetters.orEmpty().all {
+              !it.viewField.isNullOrBlank()
+          })
+          assertEquals(
+              "com.bilibili.ship.theseus.united.page.intro.module.relate.DetailRelateService",
+              points?.detailRelateService?.componentFactory?.className
+          )
+          assertEquals("d", points?.detailRelateService?.componentFactory?.methodName)
+          assertEquals("type", points?.detailRelateService?.typeField)
+          assertEquals("getType", points?.detailRelateService?.typeGetter?.methodName)
+          assertEquals("d", points?.detailRelateService?.titleGetter?.methodName)
+          assertEquals(1, points?.cardCaseGetters?.size)
         assertEquals("getCardCase", points?.cardCaseGetters?.single()?.methodName)
         assertEquals("getGoto", points?.gotoGetters?.single()?.methodName)
         assertEquals(
@@ -877,6 +941,19 @@ class VersionAdapterTest {
             points?.reasonChains?.map { it.steps.first().methodName }?.toSet()
         )
         assertTrue(points?.reasonChains.orEmpty().all { it.steps.size in 1..3 })
+        assertEquals(
+            setOf("hasCm", "hasCmStock", "getThreePoint"),
+            points?.commercialEvidenceChains
+                ?.map { it.steps.first().methodName }
+                ?.toSet()
+        )
+        assertTrue(points?.commercialEvidenceChains.orEmpty().all { chain ->
+            chain.steps.size in 1..2 && chain.steps.last().methodName in setOf(
+                "hasCm",
+                "hasCmStock",
+                "hasFeedback"
+            )
+        })
     }
 
     @Test

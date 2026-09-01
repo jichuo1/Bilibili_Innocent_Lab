@@ -28,16 +28,37 @@ class VideoRelateFilterSelectionTest {
         val draft = VideoRelateFilterDraft(emptyMap(), "商业推广\n去小程序")
 
         assertFalse(draft.reasonFilterVisible)
+        assertFalse(draft.strongModeVisible)
         draft[FeaturePreferences.VIDEO_RELATE_REASON_FILTER_ENABLED] = true
         assertFalse(draft.keywordEditorVisible)
 
         draft[FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED] = true
         assertTrue(draft.reasonFilterVisible)
+        assertTrue(draft.strongModeVisible)
         assertTrue(draft.keywordEditorVisible)
 
         draft[FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED] = false
         assertEquals("商业推广\n去小程序", draft.reasonKeywords)
         assertFalse(draft.keywordEditorVisible)
+    }
+
+    @Test
+    fun `strong mode requires explicit selection while clear disables it`() {
+        val draft = VideoRelateFilterDraft(
+            mapOf(FeaturePreferences.VIDEO_RELATE_STRONG_MODE_ENABLED to true),
+            ""
+        )
+
+        draft.selectAll()
+        assertTrue(draft[FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED])
+        assertTrue(draft[FeaturePreferences.VIDEO_RELATE_STRONG_MODE_ENABLED])
+
+        val fresh = VideoRelateFilterDraft(emptyMap(), "")
+        fresh.selectAll()
+        assertFalse(fresh[FeaturePreferences.VIDEO_RELATE_STRONG_MODE_ENABLED])
+
+        draft.clear()
+        assertFalse(draft[FeaturePreferences.VIDEO_RELATE_STRONG_MODE_ENABLED])
     }
 
     @Test

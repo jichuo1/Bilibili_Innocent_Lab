@@ -17,7 +17,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorS
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 5
+    const val CATALOG_VERSION = 6
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
     const val ID_FREE_COPY_DESCRIPTION = "free_copy.description.enabled"
     const val ID_RECOMMEND_VIDEO_MIN_DURATION =
@@ -151,6 +151,12 @@ internal object SettingsCatalog {
             FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED,
             R.string.video_relate_matching_enhancement,
             introducedCatalogVersion = 5
+        ),
+        bool(
+            "video.related.strong_mode.enabled",
+            FeaturePreferences.VIDEO_RELATE_STRONG_MODE_ENABLED,
+            R.string.video_relate_strong_mode,
+            introducedCatalogVersion = 6
         ),
         bool(
             "video.related.reason_filter.enabled",
@@ -292,7 +298,7 @@ internal object SettingsCatalog {
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
 
     init {
-        check(specs.size == 79) { "Expected 79 catalog settings, found ${specs.size}" }
+        check(specs.size == 80) { "Expected 80 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"
