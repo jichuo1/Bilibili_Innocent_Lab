@@ -44,7 +44,7 @@
     <string name="gamecard_ad_enable">隐藏视频提及区域中的游戏广告</string>
     <string name="gamecard_ad_tip">开启后净化带有游戏标签的视频下的“视频提及”广告</string>
     <string name="hide_video_detail_app_promotion">隐藏视频详细页话题推广</string>
-    <string name="hide_video_detail_app_promotion_tip">开启后隐藏视频播放器下方的话题、活动等推广卡片，不保留空白区域，重启哔哩哔哩后生效。</string>
+    <string name="hide_video_detail_app_promotion_tip">开启后隐藏视频播放器下方的话题、活动等推广</string>
     <string name="banner_ad_settings">首页大卡轮播</string>
     <string name="banner_ad_enable">隐藏首页大卡轮播推荐</string>
     <string name="banner_ad_tip">开启后补全漫游失效的首页轮播净化</string>
@@ -114,9 +114,9 @@
     <string name="custom_mine_component_hide_tip">先打开一次哔哩哔哩“我的”页即可按扫描结果勾选，也可继续使用手动名称规则；修改后重启哔哩哔哩生效。</string>
     <string name="custom_mine_component_hide_dialog_title">“我的”页组件隐藏规则</string>
     <string name="custom_mine_component_hide_hint">例如：创作中心, 我的课程, 游戏中心</string>
-    <string name="custom_mine_component_snapshot_ready">已从哔哩哔哩识别 %1$d 个可选组件；修改后需重启哔哩哔哩。</string>
-    <string name="custom_mine_component_snapshot_stale">扫描结果已超过 7 天；建议先打开一次哔哩哔哩“我的”页再选择。</string>
-    <string name="custom_mine_component_snapshot_legacy">这是旧版扫描结果；保存时将迁移为稳定选择键。</string>
+    <string name="custom_mine_component_snapshot_ready">已从哔哩哔哩识别 %1$d 个可选组件；修改后需重启哔哩哔哩。若同时禁用全部组件，可能导致“我的”页崩溃。</string>
+    <string name="custom_mine_component_snapshot_stale">扫描结果已超过 7 天；建议先打开一次哔哩哔哩“我的”页再选择。若同时禁用全部组件，可能导致“我的”页崩溃。</string>
+    <string name="custom_mine_component_snapshot_legacy">这是旧版扫描结果；保存时将迁移为稳定选择键。若同时禁用全部组件，可能导致“我的”页崩溃。</string>
     <string name="custom_mine_component_snapshot_missing">尚无有效扫描结果，请先打开一次哔哩哔哩“我的”页；当前进入手动规则。</string>
     <string name="custom_mine_component_snapshot_querying">正在从哔哩哔哩读取最新“我的”页扫描结果…</string>
     <string name="custom_mine_component_snapshot_waiting_page">已连接到模块 Hook，但哔哩哔哩尚未缓存“我的”页组件；请先进入或刷新一次“我的”页。</string>
@@ -280,7 +280,7 @@
     <string name="liquid_background_dialog_description">选择一张本地图片作为图形化界面的底层背景，页面根背景和玻璃表面会采样同一张处理后的图片。</string>
     <string name="liquid_background_preview_description">当前自定义 Liquid Glass 背景预览</string>
     <string name="material_color_spec_title">使用 SPEC 2025</string>
-    <string name="material_color_spec_summary">开启时使用 SPEC 2025，关闭时使用 SPEC 2021；Material You 与 Liquid Glass 共用所选规范，切换后会立即重新生成配色。</string>
+    <string name="material_color_spec_summary">颜色标准默认使用SPEC 2021，开启后使用SPEC 2025，切换后立即生效。</string>
     <string name="material_color_spec_save_failed">配色规范保存失败，已保持当前设置。</string>
     <string name="liquid_background_choose">选择图片</string>
     <string name="liquid_background_replace">更换图片</string>

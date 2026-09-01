@@ -43,7 +43,7 @@
     <string name="gamecard_ad_enable">Hide game ads inside the \"Video mentioned\" section</string>
     <string name="gamecard_ad_tip">Cleans up the \"Video mentioned\" ads under videos with game tags</string>
     <string name="hide_video_detail_app_promotion">Hide topic promotions on video detail pages</string>
-    <string name="hide_video_detail_app_promotion_tip">Hides topic, campaign, and similar promotion cards shown below the video player without leaving empty space. Restart Bilibili to apply.</string>
+    <string name="hide_video_detail_app_promotion_tip">Hides topic, campaign, and similar promotions shown below the video player.</string>
     <string name="banner_ad_settings">Home banner carousel</string>
     <string name="banner_ad_enable">Hide home banner carousel</string>
     <string name="banner_ad_tip">Cleans up the home banner carousel that BiliRoaming can no longer handle</string>
@@ -113,9 +113,9 @@
     <string name="custom_mine_component_hide_tip">Open Bilibili’s Mine page once to select detected components, or keep using manual name rules. Restart Bilibili after changes.</string>
     <string name="custom_mine_component_hide_dialog_title">Hidden Mine-page component rules</string>
     <string name="custom_mine_component_hide_hint">Example: Creator Center, Courses, Game Center</string>
-    <string name="custom_mine_component_snapshot_ready">Detected %1$d selectable components from Bilibili. Restart Bilibili after saving.</string>
-    <string name="custom_mine_component_snapshot_stale">The scan is over 7 days old. Open Bilibili’s Mine page once before choosing.</string>
-    <string name="custom_mine_component_snapshot_legacy">This is a legacy scan. Saving migrates selections to stable keys.</string>
+    <string name="custom_mine_component_snapshot_ready">Detected %1$d selectable components from Bilibili. Restart Bilibili after saving. Disabling every component at once may cause the Mine page to crash.</string>
+    <string name="custom_mine_component_snapshot_stale">The scan is over 7 days old. Open Bilibili’s Mine page once before choosing. Disabling every component at once may cause the Mine page to crash.</string>
+    <string name="custom_mine_component_snapshot_legacy">This is a legacy scan. Saving migrates selections to stable keys. Disabling every component at once may cause the Mine page to crash.</string>
     <string name="custom_mine_component_snapshot_missing">No valid scan yet. Open Bilibili’s Mine page once; manual rules are shown for now.</string>
     <string name="custom_mine_component_snapshot_querying">Reading the latest Mine-page scan from Bilibili…</string>
     <string name="custom_mine_component_snapshot_waiting_page">The module is connected, but Bilibili has not cached Mine-page components yet. Open or refresh the Mine page first.</string>
@@ -279,7 +279,7 @@
     <string name="liquid_background_dialog_description">Choose a local image for the interface underlay. The root background and glass surfaces will sample the same processed image.</string>
     <string name="liquid_background_preview_description">Current custom Liquid Glass background preview</string>
     <string name="material_color_spec_title">Use SPEC 2025</string>
-    <string name="material_color_spec_summary">On uses SPEC 2025; off uses SPEC 2021. Material You and Liquid Glass share the selected specification, and colors are regenerated immediately after switching.</string>
+    <string name="material_color_spec_summary">The default color specification is SPEC 2021. Enable this option to use SPEC 2025; changes take effect immediately.</string>
     <string name="material_color_spec_save_failed">Could not save the color specification. The current setting was kept.</string>
     <string name="liquid_background_choose">Choose image</string>
     <string name="liquid_background_replace">Replace image</string>
