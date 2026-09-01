@@ -390,6 +390,8 @@
     <string name="update_available_prerelease_title">发现预览版本：%1$s</string>
     <string name="update_available_prerelease_note">此版本属于预发布版本，可能存在尚未发现的问题。</string>
     <string name="update_available_message">当前版本：%1$s\n最新版本：%2$s</string>
+    <string name="update_release_notes_title">更新内容</string>
+    <string name="update_release_notes_truncated">以下为内容节选，请打开版本详细查看完整发布说明。</string>
     <string name="update_later">稍后</string>
     <string name="update_details">版本详细</string>
     <string name="update_details_opening">正在连接版本详情…</string>
