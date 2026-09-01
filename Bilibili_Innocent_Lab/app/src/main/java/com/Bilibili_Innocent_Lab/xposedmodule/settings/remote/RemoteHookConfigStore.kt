@@ -61,11 +61,26 @@ internal fun interface ModernFrameworkStatusListener {
     fun onFrameworkStatusChanged(status: ModernFrameworkStatus)
 }
 
+internal data class RemoteHookConfigPublishEvent(
+    val decision: UserTermsDecision,
+    val result: RemoteHookConfigPublishResult
+)
+
+internal fun interface RemoteHookConfigPublishListener {
+    fun onRemoteHookConfigPublished(event: RemoteHookConfigPublishEvent)
+}
+
+internal fun shouldRepeatRemotePublish(
+    dirty: Boolean,
+    attemptedDecision: UserTermsDecision,
+    requestedDecision: UserTermsDecision
+): Boolean = dirty || attemptedDecision != requestedDecision
+
 /**
  * 模块进程中的 API 102 Remote Preferences 发布器和服务状态单点。
  *
  * 私有默认设置仍是权威源。服务绑定、设置变更和条款决定只会在单线程发布器上合并，宿主
- * 读取的是 LSPosed 数据库中的完整不可变快照，不再接触模块私有目录。
+ * 读取的是框架数据库中的完整不可变快照，不再接触模块私有目录。
  */
 internal object RemoteHookConfigStore {
     private const val TAG = "BilibiliInnocentLab"
@@ -75,6 +90,7 @@ internal object RemoteHookConfigStore {
     private val publishDirty = AtomicBoolean(false)
     private val listenerRegistered = AtomicBoolean(false)
     private val statusListeners = CopyOnWriteArraySet<ModernFrameworkStatusListener>()
+    private val publishListeners = CopyOnWriteArraySet<RemoteHookConfigPublishListener>()
     private val publishExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "bil-remote-config").apply { isDaemon = true }
     }
@@ -116,16 +132,55 @@ internal object RemoteHookConfigStore {
                 preferenceListener = listener
             }
         }
-        return publish(appContext, decision)
+        return publishSnapshotAndNotify(appContext, decision)
     }
 
     fun publish(
         context: Context,
         decision: UserTermsDecision
-    ): RemoteHookConfigPublishResult = synchronized(lock) {
+    ): RemoteHookConfigPublishResult {
         val appContext = context.applicationContext ?: context
         applicationContext = appContext
         requestedDecision = decision
+        return publishSnapshotAndNotify(appContext, decision)
+    }
+
+    /**
+     * 更新最终用户意图并交给既有单线程发布器合并。条款等待同步、设置变化和服务重连
+     * 都经过同一个队列，避免 Binder/SharedPreferences 并发写入同一远端分组。
+     */
+    fun requestDecisionPublish(context: Context, decision: UserTermsDecision) {
+        val appContext = context.applicationContext ?: context
+        applicationContext = appContext
+        requestedDecision = decision
+        requestPublish(appContext)
+    }
+
+    private fun publishSnapshotAndNotify(
+        appContext: Context,
+        decision: UserTermsDecision
+    ): RemoteHookConfigPublishResult {
+        val result = publishSnapshot(appContext, decision)
+        notifyPublishListeners(RemoteHookConfigPublishEvent(decision, result))
+        return result
+    }
+
+    /** 在取得发布锁后才截取目标决定，避免同步拒绝返回后旧 ACCEPTED 任务再次落盘。 */
+    private fun publishRequestedSnapshotAndNotify(
+        appContext: Context
+    ): Pair<UserTermsDecision, RemoteHookConfigPublishResult> {
+        val (decision, result) = synchronized(lock) {
+            val target = requestedDecision
+            target to publishSnapshot(appContext, target)
+        }
+        notifyPublishListeners(RemoteHookConfigPublishEvent(decision, result))
+        return decision to result
+    }
+
+    private fun publishSnapshot(
+        appContext: Context,
+        decision: UserTermsDecision
+    ): RemoteHookConfigPublishResult = synchronized(lock) {
         val attemptAt = System.currentTimeMillis().coerceAtLeast(1L)
         publishDiagnostics = publishDiagnostics.copy(
             state = RemoteHookConfigPublishState.PUBLISHING,
@@ -243,6 +298,14 @@ internal object RemoteHookConfigStore {
         statusListeners.remove(listener)
     }
 
+    fun addPublishListener(listener: RemoteHookConfigPublishListener) {
+        publishListeners.add(listener)
+    }
+
+    fun removePublishListener(listener: RemoteHookConfigPublishListener) {
+        publishListeners.remove(listener)
+    }
+
     fun logFailure(result: RemoteHookConfigPublishResult) {
         if (result !is RemoteHookConfigPublishResult.Failure) return
         Log.w(TAG, "publish remote hook config failed: ${result.reason}", result.throwable)
@@ -306,6 +369,15 @@ internal object RemoteHookConfigStore {
         statusListeners.forEach { listener -> notifyStatusListener(listener, status) }
     }
 
+    private fun notifyPublishListeners(event: RemoteHookConfigPublishEvent) {
+        publishListeners.forEach { listener ->
+            runCatching { listener.onRemoteHookConfigPublished(event) }
+                .onFailure { throwable ->
+                    Log.w(TAG, "remote publish listener failed", throwable)
+                }
+        }
+    }
+
     private fun notifyStatusListener(
         listener: ModernFrameworkStatusListener,
         status: ModernFrameworkStatus
@@ -321,10 +393,18 @@ internal object RemoteHookConfigStore {
         if (!publishScheduled.compareAndSet(false, true)) return
         publishExecutor.execute {
             try {
+                var attemptedDecision: UserTermsDecision
                 do {
                     publishDirty.set(false)
-                    logFailure(publish(context, requestedDecision))
-                } while (publishDirty.get())
+                    val attempt = publishRequestedSnapshotAndNotify(context)
+                    attemptedDecision = attempt.first
+                    val result = attempt.second
+                    logFailure(result)
+                } while (shouldRepeatRemotePublish(
+                    dirty = publishDirty.get(),
+                    attemptedDecision = attemptedDecision,
+                    requestedDecision = requestedDecision
+                ))
             } finally {
                 publishScheduled.set(false)
                 if (publishDirty.get()) requestPublish(context)

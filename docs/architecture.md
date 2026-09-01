@@ -57,9 +57,22 @@ missing legacy record.
 `MainActivity` resolves this state before reading feature preferences, writing
 cross-process mirrors, constructing the settings hierarchy, or starting update
 checks. An undecided user sees the scrollable terms gate; a declined user sees
-only a locked page with exit and review actions. Accept and decline use a
-synchronous commit. The back key exits an undecided gate without writing a
-decision, while outside-touch dismissal is disabled.
+only a locked page with exit and review actions. Accept first commits private,
+non-authorizing pending metadata while retaining the previous decision. The
+existing single-thread API 102 publisher then publishes `ACCEPTED`; only a full
+Remote Preferences read-back promotes the private decision and clears pending.
+If the service is absent, the pending gate remains locked and resumes on service
+bind without asking the user to accept again. Decline continues to invalidate a
+pending accept, confirm the remote closed decision, and only then commit the
+private declined decision. The back key exits an undecided gate without writing
+a decision, while outside-touch dismissal is disabled.
+The undecided and pending gates also render a read-only environment snapshot:
+module UID/userId, primary-versus-possible-profile classification, framework
+name/API/Remote capability, current-user visibility and UID/userId of
+`tv.danmaku.bili`, same-user comparison, and a bounded failure code. This uses a
+single current-user `PackageManager` lookup plus in-process Remote diagnostics;
+it does not enumerate other users, query the host process, expose settings, or
+weaken the authorization gate.
 `FreeCopyActivity`, `SettingsBackupActivity`, and `DiagnosticsActivity` apply the same check and finish
 immediately when the decision is unauthorized, so an internal Activity launch
 or restored Activity stack cannot bypass the gate.
@@ -73,7 +86,9 @@ falls back to Provider, ordered broadcast, or a legacy preference bridge.
 Schema, catalog, exact key set, value types/ranges, generation, terms decision
 and SHA-256 digest must all validate before either authorization or feature
 settings are consumed. Missing, partial, corrupt, or service-unavailable state
-disables every feature.
+disables every feature. Pending terms metadata is private and additive; it is
+not a fifth wire decision, is excluded from backup, and never changes the
+Remote Preferences exact key set or digest.
 
 While unauthorized, the provider's locale, free-copy, and roaming routes return
 safe disabled/default snapshots, and the roaming settings action also refuses

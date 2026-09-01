@@ -45,7 +45,9 @@ User-terms tests lock the positive terms revision, valid four-state parsing,
 missing-state versus corrupt-state distinction, version-mismatch fail-closed
 behavior, upgraded-install and legacy-sentinel migration, and the exact
 fixed-rollout-cutoff boundaries and authorization snapshot
-(`ACCEPTED/LEGACY_EXEMPT` only). Localization tests also require every released
+(`ACCEPTED/LEGACY_EXEMPT` only). They also lock valid pending-accept metadata,
+corrupt/stale pending rejection, non-authorizing pending behavior, sync-status
+priority and last-request-wins publisher repetition. Localization tests require every released
 locale to provide the complete non-empty terms UI and body, preserve paragraph
 structure and the canonical project URL, and keep the maintainer-supplied
 Simplified Chinese body and both decision-button labels byte-for-byte equivalent
@@ -176,11 +178,20 @@ Liquid rendering, RenderThread timing, or device accessibility.
     service status reports connected, API 102 and Remote Preferences capable.
     If the service is unavailable, the host must fail closed and install no
     feature Hook; it must not fall back to the compatibility Provider or an
-    ordered broadcast authorization race.
-25. Repeat the gate, declined page, save-failure path, and accepted settings page
+    ordered broadcast authorization race. Click Accept once while disconnected:
+    the UI must retain a non-authorizing pending state, avoid asking for a second
+    acceptance, and automatically converge to `ACCEPTED` only after service bind
+    and full read-back. Repeat in the owner user and one cloned-app/profile user.
+25. Repeat the gate, pending-sync page, declined page, save-failure path, and accepted settings page
     in English, Simplified Chinese, and Traditional Chinese with dark mode,
     large font, rotation, and TalkBack. Confirm all text and buttons remain
-    reachable and Activity recreation never creates two terms dialogs.
+    reachable and Activity recreation never creates two terms dialogs. On the
+    undecided and pending gates, verify the read-only diagnostics show the
+    module userId/UID, framework name/API/Remote capability, possible profile
+    classification, current-user visibility and identity of `tv.danmaku.bili`,
+    same-user result, and the expected bounded failure code. The target must be
+    unavailable rather than guessed when it is absent from that user, and a
+    non-primary user must be labelled only as a possible clone/work profile.
 26. Install the API 102 build over the existing installation and open the module
     once. Confirm the private UI settings remain unchanged and the framework's
     `hook_config` Remote Preferences group contains exactly the catalog values,
