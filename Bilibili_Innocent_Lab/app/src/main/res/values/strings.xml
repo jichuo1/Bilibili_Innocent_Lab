@@ -214,7 +214,8 @@
     <string name="video_relate_filter_summary_none">No filters selected</string>
     <string name="video_relate_filter_summary_selected" tools:ignore="PluralsCandidate">%1$d of %2$d content filters selected · Restart Bilibili to apply</string>
     <string name="video_relate_filter_summary_enhanced" tools:ignore="PluralsCandidate">%1$d of %2$d content filters selected · Matching enhanced</string>
-    <string name="video_relate_filter_dialog_description">Select the recommendation types to hide. Changes are saved together only after you tap Save; unrecognized cards are kept.</string>
+    <string name="video_relate_filter_summary_strong" tools:ignore="PluralsCandidate">%1$d of %2$d content filters selected · Enhanced strong mode enabled</string>
+    <string name="video_relate_filter_dialog_description">Select the recommendation types to hide. Changes are saved together only after you tap Save; unrecognized cards are kept in normal mode.</string>
     <string name="video_relate_filter_select_all">Select all</string>
     <string name="video_relate_filter_clear">Clear</string>
     <string name="video_relate_filter_save" tools:ignore="PluralsCandidate">Save · %1$d selected</string>
@@ -222,6 +223,8 @@
     <string name="video_relate_filter_save_failed">Could not save the related recommendation filters. Please try again.</string>
     <string name="video_relate_matching_enhancement">Enhanced filter matching</string>
     <string name="video_relate_matching_enhancement_tip">Uses structured recommendation reasons as additional evidence for commercial and special promotions. It does not match ordinary titles or descriptions.</string>
+    <string name="video_relate_strong_mode">Strong mode</string>
+    <string name="video_relate_strong_mode_tip">Blocks unknown types, missing or unreadable reasons, like-count recommendations, “Everyone is watching” and “Try now” prompts, and cards with structured ad-feedback menu evidence. It may also hide some ordinary recommendations.</string>
     <string name="video_relate_reason_filter">Filter videos by recommendation reason</string>
     <string name="video_relate_reason_filter_tip">Applies your keywords only to structured recommendation reasons. Missing reason fields are kept.</string>
     <string name="video_relate_reason_filter_keywords">Recommendation reason keywords</string>

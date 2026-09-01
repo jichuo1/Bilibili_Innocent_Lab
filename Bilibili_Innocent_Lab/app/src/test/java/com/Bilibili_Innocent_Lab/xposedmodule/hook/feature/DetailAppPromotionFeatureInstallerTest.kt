@@ -68,6 +68,28 @@ class DetailAppPromotionFeatureInstallerTest {
     }
 
     @Test
+    fun `ad relate contract only accepts the dedicated reference-returning route`() {
+        assertTrue(
+            matchesDetailRelateAdRenderMethod(
+                RelateFixture::class.java.getDeclaredMethod(
+                    "getAdRelateView",
+                    String::class.java
+                )
+            )
+        )
+        assertFalse(
+            matchesDetailRelateAdRenderMethod(
+                RelateFixture::class.java.getDeclaredMethod("getRelatedView")
+            )
+        )
+        assertFalse(
+            matchesDetailRelateAdRenderMethod(
+                RelateFixture::class.java.getDeclaredMethod("getAdRelateView")
+            )
+        )
+    }
+
+    @Test
     fun `runtime gate locates config without requiring caller service argument`() {
         val expected = Config()
 
@@ -146,6 +168,15 @@ class DetailAppPromotionFeatureInstallerTest {
     }
 
     private class VideoDetail
+
+    @Suppress("UNUSED_PARAMETER")
+    private class RelateFixture {
+        fun getAdRelateView(scene: String): Callback = error("signature fixture")
+
+        fun getAdRelateView(): Int = 0
+
+        fun getRelatedView(): Callback = error("signature fixture")
+    }
 
     @Suppress("UNUSED_PARAMETER")
     private class Fixture {

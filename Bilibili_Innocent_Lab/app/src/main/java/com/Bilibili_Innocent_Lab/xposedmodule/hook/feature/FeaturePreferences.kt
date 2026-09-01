@@ -35,6 +35,7 @@ internal object FeaturePreferences {
     const val REMOVE_RELATE_SPECIAL = "remove_relate_special"
     const val VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED =
         "video_relate_matching_enhancement_enabled"
+    const val VIDEO_RELATE_STRONG_MODE_ENABLED = "video_relate_strong_mode_enabled"
     const val VIDEO_RELATE_REASON_FILTER_ENABLED = "video_relate_reason_filter_enabled"
     const val VIDEO_RELATE_REASON_FILTER_KEYWORDS = "video_relate_reason_filter_keywords"
     const val MINE_COMPONENT_HIDDEN_RULES = "mine_component_hidden_rules"

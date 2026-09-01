@@ -265,6 +265,7 @@ class MainActivity : SkinnedActivity() {
     private var removeRelateCourse = false
     private var removeRelateSpecial = false
     private var videoRelateMatchingEnhancementEnabled = false
+    private var videoRelateStrongModeEnabled = false
     private var videoRelateReasonFilterEnabled = false
     private var videoRelateReasonFilterKeywords = ""
     private var playerDefaultQualityQn = 0
@@ -5078,6 +5079,8 @@ class MainActivity : SkinnedActivity() {
         FeaturePreferences.REMOVE_RELATE_SPECIAL to removeRelateSpecial,
         FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED to
             videoRelateMatchingEnhancementEnabled,
+        FeaturePreferences.VIDEO_RELATE_STRONG_MODE_ENABLED to
+            videoRelateStrongModeEnabled,
         FeaturePreferences.VIDEO_RELATE_REASON_FILTER_ENABLED to
             videoRelateReasonFilterEnabled
     )
@@ -5087,6 +5090,11 @@ class MainActivity : SkinnedActivity() {
             videoRelateFilterValues()[it.preferenceKey] == true
         }
         return when {
+            videoRelateMatchingEnhancementEnabled && videoRelateStrongModeEnabled -> getString(
+                R.string.video_relate_filter_summary_strong,
+                selected,
+                VideoRelateFilterCatalog.contentOptions.size
+            )
             videoRelateMatchingEnhancementEnabled -> getString(
                 R.string.video_relate_filter_summary_enhanced,
                 selected,
@@ -5122,6 +5130,8 @@ class MainActivity : SkinnedActivity() {
             FeaturePreferences.REMOVE_RELATE_SPECIAL -> removeRelateSpecial = enabled
             FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED ->
                 videoRelateMatchingEnhancementEnabled = enabled
+            FeaturePreferences.VIDEO_RELATE_STRONG_MODE_ENABLED ->
+                videoRelateStrongModeEnabled = enabled
             FeaturePreferences.VIDEO_RELATE_REASON_FILTER_ENABLED ->
                 videoRelateReasonFilterEnabled = enabled
             else -> error("Unknown video relate filter key: $preferenceKey")
@@ -5280,6 +5290,37 @@ class MainActivity : SkinnedActivity() {
                 (12 * density).toInt()
             )
         }
+        val strongCheckbox = android.widget.CheckBox(this).apply {
+            text = getString(R.string.video_relate_strong_mode)
+            textSize = 14f
+            textColor = getColor(R.color.colorTextDark)
+            isChecked = draft[FeaturePreferences.VIDEO_RELATE_STRONG_MODE_ENABLED]
+            isFocusable = true
+        }
+        reasonGroup.addView(
+            strongCheckbox,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        reasonGroup.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.video_relate_strong_mode_tip)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 12f
+                alpha = 0.72f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                marginStart = (12 * density).toInt()
+                marginEnd = (8 * density).toInt()
+                bottomMargin = (8 * density).toInt()
+            }
+        )
         val reasonCheckbox = android.widget.CheckBox(this).apply {
             text = getString(R.string.video_relate_reason_filter)
             textSize = 14f
@@ -5404,6 +5445,8 @@ class MainActivity : SkinnedActivity() {
                 checkboxes.getValue(option.preferenceKey).isChecked =
                     draft[option.preferenceKey]
             }
+            strongCheckbox.isChecked =
+                draft[FeaturePreferences.VIDEO_RELATE_STRONG_MODE_ENABLED]
             reasonCheckbox.isChecked =
                 draft[FeaturePreferences.VIDEO_RELATE_REASON_FILTER_ENABLED]
             saveButton.text = getString(
@@ -5451,6 +5494,12 @@ class MainActivity : SkinnedActivity() {
                     draft[key] = checked
                     refreshUi()
                 }
+            }
+        }
+        strongCheckbox.setOnCheckedChangeListener { _, checked ->
+            if (!updating) {
+                draft[FeaturePreferences.VIDEO_RELATE_STRONG_MODE_ENABLED] = checked
+                refreshUi()
             }
         }
         reasonCheckbox.setOnCheckedChangeListener { _, checked ->
@@ -6306,6 +6355,12 @@ class MainActivity : SkinnedActivity() {
         videoRelateMatchingEnhancementEnabled = runCatching {
             modulePrefs?.getBoolean(
                 FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED,
+                false
+            ) ?: false
+        }.getOrDefault(false)
+        videoRelateStrongModeEnabled = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.VIDEO_RELATE_STRONG_MODE_ENABLED,
                 false
             ) ?: false
         }.getOrDefault(false)
@@ -8655,6 +8710,7 @@ class MainActivity : SkinnedActivity() {
                                             R.string.remove_relate_course,
                                             R.string.remove_relate_special,
                                             R.string.video_relate_matching_enhancement,
+                                            R.string.video_relate_strong_mode,
                                             R.string.video_relate_reason_filter,
                                             R.string.video_relate_reason_filter_keywords
                                         ).joinToString(" · ") { stringResource(it) }

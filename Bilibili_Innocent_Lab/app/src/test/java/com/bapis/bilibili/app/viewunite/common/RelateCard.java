@@ -14,4 +14,7 @@ public class RelateCard {
     public RelateBangumiResourceCard getResource() { return new RelateBangumiResourceCard(); }
     public RelateGameCard getGame() { return new RelateGameCard(); }
     public RelateSpecial getSpecial() { return new RelateSpecial(); }
+    public boolean hasCm() { return false; }
+    public boolean hasCmStock() { return false; }
+    public RelateThreePoint getThreePoint() { return new RelateThreePoint(); }
 }

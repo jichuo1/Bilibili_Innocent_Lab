@@ -3,10 +3,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import android.net.Uri
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import java.lang.reflect.Method
-import java.util.Collections
-import java.util.WeakHashMap
 
-/** 将首页推荐中的竖屏稿件路由改为普通视频详情页，不改变卡片内容或其它页面对象。 */
+/** 将首页推荐中的普通投稿型竖屏卡片安全改为普通详情页，并保留受首页来源约束的路由兜底。 */
 internal class HomeVerticalDetailFeatureInstaller(
     private val enabled: Boolean,
     private val points: VersionAdapter.HomeRecommendFeedPoints?
@@ -14,7 +12,8 @@ internal class HomeVerticalDetailFeatureInstaller(
 
     override val id: String = ID
 
-    private val verticalItems = Collections.synchronizedMap(WeakHashMap<Any, Boolean>())
+    private val recentHomeVideos = RecentHomeVideoRegistry()
+    private val routeMutator = ConcreteHomeVerticalRouteMutator()
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!enabled) {
@@ -25,101 +24,192 @@ internal class HomeVerticalDetailFeatureInstaller(
             return FeatureInstallResult.Skipped("non-main-process")
         }
         val adapted = points ?: return missing(environment, "missing-adapter-point")
-        val holderType = resolve(environment, "holder_type", adapted.holderTypeGetter)
-            ?: return missing(environment, "missing-holder-getter")
-        val cardGoto = adapted.cardGotoGetter?.let {
-            resolve(environment, "card_goto", it)
-        }
-        val goTo = adapted.goToGetter?.let { resolve(environment, "goto", it) }
-        val uriPoint = adapted.uriGetter ?: return missing(environment, "missing-uri-point")
-        val uri = resolve(environment, "uri", uriPoint)
-            ?: return missing(environment, "missing-uri-getter")
-        val param = adapted.paramGetter?.let { resolve(environment, "param", it) }
+        val accessors = ReadAccessors(
+            holderType = resolve(environment, "holder_type", adapted.holderTypeGetter)
+                ?: return missing(environment, "missing-holder-getter"),
+            bizType = resolveOptional(environment, "biz_type", adapted.bizTypeGetter),
+            adInfo = resolveOptional(environment, "ad_info", adapted.adInfoGetter),
+            cardType = resolveOptional(environment, "card_type", adapted.cardTypeGetter),
+            cardGoto = resolveOptional(environment, "card_goto", adapted.cardGotoGetter),
+            goTo = resolveOptional(environment, "goto", adapted.goToGetter),
+            uri = adapted.uriGetter?.let { resolve(environment, "uri", it) }
+                ?: return missing(environment, "missing-uri-getter"),
+            param = resolveOptional(environment, "param", adapted.paramGetter)
+        )
 
-        var installed = 0
+        var responseHooks = 0
         adapted.responseItemGetters.forEachIndexed { index, point ->
             runCatching {
                 environment.registrar.adapted("home.vertical.response.$index", point) {
                     after {
                         val items = result as? List<*> ?: return@after
-                        items.forEach { item ->
-                            if (item != null && holderType.declaringClass.isInstance(item) &&
-                                isVerticalItem(item, cardGoto, goTo, uri)) {
-                                verticalItems[item] = true
-                            }
-                        }
+                        handleItems(items, accessors, environment)
+                    }
+                }
+                responseHooks += 1
+            }.onFailure { throwable ->
+                environment.logError(
+                    "home_vertical_response_$index",
+                    "[BIL] 首页竖屏详情响应 Hook 注册失败(" +
+                        "${point.className}#${point.methodName}): $throwable"
+                )
+            }
+        }
+        if (responseHooks == 0) return missing(environment, "registration-failed")
+
+        val routeHooks = installRouteFallback(environment)
+        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
+        environment.reportStatus(CHANNEL_STATUS, "success")
+        environment.logInfo(
+            "home_vertical_ok",
+            "[BIL] 首页竖屏详情路由已安装，response=$responseHooks,routeFallback=$routeHooks"
+        )
+        return FeatureInstallResult.Installed(responseHooks + routeHooks)
+    }
+
+    private fun handleItems(
+        items: List<*>,
+        accessors: ReadAccessors,
+        environment: HookEnvironment
+    ) {
+        var observed = 0
+        var eligible = 0
+        var applied = 0
+        var unsafe = 0
+        var noAccessor = 0
+        var rolledBack = 0
+        var rollbackIncomplete = 0
+        items.forEach { item ->
+            if (item == null || !accessors.holderType.declaringClass.isInstance(item)) return@forEach
+            val snapshot = snapshot(item, accessors)
+            when (val decision = HomeVerticalDetailRoutePolicy.decide(snapshot)) {
+                HomeVerticalRouteDecision.NotVertical -> Unit
+                is HomeVerticalRouteDecision.KeepOriginal -> {
+                    observed += 1
+                    unsafe += 1
+                }
+                is HomeVerticalRouteDecision.Rewrite -> {
+                    observed += 1
+                    eligible += 1
+                    recentHomeVideos.register(decision.plan.identity)
+                    when (
+                        routeMutator.apply(
+                            item,
+                            snapshot,
+                            decision.plan,
+                            HomeVerticalReadAccessors(
+                                cardGoto = accessors.cardGoto,
+                                goTo = accessors.goTo,
+                                uri = accessors.uri
+                            )
+                        )
+                    ) {
+                        HomeVerticalMutationResult.APPLIED -> applied += 1
+                        HomeVerticalMutationResult.NO_SAFE_ACCESSOR -> noAccessor += 1
+                        HomeVerticalMutationResult.ROLLED_BACK -> rolledBack += 1
+                        HomeVerticalMutationResult.ROLLBACK_INCOMPLETE -> rollbackIncomplete += 1
+                    }
+                }
+            }
+        }
+        if (observed == 0) return
+        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED, observed)
+        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED, applied)
+        environment.logInfo(
+            "home_vertical_runtime",
+            "[BIL] 首页竖屏详情处理 observed=$observed,eligible=$eligible,applied=$applied," +
+                "unsafe=$unsafe,noAccessor=$noAccessor,rolledBack=$rolledBack," +
+                "recentIds=${recentHomeVideos.size()}"
+        )
+        if (rollbackIncomplete > 0) {
+            environment.logError(
+                "home_vertical_rollback_incomplete",
+                "[BIL] 首页竖屏详情存在 $rollbackIncomplete 项未能完整回滚，已停止继续修改对应卡片"
+            )
+        }
+    }
+
+    private fun snapshot(item: Any, accessors: ReadAccessors): HomeVerticalRouteSnapshot =
+        HomeVerticalRouteSnapshot(
+            holderType = invokeString(accessors.holderType, item),
+            bizType = invokeString(accessors.bizType, item),
+            cardType = invokeString(accessors.cardType, item),
+            cardGoto = invokeString(accessors.cardGoto, item),
+            goTo = invokeString(accessors.goTo, item),
+            uri = invokeString(accessors.uri, item),
+            param = invokeString(accessors.param, item),
+            hasAdInfo = invokeCompatible(accessors.adInfo, item) != null
+        )
+
+    private fun installRouteFallback(environment: HookEnvironment): Int {
+        var installed = 0
+        val stringConstructor = environment.hookPoints.resolveConstructor(
+            "home.vertical.route.string.resolve",
+            ROUTE_REQUEST_BUILDER_CLASS,
+            listOf(String::class.java.name)
+        )
+        if (stringConstructor != null) {
+            runCatching {
+                environment.registrar.constructor(
+                    "home.vertical.route.string",
+                    stringConstructor
+                ) {
+                    before {
+                        val original = args.getOrNull(0) as? String ?: return@before
+                        val rewritten = recentHomeVideos.rewriteIfRegistered(original) ?: return@before
+                        args[0] = rewritten
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                        environment.logInfo(
+                            "home_vertical_route_fallback",
+                            "[BIL] 首页近期竖屏视频已在字符串路由构造阶段改为普通详情页"
+                        )
                     }
                 }
                 installed += 1
             }.onFailure { throwable ->
                 environment.logError(
-                    "home_vertical_response_$index",
-                    "[BIL] 首页竖屏卡片登记 Hook 注册失败(" +
-                        "${point.className}#${point.methodName}): $throwable"
+                    "home_vertical_route_string_failed",
+                    "[BIL] 首页竖屏字符串路由兜底注册失败: $throwable"
                 )
             }
-        }
-        adapted.cardGotoGetter?.let { point ->
-            runCatching {
-                installStringRewrite(environment, "card_goto_rewrite", point) { AV_GOTO }
-                installed += 1
-            }.onFailure { throwable ->
-                environment.logError(
-                    "home_vertical_card_goto",
-                    "[BIL] 首页竖屏卡片 cardGoto 改写 Hook 注册失败: $throwable"
-                )
-            }
-        }
-        adapted.goToGetter?.let { point ->
-            runCatching {
-                installStringRewrite(environment, "goto_rewrite", point) { AV_GOTO }
-                installed += 1
-            }.onFailure { throwable ->
-                environment.logError(
-                    "home_vertical_goto",
-                    "[BIL] 首页竖屏卡片 goTo 改写 Hook 注册失败: $throwable"
-                )
-            }
-        }
-        runCatching {
-            environment.registrar.adapted("home.vertical.uri_rewrite", uriPoint) {
-                after {
-                    val item = instance ?: return@after
-                    if (!verticalItems.containsKey(item)) return@after
-                    val original = result as? String
-                    detailUri(item, original, param)?.let { result = it }
-                }
-            }
-            installed += 1
-        }.onFailure { throwable ->
-            environment.logError(
-                "home_vertical_uri",
-                "[BIL] 首页竖屏卡片 URI 改写 Hook 注册失败: $throwable"
-            )
         }
 
-        if (installed <= 1) return missing(environment, "registration-failed")
-        environment.reportStatus(CHANNEL_STATUS, "success")
-        environment.logInfo(
-            "home_vertical_ok",
-            "[BIL] 首页竖屏视频默认进入详情页已安装，hooks=$installed"
+        val uriConstructor = environment.hookPoints.resolveConstructor(
+            "home.vertical.route.uri.resolve",
+            ROUTE_REQUEST_BUILDER_CLASS,
+            listOf(Uri::class.java.name)
         )
-        return FeatureInstallResult.Installed(installed)
+        if (uriConstructor != null) {
+            runCatching {
+                environment.registrar.constructor("home.vertical.route.uri", uriConstructor) {
+                    before {
+                        val original = args.getOrNull(0) as? Uri ?: return@before
+                        val rewritten = recentHomeVideos.rewriteIfRegistered(original.toString())
+                            ?: return@before
+                        args[0] = Uri.parse(rewritten)
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                        environment.logInfo(
+                            "home_vertical_route_fallback",
+                            "[BIL] 首页近期竖屏视频已在 URI 路由构造阶段改为普通详情页"
+                        )
+                    }
+                }
+                installed += 1
+            }.onFailure { throwable ->
+                environment.logError(
+                    "home_vertical_route_uri_failed",
+                    "[BIL] 首页竖屏 URI 路由兜底注册失败: $throwable"
+                )
+            }
+        }
+        return installed
     }
 
-    private fun installStringRewrite(
+    private fun resolveOptional(
         environment: HookEnvironment,
         suffix: String,
-        point: VersionAdapter.HookPoint,
-        value: () -> String
-    ) {
-        environment.registrar.adapted("home.vertical.$suffix", point) {
-            after {
-                val item = instance ?: return@after
-                if (verticalItems.containsKey(item)) result = value()
-            }
-        }
-    }
+        point: VersionAdapter.HookPoint?
+    ): Method? = point?.let { resolve(environment, suffix, it) }
 
     private fun resolve(
         environment: HookEnvironment,
@@ -132,30 +222,13 @@ internal class HomeVerticalDetailFeatureInstaller(
         point.paramClassNames
     )
 
-    private fun isVerticalItem(
-        item: Any,
-        cardGoto: Method?,
-        goTo: Method?,
-        uri: Method
-    ): Boolean {
-        val cardRoute = invokeString(cardGoto, item)
-        val route = invokeString(goTo, item)
-        val originalUri = invokeString(uri, item)
-        return cardRoute == VERTICAL_AV_GOTO || route == VERTICAL_AV_GOTO ||
-            originalUri?.startsWith(STORY_URI_PREFIX) == true
-    }
+    private fun invokeString(method: Method?, target: Any): String? =
+        invokeCompatible(method, target)?.toString()
 
-    private fun detailUri(item: Any, original: String?, param: Method?): String? {
-        if (original?.startsWith(STORY_URI_PREFIX) == true) {
-            return VIDEO_URI_PREFIX + original.removePrefix(STORY_URI_PREFIX)
-        }
-        val id = invokeString(param, item)?.takeIf { it.isNotBlank() } ?: return null
-        return VIDEO_URI_PREFIX + Uri.encode(id)
+    private fun invokeCompatible(method: Method?, target: Any): Any? {
+        if (method == null || !method.declaringClass.isInstance(target)) return null
+        return runCatching { method.invoke(target) }.getOrNull()
     }
-
-    private fun invokeString(method: Method?, target: Any): String? = runCatching {
-        method?.invoke(target) as? String
-    }.getOrNull()
 
     private fun missing(
         environment: HookEnvironment,
@@ -169,17 +242,25 @@ internal class HomeVerticalDetailFeatureInstaller(
         return FeatureInstallResult.Skipped(reason)
     }
 
+    private data class ReadAccessors(
+        val holderType: Method,
+        val bizType: Method?,
+        val adInfo: Method?,
+        val cardType: Method?,
+        val cardGoto: Method?,
+        val goTo: Method?,
+        val uri: Method,
+        val param: Method?
+    )
+
     companion object {
         const val ID = "home_vertical_detail"
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val CHANNEL_STATUS = "home_vertical_detail_status"
-        private const val VERTICAL_AV_GOTO = "vertical_av"
-        private const val AV_GOTO = "av"
-        private const val STORY_URI_PREFIX = "bilibili://story/"
-        private const val VIDEO_URI_PREFIX = "bilibili://video/"
+        private const val ROUTE_REQUEST_BUILDER_CLASS =
+            "com.bilibili.lib.blrouter.RouteRequest\$Builder"
 
         internal fun rewriteStoryUri(uri: String): String? =
-            uri.takeIf { it.startsWith(STORY_URI_PREFIX) }
-                ?.let { VIDEO_URI_PREFIX + it.removePrefix(STORY_URI_PREFIX) }
+            HomeVerticalDetailRoutePolicy.rewriteRegisteredStoryUri(uri) { true }
     }
 }

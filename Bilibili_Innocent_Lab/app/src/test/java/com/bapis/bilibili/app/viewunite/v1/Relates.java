@@ -5,5 +5,7 @@ import java.util.Collections;
 import java.util.List;
 
 public class Relates {
-    public List<RelateCard> getCardsList() { return Collections.emptyList(); }
+    private List<RelateCard> cards = Collections.emptyList();
+
+    public List<RelateCard> getCardsList() { return cards; }
 }

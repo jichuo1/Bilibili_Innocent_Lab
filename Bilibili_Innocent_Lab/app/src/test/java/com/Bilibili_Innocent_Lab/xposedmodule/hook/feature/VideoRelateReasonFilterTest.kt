@@ -24,6 +24,18 @@ class VideoRelateReasonFilterTest {
         fun getDirectReason(): String = error("host getter failed")
     }
 
+    private class Menu(private val feedback: Boolean) {
+        fun hasFeedback(): Boolean = feedback
+    }
+
+    private class CommercialCard(
+        private val direct: Boolean,
+        private val feedback: Boolean
+    ) {
+        fun hasCmStock(): Boolean = direct
+        fun getThreePoint(): Menu = Menu(feedback)
+    }
+
     @Test
     fun `reader supports validated direct and nested chains`() {
         val direct = Card::class.java.getDeclaredMethod("getDirectReason")
@@ -50,6 +62,30 @@ class VideoRelateReasonFilterTest {
         )
         val paths = VideoRelateReasonReader.buildMethodPaths(listOf(listOf(throwing)))
         assertTrue(VideoRelateReasonReader.read(ThrowingCard(), paths).isEmpty())
+        val observation = VideoRelateReasonReader.observe(ThrowingCard(), paths)
+        assertFalse(observation.hasUsableReason)
+        assertTrue(
+            observation.issueFlags and VideoRelateReasonReader.ISSUE_INVOCATION_FAILED != 0
+        )
+    }
+
+    @Test
+    fun `reader preserves missing empty and oversized reason states`() {
+        val direct = Card::class.java.getDeclaredMethod("getDirectReason").apply {
+            isAccessible = true
+        }
+        val paths = VideoRelateReasonReader.buildMethodPaths(listOf(listOf(direct)))
+
+        val missing = VideoRelateReasonReader.observe(Card("unused"), emptyList())
+        val empty = VideoRelateReasonReader.observe(Card("  "), paths)
+        val oversized = VideoRelateReasonReader.observe(Card("x".repeat(257)), paths)
+
+        assertTrue(missing.issueFlags and VideoRelateReasonReader.ISSUE_NO_PATH != 0)
+        assertTrue(empty.issueFlags and VideoRelateReasonReader.ISSUE_EMPTY_VALUE != 0)
+        assertTrue(oversized.issueFlags and VideoRelateReasonReader.ISSUE_TOO_LONG != 0)
+        assertFalse(missing.hasUsableReason)
+        assertFalse(empty.hasUsableReason)
+        assertFalse(oversized.hasUsableReason)
     }
 
     @Test
@@ -97,5 +133,80 @@ class VideoRelateReasonFilterTest {
             )
         )
         assertFalse(VideoRelateReasonMatcher.matchesCustom(setOf("3万点赞"), keywords))
+    }
+
+    @Test
+    fun `strong mode matches promotion wording and generalized like counts`() {
+        listOf(
+            "大家都在看",
+            "大家都在看这款游戏",
+            "立即体验",
+            "立即体验新游",
+            "商业推广"
+        ).forEach { reason ->
+            assertTrue(VideoRelateReasonMatcher.matchesStrongModePromotion(setOf(reason)))
+        }
+        assertFalse(VideoRelateReasonMatcher.matchesStrongModePromotion(setOf("编辑精选")))
+
+        listOf(
+            "3万点赞",
+            "3.2万点赞",
+            "12万+点赞",
+            "1234点赞",
+            "1,234点赞",
+            "１２．５万＋ 点赞",
+            "2亿点赞"
+        ).forEach { reason ->
+            assertTrue(
+                "$reason should be recognized as a like-count reason",
+                VideoRelateReasonMatcher.matchesLikeCount(setOf(reason))
+            )
+        }
+        listOf(
+            "获得3万点赞",
+            "3万点赞的视频",
+            "3.2点赞",
+            "1,23点赞",
+            "万点赞",
+            "-3点赞",
+            "3万播放",
+            "点赞3万"
+        ).forEach { reason ->
+            assertFalse(
+                "$reason should not be recognized as a like-count reason",
+                VideoRelateReasonMatcher.matchesLikeCount(setOf(reason))
+            )
+        }
+    }
+
+    @Test
+    fun `commercial evidence requires an explicit true protocol getter`() {
+        val direct = CommercialCard::class.java.getDeclaredMethod("hasCmStock")
+        val menu = CommercialCard::class.java.getDeclaredMethod("getThreePoint")
+        val feedback = Menu::class.java.getDeclaredMethod("hasFeedback")
+        listOf(direct, menu, feedback).forEach { it.isAccessible = true }
+        val paths = VideoRelateBooleanEvidenceReader.buildMethodPaths(
+            listOf(listOf(direct), listOf(menu, feedback))
+        )
+
+        assertEquals(2, paths.size)
+        assertFalse(
+            VideoRelateBooleanEvidenceReader.hasPositiveEvidence(
+                CommercialCard(direct = false, feedback = false),
+                paths
+            )
+        )
+        assertTrue(
+            VideoRelateBooleanEvidenceReader.hasPositiveEvidence(
+                CommercialCard(direct = true, feedback = false),
+                paths
+            )
+        )
+        assertTrue(
+            VideoRelateBooleanEvidenceReader.hasPositiveEvidence(
+                CommercialCard(direct = false, feedback = true),
+                paths
+            )
+        )
     }
 }
