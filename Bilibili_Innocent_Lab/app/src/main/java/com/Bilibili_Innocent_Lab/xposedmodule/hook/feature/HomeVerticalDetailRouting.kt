@@ -4,6 +4,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
+import java.net.URLDecoder
 import java.util.concurrent.ConcurrentHashMap
 
 /** 首页竖屏卡片进入普通详情页所需的最小、脱敏路由快照。 */
@@ -42,6 +43,8 @@ internal data class CanonicalHomeVideoId(
 
 internal data class HomeVerticalRoutePlan(
     val identity: CanonicalHomeVideoId,
+    /** 同一卡片中不同命名空间（BV/aid）的身份别名；仅用于近期路由兜底。 */
+    val aliases: Set<CanonicalHomeVideoId> = setOf(identity),
     val detailUri: String,
     val rewriteCardGoto: Boolean,
     val rewriteGoTo: Boolean,
@@ -68,8 +71,9 @@ internal sealed interface HomeVerticalRouteDecision {
  * 未知、冲突或特殊业务卡片全部 fail-open。
  */
 internal object HomeVerticalDetailRoutePolicy {
-    private const val STORY_URI_PREFIX = "bilibili://story/"
-    private const val VIDEO_URI_PREFIX = "bilibili://video/"
+    private const val STORY_URI_ROOT = "bilibili://story"
+    private const val VIDEO_URI_ROOT = "bilibili://video"
+    private const val VIDEO_URI_PREFIX = "$VIDEO_URI_ROOT/"
     private const val VERTICAL_AV_GOTO = "vertical_av"
     private const val AV_GOTO = "av"
     private const val MAX_ROUTE_LENGTH = 4_096
@@ -94,14 +98,14 @@ internal object HomeVerticalDetailRoutePolicy {
             )
         }
 
-        val storyRoute = parseRoute(snapshot.uri, STORY_URI_PREFIX)
-        val videoRoute = parseRoute(snapshot.uri, VIDEO_URI_PREFIX)
-        if (snapshot.uri?.startsWith(STORY_URI_PREFIX) == true && storyRoute == null) {
+        val storyRoute = parseRoute(snapshot.uri, STORY_URI_ROOT)
+        val videoRoute = parseRoute(snapshot.uri, VIDEO_URI_ROOT)
+        if (isRouteFor(snapshot.uri, STORY_URI_ROOT) && storyRoute == null) {
             return HomeVerticalRouteDecision.KeepOriginal(
                 HomeVerticalRouteDecision.Reason.MISSING_OR_INVALID_VIDEO_ID
             )
         }
-        if (snapshot.uri?.startsWith(VIDEO_URI_PREFIX) == true && videoRoute == null) {
+        if (isRouteFor(snapshot.uri, VIDEO_URI_ROOT) && videoRoute == null) {
             return HomeVerticalRouteDecision.KeepOriginal(
                 HomeVerticalRouteDecision.Reason.MISSING_OR_INVALID_VIDEO_ID
             )
@@ -113,25 +117,30 @@ internal object HomeVerticalDetailRoutePolicy {
         }
 
         val paramIdentity = canonicalIdentity(snapshot.param)
-        val routeIdentity = storyRoute?.identity ?: videoRoute?.identity
-        if (routeIdentity != null && paramIdentity != null && routeIdentity != paramIdentity) {
+        val identities = linkedSetOf<CanonicalHomeVideoId>().apply {
+            storyRoute?.identities?.let(::addAll)
+            videoRoute?.identities?.let(::addAll)
+            paramIdentity?.let(::add)
+        }
+        if (identities.groupBy(CanonicalHomeVideoId::kind).any { it.value.size > 1 }) {
             return HomeVerticalRouteDecision.KeepOriginal(
                 HomeVerticalRouteDecision.Reason.CONFLICTING_VIDEO_ID
             )
         }
-        val identity = routeIdentity ?: paramIdentity
+        // BV 与 aid 是同一视频的两种命名空间，无法离线互算；同种身份冲突才是不安全证据。
+        val identity = storyRoute?.primaryIdentity ?: videoRoute?.primaryIdentity ?: paramIdentity
             ?: return HomeVerticalRouteDecision.KeepOriginal(
                 HomeVerticalRouteDecision.Reason.MISSING_OR_INVALID_VIDEO_ID
             )
 
         val detailUri = when {
-            storyRoute != null -> VIDEO_URI_PREFIX + storyRoute.rawToken + storyRoute.suffix
-            videoRoute != null -> snapshot.uri.orEmpty()
+            storyRoute != null -> rewriteStoryRoute(snapshot.uri.orEmpty(), storyRoute)
+            videoRoute != null -> sanitizeStoryRoutingHints(snapshot.uri.orEmpty())
             else -> VIDEO_URI_PREFIX + identity.routeToken()
         }
         val rewriteCardGoto = snapshot.cardGoto == VERTICAL_AV_GOTO
         val rewriteGoTo = snapshot.goTo == VERTICAL_AV_GOTO
-        val rewriteUri = storyRoute != null || videoRoute == null
+        val rewriteUri = storyRoute != null || videoRoute == null || detailUri != snapshot.uri
         if (!rewriteCardGoto && !rewriteGoTo && !rewriteUri) {
             return HomeVerticalRouteDecision.KeepOriginal(
                 HomeVerticalRouteDecision.Reason.NO_ROUTE_CHANGE_REQUIRED
@@ -140,6 +149,7 @@ internal object HomeVerticalDetailRoutePolicy {
         return HomeVerticalRouteDecision.Rewrite(
             HomeVerticalRoutePlan(
                 identity = identity,
+                aliases = identities,
                 detailUri = detailUri,
                 rewriteCardGoto = rewriteCardGoto,
                 rewriteGoTo = rewriteGoTo,
@@ -152,9 +162,12 @@ internal object HomeVerticalDetailRoutePolicy {
         uri: String,
         isRegistered: (CanonicalHomeVideoId) -> Boolean
     ): String? {
-        val route = parseRoute(uri, STORY_URI_PREFIX) ?: return null
-        if (!isRegistered(route.identity)) return null
-        return VIDEO_URI_PREFIX + route.rawToken + route.suffix
+        val route = parseRoute(uri, STORY_URI_ROOT) ?: return null
+        if (route.identities.groupBy(CanonicalHomeVideoId::kind).any { it.value.size > 1 }) {
+            return null
+        }
+        if (route.identities.none(isRegistered)) return null
+        return rewriteStoryRoute(uri, route)
     }
 
     internal fun canonicalIdentity(raw: String?): CanonicalHomeVideoId? {
@@ -166,7 +179,7 @@ internal object HomeVerticalDetailRoutePolicy {
             )
         }
         if (!AID_PATTERN.matches(token)) return null
-        val digits = token.removePrefix("av").removePrefix("AV")
+        val digits = if (token.startsWith("av", ignoreCase = true)) token.substring(2) else token
         val value = digits.toLongOrNull()?.takeIf { it > 0L } ?: return null
         return CanonicalHomeVideoId(CanonicalHomeVideoId.Kind.AID, value.toString())
     }
@@ -176,23 +189,113 @@ internal object HomeVerticalDetailRoutePolicy {
         CanonicalHomeVideoId.Kind.AID -> value
     }
 
-    private fun parseRoute(raw: String?, prefix: String): ParsedRoute? {
-        val route = raw?.takeIf { it.length <= MAX_ROUTE_LENGTH && it.startsWith(prefix) }
+    private fun parseRoute(raw: String?, root: String): ParsedRoute? {
+        val route = raw?.takeIf { it.length <= MAX_ROUTE_LENGTH && isRouteFor(it, root) }
             ?: return null
-        val tail = route.removePrefix(prefix)
-        val delimiter = tail.indexOfFirst { it == '?' || it == '#' }
-        val rawToken = if (delimiter >= 0) tail.substring(0, delimiter) else tail
-        val suffix = if (delimiter >= 0) tail.substring(delimiter) else ""
-        if (rawToken.isEmpty() || '/' in rawToken) return null
-        val identity = canonicalIdentity(rawToken) ?: return null
-        return ParsedRoute(identity, rawToken, suffix)
+        val suffixStart = route.indexOfFirstFrom(root.length) { it == '?' || it == '#' }
+        val pathEnd = suffixStart.takeIf { it >= 0 } ?: route.length
+        val path = route.substring(root.length, pathEnd)
+        val rawToken = when {
+            path.isEmpty() -> null
+            !path.startsWith('/') || path.length == 1 || '/' in path.substring(1) -> return null
+            else -> path.substring(1)
+        }
+        val pathIdentity = rawToken?.let(::canonicalIdentity) ?: if (rawToken == null) null else return null
+        val query = parseQueryIdentities(route) ?: return null
+        val identities = linkedSetOf<CanonicalHomeVideoId>().apply {
+            pathIdentity?.let(::add)
+            addAll(query)
+        }
+        val primary = pathIdentity
+            ?: identities.firstOrNull { it.kind == CanonicalHomeVideoId.Kind.BV }
+            ?: identities.firstOrNull()
+            ?: return null
+        return ParsedRoute(primary, identities, rawToken)
     }
 
     private data class ParsedRoute(
-        val identity: CanonicalHomeVideoId,
-        val rawToken: String,
-        val suffix: String
+        val primaryIdentity: CanonicalHomeVideoId,
+        val identities: Set<CanonicalHomeVideoId>,
+        val rawToken: String?
     )
+
+    private fun isRouteFor(raw: String?, root: String): Boolean {
+        if (raw == null || raw.length < root.length || !raw.startsWith(root, ignoreCase = true)) {
+            return false
+        }
+        return raw.length == root.length || raw[root.length] in charArrayOf('/', '?', '#')
+    }
+
+    private fun rewriteStoryRoute(raw: String, route: ParsedRoute): String {
+        val sanitized = sanitizeStoryRoutingHints(raw)
+        if (route.rawToken != null) {
+            return VIDEO_URI_ROOT + sanitized.substring(STORY_URI_ROOT.length)
+        }
+        val suffixStart = sanitized.indexOfFirstFrom(STORY_URI_ROOT.length) {
+            it == '?' || it == '#'
+        }
+        val suffix = if (suffixStart >= 0) sanitized.substring(suffixStart) else ""
+        return VIDEO_URI_PREFIX + route.primaryIdentity.routeToken() + suffix
+    }
+
+    /** 去掉宿主用于强制进入 Story 的控制参数，保留其余参数的原始编码、顺序和 fragment。 */
+    private fun sanitizeStoryRoutingHints(raw: String): String {
+        val queryStart = raw.indexOf('?')
+        if (queryStart < 0) return raw
+        val fragmentStart = raw.indexOf('#', queryStart + 1).takeIf { it >= 0 } ?: raw.length
+        val components = raw.substring(queryStart + 1, fragmentStart).split('&')
+        val retained = components.filterNot(::isStoryRoutingHint)
+        if (retained.size == components.size) return raw
+        return buildString(raw.length) {
+            append(raw, 0, queryStart)
+            if (retained.isNotEmpty()) append('?').append(retained.joinToString("&"))
+            if (fragmentStart < raw.length) append(raw.substring(fragmentStart))
+        }
+    }
+
+    private fun isStoryRoutingHint(component: String): Boolean {
+        val delimiter = component.indexOf('=')
+        val encodedName = if (delimiter >= 0) component.substring(0, delimiter) else component
+        val encodedValue = if (delimiter >= 0) component.substring(delimiter + 1) else ""
+        val name = decodeQueryComponent(encodedName)?.lowercase() ?: return false
+        val value = decodeQueryComponent(encodedValue) ?: return false
+        return name in STORY_ROUTING_QUERY_KEYS && value.equals("story", ignoreCase = true)
+    }
+
+    /** 返回 null 表示出现了显式但无效的 aid/BV 查询身份，调用方据此 fail-open。 */
+    private fun parseQueryIdentities(raw: String): Set<CanonicalHomeVideoId>? {
+        val queryStart = raw.indexOf('?')
+        if (queryStart < 0) return emptySet()
+        val fragmentStart = raw.indexOf('#', queryStart + 1).takeIf { it >= 0 } ?: raw.length
+        val identities = linkedSetOf<CanonicalHomeVideoId>()
+        raw.substring(queryStart + 1, fragmentStart).split('&').forEach { component ->
+            val delimiter = component.indexOf('=')
+            if (delimiter <= 0) return@forEach
+            val name = decodeQueryComponent(component.substring(0, delimiter))
+                ?.lowercase() ?: return@forEach
+            if (name !in VIDEO_ID_QUERY_KEYS) return@forEach
+            val value = decodeQueryComponent(component.substring(delimiter + 1)) ?: return null
+            val identity = canonicalIdentity(value) ?: return null
+            if (name == "bvid" && identity.kind != CanonicalHomeVideoId.Kind.BV) return null
+            if (name != "bvid" && identity.kind != CanonicalHomeVideoId.Kind.AID) return null
+            identities += identity
+        }
+        return identities
+    }
+
+    private fun decodeQueryComponent(raw: String): String? =
+        runCatching { URLDecoder.decode(raw, Charsets.UTF_8.name()) }.getOrNull()
+
+    private inline fun String.indexOfFirstFrom(
+        startIndex: Int,
+        predicate: (Char) -> Boolean
+    ): Int {
+        for (index in startIndex until length) if (predicate(this[index])) return index
+        return -1
+    }
+
+    private val STORY_ROUTING_QUERY_KEYS = setOf("-arouter", "-atype")
+    private val VIDEO_ID_QUERY_KEYS = setOf("aid", "avid", "bvid")
 
     internal const val NORMAL_AV_GOTO: String = AV_GOTO
 }
@@ -214,6 +317,10 @@ internal class RecentHomeVideoRegistry(
         val now = nowMillis()
         entries[identity.registryKey] = now + ttlMillis
         if (entries.size > maxEntries) trim(now)
+    }
+
+    fun registerAll(identities: Iterable<CanonicalHomeVideoId>) {
+        identities.forEach(::register)
     }
 
     fun contains(identity: CanonicalHomeVideoId): Boolean {
