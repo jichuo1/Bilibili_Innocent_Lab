@@ -2,6 +2,10 @@ package com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsAuthorizationCoordinator
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsPendingCompletion
 import com.highcapable.betterandroid.system.extension.component.versionCodeCompat
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
 import java.util.concurrent.CountDownLatch
@@ -27,6 +31,13 @@ internal object NoRootSupportController {
         val revision: Long,
         val remoteResult: NPatchRemoteGateway.SyncResult?
     )
+
+    private enum class TermsSettlement(val failureCode: String?) {
+        SETTLED(null),
+        NOT_AUTHORIZED("terms_not_authorized"),
+        STALE("terms_state_changed"),
+        LOCAL_WRITE_FAILED("terms_local_write_failed")
+    }
 
     private val requestGeneration = AtomicLong(0L)
     private val syncFlights =
@@ -80,6 +91,7 @@ internal object NoRootSupportController {
                             context = appContext,
                             snapshot = tombstone,
                             generation = intentGeneration,
+                            decision = requestedTermsDecision(appContext),
                             resultHandler = {},
                             listener = null
                         )
@@ -186,12 +198,20 @@ internal object NoRootSupportController {
             revision = snapshot.revision,
             stillCurrent = { requestGeneration.get() == activeGeneration }
         )
+        val attemptedDecision = requestedTermsDecision(appContext)
         enqueueRemoteSync(
             context = appContext,
             snapshot = snapshot,
             generation = activeGeneration,
+            decision = attemptedDecision,
             resultHandler = { result ->
-                applyEnabledSyncResult(appContext, snapshot, activeGeneration, result)
+                applyEnabledSyncResult(
+                    appContext = appContext,
+                    snapshot = snapshot,
+                    activeGeneration = activeGeneration,
+                    attemptedDecision = attemptedDecision,
+                    result = result
+                )
             },
             listener = { result ->
                 onFinished(EnabledSyncCompletion(snapshot.revision, result))
@@ -301,6 +321,7 @@ internal object NoRootSupportController {
             context = appContext,
             snapshot = tombstone,
             generation = generation,
+            decision = requestedTermsDecision(appContext),
             resultHandler = {},
             listener = { result ->
                 resultRef.set(result)
@@ -359,13 +380,15 @@ internal object NoRootSupportController {
         context: Context,
         snapshot: NoRootConfigSnapshot,
         generation: Long,
+        decision: UserTermsDecision,
         resultHandler: (NPatchRemoteGateway.SyncResult) -> Unit,
         listener: ((NPatchRemoteGateway.SyncResult?) -> Unit)?
     ) {
         val key = NoRootSyncFlightRegistry.Key(
             intentGeneration = generation,
             snapshotRevision = snapshot.revision,
-            enabled = snapshot.enabled
+            enabled = snapshot.enabled,
+            termsDecision = decision
         )
         val stillCurrent = {
             requestGeneration.get() == generation &&
@@ -401,6 +424,7 @@ internal object NoRootSupportController {
             NPatchRemoteGateway.syncAsync(
                 context = context,
                 snapshot = snapshot,
+                decision = decision,
                 stillCurrent = {
                     syncFlights.isCurrent(token) &&
                         runCatching(stillCurrent).getOrDefault(false)
@@ -448,14 +472,27 @@ internal object NoRootSupportController {
         appContext: Context,
         snapshot: NoRootConfigSnapshot,
         activeGeneration: Long,
+        attemptedDecision: UserTermsDecision,
         result: NPatchRemoteGateway.SyncResult
     ) {
         if (requestGeneration.get() != activeGeneration ||
             !NoRootSupportStore.isDesiredEnabled(appContext)
         ) return
+        val termsSettlement = if (result == NPatchRemoteGateway.SyncResult.Success) {
+            settlePublishedTermsDecision(
+                appContext = appContext,
+                snapshot = snapshot,
+                activeGeneration = activeGeneration,
+                attemptedDecision = attemptedDecision
+            )
+        } else {
+            null
+        }
         val state = when (result) {
             NPatchRemoteGateway.SyncResult.Success -> {
-                if (!NoRootSupportStore.markRemoteSynced(
+                if (termsSettlement != TermsSettlement.SETTLED) {
+                    NoRootSupportStore.SyncState.ERROR
+                } else if (!NoRootSupportStore.markRemoteSynced(
                         appContext,
                         snapshot.revision,
                         stillCurrent = { requestGeneration.get() == activeGeneration }
@@ -475,7 +512,11 @@ internal object NoRootSupportController {
             is NPatchRemoteGateway.SyncResult.Failure ->
                 NoRootSupportStore.SyncState.ERROR
         }
-        val detail = (result as? NPatchRemoteGateway.SyncResult.Failure)?.errorClass
+        val detail = when {
+            result is NPatchRemoteGateway.SyncResult.Failure -> result.errorCode
+            termsSettlement != null -> termsSettlement.failureCode
+            else -> null
+        }
         NoRootSupportStore.updateSyncState(
             appContext,
             state,
@@ -484,6 +525,73 @@ internal object NoRootSupportController {
             stillCurrent = { requestGeneration.get() == activeGeneration }
         )
     }
+
+    /**
+     * NPatch 写后读回成功后才推进待接受条款；本地提交失败时立即发布原关闭态决定。
+     * 这与标准 API 102 发布器保持相同的先远端、后本地、失败回滚顺序。
+     */
+    private fun settlePublishedTermsDecision(
+        appContext: Context,
+        snapshot: NoRootConfigSnapshot,
+        activeGeneration: Long,
+        attemptedDecision: UserTermsDecision
+    ): TermsSettlement {
+        if (!attemptedDecision.isAuthorized) return TermsSettlement.NOT_AUTHORIZED
+        val state = UserTermsConsentStore.readStateOrInitialize(appContext)
+        val pending = state.pendingAcceptance ?: run {
+            if (!state.decision.isAuthorized) {
+                enqueueRemoteSync(
+                    context = appContext,
+                    snapshot = snapshot,
+                    generation = activeGeneration,
+                    decision = state.requestedRemoteDecision,
+                    resultHandler = {},
+                    listener = null
+                )
+                return TermsSettlement.STALE
+            }
+            return TermsSettlement.SETTLED
+        }
+        if (attemptedDecision != UserTermsDecision.ACCEPTED) {
+            return TermsSettlement.NOT_AUTHORIZED
+        }
+        return when (
+            UserTermsConsentStore.completePendingAcceptance(appContext, pending.revision)
+        ) {
+            UserTermsPendingCompletion.COMPLETED -> {
+                UserTermsAuthorizationCoordinator.refreshFromExternalPublisher(appContext)
+                TermsSettlement.SETTLED
+            }
+            UserTermsPendingCompletion.STALE -> {
+                val latest = UserTermsConsentStore.readStateOrInitialize(appContext)
+                enqueueRemoteSync(
+                    context = appContext,
+                    snapshot = snapshot,
+                    generation = activeGeneration,
+                    decision = latest.requestedRemoteDecision,
+                    resultHandler = {},
+                    listener = null
+                )
+                UserTermsAuthorizationCoordinator.refreshFromExternalPublisher(appContext)
+                TermsSettlement.STALE
+            }
+            UserTermsPendingCompletion.WRITE_FAILED -> {
+                enqueueRemoteSync(
+                    context = appContext,
+                    snapshot = snapshot,
+                    generation = activeGeneration,
+                    decision = pending.previousDecision,
+                    resultHandler = {},
+                    listener = null
+                )
+                UserTermsAuthorizationCoordinator.refreshFromExternalPublisher(appContext)
+                TermsSettlement.LOCAL_WRITE_FAILED
+            }
+        }
+    }
+
+    private fun requestedTermsDecision(context: Context): UserTermsDecision =
+        UserTermsConsentStore.readStateOrInitialize(context).requestedRemoteDecision
 
     private fun successfulSyncState(
         appContext: Context,

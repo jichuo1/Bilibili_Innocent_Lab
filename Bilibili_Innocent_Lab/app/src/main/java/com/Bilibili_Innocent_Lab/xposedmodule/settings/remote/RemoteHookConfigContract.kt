@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.settings.remote
 
+import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingValue
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
@@ -11,11 +12,14 @@ import java.security.MessageDigest
 /** LSPosed Remote Preferences 向宿主暴露的完整、不可变配置。 */
 internal data class RemoteHookConfigSnapshot(
     val generation: Long,
+    val moduleVersionCode: Long,
+    val deliveryEnabled: Boolean,
+    val noRootRevision: Long,
     val decision: UserTermsDecision,
     val values: Map<String, Any>
 ) {
     val authorized: Boolean
-        get() = decision.isAuthorized
+        get() = deliveryEnabled && decision.isAuthorized
 }
 
 /** 宿主解析结果；任何协议、类型或完整性异常都不能产生部分配置。 */
@@ -33,12 +37,15 @@ internal sealed interface RemoteHookConfigDecodeResult {
  */
 internal object RemoteHookConfigContract {
     const val GROUP = "hook_config"
-    const val SCHEMA_VERSION = 3
+    const val SCHEMA_VERSION = 4
 
     const val KEY_READY = "__remote_ready"
     const val KEY_SCHEMA_VERSION = "__remote_schema_version"
     const val KEY_CATALOG_VERSION = "__remote_catalog_version"
     const val KEY_GENERATION = "__remote_generation"
+    const val KEY_MODULE_VERSION_CODE = "__remote_module_version_code"
+    const val KEY_DELIVERY_ENABLED = "__remote_delivery_enabled"
+    const val KEY_NO_ROOT_REVISION = "__remote_no_root_revision"
     const val KEY_TERMS_VERSION = "__remote_terms_version"
     const val KEY_TERMS_DECISION = "__remote_terms_decision"
     const val KEY_DIGEST = "__remote_digest"
@@ -54,6 +61,9 @@ internal object RemoteHookConfigContract {
         KEY_SCHEMA_VERSION,
         KEY_CATALOG_VERSION,
         KEY_GENERATION,
+        KEY_MODULE_VERSION_CODE,
+        KEY_DELIVERY_ENABLED,
+        KEY_NO_ROOT_REVISION,
         KEY_TERMS_VERSION,
         KEY_TERMS_DECISION,
         KEY_DIGEST
@@ -98,10 +108,15 @@ internal object RemoteHookConfigContract {
 
     fun encode(
         generation: Long,
+        moduleVersionCode: Long,
+        deliveryEnabled: Boolean,
+        noRootRevision: Long,
         decision: UserTermsDecision,
         values: Map<String, Any>
     ): Map<String, Any> {
         require(generation > 0L) { "generation must be positive" }
+        require(moduleVersionCode > 0L) { "module version must be positive" }
+        require(noRootRevision >= 0L) { "no-root revision must not be negative" }
         require(values.keys == hookValueKeys) { "remote hook values are incomplete" }
         require(validateHookValues(values) == null) { "remote hook values are invalid" }
 
@@ -111,9 +126,22 @@ internal object RemoteHookConfigContract {
             put(KEY_SCHEMA_VERSION, SCHEMA_VERSION)
             put(KEY_CATALOG_VERSION, SettingsCatalog.CATALOG_VERSION)
             put(KEY_GENERATION, generation)
+            put(KEY_MODULE_VERSION_CODE, moduleVersionCode)
+            put(KEY_DELIVERY_ENABLED, deliveryEnabled)
+            put(KEY_NO_ROOT_REVISION, noRootRevision)
             put(KEY_TERMS_VERSION, UserTermsConsentStore.CURRENT_TERMS_VERSION)
             put(KEY_TERMS_DECISION, decision.name)
-            put(KEY_DIGEST, digest(generation, decision, values))
+            put(
+                KEY_DIGEST,
+                digest(
+                    generation = generation,
+                    moduleVersionCode = moduleVersionCode,
+                    deliveryEnabled = deliveryEnabled,
+                    noRootRevision = noRootRevision,
+                    decision = decision,
+                    values = values
+                )
+            )
         }
     }
 
@@ -136,6 +164,18 @@ internal object RemoteHookConfigContract {
         val generation = raw[KEY_GENERATION] as? Long
             ?: return RemoteHookConfigDecodeResult.Invalid("generation-type")
         if (generation <= 0L) return RemoteHookConfigDecodeResult.Invalid("generation-value")
+        val moduleVersionCode = raw[KEY_MODULE_VERSION_CODE] as? Long
+            ?: return RemoteHookConfigDecodeResult.Invalid("module-version-type")
+        if (moduleVersionCode != BuildConfig.VERSION_CODE.toLong()) {
+            return RemoteHookConfigDecodeResult.Invalid("module-version")
+        }
+        val deliveryEnabled = raw[KEY_DELIVERY_ENABLED] as? Boolean
+            ?: return RemoteHookConfigDecodeResult.Invalid("delivery-enabled-type")
+        val noRootRevision = raw[KEY_NO_ROOT_REVISION] as? Long
+            ?: return RemoteHookConfigDecodeResult.Invalid("no-root-revision-type")
+        if (noRootRevision < 0L) {
+            return RemoteHookConfigDecodeResult.Invalid("no-root-revision-value")
+        }
         val decision = (raw[KEY_TERMS_DECISION] as? String)?.let { stored ->
             UserTermsDecision.entries.firstOrNull { it.name == stored }
         } ?: return RemoteHookConfigDecodeResult.Invalid("terms-decision")
@@ -149,13 +189,27 @@ internal object RemoteHookConfigContract {
         if (storedDigest.length != SHA_256_HEX_LENGTH ||
             !MessageDigest.isEqual(
                 storedDigest.toByteArray(Charsets.US_ASCII),
-                digest(generation, decision, values).toByteArray(Charsets.US_ASCII)
+                digest(
+                    generation = generation,
+                    moduleVersionCode = moduleVersionCode,
+                    deliveryEnabled = deliveryEnabled,
+                    noRootRevision = noRootRevision,
+                    decision = decision,
+                    values = values
+                ).toByteArray(Charsets.US_ASCII)
             )
         ) {
             return RemoteHookConfigDecodeResult.Invalid("digest")
         }
         return RemoteHookConfigDecodeResult.Ready(
-            RemoteHookConfigSnapshot(generation, decision, values)
+            RemoteHookConfigSnapshot(
+                generation = generation,
+                moduleVersionCode = moduleVersionCode,
+                deliveryEnabled = deliveryEnabled,
+                noRootRevision = noRootRevision,
+                decision = decision,
+                values = values
+            )
         )
     }
 
@@ -183,6 +237,9 @@ internal object RemoteHookConfigContract {
 
     private fun digest(
         generation: Long,
+        moduleVersionCode: Long,
+        deliveryEnabled: Boolean,
+        noRootRevision: Long,
         decision: UserTermsDecision,
         values: Map<String, Any>
     ): String {
@@ -191,6 +248,9 @@ internal object RemoteHookConfigContract {
                 output.writeInt(SCHEMA_VERSION)
                 output.writeInt(SettingsCatalog.CATALOG_VERSION)
                 output.writeLong(generation)
+                output.writeLong(moduleVersionCode)
+                output.writeBoolean(deliveryEnabled)
+                output.writeLong(noRootRevision)
                 output.writeInt(UserTermsConsentStore.CURRENT_TERMS_VERSION)
                 output.writeString(decision.name)
                 SettingsCatalog.specs.forEach { spec ->

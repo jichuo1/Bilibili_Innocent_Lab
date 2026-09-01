@@ -182,6 +182,13 @@ internal object UserTermsAuthorizationCoordinator {
         listeners.remove(listener)
     }
 
+    /** NPatch 等外部 API 102 发布器完成两阶段条款提交后刷新当前界面状态。 */
+    fun refreshFromExternalPublisher(context: Context) {
+        val appContext = context.applicationContext ?: context
+        applicationContext = appContext
+        notifyListeners(buildSnapshot(appContext))
+    }
+
     private fun handleRemotePublish(event: RemoteHookConfigPublishEvent) {
         val appContext = applicationContext ?: return
         val current = UserTermsConsentStore.readStateOrInitialize(appContext)
