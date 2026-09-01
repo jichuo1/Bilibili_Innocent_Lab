@@ -43,6 +43,54 @@ class HostContentSemanticClassifierTest {
     }
 
     @Test
+    fun `related promotions keep specific kinds and also map to special fallback`() {
+        val sourcePromotion = HostContentSemanticClassifier.classify(
+            HostContentSignals(fromSourceType = 2L)
+        )
+        val resourcePromotion = HostContentSemanticClassifier.classify(
+            HostContentSignals(relateCardType = "RELATE_CARD_TYPE_RESOURCE")
+        )
+        val gamePromotion = HostContentSemanticClassifier.classify(
+            HostContentSignals(relateCardTypeValue = 4)
+        )
+
+        assertTrue(HostContentKind.ADVERTISEMENT in sourcePromotion)
+        assertTrue(HostContentKind.SPECIAL in sourcePromotion)
+        assertTrue(HostContentKind.ADVERTISEMENT in resourcePromotion)
+        assertTrue(HostContentKind.SPECIAL in resourcePromotion)
+        assertTrue(HostContentKind.GAME in gamePromotion)
+        assertTrue(HostContentKind.SPECIAL in gamePromotion)
+        assertTrue(
+            HostContentKind.SPECIAL in HostContentSemanticClassifier.classify(
+                HostContentSignals(relateCardTypeValue = 3)
+            )
+        )
+        assertTrue(
+            HostContentKind.SPECIAL in HostContentSemanticClassifier.classify(
+                HostContentSignals(relateCardTypeValue = 5)
+            )
+        )
+        assertTrue(
+            HostContentKind.SPECIAL in HostContentSemanticClassifier.classify(
+                HostContentSignals(relateCardTypeValue = 10)
+            )
+        )
+        setOf("RESOURCE", "CM", "GAME", "SPECIAL").forEach { type ->
+            assertTrue(
+                HostContentKind.SPECIAL in HostContentSemanticClassifier.classify(
+                    HostContentSignals(relateCardType = type)
+                )
+            )
+        }
+        assertEquals(
+            emptySet<HostContentKind>(),
+            HostContentSemanticClassifier.classify(
+                HostContentSignals(fromSourceType = 99L, relateCardTypeValue = 99)
+            )
+        )
+    }
+
+    @Test
     fun `related card checks every explicit type before semantic fallback`() {
         assertTrue(
             VideoRelateFilterFeatureInstaller.matchesAnyType(

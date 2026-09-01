@@ -36,6 +36,99 @@ class VideoRelateFilterFeatureInstallerTest {
     }
 
     @Test
+    fun `matches old and new protocol evidence without coupling independent switches`() {
+        assertTrue(
+            VideoRelateFilterFeatureInstaller.matchesEvidence(
+                types = emptySet(),
+                fromSourceTypes = setOf(2L),
+                relateCardTypeValues = emptySet(),
+                hiddenTypes = setOf("CM")
+            )
+        )
+        assertTrue(
+            VideoRelateFilterFeatureInstaller.matchesEvidence(
+                types = emptySet(),
+                fromSourceTypes = setOf(2L),
+                relateCardTypeValues = emptySet(),
+                hiddenTypes = setOf("SPECIAL")
+            )
+        )
+        assertTrue(
+            VideoRelateFilterFeatureInstaller.matchesEvidence(
+                types = emptySet(),
+                fromSourceTypes = emptySet(),
+                relateCardTypeValues = setOf(3),
+                hiddenTypes = setOf("ADVERTISEMENT")
+            )
+        )
+        assertTrue(
+            VideoRelateFilterFeatureInstaller.matchesEvidence(
+                types = emptySet(),
+                fromSourceTypes = emptySet(),
+                relateCardTypeValues = setOf(3, 5),
+                hiddenTypes = setOf("SPECIAL")
+            )
+        )
+        assertTrue(
+            VideoRelateFilterFeatureInstaller.matchesEvidence(
+                types = emptySet(),
+                fromSourceTypes = emptySet(),
+                relateCardTypeValues = emptySet(),
+                hiddenTypes = setOf("CM"),
+                relateCardTypes = setOf("RELATE_CARD_TYPE_RESOURCE")
+            )
+        )
+        assertTrue(
+            VideoRelateFilterFeatureInstaller.matchesEvidence(
+                types = setOf("RESOURCE"),
+                fromSourceTypes = emptySet(),
+                relateCardTypeValues = emptySet(),
+                hiddenTypes = setOf("SPECIAL")
+            )
+        )
+        assertTrue(
+            VideoRelateFilterFeatureInstaller.matchesEvidence(
+                types = emptySet(),
+                fromSourceTypes = emptySet(),
+                relateCardTypeValues = setOf(4),
+                hiddenTypes = setOf("GAME")
+            )
+        )
+        assertTrue(
+            VideoRelateFilterFeatureInstaller.matchesEvidence(
+                types = emptySet(),
+                fromSourceTypes = emptySet(),
+                relateCardTypeValues = setOf(4),
+                hiddenTypes = setOf("SPECIAL")
+            )
+        )
+        assertTrue(
+            VideoRelateFilterFeatureInstaller.matchesEvidence(
+                types = emptySet(),
+                fromSourceTypes = emptySet(),
+                relateCardTypeValues = setOf(10),
+                hiddenTypes = setOf("SPECIAL")
+            )
+        )
+        assertFalse(
+            VideoRelateFilterFeatureInstaller.matchesEvidence(
+                types = emptySet(),
+                fromSourceTypes = setOf(99L),
+                relateCardTypeValues = setOf(99),
+                hiddenTypes = setOf("CM", "GAME", "SPECIAL")
+            )
+        )
+        assertFalse(
+            VideoRelateFilterFeatureInstaller.matchesEvidence(
+                types = emptySet(),
+                fromSourceTypes = emptySet(),
+                relateCardTypeValues = setOf(4),
+                hiddenTypes = setOf("CM")
+            )
+        )
+    }
+
+    @Test
     fun `duration-only configuration installs while an empty range stays hook free`() {
         val durationStatuses = mutableListOf<Pair<String, String>>()
         val disabledStatuses = mutableListOf<Pair<String, String>>()
@@ -95,7 +188,11 @@ class VideoRelateFilterFeatureInstallerTest {
         ).copy(
             cardCaseGetters = emptyList(),
             gotoGetters = emptyList(),
-            cardTypeGetters = emptyList()
+            cardTypeGetters = emptyList(),
+            relateCardTypeGetters = emptyList(),
+            fromSourceTypeGetters = emptyList(),
+            fromSourceTypeChains = emptyList(),
+            relateCardTypeValueGetters = emptyList()
         )
 
         assertEquals(
