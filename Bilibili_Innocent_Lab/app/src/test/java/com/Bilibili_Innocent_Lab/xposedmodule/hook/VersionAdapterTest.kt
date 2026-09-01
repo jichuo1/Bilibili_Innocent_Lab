@@ -170,7 +170,12 @@ class VersionAdapterTest {
                 "getPlayerArgs",
                 emptyList()
             ),
-            playerArgsDurationField = "fakeDuration"
+            playerArgsDurationField = "fakeDuration",
+            intentHandlerOnCreate = VersionAdapter.HookPoint(
+                "tv.danmaku.bili.ui.intent.IntentHandlerActivity",
+                "onCreate",
+                listOf("android.os.Bundle")
+            )
         ),
         videoRelate = VersionAdapter.VideoRelatePoints(
             responseItemGetters = listOf(
@@ -681,6 +686,11 @@ class VersionAdapterTest {
         val incompleteHomeDuration = JSONObject(result().toJson().toString()).apply {
             getJSONObject("home_recommend_feed").remove("player_args_duration")
         }
+        val invalidHomeIntentHandler = JSONObject(result().toJson().toString()).apply {
+            getJSONObject("home_recommend_feed")
+                .getJSONObject("intent_handler_on_create")
+                .put("m", "")
+        }
         val invalidRelateDurationChain = JSONObject(result().toJson().toString()).apply {
             getJSONObject("video_relate")
                 .getJSONArray("duration_chains")
@@ -727,6 +737,7 @@ class VersionAdapterTest {
         assertNull(VersionAdapter.AdaptResult.fromJson(stale))
         assertNull(VersionAdapter.AdaptResult.fromJson(invalid))
         assertNull(VersionAdapter.AdaptResult.fromJson(incompleteHomeDuration))
+        assertNull(VersionAdapter.AdaptResult.fromJson(invalidHomeIntentHandler))
         assertNull(VersionAdapter.AdaptResult.fromJson(invalidRelateDurationChain))
         assertNull(VersionAdapter.AdaptResult.fromJson(invalidRelateSourceType))
         assertNull(VersionAdapter.AdaptResult.fromJson(invalidRelateSourceTypeChain))
