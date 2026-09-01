@@ -21,6 +21,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.lang.reflect.Field
 import java.lang.reflect.ParameterizedType
 import java.lang.reflect.Method
 import java.lang.reflect.Type
@@ -128,8 +129,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 44
-    private const val ADAPTER_RULE_VERSION = 36
+    private const val SCHEMA_VERSION = 46
+    private const val ADAPTER_RULE_VERSION = 38
 
     enum class AdaptState {
         FOUND,
@@ -504,6 +505,49 @@ object VersionAdapter {
         }
     }
 
+    /** 相关推荐结构化商业证据的公开布尔 getter 链，长度限定为 1–2 层。 */
+    data class BooleanMethodChain(
+        val steps: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("steps", JSONArray().apply { steps.forEach { put(it.toJson()) } })
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): BooleanMethodChain = BooleanMethodChain(
+                steps = o.getJSONArray("steps").let { values ->
+                    (0 until values.length()).map {
+                        HookPoint.fromJson(values.getJSONObject(it))
+                    }
+                }
+            )
+        }
+    }
+
+    /** 详情页推荐 DTO 转为界面组件前的第二层入口；字段和 getter 均在适配期唯一确认。 */
+    data class DetailRelateServicePoint(
+        val componentFactory: HookPoint,
+        val typeField: String? = null,
+        val typeGetter: HookPoint? = null,
+        val titleGetter: HookPoint? = null
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("factory", componentFactory.toJson())
+            typeField?.let { put("type_field", it) }
+            typeGetter?.let { put("type_getter", it.toJson()) }
+            titleGetter?.let { put("title_getter", it.toJson()) }
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): DetailRelateServicePoint = DetailRelateServicePoint(
+                componentFactory = HookPoint.fromJson(o.getJSONObject("factory")),
+                typeField = o.optString("type_field").takeIf(String::isNotBlank),
+                typeGetter = o.optJSONObject("type_getter")?.let(HookPoint::fromJson),
+                titleGetter = o.optJSONObject("title_getter")?.let(HookPoint::fromJson)
+            )
+        }
+    }
+
     /** 视频详情相关推荐响应与直接/嵌套类型公开读取边界。 */
     data class VideoRelatePoints(
         val responseItemGetters: List<HookPoint>,
@@ -516,7 +560,9 @@ object VersionAdapter {
         val relateCardTypeValueGetters: List<HookPoint>,
         val directDurationGetters: List<HookPoint>,
         val durationChains: List<DurationMethodChain>,
-        val reasonChains: List<ReasonMethodChain> = emptyList()
+        val reasonChains: List<ReasonMethodChain> = emptyList(),
+        val commercialEvidenceChains: List<BooleanMethodChain> = emptyList(),
+        val detailRelateService: DetailRelateServicePoint? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("responses", JSONArray().apply { responseItemGetters.forEach { put(it.toJson()) } })
@@ -551,6 +597,11 @@ object VersionAdapter {
                 "reason_chains",
                 JSONArray().apply { reasonChains.forEach { put(it.toJson()) } }
             )
+            put(
+                "commercial_evidence_chains",
+                JSONArray().apply { commercialEvidenceChains.forEach { put(it.toJson()) } }
+            )
+            detailRelateService?.let { put("detail_relate_service", it.toJson()) }
         }
 
         companion object {
@@ -593,7 +644,15 @@ object VersionAdapter {
                     (0 until values.length()).map {
                         ReasonMethodChain.fromJson(values.getJSONObject(it))
                     }
-                }
+                },
+                commercialEvidenceChains = o.optJSONArray("commercial_evidence_chains")
+                    ?.let { values ->
+                        (0 until values.length()).map {
+                            BooleanMethodChain.fromJson(values.getJSONObject(it))
+                        }
+                    }.orEmpty(),
+                detailRelateService = o.optJSONObject("detail_relate_service")
+                    ?.let(DetailRelateServicePoint::fromJson)
             )
         }
     }
@@ -1441,7 +1500,8 @@ object VersionAdapter {
                             value.relateCardTypeValueGetters.isNotEmpty() ||
                             value.directDurationGetters.isNotEmpty() ||
                             value.durationChains.isNotEmpty() ||
-                            value.reasonChains.isNotEmpty()) &&
+                            value.reasonChains.isNotEmpty() ||
+                            value.commercialEvidenceChains.isNotEmpty()) &&
                         value.cardCaseGetters.all { it.isValid() } &&
                         value.gotoGetters.all { it.isValid() } &&
                         value.cardTypeGetters.all { it.isValid() } &&
@@ -1457,7 +1517,16 @@ object VersionAdapter {
                         } &&
                         value.reasonChains.all { chain ->
                             chain.steps.size in 1..3 && chain.steps.all { it.isValid() }
-                        }
+                        } &&
+                        value.commercialEvidenceChains.all { chain ->
+                            chain.steps.size in 1..2 && chain.steps.all { it.isValid() }
+                        } &&
+                        value.detailRelateService?.let { service ->
+                            service.componentFactory.isValid() &&
+                                service.typeField?.isNotBlank() != false &&
+                                service.typeGetter?.isValid() != false &&
+                                service.titleGetter?.isValid() != false
+                        } != false
                 } != false &&
                 homeTabs?.let { value ->
                     value.buildMethod.isValid() && value.resourceClassName.isNotBlank() &&
@@ -1716,11 +1785,37 @@ object VersionAdapter {
         "com.bilibili.pegasus.p5730data.p5731base.BasePegasusData"
     )
     private val VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES = listOf(
+        "com.bapis.bilibili.app.viewunite.common.Relates",
         "com.bapis.bilibili.app.viewunite.v1.Relates",
         "com.bapis.bilibili.app.viewunite.v1.RelatesFeedReply",
         "com.bapis.bilibili.app.view.v1.RelatesFeedReply",
         "com.bapis.bilibili.app.view.v1.ViewReply",
         "com.bapis.bilibili.app.view.v1.PlayerRelatesReply"
+    )
+    private const val DETAIL_RELATE_SERVICE_CLASS =
+        "com.bilibili.ship.theseus.united.page.intro.module.relate.DetailRelateService"
+    private const val DETAIL_RELATE_SERVICE_PACKAGE =
+        "com.bilibili.ship.theseus.united.page.intro.module.relate"
+    private val DETAIL_RELATE_TYPE_MEMBER_NAMES = setOf("type", "goto", "cardType")
+    private val DETAIL_RELATE_TYPE_GETTER_NAMES = setOf(
+        "getType",
+        "getGoto",
+        "getCardType"
+    )
+    private val VIDEO_RELATE_KNOWN_TYPE_NAMES = setOf(
+        "AV",
+        "BANGUMI",
+        "RESOURCE",
+        "GAME",
+        "CM",
+        "LIVE",
+        "BANGUMI_AV",
+        "AI_CARD",
+        "BANGUMI_UGC",
+        "SPECIAL",
+        "COURSE",
+        "MINI_PROGRAM",
+        "HISTORY_AV"
     )
     private val VIDEO_RELATE_ITEM_CLASS_CANDIDATES = listOf(
         "com.bapis.bilibili.app.viewunite.common.RelateCard",
@@ -2402,6 +2497,16 @@ object VersionAdapter {
                     add("relate.reason.$chainIndex.$stepIndex", point)
                 }
             }
+            points.commercialEvidenceChains.forEachIndexed { chainIndex, chain ->
+                chain.steps.forEachIndexed { stepIndex, point ->
+                    add("relate.commercial.$chainIndex.$stepIndex", point)
+                }
+            }
+            points.detailRelateService?.let { service ->
+                add("relate.service.factory", service.componentFactory)
+                service.typeGetter?.let { add("relate.service.type", it) }
+                service.titleGetter?.let { add("relate.service.title", it) }
+            }
         }
         comment?.let { points ->
             points.replyListGetters.forEachIndexed { index, point -> add("comment.list.$index", point) }
@@ -2718,7 +2823,10 @@ object VersionAdapter {
                             it.cardTypeGetters.size + it.relateCardTypeGetters.size +
                             it.fromSourceTypeGetters.size + it.fromSourceTypeChains.size +
                             it.relateCardTypeValueGetters.size) +
-                        ",reasons=${it.reasonChains.size}"
+                        ",reasons=${it.reasonChains.size},commercial=" +
+                        it.commercialEvidenceChains.size +
+                        ",writeback=${it.responseItemGetters.count { point -> !point.viewField.isNullOrBlank() }}" +
+                        ",service=${it.detailRelateService != null}"
                 }.orEmpty()
             ),
             AdaptDiagnostic(
@@ -3279,6 +3387,23 @@ object VersionAdapter {
 
     /** 精确定位相关推荐列表以及公开的直接/嵌套类型读取方法。 */
     fun locateVideoRelate(loader: ClassLoader): VideoRelatePoints? = runCatching {
+        fun responseListField(getter: Method): Field? {
+            val candidates = KavaMemberLookup.fields(
+                getter.declaringClass,
+                includeSuperclasses = true,
+                makeAccessible = true
+            ) { field ->
+                !field.isStatic && (field.type isSubclassOf classOf<List<*>>())
+            }.distinctBy(Field::toGenericString)
+            if (candidates.isEmpty()) return null
+            val stem = getter.name.removePrefix("get").removeSuffix("List").lowercase()
+            fun normalizedFieldName(field: Field): String =
+                field.name.trimEnd('_').lowercase()
+            return candidates.singleOrNull { normalizedFieldName(it) == stem }
+                ?: candidates.filter { normalizedFieldName(it).startsWith(stem) }.singleOrNull()
+                ?: candidates.singleOrNull()
+        }
+
         val responses = VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES.asSequence()
             .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
             .flatMap { owner ->
@@ -3294,7 +3419,9 @@ object VersionAdapter {
                 }.asSequence()
             }
             .distinctBy(Method::toGenericString)
-            .map { it.toHookPoint() }
+            .map { method ->
+                method.toHookPoint().copy(viewField = responseListField(method)?.name)
+            }
             .toList()
         if (responses.isEmpty()) return@runCatching null
 
@@ -3327,6 +3454,85 @@ object VersionAdapter {
 
         fun isStringMethod(method: Method): Boolean = method.parameterCount == 0 &&
             method.isPublic && !method.isStatic && method.returnType == classOf<String>()
+
+        fun isBooleanMethod(method: Method): Boolean = method.parameterCount == 0 &&
+            method.isPublic && !method.isStatic &&
+            method.returnType in setOf(
+                classOf<Boolean>(),
+                classOf<Boolean>(primitiveType = false)
+            )
+
+        fun enumLooksLikeRelateType(type: Class<*>): Boolean = type.isEnum &&
+            type.declaredFields.asSequence()
+                .filter(Field::isEnumConstant)
+                .map { it.name.removePrefix("CARD_TYPE_").removePrefix("RELATE_CARD_TYPE_") }
+                .any(VIDEO_RELATE_KNOWN_TYPE_NAMES::contains)
+
+        fun <T> selectUniqueHighestScore(
+            candidates: List<T>,
+            score: (T) -> Int
+        ): T? {
+            val scored = candidates.map { it to score(it) }.filter { it.second > 0 }
+            val highest = scored.maxOfOrNull { it.second } ?: return null
+            return scored.filter { it.second == highest }.map { it.first }.singleOrNull()
+        }
+
+        val detailRelateService = KavaMemberLookup.classOrNull(
+            loader,
+            DETAIL_RELATE_SERVICE_CLASS
+        )?.let { serviceClass ->
+            val factory = selectUniqueHighestScore(
+                KavaMemberLookup.methods(
+                    serviceClass,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    !method.isStatic && !method.isAbstract && method.parameterCount == 1 &&
+                        method.returnType != Void.TYPE && !method.returnType.isPrimitive
+                }.distinctBy(Method::toGenericString)
+            ) { method ->
+                val parameterName = method.parameterTypes.single().name
+                (if (parameterName.endsWith("D0") ||
+                    parameterName.startsWith("$DETAIL_RELATE_SERVICE_PACKAGE.")) 4 else 0) +
+                    (if (method.returnType.name.contains("RunningUIComponent")) 4 else 0) +
+                    (if (method.name == "d") 1 else 0)
+            } ?: return@let null
+            val itemClass = factory.parameterTypes.single()
+            val itemFields = KavaMemberLookup.fields(
+                itemClass,
+                includeSuperclasses = true,
+                makeAccessible = true
+            ) { field -> !field.isStatic }.distinctBy(Field::toGenericString)
+            val typeField = selectUniqueHighestScore(itemFields) { field ->
+                (if (field.name in DETAIL_RELATE_TYPE_MEMBER_NAMES) 4 else 0) +
+                    (if (enumLooksLikeRelateType(field.type)) 3 else 0)
+            }
+            val itemMethods = KavaMemberLookup.methods(
+                itemClass,
+                includeSuperclasses = true,
+                makeAccessible = true
+            ) { method ->
+                method.parameterCount == 0 && method.isPublic && !method.isStatic &&
+                    method.returnType != Void.TYPE
+            }.distinctBy(Method::toGenericString)
+            val typeGetter = selectUniqueHighestScore(itemMethods) { method ->
+                (if (method.name in DETAIL_RELATE_TYPE_GETTER_NAMES) 4 else 0) +
+                    (if (enumLooksLikeRelateType(method.returnType)) 3 else 0)
+            }
+            val titleGetter = selectUniqueHighestScore(itemMethods.filter(::isStringMethod)) {
+                when (it.name) {
+                    "getTitle" -> 4
+                    "d" -> 3
+                    else -> 0
+                }
+            }
+            DetailRelateServicePoint(
+                componentFactory = factory.toHookPoint(),
+                typeField = typeField?.name,
+                typeGetter = typeGetter?.toHookPoint(),
+                titleGetter = titleGetter?.toHookPoint()
+            )
+        }
 
         fun reasonChain(prefix: List<Method>): ReasonMethodChain? {
             val last = prefix.lastOrNull() ?: return null
@@ -3435,10 +3641,31 @@ object VersionAdapter {
         val reasonChains = (directReasonChains + nestedReasonChains).distinctBy { chain ->
             chain.steps.joinToString("->") { it.label() }
         }
+        val directCommercialChains = listOf("hasCm", "hasCmStock")
+            .flatMap(::itemMethods)
+            .filter(::isBooleanMethod)
+            .map { method -> BooleanMethodChain(listOf(method.toHookPoint())) }
+        val nestedCommercialChains = itemMethods("getThreePoint")
+            .mapNotNull { itemGetter ->
+                KavaMemberLookup.methods(
+                    itemGetter.returnType,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method -> method.name == "hasFeedback" && isBooleanMethod(method) }
+                    .distinctBy(Method::toGenericString)
+                    .singleOrNull()
+                    ?.let { feedbackGetter ->
+                        BooleanMethodChain(
+                            listOf(itemGetter.toHookPoint(), feedbackGetter.toHookPoint())
+                        )
+                    }
+            }
+        val commercialEvidenceChains = (directCommercialChains + nestedCommercialChains)
+            .distinctBy { chain -> chain.steps.joinToString("->") { it.label() } }
         if (cases.isEmpty() && gotos.isEmpty() && types.isEmpty() &&
             relateTypes.isEmpty() && sourceTypes.isEmpty() && sourceTypeChains.isEmpty() &&
             relateTypeValues.isEmpty() && directDurations.isEmpty() && durationChains.isEmpty() &&
-            reasonChains.isEmpty()
+            reasonChains.isEmpty() && commercialEvidenceChains.isEmpty()
         ) return@runCatching null
         VideoRelatePoints(
             responseItemGetters = responses,
@@ -3451,7 +3678,9 @@ object VersionAdapter {
             relateCardTypeValueGetters = relateTypeValues,
             directDurationGetters = directDurations,
             durationChains = durationChains,
-            reasonChains = reasonChains
+            reasonChains = reasonChains,
+            commercialEvidenceChains = commercialEvidenceChains,
+            detailRelateService = detailRelateService
         )
     }.getOrNull()
 

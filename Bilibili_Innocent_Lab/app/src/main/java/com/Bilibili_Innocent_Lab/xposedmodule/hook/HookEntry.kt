@@ -2673,6 +2673,18 @@ class HookEntry : XposedModule() {
                         enabled = prefs.getBoolean(
                             FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION,
                             false
+                        ),
+                        relateAdEnabled = prefs.getBoolean(
+                            FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION,
+                            false
+                        ) || (
+                            prefs.getBoolean(
+                                FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED,
+                                false
+                            ) && prefs.getBoolean(
+                                FeaturePreferences.VIDEO_RELATE_STRONG_MODE_ENABLED,
+                                false
+                            )
                         )
                     )
                 )
@@ -2999,6 +3011,10 @@ class HookEntry : XposedModule() {
                         ),
                         matchingEnhancementEnabled = prefs.getBoolean(
                             FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED,
+                            false
+                        ),
+                        strongModeEnabled = prefs.getBoolean(
+                            FeaturePreferences.VIDEO_RELATE_STRONG_MODE_ENABLED,
                             false
                         ),
                         reasonFilterEnabled = prefs.getBoolean(

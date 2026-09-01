@@ -4,10 +4,14 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VideoRelateFilterFeatureInstallerTest {
+
+    private fun hookCount(points: VersionAdapter.VideoRelatePoints): Int =
+        points.responseItemGetters.size + if (points.detailRelateService != null) 1 else 0
 
     private fun environment(statuses: MutableList<Pair<String, String>>) = HookEnvironment(
         processName = "tv.danmaku.bili",
@@ -129,6 +133,63 @@ class VideoRelateFilterFeatureInstallerTest {
     }
 
     @Test
+    fun `strong mode distinguishes recognized and unknown card types`() {
+        assertTrue(
+            VideoRelateFilterFeatureInstaller.hasRecognizedTypeEvidence(
+                VideoRelateTypeEvidence(
+                    types = setOf("AV"),
+                    relateCardTypes = emptySet(),
+                    fromSourceTypes = emptySet(),
+                    relateCardTypeValues = emptySet()
+                )
+            )
+        )
+        assertTrue(
+            VideoRelateFilterFeatureInstaller.hasRecognizedTypeEvidence(
+                VideoRelateTypeEvidence(
+                    types = setOf("AI_CARD"),
+                    relateCardTypes = emptySet(),
+                    fromSourceTypes = emptySet(),
+                    relateCardTypeValues = emptySet()
+                )
+            )
+        )
+        assertTrue(
+            VideoRelateFilterFeatureInstaller.hasRecognizedTypeEvidence(
+                VideoRelateTypeEvidence(
+                    types = emptySet(),
+                    relateCardTypes = emptySet(),
+                    fromSourceTypes = setOf(2L),
+                    relateCardTypeValues = emptySet()
+                )
+            )
+        )
+        assertFalse(
+            VideoRelateFilterFeatureInstaller.hasRecognizedTypeEvidence(
+                VideoRelateTypeEvidence(
+                    types = setOf("FUTURE_UNSUPPORTED_CARD"),
+                    relateCardTypes = emptySet(),
+                    fromSourceTypes = setOf(99L),
+                    relateCardTypeValues = setOf(99)
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `response writeback replaces the verified internal list only`() {
+        val response = ResponseFixture()
+        val replacement = arrayListOf("kept")
+        val field = ResponseFixture::class.java.getDeclaredField("items").apply {
+            isAccessible = true
+        }
+
+        assertTrue(writeBackVideoRelateItems(response, field, replacement))
+        assertSame(replacement, response.items)
+        assertFalse(writeBackVideoRelateItems(Any(), field, replacement))
+    }
+
+    @Test
     fun `duration-only configuration installs while an empty range stays hook free`() {
         val durationStatuses = mutableListOf<Pair<String, String>>()
         val disabledStatuses = mutableListOf<Pair<String, String>>()
@@ -137,7 +198,7 @@ class VideoRelateFilterFeatureInstallerTest {
         )
 
         assertEquals(
-            FeatureInstallResult.Installed(points.responseItemGetters.size),
+            FeatureInstallResult.Installed(hookCount(points)),
             VideoRelateFilterFeatureInstaller(
                 hiddenTypes = emptySet(),
                 minDurationSeconds = 30,
@@ -166,7 +227,7 @@ class VideoRelateFilterFeatureInstallerTest {
         ).copy(directDurationGetters = emptyList(), durationChains = emptyList())
 
         assertEquals(
-            FeatureInstallResult.Installed(points.responseItemGetters.size),
+            FeatureInstallResult.Installed(hookCount(points)),
             VideoRelateFilterFeatureInstaller(
                 hiddenTypes = setOf("game"),
                 minDurationSeconds = 30,
@@ -196,7 +257,7 @@ class VideoRelateFilterFeatureInstallerTest {
         )
 
         assertEquals(
-            FeatureInstallResult.Installed(points.responseItemGetters.size),
+            FeatureInstallResult.Installed(hookCount(points)),
             VideoRelateFilterFeatureInstaller(
                 hiddenTypes = setOf("game"),
                 minDurationSeconds = 30,
@@ -219,7 +280,7 @@ class VideoRelateFilterFeatureInstallerTest {
         )
 
         assertEquals(
-            FeatureInstallResult.Installed(points.responseItemGetters.size),
+            FeatureInstallResult.Installed(hookCount(points)),
             VideoRelateFilterFeatureInstaller(
                 hiddenTypes = emptySet(),
                 minDurationSeconds = 0,
@@ -254,7 +315,7 @@ class VideoRelateFilterFeatureInstallerTest {
         ).copy(reasonChains = emptyList())
 
         assertEquals(
-            FeatureInstallResult.Installed(points.responseItemGetters.size),
+            FeatureInstallResult.Installed(hookCount(points)),
             VideoRelateFilterFeatureInstaller(
                 hiddenTypes = setOf("CM"),
                 minDurationSeconds = 0,
@@ -268,5 +329,45 @@ class VideoRelateFilterFeatureInstallerTest {
             listOf("video_relate_filter_status" to "partial:missing-reason-accessor"),
             statuses
         )
+    }
+
+    @Test
+    fun `strong mode requires enhancement and keeps missing reasons as an aggressive signal`() {
+        val enabledStatuses = mutableListOf<Pair<String, String>>()
+        val disabledStatuses = mutableListOf<Pair<String, String>>()
+        val points = requireNotNull(
+            VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader))
+        ).copy(reasonChains = emptyList())
+
+        assertEquals(
+            FeatureInstallResult.Installed(hookCount(points)),
+            VideoRelateFilterFeatureInstaller(
+                hiddenTypes = emptySet(),
+                minDurationSeconds = 0,
+                maxDurationSeconds = 0,
+                matchingEnhancementEnabled = true,
+                strongModeEnabled = true,
+                points = points
+            ).install(environment(enabledStatuses))
+        )
+        assertEquals(
+            FeatureInstallResult.Skipped("disabled"),
+            VideoRelateFilterFeatureInstaller(
+                hiddenTypes = emptySet(),
+                minDurationSeconds = 0,
+                maxDurationSeconds = 0,
+                matchingEnhancementEnabled = false,
+                strongModeEnabled = true,
+                points = points
+            ).install(environment(disabledStatuses))
+        )
+        assertEquals(
+            listOf("video_relate_filter_status" to "partial:missing-reason-accessor"),
+            enabledStatuses
+        )
+        assertEquals(listOf("video_relate_filter_status" to "disabled"), disabledStatuses)
+    }
+    private class ResponseFixture {
+        var items: List<String> = listOf("original")
     }
 }

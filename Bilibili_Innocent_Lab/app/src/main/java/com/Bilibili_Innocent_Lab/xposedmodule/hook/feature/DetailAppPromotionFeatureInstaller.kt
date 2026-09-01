@@ -1,5 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import android.content.Context
+import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.highcapable.kavaref.extension.classOf
@@ -19,20 +22,29 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Class/Member 注册状态，不缓存广告对象、Activity、Context 或 View。
  */
 internal class DetailAppPromotionFeatureInstaller(
-    private val enabled: Boolean
+    private val enabled: Boolean,
+    private val relateAdEnabled: Boolean = enabled
 ) : FeatureInstaller {
 
     override val id: String = ID
 
     private val attemptedVideoDetailClasses = ConcurrentHashMap.newKeySet<Class<*>>()
     private val attemptedUnderPlayerClasses = ConcurrentHashMap.newKeySet<Class<*>>()
+    private val attemptedRelateVideoDetailClasses = ConcurrentHashMap.newKeySet<Class<*>>()
+    private val attemptedRelateClasses = ConcurrentHashMap.newKeySet<Class<*>>()
     private val underPlayerGetters = ConcurrentHashMap<Class<*>, Method>()
+    private val relateGetters = ConcurrentHashMap<Class<*>, Method>()
     private val facadeHitLogged = AtomicBoolean(false)
     private val hitLogged = AtomicBoolean(false)
+    private val relateHitLogged = AtomicBoolean(false)
     private val renderReady = AtomicBoolean(false)
+    private val relateRenderReady = AtomicBoolean(false)
+
+    @Volatile
+    private var underPlayerRouteSummary: String? = null
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
-        if (!enabled) {
+        if (!enabled && !relateAdEnabled) {
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
@@ -40,11 +52,34 @@ internal class DetailAppPromotionFeatureInstaller(
             return FeatureInstallResult.Skipped("non-main-process")
         }
 
-        val types = resolveHostTypes(environment)
-            ?: return missing(environment, "missing-host-types")
-        val sceneAccess = resolveSceneAccess(types)
-            ?: return missing(environment, "missing-unite-detail-scene")
-        val facade = KavaMemberLookup.classOrNull(environment.classLoader, G_AD_BIZ_FACADE)
+        val loader = environment.classLoader ?: return missing(environment, "missing-class-loader")
+        val videoDetailClass = KavaMemberLookup.classOrNull(loader, G_AD_VIDEO_DETAIL)
+            ?: return missing(environment, "missing-video-detail-type")
+        val types = if (enabled) resolveHostTypes(environment) else null
+        val sceneAccess = types?.let(::resolveSceneAccess)
+        val relateClass = if (relateAdEnabled) {
+            KavaMemberLookup.classOrNull(loader, I_AD_VIDEO_RELATE)
+        } else {
+            null
+        }
+        val underPlayerAvailable = enabled && types != null && sceneAccess != null
+        val relateAvailable = relateAdEnabled && relateClass != null
+        if (!underPlayerAvailable && !relateAvailable) {
+            return missing(environment, "missing-enabled-route")
+        }
+        if (enabled && !underPlayerAvailable) {
+            environment.logError(
+                "detail_app_promotion_under_player_dependencies",
+                "[BIL] 播放器下方推广依赖不完整，广告推荐渲染拦截仍继续安装"
+            )
+        }
+        if (relateAdEnabled && !relateAvailable) {
+            environment.logError(
+                "detail_app_promotion_relate_dependencies",
+                "[BIL] 广告推荐接口未定位，播放器下方推广拦截仍继续安装"
+            )
+        }
+        val facade = KavaMemberLookup.classOrNull(loader, G_AD_BIZ_FACADE)
             ?: return missing(environment, "missing-ad-biz-facade")
         val videoDetailGetter = KavaMemberLookup.declaredMethods(
             facade,
@@ -52,7 +87,7 @@ internal class DetailAppPromotionFeatureInstaller(
         ) {
             it.name == GET_VIDEO_DETAIL && it.parameterCount == 0 &&
                 it.isStatic &&
-                (it.returnType isSubclassOf types.videoDetailClass)
+                (it.returnType isSubclassOf videoDetailClass)
         }.singleOrNull() ?: return missing(environment, "ambiguous-video-detail-getter")
 
         return runCatching {
@@ -64,38 +99,58 @@ internal class DetailAppPromotionFeatureInstaller(
             ) {
                 after {
                     val videoDetail = result ?: return@after
-                    if (!types.videoDetailClass.isInstance(videoDetail)) return@after
+                    if (!videoDetailClass.isInstance(videoDetail)) return@after
                     if (facadeHitLogged.compareAndSet(false, true)) {
                         environment.reportStatus(CHANNEL_STATUS, "resolved:video-detail")
                         environment.logInfo(
                             "detail_app_promotion_facade_hit",
-                            "[BIL] 视频详细页话题推广门面已命中，开始解析播放器下方实现"
+                            "[BIL] 视频详细页广告门面已命中，开始解析已启用渲染路径"
                         )
                     }
-                    resolveCurrentUnderPlayer(
-                        environment = environment,
-                        videoDetail = videoDetail,
-                        types = types,
-                        sceneAccess = sceneAccess
-                    )
+                    if (underPlayerAvailable) {
+                        resolveCurrentUnderPlayer(
+                            environment = environment,
+                            videoDetail = videoDetail,
+                            types = requireNotNull(types),
+                            sceneAccess = requireNotNull(sceneAccess)
+                        )
+                    }
+                    if (relateAvailable) {
+                        resolveCurrentRelate(
+                            environment = environment,
+                            videoDetail = videoDetail,
+                            relateClass = requireNotNull(relateClass)
+                        )
+                    }
                 }
             }
             environment.postToMain?.invoke {
-                if (!renderReady.get()) {
+                if ((underPlayerAvailable && !renderReady.get()) ||
+                    (relateAvailable && !relateRenderReady.get())
+                ) {
                     runCatching {
                         findInitializedVideoDetail(
                             facade = facade,
-                            videoDetailClass = types.videoDetailClass
+                            videoDetailClass = videoDetailClass
                         )
                     }
                         .onSuccess { videoDetail ->
                             if (videoDetail != null) {
-                                resolveCurrentUnderPlayer(
-                                    environment = environment,
-                                    videoDetail = videoDetail,
-                                    types = types,
-                                    sceneAccess = sceneAccess
-                                )
+                                if (underPlayerAvailable) {
+                                    resolveCurrentUnderPlayer(
+                                        environment = environment,
+                                        videoDetail = videoDetail,
+                                        types = requireNotNull(types),
+                                        sceneAccess = requireNotNull(sceneAccess)
+                                    )
+                                }
+                                if (relateAvailable) {
+                                    resolveCurrentRelate(
+                                        environment = environment,
+                                        videoDetail = videoDetail,
+                                        relateClass = requireNotNull(relateClass)
+                                    )
+                                }
                             }
                         }
                         .onFailure { throwable ->
@@ -109,9 +164,15 @@ internal class DetailAppPromotionFeatureInstaller(
             environment.reportStatus(CHANNEL_STATUS, "armed:facade")
             environment.logInfo(
                 "detail_app_promotion_armed",
-                "[BIL] 视频详细页话题推广门面拦截器已就绪"
+                "[BIL] 视频详细页广告门面拦截器已就绪" +
+                    "(underPlayer=$underPlayerAvailable,relate=$relateAvailable)"
             )
-            FeatureInstallResult.Installed(1)
+            val componentHooks = if (relateAdEnabled) {
+                installRelateGameComponentBlock(environment)
+            } else {
+                0
+            }
+            FeatureInstallResult.Installed(1 + componentHooks)
         }.getOrElse { throwable ->
             environment.logError(
                 "detail_app_promotion_install",
@@ -139,6 +200,125 @@ internal class DetailAppPromotionFeatureInstaller(
             field.get(null) as? Lazy<*>
         }
         return initializedLazyValueOfType(lazyCandidates, videoDetailClass)
+    }
+
+    private fun installRelateGameComponentBlock(environment: HookEnvironment): Int {
+        val loader = environment.classLoader ?: return 0
+        val viewBindingClass = KavaMemberLookup.classOrNull(loader, ANDROIDX_VIEW_BINDING)
+            ?: return 0
+        val baseComponent = GEMINI_BINDING_COMPONENT_CLASSES.firstNotNullOfOrNull { className ->
+            KavaMemberLookup.classOrNull(loader, className)?.takeIf { candidate ->
+                java.lang.reflect.Modifier.isAbstract(candidate.modifiers) &&
+                    KavaMemberLookup.methods(
+                        candidate,
+                        includeSuperclasses = true,
+                        makeAccessible = true
+                    ) { it.name == CREATE_VIEW_ENTRY && it.parameterCount == 2 }.isNotEmpty() &&
+                    KavaMemberLookup.methods(
+                        candidate,
+                        includeSuperclasses = true,
+                        makeAccessible = true
+                    ) { it.name == BIND_TO_VIEW && it.parameterCount == 2 }.isNotEmpty()
+            }
+        } ?: return 0
+        val gameComponent = RELATE_GAME_COMPONENT_CLASSES.mapNotNull { className ->
+            KavaMemberLookup.classOrNull(loader, className)?.takeIf { candidate ->
+                baseComponent.isAssignableFrom(candidate) &&
+                    !candidate.isInterface &&
+                    !java.lang.reflect.Modifier.isAbstract(candidate.modifiers) &&
+                    KavaMemberLookup.declaredMethods(candidate, makeAccessible = true) { method ->
+                        method.parameterTypes.contentEquals(
+                            arrayOf(
+                                Context::class.java,
+                                LayoutInflater::class.java,
+                                ViewGroup::class.java
+                            )
+                        ) && viewBindingClass.isAssignableFrom(method.returnType)
+                    }.isNotEmpty() &&
+                    KavaMemberLookup.declaredMethods(candidate, makeAccessible = true) { method ->
+                        method.parameterCount == 2 &&
+                            viewBindingClass.isAssignableFrom(method.parameterTypes[0]) &&
+                            method.parameterTypes[1].name == KOTLIN_CONTINUATION
+                    }.isNotEmpty()
+            }
+        }.distinctBy { it.name }.singleOrNull() ?: return 0
+        val simpleViewEntry = KavaMemberLookup.classOrNull(loader, GEMINI_SIMPLE_VIEW_ENTRY)
+            ?: return 0
+        val simpleViewEntryConstructor = simpleViewEntry.declaredConstructors
+            .filter { it.parameterTypes.contentEquals(arrayOf(View::class.java)) }
+            .singleOrNull()
+            ?.apply { isAccessible = true }
+            ?: return 0
+        val createViewEntry = KavaMemberLookup.methods(
+            baseComponent,
+            includeSuperclasses = true,
+            makeAccessible = true
+        ) { method ->
+            method.name == CREATE_VIEW_ENTRY && method.parameterTypes.contentEquals(
+                arrayOf(Context::class.java, ViewGroup::class.java)
+            )
+        }.distinctBy(Method::toGenericString).singleOrNull() ?: return 0
+        val bindToView = KavaMemberLookup.methods(
+            baseComponent,
+            includeSuperclasses = true,
+            makeAccessible = true
+        ) { method ->
+            method.name == BIND_TO_VIEW && method.parameterCount == 2 &&
+                method.parameterTypes[1].name == KOTLIN_CONTINUATION
+        }.distinctBy(Method::toGenericString).singleOrNull() ?: return 0
+
+        var installed = 0
+        runCatching {
+            environment.registrar.exact(
+                "detail_app_promotion.relate_game.create",
+                createViewEntry.declaringClass,
+                createViewEntry.name,
+                *createViewEntry.parameterTypes
+            ) {
+                before {
+                    if (!gameComponent.isInstance(thisObject)) return@before
+                    val context = args.firstOrNull() as? Context ?: return@before
+                    val emptyEntry = runCatching {
+                        simpleViewEntryConstructor.newInstance(View(context))
+                    }.getOrNull() ?: return@before
+                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                    result = emptyEntry
+                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                }
+            }
+            installed += 1
+        }.onFailure { throwable ->
+            environment.logError(
+                "detail_app_promotion_relate_game_create",
+                "[BIL] 游戏推荐空视图入口注册失败，已放行该入口: $throwable"
+            )
+        }
+        runCatching {
+            environment.registrar.exact(
+                "detail_app_promotion.relate_game.bind",
+                bindToView.declaringClass,
+                bindToView.name,
+                *bindToView.parameterTypes
+            ) {
+                before {
+                    if (!gameComponent.isInstance(thisObject)) return@before
+                    result = Unit
+                }
+            }
+            installed += 1
+        }.onFailure { throwable ->
+            environment.logError(
+                "detail_app_promotion_relate_game_bind",
+                "[BIL] 游戏推荐绑定入口注册失败，已放行该入口: $throwable"
+            )
+        }
+        if (installed > 0) {
+            environment.logInfo(
+                "detail_app_promotion_relate_game_ready",
+                "[BIL] 视频详细页游戏推荐组件兜底已安装(hooks=$installed)"
+            )
+        }
+        return installed
     }
 
     private fun resolveCurrentUnderPlayer(
@@ -225,6 +405,136 @@ internal class DetailAppPromotionFeatureInstaller(
         }
     }
 
+    private fun resolveCurrentRelate(
+        environment: HookEnvironment,
+        videoDetail: Any,
+        relateClass: Class<*>
+    ) {
+        val owner = videoDetail.javaClass
+        val getter = relateGetters[owner] ?: locateRelateGetter(owner, relateClass)
+            ?.also { relateGetters[owner] = it }
+        if (getter == null) {
+            if (!attemptedRelateVideoDetailClasses.add(owner)) return
+            environment.reportStatus(CHANNEL_STATUS, "partial:relate-getter")
+            environment.logError(
+                "detail_app_promotion_relate_getter_missing",
+                "[BIL] 无法唯一定位 ${owner.name}#getRelate，已放行该广告推荐路径"
+            )
+            return
+        }
+
+        installRelateGetterFallback(environment, owner, getter, relateClass)
+        runCatching { getter.invoke(videoDetail) }
+            .onSuccess { relate ->
+                if (relate != null && relateClass.isInstance(relate)) {
+                    installRelateRenderHooks(environment, relate.javaClass, relateClass)
+                }
+            }
+            .onFailure { throwable ->
+                environment.reportStatus(CHANNEL_STATUS, "partial:relate-read")
+                environment.logError(
+                    "detail_app_promotion_relate_read",
+                    "[BIL] 读取广告推荐实现失败，保留 getRelate 兜底: $throwable"
+                )
+            }
+    }
+
+    private fun installRelateGetterFallback(
+        environment: HookEnvironment,
+        owner: Class<*>,
+        getter: Method,
+        relateClass: Class<*>
+    ) {
+        if (!attemptedRelateVideoDetailClasses.add(owner)) return
+        runCatching {
+            environment.registrar.exact(
+                "detail_app_promotion.relate.${owner.name}",
+                getter.declaringClass,
+                getter.name,
+                *getter.parameterTypes
+            ) {
+                after {
+                    val relate = result ?: return@after
+                    if (!relateClass.isInstance(relate)) return@after
+                    installRelateRenderHooks(environment, relate.javaClass, relateClass)
+                }
+            }
+        }.onFailure { throwable ->
+            environment.reportStatus(CHANNEL_STATUS, "partial:relate-registration")
+            environment.logError(
+                "detail_app_promotion_relate_hook",
+                "[BIL] getRelate 兜底注册失败，已保留立即解析结果: $throwable"
+            )
+        }
+    }
+
+    private fun locateRelateGetter(owner: Class<*>, relateClass: Class<*>): Method? =
+        mostSpecificMethods(owner) {
+            it.name == GET_RELATE && it.parameterCount == 0 &&
+                !it.returnType.isPrimitive &&
+                (it.returnType == Any::class.java || it.returnType isSubclassOf relateClass)
+        }.singleOrNull()
+
+    private fun installRelateRenderHooks(
+        environment: HookEnvironment,
+        owner: Class<*>,
+        relateClass: Class<*>
+    ) {
+        if (!attemptedRelateClasses.add(owner)) return
+        if (!relateClass.isAssignableFrom(owner)) return
+        val methods = mostSpecificMethods(owner) { method ->
+            matchesDetailRelateAdRenderMethod(method)
+        }
+        if (methods.isEmpty()) {
+            environment.reportStatus(CHANNEL_STATUS, "partial:ad-relate-method")
+            environment.logError(
+                "detail_app_promotion_relate_render_missing",
+                "[BIL] ${owner.name} 未找到 getAdRelateView，已放行该实现"
+            )
+            return
+        }
+        var installed = 0
+        methods.forEachIndexed { index, method ->
+            runCatching {
+                environment.registrar.exact(
+                    "detail_app_promotion.relate_render.${owner.name}.$index",
+                    method.declaringClass,
+                    method.name,
+                    *method.parameterTypes
+                ) {
+                    before {
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                        result = null
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                        if (relateHitLogged.compareAndSet(false, true)) {
+                            environment.logInfo(
+                                "detail_app_promotion_relate_hit",
+                                "[BIL] 已隐藏视频详细页广告推荐视图(route=${method.name})"
+                            )
+                        }
+                    }
+                }
+                installed += 1
+            }.onFailure { throwable ->
+                environment.logError(
+                    "detail_app_promotion_relate_render_$index",
+                    "[BIL] ${method.name} 注册失败，已放行该广告推荐入口: $throwable"
+                )
+            }
+        }
+        if (installed == 0) {
+            environment.reportStatus(CHANNEL_STATUS, "failed:ad-relate-registration")
+            return
+        }
+        relateRenderReady.set(true)
+        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
+        reportReadyStatus(environment)
+        environment.logInfo(
+            "detail_app_promotion_relate_ready",
+            "[BIL] 视频详细页广告推荐渲染拦截已安装(methods=$installed)"
+        )
+    }
+
     private fun locateUnderPlayerGetter(
         owner: Class<*>,
         underPlayerClass: Class<*>
@@ -303,13 +613,24 @@ internal class DetailAppPromotionFeatureInstaller(
             return
         }
         val routeSummary = installedRoutes.sorted().joinToString("+")
+        underPlayerRouteSummary = routeSummary
         renderReady.set(true)
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
-        environment.reportStatus(CHANNEL_STATUS, "ready:$routeSummary")
+        reportReadyStatus(environment)
         environment.logInfo(
             "detail_app_promotion_ready",
             "[BIL] 视频详细页话题推广渲染拦截已安装(route=$routeSummary)"
         )
+    }
+
+    private fun reportReadyStatus(environment: HookEnvironment) {
+        val routes = buildList {
+            underPlayerRouteSummary?.let { add("under-player:$it") }
+            if (relateRenderReady.get()) add("relate")
+        }
+        if (routes.isNotEmpty()) {
+            environment.reportStatus(CHANNEL_STATUS, routes.joinToString(prefix = "ready:", separator = "+"))
+        }
     }
 
     /**
@@ -415,6 +736,8 @@ internal class DetailAppPromotionFeatureInstaller(
         private const val G_AD_VIDEO_DETAIL = "com.bilibili.gripper.api.ad.biz.GAdVideoDetail"
         private const val I_AD_UNDER_PLAYER =
             "com.bilibili.gripper.api.ad.biz.videodetail.underplayer.IAdUnderPlayer"
+        private const val I_AD_VIDEO_RELATE =
+            "com.bilibili.gripper.api.ad.biz.videodetail.relate.IAdVideoRelate"
         private const val I_AD_UNDER_PLAYER_CALLBACK =
             "com.bilibili.gripper.api.ad.biz.videodetail.underplayer.IAdUnderPlayerCallback"
         private const val AD_UPPER_BRIDGE =
@@ -425,13 +748,42 @@ internal class DetailAppPromotionFeatureInstaller(
             "com.bilibili.gripper.api.ad.biz.videodetail.underplayer.AdUpperScene"
         private const val GET_VIDEO_DETAIL = "getGAdVideoDetail"
         private const val GET_UNDER_PLAYER = "getUnderPlayer"
+        private const val GET_RELATE = "getRelate"
         private const val GET_UPPER_NEST_VIEW = "getUpperNestView"
         private const val GET_UPPER_AD_VIEW = "getUpperAdView"
         private const val GET_UPPER_HD_VIEW = "getUpperHDView"
         private const val GET_SCENE = "getScene"
         private const val UNITE_DETAIL = "UNITE_DETAIL"
+        private const val ANDROIDX_VIEW_BINDING = "androidx.viewbinding.ViewBinding"
+        private const val GEMINI_SIMPLE_VIEW_ENTRY = "com.bilibili.app.gemini.ui.UIComponent\$b"
+        private const val KOTLIN_CONTINUATION = "kotlin.coroutines.Continuation"
+        private const val CREATE_VIEW_ENTRY = "createViewEntry"
+        private const val BIND_TO_VIEW = "bindToView"
+        private val RELATE_GAME_COMPONENT_CLASSES = listOf(
+            "com.bilibili.ship.theseus.united.page.intro.module.relate.game.e",
+            "com.bilibili.ship.theseus.united.page.intro.module.relate.game.d",
+            "com.bilibili.ship.theseus.united.page.intro.module.relate.game.f",
+            "com.bilibili.ship.theseus.united.page.intro.module.relate.game.RelateGameComponent"
+        )
+        private val GEMINI_BINDING_COMPONENT_CLASSES = listOf(
+            "com.bilibili.app.gemini.ui.l",
+            "com.bilibili.app.gemini.ui.m",
+            "com.bilibili.app.gemini.ui.k",
+            "com.bilibili.app.gemini.ui.j",
+            "com.bilibili.app.gemini.ui.c",
+            "com.bilibili.app.gemini.ui.d",
+            "com.bilibili.app.gemini.ui.e"
+        )
     }
 }
+
+/** 广告推荐接口只允许拦截明确的 View/回调生产方法；基础类型返回值一律不碰。 */
+internal fun matchesDetailRelateAdRenderMethod(method: Method): Boolean =
+    method.name == "getAdRelateView" &&
+        !java.lang.reflect.Modifier.isStatic(method.modifiers) &&
+        !java.lang.reflect.Modifier.isAbstract(method.modifiers) &&
+        method.returnType != Void.TYPE &&
+        !method.returnType.isPrimitive
 
 private val DETAIL_PROMOTION_RENDER_METHOD_NAMES = setOf(
     "getUpperNestView",

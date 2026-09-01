@@ -30,8 +30,11 @@ internal class VideoRelateFilterDraft(
 ) {
     private val supportedKeys = (
         VideoRelateFilterCatalog.panelOptions.map(VideoRelateFilterOption::preferenceKey) +
-            FeaturePreferences.VIDEO_RELATE_REASON_FILTER_ENABLED
-        ).toSet()
+            listOf(
+                FeaturePreferences.VIDEO_RELATE_STRONG_MODE_ENABLED,
+                FeaturePreferences.VIDEO_RELATE_REASON_FILTER_ENABLED
+            )
+    ).toSet()
     private val initial = supportedKeys.associateWith { initialValues[it] == true }
     private val current = initial.toMutableMap()
     private val initialKeywords = initialKeywords.take(MAX_KEYWORDS_LENGTH)
@@ -43,6 +46,9 @@ internal class VideoRelateFilterDraft(
 
     val reasonFilterVisible: Boolean
         get() = this[FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED]
+
+    val strongModeVisible: Boolean
+        get() = reasonFilterVisible
 
     val keywordEditorVisible: Boolean
         get() = reasonFilterVisible &&
