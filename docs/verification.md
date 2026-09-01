@@ -15,6 +15,15 @@
    sources.
 3. Before device testing, compare its checksum with the installed `base.apk`.
 
+Release packaging is a separate boundary. `assembleRelease` must fail when the
+four `INNOCENT_LAB_SIGNING_*` values are absent or incomplete. For an authorized
+publication, run `apksigner verify --verbose --print-certs` and require exactly
+one signer, the pinned certificate SHA-256, no `application-debuggable` marker,
+and the expected package/version identity. `BUILD_INFO.txt` must report
+`apk_build_type=release`, `apk_debuggable=false`, and the same signer certificate
+digest. Alpha and Stable must use the same digest; a changing APK file SHA-256 is
+expected and does not indicate signer drift.
+
 ## Unit tests
 
 Run gradlew.bat testDebugUnitTest --no-daemon. The tests cover multi-user

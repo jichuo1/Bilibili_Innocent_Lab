@@ -2,7 +2,8 @@
 
 本项目将构建验证与 Release 发布分开处理：
 
-- 推送到 `main` 只触发构建、单元测试和 Lint，不会上传 Release。
+- 推送到 `main` 只触发 Debug 构建、单元测试和 Lint，不接触正式签名密钥，也不会上传
+  Release 或生成候选发布资产。
 - Stable 只通过 GitHub Actions 手动运行 `Build and publish Stable` 发布；必须将
   `publish_stable` 明确设为 `true`，填写与源码版本完全一致的 `vMAJOR.MINOR.PATCH` 标签，
   并提供 2～4 句版本概述。
@@ -14,7 +15,8 @@
   `v1.0.7-alpha.N`；无需为了发布 Alpha 先把项目稳定基础版本改成 `1.0.7`。
 - `project.app.versionCode` 仍由源码控制，并按 Android 安装升级计划递增；工作流不会通过
   Alpha 标签暗中改写它。
-- 发布任务还必须等待 `verify` 任务通过，随后使用 `alpha-release` 环境发布 Pre-release。
+- 发布任务还必须等待 `verify` 任务通过，随后使用 `alpha-release` 环境恢复固定签名、构建
+  Release APK 并发布 Pre-release。
 - CI 会在 GitHub Runner 上使用可用的 Android 35 SDK 进行验证构建；本地开发仍可使用项目默认的 compileSdk 配置。
 - 工作流只接受远端 `main` 的最新提交：所选 ref、事件 SHA、实际 checkout SHA 与
   `origin/main` 任一不一致都会立即失败，避免从旧分支、旧标签或旧提交生成 Release。
@@ -34,6 +36,49 @@ Required reviewers，并将 Deployment branches 限制为 `main`。这样即使�
 Stable 使用独立的 `stable-release` 环境，并同样设置 Required reviewers 与仅允许 `main`
 部署。Stable 工作流的并发任务不会互相取消；重复运行会排队，并在真正发布前拒绝覆盖任何
 已经存在的 Git Tag 或 GitHub Release。
+
+## 固定 APK 发布签名
+
+Alpha 与 Stable 必须使用同一个长期 PKCS12 密钥和同一个证书指纹。普通 `main` 推送只执行
+`assembleDebug`；只有手动发布并通过对应 GitHub Environment 审批后，发布任务才读取环境
+Secrets、执行 `assembleRelease`。Gradle 的 Release 打包采用失败封闭策略：密钥路径、密钥库
+密码、别名和私钥密码任一缺失时立即失败，不会回退为 Debug 签名或 unsigned APK。
+
+在 Windows 上首次配置或需要将既有密钥重新写入 GitHub 时，从仓库根运行：
+
+```powershell
+.\.github\release-signing\setup-release-signing.ps1
+```
+
+脚本默认把密钥库生成到仓库外的
+`Documents\AndroidSigning\Bilibili_Innocent_Lab\innocent-lab-release.p12`，也允许通过
+`-KeyStorePath` 复用指定的既有 PKCS12。脚本以隐藏输入方式要求两次输入同一密码，不把密码
+写入仓库、文件或命令行；随后将同一组值写入 `alpha-release` 与 `stable-release` 环境：
+
+```text
+ANDROID_SIGNING_KEY_BASE64
+ANDROID_SIGNING_STORE_PASSWORD
+ANDROID_SIGNING_KEY_ALIAS
+ANDROID_SIGNING_KEY_PASSWORD
+ANDROID_SIGNING_CERT_SHA256
+```
+
+运行脚本前必须确保 `gh auth status` 已登录主仓库管理员账号，两个 Environment 已创建且仅允许
+`main`。若环境 Secret 写入中断，可用同一路径、同一密码重新运行；脚本只复用既有密钥库，绝不
+覆盖或自动轮换。密码不会被脚本持久化，发布者必须立即把密码存入可靠的密码管理器，并把密钥库
+制作至少两份加密离线备份。丢失私钥或密码意味着无法继续为现有安装提供覆盖升级。
+
+发布 APK 必须同时满足：单一签名者；证书 SHA-256 与环境中的固定值一致；
+`application-debuggable` 不存在；包名、`versionName`、`versionCode` 与源码身份一致；
+`apksigner verify --verbose --print-certs` 成功。`BUILD_INFO.txt` 固定记录
+`apk_build_type=release`、`apk_debuggable=false` 和
+`apk_signer_certificate_sha256=<64 位十六进制>`，便于主仓库与 LSPosed 仓库对照。
+
+从历史临时 Debug 证书切换到首个固定签名版本时，不同证书的旧安装无法直接覆盖，通常会返回
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE`。迁移版本发布前必须明确提示用户先导出模块设置、卸载
+旧模块、安装固定签名版本、重新启用模块并导入设置。从该版本开始，Alpha、Stable 与 LSPosed
+镜像资产都必须保持同一证书；APK 文件 SHA-256 随内容变化是正常现象，长期不变的是签名证书
+SHA-256。
 
 手动发布前必须先确认目标源码已经 commit 并 push 到远端 `main`。GitHub Runner 无法读取
 开发电脑上未提交或未推送的工作区文件；仅在“Use workflow from”中切换选项不能上传本地改动。

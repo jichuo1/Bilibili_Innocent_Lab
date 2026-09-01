@@ -12,6 +12,9 @@ from pathlib import Path
 ALPHA_TAG_PATTERN = re.compile(
     r"^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-alpha\.(0|[1-9]\d*)$"
 )
+PACKAGE_NAME_PATTERN = re.compile(
+    r"^(?:[A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*$"
+)
 
 
 @dataclass(frozen=True)
@@ -20,6 +23,7 @@ class BuildIdentity:
     base_version: str
     build_version_name: str
     version_code: int
+    package_name: str
 
 
 def read_gradle_properties(path: Path) -> dict[str, str]:
@@ -51,6 +55,7 @@ def resolve_build_identity(properties_path: Path, release_tag: str = "") -> Buil
     try:
         base_version = unquote(properties["project.app.versionName"])
         version_code_text = unquote(properties["project.app.versionCode"])
+        package_name = unquote(properties["project.app.packageName"])
     except KeyError as error:
         raise ValueError(f"Missing required Gradle property: {error.args[0]}") from error
 
@@ -63,10 +68,14 @@ def resolve_build_identity(properties_path: Path, release_tag: str = "") -> Buil
         raise ValueError(
             f"project.app.versionCode must be a positive integer; found {version_code_text!r}"
         )
+    if PACKAGE_NAME_PATTERN.fullmatch(package_name) is None:
+        raise ValueError(f"project.app.packageName is invalid; found {package_name!r}")
 
     release_tag = release_tag.strip()
     if not release_tag:
-        return BuildIdentity("", base_version, base_version, int(version_code_text))
+        return BuildIdentity(
+            "", base_version, base_version, int(version_code_text), package_name
+        )
 
     match = ALPHA_TAG_PATTERN.fullmatch(release_tag)
     if match is None:
@@ -85,6 +94,7 @@ def resolve_build_identity(properties_path: Path, release_tag: str = "") -> Buil
         base_version,
         release_tag.removeprefix("v"),
         int(version_code_text),
+        package_name,
     )
 
 
@@ -94,6 +104,7 @@ def append_github_outputs(path: Path, identity: BuildIdentity) -> None:
         "base_version": identity.base_version,
         "build_version_name": identity.build_version_name,
         "version_code": str(identity.version_code),
+        "package_name": identity.package_name,
     }
     with path.open("a", encoding="utf-8", newline="\n") as output:
         for key, value in values.items():
@@ -117,7 +128,8 @@ def main() -> None:
     print(
         f"base_version={identity.base_version} "
         f"build_version_name={identity.build_version_name} "
-        f"version_code={identity.version_code}"
+        f"version_code={identity.version_code} "
+        f"package_name={identity.package_name}"
     )
 
 
