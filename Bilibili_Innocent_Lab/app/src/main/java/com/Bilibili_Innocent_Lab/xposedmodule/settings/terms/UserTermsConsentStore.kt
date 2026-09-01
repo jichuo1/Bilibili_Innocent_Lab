@@ -5,8 +5,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import kotlin.math.max
 
 internal enum class UserTermsDecision {
     UNDECIDED,
@@ -19,8 +19,38 @@ internal enum class UserTermsDecision {
 }
 
 /**
+ * 私有条款记录的完整状态。等待同步只存在于模块进程，不进入 API 102 协议；因此
+ * [decision] 在远端完整发布并读回之前始终保持原来的关闭态决定。
+ */
+internal data class UserTermsConsentState(
+    val decision: UserTermsDecision,
+    val pendingAcceptance: UserTermsPendingAcceptance? = null
+) {
+    val isAcceptancePending: Boolean
+        get() = pendingAcceptance != null
+
+    val requestedRemoteDecision: UserTermsDecision
+        get() = if (pendingAcceptance != null) {
+            UserTermsDecision.ACCEPTED
+        } else {
+            decision
+        }
+}
+
+internal data class UserTermsPendingAcceptance(
+    val revision: Long,
+    val previousDecision: UserTermsDecision
+)
+
+internal enum class UserTermsPendingCompletion {
+    COMPLETED,
+    STALE,
+    WRITE_FAILED
+}
+
+/**
  * 模块自身的用户条款状态以独立私有文件为权威来源。Remote Preferences 发布器把决定
- * 连同完整设置写入 LSPosed 数据库，供宿主只读校验；该配置不进入设置备份。
+ * 连同完整设置写入框架数据库，供宿主只读校验；该配置不进入设置备份。
  *
  * 首个上线版本只在状态缺失时识别历史用户；识别结果会同步持久化，因此后续读取幂等。
  * 已存在但损坏、或条款版本不匹配的记录一律回到未决定状态，避免错误放行。
@@ -39,18 +69,26 @@ internal object UserTermsConsentStore {
     internal const val PREF_FILE = "user_terms_consent"
     internal const val KEY_DECISION = "decision"
     internal const val KEY_TERMS_VERSION = "terms_version"
+    internal const val KEY_PENDING_ACCEPTANCE = "pending_acceptance"
+    internal const val KEY_PENDING_TERMS_VERSION = "pending_terms_version"
+    internal const val KEY_PENDING_REVISION = "pending_revision"
+    internal const val KEY_PENDING_PREVIOUS_DECISION = "pending_previous_decision"
     private const val LEGACY_PREFS_ALIVE_KEY = "prefs_alive_ts"
     private val lock = Any()
 
-    fun readOrInitialize(context: Context): UserTermsDecision = synchronized(lock) {
+    fun readOrInitialize(context: Context): UserTermsDecision =
+        readStateOrInitialize(context).decision
+
+    fun readStateOrInitialize(context: Context): UserTermsConsentState = synchronized(lock) {
         val appContext = context.applicationContext ?: context
-        val preferences = runCatching {
-            appContext.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
-        }.getOrNull() ?: return@synchronized UserTermsDecision.UNDECIDED
+        val preferences = openPreferences(appContext)
+            ?: return@synchronized UserTermsConsentState(UserTermsDecision.UNDECIDED)
 
         val hasPersistedDecision = runCatching {
             preferences.contains(KEY_DECISION)
-        }.getOrElse { return@synchronized UserTermsDecision.UNDECIDED }
+        }.getOrElse {
+            return@synchronized UserTermsConsentState(UserTermsDecision.UNDECIDED)
+        }
         val rawDecision = runCatching {
             preferences.getString(KEY_DECISION, null)
         }.getOrNull()
@@ -66,47 +104,116 @@ internal object UserTermsConsentStore {
             val storedRecordIsValid = storedVersion == CURRENT_TERMS_VERSION &&
                 UserTermsDecision.entries.any { it.name == rawDecision }
             if (!storedRecordIsValid) {
-                persist(preferences, UserTermsDecision.UNDECIDED)
+                persistDecision(preferences, UserTermsDecision.UNDECIDED)
+                return@synchronized UserTermsConsentState(UserTermsDecision.UNDECIDED)
             }
-            return@synchronized persisted
+            val pending = resolvePendingAcceptance(
+                hasPending = runCatching {
+                    preferences.getBoolean(KEY_PENDING_ACCEPTANCE, false)
+                }.getOrDefault(false),
+                storedTermsVersion = runCatching {
+                    preferences.getInt(KEY_PENDING_TERMS_VERSION, -1)
+                }.getOrDefault(-1),
+                revision = runCatching {
+                    preferences.getLong(KEY_PENDING_REVISION, 0L)
+                }.getOrDefault(0L),
+                rawPreviousDecision = runCatching {
+                    preferences.getString(KEY_PENDING_PREVIOUS_DECISION, null)
+                }.getOrNull(),
+                currentDecision = persisted
+            )
+            val hasPendingMetadata = runCatching {
+                preferences.contains(KEY_PENDING_ACCEPTANCE) ||
+                    preferences.contains(KEY_PENDING_TERMS_VERSION) ||
+                    preferences.contains(KEY_PENDING_REVISION) ||
+                    preferences.contains(KEY_PENDING_PREVIOUS_DECISION)
+            }.getOrDefault(false)
+            if (hasPendingMetadata && pending == null) clearPending(preferences)
+            return@synchronized UserTermsConsentState(persisted, pending)
         }
 
         val initial = inferInitialDecision(
             packageInfo = readPackageInfo(appContext),
             prefsAliveTimestamp = readLegacyPrefsAliveTimestamp(appContext)
         )
-        if (persist(preferences, initial)) initial else UserTermsDecision.UNDECIDED
+        val resolved = if (persistDecision(preferences, initial)) {
+            initial
+        } else {
+            UserTermsDecision.UNDECIDED
+        }
+        UserTermsConsentState(resolved)
     }
 
-    fun accept(context: Context): Boolean {
-        val previous = readOrInitialize(context)
-        if (!write(context, UserTermsDecision.ACCEPTED)) return false
-        if (RemoteHookConfigStore.publish(
-                context,
-                UserTermsDecision.ACCEPTED
-            ).also(RemoteHookConfigStore::logFailure).succeeded
-        ) {
-            return true
+    /**
+     * 先同步持久化“已同意、等待发布”。原决定在 API 102 快照确认前不前进，所有
+     * 继续只读取 [readOrInitialize] 的旧调用方自然保持 fail-closed。
+     */
+    fun beginPendingAcceptance(context: Context): UserTermsConsentState? = synchronized(lock) {
+        val appContext = context.applicationContext ?: context
+        val current = readStateOrInitialize(appContext)
+        if (current.decision.isAuthorized || current.pendingAcceptance != null) {
+            return@synchronized current
         }
-        // 宿主配置未确认时不能让界面权威状态单独前进；尽力回滚到原决定。
-        write(context, previous)
-        RemoteHookConfigStore.publish(context, previous).also(RemoteHookConfigStore::logFailure)
-        return false
+        val preferences = openPreferences(appContext) ?: return@synchronized null
+        val storedRevision = runCatching {
+            preferences.getLong(KEY_PENDING_REVISION, 0L)
+        }.getOrDefault(0L)
+        val revision = max(
+            System.currentTimeMillis().coerceAtLeast(1L),
+            storedRevision.nextRevision()
+        )
+        val committed = runCatching {
+            preferences.edit()
+                .putString(KEY_DECISION, current.decision.name)
+                .putInt(KEY_TERMS_VERSION, CURRENT_TERMS_VERSION)
+                .putBoolean(KEY_PENDING_ACCEPTANCE, true)
+                .putInt(KEY_PENDING_TERMS_VERSION, CURRENT_TERMS_VERSION)
+                .putLong(KEY_PENDING_REVISION, revision)
+                .putString(KEY_PENDING_PREVIOUS_DECISION, current.decision.name)
+                .commit()
+        }.getOrDefault(false)
+        if (!committed) null else UserTermsConsentState(
+            decision = current.decision,
+            pendingAcceptance = UserTermsPendingAcceptance(
+                revision = revision,
+                previousDecision = current.decision
+            )
+        )
     }
 
-    fun decline(context: Context): Boolean {
-        readOrInitialize(context)
-        // 必须先同步撤销宿主可见的正向授权；撤销未确认时不得只改私有权威文件。
-        if (!RemoteHookConfigStore.publish(
-                context,
-                UserTermsDecision.DECLINED
-            ).also(RemoteHookConfigStore::logFailure).succeeded
-        ) {
-            return false
+    fun completePendingAcceptance(
+        context: Context,
+        expectedRevision: Long
+    ): UserTermsPendingCompletion = synchronized(lock) {
+        val appContext = context.applicationContext ?: context
+        val current = readStateOrInitialize(appContext)
+        val pending = current.pendingAcceptance
+            ?: return@synchronized UserTermsPendingCompletion.STALE
+        if (pending.revision != expectedRevision) {
+            return@synchronized UserTermsPendingCompletion.STALE
         }
-        if (write(context, UserTermsDecision.DECLINED)) return true
-        // 私有提交失败也保留宿主侧关闭态，不能为了状态一致性重新放行 Hook。
-        return false
+        val preferences = openPreferences(appContext)
+            ?: return@synchronized UserTermsPendingCompletion.WRITE_FAILED
+        if (persistDecision(preferences, UserTermsDecision.ACCEPTED)) {
+            UserTermsPendingCompletion.COMPLETED
+        } else {
+            UserTermsPendingCompletion.WRITE_FAILED
+        }
+    }
+
+    /** 用户改为拒绝前先使任何在途 ACCEPTED 结果失效。 */
+    fun cancelPendingAcceptance(context: Context): Boolean = synchronized(lock) {
+        val appContext = context.applicationContext ?: context
+        val current = readStateOrInitialize(appContext)
+        if (current.pendingAcceptance == null) return@synchronized true
+        val preferences = openPreferences(appContext) ?: return@synchronized false
+        clearPending(preferences)
+    }
+
+    fun writeDecision(context: Context, decision: UserTermsDecision): Boolean = synchronized(lock) {
+        val preferences = openPreferences(context.applicationContext ?: context)
+            ?: return@synchronized false
+        persistDecision(preferences, decision)
     }
 
     internal fun inferInitialDecision(
@@ -147,6 +254,24 @@ internal object UserTermsConsentStore {
             ?: UserTermsDecision.UNDECIDED
     }
 
+    internal fun resolvePendingAcceptance(
+        hasPending: Boolean,
+        storedTermsVersion: Int,
+        revision: Long,
+        rawPreviousDecision: String?,
+        currentDecision: UserTermsDecision
+    ): UserTermsPendingAcceptance? {
+        if (!hasPending || storedTermsVersion != CURRENT_TERMS_VERSION || revision <= 0L) {
+            return null
+        }
+        if (currentDecision.isAuthorized) return null
+        val previousDecision = UserTermsDecision.entries.firstOrNull {
+            it.name == rawPreviousDecision
+        } ?: return null
+        if (previousDecision != currentDecision || previousDecision.isAuthorized) return null
+        return UserTermsPendingAcceptance(revision, previousDecision)
+    }
+
     private fun inferInitialDecision(
         packageInfo: PackageInfo?,
         prefsAliveTimestamp: Long?
@@ -156,23 +281,40 @@ internal object UserTermsConsentStore {
         prefsAliveTimestamp = prefsAliveTimestamp
     )
 
-    private fun write(context: Context, decision: UserTermsDecision): Boolean = synchronized(lock) {
-        val preferences = runCatching {
-            (context.applicationContext ?: context).getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
-        }.getOrNull() ?: return@synchronized false
-        persist(preferences, decision)
-    }
-
     @SuppressLint("UseKtx") // 必须检查 commit() 返回值，KTX edit(commit=true) 会丢失该结果。
-    private fun persist(
+    private fun persistDecision(
         preferences: SharedPreferences,
         decision: UserTermsDecision
     ): Boolean = runCatching {
         preferences.edit()
             .putString(KEY_DECISION, decision.name)
             .putInt(KEY_TERMS_VERSION, CURRENT_TERMS_VERSION)
+            .remove(KEY_PENDING_ACCEPTANCE)
+            .remove(KEY_PENDING_TERMS_VERSION)
+            .remove(KEY_PENDING_REVISION)
+            .remove(KEY_PENDING_PREVIOUS_DECISION)
             .commit()
     }.getOrDefault(false)
+
+    @SuppressLint("UseKtx")
+    private fun clearPending(preferences: SharedPreferences): Boolean = runCatching {
+        preferences.edit()
+            .remove(KEY_PENDING_ACCEPTANCE)
+            .remove(KEY_PENDING_TERMS_VERSION)
+            .remove(KEY_PENDING_REVISION)
+            .remove(KEY_PENDING_PREVIOUS_DECISION)
+            .commit()
+    }.getOrDefault(false)
+
+    private fun openPreferences(context: Context): SharedPreferences? = runCatching {
+        context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
+    }.getOrNull()
+
+    private fun Long.nextRevision(): Long = when {
+        this < 1L -> 1L
+        this == Long.MAX_VALUE -> Long.MAX_VALUE
+        else -> this + 1L
+    }
 
     private fun readPackageInfo(context: Context): PackageInfo? = runCatching {
         if (AndroidVersion.isAtLeast(AndroidVersion.T)) {
