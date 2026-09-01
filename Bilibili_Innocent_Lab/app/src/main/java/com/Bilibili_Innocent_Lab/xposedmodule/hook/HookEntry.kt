@@ -2980,6 +2980,18 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.RECOMMEND_VIDEO_MAX_DURATION_SECONDS,
                             0
                         ),
+                        matchingEnhancementEnabled = prefs.getBoolean(
+                            FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED,
+                            false
+                        ),
+                        reasonFilterEnabled = prefs.getBoolean(
+                            FeaturePreferences.VIDEO_RELATE_REASON_FILTER_ENABLED,
+                            false
+                        ),
+                        rawReasonKeywords = prefs.getString(
+                            FeaturePreferences.VIDEO_RELATE_REASON_FILTER_KEYWORDS,
+                            ""
+                        ).orEmpty(),
                         points = hostAdaptResult?.videoRelate
                     )
                 )

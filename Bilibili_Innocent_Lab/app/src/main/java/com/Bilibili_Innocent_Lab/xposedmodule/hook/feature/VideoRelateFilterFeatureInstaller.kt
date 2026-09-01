@@ -8,16 +8,33 @@ internal class VideoRelateFilterFeatureInstaller(
     private val hiddenTypes: Set<String>,
     minDurationSeconds: Int,
     maxDurationSeconds: Int,
+    private val matchingEnhancementEnabled: Boolean = false,
+    private val reasonFilterEnabled: Boolean = false,
+    rawReasonKeywords: String = "",
     private val points: VersionAdapter.VideoRelatePoints?
 ) : FeatureInstaller {
 
     private val durationRange = VideoDurationRange(minDurationSeconds, maxDurationSeconds)
+    private val customReasonKeywords = if (matchingEnhancementEnabled && reasonFilterEnabled) {
+        VideoRelateReasonMatcher.parseCustom(rawReasonKeywords)
+    } else {
+        emptySet()
+    }
 
     override val id: String = ID
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         val normalizedHidden = hiddenTypes.mapTo(linkedSetOf(), ::normalizeType)
             .filterTo(linkedSetOf()) { it.isNotBlank() }
+        val promotionReasonEnhancementActive = matchingEnhancementEnabled &&
+            normalizedHidden.any { hidden ->
+                HostContentSemanticClassifier.hiddenKind(hidden) in setOf(
+                    HostContentKind.ADVERTISEMENT,
+                    HostContentKind.SPECIAL
+                )
+            }
+        val reasonFilteringActive = promotionReasonEnhancementActive ||
+            customReasonKeywords.isNotEmpty()
         if (durationRange.isConfigured && !durationRange.isValid) {
             environment.logError(
                 "video_relate_duration_invalid",
@@ -25,7 +42,7 @@ internal class VideoRelateFilterFeatureInstaller(
                     "min=${durationRange.minSeconds},max=${durationRange.maxSeconds}"
             )
         }
-        if (normalizedHidden.isEmpty() && !durationRange.isEnabled) {
+        if (normalizedHidden.isEmpty() && !durationRange.isEnabled && !reasonFilteringActive) {
             val reason = if (durationRange.isConfigured && !durationRange.isValid) {
                 "invalid-duration-range"
             } else {
@@ -98,23 +115,36 @@ internal class VideoRelateFilterFeatureInstaller(
             sourceTypeEvidence.isNotEmpty() || sourceTypeChainEvidence.isNotEmpty() ||
             relateTypeValueEvidence.isNotEmpty()
         val durationPaths = resolveDurationPaths(environment, adapted)
-        var partialReason: String? = null
+        val reasonPaths = resolveReasonPaths(environment, adapted, reasonFilteringActive)
+        val partialReasons = mutableListOf<String>()
         if (normalizedHidden.isNotEmpty() && !hasTypeEvidence) {
-            if (!durationRange.isEnabled || durationPaths.isEmpty()) {
+            if (durationPaths.isEmpty() && reasonPaths.isEmpty()) {
                 return missing(environment, "missing-type-getter")
             }
-            partialReason = "missing-type-getter"
+            partialReasons += "missing-type-getter"
             environment.logError(
                 "video_relate_type_missing",
                 "[BIL] 详情页推荐类型读取适配不完整，时长过滤继续生效"
             )
         }
         if (durationRange.isEnabled && durationPaths.isEmpty()) {
-            if (!hasTypeEvidence) return missing(environment, "missing-duration-accessor")
-            partialReason = "missing-duration-accessor"
+            if (!hasTypeEvidence && reasonPaths.isEmpty()) {
+                return missing(environment, "missing-duration-accessor")
+            }
+            partialReasons += "missing-duration-accessor"
             environment.logError(
                 "video_relate_duration_missing",
                 "[BIL] 详情页推荐时长读取适配不完整，现有类型过滤继续生效"
+            )
+        }
+        if (reasonFilteringActive && reasonPaths.isEmpty()) {
+            if (!hasTypeEvidence && durationPaths.isEmpty()) {
+                return missing(environment, "missing-reason-accessor")
+            }
+            partialReasons += "missing-reason-accessor"
+            environment.logError(
+                "video_relate_reason_missing",
+                "[BIL] 详情页结构化推荐理由读取适配不完整，现有类型/时长过滤继续生效"
             )
         }
 
@@ -145,9 +175,19 @@ internal class VideoRelateFilterFeatureInstaller(
                             } else {
                                 false
                             }
-                            typeMatched || durationRange.shouldRemove(
-                                VideoDurationReader.fromMethods(item, durationPaths)
-                            )
+                            if (typeMatched) return@list true
+                            if (durationRange.shouldRemove(
+                                    VideoDurationReader.fromMethods(item, durationPaths)
+                                )) return@list true
+                            if (reasonPaths.isEmpty()) return@list false
+                            val reasons = VideoRelateReasonReader.read(item, reasonPaths)
+                            VideoRelateReasonMatcher.matchesCustom(
+                                reasons,
+                                customReasonKeywords
+                            ) || (
+                                promotionReasonEnhancementActive &&
+                                    VideoRelateReasonMatcher.matchesHighConfidencePromotion(reasons)
+                                )
                         }
                         if (filtered !== source) {
                             result = filtered
@@ -177,12 +217,16 @@ internal class VideoRelateFilterFeatureInstaller(
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.reportStatus(
             CHANNEL_STATUS,
-            partialReason?.let { "partial:$it" } ?: "success"
+            partialReasons.takeIf { it.isNotEmpty() }
+                ?.joinToString(prefix = "partial:", separator = "+")
+                ?: "success"
         )
         environment.logInfo(
             "video_relate_ok",
             "[BIL] 视频相关推荐过滤已安装，types=$normalizedHidden," +
-                "duration=${durationRange.isEnabled}"
+                "duration=${durationRange.isEnabled}," +
+                "reasonEnhancement=$promotionReasonEnhancementActive," +
+                "customReasonKeywords=${customReasonKeywords.size}"
         )
         return FeatureInstallResult.Installed(installed)
     }
@@ -206,6 +250,22 @@ internal class VideoRelateFilterFeatureInstaller(
             itemGetter to durationGetter
         }
         return VideoDurationReader.buildMethodPaths(direct, chains)
+    }
+
+    private fun resolveReasonPaths(
+        environment: HookEnvironment,
+        points: VersionAdapter.VideoRelatePoints,
+        enabled: Boolean
+    ): List<VideoRelateReasonMethodPath> {
+        if (!enabled) return emptyList()
+        val chains = points.reasonChains.mapIndexedNotNull { chainIndex, chain ->
+            val methods = chain.steps.mapIndexed { stepIndex, point ->
+                resolve(environment, "reason.$chainIndex.$stepIndex", point)
+            }
+            if (methods.any { it == null }) return@mapIndexedNotNull null
+            methods.filterNotNull()
+        }
+        return VideoRelateReasonReader.buildMethodPaths(chains)
     }
 
     private fun extractEvidence(

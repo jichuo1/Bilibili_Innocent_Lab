@@ -17,7 +17,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorS
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 4
+    const val CATALOG_VERSION = 5
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
     const val ID_FREE_COPY_DESCRIPTION = "free_copy.description.enabled"
     const val ID_RECOMMEND_VIDEO_MIN_DURATION =
@@ -54,6 +54,7 @@ internal object SettingsCatalog {
         labelRes: Int,
         default: String = "",
         allowed: Set<String>? = null,
+        maxStringLength: Int = SettingSpec.DEFAULT_MAX_STRING_LENGTH,
         introducedCatalogVersion: Int = 1,
         effects: Set<ImportEffect> = setOf(
             ImportEffect.RECREATE_MODULE_UI,
@@ -66,6 +67,7 @@ internal object SettingsCatalog {
         type = SettingValueType.STRING,
         defaultValue = SettingValue.Text(default),
         allowedStrings = allowed,
+        maxStringLength = maxStringLength,
         introducedCatalogVersion = introducedCatalogVersion,
         effects = effects
     )
@@ -144,6 +146,25 @@ internal object SettingsCatalog {
         bool("video.related.live.removed", FeaturePreferences.REMOVE_RELATE_LIVE, R.string.remove_relate_live),
         bool("video.related.course.removed", FeaturePreferences.REMOVE_RELATE_COURSE, R.string.remove_relate_course),
         bool("video.related.special.removed", FeaturePreferences.REMOVE_RELATE_SPECIAL, R.string.remove_relate_special),
+        bool(
+            "video.related.matching_enhancement.enabled",
+            FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED,
+            R.string.video_relate_matching_enhancement,
+            introducedCatalogVersion = 5
+        ),
+        bool(
+            "video.related.reason_filter.enabled",
+            FeaturePreferences.VIDEO_RELATE_REASON_FILTER_ENABLED,
+            R.string.video_relate_reason_filter,
+            introducedCatalogVersion = 5
+        ),
+        text(
+            "video.related.reason_filter.keywords",
+            FeaturePreferences.VIDEO_RELATE_REASON_FILTER_KEYWORDS,
+            R.string.video_relate_reason_filter_keywords,
+            maxStringLength = 4_096,
+            introducedCatalogVersion = 5
+        ),
 
         bool("story.ads.removed", FeaturePreferences.REMOVE_STORY_ADS, R.string.remove_story_ads),
         bool("story.live.removed", FeaturePreferences.REMOVE_STORY_LIVE, R.string.remove_story_live),
@@ -271,7 +292,7 @@ internal object SettingsCatalog {
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
 
     init {
-        check(specs.size == 76) { "Expected 76 catalog settings, found ${specs.size}" }
+        check(specs.size == 79) { "Expected 79 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"
