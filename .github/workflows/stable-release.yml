@@ -36,8 +36,6 @@ jobs:
       version_name: ${{ steps.identity.outputs.version_name }}
       version_code: ${{ steps.identity.outputs.version_code }}
       package_name: ${{ steps.identity.outputs.package_name }}
-      apk_filename: ${{ steps.apk.outputs.apk_filename }}
-      apk_sha256: ${{ steps.apk.outputs.apk_sha256 }}
 
     steps:
       - name: Check out source
@@ -154,80 +152,6 @@ jobs:
             assembleDebug testDebugUnitTest lintDebug \
             --console=plain --no-daemon
 
-      - name: Verify APK identity and generate provenance
-        id: apk
-        shell: bash
-        env:
-          RELEASE_TAG: ${{ steps.identity.outputs.release_tag }}
-          EXPECTED_PACKAGE_NAME: ${{ steps.identity.outputs.package_name }}
-          EXPECTED_VERSION_NAME: ${{ steps.identity.outputs.version_name }}
-          EXPECTED_VERSION_CODE: ${{ steps.identity.outputs.version_code }}
-        run: |
-          set -euo pipefail
-          apk="Bilibili_Innocent_Lab/app/build/outputs/apk/debug/app-debug.apk"
-          test -f "$apk"
-          aapt_bin="$ANDROID_SDK_ROOT/build-tools/$CI_BUILD_TOOLS/aapt"
-          test -x "$aapt_bin"
-          package_line="$("$aapt_bin" dump badging "$apk" | sed -n '1p')"
-          actual_package_name="$(printf '%s\n' "$package_line" | sed -n "s/.*package: name='\([^']*\)'.*/\1/p")"
-          actual_version_name="$(printf '%s\n' "$package_line" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
-          actual_version_code="$(printf '%s\n' "$package_line" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
-          test -n "$actual_package_name"
-          test -n "$actual_version_name"
-          test -n "$actual_version_code"
-          if [[ "$actual_package_name" != "$EXPECTED_PACKAGE_NAME" ]]; then
-            echo "APK package mismatch: expected $EXPECTED_PACKAGE_NAME, found $actual_package_name"
-            exit 1
-          fi
-          if [[ "$actual_version_name" != "$EXPECTED_VERSION_NAME" ]]; then
-            echo "APK versionName mismatch: expected $EXPECTED_VERSION_NAME, found $actual_version_name"
-            exit 1
-          fi
-          if [[ "$actual_version_code" != "$EXPECTED_VERSION_CODE" ]]; then
-            echo "APK versionCode mismatch: expected $EXPECTED_VERSION_CODE, found $actual_version_code"
-            exit 1
-          fi
-
-          short_sha="${GITHUB_SHA:0:8}"
-          apk_filename="Bilibili_Innocent_Lab-${RELEASE_TAG}-${short_sha}.apk"
-          mkdir -p release-asset
-          cp "$apk" "release-asset/$apk_filename"
-          apk_sha256="$(sha256sum "release-asset/$apk_filename" | awk '{print $1}')"
-          {
-            printf 'release_channel=stable\n'
-            printf 'release_tag=%s\n' "$RELEASE_TAG"
-            printf 'source_ref=%s\n' "$GITHUB_REF"
-            printf 'source_commit=%s\n' "$GITHUB_SHA"
-            printf 'apk_package_name=%s\n' "$actual_package_name"
-            printf 'apk_version_name=%s\n' "$actual_version_name"
-            printf 'apk_version_code=%s\n' "$actual_version_code"
-            printf 'apk_filename=%s\n' "$apk_filename"
-            printf 'apk_sha256=%s\n' "$apk_sha256"
-          } > release-asset/BUILD_INFO.txt
-          (
-            cd release-asset
-            sha256sum "$apk_filename" BUILD_INFO.txt > SHA256SUMS.txt
-          )
-
-          echo "apk_filename=$apk_filename" >> "$GITHUB_OUTPUT"
-          echo "apk_sha256=$apk_sha256" >> "$GITHUB_OUTPUT"
-          {
-            echo "### Verified Stable APK"
-            echo "- File: \`$apk_filename\`"
-            echo "- Package: \`$actual_package_name\`"
-            echo "- versionName: \`$actual_version_name\`"
-            echo "- versionCode: \`$actual_version_code\`"
-            echo "- SHA-256: \`$apk_sha256\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload verified Stable build
-        uses: actions/upload-artifact@v4
-        with:
-          name: stable-release-asset-${{ github.sha }}
-          path: release-asset
-          if-no-files-found: error
-          retention-days: 7
-
   publish:
     name: Publish Stable Release
     needs: verify
@@ -245,21 +169,11 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Download verified build
-        uses: actions/download-artifact@v4
-        with:
-          name: stable-release-asset-${{ github.sha }}
-          path: release-asset
-
-      - name: Verify downloaded build provenance and release vacancy
+      - name: Verify source and release vacancy
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.release_tag }}
-          APK_FILENAME: ${{ needs.verify.outputs.apk_filename }}
-          EXPECTED_PACKAGE_NAME: ${{ needs.verify.outputs.package_name }}
-          EXPECTED_VERSION_NAME: ${{ needs.verify.outputs.version_name }}
-          EXPECTED_VERSION_CODE: ${{ needs.verify.outputs.version_code }}
         run: |
           set -euo pipefail
           git fetch --force --tags origin
@@ -279,28 +193,132 @@ jobs:
             exit 1
           fi
 
-          test -f "release-asset/$APK_FILENAME"
-          test -f release-asset/BUILD_INFO.txt
-          test -f release-asset/SHA256SUMS.txt
-          grep -Fx 'release_channel=stable' release-asset/BUILD_INFO.txt
-          grep -Fx "release_tag=$RELEASE_TAG" release-asset/BUILD_INFO.txt
-          grep -Fx "source_commit=$GITHUB_SHA" release-asset/BUILD_INFO.txt
-          grep -Fx "apk_package_name=$EXPECTED_PACKAGE_NAME" release-asset/BUILD_INFO.txt
-          grep -Fx "apk_version_name=$EXPECTED_VERSION_NAME" release-asset/BUILD_INFO.txt
-          grep -Fx "apk_version_code=$EXPECTED_VERSION_CODE" release-asset/BUILD_INFO.txt
-          grep -Fx "apk_filename=$APK_FILENAME" release-asset/BUILD_INFO.txt
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: sdkmanager "platforms;android-${CI_COMPILE_SDK}" "build-tools;${CI_BUILD_TOOLS}"
+
+      - name: Restore fixed release signing identity
+        id: signing
+        shell: bash
+        env:
+          SIGNING_KEY_BASE64: ${{ secrets.ANDROID_SIGNING_KEY_BASE64 }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+          EXPECTED_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          : "${SIGNING_KEY_BASE64:?Missing ANDROID_SIGNING_KEY_BASE64 environment secret}"
+          : "${SIGNING_STORE_PASSWORD:?Missing ANDROID_SIGNING_STORE_PASSWORD environment secret}"
+          : "${SIGNING_KEY_ALIAS:?Missing ANDROID_SIGNING_KEY_ALIAS environment secret}"
+          : "${SIGNING_KEY_PASSWORD:?Missing ANDROID_SIGNING_KEY_PASSWORD environment secret}"
+          : "${EXPECTED_CERT_SHA256:?Missing ANDROID_SIGNING_CERT_SHA256 environment secret}"
+          keystore="$RUNNER_TEMP/innocent-lab-release.p12"
+          printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > "$keystore"
+          test -s "$keystore"
+          chmod 600 "$keystore"
+          echo "keystore=$keystore" >> "$GITHUB_OUTPUT"
+
+      - name: Build signed Stable Release APK
+        working-directory: Bilibili_Innocent_Lab
+        shell: bash
+        env:
+          INNOCENT_LAB_SIGNING_STORE_FILE: ${{ steps.signing.outputs.keystore }}
+          INNOCENT_LAB_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          INNOCENT_LAB_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          INNOCENT_LAB_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
+            assembleRelease \
+            --console=plain --no-daemon
+
+      - name: Verify signed Stable APK and generate provenance
+        id: apk
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_PACKAGE_NAME: ${{ needs.verify.outputs.package_name }}
+          EXPECTED_VERSION_NAME: ${{ needs.verify.outputs.version_name }}
+          EXPECTED_VERSION_CODE: ${{ needs.verify.outputs.version_code }}
+          EXPECTED_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          apk="Bilibili_Innocent_Lab/app/build/outputs/apk/release/app-release.apk"
+          aapt_bin="$ANDROID_SDK_ROOT/build-tools/$CI_BUILD_TOOLS/aapt"
+          apksigner_bin="$ANDROID_SDK_ROOT/build-tools/$CI_BUILD_TOOLS/apksigner"
+          python3 .github/release-templates/verify_release_apk.py \
+            --apk "$apk" \
+            --aapt "$aapt_bin" \
+            --apksigner "$apksigner_bin" \
+            --expected-package "$EXPECTED_PACKAGE_NAME" \
+            --expected-version-name "$EXPECTED_VERSION_NAME" \
+            --expected-version-code "$EXPECTED_VERSION_CODE" \
+            --expected-cert-sha256 "$EXPECTED_CERT_SHA256" \
+            --github-output "$GITHUB_OUTPUT"
+
+          short_sha="${GITHUB_SHA:0:8}"
+          apk_filename="Bilibili_Innocent_Lab-${RELEASE_TAG}-${short_sha}.apk"
+          mkdir -p release-asset
+          cp "$apk" "release-asset/$apk_filename"
+          apk_sha256="$(sha256sum "release-asset/$apk_filename" | awk '{print $1}')"
+          signer_sha256="$(sed -n 's/^apk_signer_certificate_sha256=//p' "$GITHUB_OUTPUT" | tail -n 1)"
+          {
+            printf 'release_channel=stable\n'
+            printf 'release_tag=%s\n' "$RELEASE_TAG"
+            printf 'source_ref=%s\n' "$GITHUB_REF"
+            printf 'source_commit=%s\n' "$GITHUB_SHA"
+            printf 'apk_package_name=%s\n' "$EXPECTED_PACKAGE_NAME"
+            printf 'apk_version_name=%s\n' "$EXPECTED_VERSION_NAME"
+            printf 'apk_version_code=%s\n' "$EXPECTED_VERSION_CODE"
+            printf 'apk_build_type=release\n'
+            printf 'apk_debuggable=false\n'
+            printf 'apk_signer_certificate_sha256=%s\n' "$signer_sha256"
+            printf 'apk_filename=%s\n' "$apk_filename"
+            printf 'apk_sha256=%s\n' "$apk_sha256"
+          } > release-asset/BUILD_INFO.txt
           (
             cd release-asset
+            sha256sum "$apk_filename" BUILD_INFO.txt > SHA256SUMS.txt
             sha256sum -c SHA256SUMS.txt
           )
+          echo "apk_filename=$apk_filename" >> "$GITHUB_OUTPUT"
+          echo "apk_sha256=$apk_sha256" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Verified signed Stable APK"
+            echo "- File: \`$apk_filename\`"
+            echo "- Package: \`$EXPECTED_PACKAGE_NAME\`"
+            echo "- versionName: \`$EXPECTED_VERSION_NAME\`"
+            echo "- versionCode: \`$EXPECTED_VERSION_CODE\`"
+            echo "- Certificate SHA-256: \`$signer_sha256\`"
+            echo "- APK SHA-256: \`$apk_sha256\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload verified signed Stable asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: stable-signed-release-asset-${{ github.sha }}
+          path: release-asset
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Render standardized Stable release notes
         shell: bash
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
           RELEASE_SUMMARY: ${{ inputs.release_summary }}
-          APK_FILENAME: ${{ needs.verify.outputs.apk_filename }}
-          APK_SHA256: ${{ needs.verify.outputs.apk_sha256 }}
+          APK_FILENAME: ${{ steps.apk.outputs.apk_filename }}
+          APK_SHA256: ${{ steps.apk.outputs.apk_sha256 }}
         run: |
           set -euo pipefail
           changelog_file="release-asset/STABLE_CHANGELOG.md"
@@ -331,7 +349,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.release_tag }}
-          APK_FILENAME: ${{ needs.verify.outputs.apk_filename }}
+          APK_FILENAME: ${{ steps.apk.outputs.apk_filename }}
         run: |
           set -euo pipefail
           gh release create "$RELEASE_TAG" \
@@ -349,7 +367,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.release_tag }}
-          APK_FILENAME: ${{ needs.verify.outputs.apk_filename }}
+          APK_FILENAME: ${{ steps.apk.outputs.apk_filename }}
         run: |
           set -euo pipefail
           published_dir="$RUNNER_TEMP/published-stable-assets"
@@ -392,3 +410,8 @@ jobs:
             echo "- Release: $release_url"
             echo "- Assets: APK, BUILD_INFO.txt, SHA256SUMS.txt"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove temporary signing keystore
+        if: ${{ always() }}
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/innocent-lab-release.p12"

@@ -15,6 +15,49 @@ val releaseVersionNameOverride = providers.gradleProperty("innocentLab.releaseVe
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
 
+fun releaseSigningValue(gradleProperty: String, environmentVariable: String): String? =
+    providers.gradleProperty(gradleProperty)
+        .orElse(providers.environmentVariable(environmentVariable))
+        .orNull
+        ?.takeIf { it.isNotEmpty() }
+
+val releaseSigningStoreFile = releaseSigningValue(
+    gradleProperty = "innocentLab.signing.storeFile",
+    environmentVariable = "INNOCENT_LAB_SIGNING_STORE_FILE"
+)
+val releaseSigningStorePassword = releaseSigningValue(
+    gradleProperty = "innocentLab.signing.storePassword",
+    environmentVariable = "INNOCENT_LAB_SIGNING_STORE_PASSWORD"
+)
+val releaseSigningKeyAlias = releaseSigningValue(
+    gradleProperty = "innocentLab.signing.keyAlias",
+    environmentVariable = "INNOCENT_LAB_SIGNING_KEY_ALIAS"
+)
+val releaseSigningKeyPassword = releaseSigningValue(
+    gradleProperty = "innocentLab.signing.keyPassword",
+    environmentVariable = "INNOCENT_LAB_SIGNING_KEY_PASSWORD"
+)
+val releaseSigningValues = listOf(
+    releaseSigningStoreFile,
+    releaseSigningStorePassword,
+    releaseSigningKeyAlias,
+    releaseSigningKeyPassword
+)
+val hasAnyReleaseSigningValue = releaseSigningValues.any { it != null }
+val hasCompleteReleaseSigningValues = releaseSigningValues.all { it != null }
+
+if (hasAnyReleaseSigningValue && !hasCompleteReleaseSigningValues) {
+    throw GradleException(
+        "Incomplete release signing configuration. Provide storeFile, storePassword, " +
+            "keyAlias and keyPassword together."
+    )
+}
+
+val releaseSigningStore = releaseSigningStoreFile?.let(project::file)
+if (hasCompleteReleaseSigningValues && releaseSigningStore?.isFile != true) {
+    throw GradleException("Release signing keystore does not exist: $releaseSigningStore")
+}
+
 hikage {
     compiler {
         // 项目显式管理 Kotlin/KSP 版本，禁止 Hikage 插件启用内置 KSP 兜底。
@@ -36,10 +79,24 @@ android {
         versionCode = gropify.project.app.versionCode
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    val fixedReleaseSigning = if (hasCompleteReleaseSigningValues) {
+        signingConfigs.create("fixedRelease") {
+            storeFile = releaseSigningStore
+            storePassword = releaseSigningStorePassword
+            keyAlias = releaseSigningKeyAlias
+            keyPassword = releaseSigningKeyPassword
+            storeType = "PKCS12"
+        }
+    } else {
+        null
+    }
+
     buildTypes {
         release {
+            isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
+            signingConfig = fixedReleaseSigning
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -53,6 +110,20 @@ android {
     }
     lint { checkReleaseBuilds = false }
 
+}
+
+gradle.taskGraph.whenReady {
+    val releasePackagingRequested = allTasks.any { task ->
+        task.project == project &&
+            task.name.matches(Regex("(?i)^(assemble|bundle|package|sign).*release.*$"))
+    }
+    if (releasePackagingRequested && !hasCompleteReleaseSigningValues) {
+        throw GradleException(
+            "Release packaging requires the fixed signing identity. Configure the " +
+                "INNOCENT_LAB_SIGNING_* environment variables or matching " +
+                "innocentLab.signing.* Gradle properties."
+        )
+    }
 }
 
 tasks.withType<KotlinJvmCompile>().configureEach {

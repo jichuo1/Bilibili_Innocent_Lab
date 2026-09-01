@@ -14,8 +14,8 @@
    不堆砌兼容性、已知问题、验证结果等长章节。
 3. “版本概述”只写 2～4 句，说明本版本解决了什么问题，不堆砌实现细节。
 4. 每项更新以用户可感知的结果开头，必要时再补充技术原因。
-5. Stable 必须包含版本概述与 APK SHA-256；兼容性与验证细节由附件 `BUILD_INFO.txt`、
-   `SHA256SUMS.txt` 和仓库文档承载。
+5. Stable 必须包含版本概述与 APK SHA-256；兼容性、固定签名证书指纹与验证细节由附件
+   `BUILD_INFO.txt`、`SHA256SUMS.txt` 和仓库文档承载。
 6. Alpha 必须保留 WARNING 风险提示与回滚说明，并明确不会作为稳定更新推送。
 7. Alpha Release 上传 APK、`BUILD_INFO.txt` 与 `SHA256SUMS.txt`；APK 文件名必须包含
    完整版本号和源码短 SHA。
@@ -33,6 +33,8 @@
     猜测 versionCode。
 14. 独立同步只接受一个 APK 和 `SHA256SUMS.txt`，会复制全部附件。目标标签已存在时只做
     全量一致性校验，不自动覆盖或删除。
+15. Alpha/Stable 的发布资产只能来自受保护环境中的 `assembleRelease`，必须由同一个长期
+    证书签名并通过 `verify_release_apk.py`；普通 `main` 推送的 Debug 构建不得作为候选发布资产。
 
 ## 推荐流程
 
