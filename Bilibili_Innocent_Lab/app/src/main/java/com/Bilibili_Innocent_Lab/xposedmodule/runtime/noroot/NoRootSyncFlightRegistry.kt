@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot
 
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
+
 /**
  * 只保留一个当前 NPatch 写入航班；相同用户意图与快照 revision 的调用共享结果，
  * 新 revision 则替换旧航班。类本身不依赖 Android，便于锁定并发规则。
@@ -8,7 +10,8 @@ internal class NoRootSyncFlightRegistry<R> {
     data class Key(
         val intentGeneration: Long,
         val snapshotRevision: Long,
-        val enabled: Boolean
+        val enabled: Boolean,
+        val termsDecision: UserTermsDecision
     )
 
     class Token internal constructor(

@@ -35,6 +35,7 @@
     <string name="user_terms_pending_failed">目前狀態：設定同步尚未完成，模組功能仍維持關閉。您可以立即重試。</string>
     <string name="user_terms_pending_local_failed">目前狀態：遠端設定已撤銷，但本機最終狀態儲存失敗。請檢查儲存狀態後重試。</string>
     <string name="user_terms_retry_sync">立即重試</string>
+    <string name="user_terms_use_npatch_sync">使用 NPatch 同步（實驗性）</string>
     <string name="user_terms_diagnostics_title">連線診斷（唯讀）</string>
     <string name="user_terms_diagnostics_module_identity">模組設定 App：可見 · userId %1$d · UID %2$d</string>
     <string name="user_terms_diagnostics_profile_primary">使用者空間：主要使用者</string>
@@ -466,7 +467,7 @@
     <string name="settings_backup_choose_again">重新選擇檔案</string>
     <string name="settings_backup_migration_warning">部分目錄遷移步驟無法使用；只會還原仍能精確相容的自描述設定，其餘項目全部保留目前狀態。</string>
     <string name="no_root_support_enable">免 Root 支援（NPatch，實驗性）</string>
-    <string name="no_root_support_tip">需要 Android 9 或以上版本，並使用 NPatch Manager 1.0.7 或以上版本的本機/管理器模式。僅在此開關開啟時連線 NPatch。</string>
+    <string name="no_root_support_tip">此開關只控制本模組透過 NPatch 同步設定，不會關閉已修補應用程式的 NPatch 原生注入。部分 NPatch 1.0.7 組建存在上游啟動崩潰問題（#139）；請只使用已明確包含修正的組建。僅在此開關開啟時連線 NPatch。</string>
     <string name="no_root_status_unsupported_os">狀態：無法使用，需要 Android 9 或更新版本。</string>
     <string name="no_root_status_disabled">狀態：已關閉，不會連線 NPatch。</string>
     <string name="no_root_status_checking">狀態：正在檢查本機設定…</string>

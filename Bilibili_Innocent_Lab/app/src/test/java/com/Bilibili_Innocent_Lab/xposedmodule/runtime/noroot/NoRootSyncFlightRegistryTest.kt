@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot
 
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import org.junit.Assert.assertEquals
@@ -13,7 +14,8 @@ class NoRootSyncFlightRegistryTest {
     private val firstKey = NoRootSyncFlightRegistry.Key(
         intentGeneration = 1L,
         snapshotRevision = 10L,
-        enabled = true
+        enabled = true,
+        termsDecision = UserTermsDecision.ACCEPTED
     )
 
     @Test
@@ -79,6 +81,19 @@ class NoRootSyncFlightRegistryTest {
 
         val disabled = firstKey.copy(intentGeneration = 2L, enabled = false)
         val registration = registry.register(disabled, {}, null)
+
+        assertTrue(registration.startsFlight)
+        assertEquals(firstKey, registration.displacedToken?.key)
+        assertTrue(registry.isCurrent(registration.token))
+    }
+
+    @Test
+    fun `terms decision is part of flight identity`() {
+        val registry = NoRootSyncFlightRegistry<String>()
+        registry.register(firstKey, {}, null)
+
+        val declined = firstKey.copy(termsDecision = UserTermsDecision.DECLINED)
+        val registration = registry.register(declined, {}, null)
 
         assertTrue(registration.startsFlight)
         assertEquals(firstKey, registration.displacedToken?.key)
