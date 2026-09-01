@@ -33,6 +33,10 @@ internal object FeaturePreferences {
     const val REMOVE_RELATE_LIVE = "remove_relate_live"
     const val REMOVE_RELATE_COURSE = "remove_relate_course"
     const val REMOVE_RELATE_SPECIAL = "remove_relate_special"
+    const val VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED =
+        "video_relate_matching_enhancement_enabled"
+    const val VIDEO_RELATE_REASON_FILTER_ENABLED = "video_relate_reason_filter_enabled"
+    const val VIDEO_RELATE_REASON_FILTER_KEYWORDS = "video_relate_reason_filter_keywords"
     const val MINE_COMPONENT_HIDDEN_RULES = "mine_component_hidden_rules"
     /** “我的”页勾选隐藏的组件 id 集合（新 UI 勾选列表持久化，换行/逗号分隔的字符串）。 */
     const val MINE_COMPONENT_HIDDEN_IDS = "mine_component_hidden_ids"

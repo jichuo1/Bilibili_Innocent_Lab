@@ -185,7 +185,21 @@
     <string name="remove_relate_live">Filter live recommendations</string>
     <string name="remove_relate_course">Filter course recommendations</string>
     <string name="remove_relate_special">Filter special recommendations</string>
-    <string name="video_relate_filter_tip">When enabled, filters the selected recommendations on video details pages while keeping ordinary video recommendations. Restart Bilibili to apply.</string>
+    <string name="video_relate_filter_summary_none">No filters selected</string>
+    <string name="video_relate_filter_summary_selected" tools:ignore="PluralsCandidate">%1$d of %2$d content filters selected · Restart Bilibili to apply</string>
+    <string name="video_relate_filter_summary_enhanced" tools:ignore="PluralsCandidate">%1$d of %2$d content filters selected · Matching enhanced</string>
+    <string name="video_relate_filter_dialog_description">Select the recommendation types to hide. Changes are saved together only after you tap Save; unrecognized cards are kept.</string>
+    <string name="video_relate_filter_select_all">Select all</string>
+    <string name="video_relate_filter_clear">Clear</string>
+    <string name="video_relate_filter_save" tools:ignore="PluralsCandidate">Save · %1$d selected</string>
+    <string name="video_relate_filter_applied">Related recommendation filters saved. Restart Bilibili to apply.</string>
+    <string name="video_relate_filter_save_failed">Could not save the related recommendation filters. Please try again.</string>
+    <string name="video_relate_matching_enhancement">Enhanced filter matching</string>
+    <string name="video_relate_matching_enhancement_tip">Uses structured recommendation reasons as additional evidence for commercial and special promotions. It does not match ordinary titles or descriptions.</string>
+    <string name="video_relate_reason_filter">Filter videos by recommendation reason</string>
+    <string name="video_relate_reason_filter_tip">Applies your keywords only to structured recommendation reasons. Missing reason fields are kept.</string>
+    <string name="video_relate_reason_filter_keywords">Recommendation reason keywords</string>
+    <string name="video_relate_reason_filter_keywords_hint">One per line or separated by commas, for example: Sponsored\nOpen mini program\nDownload now</string>
     <string name="player_default_quality">Default playback quality</string>
     <string name="player_default_quality_tip">Choose the preferred quality when playback starts. This does not unlock paid quality, and unavailable quality is adjusted automatically. Restart Bilibili to apply.</string>
     <string name="player_default_quality_current">Current: %1$s</string>
