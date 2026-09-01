@@ -4238,7 +4238,7 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
-    /** 分类使用手风琴行为，避免同时展开后重新形成超长页面。 */
+    /** 各分类独立切换；展开一个分类时保留其他分类的当前状态。 */
     private fun toggleAdvancedCategory(category: AdvancedSettingsCategory) {
         val target = advancedCategorySections[category] ?: return
         setAdvancedCategoryExpanded(category, expanded = !target.expanded)
@@ -4248,15 +4248,6 @@ class MainActivity : SkinnedActivity() {
         category: AdvancedSettingsCategory,
         expanded: Boolean
     ) {
-        if (expanded) {
-            advancedCategorySections.forEach { (otherCategory, section) ->
-                if (otherCategory != category && section.expanded) {
-                    section.expanded = false
-                    section.header.isActivated = false
-                    animateSecondarySection(section.content, section.chevron, expanded = false)
-                }
-            }
-        }
         val section = advancedCategorySections[category] ?: return
         if (section.expanded == expanded) return
         section.expanded = expanded

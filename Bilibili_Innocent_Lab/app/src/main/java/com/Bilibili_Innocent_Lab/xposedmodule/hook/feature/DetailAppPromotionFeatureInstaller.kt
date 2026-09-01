@@ -1,6 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
-import android.widget.FrameLayout
+import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.highcapable.kavaref.extension.classOf
 import com.highcapable.kavaref.extension.isStatic
@@ -270,8 +270,7 @@ internal class DetailAppPromotionFeatureInstaller(
                     *method.parameterTypes
                 ) {
                     before {
-                        if (args.none(types.detailAdServiceClass::isInstance)) return@before
-                        val config = args.firstOrNull(types.configClass::isInstance)
+                        val config = detailPromotionConfigOrNull(args, types.configClass)
                             ?: return@before
                         if (!sceneAccess.isUniteDetail(config)) return@before
                         result = null
@@ -343,9 +342,7 @@ internal class DetailAppPromotionFeatureInstaller(
                 ?: return null,
             bridgeClass = KavaMemberLookup.classOrNull(loader, AD_UPPER_BRIDGE) ?: return null,
             configClass = KavaMemberLookup.classOrNull(loader, AD_UPPER_CONFIG) ?: return null,
-            sceneClass = KavaMemberLookup.classOrNull(loader, AD_UPPER_SCENE) ?: return null,
-            detailAdServiceClass = KavaMemberLookup.classOrNull(loader, DETAIL_AD_SERVICE)
-                ?: return null
+            sceneClass = KavaMemberLookup.classOrNull(loader, AD_UPPER_SCENE) ?: return null
         )
     }
 
@@ -389,8 +386,7 @@ internal class DetailAppPromotionFeatureInstaller(
         val callbackClass: Class<*>,
         val bridgeClass: Class<*>,
         val configClass: Class<*>,
-        val sceneClass: Class<*>,
-        val detailAdServiceClass: Class<*>
+        val sceneClass: Class<*>
     )
 
     private class SceneAccess(
@@ -404,7 +400,7 @@ internal class DetailAppPromotionFeatureInstaller(
             val scene = runCatching {
                 getter?.invoke(config) ?: field?.get(config)
             }.getOrNull()
-            return scene === uniteDetail || scene == uniteDetail
+            return matchesDetailPromotionScene(scene, uniteDetail)
         }
     }
 
@@ -424,8 +420,6 @@ internal class DetailAppPromotionFeatureInstaller(
             "com.bilibili.gripper.api.ad.biz.videodetail.underplayer.AdUpperConfig"
         private const val AD_UPPER_SCENE =
             "com.bilibili.gripper.api.ad.biz.videodetail.underplayer.AdUpperScene"
-        private const val DETAIL_AD_SERVICE =
-            "com.bilibili.ship.theseus.ugc.ad.DetailAdService"
         private const val GET_VIDEO_DETAIL = "getGAdVideoDetail"
         private const val GET_UNDER_PLAYER = "getUnderPlayer"
         private const val GET_UPPER_NEST_VIEW = "getUpperNestView"
@@ -451,9 +445,19 @@ internal fun matchesDetailPromotionRenderMethod(
 ): Boolean =
     method.name in DETAIL_PROMOTION_RENDER_METHOD_NAMES &&
         (method.returnType isSubclassOf callbackClass) &&
-        method.parameterTypes.any { it isSubclassOf classOf<FrameLayout>() } &&
+        method.parameterTypes.any { it isSubclassOf classOf<ViewGroup>() } &&
         method.parameterTypes.any { it isSubclassOf bridgeClass } &&
         method.parameterTypes.any { it isSubclassOf configClass }
+
+/** 从渲染实参中定位场景配置；调用者类型不是渲染方法的参数，不参与热路径门禁。 */
+internal fun detailPromotionConfigOrNull(
+    args: Array<out Any?>,
+    configClass: Class<*>
+): Any? = args.firstOrNull { candidate -> candidate != null && configClass.isInstance(candidate) }
+
+/** 仅统一视频详细页场景允许拦截；读取失败或未知场景均失败开放。 */
+internal fun matchesDetailPromotionScene(scene: Any?, uniteDetail: Any): Boolean =
+    scene === uniteDetail || scene == uniteDetail
 
 /** 返回首个已初始化且类型匹配的值；未初始化候选不会执行 initializer。 */
 internal fun initializedLazyValueOfType(
