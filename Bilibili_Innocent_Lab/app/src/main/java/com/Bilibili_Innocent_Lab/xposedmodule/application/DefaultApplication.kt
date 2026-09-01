@@ -6,8 +6,7 @@ import androidx.appcompat.app.AppCompatDelegate
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportApplier
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ModuleSettingsStore
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsAuthorizationCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootUpgradeRecoveryCoordinator
 
 class DefaultApplication : Application() {
@@ -19,10 +18,9 @@ class DefaultApplication : Application() {
          * Follow system night mode
         */
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
-        val termsDecision = UserTermsConsentStore.readOrInitialize(applicationContext)
-        RemoteHookConfigStore.initialize(applicationContext, termsDecision).also(
-            RemoteHookConfigStore::logFailure
-        )
+        val termsDecision = UserTermsAuthorizationCoordinator
+            .initialize(applicationContext)
+            .decision
         val modulePrefs = runCatching { prefs() }.onFailure { throwable ->
             Log.w("BilibiliInnocentLab", "open module settings failed", throwable)
         }.getOrNull()
