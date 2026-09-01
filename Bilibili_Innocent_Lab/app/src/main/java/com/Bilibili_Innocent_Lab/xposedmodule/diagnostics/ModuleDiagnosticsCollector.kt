@@ -25,6 +25,7 @@ internal object ModuleDiagnosticsCollector {
         skin: SkinSessionDiagnostics?,
         frameworkCheckPending: Boolean = false,
         hostRuntime: HostRuntimeDiagnosticsSnapshot? = null,
+        hostQueryState: DiagnosticHostQueryState = DiagnosticHostQueryState.TARGET_UNAVAILABLE,
         nowEpochMs: Long = System.currentTimeMillis()
     ): ModuleDiagnosticSnapshot {
         val appContext = context.applicationContext ?: context
@@ -97,17 +98,46 @@ internal object ModuleDiagnosticsCollector {
                 hostAdaptedFeatureCount = hostRuntime?.adaptedFeatureCount ?: 0,
                 hostObservedFeatureCount = hostRuntime?.observedFeatureCount ?: 0,
                 hostAppliedFeatureCount = hostRuntime?.appliedFeatureCount ?: 0,
-                hostFeatures = hostRuntime?.features.orEmpty().map { feature ->
-                    DiagnosticHostFeature(
-                        featureId = feature.featureId,
-                        evidence = when {
-                            feature.appliedCount > 0L -> DiagnosticEvidence.APPLIED
-                            feature.observedCount > 0L -> DiagnosticEvidence.OBSERVED
-                            feature.adaptedCount > 0L -> DiagnosticEvidence.ADAPTED
-                            else -> DiagnosticEvidence.NOT_AVAILABLE
-                        }
-                    )
-                }
+                hostFeatures = hostRuntime?.let { runtime ->
+                    val byId = runtime.features.associateBy { it.featureId }
+                    DiagnosticFeatureRegistry.descriptors.map { descriptor ->
+                        val feature = byId[descriptor.id]
+                        DiagnosticHostFeature(
+                            featureId = descriptor.id,
+                            evidence = when {
+                                feature?.appliedCount?.let { it > 0L } == true ->
+                                    DiagnosticEvidence.APPLIED
+                                feature?.observedCount?.let { it > 0L } == true ->
+                                    DiagnosticEvidence.OBSERVED
+                                feature?.adaptedCount?.let { it > 0L } == true ->
+                                    DiagnosticEvidence.ADAPTED
+                                else -> DiagnosticEvidence.NOT_AVAILABLE
+                            },
+                            installState = feature?.installState?.let {
+                                DiagnosticFeatureInstallState.valueOf(it.name)
+                            } ?: DiagnosticFeatureInstallState.NOT_REPORTED,
+                            installedHookCount = feature?.installedHookCount ?: 0,
+                            installReasonCode = feature?.installReasonCode,
+                            runtimeEvidenceExpected = descriptor.runtimeEvidenceExpected
+                        )
+                    }
+                }.orEmpty(),
+                hostQueryState = hostQueryState,
+                hostBootstrapReached = hostRuntime?.bootstrap?.bootstrapReached == true,
+                hostConfigState = hostRuntime?.bootstrap?.configState?.let {
+                    DiagnosticHostConfigState.valueOf(it.name)
+                } ?: DiagnosticHostConfigState.NOT_CHECKED,
+                hostConfigGeneration = hostRuntime?.bootstrap?.configGeneration ?: 0L,
+                hostConfigReasonCode = hostRuntime?.bootstrap?.configReasonCode,
+                hostInstallChainState = hostRuntime?.bootstrap?.installChainState?.let {
+                    DiagnosticHostInstallChainState.valueOf(it.name)
+                } ?: DiagnosticHostInstallChainState.NOT_STARTED,
+                hostHookPointResolvedCount = hostRuntime?.bootstrap?.hookPointResolvedCount ?: 0,
+                hostHookPointInstalledCount = hostRuntime?.bootstrap?.hookPointInstalledCount ?: 0,
+                hostHookPointMissingCount = hostRuntime?.bootstrap?.hookPointMissingCount ?: 0,
+                hostHookPointFailedCount = hostRuntime?.bootstrap?.hookPointFailedCount ?: 0,
+                hostInstalledFeatureCount = hostRuntime?.installedFeatureCount ?: 0,
+                hostFailedFeatureCount = hostRuntime?.failedFeatureCount ?: 0
             )
         )
     }

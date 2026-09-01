@@ -129,14 +129,25 @@ stretch viewport, and predictive-back preference as the other module UI. Collect
 runs on one ViewModel-owned worker; Activity recreation does not retain a View,
 renderer, Binder, PackageInfo, or Context in the diagnostic model.
 
-Diagnostics distinguish four evidence levels: locally configured intent, a Remote
-Preferences snapshot that the module publisher wrote and fully read back, a runtime
-observation such as a framework service or version-matched NPatch heartbeat, and an
-explicit unavailable boundary. Framework API capability is not treated as proof that
-an individual host hook adapted successfully. The module process cannot safely read
-Bilibili's private `VersionAdapter` cache, so host adaptation remains `UNKNOWN` until
-a future authenticated host receipt protocol exists; the diagnostic page does not
-add a Provider, broadcast, reverse Binder call, or private-path probe to guess it.
+Diagnostics distinguish locally configured intent, a Remote Preferences snapshot that
+the module publisher wrote and fully read back, host structure adaptation, runtime
+observation, actual rule application, and an explicit unavailable boundary. Framework
+API capability is not treated as proof that an individual host hook adapted or installed.
+The Bilibili main process therefore exposes a signature-permission-protected, ordered-
+broadcast receipt that is initialized before API 102 configuration authorization. The
+receipt reports only bounded bootstrap/config/install-chain states, Hook-point counts,
+and the 29 logical feature IDs from `DiagnosticFeatureRegistry`; it never reads the host
+private cache from the module process or exposes host class/member names. The query
+validates sender identity where available, nonce, protocol, payload digest, target version
+and update time, and module version before the module UI accepts the receipt.
+
+Every `FeatureInstallCoordinator` result is mirrored into the receipt as installed,
+disabled, not-applicable, safely skipped, or isolated failure. Free-copy and roaming use
+explicit adapters into the same registry because they retain specialized installation
+paths. Runtime ADAPTED/OBSERVED/APPLIED evidence remains a separate 0/1 signal: absence
+means no verified hit, not failure. Feature stages are first-hit atomic bits, and both
+stage and install updates are persisted on one daemon with a minimum 30-second coalescing
+interval; Hook callbacks perform no IPC and do not accumulate per-hit counters.
 
 `RemoteHookConfigStore` exposes an in-memory bounded publication diagnostic
 (`NOT_INITIALIZED`, `WAITING_FOR_SERVICE`, `PUBLISHING`, `READY`, or `FAILED`) with
@@ -147,10 +158,11 @@ new overview entry adds no package query or `AtomicFile` read to its render path
 
 The optional SAF report is a versioned UTF-8 JSON allowlist and is reopened, compared
 byte-for-byte, and structurally validated before success is shown. It includes module
-and target versions, framework capability, bounded runtime state, skin backend, catalog
-counts, and assessment codes. Preference values, custom rules, file paths, log text,
-exception details, and host class/member names are structurally absent. No storage
-permission or network operation is used.
+and target versions, framework capability, bounded runtime state, bootstrap/install-chain
+codes, Hook-point/feature counts, skin backend, catalog counts, and assessment codes.
+Preference values, custom rules, file paths, log text, exception details, and host
+class/member names are structurally absent. No storage permission or network operation
+is used.
 
 ## Shared runtime helpers
 

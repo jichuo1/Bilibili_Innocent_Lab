@@ -16,7 +16,10 @@ class DiagnosticReportCodecTest {
                 hostFeatures = listOf(
                     DiagnosticHostFeature(
                         "home_recommend_purify",
-                        DiagnosticEvidence.ADAPTED
+                        DiagnosticEvidence.ADAPTED,
+                        installState = DiagnosticFeatureInstallState.INSTALLED,
+                        installedHookCount = 2,
+                        runtimeEvidenceExpected = true
                     )
                 )
             )
@@ -33,6 +36,8 @@ class DiagnosticReportCodecTest {
             assertTrue(text.contains(category))
         }
         assertTrue(text.contains("home_recommend_purify"))
+        assertTrue(text.contains("hostBootstrap"))
+        assertTrue(text.contains("installedHookCount"))
     }
 
     @Test

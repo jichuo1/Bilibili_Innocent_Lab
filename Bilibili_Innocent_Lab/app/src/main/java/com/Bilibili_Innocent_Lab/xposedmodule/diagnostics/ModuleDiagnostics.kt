@@ -24,6 +24,8 @@ internal enum class DiagnosticItemId {
     REMOTE_CONFIG,
     ACTIVATION,
     NO_ROOT,
+    HOST_BOOTSTRAP,
+    FEATURE_COVERAGE,
     HOST_ADAPTATION,
     INTERFACE_SKIN,
     SETTINGS_CATALOG,
@@ -57,6 +59,35 @@ internal enum class DiagnosticRemotePublishState {
     WAITING_FOR_SERVICE,
     PUBLISHING,
     READY,
+    FAILED
+}
+
+internal enum class DiagnosticHostQueryState {
+    READY,
+    TARGET_UNAVAILABLE,
+    INVALID_RESPONSE
+}
+
+internal enum class DiagnosticHostConfigState {
+    NOT_CHECKED,
+    ACCEPTED,
+    REJECTED,
+    NOT_AUTHORIZED
+}
+
+internal enum class DiagnosticHostInstallChainState {
+    NOT_STARTED,
+    STARTED,
+    COMPLETED,
+    FAILED
+}
+
+internal enum class DiagnosticFeatureInstallState {
+    NOT_REPORTED,
+    DISABLED,
+    NOT_APPLICABLE,
+    INSTALLED,
+    SKIPPED,
     FAILED
 }
 
@@ -97,7 +128,20 @@ internal data class ModuleDiagnosticInputs(
     val hostAdaptedFeatureCount: Int = 0,
     val hostObservedFeatureCount: Int = 0,
     val hostAppliedFeatureCount: Int = 0,
-    val hostFeatures: List<DiagnosticHostFeature> = emptyList()
+    val hostFeatures: List<DiagnosticHostFeature> = emptyList(),
+    val hostQueryState: DiagnosticHostQueryState = DiagnosticHostQueryState.TARGET_UNAVAILABLE,
+    val hostBootstrapReached: Boolean = false,
+    val hostConfigState: DiagnosticHostConfigState = DiagnosticHostConfigState.NOT_CHECKED,
+    val hostConfigGeneration: Long = 0L,
+    val hostConfigReasonCode: String? = null,
+    val hostInstallChainState: DiagnosticHostInstallChainState =
+        DiagnosticHostInstallChainState.NOT_STARTED,
+    val hostHookPointResolvedCount: Int = 0,
+    val hostHookPointInstalledCount: Int = 0,
+    val hostHookPointMissingCount: Int = 0,
+    val hostHookPointFailedCount: Int = 0,
+    val hostInstalledFeatureCount: Int = 0,
+    val hostFailedFeatureCount: Int = 0
 )
 
 internal data class DiagnosticItem(
@@ -108,7 +152,11 @@ internal data class DiagnosticItem(
 
 internal data class DiagnosticHostFeature(
     val featureId: String,
-    val evidence: DiagnosticEvidence
+    val evidence: DiagnosticEvidence,
+    val installState: DiagnosticFeatureInstallState = DiagnosticFeatureInstallState.NOT_REPORTED,
+    val installedHookCount: Int = 0,
+    val installReasonCode: String? = null,
+    val runtimeEvidenceExpected: Boolean = false
 )
 
 internal data class ModuleDiagnosticSnapshot(
@@ -181,6 +229,23 @@ internal object ModuleHealthEvaluator {
                 }
             ),
             DiagnosticItem(
+                DiagnosticItemId.HOST_BOOTSTRAP,
+                hostBootstrapSeverity(inputs),
+                if (inputs.hostRuntimeReceiptAvailable) DiagnosticEvidence.OBSERVED
+                else DiagnosticEvidence.NOT_AVAILABLE
+            ),
+            DiagnosticItem(
+                DiagnosticItemId.FEATURE_COVERAGE,
+                when {
+                    !inputs.hostRuntimeReceiptAvailable -> DiagnosticSeverity.UNKNOWN
+                    inputs.hostFailedFeatureCount > 0 -> DiagnosticSeverity.ATTENTION
+                    inputs.hostInstalledFeatureCount > 0 -> DiagnosticSeverity.OK
+                    else -> DiagnosticSeverity.INFO
+                },
+                if (inputs.hostRuntimeReceiptAvailable) DiagnosticEvidence.OBSERVED
+                else DiagnosticEvidence.NOT_AVAILABLE
+            ),
+            DiagnosticItem(
                 DiagnosticItemId.HOST_ADAPTATION,
                 when {
                     !inputs.hostRuntimeReceiptAvailable -> DiagnosticSeverity.UNKNOWN
@@ -228,6 +293,21 @@ internal object ModuleHealthEvaluator {
         inputs.remotePublishState == DiagnosticRemotePublishState.PUBLISHING ||
             inputs.remotePublishPending -> DiagnosticSeverity.INFO
         inputs.remotePublishState == DiagnosticRemotePublishState.READY -> DiagnosticSeverity.OK
+        else -> DiagnosticSeverity.INFO
+    }
+
+    private fun hostBootstrapSeverity(inputs: ModuleDiagnosticInputs): DiagnosticSeverity = when {
+        !inputs.hostRuntimeReceiptAvailable &&
+            inputs.hostQueryState == DiagnosticHostQueryState.INVALID_RESPONSE ->
+            DiagnosticSeverity.ATTENTION
+        !inputs.hostRuntimeReceiptAvailable -> DiagnosticSeverity.UNKNOWN
+        inputs.hostConfigState == DiagnosticHostConfigState.REJECTED ||
+            inputs.hostConfigState == DiagnosticHostConfigState.NOT_AUTHORIZED ||
+            inputs.hostInstallChainState == DiagnosticHostInstallChainState.FAILED ->
+            DiagnosticSeverity.ACTION_REQUIRED
+        inputs.hostConfigState == DiagnosticHostConfigState.ACCEPTED &&
+            inputs.hostInstallChainState == DiagnosticHostInstallChainState.COMPLETED ->
+            DiagnosticSeverity.OK
         else -> DiagnosticSeverity.INFO
     }
 
