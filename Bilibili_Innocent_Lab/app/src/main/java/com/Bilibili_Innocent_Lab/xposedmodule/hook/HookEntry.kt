@@ -43,7 +43,10 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentSectionFeature
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DynamicTabsFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailAppPromotionFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallCoordinator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallRecord
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureRuntimeStage
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FullNumberFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.GamePromotionFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeBannerFeatureInstaller
@@ -259,15 +262,25 @@ class HookEntry : XposedModule() {
          * 类型、摘要、条款和运行时修订号；失败时不回退到应用私有 prefs，避免把不可读或半更新配置
          * 当作默认值继续安装。读取必须在 attach 同步完成，不能等待 IPC 后延迟补装。
          */
-        private fun queryRemoteHookConfig(): RemoteHookConfigSnapshot? {
-            return runCatching {
+        private sealed interface RemoteHookConfigQueryOutcome {
+            data class Ready(val snapshot: RemoteHookConfigSnapshot) : RemoteHookConfigQueryOutcome
+            data class Rejected(val reasonCode: String) : RemoteHookConfigQueryOutcome
+        }
+
+        private fun queryRemoteHookConfig(): RemoteHookConfigQueryOutcome {
+            return runCatching<RemoteHookConfigQueryOutcome> {
                 val preferences = moduleInstance?.getRemotePreferences(RemoteHookConfigContract.GROUP)
-                    ?: return@runCatching null
+                    ?: return@runCatching RemoteHookConfigQueryOutcome.Rejected(
+                        "remote_group_unavailable"
+                    )
                 when (val decoded = RemoteHookConfigContract.decode(preferences.all)) {
-                    is RemoteHookConfigDecodeResult.Ready -> decoded.snapshot
+                    is RemoteHookConfigDecodeResult.Ready ->
+                        RemoteHookConfigQueryOutcome.Ready(decoded.snapshot)
                     is RemoteHookConfigDecodeResult.Invalid -> {
                         frameworkLog("[BIL] API 102 Remote Preferences 配置无效(reason=${decoded.reason})")
-                        null
+                        RemoteHookConfigQueryOutcome.Rejected(
+                            remoteConfigReasonCode(decoded.reason)
+                        )
                     }
                 }
             }.onFailure { throwable ->
@@ -275,7 +288,26 @@ class HookEntry : XposedModule() {
                     "[BIL] API 102 Remote Preferences 读取失败: " +
                         "${throwable.javaClass.simpleName}: ${throwable.message}"
                 )
-            }.getOrNull()
+            }.getOrElse {
+                RemoteHookConfigQueryOutcome.Rejected("remote_read_exception")
+            }
+        }
+
+        private fun remoteConfigReasonCode(rawReason: String): String = when {
+            rawReason.startsWith("key-set") -> "remote_key_set_mismatch"
+            rawReason == "not-ready" -> "remote_not_ready"
+            rawReason == "schema" -> "remote_schema_mismatch"
+            rawReason == "catalog" -> "remote_catalog_mismatch"
+            rawReason == "terms-version" -> "remote_terms_version_mismatch"
+            rawReason == "terms-decision" -> "remote_terms_decision_invalid"
+            rawReason.startsWith("generation-") -> "remote_generation_invalid"
+            rawReason.startsWith("missing:") -> "remote_missing_key"
+            rawReason.startsWith("setting-type:") -> "remote_setting_type_invalid"
+            rawReason.startsWith("setting-value:") -> "remote_setting_value_invalid"
+            rawReason.startsWith("runtime-type:") -> "remote_runtime_type_invalid"
+            rawReason.startsWith("runtime-value:") -> "remote_runtime_value_invalid"
+            rawReason == "digest" || rawReason == "digest-type" -> "remote_digest_invalid"
+            else -> "unknown"
         }
 
         @Volatile
@@ -437,6 +469,7 @@ class HookEntry : XposedModule() {
                 resolveCommentTextAtInteraction(view)
             } ?: return@OnLongClickListener false
             if (!isValidFreeCopyText(resolved.displayText)) return@OnLongClickListener false
+            HostRuntimeDiagnosticsBridge.record("free_copy", FeatureRuntimeStage.OBSERVED)
             // 文本与身份均已确认后才武装 handled；无效复用节点不能污染下一次手势。
             if (isDesc) descLongPressHandled = true else commentLongPressHandled = true
             runCatching {
@@ -1834,6 +1867,7 @@ class HookEntry : XposedModule() {
                     finishBubbleSession(dialog, bubbleSessionId)
                     throw t
                 }
+                HostRuntimeDiagnosticsBridge.record("free_copy", FeatureRuntimeStage.APPLIED)
                 // show 后再次确认（部分 ROM 的 PhoneWindow 会在 show 流程里重置部分属性）
                 dialog.window?.apply {
                     clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
@@ -2535,13 +2569,20 @@ class HookEntry : XposedModule() {
             }
 
             if (processName == TARGET_PACKAGE) {
-                HostRuntimeDiagnosticsBridge.initialize(
-                    context = authorizationContext,
-                    processName = processName,
-                    logError = { message ->
-                        logError("host_runtime_diagnostics_receiver", "[BIL] $message")
-                    }
-                )
+                runCatching {
+                    HostRuntimeDiagnosticsBridge.initialize(
+                        context = authorizationContext,
+                        processName = processName,
+                        logError = { message ->
+                            logError("host_runtime_diagnostics_receiver", "[BIL] $message")
+                        }
+                    )
+                }.onFailure { throwable ->
+                    logError(
+                        "host_runtime_diagnostics_initialize",
+                        "[BIL] 宿主诊断桥初始化失败，业务 Hook 继续安装: $throwable"
+                    )
+                }
                 MineComponentSnapshotHostBridge.initialize(
                     context = authorizationContext,
                     processName = processName,
@@ -2577,6 +2618,11 @@ class HookEntry : XposedModule() {
                     { featureId, stage, delta ->
                         HostRuntimeDiagnosticsBridge.record(featureId, stage, delta)
                     }
+                } else {
+                    null
+                },
+                installationEvidence = if (processName == TARGET_PACKAGE) {
+                    { record -> HostRuntimeDiagnosticsBridge.recordInstallation(record) }
                 } else {
                     null
                 }
@@ -4010,17 +4056,42 @@ class HookEntry : XposedModule() {
             if (runtimeCommentFreeCopyEnabled || runtimeDescriptionFreeCopyEnabled) {
                 installDescriptionFreeCopyHooks()
             }
+            if (processName == TARGET_PACKAGE) {
+                val installedCount =
+                    (if (commentFreeCopyHooksInstalled.get()) 1 else 0) +
+                        (if (descriptionFreeCopyHooksInstalled.get()) 1 else 0)
+                val result = when {
+                    !runtimeCommentFreeCopyEnabled && !runtimeDescriptionFreeCopyEnabled ->
+                        FeatureInstallResult.Skipped("disabled")
+                    installedCount > 0 -> FeatureInstallResult.Installed(installedCount)
+                    else -> FeatureInstallResult.Skipped("registration-failed")
+                }
+                HostRuntimeDiagnosticsBridge.recordInstallation(
+                    FeatureInstallRecord("free_copy", result, failure = null)
+                )
+            }
             // 保持原有已授权相对时序：先安装功能 Hook，attach 再同步
             // 自由复制派生状态并触发版本适配，避免 quickLocate 与后台适配并发。
+            val roamingCompatEnabled = roamingCompatPrefs.getBoolean(
+                PREF_ROAMING_COMPAT_ENABLED,
+                false
+            )
             RoamingCompatHook.onApplicationAttach(
                 attachedContext,
                 biliClassLoader,
                 prefs = null,
-                authoritativeEnabled = roamingCompatPrefs.getBoolean(
-                    PREF_ROAMING_COMPAT_ENABLED,
-                    false
-                )
+                authoritativeEnabled = roamingCompatEnabled
             )
+            if (processName == TARGET_PACKAGE) {
+                HostRuntimeDiagnosticsBridge.recordInstallation(
+                    FeatureInstallRecord(
+                        "roaming_compat",
+                        if (roamingCompatEnabled) FeatureInstallResult.Installed(1)
+                        else FeatureInstallResult.Skipped("disabled"),
+                        failure = null
+                    )
+                )
+            }
             if (biliClassLoader != null &&
                 TargetProcess.isMainProcess(attachedContext, TARGET_PACKAGE) &&
                 !versionAdaptCheckedThisProcess
@@ -4072,6 +4143,9 @@ class HookEntry : XposedModule() {
                     "miss=${kavaDiagnostics.cacheMisses}, " +
                     "failure=${kavaDiagnostics.lookupFailures}"
             )
+            if (processName == TARGET_PACKAGE) {
+                HostRuntimeDiagnosticsBridge.recordHookPointSummary(hookPointRegistry.snapshot())
+            }
             }
 
             authorizedInstallerRef.set(::installAuthorizedHooks)
@@ -4099,12 +4173,21 @@ class HookEntry : XposedModule() {
                     return
                 }
                 val installer = authorizedInstallerRef.getAndSet(null) ?: return
+                if (processName == TARGET_PACKAGE) {
+                    HostRuntimeDiagnosticsBridge.recordInstallChainStarted()
+                }
                 runCatching {
                     installer(appContext)
                 }.onSuccess {
                     authorizedHooksInstalled.set(true)
+                    if (processName == TARGET_PACKAGE) {
+                        HostRuntimeDiagnosticsBridge.recordInstallChainCompleted()
+                    }
                     reportScanResultIfReady(appContext)
                 }.onFailure { throwable ->
+                    if (processName == TARGET_PACKAGE) {
+                        HostRuntimeDiagnosticsBridge.recordInstallChainFailed()
+                    }
                     frameworkLog("[BIL] 已授权 Hook 安装链异常", throwable)
                 }
             }
@@ -4112,14 +4195,42 @@ class HookEntry : XposedModule() {
             fun authorizeAndInstall(context: Context?) {
                 if (context == null || !authorizationAttempted.compareAndSet(false, true)) return
                 val appContext = context.applicationContext ?: context
-                val config = queryRemoteHookConfig()
-                if (config == null) {
-                    authorizedInstallerRef.set(null)
-                    frameworkLog(
-                        "[BIL] API 102 Remote Preferences 不可用；请打开一次模块界面后重启 B 站，" +
-                            "当前宿主进程不安装任何功能"
-                    )
-                    return
+                if (processName == TARGET_PACKAGE) {
+                    runCatching {
+                        HostRuntimeDiagnosticsBridge.initialize(
+                            context = appContext,
+                            processName = processName,
+                            logError = { message ->
+                                logError("host_runtime_diagnostics_receiver", "[BIL] $message")
+                            }
+                        )
+                    }.onFailure { throwable ->
+                        logError(
+                            "host_runtime_diagnostics_initialize",
+                            "[BIL] 宿主诊断桥初始化失败，继续校验 Hook 配置: $throwable"
+                        )
+                    }
+                }
+                val config = when (val outcome = queryRemoteHookConfig()) {
+                    is RemoteHookConfigQueryOutcome.Ready -> outcome.snapshot.also { snapshot ->
+                        if (processName == TARGET_PACKAGE) {
+                            HostRuntimeDiagnosticsBridge.recordConfigAccepted(
+                                snapshot.generation,
+                                snapshot.authorized
+                            )
+                        }
+                    }
+                    is RemoteHookConfigQueryOutcome.Rejected -> {
+                        if (processName == TARGET_PACKAGE) {
+                            HostRuntimeDiagnosticsBridge.recordConfigRejected(outcome.reasonCode)
+                        }
+                        authorizedInstallerRef.set(null)
+                        frameworkLog(
+                            "[BIL] API 102 Remote Preferences 不可用；请打开一次模块界面后重启 B 站，" +
+                                "当前宿主进程不安装任何功能"
+                        )
+                        return
+                    }
                 }
                 frameworkLog(
                     "[BIL] API 102 Remote Preferences 验证成功" +

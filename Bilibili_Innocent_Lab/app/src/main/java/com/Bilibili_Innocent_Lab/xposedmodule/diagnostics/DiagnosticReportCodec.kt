@@ -17,7 +17,7 @@ internal data class DiagnosticReportMetadata(
 /** 只导出固定白名单字段的本地诊断报告；不接受设置值、日志正文和任意异常文本。 */
 internal object DiagnosticReportCodec {
     const val FORMAT_NAME = "bilab-diagnostics"
-    const val CURRENT_FORMAT_VERSION = 2
+    const val CURRENT_FORMAT_VERSION = 3
     const val PRODUCT_ID = "bilibili-innocent-lab"
     const val MAX_FILE_BYTES = 256 * 1024
 
@@ -94,12 +94,42 @@ internal object DiagnosticReportCodec {
                     .put("hostAdaptedFeatureCount", input.hostAdaptedFeatureCount)
                     .put("hostObservedFeatureCount", input.hostObservedFeatureCount)
                     .put("hostAppliedFeatureCount", input.hostAppliedFeatureCount)
+                    .put("hostQueryState", input.hostQueryState.name)
+                    .put(
+                        "hostBootstrap",
+                        JSONObject()
+                            .put("reached", input.hostBootstrapReached)
+                            .put("configState", input.hostConfigState.name)
+                            .put("configGeneration", input.hostConfigGeneration)
+                            .put(
+                                "configReasonCode",
+                                input.hostConfigReasonCode.boundedCode(
+                                    HostRuntimeDiagnosticsCodec.allowedConfigReasonCodes
+                                ) ?: JSONObject.NULL
+                            )
+                            .put("installChainState", input.hostInstallChainState.name)
+                            .put("hookResolvedCount", input.hostHookPointResolvedCount)
+                            .put("hookInstalledCount", input.hostHookPointInstalledCount)
+                            .put("hookMissingCount", input.hostHookPointMissingCount)
+                            .put("hookFailedCount", input.hostHookPointFailedCount)
+                    )
+                    .put("hostInstalledFeatureCount", input.hostInstalledFeatureCount)
+                    .put("hostFailedFeatureCount", input.hostFailedFeatureCount)
                     .put("hostFeatures", JSONArray().apply {
                         input.hostFeatures.forEach { feature ->
                             put(
                                 JSONObject()
                                     .put("id", feature.featureId)
                                     .put("evidence", feature.evidence.name)
+                                    .put("installState", feature.installState.name)
+                                    .put("installedHookCount", feature.installedHookCount)
+                                    .put(
+                                        "installReasonCode",
+                                        feature.installReasonCode.boundedCode(
+                                            HostRuntimeDiagnosticsCodec.allowedInstallReasonCodes
+                                        ) ?: JSONObject.NULL
+                                    )
+                                    .put("runtimeEvidenceExpected", feature.runtimeEvidenceExpected)
                             )
                         }
                     })
@@ -171,14 +201,39 @@ internal object DiagnosticReportCodec {
         require(items.length() == DiagnosticItemId.entries.size) {
             "Incomplete diagnostic assessment"
         }
-        val hostFeatures = root.getJSONObject("runtime").getJSONArray("hostFeatures")
+        val runtime = root.getJSONObject("runtime")
+        DiagnosticHostQueryState.valueOf(runtime.getString("hostQueryState"))
+        val bootstrap = runtime.getJSONObject("hostBootstrap")
+        require(bootstrap.length() == 9) { "Invalid host bootstrap assessment" }
+        DiagnosticHostConfigState.valueOf(bootstrap.getString("configState"))
+        DiagnosticHostInstallChainState.valueOf(bootstrap.getString("installChainState"))
+        require(bootstrap.getLong("configGeneration") >= 0L) {
+            "Invalid host bootstrap assessment"
+        }
+        listOf(
+            "hookResolvedCount",
+            "hookInstalledCount",
+            "hookMissingCount",
+            "hookFailedCount"
+        ).forEach { key ->
+            require(bootstrap.getInt(key) in 0..HostRuntimeDiagnosticsCodec.MAX_HOOK_COUNT) {
+                "Invalid host bootstrap assessment"
+            }
+        }
+        if (!bootstrap.isNull("configReasonCode")) {
+            require(
+                bootstrap.getString("configReasonCode") in
+                    HostRuntimeDiagnosticsCodec.allowedConfigReasonCodes
+            ) { "Invalid host config reason" }
+        }
+        val hostFeatures = runtime.getJSONArray("hostFeatures")
         require(hostFeatures.length() <= HostRuntimeDiagnosticsCodec.MAX_FEATURE_COUNT) {
             "Invalid host feature assessment"
         }
         val hostFeatureIds = HashSet<String>()
         for (index in 0 until hostFeatures.length()) {
             val feature = hostFeatures.getJSONObject(index)
-            require(feature.length() == 2) { "Invalid host feature assessment" }
+            require(feature.length() == 6) { "Invalid host feature assessment" }
             val id = feature.getString("id")
             require(id in HostRuntimeDiagnosticsCodec.allowedFeatureIds && hostFeatureIds.add(id)) {
                 "Invalid host feature assessment"
@@ -191,6 +246,27 @@ internal object DiagnosticReportCodec {
                     DiagnosticEvidence.NOT_AVAILABLE
                 )
             ) { "Invalid host feature evidence" }
+            val installState = DiagnosticFeatureInstallState.valueOf(
+                feature.getString("installState")
+            )
+            val hookCount = feature.getInt("installedHookCount")
+            require(hookCount in 0..HostRuntimeDiagnosticsCodec.MAX_HOOK_COUNT) {
+                "Invalid host feature hook count"
+            }
+            val reasonCode = if (feature.isNull("installReasonCode")) null
+            else feature.getString("installReasonCode")
+            require(
+                reasonCode == null ||
+                    reasonCode in HostRuntimeDiagnosticsCodec.allowedInstallReasonCodes
+            ) { "Invalid host feature install reason" }
+            require(
+                when (installState) {
+                    DiagnosticFeatureInstallState.INSTALLED -> hookCount > 0 && reasonCode == null
+                    DiagnosticFeatureInstallState.NOT_REPORTED -> hookCount == 0 && reasonCode == null
+                    else -> hookCount == 0 && reasonCode != null
+                }
+            ) { "Invalid host feature install state" }
+            feature.getBoolean("runtimeEvidenceExpected")
         }
         val excluded = root.getJSONArray("excluded")
         require(excluded.length() == excludedCategories.size) { "Invalid privacy declaration" }

@@ -273,7 +273,9 @@ internal class DetailAppPromotionFeatureInstaller(
                         val config = detailPromotionConfigOrNull(args, types.configClass)
                             ?: return@before
                         if (!sceneAccess.isUniteDetail(config)) return@before
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         result = null
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
                         if (hitLogged.compareAndSet(false, true)) {
                             environment.logInfo(
                                 "detail_app_promotion_hit",
@@ -302,6 +304,7 @@ internal class DetailAppPromotionFeatureInstaller(
         }
         val routeSummary = installedRoutes.sorted().joinToString("+")
         renderReady.set(true)
+        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.reportStatus(CHANNEL_STATUS, "ready:$routeSummary")
         environment.logInfo(
             "detail_app_promotion_ready",

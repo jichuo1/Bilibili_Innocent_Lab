@@ -113,6 +113,48 @@ class ModuleHealthEvaluatorTest {
         assertEquals(DiagnosticEvidence.APPLIED, applied.evidence)
     }
 
+    @Test
+    fun `rejected host config identifies the authorization chain as actionable`() {
+        val snapshot = ModuleHealthEvaluator.evaluate(
+            inputs(
+                hostRuntimeReceiptAvailable = true,
+                hostQueryState = DiagnosticHostQueryState.READY,
+                hostConfigState = DiagnosticHostConfigState.REJECTED,
+                hostConfigReasonCode = "remote_digest_invalid"
+            )
+        )
+
+        assertEquals(
+            DiagnosticSeverity.ACTION_REQUIRED,
+            snapshot.item(DiagnosticItemId.HOST_BOOTSTRAP).severity
+        )
+        assertEquals(DiagnosticSeverity.ACTION_REQUIRED, snapshot.overallSeverity)
+    }
+
+    @Test
+    fun `isolated feature registration failure is attention without claiming runtime failure`() {
+        val snapshot = ModuleHealthEvaluator.evaluate(
+            inputs(
+                hostRuntimeReceiptAvailable = true,
+                hostInstalledFeatureCount = 12,
+                hostFailedFeatureCount = 1
+            )
+        )
+
+        assertEquals(
+            DiagnosticSeverity.ATTENTION,
+            snapshot.item(DiagnosticItemId.FEATURE_COVERAGE).severity
+        )
+        assertEquals(
+            DiagnosticSeverity.INFO,
+            snapshot.item(DiagnosticItemId.HOST_ADAPTATION).severity
+        )
+        assertEquals(
+            DiagnosticEvidence.NOT_AVAILABLE,
+            snapshot.item(DiagnosticItemId.HOST_ADAPTATION).evidence
+        )
+    }
+
     private fun ModuleDiagnosticSnapshot.item(id: DiagnosticItemId): DiagnosticItem =
         requireNotNull(items.firstOrNull { it.id == id })
 }
@@ -131,7 +173,12 @@ internal fun inputs(
     hostAdaptedFeatureCount: Int = 0,
     hostObservedFeatureCount: Int = 0,
     hostAppliedFeatureCount: Int = 0,
-    hostFeatures: List<DiagnosticHostFeature> = emptyList()
+    hostFeatures: List<DiagnosticHostFeature> = emptyList(),
+    hostQueryState: DiagnosticHostQueryState = DiagnosticHostQueryState.TARGET_UNAVAILABLE,
+    hostConfigState: DiagnosticHostConfigState = DiagnosticHostConfigState.NOT_CHECKED,
+    hostConfigReasonCode: String? = null,
+    hostInstalledFeatureCount: Int = 0,
+    hostFailedFeatureCount: Int = 0
 ) = ModuleDiagnosticInputs(
     collectedAtEpochMs = 1_800_000_000_000L,
     moduleVersionName = "1.1.0",
@@ -168,5 +215,10 @@ internal fun inputs(
     hostAdaptedFeatureCount = hostAdaptedFeatureCount,
     hostObservedFeatureCount = hostObservedFeatureCount,
     hostAppliedFeatureCount = hostAppliedFeatureCount,
-    hostFeatures = hostFeatures
+    hostFeatures = hostFeatures,
+    hostQueryState = hostQueryState,
+    hostConfigState = hostConfigState,
+    hostConfigReasonCode = hostConfigReasonCode,
+    hostInstalledFeatureCount = hostInstalledFeatureCount,
+    hostFailedFeatureCount = hostFailedFeatureCount
 )

@@ -20,12 +20,26 @@ class HostRuntimeDiagnosticsCodecTest {
         evidence = HostRuntimeDiagnosticsCodec.increment(
             evidence, "home_recommend_purify", FeatureRuntimeStage.APPLIED, 3
         )
+        evidence = HostRuntimeDiagnosticsCodec.withInstallOutcome(
+            evidence,
+            "home_recommend_purify",
+            HostFeatureInstallState.INSTALLED,
+            hookCount = 3,
+            reasonCode = null
+        )
         val decoded = HostRuntimeDiagnosticsCodec.decodeOrNull(
             HostRuntimeDiagnosticsCodec.encode(
                 HostRuntimeDiagnosticsSnapshot(
                     capturedAtEpochMs = 123L,
                     processName = HostRuntimeDiagnosticsCodec.TARGET_PACKAGE,
-                    features = listOf(requireNotNull(evidence))
+                    features = listOf(requireNotNull(evidence)),
+                    bootstrap = HostRuntimeBootstrapEvidence(
+                        bootstrapReached = true,
+                        configState = HostConfigState.ACCEPTED,
+                        configGeneration = 42L,
+                        installChainState = HostInstallChainState.COMPLETED,
+                        hookPointInstalledCount = 3
+                    )
                 )
             )
         )
@@ -37,6 +51,10 @@ class HostRuntimeDiagnosticsCodecTest {
         assertEquals(1, decoded.adaptedFeatureCount)
         assertEquals(1, decoded.observedFeatureCount)
         assertEquals(1, decoded.appliedFeatureCount)
+        assertEquals(HostFeatureInstallState.INSTALLED, feature.installState)
+        assertEquals(3, feature.installedHookCount)
+        assertEquals(42L, decoded.bootstrap.configGeneration)
+        assertEquals(HostInstallChainState.COMPLETED, decoded.bootstrap.installChainState)
     }
 
     @Test
@@ -75,5 +93,34 @@ class HostRuntimeDiagnosticsCodecTest {
         assertNull(HostRuntimeDiagnosticsCodec.decodeOrNull(invalid))
         assertNull(HostRuntimeDiagnosticsCodec.decodeOrNull(duplicate))
         assertTrue(valid.length <= HostRuntimeDiagnosticsCodec.MAX_PAYLOAD_CHARS)
+    }
+
+    @Test
+    fun `decoder rejects impossible bootstrap and install combinations`() {
+        val valid = HostRuntimeDiagnosticsCodec.encode(
+            HostRuntimeDiagnosticsSnapshot(
+                capturedAtEpochMs = 123L,
+                processName = HostRuntimeDiagnosticsCodec.TARGET_PACKAGE,
+                features = listOf(
+                    HostRuntimeFeatureEvidence(
+                        "comment_filter",
+                        1L,
+                        0L,
+                        0L,
+                        HostFeatureInstallState.INSTALLED,
+                        installedHookCount = 1
+                    )
+                )
+            )
+        )
+        val acceptedWithoutGeneration = JSONObject(valid).apply {
+            getJSONObject("bootstrap").put("config", HostConfigState.ACCEPTED.name)
+        }.toString()
+        val installedWithoutHooks = JSONObject(valid).apply {
+            getJSONArray("features").getJSONObject(0).put("hooks", 0)
+        }.toString()
+
+        assertNull(HostRuntimeDiagnosticsCodec.decodeOrNull(acceptedWithoutGeneration))
+        assertNull(HostRuntimeDiagnosticsCodec.decodeOrNull(installedWithoutHooks))
     }
 }
