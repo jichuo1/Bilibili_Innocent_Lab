@@ -30,7 +30,7 @@ class FeatureStatusInstallerTest {
         val result = HomeBannerFeatureInstaller(
             enabled = false,
             point = null,
-            collapseBanner = {}
+            collapseBanner = { false }
         ).install(environment)
 
         assertEquals(FeatureInstallResult.Skipped("disabled"), result)

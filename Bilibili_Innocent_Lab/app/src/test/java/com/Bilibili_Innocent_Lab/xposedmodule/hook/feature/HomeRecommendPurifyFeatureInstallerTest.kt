@@ -23,10 +23,12 @@ class HomeRecommendPurifyFeatureInstallerTest {
         minSeconds: Int,
         maxSeconds: Int,
         removeAds: Boolean = false,
+        removeBanner: Boolean = false,
         points: VersionAdapter.HomeRecommendFeedPoints? =
             VersionAdapter.locateHomeRecommendFeed(requireNotNull(javaClass.classLoader))
     ) = HomeRecommendPurifyFeatureInstaller(
         removeAds = removeAds,
+        removeBanner = removeBanner,
         removePictures = false,
         removeGamePromotions = false,
         titleFilterEnabled = false,
@@ -102,8 +104,33 @@ class HomeRecommendPurifyFeatureInstallerTest {
     }
 
     @Test
+    fun `classifies home banner only from exact structured token`() {
+        assertTrue(
+            HomeRecommendPurifyFeatureInstaller.isHomeBanner(
+                HomeRecommendPurifyFeatureInstaller.Signals(holderType = "banner_v8")
+            )
+        )
+        assertTrue(
+            HomeRecommendPurifyFeatureInstaller.isHomeBanner(
+                HomeRecommendPurifyFeatureInstaller.Signals(cardType = "CARD_TYPE_BANNER_V8")
+            )
+        )
+        assertFalse(
+            HomeRecommendPurifyFeatureInstaller.isHomeBanner(
+                HomeRecommendPurifyFeatureInstaller.Signals(holderType = "large_cover_v9")
+            )
+        )
+        assertFalse(
+            HomeRecommendPurifyFeatureInstaller.isHomeBanner(
+                HomeRecommendPurifyFeatureInstaller.Signals(title = "首页 Banner 推荐")
+            )
+        )
+    }
+
+    @Test
     fun `duration-only configuration installs while an empty range stays hook free`() {
         val durationStatuses = mutableListOf<Pair<String, String>>()
+        val bannerStatuses = mutableListOf<Pair<String, String>>()
         val disabledStatuses = mutableListOf<Pair<String, String>>()
         val points = requireNotNull(
             VersionAdapter.locateHomeRecommendFeed(requireNotNull(javaClass.classLoader))
@@ -119,7 +146,17 @@ class HomeRecommendPurifyFeatureInstallerTest {
             installer(minSeconds = 0, maxSeconds = 0, points = null)
                 .install(environment(disabledStatuses))
         )
+        assertEquals(
+            FeatureInstallResult.Installed(points.responseItemGetters.size),
+            installer(
+                minSeconds = 0,
+                maxSeconds = 0,
+                removeBanner = true,
+                points = points
+            ).install(environment(bannerStatuses))
+        )
         assertEquals(listOf("home_recommend_purify_status" to "success"), durationStatuses)
+        assertEquals(listOf("home_recommend_purify_status" to "success"), bannerStatuses)
         assertEquals(listOf("home_recommend_purify_status" to "disabled"), disabledStatuses)
     }
 

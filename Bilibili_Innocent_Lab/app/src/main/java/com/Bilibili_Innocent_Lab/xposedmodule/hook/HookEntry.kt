@@ -9,6 +9,7 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import com.highcapable.betterandroid.ui.extension.view.child
 import com.highcapable.betterandroid.ui.extension.view.childOrNull
 import com.highcapable.betterandroid.ui.extension.view.parentOrNull
 import com.highcapable.betterandroid.ui.extension.view.textColor
@@ -1377,26 +1378,41 @@ class HookEntry : XposedModule() {
          * 收起首页 V8Banner。只在 Adapter 已确认的 V8Banner 实例低频生命周期回调中执行，
          * 不注册全局 View Hook；无 Runnable/Listener，也不保存 View 引用。
          */
-        private fun collapseHomeBanner(view: View) {
+        private fun collapseHomeBanner(view: View): Boolean {
+            val dedicatedShell = view.parentOrNull<android.view.ViewGroup>()?.takeIf { group ->
+                HomeBannerFeatureInstaller.isDedicatedBannerShell(
+                    parentClassName = group.javaClass.name,
+                    childClassNames = List(group.childCount) { index ->
+                        group.child(index).javaClass.name
+                    },
+                    bannerClassName = view.javaClass.name
+                )
+            }
+
+            collapseBannerNode(view)
+            val shell = dedicatedShell ?: return false
+            collapseBannerNode(shell)
+            return true
+        }
+
+        /** 收起已经确认属于轮播卡片的节点，同时清除可能被 RecyclerView 计入的外边距。 */
+        private fun collapseBannerNode(view: View) {
             if (view.visibility != View.GONE) view.visibility = View.GONE
             view.minimumHeight = 0
             view.layoutParams?.let { params ->
+                var changed = false
                 if (params.height != 0) {
                     params.height = 0
-                    view.layoutParams = params
+                    changed = true
                 }
-            }
-            val parent = view.parentOrNull() ?: return
-            // 仅处理“只承载 V8Banner”的专用壳，绝不隐藏含其它首页内容的共享父容器。
-            if (parent.childCount == 1) {
-                parent.visibility = View.GONE
-                parent.minimumHeight = 0
-                parent.layoutParams?.let { params ->
-                    if (params.height != 0) {
-                        params.height = 0
-                        parent.layoutParams = params
-                    }
+                if (params is android.view.ViewGroup.MarginLayoutParams &&
+                    (params.leftMargin != 0 || params.topMargin != 0 ||
+                        params.rightMargin != 0 || params.bottomMargin != 0)
+                ) {
+                    params.setMargins(0, 0, 0, 0)
+                    changed = true
                 }
+                if (changed) view.layoutParams = params
             }
         }
 
@@ -2796,6 +2812,7 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS,
                             false
                         ),
+                        removeBanner = prefs.getBoolean(PREF_BANNER_ENABLED, true),
                         removePictures = prefs.getBoolean(
                             FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES,
                             false
