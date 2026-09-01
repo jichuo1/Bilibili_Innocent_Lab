@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.settings.remote
 
+import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
@@ -24,6 +25,9 @@ class RemoteHookConfigContractTest {
         )
         val encoded = RemoteHookConfigContract.encode(
             generation = 123L,
+            moduleVersionCode = BuildConfig.VERSION_CODE.toLong(),
+            deliveryEnabled = true,
+            noRootRevision = 77L,
             decision = UserTermsDecision.ACCEPTED,
             values = values
         )
@@ -33,6 +37,9 @@ class RemoteHookConfigContractTest {
         assertTrue(decoded is RemoteHookConfigDecodeResult.Ready)
         val snapshot = (decoded as RemoteHookConfigDecodeResult.Ready).snapshot
         assertEquals(123L, snapshot.generation)
+        assertEquals(BuildConfig.VERSION_CODE.toLong(), snapshot.moduleVersionCode)
+        assertTrue(snapshot.deliveryEnabled)
+        assertEquals(77L, snapshot.noRootRevision)
         assertTrue(snapshot.authorized)
         assertEquals(values, snapshot.values)
         assertEquals(SettingsCatalog.specs.size + 2, snapshot.values.size)
@@ -60,15 +67,16 @@ class RemoteHookConfigContractTest {
     fun `terms and tamper validation fail closed`() {
         UserTermsDecision.entries.forEach { decision ->
             val decoded = RemoteHookConfigContract.decode(
-                RemoteHookConfigContract.encode(1L, decision, defaultValues())
+                encode(decision = decision)
             ) as RemoteHookConfigDecodeResult.Ready
             assertEquals(decision.isAuthorized, decoded.snapshot.authorized)
         }
-        val encoded = RemoteHookConfigContract.encode(
-            7L,
-            UserTermsDecision.ACCEPTED,
-            defaultValues()
-        )
+        val disabled = RemoteHookConfigContract.decode(
+            encode(decision = UserTermsDecision.ACCEPTED, deliveryEnabled = false)
+        ) as RemoteHookConfigDecodeResult.Ready
+        assertFalse(disabled.snapshot.authorized)
+
+        val encoded = encode(generation = 7L)
         assertInvalid(encoded.toMutableMap().apply {
             put(HookEntry.PREF_FREE_COPY_ENABLED, false)
         }, "digest")
@@ -83,15 +91,51 @@ class RemoteHookConfigContractTest {
             remove(HookEntry.PREF_FREE_COPY_ENABLED)
         }
         assertThrows(IllegalArgumentException::class.java) {
-            RemoteHookConfigContract.encode(1L, UserTermsDecision.ACCEPTED, incomplete)
+            encode(values = incomplete)
         }
         assertThrows(IllegalArgumentException::class.java) {
-            RemoteHookConfigContract.encode(0L, UserTermsDecision.ACCEPTED, defaultValues())
+            encode(generation = 0L)
         }
+        assertThrows(IllegalArgumentException::class.java) {
+            encode(noRootRevision = -1L)
+        }
+    }
+
+    @Test
+    fun `module version and delivery metadata fail closed`() {
+        val encoded = encode(generation = 9L, noRootRevision = 15L)
+        assertInvalid(encoded.toMutableMap().apply {
+            put(
+                RemoteHookConfigContract.KEY_MODULE_VERSION_CODE,
+                BuildConfig.VERSION_CODE.toLong() + 1L
+            )
+        }, "module-version")
+        assertInvalid(encoded.toMutableMap().apply {
+            put(RemoteHookConfigContract.KEY_DELIVERY_ENABLED, false)
+        }, "digest")
+        assertInvalid(encoded.toMutableMap().apply {
+            put(RemoteHookConfigContract.KEY_NO_ROOT_REVISION, -1L)
+        }, "no-root-revision")
     }
 
     private fun defaultValues(): Map<String, Any> =
         RemoteHookConfigContract.resolveSourceValues(emptyMap<String, Any>())
+
+    private fun encode(
+        generation: Long = 1L,
+        moduleVersionCode: Long = BuildConfig.VERSION_CODE.toLong(),
+        deliveryEnabled: Boolean = true,
+        noRootRevision: Long = 0L,
+        decision: UserTermsDecision = UserTermsDecision.ACCEPTED,
+        values: Map<String, Any> = defaultValues()
+    ): Map<String, Any> = RemoteHookConfigContract.encode(
+        generation = generation,
+        moduleVersionCode = moduleVersionCode,
+        deliveryEnabled = deliveryEnabled,
+        noRootRevision = noRootRevision,
+        decision = decision,
+        values = values
+    )
 
     private fun assertInvalid(values: Map<String, *>, reasonPrefix: String) {
         val decoded = RemoteHookConfigContract.decode(values)

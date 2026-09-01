@@ -85,7 +85,7 @@ Liquid rendering, RenderThread timing, or device accessibility.
    `com.Bilibili_Innocent_Lab.xposedmodule.permission.SET_ROAMING_COMPAT`.
 3. Test cold start, `web`, `download`, and `ijkservice` processes with the
    module process both alive and stopped.
-4. Test Bilibili 8.90.2, 9.0.0, and the 9.1.0-9.9.0 major-version paths where
+4. Test Bilibili 8.90.2, 9.0.0, and the 9.1.0-9.10.0 major-version paths where
    available, including a work profile if one exists.
 5. Confirm the injected roaming-settings entry still opens on MIUI and that
    ordinary free-copy, banner, game-card, merchandise, and pause-ad hooks have
@@ -181,7 +181,9 @@ Liquid rendering, RenderThread timing, or device accessibility.
     ordered broadcast authorization race. Click Accept once while disconnected:
     the UI must retain a non-authorizing pending state, avoid asking for a second
     acceptance, and automatically converge to `ACCEPTED` only after service bind
-    and full read-back. Repeat in the owner user and one cloned-app/profile user.
+    and full read-back. Without the standard framework service, use the explicit
+    NPatch action and confirm it follows the same pending-to-read-back-to-local
+    completion order. Repeat in the owner user and one cloned-app/profile user.
 25. Repeat the gate, pending-sync page, declined page, save-failure path, and accepted settings page
     in English, Simplified Chinese, and Traditional Chinese with dark mode,
     large font, rotation, and TalkBack. Confirm all text and buttons remain
@@ -195,8 +197,10 @@ Liquid rendering, RenderThread timing, or device accessibility.
 26. Install the API 102 build over the existing installation and open the module
     once. Confirm the private UI settings remain unchanged and the framework's
     `hook_config` Remote Preferences group contains exactly the catalog values,
-    two documented runtime fields and seven metadata fields, with no arbitrary
-    default-preference key.
+    two documented runtime fields and ten metadata fields, with no arbitrary
+    default-preference key. Repeat against NPatch Remote storage and confirm the
+    group name and exact document are identical apart from delivery/revision and
+    generation values.
 27. Restart Bilibili main, web, download and player processes. Every process must
     log `API 102 Remote Preferences 验证成功` with the same generation and must not
     log an API 82 file or authorization-mirror fallback. Verify free copy, then enable
@@ -227,3 +231,17 @@ Liquid rendering, RenderThread timing, or device accessibility.
     system Documents provider and one third-party provider, then confirm success appears
     only after byte-for-byte read-back and parsing. Inspect the JSON to confirm it has no
     setting values, custom rules, paths, logs, exception detail, or host member names.
+31. With NPatch support off, confirm opening/resuming the module does not call
+    `top.nkbe.npatch.remote`. Turn it on and verify the Provider call is
+    `getRemoteService` with this module's package in `modulePackageName`, the
+    returned Binder descriptor is API 102 `IXposedService`, transaction 21 reads
+    and transaction 22 updates `hook_config`, and the UI reports success only
+    after a complete read-back. Make the store read-only, return a wrong
+    descriptor, reject the module identity, delay beyond the deadline, and alter
+    one read-back field; every case must remain fail-closed with a bounded error.
+32. Test a patched host with an NPatch build explicitly documented as fixing
+    upstream issue #139. Separately reproduce an affected build: if native JNI
+    loading crashes before `HookEntry.onModuleLoaded`, classify it as an upstream
+    pre-entry failure rather than a module configuration failure. The module
+    switch must not claim to disable or recover native injection, and no module
+    Hook/heartbeat may be reported as observed in that case.

@@ -777,8 +777,25 @@ class VersionAdapterTest {
     }
 
     @Test
-    fun `locates update leaf implementation instead of interface bridge`() {
+    fun `prefers latest verified update implementation`() {
         val point = VersionAdapter.locateBlockUpdate(requireNotNull(javaClass.classLoader))
+
+        assertEquals("Ip1.c", point?.className)
+        assertEquals("a", point?.methodName)
+        assertEquals(listOf("android.content.Context"), point?.paramClassNames)
+    }
+
+    @Test
+    fun `falls back to older update leaf implementation`() {
+        val parent = requireNotNull(javaClass.classLoader)
+        val legacyLoader = object : ClassLoader(parent) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if (name == "Ip1.c") throw ClassNotFoundException(name)
+                return super.loadClass(name, resolve)
+            }
+        }
+
+        val point = VersionAdapter.locateBlockUpdate(legacyLoader)
 
         assertEquals("vd6.c", point?.className)
         assertEquals("c", point?.methodName)
@@ -1091,7 +1108,7 @@ class VersionAdapterTest {
         val points = VersionAdapter.locateDefaultVideoQuality(requireNotNull(javaClass.classLoader))
         val point = points?.defaultQualityMethod
 
-        assertEquals("Jq1.l", point?.className)
+        assertEquals("Ar1.l", point?.className)
         assertEquals("a", point?.methodName)
         assertEquals(emptyList<String>(), point?.paramClassNames)
         assertEquals(
@@ -1101,11 +1118,31 @@ class VersionAdapterTest {
     }
 
     @Test
+    fun `falls back to previous verified quality owner`() {
+        val parent = requireNotNull(javaClass.classLoader)
+        val previousLoader = object : ClassLoader(parent) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if (name == "Ar1.l") throw ClassNotFoundException(name)
+                return super.loadClass(name, resolve)
+            }
+        }
+
+        val point = VersionAdapter.locateDefaultVideoQuality(previousLoader)
+            ?.defaultQualityMethod
+
+        assertEquals("Jq1.l", point?.className)
+        assertEquals("a", point?.methodName)
+        assertEquals(emptyList<String>(), point?.paramClassNames)
+    }
+
+    @Test
     fun `uses legacy default quality helper without selecting settings getter`() {
         val parent = requireNotNull(javaClass.classLoader)
         val legacyOnlyLoader = object : ClassLoader(parent) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
-                if (name == "Jq1.l" || name == "gh6.h") throw ClassNotFoundException(name)
+                if (name == "Ar1.l" || name == "Jq1.l" || name == "gh6.h") {
+                    throw ClassNotFoundException(name)
+                }
                 return super.loadClass(name, resolve)
             }
         }

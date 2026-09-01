@@ -34,6 +34,7 @@
     <string name="user_terms_pending_failed">Status: configuration synchronization is incomplete, so module features remain disabled. You can retry now.</string>
     <string name="user_terms_pending_local_failed">Status: the remote authorization was revoked because the final local state could not be saved. Check storage and retry.</string>
     <string name="user_terms_retry_sync">Retry now</string>
+    <string name="user_terms_use_npatch_sync">Synchronize with NPatch (experimental)</string>
     <string name="user_terms_diagnostics_title">Connection diagnostics (read-only)</string>
     <string name="user_terms_diagnostics_module_identity">Module app: visible · userId %1$d · UID %2$d</string>
     <string name="user_terms_diagnostics_profile_primary">User space: primary user</string>
@@ -465,7 +466,7 @@
     <string name="settings_backup_choose_again">Choose another file</string>
     <string name="settings_backup_migration_warning">Some catalog migration steps are unavailable. Only self-describing settings that are still exactly compatible will be restored; all other items remain unchanged.</string>
     <string name="no_root_support_enable">No-root support (NPatch, experimental)</string>
-    <string name="no_root_support_tip">Requires Android 9+ and NPatch Manager 1.0.7+ in Local/Manager mode. NPatch is contacted only while this switch is on.</string>
+    <string name="no_root_support_tip">This switch controls only this module\'s configuration delivery through NPatch; it cannot disable NPatch native injection in an already patched app. Some NPatch 1.0.7 builds have the upstream startup crash tracked as #139, so use only a build explicitly confirmed to contain that fix. NPatch is contacted only while this switch is on.</string>
     <string name="no_root_status_unsupported_os">Status: unavailable; Android 9 or later is required.</string>
     <string name="no_root_status_disabled">Status: off. No NPatch connection will be made.</string>
     <string name="no_root_status_checking">Status: checking the local configuration…</string>
