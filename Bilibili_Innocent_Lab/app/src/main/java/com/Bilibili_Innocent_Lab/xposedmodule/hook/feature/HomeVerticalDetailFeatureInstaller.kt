@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import android.app.Activity
 import android.net.Uri
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import java.lang.reflect.Method
@@ -79,6 +80,7 @@ internal class HomeVerticalDetailFeatureInstaller(
         var noAccessor = 0
         var rolledBack = 0
         var rollbackIncomplete = 0
+        val reasonCounts = linkedMapOf<HomeVerticalRouteDecision.Reason, Int>()
         items.forEach { item ->
             if (item == null || !accessors.holderType.declaringClass.isInstance(item)) return@forEach
             val snapshot = snapshot(item, accessors)
@@ -87,11 +89,12 @@ internal class HomeVerticalDetailFeatureInstaller(
                 is HomeVerticalRouteDecision.KeepOriginal -> {
                     observed += 1
                     unsafe += 1
+                    reasonCounts[decision.reason] = (reasonCounts[decision.reason] ?: 0) + 1
                 }
                 is HomeVerticalRouteDecision.Rewrite -> {
                     observed += 1
                     eligible += 1
-                    recentHomeVideos.register(decision.plan.identity)
+                    recentHomeVideos.registerAll(decision.plan.aliases)
                     when (
                         routeMutator.apply(
                             item,
@@ -115,11 +118,15 @@ internal class HomeVerticalDetailFeatureInstaller(
         if (observed == 0) return
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED, observed)
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED, applied)
+        val reasonSummary = reasonCounts.entries
+            .sortedBy { it.key.ordinal }
+            .joinToString("|") { "${it.key.name.lowercase()}=${it.value}" }
+            .ifEmpty { "none" }
         environment.logInfo(
             "home_vertical_runtime",
             "[BIL] 首页竖屏详情处理 observed=$observed,eligible=$eligible,applied=$applied," +
                 "unsafe=$unsafe,noAccessor=$noAccessor,rolledBack=$rolledBack," +
-                "recentIds=${recentHomeVideos.size()}"
+                "recentIds=${recentHomeVideos.size()},reasons=$reasonSummary"
         )
         if (rollbackIncomplete > 0) {
             environment.logError(
@@ -199,6 +206,32 @@ internal class HomeVerticalDetailFeatureInstaller(
                 environment.logError(
                     "home_vertical_route_uri_failed",
                     "[BIL] 首页竖屏 URI 路由兜底注册失败: $throwable"
+                )
+            }
+        }
+
+        points?.intentHandlerOnCreate?.let { point ->
+            runCatching {
+                environment.registrar.adapted("home.vertical.intent_handler", point) {
+                    before {
+                        val activity = instance as? Activity ?: return@before
+                        val intent = activity.intent ?: return@before
+                        val original = intent.data?.toString() ?: return@before
+                        val rewritten = recentHomeVideos.rewriteIfRegistered(original)
+                            ?: return@before
+                        intent.data = Uri.parse(rewritten)
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                        environment.logInfo(
+                            "home_vertical_intent_handler_fallback",
+                            "[BIL] 首页近期竖屏视频已在宿主 Intent 入口改为普通详情页"
+                        )
+                    }
+                }
+                installed += 1
+            }.onFailure { throwable ->
+                environment.logError(
+                    "home_vertical_intent_handler_failed",
+                    "[BIL] 首页竖屏宿主 Intent 入口兜底注册失败: $throwable"
                 )
             }
         }
