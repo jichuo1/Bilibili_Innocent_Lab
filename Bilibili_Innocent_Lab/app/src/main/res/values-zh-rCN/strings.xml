@@ -39,7 +39,7 @@
     <string name="paused_page_ad_enable">隐藏视频暂停页广告</string>
     <string name="paused_page_ad_tip">开启后不再展示某些视频暂停后可能弹出的推广广告</string>
     <string name="roaming_compat_enable">漫游版本支持扩展</string>
-    <string name="roaming_compat_tip">为漫游提供更高版本兼容支持，开启后需要重启两次哔哩哔哩生效</string>
+    <string name="roaming_compat_tip">为漫游提供更高版本兼容支持，开启后需要重启两次哔哩哔哩生效。请确保在开启本功能前，在单独使用漫游的情况下冷启动宿主以确保其对宿主构建完整缓存。</string>
     <string name="gamecard_ad_settings">视频详细页广告</string>
     <string name="gamecard_ad_enable">隐藏视频提及区域中的游戏广告</string>
     <string name="gamecard_ad_tip">开启后净化带有游戏标签的视频下的“视频提及”广告</string>
@@ -472,7 +472,9 @@
     <string name="diagnostics_item_logging">诊断日志</string>
     <string name="diagnostics_evidence_configured">已配置</string>
     <string name="diagnostics_evidence_published">已发布并读回验证</string>
+    <string name="diagnostics_evidence_adapted">结构已适配</string>
     <string name="diagnostics_evidence_observed">已观测</string>
+    <string name="diagnostics_evidence_applied">已实际应用</string>
     <string name="diagnostics_evidence_unavailable">无可信回执</string>
     <string name="diagnostics_state_ok">正常</string>
     <string name="diagnostics_state_info">提示</string>
@@ -497,6 +499,15 @@
     <string name="diagnostics_activation_checking">正在等待激活证据…</string>
     <string name="diagnostics_activation_unavailable">当前没有有效的 LSPosed 服务或匹配的 NPatch heartbeat。</string>
     <string name="diagnostics_adaptation_unknown">模块进程不能安全读取宿主应用的私有适配缓存。请打开哔哩哔哩并以实际功能表现为准。</string>
+    <string name="diagnostics_adaptation_receipt">已验证宿主回执：结构适配 %1$d 项，运行中观察到 %2$d 项，实际应用过规则 %3$d 项。未观察不等于失效，可能只是对应页面或内容尚未出现。</string>
+    <string name="diagnostics_host_feature_home_feed">首页推荐净化</string>
+    <string name="diagnostics_host_feature_relate">视频详情相关推荐净化</string>
+    <string name="diagnostics_host_feature_comment_filter">评论筛选</string>
+    <string name="diagnostics_host_feature_comment_purify">评论组件净化</string>
+    <string name="diagnostics_host_feature_quality">默认播放画质</string>
+    <string name="diagnostics_host_feature_splash">开屏广告净化</string>
+    <string name="diagnostics_host_feature_mine">“我的”页面净化</string>
+    <string name="diagnostics_host_feature_unknown">其他宿主功能</string>
     <string name="diagnostics_skin_ready">请求：%1$s · 实际：%2$s%3$s</string>
     <string name="diagnostics_skin_backend"> · 后端：%1$s</string>
     <string name="diagnostics_skin_fallback">请求的皮肤已安全回退（%1$s），实际皮肤为 %2$s。</string>

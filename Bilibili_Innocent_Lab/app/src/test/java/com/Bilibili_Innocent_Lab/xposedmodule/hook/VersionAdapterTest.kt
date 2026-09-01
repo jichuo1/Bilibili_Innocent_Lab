@@ -546,6 +546,7 @@ class VersionAdapterTest {
             )
         ),
         hostFingerprint = "host|9090300|rules=24",
+        protocolFingerprint = "protocol-v1:1:0123456789abcdef01234567",
         diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic(
                 "comment.low",
@@ -570,6 +571,23 @@ class VersionAdapterTest {
         assertTrue(requireNotNull(restored).isUsableWith(source.hostFingerprint))
         assertFalse(restored.isUsableWith("different-host"))
         assertEquals("found=1,missing=0,not_applicable=1", restored.diagnosticSummary())
+    }
+
+    @Test
+    fun `quick adaptation emits a versioned protocol structure fingerprint`() {
+        val located = requireNotNull(
+            VersionAdapter.quickLocate(requireNotNull(javaClass.classLoader))
+        )
+
+        assertTrue(
+            located.protocolFingerprint.matches(
+                Regex("protocol-v1:[1-9][0-9]*:[0-9a-f]{24}")
+            )
+        )
+        assertEquals(
+            located.protocolFingerprint,
+            located.diagnostics.single { it.id == "protocol.structure" }.detail
+        )
     }
 
     @Test
@@ -704,6 +722,7 @@ class VersionAdapterTest {
         assertEquals("getUri", points?.uriGetter?.methodName)
         assertEquals("getParam", points?.paramGetter?.methodName)
         assertEquals("getBizType", points?.bizTypeGetter?.methodName)
+        assertEquals("getCardType", points?.cardTypeGetter?.methodName)
         assertEquals("getAdInfo", points?.adInfoGetter?.methodName)
         assertEquals("getTitle", points?.titleGetter?.methodName)
         assertEquals("getPlayerArgs", points?.playerArgsGetter?.methodName)
@@ -712,6 +731,7 @@ class VersionAdapterTest {
             points?.playerArgsGetter?.className
         )
         assertEquals("fakeDuration", points?.playerArgsDurationField)
+        assertEquals("getDuration", points?.playerArgsDurationGetter?.methodName)
     }
 
     @Test
@@ -860,6 +880,10 @@ class VersionAdapterTest {
         )
         assertEquals(3, points?.listGetters?.size)
         assertFalse(points?.listGetters.orEmpty().any { it.methodName == "getKeepIds" })
+        assertEquals(
+            setOf("is_ad", "is_ad_loc", "cm_mark", "ad_cb", "uri", "card_type", "server_type"),
+            points?.itemSignalGetters?.map { it.role }?.toSet()
+        )
     }
 
     @Test
@@ -874,12 +898,16 @@ class VersionAdapterTest {
 
     @Test
     fun `prefers newest verified quality owner over older residual candidate`() {
-        val point = VersionAdapter.locateDefaultVideoQuality(requireNotNull(javaClass.classLoader))
-            ?.defaultQualityMethod
+        val points = VersionAdapter.locateDefaultVideoQuality(requireNotNull(javaClass.classLoader))
+        val point = points?.defaultQualityMethod
 
         assertEquals("Jq1.l", point?.className)
         assertEquals("a", point?.methodName)
         assertEquals(emptyList<String>(), point?.paramClassNames)
+        assertEquals(
+            setOf("stream_quality", "vip_entitlement", "codec"),
+            points?.capabilitySignals?.toSet()
+        )
     }
 
     @Test
@@ -925,6 +953,14 @@ class VersionAdapterTest {
         assertEquals("getMessage", points?.messageGetter?.methodName)
         assertEquals("getMember", points?.memberGetter?.methodName)
         assertEquals("getLevel", points?.levelGetter?.methodName)
+        assertEquals("getMemberV2", points?.memberV2Getter?.methodName)
+        assertEquals("getBasic", points?.memberV2BasicGetter?.methodName)
+        assertEquals("getLevel", points?.memberV2LevelGetter?.methodName)
+        assertEquals(
+            setOf("getUpTop", "getAdminTop", "getVoteTop"),
+            points?.topReplyGetters?.map { it.methodName }?.toSet()
+        )
+        assertEquals("getDefaultInstance", points?.replyDefaultInstanceGetter?.methodName)
         assertTrue(points?.replyListGetters.orEmpty().all {
             it.paramClassNames == emptyList<String>()
         })

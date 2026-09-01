@@ -39,7 +39,7 @@
     <string name="paused_page_ad_enable">隱藏影片暫停頁廣告</string>
     <string name="paused_page_ad_tip">啟用後，不再顯示部分影片暫停時可能彈出的宣傳廣告</string>
     <string name="roaming_compat_enable">漫遊版本相容性擴充</string>
-    <string name="roaming_compat_tip">為漫遊模組提供較新版本的相容支援；啟用後需重新啟動 Bilibili 兩次才會生效</string>
+    <string name="roaming_compat_tip">為漫遊模組提供較新版本的相容支援；啟用後需重新啟動 Bilibili 兩次才會生效。請確保在啟用本功能前，先在僅使用漫遊模組的情況下冷啟動宿主，以確保漫遊已為該宿主建立完整快取。</string>
     <string name="gamecard_ad_settings">影片詳細頁廣告</string>
     <string name="gamecard_ad_enable">隱藏影片提及區域中的遊戲廣告</string>
     <string name="gamecard_ad_tip">啟用後，淨化帶有遊戲標籤之影片下方的「影片提及」廣告</string>
@@ -472,7 +472,9 @@
     <string name="diagnostics_item_logging">診斷日誌</string>
     <string name="diagnostics_evidence_configured">已設定</string>
     <string name="diagnostics_evidence_published">已發佈並讀回驗證</string>
+    <string name="diagnostics_evidence_adapted">結構已適配</string>
     <string name="diagnostics_evidence_observed">已觀測</string>
+    <string name="diagnostics_evidence_applied">已實際套用</string>
     <string name="diagnostics_evidence_unavailable">無可信回執</string>
     <string name="diagnostics_state_ok">正常</string>
     <string name="diagnostics_state_info">提示</string>
@@ -497,6 +499,15 @@
     <string name="diagnostics_activation_checking">正在等待啟用證據…</string>
     <string name="diagnostics_activation_unavailable">目前沒有有效的 LSPosed 服務或相符的 NPatch heartbeat。</string>
     <string name="diagnostics_adaptation_unknown">模組處理程序不能安全讀取宿主應用程式的私有適配快取。請開啟嗶哩嗶哩並以實際功能表現為準。</string>
+    <string name="diagnostics_adaptation_receipt">已驗證宿主回執：結構適配 %1$d 項，執行中觀察到 %2$d 項，實際套用過規則 %3$d 項。未觀察不等於失效，可能只是對應頁面或內容尚未出現。</string>
+    <string name="diagnostics_host_feature_home_feed">首頁推薦淨化</string>
+    <string name="diagnostics_host_feature_relate">影片詳情相關推薦淨化</string>
+    <string name="diagnostics_host_feature_comment_filter">評論篩選</string>
+    <string name="diagnostics_host_feature_comment_purify">評論元件淨化</string>
+    <string name="diagnostics_host_feature_quality">預設播放畫質</string>
+    <string name="diagnostics_host_feature_splash">啟動畫面廣告淨化</string>
+    <string name="diagnostics_host_feature_mine">「我的」頁面淨化</string>
+    <string name="diagnostics_host_feature_unknown">其他宿主功能</string>
     <string name="diagnostics_skin_ready">請求：%1$s · 實際：%2$s%3$s</string>
     <string name="diagnostics_skin_backend"> · 後端：%1$s</string>
     <string name="diagnostics_skin_fallback">請求的皮膚已安全回退（%1$s），實際皮膚為 %2$s。</string>

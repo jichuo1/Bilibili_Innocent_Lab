@@ -7,6 +7,8 @@ import androidx.lifecycle.ViewModel
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticReportCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.ModuleDiagnosticSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.ModuleDiagnosticsCollector
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsQueryClient
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinSessionDiagnostics
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
@@ -44,12 +46,27 @@ internal class DiagnosticsViewModel : ViewModel() {
             screenState.value = DiagnosticsScreenState.Loading
         }
         val appContext = context.applicationContext ?: context
+        HostRuntimeDiagnosticsQueryClient.query(appContext) { queryResult ->
+            val hostRuntime = queryResult.snapshot
+                .takeIf { queryResult.status == HostRuntimeDiagnosticsQueryClient.Status.READY }
+            collectAsync(request, appContext, skin, frameworkCheckPending, hostRuntime)
+        }
+    }
+
+    private fun collectAsync(
+        request: Long,
+        context: Context,
+        skin: SkinSessionDiagnostics?,
+        frameworkCheckPending: Boolean,
+        hostRuntime: HostRuntimeDiagnosticsSnapshot?
+    ) {
         worker.submit {
             runCatching {
                 ModuleDiagnosticsCollector.collect(
-                    context = appContext,
+                    context = context,
                     skin = skin,
-                    frameworkCheckPending = frameworkCheckPending
+                    frameworkCheckPending = frameworkCheckPending,
+                    hostRuntime = hostRuntime
                 )
             }.onSuccess { snapshot ->
                 if (generation.get() == request) {

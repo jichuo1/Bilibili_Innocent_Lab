@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.diagnostics
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsCodec
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -16,7 +17,7 @@ internal data class DiagnosticReportMetadata(
 /** 只导出固定白名单字段的本地诊断报告；不接受设置值、日志正文和任意异常文本。 */
 internal object DiagnosticReportCodec {
     const val FORMAT_NAME = "bilab-diagnostics"
-    const val CURRENT_FORMAT_VERSION = 1
+    const val CURRENT_FORMAT_VERSION = 2
     const val PRODUCT_ID = "bilibili-innocent-lab"
     const val MAX_FILE_BYTES = 256 * 1024
 
@@ -88,7 +89,20 @@ internal object DiagnosticReportCodec {
                     .put("activation", input.activationState.name)
                     .put("noRootDesiredEnabled", input.noRootDesiredEnabled)
                     .put("noRootState", input.noRootState.name)
-                    .put("hostAdaptationReceiptAvailable", false)
+                    .put("hostAdaptationReceiptAvailable", input.hostRuntimeReceiptAvailable)
+                    .put("hostRuntimeCapturedAtEpochMs", input.hostRuntimeCapturedAtEpochMs)
+                    .put("hostAdaptedFeatureCount", input.hostAdaptedFeatureCount)
+                    .put("hostObservedFeatureCount", input.hostObservedFeatureCount)
+                    .put("hostAppliedFeatureCount", input.hostAppliedFeatureCount)
+                    .put("hostFeatures", JSONArray().apply {
+                        input.hostFeatures.forEach { feature ->
+                            put(
+                                JSONObject()
+                                    .put("id", feature.featureId)
+                                    .put("evidence", feature.evidence.name)
+                            )
+                        }
+                    })
             )
             .put(
                 "interface",
@@ -156,6 +170,27 @@ internal object DiagnosticReportCodec {
         val items = assessment.getJSONArray("items")
         require(items.length() == DiagnosticItemId.entries.size) {
             "Incomplete diagnostic assessment"
+        }
+        val hostFeatures = root.getJSONObject("runtime").getJSONArray("hostFeatures")
+        require(hostFeatures.length() <= HostRuntimeDiagnosticsCodec.MAX_FEATURE_COUNT) {
+            "Invalid host feature assessment"
+        }
+        val hostFeatureIds = HashSet<String>()
+        for (index in 0 until hostFeatures.length()) {
+            val feature = hostFeatures.getJSONObject(index)
+            require(feature.length() == 2) { "Invalid host feature assessment" }
+            val id = feature.getString("id")
+            require(id in HostRuntimeDiagnosticsCodec.allowedFeatureIds && hostFeatureIds.add(id)) {
+                "Invalid host feature assessment"
+            }
+            require(
+                DiagnosticEvidence.valueOf(feature.getString("evidence")) in setOf(
+                    DiagnosticEvidence.ADAPTED,
+                    DiagnosticEvidence.OBSERVED,
+                    DiagnosticEvidence.APPLIED,
+                    DiagnosticEvidence.NOT_AVAILABLE
+                )
+            ) { "Invalid host feature evidence" }
         }
         val excluded = root.getJSONArray("excluded")
         require(excluded.length() == excludedCategories.size) { "Invalid privacy declaration" }
