@@ -2551,6 +2551,9 @@ class HookEntry : XposedModule() {
                 logInfo = { key, message -> logInfo(key, message) },
                 logError = { key, message -> logError(key, message) },
                 reportStatus = { channel, status -> reportChannelStatus(channel, status) },
+                postToMain = { action ->
+                    mainHandlerOrNull()?.post(action)
+                },
                 // 扫描热路径只更新宿主内存/私有缓存；模块设置页再主动拉取并校验落盘。
                 writeMineScanSnapshot = { json ->
                     MineComponentSnapshotHostBridge.update(

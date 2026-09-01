@@ -43,8 +43,8 @@
     <string name="gamecard_ad_settings">视频详细页广告</string>
     <string name="gamecard_ad_enable">隐藏视频提及区域中的游戏广告</string>
     <string name="gamecard_ad_tip">开启后净化带有游戏标签的视频下的“视频提及”广告</string>
-    <string name="hide_video_detail_app_promotion">隐藏视频详细页应用推广</string>
-    <string name="hide_video_detail_app_promotion_tip">开启后隐藏视频播放器下方的应用推广卡片，重启哔哩哔哩后生效。</string>
+    <string name="hide_video_detail_app_promotion">隐藏视频详细页话题推广</string>
+    <string name="hide_video_detail_app_promotion_tip">开启后隐藏视频播放器下方的话题、活动等推广卡片，不保留空白区域，重启哔哩哔哩后生效。</string>
     <string name="banner_ad_settings">首页大卡轮播</string>
     <string name="banner_ad_enable">隐藏首页大卡轮播推荐</string>
     <string name="banner_ad_tip">开启后补全漫游失效的首页轮播净化</string>
