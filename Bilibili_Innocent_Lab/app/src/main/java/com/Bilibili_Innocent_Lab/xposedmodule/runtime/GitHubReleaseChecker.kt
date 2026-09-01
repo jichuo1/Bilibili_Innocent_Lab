@@ -32,7 +32,6 @@ object GitHubReleaseChecker {
     private const val RELEASE_DETAILS_CONNECT_TIMEOUT_MS = 4_000
     private const val RELEASE_DETAILS_READ_TIMEOUT_MS = 4_000
     private const val MAX_RESPONSE_LENGTH = 512 * 1024
-    private const val MAX_RELEASE_NOTES_LENGTH = 1_200
     private const val RELEASE_DETAILS_MIRROR_BASE = "https://kkgithub.com"
     /** 预览渠道最多读取的 Release 数量，与接口 per_page 一致，无需遍历全部历史。 */
     private const val PREVIEW_MAX_RELEASES = 20
@@ -77,7 +76,9 @@ object GitHubReleaseChecker {
         val htmlUrl: String,
         val apkDownloadUrl: String?,
         /** true 表示该 Release 为预发布版本（Alpha），UI 需给出明确的预发布标识。 */
-        val prerelease: Boolean
+        val prerelease: Boolean,
+        /** true 表示正文超过本地安全上限；UI 应保留“查看完整说明”入口。 */
+        val releaseNotesTruncated: Boolean = false
     )
 
     data class ReleaseDetailsDestination(
@@ -341,13 +342,15 @@ object GitHubReleaseChecker {
             }
         }
 
+        val releaseNotes = ReleaseNotesSourcePolicy.prepare(json.optString("body"))
         return ReleaseInfo(
             tagName = tagName,
             displayName = json.optString("name").trim().ifEmpty { tagName },
-            releaseNotes = json.optString("body").trim().take(MAX_RELEASE_NOTES_LENGTH),
+            releaseNotes = releaseNotes.markdown,
             htmlUrl = htmlUrl,
             apkDownloadUrl = apkDownloadUrl,
-            prerelease = prerelease
+            prerelease = prerelease,
+            releaseNotesTruncated = releaseNotes.truncated
         )
     }
 

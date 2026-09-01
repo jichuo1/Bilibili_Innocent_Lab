@@ -389,6 +389,8 @@
     <string name="update_available_prerelease_title">New preview version available: %1$s</string>
     <string name="update_available_prerelease_note">This is a pre-release version and may contain unverified changes.</string>
     <string name="update_available_message">Current version: %1$s\nLatest version: %2$s</string>
+    <string name="update_release_notes_title">What’s new</string>
+    <string name="update_release_notes_truncated">This is an excerpt. Open version details to read the complete release notes.</string>
     <string name="update_later">Later</string>
     <string name="update_details">Details</string>
     <string name="update_details_opening">Opening version details…</string>
