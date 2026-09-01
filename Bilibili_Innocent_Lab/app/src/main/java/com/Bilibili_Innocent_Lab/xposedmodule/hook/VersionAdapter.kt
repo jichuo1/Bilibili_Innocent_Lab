@@ -129,8 +129,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 46
-    private const val ADAPTER_RULE_VERSION = 39
+    private const val SCHEMA_VERSION = 47
+    private const val ADAPTER_RULE_VERSION = 40
 
     enum class AdaptState {
         FOUND,
@@ -403,7 +403,9 @@ object VersionAdapter {
         /** app-card Base.card_type；旧模型缺失时继续使用 holder/card_goto/goto。 */
         val cardTypeGetter: HookPoint? = null,
         /** PlayerArgs.getDuration()；字段注解路径继续作为旧模型兜底。 */
-        val playerArgsDurationGetter: HookPoint? = null
+        val playerArgsDurationGetter: HookPoint? = null,
+        /** 宿主统一 Intent 入口；只用于近期首页视频的 Story 路由最终净化。 */
+        val intentHandlerOnCreate: HookPoint? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("responses", JSONArray().apply { responseItemGetters.forEach { put(it.toJson()) } })
@@ -421,6 +423,7 @@ object VersionAdapter {
             playerArgsDurationField?.let { put("player_args_duration", it) }
             cardTypeGetter?.let { put("card_type", it.toJson()) }
             playerArgsDurationGetter?.let { put("player_args_duration_getter", it.toJson()) }
+            intentHandlerOnCreate?.let { put("intent_handler_on_create", it.toJson()) }
         }
 
         companion object {
@@ -445,6 +448,8 @@ object VersionAdapter {
                     .takeIf { it.isNotBlank() },
                 cardTypeGetter = o.optJSONObject("card_type")?.let(HookPoint::fromJson),
                 playerArgsDurationGetter = o.optJSONObject("player_args_duration_getter")
+                    ?.let(HookPoint::fromJson),
+                intentHandlerOnCreate = o.optJSONObject("intent_handler_on_create")
                     ?.let(HookPoint::fromJson)
             )
         }
@@ -1481,6 +1486,7 @@ object VersionAdapter {
                         value.playerArgsGetter?.isValid() != false &&
                         value.cardTypeGetter?.isValid() != false &&
                         value.playerArgsDurationGetter?.isValid() != false &&
+                        value.intentHandlerOnCreate?.isValid() != false &&
                         if (value.playerArgsGetter == null) {
                             value.playerArgsDurationField.isNullOrBlank() &&
                                 value.playerArgsDurationGetter == null
@@ -1774,6 +1780,8 @@ object VersionAdapter {
     private val PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES = listOf(
         "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity"
     )
+    private const val HOME_VERTICAL_INTENT_HANDLER_CLASS =
+        "tv.danmaku.bili.ui.intent.IntentHandlerActivity"
     private val PEGASUS_RESPONSE_CLASS_CANDIDATES = listOf(
         "com.bilibili.pegasus.data.base.PegasusResponse",
         "com.bilibili.pegasus.p5730data.p5731base.PegasusResponse",
@@ -2463,6 +2471,7 @@ object VersionAdapter {
             add("home.param", points.paramGetter)
             add("home.player_args", points.playerArgsGetter)
             add("home.duration", points.playerArgsDurationGetter)
+            add("home.intent_handler", points.intentHandlerOnCreate)
             if (!points.playerArgsDurationField.isNullOrBlank()) {
                 descriptors += "home.duration_field:${points.playerArgsDurationField}"
             }
@@ -2811,7 +2820,8 @@ object VersionAdapter {
                 homeRecommendFeed?.let {
                     "contract=app-card-v1,responses=${it.responseItemGetters.size}," +
                         "signals=${listOfNotNull(it.cardTypeGetter, it.cardGotoGetter, it.goToGetter, it.adInfoGetter).size}," +
-                        "duration=${it.playerArgsDurationGetter != null || !it.playerArgsDurationField.isNullOrBlank()}"
+                        "duration=${it.playerArgsDurationGetter != null || !it.playerArgsDurationField.isNullOrBlank()}," +
+                        "intent=${it.intentHandlerOnCreate != null}"
                 }.orEmpty()
             ),
             AdaptDiagnostic(
@@ -3366,6 +3376,17 @@ object VersionAdapter {
         val durationOwner = playerArgsGetter?.takeIf {
             playerArgsDurationGetter != null || playerArgsDurationField != null
         }
+        val intentHandlerOnCreate = KavaMemberLookup.classOrNull(
+            loader,
+            HOME_VERTICAL_INTENT_HANDLER_CLASS
+        )?.takeIf { it.hasSuperclassNamed("android.app.Activity") }?.let { owner ->
+            KavaMemberLookup.methodOrNull(owner, "onCreate", classOf<Bundle>())
+                ?.takeIf { method ->
+                    method.declaringClass == owner && method.returnType == Void.TYPE &&
+                        !method.isStatic
+                }
+                ?.toHookPoint()
+        }
         HomeRecommendFeedPoints(
             responseItemGetters = responseGetters,
             holderTypeGetter = holderType.toHookPoint(),
@@ -3381,7 +3402,8 @@ object VersionAdapter {
             descGetter = stringGetter("getDesc"),
             playerArgsGetter = durationOwner?.toHookPoint(),
             playerArgsDurationField = playerArgsDurationField?.name,
-            playerArgsDurationGetter = playerArgsDurationGetter?.toHookPoint()
+            playerArgsDurationGetter = playerArgsDurationGetter?.toHookPoint(),
+            intentHandlerOnCreate = intentHandlerOnCreate
         )
     }.getOrNull()
 

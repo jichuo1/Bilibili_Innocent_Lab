@@ -26,6 +26,12 @@ class HomeVerticalDetailFeatureInstallerTest {
                 "bilibili://story/not-a-video"
             )
         )
+        assertEquals(
+            "bilibili://video/BV1xx411c7mD?from=feed#page",
+            HomeVerticalDetailFeatureInstaller.rewriteStoryUri(
+                "bilibili://story/BV1xx411c7mD?from=feed&-Arouter=story&-Atype=story#page"
+            )
+        )
     }
 
     @Test
@@ -73,6 +79,70 @@ class HomeVerticalDetailFeatureInstallerTest {
             HomeVerticalRouteDecision.Reason.CONFLICTING_VIDEO_ID,
             (conflicting as HomeVerticalRouteDecision.KeepOriginal).reason
         )
+    }
+
+    @Test
+    fun `accepts aid and BV as complementary identities but rejects same-kind conflicts`() {
+        val complementary = HomeVerticalDetailRoutePolicy.decide(
+            HomeVerticalRouteSnapshot(
+                cardGoto = "vertical_av",
+                uri = "bilibili://story/123456789?from=feed&-Arouter=story",
+                param = "BV1xx411c7mD"
+            )
+        )
+
+        val plan = (complementary as HomeVerticalRouteDecision.Rewrite).plan
+        assertEquals("bilibili://video/123456789?from=feed", plan.detailUri)
+        assertEquals(2, plan.aliases.size)
+        assertTrue(
+            CanonicalHomeVideoId(CanonicalHomeVideoId.Kind.AID, "123456789") in plan.aliases
+        )
+        assertTrue(
+            CanonicalHomeVideoId(CanonicalHomeVideoId.Kind.BV, "BV1xx411c7mD") in plan.aliases
+        )
+
+        val conflictingAid = HomeVerticalDetailRoutePolicy.decide(
+            HomeVerticalRouteSnapshot(
+                cardGoto = "vertical_av",
+                uri = "bilibili://story/123456789?aid=987654321"
+            )
+        )
+        assertEquals(
+            HomeVerticalRouteDecision.Reason.CONFLICTING_VIDEO_ID,
+            (conflictingAid as HomeVerticalRouteDecision.KeepOriginal).reason
+        )
+    }
+
+    @Test
+    fun `supports query-only story identity and removes forced story hints`() {
+        val decision = HomeVerticalDetailRoutePolicy.decide(
+            HomeVerticalRouteSnapshot(
+                cardGoto = "vertical_av",
+                uri = "bilibili://story?aid=123456789&-Arouter=story&from=feed#page"
+            )
+        )
+
+        val plan = (decision as HomeVerticalRouteDecision.Rewrite).plan
+        assertEquals(
+            "bilibili://video/123456789?aid=123456789&from=feed#page",
+            plan.detailUri
+        )
+    }
+
+    @Test
+    fun `cleans forced story hints from an existing video route`() {
+        val decision = HomeVerticalDetailRoutePolicy.decide(
+            HomeVerticalRouteSnapshot(
+                holderType = "vertical",
+                cardGoto = "av",
+                goTo = "av",
+                uri = "bilibili://video/BV1xx411c7mD?-Atype=story&from=feed"
+            )
+        )
+
+        val plan = (decision as HomeVerticalRouteDecision.Rewrite).plan
+        assertEquals("bilibili://video/BV1xx411c7mD?from=feed", plan.detailUri)
+        assertTrue(plan.rewriteUri)
     }
 
     @Test
@@ -131,6 +201,14 @@ class HomeVerticalDetailFeatureInstallerTest {
             registry.rewriteIfRegistered("bilibili://story/BV1xx411c7mD?from=feed")
         )
         assertNull(registry.rewriteIfRegistered("bilibili://story/BV1Q5411c7mD"))
+
+        registry.register(CanonicalHomeVideoId(CanonicalHomeVideoId.Kind.AID, "123456789"))
+        assertEquals(
+            "bilibili://video/123456789?aid=123456789&from=feed",
+            registry.rewriteIfRegistered(
+                "bilibili://story?aid=123456789&-Arouter=story&from=feed"
+            )
+        )
 
         now += 101L
         assertNull(registry.rewriteIfRegistered("bilibili://story/BV1xx411c7mD"))
