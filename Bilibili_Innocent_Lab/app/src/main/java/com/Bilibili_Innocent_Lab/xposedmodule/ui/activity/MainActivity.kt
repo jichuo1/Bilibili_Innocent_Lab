@@ -109,8 +109,15 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkSta
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatusListener
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigPublishState
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsAuthorizationCoordinator
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsAuthorizationListener
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsAuthorizationSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentState
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsGateDiagnostics
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsSyncState
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.didUserTermsAuthorizationComplete
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundConfig
@@ -155,9 +162,6 @@ class MainActivity : SkinnedActivity() {
         const val MINE_COMPONENT_SNAPSHOT_STALE_MS = 7L * 24L * 60L * 60L * 1_000L
         const val SETTINGS_SEARCH_HIGHLIGHT_DELAY_MS = 240L
         const val SETTINGS_SEARCH_HIGHLIGHT_DURATION_MS = 560L
-
-        /** LSPosed 管理器包名：条款保存失败（服务未连接）时的快捷跳转目标，不存在则隐藏入口。 */
-        private const val LSPOSED_MANAGER_PACKAGE = "org.lsposed.manager"
 
         /** 仅允许仍处于前台的设置 Activity 完成用户已确认的系统页跳转。 */
         fun openBilibiliAppDetails(activity: MainActivity): Boolean {
@@ -390,6 +394,33 @@ class MainActivity : SkinnedActivity() {
                 lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             ) {
                 renderActivationUi(status)
+            } else {
+                termsAuthorizationSnapshot?.let(::renderPendingTermsUi)
+                renderTermsGateDiagnostics()
+            }
+        }
+    }
+    private val userTermsAuthorizationListener = UserTermsAuthorizationListener { snapshot ->
+        activationMainHandler.post {
+            termsAuthorizationSnapshot = snapshot
+            val decision = snapshot.consentState.decision
+            if (decision.isAuthorized) {
+                val authorizationJustCompleted = didUserTermsAuthorizationComplete(
+                    previous = userTermsDecision,
+                    current = decision
+                )
+                userTermsDecision = decision
+                if (authorizationJustCompleted &&
+                    !termsDecisionActionInProgress &&
+                    lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+                ) {
+                    termsDecisionActionInProgress = true
+                    recreate()
+                }
+            } else if (snapshot.consentState.isAcceptancePending) {
+                renderPendingTermsUi(snapshot)
+            } else {
+                renderTermsGateDiagnostics()
             }
         }
     }
@@ -408,13 +439,17 @@ class MainActivity : SkinnedActivity() {
     private var settingsSearchHighlightAnimator: ValueAnimator? = null
     private var settingsSearchHighlightRunnable: Runnable? = null
 
-    /** 用户条款状态只在 Activity 创建时解析；决定落盘后随 recreate/finish 更新生命周期。 */
+    /** 用户条款决定与等待 API 102 同步状态；授权完成后随 recreate 进入主界面。 */
     private var userTermsDecision = UserTermsDecision.UNDECIDED
+    private var termsConsentState = UserTermsConsentState(UserTermsDecision.UNDECIDED)
+    private var termsAuthorizationSnapshot: UserTermsAuthorizationSnapshot? = null
     private var termsDecisionActionInProgress = false
 
-    /** 条款弹窗内的失败原因提示与 LSPosed 快捷入口：仅弹窗存活期持有，dismiss 时清空。 */
+    /** 条款弹窗/等待页的提示与框架管理器入口，只持有当前 Activity 的 View。 */
     private var termsDialogHintView: NativeTextView? = null
-    private var termsDialogLsposedLauncher: NativeTextView? = null
+    private var termsManagerLauncher: NativeTextView? = null
+    private var termsPendingStatusView: NativeTextView? = null
+    private var termsDiagnosticsValueView: NativeTextView? = null
 
     /** Liquid renderer 的同一 Activity 失败只处理一次，避免重复 toast/recreate。 */
     private var skinFailureHandled = false
@@ -971,6 +1006,338 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
+    /** 用户已经作出同意决定，但 API 102 快照尚未完整发布、读回并确认。 */
+    private fun showPendingTermsPage(snapshot: UserTermsAuthorizationSnapshot) {
+        val density = resources.displayMetrics.density
+        val root = createTermsNeutralRoot()
+        val container = createModalContainer().apply {
+            scaleX = 1f
+            scaleY = 1f
+            alpha = 1f
+        }
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.user_terms_pending_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 20f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.user_terms_pending_message)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 14f
+                alpha = 0.82f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (12 * density).toInt() }
+        )
+        val statusView = NativeTextView(this).apply {
+            textColor = getColor(R.color.colorTextDark)
+            textSize = 13f
+            setLineSpacing(4 * density, 1f)
+        }
+        termsPendingStatusView = statusView
+        container.addView(
+            statusView,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = (18 * density).toInt()
+                bottomMargin = (12 * density).toInt()
+            }
+        )
+        container.addView(
+            createTermsDiagnosticsCard(),
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (14 * density).toInt() }
+        )
+
+        val managerLauncher = createTermsManagerLauncher()
+        termsManagerLauncher = managerLauncher
+        container.addView(
+            managerLauncher,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (14 * density).toInt() }
+        )
+        container.addView(
+            createTermsActionButton(
+                text = getString(R.string.user_terms_retry_sync),
+                filled = true
+            ) {
+                UserTermsAuthorizationCoordinator.retryPendingAcceptance(applicationContext)
+                termsAuthorizationSnapshot =
+                    UserTermsAuthorizationCoordinator.snapshot(applicationContext)
+                termsAuthorizationSnapshot?.let(::renderPendingTermsUi)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        container.addView(
+            createTermsActionButton(
+                text = getString(R.string.user_terms_decline),
+                filled = false
+            ) {
+                if (termsDecisionActionInProgress) return@createTermsActionButton
+                termsDecisionActionInProgress = true
+                val result = UserTermsAuthorizationCoordinator.decline(applicationContext)
+                if (result.succeeded) {
+                    userTermsDecision = UserTermsDecision.DECLINED
+                    finish()
+                } else {
+                    termsDecisionActionInProgress = false
+                    toast(userTermsFailureMessage(result.failureCode))
+                    recreate()
+                }
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (8 * density).toInt() }
+        )
+
+        val centeringFrame = NativeFrameLayout(this).apply {
+            addView(
+                container,
+                NativeFrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.CENTER
+                    setMargins(
+                        (24 * density).toInt(),
+                        (36 * density).toInt(),
+                        (24 * density).toInt(),
+                        (36 * density).toInt()
+                    )
+                }
+            )
+        }
+        root.addView(
+            NativeScrollView(this).apply {
+                isFillViewport = true
+                isVerticalScrollBarEnabled = true
+                addView(
+                    centeringFrame,
+                    NativeFrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                )
+            },
+            NativeFrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+        setContentView(root)
+        renderPendingTermsUi(snapshot)
+    }
+
+    private fun renderPendingTermsUi(snapshot: UserTermsAuthorizationSnapshot) {
+        if (!snapshot.consentState.isAcceptancePending) return
+        val status = RemoteHookConfigStore.status()
+        termsPendingStatusView?.text = when {
+            snapshot.failureCode == UserTermsAuthorizationCoordinator.FAILURE_LOCAL_WRITE ->
+                getString(R.string.user_terms_pending_local_failed)
+            snapshot.syncState == UserTermsSyncState.SYNCING ->
+                getString(R.string.user_terms_pending_syncing)
+            snapshot.syncState == UserTermsSyncState.WAITING_FOR_SERVICE ->
+                getString(R.string.user_terms_pending_waiting)
+            snapshot.syncState == UserTermsSyncState.UNSUPPORTED ->
+                getString(
+                    R.string.user_terms_pending_unsupported,
+                    status.name.ifBlank { "Xposed" },
+                    status.apiVersion
+                )
+            snapshot.syncState == UserTermsSyncState.FAILED ->
+                getString(R.string.user_terms_pending_failed)
+            else -> getString(R.string.user_terms_pending_syncing)
+        }
+        updateTermsManagerLauncher(status)
+        renderTermsGateDiagnostics()
+    }
+
+    /** 条款门禁内的只读环境摘要；不提供开关、跳转或宿主进程查询能力。 */
+    private fun createTermsDiagnosticsCard(): NativeLinearLayout {
+        val density = resources.displayMetrics.density
+        return NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.VERTICAL
+            isClickable = false
+            isFocusable = false
+            setPadding(
+                (14 * density).toInt(),
+                (12 * density).toInt(),
+                (14 * density).toInt(),
+                (12 * density).toInt()
+            )
+            background = GradientDrawable().apply {
+                cornerRadius = 14 * density
+                setColor(
+                    ColorUtils.blendARGB(
+                        monetColors.surfaceVariant,
+                        monetColors.background,
+                        0.14f
+                    )
+                )
+                setStroke(
+                    density.toInt().coerceAtLeast(1),
+                    ColorUtils.setAlphaComponent(monetColors.primary, 0x66)
+                )
+            }
+            addView(
+                NativeTextView(this@MainActivity).apply {
+                    text = getString(R.string.user_terms_diagnostics_title)
+                    textColor = getColor(R.color.colorTextDark)
+                    textSize = 13f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                },
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
+                NativeTextView(this@MainActivity).apply {
+                    textColor = getColor(R.color.colorTextDark)
+                    textSize = 12f
+                    alpha = 0.86f
+                    setLineSpacing(3 * density, 1f)
+                    termsDiagnosticsValueView = this
+                },
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = (8 * density).toInt() }
+            )
+        }
+    }
+
+    private fun renderTermsGateDiagnostics() {
+        val valueView = termsDiagnosticsValueView ?: return
+        val diagnostics = UserTermsGateDiagnostics.capture(
+            applicationContext,
+            termsAuthorizationSnapshot
+        )
+        val profileLine = getString(
+            if (diagnostics.possibleSecondaryOrCloneProfile) {
+                R.string.user_terms_diagnostics_profile_secondary
+            } else {
+                R.string.user_terms_diagnostics_profile_primary
+            }
+        )
+        val frameworkLine = if (diagnostics.frameworkConnected) {
+            getString(
+                R.string.user_terms_diagnostics_framework_connected,
+                diagnostics.frameworkName.ifBlank { "Xposed" },
+                diagnostics.frameworkApiVersion
+            )
+        } else {
+            getString(R.string.user_terms_diagnostics_framework_disconnected)
+        }
+        val remoteLine = getString(
+            when {
+                !diagnostics.frameworkConnected ->
+                    R.string.user_terms_diagnostics_remote_unknown
+                diagnostics.remoteCapabilityAvailable ->
+                    R.string.user_terms_diagnostics_remote_available
+                else -> R.string.user_terms_diagnostics_remote_unavailable
+            }
+        )
+        val targetLine = if (diagnostics.targetPackageVisible) {
+            val targetUserId = requireNotNull(diagnostics.targetUserId)
+            val targetUid = requireNotNull(diagnostics.targetUid)
+            getString(
+                R.string.user_terms_diagnostics_target_visible,
+                targetUserId,
+                targetUid
+            )
+        } else {
+            getString(R.string.user_terms_diagnostics_target_not_visible)
+        }
+        val sameUserLine = getString(
+            when (diagnostics.sameAndroidUser) {
+                true -> R.string.user_terms_diagnostics_same_user_yes
+                false -> R.string.user_terms_diagnostics_same_user_no
+                null -> R.string.user_terms_diagnostics_same_user_unknown
+            }
+        )
+        valueView.text = listOf(
+            getString(
+                R.string.user_terms_diagnostics_module_identity,
+                diagnostics.moduleUserId,
+                diagnostics.moduleUid
+            ),
+            profileLine,
+            frameworkLine,
+            remoteLine,
+            targetLine,
+            sameUserLine,
+            getString(
+                R.string.user_terms_diagnostics_failure,
+                diagnostics.failureCode
+                    ?: getString(R.string.user_terms_diagnostics_failure_none)
+            )
+        ).joinToString("\n")
+    }
+
+    private fun createTermsManagerLauncher(): NativeTextView {
+        val density = resources.displayMetrics.density
+        return NativeTextView(this).apply {
+            visibility = View.GONE
+            text = getString(R.string.user_terms_open_framework_manager)
+            textColor = monetColors.primary
+            textSize = 14f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            background = GradientDrawable().apply {
+                cornerRadius = 12 * density
+                setColor(monetColors.surfaceVariant)
+            }
+            setPadding(
+                (14 * density).toInt(),
+                (9 * density).toInt(),
+                (14 * density).toInt(),
+                (9 * density).toInt()
+            )
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                val intent = FrameworkManagerLauncher.resolve(
+                    applicationContext,
+                    RemoteHookConfigStore.status()
+                ) ?: run {
+                    isVisible = false
+                    return@setOnClickListener
+                }
+                runCatching { startActivity(intent) }
+                    .onFailure { isVisible = false }
+            }
+        }
+    }
+
+    private fun updateTermsManagerLauncher(status: ModernFrameworkStatus) {
+        val launcher = termsManagerLauncher ?: return
+        launcher.isVisible = FrameworkManagerLauncher.resolve(
+            applicationContext,
+            status
+        ) != null && (!status.connected || !status.capable)
+    }
+
     /** 已明确拒绝时保持锁定，不显示任何模块配置入口。 */
     private fun showUserTermsDeclinedPage() {
         val density = resources.displayMetrics.density
@@ -1089,17 +1456,34 @@ class MainActivity : SkinnedActivity() {
         val bodyScroll = NativeScrollView(this).apply {
             isFillViewport = true
             isVerticalScrollBarEnabled = true
+            val bodyContent = NativeLinearLayout(this@MainActivity).apply {
+                orientation = NativeLinearLayout.VERTICAL
+                addView(
+                    NativeTextView(this@MainActivity).apply {
+                        autoLinkMask = Linkify.WEB_URLS
+                        text = getString(R.string.user_terms_body)
+                        textColor = getColor(R.color.colorTextDark)
+                        setLinkTextColor(monetColors.primary)
+                        textSize = 14f
+                        setLineSpacing(5 * density, 1f)
+                        linksClickable = true
+                        movementMethod = LinkMovementMethod.getInstance()
+                    },
+                    NativeLinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                )
+                addView(
+                    createTermsDiagnosticsCard(),
+                    NativeLinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = (16 * density).toInt() }
+                )
+            }
             addView(
-                NativeTextView(this@MainActivity).apply {
-                    autoLinkMask = Linkify.WEB_URLS
-                    text = getString(R.string.user_terms_body)
-                    textColor = getColor(R.color.colorTextDark)
-                    setLinkTextColor(monetColors.primary)
-                    textSize = 14f
-                    setLineSpacing(5 * density, 1f)
-                    linksClickable = true
-                    movementMethod = LinkMovementMethod.getInstance()
-                },
+                bodyContent,
                 NativeFrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
@@ -1118,8 +1502,7 @@ class MainActivity : SkinnedActivity() {
             }
         )
 
-        // 保存失败的原因提示与 LSPosed 快捷入口：默认隐藏，仅在保存失败时展示，
-        // 让「无法保存」从笼统报错变成可行动的指引（启用模块/升级框架）
+        // 保存失败的原因提示与可解析的框架管理器入口：默认隐藏，仅在失败时展示。
         val hintView = NativeTextView(this).apply {
             visibility = View.GONE
             textColor = getColor(R.color.colorTextDark)
@@ -1134,31 +1517,10 @@ class MainActivity : SkinnedActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = (12 * density).toInt() }
         )
-        val lsposedLauncher = NativeTextView(this).apply {
-            visibility = View.GONE
-            text = getString(R.string.user_terms_open_lsposed)
-            textColor = monetColors.primary
-            textSize = 14f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            val content = GradientDrawable().apply {
-                cornerRadius = 12 * density
-                setColor(monetColors.surfaceVariant)
-            }
-            background = content
-            setPadding((14 * density).toInt(), (9 * density).toInt(), (14 * density).toInt(), (9 * density).toInt())
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                val intent = runCatching {
-                    packageManager.getLaunchIntentForPackage(LSPOSED_MANAGER_PACKAGE)
-                }.getOrNull() ?: return@setOnClickListener
-                runCatching { startActivity(intent) }
-                    .onFailure { isVisible = false }
-            }
-        }
-        termsDialogLsposedLauncher = lsposedLauncher
+        val managerLauncher = createTermsManagerLauncher()
+        termsManagerLauncher = managerLauncher
         container.addView(
-            lsposedLauncher,
+            managerLauncher,
             NativeLinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -1236,7 +1598,8 @@ class MainActivity : SkinnedActivity() {
         dialog.setOnDismissListener {
             if (activeConfirmDialog === dialog) activeConfirmDialog = null
             termsDialogHintView = null
-            termsDialogLsposedLauncher = null
+            termsManagerLauncher = null
+            termsDiagnosticsValueView = null
         }
         activeConfirmDialog = dialog
         dialog.show()
@@ -1245,6 +1608,7 @@ class MainActivity : SkinnedActivity() {
             setDimAmount(0f)
             setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }
+        renderTermsGateDiagnostics()
         container.post {
             container.animate()
                 .scaleX(1f).scaleY(1f).alpha(1f)
@@ -1305,55 +1669,59 @@ class MainActivity : SkinnedActivity() {
     ) {
         if (termsDecisionActionInProgress) return
         termsDecisionActionInProgress = true
-        val persisted = if (accepted) {
-            UserTermsConsentStore.accept(applicationContext)
+        val result = if (accepted) {
+            UserTermsAuthorizationCoordinator.beginAcceptance(applicationContext)
         } else {
-            UserTermsConsentStore.decline(applicationContext)
+            UserTermsAuthorizationCoordinator.decline(applicationContext)
         }
-        if (!persisted) {
+        if (!result.succeeded) {
             termsDecisionActionInProgress = false
-            showUserTermsSaveFailureHint()
+            showUserTermsSaveFailureHint(result.failureCode)
             return
         }
 
-        userTermsDecision = if (accepted) {
-            UserTermsDecision.ACCEPTED
-        } else {
-            UserTermsDecision.DECLINED
-        }
+        termsConsentState = result.state
+        userTermsDecision = result.state.decision
         dismissWithAnimation(dialog, container) {
-            if (accepted) recreate() else finish()
+            if (accepted) {
+                recreate()
+            } else {
+                finish()
+            }
         }
     }
 
     /**
-     * 条款决定保存失败的原因提示：按框架连接/能力状态给出可行动的指引，替代原先
-     * 笼统的「请重试」。最常见的死锁是全新用户尚未在 LSPosed 启用模块（服务永不绑定，
-     * publish 必失败），此时展示启用指引并提供 LSPosed 管理器快捷入口（管理器不存在
-     * 或拉起失败时隐藏该入口）；已连接但不支持 API 102 则提示升级框架；其余保持原
-     * 通用文案。提示条在弹窗内展示（非 toast），用户可直接按「同意」重试。
+     * 条款决定失败时按本地写入、框架连接和 API 能力分类，管理器入口只有在当前设备
+     * 存在可由普通应用启动的显式 Activity 时才显示。
      */
-    private fun showUserTermsSaveFailureHint() {
+    private fun showUserTermsSaveFailureHint(failureCode: String?) {
         val status = RemoteHookConfigStore.status()
-        val messageRes = when {
-            !status.connected -> R.string.user_terms_need_lsposed_enable
-            !status.capable -> R.string.user_terms_need_api102
-            else -> R.string.user_terms_save_failed
-        }
+        val message = userTermsFailureMessage(failureCode)
         val hintView = termsDialogHintView
         if (hintView == null) {
             // 弹窗已不在（理论上不可能：失败分支在 dismiss 前执行），退回 toast 兜底
-            toast(getString(messageRes))
+            toast(message)
             return
         }
-        hintView.text = getString(messageRes)
+        hintView.text = message
         hintView.isVisible = true
-        val launcher = termsDialogLsposedLauncher
-        if (launcher != null) {
-            val managerAvailable = !status.connected && runCatching {
-                packageManager.getLaunchIntentForPackage(LSPOSED_MANAGER_PACKAGE)
-            }.getOrNull() != null
-            launcher.isVisible = managerAvailable
+        updateTermsManagerLauncher(status)
+    }
+
+    private fun userTermsFailureMessage(failureCode: String?): String {
+        val status = RemoteHookConfigStore.status()
+        return when {
+            failureCode == UserTermsAuthorizationCoordinator.FAILURE_LOCAL_WRITE ->
+                getString(R.string.user_terms_save_failed)
+            !status.connected -> getString(R.string.user_terms_need_framework_enable)
+            !status.capable && status.name.isNotBlank() -> getString(
+                R.string.user_terms_need_api102_named,
+                status.name,
+                status.apiVersion
+            )
+            !status.capable -> getString(R.string.user_terms_need_api102)
+            else -> getString(R.string.user_terms_publish_failed)
         }
     }
 
@@ -4359,7 +4727,14 @@ class MainActivity : SkinnedActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (!userTermsDecision.isAuthorized) return
+        UserTermsAuthorizationCoordinator.addListener(userTermsAuthorizationListener)
+        RemoteHookConfigStore.addStatusListener(frameworkStatusListener)
+        if (!userTermsDecision.isAuthorized) {
+            termsAuthorizationSnapshot =
+                UserTermsAuthorizationCoordinator.snapshot(applicationContext)
+            termsAuthorizationSnapshot?.let(::renderPendingTermsUi)
+            return
+        }
 
         val framework = RemoteHookConfigStore.status()
         frameworkServiceObserved = frameworkServiceObserved || framework.connected
@@ -4371,7 +4746,6 @@ class MainActivity : SkinnedActivity() {
                 FRAMEWORK_STATUS_SETTLE_MS
             )
         }
-        RemoteHookConfigStore.addStatusListener(frameworkStatusListener)
         renderActivationUi(framework)
     }
 
@@ -4385,6 +4759,7 @@ class MainActivity : SkinnedActivity() {
     }
 
     override fun onStop() {
+        UserTermsAuthorizationCoordinator.removeListener(userTermsAuthorizationListener)
         RemoteHookConfigStore.removeStatusListener(frameworkStatusListener)
         activationMainHandler.removeCallbacks(frameworkStatusTimeout)
         super.onStop()
@@ -5576,6 +5951,7 @@ class MainActivity : SkinnedActivity() {
     }
 
     override fun onDestroy() {
+        UserTermsAuthorizationCoordinator.removeListener(userTermsAuthorizationListener)
         RemoteHookConfigStore.removeStatusListener(frameworkStatusListener)
         activationMainHandler.removeCallbacks(frameworkStatusTimeout)
         finishPreparedLiquidStretch(liquidStretchViewport)
@@ -5614,6 +5990,11 @@ class MainActivity : SkinnedActivity() {
         noRootSwitch = null
         noRootStatusView = null
         noRootPrefsBridge = null
+        termsDialogHintView = null
+        termsManagerLauncher = null
+        termsPendingStatusView = null
+        termsDiagnosticsValueView = null
+        termsAuthorizationSnapshot = null
         activationCardView = null
         activationIconView = null
         activationTitleView = null
@@ -5656,11 +6037,17 @@ class MainActivity : SkinnedActivity() {
         findViewById<View>(Android_R.id.content).setBackgroundColor(monetColors.background)
 
         // 条款门禁必须先于现有 prefs、跨进程镜像、主布局和自动更新检查。
-        userTermsDecision = UserTermsConsentStore.readOrInitialize(applicationContext)
+        termsConsentState = UserTermsConsentStore.readStateOrInitialize(applicationContext)
+        userTermsDecision = termsConsentState.decision
         if (!userTermsDecision.isAuthorized) {
-            when (userTermsDecision) {
-                UserTermsDecision.UNDECIDED -> showUserTermsGate()
-                UserTermsDecision.DECLINED -> showUserTermsDeclinedPage()
+            termsAuthorizationSnapshot =
+                UserTermsAuthorizationCoordinator.snapshot(applicationContext)
+            when {
+                termsConsentState.isAcceptancePending -> showPendingTermsPage(
+                    requireNotNull(termsAuthorizationSnapshot)
+                )
+                userTermsDecision == UserTermsDecision.UNDECIDED -> showUserTermsGate()
+                userTermsDecision == UserTermsDecision.DECLINED -> showUserTermsDeclinedPage()
                 else -> Unit
             }
             return

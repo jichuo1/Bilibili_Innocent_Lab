@@ -11,6 +11,9 @@
     <queries>
         <package android:name="tv.danmaku.bili" />
         <package android:name="me.iacn.biliroaming" />
+        <!-- 条款待同步页只在管理器入口确实可解析时显示快捷按钮。 -->
+        <package android:name="org.lsposed.manager" />
+        <package android:name="com.android.shell" />
         <!-- NPatch Local/Manager 模式的 Remote API Provider 可见性。 -->
         <provider android:authorities="top.nkbe.npatch.remote" />
     </queries>

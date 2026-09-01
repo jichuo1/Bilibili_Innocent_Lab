@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.settings.terms
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -88,6 +89,73 @@ class UserTermsConsentStoreTest {
                 UserTermsDecision.LEGACY_EXEMPT to true
             ),
             authorizationSnapshot
+        )
+    }
+
+    @Test
+    fun `pending acceptance stays local and keeps the previous decision unauthorized`() {
+        val pending = UserTermsConsentStore.resolvePendingAcceptance(
+            hasPending = true,
+            storedTermsVersion = UserTermsConsentStore.CURRENT_TERMS_VERSION,
+            revision = 42L,
+            rawPreviousDecision = UserTermsDecision.UNDECIDED.name,
+            currentDecision = UserTermsDecision.UNDECIDED
+        )
+        val state = UserTermsConsentState(
+            decision = UserTermsDecision.UNDECIDED,
+            pendingAcceptance = pending
+        )
+
+        assertEquals(UserTermsPendingAcceptance(42L, UserTermsDecision.UNDECIDED), pending)
+        assertTrue(state.isAcceptancePending)
+        assertFalse(state.decision.isAuthorized)
+        assertEquals(UserTermsDecision.ACCEPTED, state.requestedRemoteDecision)
+    }
+
+    @Test
+    fun `pending acceptance metadata fails closed when incomplete stale or inconsistent`() {
+        val invalidRecords = listOf(
+            UserTermsConsentStore.resolvePendingAcceptance(
+                hasPending = false,
+                storedTermsVersion = UserTermsConsentStore.CURRENT_TERMS_VERSION,
+                revision = 1L,
+                rawPreviousDecision = UserTermsDecision.UNDECIDED.name,
+                currentDecision = UserTermsDecision.UNDECIDED
+            ),
+            UserTermsConsentStore.resolvePendingAcceptance(
+                hasPending = true,
+                storedTermsVersion = UserTermsConsentStore.CURRENT_TERMS_VERSION + 1,
+                revision = 1L,
+                rawPreviousDecision = UserTermsDecision.UNDECIDED.name,
+                currentDecision = UserTermsDecision.UNDECIDED
+            ),
+            UserTermsConsentStore.resolvePendingAcceptance(
+                hasPending = true,
+                storedTermsVersion = UserTermsConsentStore.CURRENT_TERMS_VERSION,
+                revision = 0L,
+                rawPreviousDecision = UserTermsDecision.UNDECIDED.name,
+                currentDecision = UserTermsDecision.UNDECIDED
+            ),
+            UserTermsConsentStore.resolvePendingAcceptance(
+                hasPending = true,
+                storedTermsVersion = UserTermsConsentStore.CURRENT_TERMS_VERSION,
+                revision = 1L,
+                rawPreviousDecision = UserTermsDecision.DECLINED.name,
+                currentDecision = UserTermsDecision.UNDECIDED
+            ),
+            UserTermsConsentStore.resolvePendingAcceptance(
+                hasPending = true,
+                storedTermsVersion = UserTermsConsentStore.CURRENT_TERMS_VERSION,
+                revision = 1L,
+                rawPreviousDecision = UserTermsDecision.ACCEPTED.name,
+                currentDecision = UserTermsDecision.ACCEPTED
+            )
+        )
+
+        assertTrue(invalidRecords.all { it == null })
+        assertEquals(
+            UserTermsDecision.DECLINED,
+            UserTermsConsentState(UserTermsDecision.DECLINED).requestedRemoteDecision
         )
     }
 
