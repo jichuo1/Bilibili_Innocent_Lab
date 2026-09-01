@@ -35,3 +35,15 @@ The module keeps its existing Activity-scoped static underlay, bounded bitmap,
 Drawable integration, API 31 blur fallback, API 27 translucent fallback, and
 renderer recovery protocol. It does not include the upstream View component or
 its per-frame View-tree recording implementation.
+
+## Markwon
+
+The module uses
+[Markwon](https://github.com/noties/Markwon), version `4.6.2`, to parse GitHub
+Release Markdown and render it as Android-native `Spanned` text. Only the core
+artifact is included; HTML, image loading, WebView, syntax highlighting and
+other optional extensions are not included.
+
+Copyright 2019 Dimitry Ivanov
+
+Licensed under the Apache License, Version 2.0.

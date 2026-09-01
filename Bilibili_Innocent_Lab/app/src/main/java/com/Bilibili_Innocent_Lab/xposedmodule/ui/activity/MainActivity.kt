@@ -119,6 +119,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsGateDiagno
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsSyncState
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.didUserTermsAuthorizationComplete
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseNotesMarkdownRenderer
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseNotesScrollView
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundImportFailure
@@ -3237,19 +3239,87 @@ class MainActivity : SkinnedActivity() {
         if (release.releaseNotes.isNotEmpty()) {
             container.addView(
                 NativeTextView(this).apply {
-                    text = release.releaseNotes
+                    setText(R.string.update_release_notes_title)
                     textColor = getColor(R.color.colorTextDark)
-                    textSize = 12f
-                    alpha = 0.78f
-                    maxLines = 7
-                    ellipsize = TextUtils.TruncateAt.END
-                    setLineSpacing(3 * density, 1f)
+                    textSize = 13f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 },
                 NativeLinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = (10 * density).toInt() }
+                ).apply { topMargin = (14 * density).toInt() }
             )
+
+            val renderer = ReleaseNotesMarkdownRenderer(
+                context = this,
+                textColor = getColor(R.color.colorTextDark),
+                linkColor = monetColors.primary,
+                codeBackgroundColor = ColorUtils.setAlphaComponent(monetColors.surfaceVariant, 0x58),
+                quoteColor = ColorUtils.setAlphaComponent(monetColors.primary, 0xA8),
+                onOpenHttpsLink = ::openExternalUrl
+            )
+            val presentation = renderer.render(release.releaseNotes)
+            val releaseNotesText = when (presentation) {
+                is ReleaseNotesMarkdownRenderer.Presentation.Formatted -> presentation.text
+                is ReleaseNotesMarkdownRenderer.Presentation.PlainText -> {
+                    Log.w("BilibiliInnocentLab", "release notes markdown render failed; using plain text")
+                    presentation.text
+                }
+            }
+            val notesTextView = NativeTextView(this).apply {
+                text = releaseNotesText
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 13.5f
+                setLinkTextColor(monetColors.primary)
+                setLineSpacing(3 * density, 1.05f)
+                includeFontPadding = false
+                linksClickable = true
+                movementMethod = LinkMovementMethod.getInstance()
+                highlightColor = ColorUtils.setAlphaComponent(monetColors.primary, 0x28)
+                setPadding(0, (5 * density).toInt(), (4 * density).toInt(), (5 * density).toInt())
+            }
+            val notesScroll = ReleaseNotesScrollView(this).apply {
+                maximumHeight = minOf(
+                    (360 * density).toInt(),
+                    (resources.displayMetrics.heightPixels * 0.34f).toInt()
+                        .coerceAtLeast((96 * density).toInt())
+                )
+                isFillViewport = false
+                isVerticalScrollBarEnabled = true
+                isScrollbarFadingEnabled = true
+                scrollBarStyle = View.SCROLLBARS_INSIDE_OVERLAY
+                isVerticalFadingEdgeEnabled = true
+                setFadingEdgeLength((12 * density).toInt())
+                overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+                addView(
+                    notesTextView,
+                    NativeFrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                )
+            }
+            container.addView(
+                notesScroll,
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = (4 * density).toInt() }
+            )
+            if (release.releaseNotesTruncated) {
+                container.addView(
+                    NativeTextView(this).apply {
+                        setText(R.string.update_release_notes_truncated)
+                        textColor = getColor(R.color.colorTextGray)
+                        textSize = 11.5f
+                        setLineSpacing(2 * density, 1f)
+                    },
+                    NativeLinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = (6 * density).toInt() }
+                )
+            }
         }
 
         val buttonRow = NativeLinearLayout(this).apply {

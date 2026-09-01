@@ -390,6 +390,8 @@
     <string name="update_available_prerelease_title">發現 Preview 版本：%1$s</string>
     <string name="update_available_prerelease_note">此版本為預發佈版本，可能包含尚未完整驗證的變更。</string>
     <string name="update_available_message">目前版本：%1$s\n最新版本：%2$s</string>
+    <string name="update_release_notes_title">更新內容</string>
+    <string name="update_release_notes_truncated">以下為內容節選，請開啟版本詳細資訊查看完整發佈說明。</string>
     <string name="update_later">稍後</string>
     <string name="update_details">版本詳細資訊</string>
     <string name="update_details_opening">正在開啟版本詳細資訊…</string>

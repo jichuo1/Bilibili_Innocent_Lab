@@ -121,6 +121,26 @@ class GitHubReleaseCheckerTest {
     }
 
     @Test
+    fun `stable endpoint preserves markdown structure and reports bounded excerpts`() {
+        val markdown = "## Changes\r\n\r\n- **Fixed** update rendering\u0000"
+        val regular = GitHubReleaseChecker.parseLatestStableRelease(
+            releaseJson(tag = "v1.0.8", prerelease = false, body = markdown)
+        )
+        assertEquals("## Changes\n\n- **Fixed** update rendering", regular.releaseNotes)
+        assertFalse(regular.releaseNotesTruncated)
+
+        val oversized = GitHubReleaseChecker.parseLatestStableRelease(
+            releaseJson(
+                tag = "v1.0.8",
+                prerelease = false,
+                body = "## Changes\n\n" + "x".repeat(ReleaseNotesSourcePolicy.MAX_MARKDOWN_LENGTH + 64)
+            )
+        )
+        assertTrue(oversized.releaseNotesTruncated)
+        assertTrue(oversized.releaseNotes.length <= ReleaseNotesSourcePolicy.MAX_MARKDOWN_LENGTH)
+    }
+
+    @Test
     fun `stable endpoint rejects prerelease draft and mismatched tags`() {
         assertThrows(IOException::class.java) {
             GitHubReleaseChecker.parseLatestStableRelease(
@@ -324,7 +344,8 @@ class GitHubReleaseCheckerTest {
     private fun releaseJson(
         tag: String,
         prerelease: Boolean,
-        draft: Boolean = false
+        draft: Boolean = false,
+        body: String = "release notes for $tag"
     ): String {
         val obj = JSONObject()
         obj.put("tag_name", tag)
@@ -335,7 +356,7 @@ class GitHubReleaseCheckerTest {
             "html_url",
             "https://github.com/jichuo1/Bilibili_Innocent_Lab/releases/tag/$tag"
         )
-        obj.put("body", "release notes for $tag")
+        obj.put("body", body)
         val assets = JSONArray()
         val asset = JSONObject()
         asset.put("name", "Bilibili_Innocent_Lab-$tag.apk")
