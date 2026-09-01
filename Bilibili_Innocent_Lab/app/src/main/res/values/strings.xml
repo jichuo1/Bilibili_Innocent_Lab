@@ -42,8 +42,8 @@
     <string name="gamecard_ad_settings">Video detail page ads</string>
     <string name="gamecard_ad_enable">Hide game ads inside the \"Video mentioned\" section</string>
     <string name="gamecard_ad_tip">Cleans up the \"Video mentioned\" ads under videos with game tags</string>
-    <string name="hide_video_detail_app_promotion">Hide app promotions on video detail pages</string>
-    <string name="hide_video_detail_app_promotion_tip">Hides app promotion cards shown directly below the video player. Restart Bilibili to apply.</string>
+    <string name="hide_video_detail_app_promotion">Hide topic promotions on video detail pages</string>
+    <string name="hide_video_detail_app_promotion_tip">Hides topic, campaign, and similar promotion cards shown below the video player without leaving empty space. Restart Bilibili to apply.</string>
     <string name="banner_ad_settings">Home banner carousel</string>
     <string name="banner_ad_enable">Hide home banner carousel</string>
     <string name="banner_ad_tip">Cleans up the home banner carousel that BiliRoaming can no longer handle</string>
