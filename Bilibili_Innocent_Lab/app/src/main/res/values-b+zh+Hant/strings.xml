@@ -43,8 +43,8 @@
     <string name="gamecard_ad_settings">影片詳細頁廣告</string>
     <string name="gamecard_ad_enable">隱藏影片提及區域中的遊戲廣告</string>
     <string name="gamecard_ad_tip">啟用後，淨化帶有遊戲標籤之影片下方的「影片提及」廣告</string>
-    <string name="hide_video_detail_app_promotion">隱藏影片詳細頁應用程式推廣</string>
-    <string name="hide_video_detail_app_promotion_tip">啟用後隱藏影片播放器下方的應用程式推廣卡片，重新啟動 Bilibili 後生效。</string>
+    <string name="hide_video_detail_app_promotion">隱藏影片詳細頁話題推廣</string>
+    <string name="hide_video_detail_app_promotion_tip">啟用後隱藏影片播放器下方的話題、活動等推廣卡片，不保留空白區域，重新啟動 Bilibili 後生效。</string>
     <string name="banner_ad_settings">首頁大型卡片輪播</string>
     <string name="banner_ad_enable">隱藏首頁大型卡片輪播推薦</string>
     <string name="banner_ad_tip">啟用後，淨化漫遊模組已無法處理的首頁輪播內容</string>

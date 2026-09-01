@@ -2,18 +2,21 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import android.widget.FrameLayout
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import com.highcapable.kavaref.extension.classOf
+import com.highcapable.kavaref.extension.isStatic
+import com.highcapable.kavaref.extension.isSubclassOf
 import java.lang.reflect.Field
 import java.lang.reflect.Method
-import java.lang.reflect.Modifier
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 隐藏视频详细页播放器下方的应用推广卡片。
+ * 隐藏视频详细页播放器下方的话题、活动等推广卡片。
  *
- * 宿主的 [IAdUnderPlayer] 为接口，真正实现类由广告 SDK 在运行时返回。本安装器先挂住
- * GAdBizKt#getGAdVideoDetail，再按真实对象类型惰性发现 getUnderPlayer 与两个卡片创建方法。
- * 只缓存进程生命周期内稳定的 Class/Member 注册状态，不缓存广告对象、Activity 或 View。
+ * 宿主的 [IAdUnderPlayer] 为接口，真正实现类由广告 SDK 在运行时返回。本安装器挂住
+ * GAdBizKt#getGAdVideoDetail 后会立即解析当前 getUnderPlayer 实现并安装三条渲染路由；同时
+ * 保留 getter 兜底，以兼容运行中替换实现类的宿主版本。只缓存进程生命周期内稳定的
+ * Class/Member 注册状态，不缓存广告对象、Activity、Context 或 View。
  */
 internal class DetailAppPromotionFeatureInstaller(
     private val enabled: Boolean
@@ -23,7 +26,10 @@ internal class DetailAppPromotionFeatureInstaller(
 
     private val attemptedVideoDetailClasses = ConcurrentHashMap.newKeySet<Class<*>>()
     private val attemptedUnderPlayerClasses = ConcurrentHashMap.newKeySet<Class<*>>()
+    private val underPlayerGetters = ConcurrentHashMap<Class<*>, Method>()
+    private val facadeHitLogged = AtomicBoolean(false)
     private val hitLogged = AtomicBoolean(false)
+    private val renderReady = AtomicBoolean(false)
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!enabled) {
@@ -45,7 +51,8 @@ internal class DetailAppPromotionFeatureInstaller(
             makeAccessible = true
         ) {
             it.name == GET_VIDEO_DETAIL && it.parameterCount == 0 &&
-                Modifier.isStatic(it.modifiers) && it.returnType != Void.TYPE
+                it.isStatic &&
+                (it.returnType isSubclassOf types.videoDetailClass)
         }.singleOrNull() ?: return missing(environment, "ambiguous-video-detail-getter")
 
         return runCatching {
@@ -57,43 +64,96 @@ internal class DetailAppPromotionFeatureInstaller(
             ) {
                 after {
                     val videoDetail = result ?: return@after
-                    installUnderPlayerGetter(
+                    if (!types.videoDetailClass.isInstance(videoDetail)) return@after
+                    if (facadeHitLogged.compareAndSet(false, true)) {
+                        environment.reportStatus(CHANNEL_STATUS, "resolved:video-detail")
+                        environment.logInfo(
+                            "detail_app_promotion_facade_hit",
+                            "[BIL] 视频详细页话题推广门面已命中，开始解析播放器下方实现"
+                        )
+                    }
+                    resolveCurrentUnderPlayer(
                         environment = environment,
-                        owner = videoDetail.javaClass,
+                        videoDetail = videoDetail,
                         types = types,
                         sceneAccess = sceneAccess
                     )
                 }
             }
-            environment.reportStatus(CHANNEL_STATUS, "armed")
+            environment.postToMain?.invoke {
+                if (!renderReady.get()) {
+                    runCatching {
+                        findInitializedVideoDetail(
+                            facade = facade,
+                            videoDetailClass = types.videoDetailClass
+                        )
+                    }
+                        .onSuccess { videoDetail ->
+                            if (videoDetail != null) {
+                                resolveCurrentUnderPlayer(
+                                    environment = environment,
+                                    videoDetail = videoDetail,
+                                    types = types,
+                                    sceneAccess = sceneAccess
+                                )
+                            }
+                        }
+                        .onFailure { throwable ->
+                            environment.logError(
+                                "detail_app_promotion_warmup",
+                                "[BIL] 视频详细页话题推广已初始化实例扫描失败，保留门面惰性兜底: $throwable"
+                            )
+                        }
+                }
+            }
+            environment.reportStatus(CHANNEL_STATUS, "armed:facade")
             environment.logInfo(
                 "detail_app_promotion_armed",
-                "[BIL] 视频详细页应用推广拦截器已就绪，等待广告实现类"
+                "[BIL] 视频详细页话题推广门面拦截器已就绪"
             )
             FeatureInstallResult.Installed(1)
         }.getOrElse { throwable ->
             environment.logError(
                 "detail_app_promotion_install",
-                "[BIL] 视频详细页应用推广入口注册失败: $throwable"
+                "[BIL] 视频详细页话题推广入口注册失败: $throwable"
             )
             environment.reportStatus(CHANNEL_STATUS, "failed:entry")
             FeatureInstallResult.Skipped("entry-registration-failed")
         }
     }
 
-    private fun installUnderPlayerGetter(
+    /**
+     * 只读取已完成初始化的 Kotlin Lazy，绝不因适配而提前创建宿主广告服务。
+     */
+    private fun findInitializedVideoDetail(
+        facade: Class<*>,
+        videoDetailClass: Class<*>
+    ): Any? {
+        val lazyCandidates = KavaMemberLookup.fields(
+            declaringClass = facade,
+            includeSuperclasses = false,
+            makeAccessible = true
+        ) { field ->
+            field.isStatic && field.type == classOf<Lazy<*>>()
+        }.mapNotNull { field ->
+            field.get(null) as? Lazy<*>
+        }
+        return initializedLazyValueOfType(lazyCandidates, videoDetailClass)
+    }
+
+    private fun resolveCurrentUnderPlayer(
         environment: HookEnvironment,
-        owner: Class<*>,
+        videoDetail: Any,
         types: HostTypes,
         sceneAccess: SceneAccess
     ) {
-        if (!attemptedVideoDetailClasses.add(owner)) return
-        val candidates = mostSpecificMethods(owner) {
-            it.name == GET_UNDER_PLAYER && it.parameterCount == 0 &&
-                types.underPlayerClass.isAssignableFrom(it.returnType)
-        }
-        val getter = candidates.singleOrNull()
+        val owner = videoDetail.javaClass
+        val getter = underPlayerGetters[owner] ?: locateUnderPlayerGetter(
+            owner = owner,
+            underPlayerClass = types.underPlayerClass
+        )?.also { underPlayerGetters[owner] = it }
         if (getter == null) {
+            if (!attemptedVideoDetailClasses.add(owner)) return
             environment.reportStatus(CHANNEL_STATUS, "partial:under-player-getter")
             environment.logError(
                 "detail_app_promotion_under_player_missing",
@@ -102,6 +162,42 @@ internal class DetailAppPromotionFeatureInstaller(
             return
         }
 
+        installUnderPlayerGetterFallback(
+            environment = environment,
+            owner = owner,
+            getter = getter,
+            types = types,
+            sceneAccess = sceneAccess
+        )
+
+        runCatching { getter.invoke(videoDetail) }
+            .onSuccess { underPlayer ->
+                if (underPlayer != null && types.underPlayerClass.isInstance(underPlayer)) {
+                    installRenderHooks(
+                        environment = environment,
+                        owner = underPlayer.javaClass,
+                        types = types,
+                        sceneAccess = sceneAccess
+                    )
+                }
+            }
+            .onFailure { throwable ->
+                environment.reportStatus(CHANNEL_STATUS, "partial:under-player-read")
+                environment.logError(
+                    "detail_app_promotion_under_player_read",
+                    "[BIL] 读取播放器下方推广实现失败，保留 getter 兜底: $throwable"
+                )
+            }
+    }
+
+    private fun installUnderPlayerGetterFallback(
+        environment: HookEnvironment,
+        owner: Class<*>,
+        getter: Method,
+        types: HostTypes,
+        sceneAccess: SceneAccess
+    ) {
+        if (!attemptedVideoDetailClasses.add(owner)) return
         runCatching {
             environment.registrar.exact(
                 "detail_app_promotion.under_player.${owner.name}",
@@ -111,6 +207,7 @@ internal class DetailAppPromotionFeatureInstaller(
             ) {
                 after {
                     val underPlayer = result ?: return@after
+                    if (!types.underPlayerClass.isInstance(underPlayer)) return@after
                     installRenderHooks(
                         environment = environment,
                         owner = underPlayer.javaClass,
@@ -123,9 +220,20 @@ internal class DetailAppPromotionFeatureInstaller(
             environment.reportStatus(CHANNEL_STATUS, "partial:under-player-registration")
             environment.logError(
                 "detail_app_promotion_under_player_hook",
-                "[BIL] getUnderPlayer 注册失败，已放行宿主: $throwable"
+                "[BIL] getUnderPlayer 兜底注册失败，已保留立即解析结果: $throwable"
             )
         }
+    }
+
+    private fun locateUnderPlayerGetter(
+        owner: Class<*>,
+        underPlayerClass: Class<*>
+    ): Method? {
+        val candidates = mostSpecificMethods(owner) {
+            it.name == GET_UNDER_PLAYER && it.parameterCount == 0 &&
+                (it.returnType isSubclassOf underPlayerClass)
+        }
+        return candidates.singleOrNull()
     }
 
     private fun installRenderHooks(
@@ -136,17 +244,18 @@ internal class DetailAppPromotionFeatureInstaller(
     ) {
         if (!attemptedUnderPlayerClasses.add(owner)) return
         val methods = mostSpecificMethods(owner) { method ->
-            method.name in RENDER_METHOD_NAMES &&
-                types.callbackClass.isAssignableFrom(method.returnType) &&
-                method.parameterTypes.any(FrameLayout::class.java::isAssignableFrom) &&
-                method.parameterTypes.any(types.bridgeClass::isAssignableFrom) &&
-                method.parameterTypes.any(types.configClass::isAssignableFrom)
+            matchesDetailPromotionRenderMethod(
+                method = method,
+                callbackClass = types.callbackClass,
+                bridgeClass = types.bridgeClass,
+                configClass = types.configClass
+            )
         }
         if (methods.isEmpty()) {
             environment.reportStatus(CHANNEL_STATUS, "partial:render-methods")
             environment.logError(
                 "detail_app_promotion_render_missing",
-                "[BIL] ${owner.name} 未找到受约束的播放器下方推广渲染方法，已放行宿主"
+                "[BIL] ${owner.name} 未找到受约束的话题推广渲染方法，已放行宿主"
             )
             return
         }
@@ -169,7 +278,7 @@ internal class DetailAppPromotionFeatureInstaller(
                         if (hitLogged.compareAndSet(false, true)) {
                             environment.logInfo(
                                 "detail_app_promotion_hit",
-                                "[BIL] 已隐藏视频详细页应用推广(route=${method.name})"
+                                "[BIL] 已隐藏视频详细页话题推广(route=${method.name})"
                             )
                         }
                     }
@@ -177,6 +286,7 @@ internal class DetailAppPromotionFeatureInstaller(
                 installedRoutes += when (method.name) {
                     GET_UPPER_NEST_VIEW -> "nest"
                     GET_UPPER_AD_VIEW -> "list"
+                    GET_UPPER_HD_VIEW -> "hd"
                     else -> method.name
                 }
             }.onFailure { throwable ->
@@ -192,10 +302,11 @@ internal class DetailAppPromotionFeatureInstaller(
             return
         }
         val routeSummary = installedRoutes.sorted().joinToString("+")
-        environment.reportStatus(CHANNEL_STATUS, "success:$routeSummary")
+        renderReady.set(true)
+        environment.reportStatus(CHANNEL_STATUS, "ready:$routeSummary")
         environment.logInfo(
             "detail_app_promotion_ready",
-            "[BIL] 视频详细页应用推广渲染拦截已安装(route=$routeSummary)"
+            "[BIL] 视频详细页话题推广渲染拦截已安装(route=$routeSummary)"
         )
     }
 
@@ -225,6 +336,8 @@ internal class DetailAppPromotionFeatureInstaller(
     private fun resolveHostTypes(environment: HookEnvironment): HostTypes? {
         val loader = environment.classLoader ?: return null
         return HostTypes(
+            videoDetailClass = KavaMemberLookup.classOrNull(loader, G_AD_VIDEO_DETAIL)
+                ?: return null,
             underPlayerClass = KavaMemberLookup.classOrNull(loader, I_AD_UNDER_PLAYER) ?: return null,
             callbackClass = KavaMemberLookup.classOrNull(loader, I_AD_UNDER_PLAYER_CALLBACK)
                 ?: return null,
@@ -246,14 +359,14 @@ internal class DetailAppPromotionFeatureInstaller(
             makeAccessible = true
         ) {
             it.name == GET_SCENE && it.parameterCount == 0 &&
-                types.sceneClass.isAssignableFrom(it.returnType)
+                (it.returnType isSubclassOf types.sceneClass)
         }.firstOrNull()
         val field = if (getter == null) {
             KavaMemberLookup.fields(
                 declaringClass = types.configClass,
                 includeSuperclasses = true,
                 makeAccessible = true
-            ) { types.sceneClass.isAssignableFrom(it.type) }.singleOrNull()
+            ) { it.type isSubclassOf types.sceneClass }.singleOrNull()
         } else {
             null
         }
@@ -265,12 +378,13 @@ internal class DetailAppPromotionFeatureInstaller(
         environment.reportStatus(CHANNEL_STATUS, "missing:$reason")
         environment.logError(
             "detail_app_promotion_$reason",
-            "[BIL] 视频详细页应用推广 Hook 不可用，已放行宿主: $reason"
+            "[BIL] 视频详细页话题推广 Hook 不可用，已放行宿主: $reason"
         )
         return FeatureInstallResult.Skipped(reason)
     }
 
     private data class HostTypes(
+        val videoDetailClass: Class<*>,
         val underPlayerClass: Class<*>,
         val callbackClass: Class<*>,
         val bridgeClass: Class<*>,
@@ -299,6 +413,7 @@ internal class DetailAppPromotionFeatureInstaller(
         private const val CHANNEL_STATUS = "detail_app_promotion_status"
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val G_AD_BIZ_FACADE = "com.bilibili.gripper.api.ad.biz.GAdBizKt"
+        private const val G_AD_VIDEO_DETAIL = "com.bilibili.gripper.api.ad.biz.GAdVideoDetail"
         private const val I_AD_UNDER_PLAYER =
             "com.bilibili.gripper.api.ad.biz.videodetail.underplayer.IAdUnderPlayer"
         private const val I_AD_UNDER_PLAYER_CALLBACK =
@@ -315,8 +430,40 @@ internal class DetailAppPromotionFeatureInstaller(
         private const val GET_UNDER_PLAYER = "getUnderPlayer"
         private const val GET_UPPER_NEST_VIEW = "getUpperNestView"
         private const val GET_UPPER_AD_VIEW = "getUpperAdView"
+        private const val GET_UPPER_HD_VIEW = "getUpperHDView"
         private const val GET_SCENE = "getScene"
         private const val UNITE_DETAIL = "UNITE_DETAIL"
-        private val RENDER_METHOD_NAMES = setOf(GET_UPPER_NEST_VIEW, GET_UPPER_AD_VIEW)
     }
+}
+
+private val DETAIL_PROMOTION_RENDER_METHOD_NAMES = setOf(
+    "getUpperNestView",
+    "getUpperAdView",
+    "getUpperHDView"
+)
+
+/** 公开方法名 + 参数角色约束；供安装器与 JVM 多版本契约测试共用。 */
+internal fun matchesDetailPromotionRenderMethod(
+    method: Method,
+    callbackClass: Class<*>,
+    bridgeClass: Class<*>,
+    configClass: Class<*>
+): Boolean =
+    method.name in DETAIL_PROMOTION_RENDER_METHOD_NAMES &&
+        (method.returnType isSubclassOf callbackClass) &&
+        method.parameterTypes.any { it isSubclassOf classOf<FrameLayout>() } &&
+        method.parameterTypes.any { it isSubclassOf bridgeClass } &&
+        method.parameterTypes.any { it isSubclassOf configClass }
+
+/** 返回首个已初始化且类型匹配的值；未初始化候选不会执行 initializer。 */
+internal fun initializedLazyValueOfType(
+    candidates: Iterable<Lazy<*>>,
+    expectedType: Class<*>
+): Any? {
+    candidates.forEach { candidate ->
+        if (!candidate.isInitialized()) return@forEach
+        val value = candidate.value
+        if (expectedType.isInstance(value)) return value
+    }
+    return null
 }

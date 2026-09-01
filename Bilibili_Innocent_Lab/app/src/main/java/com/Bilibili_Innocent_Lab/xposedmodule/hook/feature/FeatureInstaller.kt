@@ -56,6 +56,8 @@ internal data class HookEnvironment(
     val logInfo: (String, String) -> Unit,
     val logError: (String, String) -> Unit,
     val reportStatus: (String, String) -> Unit,
+    /** 将一次性初始化任务排到 Application.attach 返回后的主线程队列；null = 不主动预解析。 */
+    val postToMain: ((() -> Unit) -> Unit)? = null,
     /** 写“我的”页可屏蔽项快照（宿主剪枝时产出，供模块 UI 勾选列表读取）。null = 不启用快照。 */
     val writeMineScanSnapshot: ((String) -> Unit)? = null
 )
