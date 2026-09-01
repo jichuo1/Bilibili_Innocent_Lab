@@ -38,7 +38,7 @@ internal class VideoRelateFilterFeatureInstaller(
             return FeatureInstallResult.Skipped("non-main-process")
         }
         val adapted = points ?: return missing(environment, "missing-adapter-point")
-        val typeMethods = if (normalizedHidden.isNotEmpty()) {
+        val typeEvidence = if (normalizedHidden.isNotEmpty()) {
             buildList {
                 adapted.cardCaseGetters.forEachIndexed { index, point ->
                     resolve(environment, "case.$index", point)?.let(::add)
@@ -54,9 +54,52 @@ internal class VideoRelateFilterFeatureInstaller(
         } else {
             emptyList()
         }
+        val relateTypeEvidence = if (normalizedHidden.isNotEmpty()) {
+            adapted.relateCardTypeGetters.mapIndexedNotNull { index, point ->
+                resolve(environment, "relate_type.$index", point)
+            }.distinctBy(Method::toGenericString)
+        } else {
+            emptyList()
+        }
+        val sourceTypeEvidence = if (normalizedHidden.isNotEmpty()) {
+            adapted.fromSourceTypeGetters.mapIndexedNotNull { index, point ->
+                resolve(environment, "source_type.$index", point)
+            }.distinctBy(Method::toGenericString)
+        } else {
+            emptyList()
+        }
+        val sourceTypeChainEvidence = if (normalizedHidden.isNotEmpty()) {
+            adapted.fromSourceTypeChains.mapIndexedNotNull { index, chain ->
+                val itemGetter = resolve(
+                    environment,
+                    "source_type_chain.item.$index",
+                    chain.itemGetter
+                ) ?: return@mapIndexedNotNull null
+                val sourceTypeGetter = resolve(
+                    environment,
+                    "source_type_chain.value.$index",
+                    chain.sourceTypeGetter
+                ) ?: return@mapIndexedNotNull null
+                itemGetter to sourceTypeGetter
+            }.distinctBy { (itemGetter, sourceTypeGetter) ->
+                itemGetter.toGenericString() + "->" + sourceTypeGetter.toGenericString()
+            }
+        } else {
+            emptyList()
+        }
+        val relateTypeValueEvidence = if (normalizedHidden.isNotEmpty()) {
+            adapted.relateCardTypeValueGetters.mapIndexedNotNull { index, point ->
+                resolve(environment, "relate_type_value.$index", point)
+            }.distinctBy(Method::toGenericString)
+        } else {
+            emptyList()
+        }
+        val hasTypeEvidence = typeEvidence.isNotEmpty() || relateTypeEvidence.isNotEmpty() ||
+            sourceTypeEvidence.isNotEmpty() || sourceTypeChainEvidence.isNotEmpty() ||
+            relateTypeValueEvidence.isNotEmpty()
         val durationPaths = resolveDurationPaths(environment, adapted)
         var partialReason: String? = null
-        if (normalizedHidden.isNotEmpty() && typeMethods.isEmpty()) {
+        if (normalizedHidden.isNotEmpty() && !hasTypeEvidence) {
             if (!durationRange.isEnabled || durationPaths.isEmpty()) {
                 return missing(environment, "missing-type-getter")
             }
@@ -67,7 +110,7 @@ internal class VideoRelateFilterFeatureInstaller(
             )
         }
         if (durationRange.isEnabled && durationPaths.isEmpty()) {
-            if (typeMethods.isEmpty()) return missing(environment, "missing-duration-accessor")
+            if (!hasTypeEvidence) return missing(environment, "missing-duration-accessor")
             partialReason = "missing-duration-accessor"
             environment.logError(
                 "video_relate_duration_missing",
@@ -84,7 +127,21 @@ internal class VideoRelateFilterFeatureInstaller(
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         val filtered = CopyOnFilter.list(source) { item ->
                             val typeMatched = if (normalizedHidden.isNotEmpty()) {
-                                matchesAnyType(extractTypes(item, typeMethods), normalizedHidden)
+                                val evidence = extractEvidence(
+                                    item,
+                                    typeEvidence,
+                                    relateTypeEvidence,
+                                    sourceTypeEvidence,
+                                    sourceTypeChainEvidence,
+                                    relateTypeValueEvidence
+                                )
+                                matchesNormalizedEvidence(
+                                    evidence.types,
+                                    evidence.relateCardTypes,
+                                    evidence.fromSourceTypes,
+                                    evidence.relateCardTypeValues,
+                                    normalizedHidden
+                                )
                             } else {
                                 false
                             }
@@ -151,6 +208,29 @@ internal class VideoRelateFilterFeatureInstaller(
         return VideoDurationReader.buildMethodPaths(direct, chains)
     }
 
+    private fun extractEvidence(
+        item: Any,
+        typeMethods: List<Method>,
+        relateTypeMethods: List<Method>,
+        sourceTypeMethods: List<Method>,
+        sourceTypePaths: List<Pair<Method, Method>>,
+        relateTypeValueMethods: List<Method>
+    ): VideoRelateTypeEvidence {
+        val types = extractTypes(item, typeMethods)
+        val relateCardTypes = extractTypes(item, relateTypeMethods)
+        val fromSourceTypes = buildSet {
+            addAll(extractNumbers(item, sourceTypeMethods) { it.toLong() })
+            addAll(extractNumbersFromPaths(item, sourceTypePaths) { it.toLong() })
+        }
+        val relateCardTypeValues = extractNumbers(item, relateTypeValueMethods) { it.toInt() }
+        return VideoRelateTypeEvidence(
+            types,
+            relateCardTypes,
+            fromSourceTypes,
+            relateCardTypeValues
+        )
+    }
+
     private fun extractTypes(item: Any, methods: List<Method>): Set<String> = buildSet {
         methods.forEach { method ->
             if (!method.declaringClass.isInstance(item)) return@forEach
@@ -158,6 +238,35 @@ internal class VideoRelateFilterFeatureInstaller(
             val value = (raw as? Enum<*>)?.name ?: raw.toString()
             val normalized = normalizeType(value)
             if (normalized.isNotBlank() && normalized !in UNKNOWN_TYPES) add(normalized)
+        }
+    }
+
+    private fun <T> extractNumbers(
+        item: Any,
+        methods: List<Method>,
+        convert: (Number) -> T
+    ): Set<T> = buildSet {
+        methods.forEach { method ->
+            if (!method.declaringClass.isInstance(item)) return@forEach
+            val raw = runCatching { method.invoke(item) }.getOrNull() as? Number
+                ?: return@forEach
+            add(convert(raw))
+        }
+    }
+
+    private fun <T> extractNumbersFromPaths(
+        item: Any,
+        paths: List<Pair<Method, Method>>,
+        convert: (Number) -> T
+    ): Set<T> = buildSet {
+        paths.forEach { (itemGetter, valueGetter) ->
+            if (!itemGetter.declaringClass.isInstance(item)) return@forEach
+            val raw = runCatching {
+                val nested = itemGetter.invoke(item) ?: return@runCatching null
+                if (!valueGetter.declaringClass.isInstance(nested)) return@runCatching null
+                valueGetter.invoke(nested)
+            }.getOrNull() as? Number ?: return@forEach
+            add(convert(raw))
         }
     }
 
@@ -194,13 +303,71 @@ internal class VideoRelateFilterFeatureInstaller(
             HostContentSemanticClassifier.normalizedToken(raw).orEmpty()
 
         internal fun matchesAnyType(types: Set<String>, hiddenTypes: Set<String>): Boolean {
-            if (types.isEmpty() || hiddenTypes.isEmpty()) return false
+            return matchesEvidence(types, emptySet(), emptySet(), hiddenTypes)
+        }
+
+        internal fun matchesEvidence(
+            types: Set<String>,
+            fromSourceTypes: Set<Long>,
+            relateCardTypeValues: Set<Int>,
+            hiddenTypes: Set<String>,
+            relateCardTypes: Set<String> = emptySet()
+        ): Boolean {
+            if (hiddenTypes.isEmpty()) return false
             val normalizedHidden = hiddenTypes.mapTo(linkedSetOf(), ::normalizeType)
-            if (types.any { normalizeType(it) in normalizedHidden }) return true
-            val kinds = types.flatMapTo(linkedSetOf()) { type ->
-                HostContentSemanticClassifier.classify(
-                    HostContentSignals(cardCase = type, cardType = type, goTo = type)
-                )
+            return matchesNormalizedEvidence(
+                types,
+                relateCardTypes,
+                fromSourceTypes,
+                relateCardTypeValues,
+                normalizedHidden
+            )
+        }
+
+        private fun matchesNormalizedEvidence(
+            types: Set<String>,
+            relateCardTypes: Set<String>,
+            fromSourceTypes: Set<Long>,
+            relateCardTypeValues: Set<Int>,
+            normalizedHidden: Set<String>
+        ): Boolean {
+            if (types.any { normalizeType(it) in normalizedHidden } ||
+                relateCardTypes.any { normalizeType(it) in normalizedHidden }
+            ) return true
+            val kinds = buildSet {
+                types.forEach { type ->
+                    addAll(
+                        HostContentSemanticClassifier.classify(
+                            HostContentSignals(
+                                cardCase = type,
+                                cardType = type,
+                                goTo = type,
+                                relateCardType = type
+                            )
+                        )
+                    )
+                }
+                relateCardTypes.forEach { type ->
+                    addAll(
+                        HostContentSemanticClassifier.classify(
+                            HostContentSignals(relateCardType = type)
+                        )
+                    )
+                }
+                fromSourceTypes.forEach { sourceType ->
+                    addAll(
+                        HostContentSemanticClassifier.classify(
+                            HostContentSignals(fromSourceType = sourceType)
+                        )
+                    )
+                }
+                relateCardTypeValues.forEach { typeValue ->
+                    addAll(
+                        HostContentSemanticClassifier.classify(
+                            HostContentSignals(relateCardTypeValue = typeValue)
+                        )
+                    )
+                }
             }
             return normalizedHidden.any { hidden ->
                 HostContentSemanticClassifier.hiddenKind(hidden)?.let(kinds::contains) == true
@@ -211,3 +378,10 @@ internal class VideoRelateFilterFeatureInstaller(
             type != null && matchesAnyType(setOf(type), hiddenTypes)
     }
 }
+
+private data class VideoRelateTypeEvidence(
+    val types: Set<String>,
+    val relateCardTypes: Set<String>,
+    val fromSourceTypes: Set<Long>,
+    val relateCardTypeValues: Set<Int>
+)
