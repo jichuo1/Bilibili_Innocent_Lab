@@ -7,6 +7,7 @@ import java.lang.reflect.Method
 /** 在首页推荐响应的公开 List 边界过滤广告、图文和游戏推广。 */
 internal class HomeRecommendPurifyFeatureInstaller(
     private val removeAds: Boolean,
+    private val removeBanner: Boolean,
     private val removePictures: Boolean,
     private val removeGamePromotions: Boolean,
     titleFilterEnabled: Boolean,
@@ -30,7 +31,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
     override val id: String = ID
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
-        val hasContentFilter = removeAds || removePictures || removeGamePromotions ||
+        val hasContentFilter = removeAds || removeBanner || removePictures || removeGamePromotions ||
             titleKeywords.isNotEmpty() || removeLive || removeCourses || removeVertical ||
             removeLarge
         if (durationRange.isConfigured && !durationRange.isValid) {
@@ -85,8 +86,12 @@ internal class HomeRecommendPurifyFeatureInstaller(
                     after {
                         val source = result as? List<*> ?: return@after
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                        var removedBanners = 0
                         val filtered = CopyOnFilter.list(source) { item ->
-                            shouldRemove(signals(item, accessors))
+                            val signals = signals(item, accessors)
+                            val isBanner = removeBanner && isHomeBanner(signals)
+                            if (isBanner) removedBanners += 1
+                            isBanner || shouldRemove(signals)
                         }
                         if (filtered !== source) {
                             result = filtered
@@ -98,6 +103,17 @@ internal class HomeRecommendPurifyFeatureInstaller(
                             environment.logInfo(
                                 "home_recommend_removed",
                                 "[BIL] 首页推荐服务端数据已过滤 ${source.size - filtered.size} 项"
+                            )
+                        }
+                        if (removedBanners > 0) {
+                            environment.reportRuntimeEvidence(
+                                HomeBannerFeatureInstaller.ID,
+                                FeatureRuntimeStage.OBSERVED
+                            )
+                            environment.reportRuntimeEvidence(
+                                HomeBannerFeatureInstaller.ID,
+                                FeatureRuntimeStage.APPLIED,
+                                removedBanners
                             )
                         }
                     }
@@ -143,21 +159,29 @@ internal class HomeRecommendPurifyFeatureInstaller(
             removeCourses || removeVertical || removeLarge
         val needsClassification = removeAds || needsRoute
         return Signals(
-            holderType = if (removeAds || removeLarge) {
+            holderType = if (removeAds || removeBanner || removeLarge) {
                 invokeString(accessors.holderType, item)
             } else {
                 null
             },
-            bizType = if (removeAds) invokeString(accessors.bizType, item) else null,
-            cardType = if (needsClassification) {
+            bizType = if (removeAds || removeBanner) {
+                invokeString(accessors.bizType, item)
+            } else {
+                null
+            },
+            cardType = if (needsClassification || removeBanner) {
                 invokeString(accessors.cardType, item)
             } else null,
-            cardGoto = if (removeAds || needsRoute) {
+            cardGoto = if (removeAds || removeBanner || needsRoute) {
                 invokeString(accessors.cardGoto, item)
             } else {
                 null
             },
-            goTo = if (needsRoute) invokeString(accessors.goTo, item) else null,
+            goTo = if (needsRoute || removeBanner) {
+                invokeString(accessors.goTo, item)
+            } else {
+                null
+            },
             uri = if (needsRoute) invokeString(accessors.uri, item) else null,
             param = if (removeGamePromotions) invokeString(accessors.param, item) else null,
             title = if (titleKeywords.isNotEmpty() || removeGamePromotions) {
@@ -287,6 +311,9 @@ internal class HomeRecommendPurifyFeatureInstaller(
             return HostContentKind.ADVERTISEMENT in
                 HostContentSemanticClassifier.classify(value.toHostSignals())
         }
+
+        internal fun isHomeBanner(value: Signals): Boolean =
+            HostContentSemanticClassifier.isHomeBanner(value.toHostSignals())
 
         internal fun isPicture(value: Signals): Boolean =
             HostContentKind.PICTURE in HostContentSemanticClassifier.classify(

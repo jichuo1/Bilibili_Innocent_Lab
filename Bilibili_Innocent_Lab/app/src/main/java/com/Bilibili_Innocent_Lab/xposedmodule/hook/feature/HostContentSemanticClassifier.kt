@@ -42,6 +42,15 @@ internal data class HostContentSignals(
  * 游戏推广，避免把“游戏开发纪录片”“直播录像”等普通视频误删。
  */
 internal object HostContentSemanticClassifier {
+    /** 首页大卡轮播只接受公开协议中的精确 BANNER_V8 类型，不按标题或模糊路由猜测。 */
+    fun isHomeBanner(signals: HostContentSignals): Boolean = listOf(
+        signals.holderType,
+        signals.bizType,
+        signals.cardType,
+        signals.cardGoto,
+        signals.goTo
+    ).any { normalizedToken(it) == HOME_BANNER_TOKEN }
+
     fun classify(signals: HostContentSignals): Set<HostContentKind> = buildSet {
         val tokens = listOf(
             signals.holderType,
@@ -161,6 +170,7 @@ internal object HostContentSemanticClassifier {
         "COMMERCIAL",
         "BANNER_V8"
     )
+    private const val HOME_BANNER_TOKEN = "BANNER_V8"
     private val PICTURE_TOKENS = setOf("PICTURE", "ARTICLE", "OPUS")
     private val GAME_TOKENS = setOf("GAME", "GAME_CENTER", "MINI_GAME", "H5_GAME")
     private val LIVE_TOKENS = setOf("LIVE", "LIVE_ROOM")
