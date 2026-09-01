@@ -209,4 +209,64 @@ class VideoRelateFilterFeatureInstallerTest {
             statuses
         )
     }
+
+    @Test
+    fun `custom reason filter requires enhancement and installs without type filters`() {
+        val enabledStatuses = mutableListOf<Pair<String, String>>()
+        val disabledStatuses = mutableListOf<Pair<String, String>>()
+        val points = requireNotNull(
+            VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader))
+        )
+
+        assertEquals(
+            FeatureInstallResult.Installed(points.responseItemGetters.size),
+            VideoRelateFilterFeatureInstaller(
+                hiddenTypes = emptySet(),
+                minDurationSeconds = 0,
+                maxDurationSeconds = 0,
+                matchingEnhancementEnabled = true,
+                reasonFilterEnabled = true,
+                rawReasonKeywords = "大家都在看",
+                points = points
+            ).install(environment(enabledStatuses))
+        )
+        assertEquals(
+            FeatureInstallResult.Skipped("disabled"),
+            VideoRelateFilterFeatureInstaller(
+                hiddenTypes = emptySet(),
+                minDurationSeconds = 0,
+                maxDurationSeconds = 0,
+                matchingEnhancementEnabled = false,
+                reasonFilterEnabled = true,
+                rawReasonKeywords = "大家都在看",
+                points = points
+            ).install(environment(disabledStatuses))
+        )
+        assertEquals(listOf("video_relate_filter_status" to "success"), enabledStatuses)
+        assertEquals(listOf("video_relate_filter_status" to "disabled"), disabledStatuses)
+    }
+
+    @Test
+    fun `missing reason paths do not disable existing type filtering`() {
+        val statuses = mutableListOf<Pair<String, String>>()
+        val points = requireNotNull(
+            VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader))
+        ).copy(reasonChains = emptyList())
+
+        assertEquals(
+            FeatureInstallResult.Installed(points.responseItemGetters.size),
+            VideoRelateFilterFeatureInstaller(
+                hiddenTypes = setOf("CM"),
+                minDurationSeconds = 0,
+                maxDurationSeconds = 0,
+                matchingEnhancementEnabled = true,
+                reasonFilterEnabled = false,
+                points = points
+            ).install(environment(statuses))
+        )
+        assertEquals(
+            listOf("video_relate_filter_status" to "partial:missing-reason-accessor"),
+            statuses
+        )
+    }
 }

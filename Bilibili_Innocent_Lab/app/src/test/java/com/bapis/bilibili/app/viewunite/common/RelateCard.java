@@ -10,4 +10,8 @@ public class RelateCard {
     public RelateAVCard getAv() { return new RelateAVCard(); }
     public RelateHistoryAVCard getHistoryAv() { return new RelateHistoryAVCard(); }
     public RelatedAICard getAiCard() { return new RelatedAICard(); }
+    public RelateBangumiCard getBangumi() { return new RelateBangumiCard(); }
+    public RelateBangumiResourceCard getResource() { return new RelateBangumiResourceCard(); }
+    public RelateGameCard getGame() { return new RelateGameCard(); }
+    public RelateSpecial getSpecial() { return new RelateSpecial(); }
 }

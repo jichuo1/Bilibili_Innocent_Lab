@@ -20,6 +20,8 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.text.Editable
+import android.text.InputFilter
+import android.text.InputType
 import android.text.SpannableString
 import android.text.Spanned
 import android.util.Log
@@ -36,6 +38,10 @@ import android.view.View
 import android.view.ViewGroup.MarginLayoutParams
 import android.view.animation.PathInterpolator
 import android.widget.LinearLayout
+import android.transition.ChangeBounds
+import android.transition.Fade
+import android.transition.TransitionManager
+import android.transition.TransitionSet
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AppCompatDelegate
@@ -254,6 +260,9 @@ class MainActivity : SkinnedActivity() {
     private var removeRelateLive = false
     private var removeRelateCourse = false
     private var removeRelateSpecial = false
+    private var videoRelateMatchingEnhancementEnabled = false
+    private var videoRelateReasonFilterEnabled = false
+    private var videoRelateReasonFilterKeywords = ""
     private var playerDefaultQualityQn = 0
     private var blockTeenagersModePrompt = false
     private var removeCommentSearchLinks = false
@@ -299,6 +308,7 @@ class MainActivity : SkinnedActivity() {
     private var commentKeywordSummaryView: NativeTextView? = null
     private var commentLevelSummaryView: NativeTextView? = null
     private var portraitContentFilterSummaryView: NativeTextView? = null
+    private var videoRelateFilterSummaryView: NativeTextView? = null
     /** 设置备份入口及标题：用于跨 Activity 容器形变的来源坐标。 */
     private var settingsBackupEntryView: View? = null
     private var settingsBackupEntryTitleView: NativeTextView? = null
@@ -4685,6 +4695,452 @@ class MainActivity : SkinnedActivity() {
         presentModalDialog(dialog, container)
     }
 
+    private fun videoRelateFilterValues(): Map<String, Boolean> = mapOf(
+        FeaturePreferences.REMOVE_RELATE_COMMERCIAL to removeRelateCommercial,
+        FeaturePreferences.REMOVE_RELATE_GAME to removeRelateGame,
+        FeaturePreferences.REMOVE_RELATE_LIVE to removeRelateLive,
+        FeaturePreferences.REMOVE_RELATE_COURSE to removeRelateCourse,
+        FeaturePreferences.REMOVE_RELATE_SPECIAL to removeRelateSpecial,
+        FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED to
+            videoRelateMatchingEnhancementEnabled,
+        FeaturePreferences.VIDEO_RELATE_REASON_FILTER_ENABLED to
+            videoRelateReasonFilterEnabled
+    )
+
+    private fun videoRelateFilterSummary(): String {
+        val selected = VideoRelateFilterCatalog.contentOptions.count {
+            videoRelateFilterValues()[it.preferenceKey] == true
+        }
+        return when {
+            videoRelateMatchingEnhancementEnabled -> getString(
+                R.string.video_relate_filter_summary_enhanced,
+                selected,
+                VideoRelateFilterCatalog.contentOptions.size
+            )
+            selected == 0 -> getString(R.string.video_relate_filter_summary_none)
+            else -> getString(
+                R.string.video_relate_filter_summary_selected,
+                selected,
+                VideoRelateFilterCatalog.contentOptions.size
+            )
+        }
+    }
+
+    @StringRes
+    private fun videoRelateFilterLabel(preferenceKey: String): Int = when (preferenceKey) {
+        FeaturePreferences.REMOVE_RELATE_COMMERCIAL -> R.string.remove_relate_commercial
+        FeaturePreferences.REMOVE_RELATE_GAME -> R.string.remove_relate_game
+        FeaturePreferences.REMOVE_RELATE_LIVE -> R.string.remove_relate_live
+        FeaturePreferences.REMOVE_RELATE_COURSE -> R.string.remove_relate_course
+        FeaturePreferences.REMOVE_RELATE_SPECIAL -> R.string.remove_relate_special
+        FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED ->
+            R.string.video_relate_matching_enhancement
+        else -> error("Unknown video relate filter key: $preferenceKey")
+    }
+
+    private fun applyVideoRelateFilterValue(preferenceKey: String, enabled: Boolean) {
+        when (preferenceKey) {
+            FeaturePreferences.REMOVE_RELATE_COMMERCIAL -> removeRelateCommercial = enabled
+            FeaturePreferences.REMOVE_RELATE_GAME -> removeRelateGame = enabled
+            FeaturePreferences.REMOVE_RELATE_LIVE -> removeRelateLive = enabled
+            FeaturePreferences.REMOVE_RELATE_COURSE -> removeRelateCourse = enabled
+            FeaturePreferences.REMOVE_RELATE_SPECIAL -> removeRelateSpecial = enabled
+            FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED ->
+                videoRelateMatchingEnhancementEnabled = enabled
+            FeaturePreferences.VIDEO_RELATE_REASON_FILTER_ENABLED ->
+                videoRelateReasonFilterEnabled = enabled
+            else -> error("Unknown video relate filter key: $preferenceKey")
+        }
+    }
+
+    /** 小范围模态内容使用系统 Transition；不把逐帧布局传播到外层设置滚动树。 */
+    private fun setModalSectionVisible(
+        parent: ViewGroup,
+        child: View,
+        visible: Boolean,
+        animate: Boolean
+    ) {
+        val targetVisibility = if (visible) View.VISIBLE else View.GONE
+        if (child.visibility == targetVisibility) return
+        if (!animate || !parent.isLaidOut || !child.isAttachedToWindow) {
+            child.visibility = targetVisibility
+            return
+        }
+        TransitionManager.endTransitions(parent)
+        TransitionManager.beginDelayedTransition(
+            parent,
+            TransitionSet().apply {
+                ordering = TransitionSet.ORDERING_TOGETHER
+                addTransition(ChangeBounds())
+                addTransition(Fade())
+                duration = if (visible) 260L else 220L
+                interpolator = if (visible) {
+                    secondaryExpandInterpolator
+                } else {
+                    secondaryCollapseInterpolator
+                }
+            }
+        )
+        child.visibility = targetVisibility
+    }
+
+    /**
+     * 相关推荐沿用既有五个布尔开关，以草稿式二级勾选面板集中编辑。
+     * 匹配增强和理由关键词同批落盘，取消弹窗不会改变现有运行时配置。
+     */
+    private fun showVideoRelateFilterDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createModalContainer()
+        val draft = VideoRelateFilterDraft(
+            videoRelateFilterValues(),
+            videoRelateReasonFilterKeywords
+        )
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.video_relate_filter_settings)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 19f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+        )
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.video_relate_filter_dialog_description)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 12f
+                alpha = 0.72f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (7 * density).toInt() }
+        )
+
+        val quickActions = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        val selectAllButton = createTermsActionButton(
+            getString(R.string.video_relate_filter_select_all),
+            filled = false
+        ) {}
+        quickActions.addView(
+            selectAllButton,
+            NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        val clearButton = createTermsActionButton(
+            getString(R.string.video_relate_filter_clear),
+            filled = false
+        ) {}
+        quickActions.addView(
+            clearButton,
+            NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = (8 * density).toInt()
+            }
+        )
+        container.addView(
+            quickActions,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (12 * density).toInt() }
+        )
+
+        val listBody = NativeScrollView(this).apply { isFillViewport = true }
+        val rowContainer = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.VERTICAL
+            setPadding(0, (4 * density).toInt(), 0, (4 * density).toInt())
+        }
+        val checkboxes = linkedMapOf<String, android.widget.CheckBox>()
+        VideoRelateFilterCatalog.panelOptions.forEach { option ->
+            val box = android.widget.CheckBox(this).apply {
+                text = getString(videoRelateFilterLabel(option.preferenceKey))
+                textSize = 14f
+                textColor = getColor(R.color.colorTextDark)
+                isChecked = draft[option.preferenceKey]
+                isFocusable = true
+            }
+            checkboxes[option.preferenceKey] = box
+            rowContainer.addView(
+                box,
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = ((if (option.isMatchingEnhancement) 13 else 4) * density).toInt()
+                    bottomMargin = (4 * density).toInt()
+                }
+            )
+            if (option.isMatchingEnhancement) {
+                rowContainer.addView(
+                    NativeTextView(this).apply {
+                        text = getString(R.string.video_relate_matching_enhancement_tip)
+                        textColor = getColor(R.color.colorTextGray)
+                        textSize = 12f
+                        alpha = 0.72f
+                        setLineSpacing(4 * density, 1f)
+                    },
+                    NativeLinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        marginStart = (12 * density).toInt()
+                        marginEnd = (8 * density).toInt()
+                        bottomMargin = (8 * density).toInt()
+                    }
+                )
+            }
+        }
+
+        val reasonGroup = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.VERTICAL
+            background = skinCardBackground(monetColors.surfaceVariant)
+            setPadding(
+                (12 * density).toInt(),
+                (10 * density).toInt(),
+                (12 * density).toInt(),
+                (12 * density).toInt()
+            )
+        }
+        val reasonCheckbox = android.widget.CheckBox(this).apply {
+            text = getString(R.string.video_relate_reason_filter)
+            textSize = 14f
+            textColor = getColor(R.color.colorTextDark)
+            isChecked = draft[FeaturePreferences.VIDEO_RELATE_REASON_FILTER_ENABLED]
+            isFocusable = true
+        }
+        reasonGroup.addView(
+            reasonCheckbox,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        reasonGroup.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.video_relate_reason_filter_tip)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 12f
+                alpha = 0.72f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                marginStart = (12 * density).toInt()
+                marginEnd = (8 * density).toInt()
+                bottomMargin = (8 * density).toInt()
+            }
+        )
+        val keywordContainer = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.VERTICAL
+        }
+        keywordContainer.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.video_relate_reason_filter_keywords)
+                textColor = monetColors.primary
+                textSize = 12f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+        )
+        val keywordsEditor = NativeEditText(this).apply {
+            hint = getString(R.string.video_relate_reason_filter_keywords_hint)
+            setText(draft.reasonKeywords)
+            textColor = getColor(R.color.colorTextDark)
+            setHintTextColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0xA0))
+            textSize = 13f
+            minLines = 3
+            maxLines = 6
+            gravity = Gravity.TOP or Gravity.START
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            filters = arrayOf(InputFilter.LengthFilter(VideoRelateFilterDraft.MAX_KEYWORDS_LENGTH))
+            background = skinCardBackground(monetColors.surface)
+            setPadding(
+                (12 * density).toInt(),
+                (10 * density).toInt(),
+                (12 * density).toInt(),
+                (10 * density).toInt()
+            )
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    draft.reasonKeywords = s?.toString().orEmpty()
+                }
+                override fun afterTextChanged(s: Editable?) = Unit
+            })
+        }
+        keywordContainer.addView(
+            keywordsEditor,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (6 * density).toInt() }
+        )
+        reasonGroup.addView(
+            keywordContainer,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        rowContainer.addView(
+            reasonGroup,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = (5 * density).toInt()
+                bottomMargin = (6 * density).toInt()
+            }
+        )
+        listBody.addView(rowContainer)
+        val listHeight = minOf(
+            (440 * density).toInt(),
+            (resources.displayMetrics.heightPixels * 0.54f).toInt()
+        )
+        container.addView(
+            listBody,
+            NativeLinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, listHeight).apply {
+                topMargin = (7 * density).toInt()
+                bottomMargin = (8 * density).toInt()
+            }
+        )
+
+        val buttonRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        val cancelButton = createTermsActionButton(
+            getString(R.string.dialog_cancel),
+            filled = false
+        ) { dismissWithAnimation(dialog, container) {} }
+        lateinit var refreshUi: () -> Unit
+        lateinit var saveButton: NativeTextView
+        var updating = false
+        var initialRefresh = true
+
+        refreshUi = {
+            updating = true
+            VideoRelateFilterCatalog.panelOptions.forEach { option ->
+                checkboxes.getValue(option.preferenceKey).isChecked =
+                    draft[option.preferenceKey]
+            }
+            reasonCheckbox.isChecked =
+                draft[FeaturePreferences.VIDEO_RELATE_REASON_FILTER_ENABLED]
+            saveButton.text = getString(
+                R.string.video_relate_filter_save,
+                draft.selectedContentCount()
+            )
+            val reasonGroupWasVisible = reasonGroup.isVisible
+            if (!draft.reasonFilterVisible) {
+                keywordContainer.visibility = View.GONE
+                setModalSectionVisible(
+                    rowContainer,
+                    reasonGroup,
+                    visible = false,
+                    animate = !initialRefresh
+                )
+            } else {
+                if (!reasonGroupWasVisible) {
+                    keywordContainer.visibility = if (draft.keywordEditorVisible) {
+                        View.VISIBLE
+                    } else {
+                        View.GONE
+                    }
+                }
+                setModalSectionVisible(
+                    rowContainer,
+                    reasonGroup,
+                    visible = true,
+                    animate = !initialRefresh
+                )
+                if (reasonGroupWasVisible) {
+                    setModalSectionVisible(
+                        reasonGroup,
+                        keywordContainer,
+                        visible = draft.keywordEditorVisible,
+                        animate = !initialRefresh
+                    )
+                }
+            }
+            updating = false
+            initialRefresh = false
+        }
+        checkboxes.forEach { (key, box) ->
+            box.setOnCheckedChangeListener { _, checked ->
+                if (!updating) {
+                    draft[key] = checked
+                    refreshUi()
+                }
+            }
+        }
+        reasonCheckbox.setOnCheckedChangeListener { _, checked ->
+            if (!updating) {
+                draft[FeaturePreferences.VIDEO_RELATE_REASON_FILTER_ENABLED] = checked
+                refreshUi()
+            }
+        }
+        selectAllButton.setOnClickListener {
+            draft.selectAll()
+            refreshUi()
+        }
+        clearButton.setOnClickListener {
+            draft.clear()
+            refreshUi()
+        }
+
+        saveButton = createTermsActionButton("", filled = true) {
+            val changed = draft.changedValues()
+            if (changed.isEmpty() && !draft.keywordsChanged()) {
+                dismissWithAnimation(dialog, container) {}
+                return@createTermsActionButton
+            }
+            val saved = runCatching {
+                prefs().edit {
+                    changed.forEach { (key, value) -> putBoolean(key, value) }
+                    if (draft.keywordsChanged()) {
+                        putString(
+                            FeaturePreferences.VIDEO_RELATE_REASON_FILTER_KEYWORDS,
+                            draft.reasonKeywords
+                        )
+                    }
+                }
+            }.isSuccess
+            if (!saved) {
+                toast(getString(R.string.video_relate_filter_save_failed))
+                return@createTermsActionButton
+            }
+            changed.forEach { (key, value) -> applyVideoRelateFilterValue(key, value) }
+            videoRelateReasonFilterKeywords = draft.reasonKeywords
+            videoRelateFilterSummaryView?.text = videoRelateFilterSummary()
+            toast(getString(R.string.video_relate_filter_applied))
+            dismissWithAnimation(dialog, container) {}
+        }
+        buttonRow.addView(
+            cancelButton,
+            NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        buttonRow.addView(
+            saveButton,
+            NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = (8 * density).toInt()
+            }
+        )
+        container.addView(
+            buttonRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        refreshUi()
+        presentModalDialog(dialog, container)
+    }
+
     private fun settingsSearchSectionLabel(section: SettingsSearchSection): String =
         getString(
             when (section) {
@@ -5184,6 +5640,7 @@ class MainActivity : SkinnedActivity() {
         commentKeywordSummaryView = null
         commentLevelSummaryView = null
         portraitContentFilterSummaryView = null
+        videoRelateFilterSummaryView = null
         skinSummaryView = null
         liquidBackgroundSummaryView = null
         SettingsBackupTransitionOriginRegistry.clear(settingsBackupEntryView)
@@ -5459,6 +5916,24 @@ class MainActivity : SkinnedActivity() {
         removeRelateSpecial = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.REMOVE_RELATE_SPECIAL, false) ?: false
         }.getOrDefault(false)
+        videoRelateMatchingEnhancementEnabled = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED,
+                false
+            ) ?: false
+        }.getOrDefault(false)
+        videoRelateReasonFilterEnabled = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.VIDEO_RELATE_REASON_FILTER_ENABLED,
+                false
+            ) ?: false
+        }.getOrDefault(false)
+        videoRelateReasonFilterKeywords = runCatching {
+            modulePrefs?.getString(
+                FeaturePreferences.VIDEO_RELATE_REASON_FILTER_KEYWORDS,
+                ""
+            ).orEmpty().take(VideoRelateFilterDraft.MAX_KEYWORDS_LENGTH)
+        }.getOrDefault("")
         playerDefaultQualityQn = runCatching {
             PlayerQualityConfig.normalize(
                 modulePrefs?.getInt(FeaturePreferences.PLAYER_DEFAULT_QUALITY_QN, 0) ?: 0
@@ -7746,115 +8221,64 @@ class MainActivity : SkinnedActivity() {
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }
-                            TextView(
+                            LinearLayout(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     topMargin = 14.dp
-                                    bottomMargin = 4.dp
+                                    bottomMargin = 8.dp
+                                },
+                                init = {
+                                    orientation = LinearLayout.HORIZONTAL
+                                    gravity = Gravity.CENTER_VERTICAL
+                                    background = selfRippleBackground(10f)
+                                    updatePadding(horizontal = 4.dp, vertical = 9.dp)
+                                    isClickable = true
+                                    isFocusable = true
+                                    contentDescription = stringResource(
+                                        R.string.video_relate_filter_settings
+                                    )
+                                    setOnClickListener { showVideoRelateFilterDialog() }
                                 }
                             ) {
-                                alpha = 0.7f
-                                text = stringResource(R.string.video_relate_filter_settings)
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 11f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) { bottomMargin = 5.dp }
-                            ) {
-                                text = stringResource(R.string.remove_relate_commercial)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeRelateCommercial
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeRelateCommercial = checked
-                                    prefs().edit {
-                                        putBoolean(
-                                            FeaturePreferences.REMOVE_RELATE_COMMERCIAL,
-                                            checked
-                                        )
+                                LinearLayout(
+                                    lparams = LayoutParams { weight = 1f },
+                                    init = { orientation = LinearLayout.VERTICAL }
+                                ) {
+                                    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                                        text = stringResource(R.string.video_relate_filter_settings)
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 4.dp
+                                        }
+                                    ) {
+                                        videoRelateFilterSummaryView = this
+                                        alpha = 0.68f
+                                        text = videoRelateFilterSummary()
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                                        visibility = View.GONE
+                                        text = listOf(
+                                            R.string.remove_relate_commercial,
+                                            R.string.remove_relate_game,
+                                            R.string.remove_relate_live,
+                                            R.string.remove_relate_course,
+                                            R.string.remove_relate_special,
+                                            R.string.video_relate_matching_enhancement,
+                                            R.string.video_relate_reason_filter,
+                                            R.string.video_relate_reason_filter_keywords
+                                        ).joinToString(" · ") { stringResource(it) }
                                     }
                                 }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
+                                ImageView(lparams = LayoutParams(18.dp, 18.dp)) {
+                                    setImageResource(R.drawable.ic_chevron_down)
+                                    rotation = -90f
+                                    alpha = 0.8f
+                                    imageTintList = stateColorResource(R.color.colorTextGray)
                                 }
-                            ) {
-                                text = stringResource(R.string.remove_relate_game)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeRelateGame
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeRelateGame = checked
-                                    prefs().edit {
-                                        putBoolean(FeaturePreferences.REMOVE_RELATE_GAME, checked)
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.remove_relate_live)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeRelateLive
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeRelateLive = checked
-                                    prefs().edit {
-                                        putBoolean(FeaturePreferences.REMOVE_RELATE_LIVE, checked)
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.remove_relate_course)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeRelateCourse
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeRelateCourse = checked
-                                    prefs().edit {
-                                        putBoolean(FeaturePreferences.REMOVE_RELATE_COURSE, checked)
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.remove_relate_special)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeRelateSpecial
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeRelateSpecial = checked
-                                    prefs().edit {
-                                        putBoolean(FeaturePreferences.REMOVE_RELATE_SPECIAL, checked)
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.video_relate_filter_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
                             }
                             LinearLayout(
                                 lparams = LayoutParams(widthMatchParent = true) {
