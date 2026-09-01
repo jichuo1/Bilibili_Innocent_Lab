@@ -181,7 +181,7 @@ class VersionAdapterTest {
                 ),
                 VersionAdapter.HookPoint(
                     "com.bapis.bilibili.app.view.v1.RelatesFeedReply",
-                    "getRelatesList",
+                    "getListList",
                     emptyList()
                 )
             ),
@@ -200,6 +200,41 @@ class VersionAdapterTest {
                 )
             ),
             cardTypeGetters = emptyList(),
+            relateCardTypeGetters = listOf(
+                VersionAdapter.HookPoint(
+                    "com.bapis.bilibili.app.viewunite.common.RelateCard",
+                    "getRelateCardType",
+                    emptyList()
+                )
+            ),
+            fromSourceTypeGetters = listOf(
+                VersionAdapter.HookPoint(
+                    "com.bapis.bilibili.app.view.v1.Relate",
+                    "getFromSourceType",
+                    emptyList()
+                )
+            ),
+            fromSourceTypeChains = listOf(
+                VersionAdapter.SourceTypeMethodChain(
+                    itemGetter = VersionAdapter.HookPoint(
+                        "com.bapis.bilibili.app.viewunite.common.RelateCard",
+                        "getBasicInfo",
+                        emptyList()
+                    ),
+                    sourceTypeGetter = VersionAdapter.HookPoint(
+                        "com.bapis.bilibili.app.viewunite.common.CardBasicInfo",
+                        "getFromSourceType",
+                        emptyList()
+                    )
+                )
+            ),
+            relateCardTypeValueGetters = listOf(
+                VersionAdapter.HookPoint(
+                    "com.bapis.bilibili.app.viewunite.common.RelateCard",
+                    "getRelateCardTypeValue",
+                    emptyList()
+                )
+            ),
             directDurationGetters = listOf(
                 VersionAdapter.HookPoint(
                     "com.bapis.bilibili.app.view.v1.Relate",
@@ -606,11 +641,26 @@ class VersionAdapterTest {
                 .getJSONObject("duration")
                 .put("m", "")
         }
+        val invalidRelateSourceType = JSONObject(result().toJson().toString()).apply {
+            getJSONObject("video_relate")
+                .getJSONArray("source_type")
+                .getJSONObject(0)
+                .put("m", "")
+        }
+        val invalidRelateSourceTypeChain = JSONObject(result().toJson().toString()).apply {
+            getJSONObject("video_relate")
+                .getJSONArray("source_type_chains")
+                .getJSONObject(0)
+                .getJSONObject("source")
+                .put("m", "")
+        }
 
         assertNull(VersionAdapter.AdaptResult.fromJson(stale))
         assertNull(VersionAdapter.AdaptResult.fromJson(invalid))
         assertNull(VersionAdapter.AdaptResult.fromJson(incompleteHomeDuration))
         assertNull(VersionAdapter.AdaptResult.fromJson(invalidRelateDurationChain))
+        assertNull(VersionAdapter.AdaptResult.fromJson(invalidRelateSourceType))
+        assertNull(VersionAdapter.AdaptResult.fromJson(invalidRelateSourceTypeChain))
     }
 
     @Test
@@ -739,12 +789,40 @@ class VersionAdapterTest {
         val points = VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader))
 
         assertEquals(
-            setOf("getCardsList", "getRelatesList"),
-            points?.responseItemGetters?.map { it.methodName }?.toSet()
+            setOf(
+                "com.bapis.bilibili.app.viewunite.v1.Relates#getCardsList",
+                "com.bapis.bilibili.app.viewunite.v1.RelatesFeedReply#getRelatesList",
+                "com.bapis.bilibili.app.view.v1.RelatesFeedReply#getListList",
+                "com.bapis.bilibili.app.view.v1.ViewReply#getRelatesList"
+            ),
+            points?.responseItemGetters
+                ?.map { "${it.className}#${it.methodName}" }
+                ?.toSet()
         )
         assertEquals(1, points?.cardCaseGetters?.size)
         assertEquals("getCardCase", points?.cardCaseGetters?.single()?.methodName)
         assertEquals("getGoto", points?.gotoGetters?.single()?.methodName)
+        assertEquals(
+            "getRelateCardType",
+            points?.relateCardTypeGetters?.single()?.methodName
+        )
+        assertEquals("getFromSourceType", points?.fromSourceTypeGetters?.single()?.methodName)
+        assertEquals(
+            "getBasicInfo",
+            points?.fromSourceTypeChains?.single()?.itemGetter?.methodName
+        )
+        assertEquals(
+            "com.bapis.bilibili.app.viewunite.common.CardBasicInfo",
+            points?.fromSourceTypeChains?.single()?.sourceTypeGetter?.className
+        )
+        assertEquals(
+            "getFromSourceType",
+            points?.fromSourceTypeChains?.single()?.sourceTypeGetter?.methodName
+        )
+        assertEquals(
+            "getRelateCardTypeValue",
+            points?.relateCardTypeValueGetters?.single()?.methodName
+        )
         assertEquals("getDuration", points?.directDurationGetters?.single()?.methodName)
         assertEquals(
             "com.bapis.bilibili.app.view.v1.Relate",

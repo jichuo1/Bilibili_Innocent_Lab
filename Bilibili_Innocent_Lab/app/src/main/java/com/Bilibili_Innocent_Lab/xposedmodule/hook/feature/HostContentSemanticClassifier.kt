@@ -28,6 +28,9 @@ internal data class HostContentSignals(
     val title: String? = null,
     val subtitle: String? = null,
     val desc: String? = null,
+    val relateCardType: String? = null,
+    val fromSourceType: Long? = null,
+    val relateCardTypeValue: Int? = null,
     val hasAdInfo: Boolean = false,
     val hasCommercialPayload: Boolean = false
 )
@@ -46,12 +49,22 @@ internal object HostContentSemanticClassifier {
             signals.cardType,
             signals.cardCase,
             signals.cardGoto,
-            signals.goTo
+            signals.goTo,
+            signals.relateCardType
         ).mapNotNull(::normalizedToken)
+        val relatedType = normalizedToken(signals.relateCardType)
+        val relatedTypeValue = signals.relateCardTypeValue
+        val isRelatedPromotionSource =
+            signals.fromSourceType == RELATED_PROMOTION_SOURCE_TYPE
+        val isRelatedPromotionType = relatedType in RELATED_PROMOTION_TOKENS ||
+            relatedTypeValue in RELATED_PROMOTION_TYPE_VALUES
         val uri = signals.uri.orEmpty().trim().lowercase()
         val param = signals.param.orEmpty().trim().lowercase()
 
         if (signals.hasAdInfo || signals.hasCommercialPayload ||
+            isRelatedPromotionSource ||
+            relatedType in RELATED_COMMERCIAL_TOKENS ||
+            relatedTypeValue in RELATED_COMMERCIAL_TYPE_VALUES ||
             tokens.any(::isAdvertisementToken) || isAdvertisementUri(uri)
         ) add(HostContentKind.ADVERTISEMENT)
 
@@ -60,7 +73,8 @@ internal object HostContentSemanticClassifier {
             uri.startsWith("bilibili://article/")
         ) add(HostContentKind.PICTURE)
 
-        if (tokens.any(::isGameToken) || GAME_ROUTE_MARKERS.any(uri::contains) ||
+        if (relatedTypeValue == RELATED_GAME_TYPE_VALUE ||
+            tokens.any(::isGameToken) || GAME_ROUTE_MARKERS.any(uri::contains) ||
             GAME_ROUTE_MARKERS.any(param::contains) ||
             ((signals.hasAdInfo || signals.hasCommercialPayload) &&
                 GAME_TEXT_MARKERS.any(combinedText(signals)::contains))
@@ -81,7 +95,9 @@ internal object HostContentSemanticClassifier {
 
         if (tokens.any(::isLargeToken)) add(HostContentKind.LARGE)
         if (tokens.any(::isBangumiToken)) add(HostContentKind.BANGUMI)
-        if (tokens.any(::isSpecialToken)) add(HostContentKind.SPECIAL)
+        if (isRelatedPromotionSource || isRelatedPromotionType ||
+            tokens.any(::isSpecialToken)
+        ) add(HostContentKind.SPECIAL)
     }
 
     fun normalizedToken(raw: String?): String? = raw
@@ -160,4 +176,10 @@ internal object HostContentSemanticClassifier {
         "promotion"
     )
     private val GAME_TEXT_MARKERS = listOf("小游戏", "游戏中心", "试玩", "game")
+    private const val RELATED_PROMOTION_SOURCE_TYPE = 2L
+    private val RELATED_PROMOTION_TOKENS = setOf("RESOURCE", "GAME", "CM", "SPECIAL")
+    private val RELATED_PROMOTION_TYPE_VALUES = setOf(3, 4, 5, 10)
+    private val RELATED_COMMERCIAL_TOKENS = setOf("RESOURCE")
+    private val RELATED_COMMERCIAL_TYPE_VALUES = setOf(3, 5)
+    private const val RELATED_GAME_TYPE_VALUE = 4
 }

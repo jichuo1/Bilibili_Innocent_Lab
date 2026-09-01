@@ -128,8 +128,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 41
-    private const val ADAPTER_RULE_VERSION = 33
+    private const val SCHEMA_VERSION = 43
+    private const val ADAPTER_RULE_VERSION = 35
 
     enum class AdaptState {
         FOUND,
@@ -467,12 +467,34 @@ object VersionAdapter {
         }
     }
 
-    /** 视频详情相关推荐响应与类型公开读取边界。 */
+    /** 相关推荐卡片嵌套对象中的来源类型读取链。 */
+    data class SourceTypeMethodChain(
+        val itemGetter: HookPoint,
+        val sourceTypeGetter: HookPoint
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("item", itemGetter.toJson())
+            put("source", sourceTypeGetter.toJson())
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): SourceTypeMethodChain = SourceTypeMethodChain(
+                itemGetter = HookPoint.fromJson(o.getJSONObject("item")),
+                sourceTypeGetter = HookPoint.fromJson(o.getJSONObject("source"))
+            )
+        }
+    }
+
+    /** 视频详情相关推荐响应与直接/嵌套类型公开读取边界。 */
     data class VideoRelatePoints(
         val responseItemGetters: List<HookPoint>,
         val cardCaseGetters: List<HookPoint>,
         val gotoGetters: List<HookPoint>,
         val cardTypeGetters: List<HookPoint>,
+        val relateCardTypeGetters: List<HookPoint>,
+        val fromSourceTypeGetters: List<HookPoint>,
+        val fromSourceTypeChains: List<SourceTypeMethodChain>,
+        val relateCardTypeValueGetters: List<HookPoint>,
         val directDurationGetters: List<HookPoint>,
         val durationChains: List<DurationMethodChain>
     ) {
@@ -481,6 +503,22 @@ object VersionAdapter {
             put("case", JSONArray().apply { cardCaseGetters.forEach { put(it.toJson()) } })
             put("goto", JSONArray().apply { gotoGetters.forEach { put(it.toJson()) } })
             put("type", JSONArray().apply { cardTypeGetters.forEach { put(it.toJson()) } })
+            put(
+                "relate_type",
+                JSONArray().apply { relateCardTypeGetters.forEach { put(it.toJson()) } }
+            )
+            put(
+                "source_type",
+                JSONArray().apply { fromSourceTypeGetters.forEach { put(it.toJson()) } }
+            )
+            put(
+                "source_type_chains",
+                JSONArray().apply { fromSourceTypeChains.forEach { put(it.toJson()) } }
+            )
+            put(
+                "relate_type_value",
+                JSONArray().apply { relateCardTypeValueGetters.forEach { put(it.toJson()) } }
+            )
             put(
                 "direct_duration",
                 JSONArray().apply { directDurationGetters.forEach { put(it.toJson()) } }
@@ -503,6 +541,20 @@ object VersionAdapter {
                     (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
                 },
                 cardTypeGetters = o.getJSONArray("type").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                },
+                relateCardTypeGetters = o.getJSONArray("relate_type").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                },
+                fromSourceTypeGetters = o.getJSONArray("source_type").let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                },
+                fromSourceTypeChains = o.getJSONArray("source_type_chains").let { values ->
+                    (0 until values.length()).map {
+                        SourceTypeMethodChain.fromJson(values.getJSONObject(it))
+                    }
+                },
+                relateCardTypeValueGetters = o.getJSONArray("relate_type_value").let { values ->
                     (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
                 },
                 directDurationGetters = o.optJSONArray("direct_duration")?.let { values ->
@@ -1354,11 +1406,21 @@ object VersionAdapter {
                         value.responseItemGetters.all { it.isValid() } &&
                         (value.cardCaseGetters.isNotEmpty() || value.gotoGetters.isNotEmpty() ||
                             value.cardTypeGetters.isNotEmpty() ||
+                            value.relateCardTypeGetters.isNotEmpty() ||
+                            value.fromSourceTypeGetters.isNotEmpty() ||
+                            value.fromSourceTypeChains.isNotEmpty() ||
+                            value.relateCardTypeValueGetters.isNotEmpty() ||
                             value.directDurationGetters.isNotEmpty() ||
                             value.durationChains.isNotEmpty()) &&
                         value.cardCaseGetters.all { it.isValid() } &&
                         value.gotoGetters.all { it.isValid() } &&
                         value.cardTypeGetters.all { it.isValid() } &&
+                        value.relateCardTypeGetters.all { it.isValid() } &&
+                        value.fromSourceTypeGetters.all { it.isValid() } &&
+                        value.fromSourceTypeChains.all { chain ->
+                            chain.itemGetter.isValid() && chain.sourceTypeGetter.isValid()
+                        } &&
+                        value.relateCardTypeValueGetters.all { it.isValid() } &&
                         value.directDurationGetters.all { it.isValid() } &&
                         value.durationChains.all { chain ->
                             chain.itemGetter.isValid() && chain.durationGetter.isValid()
@@ -2282,6 +2344,19 @@ object VersionAdapter {
             points.cardCaseGetters.forEachIndexed { index, point -> add("relate.case.$index", point) }
             points.gotoGetters.forEachIndexed { index, point -> add("relate.goto.$index", point) }
             points.cardTypeGetters.forEachIndexed { index, point -> add("relate.type.$index", point) }
+            points.relateCardTypeGetters.forEachIndexed { index, point ->
+                add("relate.relate_type.$index", point)
+            }
+            points.fromSourceTypeGetters.forEachIndexed { index, point ->
+                add("relate.source_type.$index", point)
+            }
+            points.fromSourceTypeChains.forEachIndexed { index, chain ->
+                add("relate.source_type_chain.$index.container", chain.itemGetter)
+                add("relate.source_type_chain.$index.value", chain.sourceTypeGetter)
+            }
+            points.relateCardTypeValueGetters.forEachIndexed { index, point ->
+                add("relate.relate_type_value.$index", point)
+            }
             points.directDurationGetters.forEachIndexed { index, point ->
                 add("relate.duration.$index", point)
             }
@@ -2601,7 +2676,10 @@ object VersionAdapter {
                 stateFor(videoRelate != null, videoRelateCandidateExists),
                 videoRelate?.let {
                     "contract=viewunite-relate,responses=${it.responseItemGetters.size},types=" +
-                        (it.cardCaseGetters.size + it.gotoGetters.size + it.cardTypeGetters.size)
+                        (it.cardCaseGetters.size + it.gotoGetters.size +
+                            it.cardTypeGetters.size + it.relateCardTypeGetters.size +
+                            it.fromSourceTypeGetters.size + it.fromSourceTypeChains.size +
+                            it.relateCardTypeValueGetters.size)
                 }.orEmpty()
             ),
             AdaptDiagnostic(
@@ -3160,7 +3238,7 @@ object VersionAdapter {
         )
     }.getOrNull()
 
-    /** 精确定位相关推荐列表以及公开的 cardCase/goto/cardType 类型读取方法。 */
+    /** 精确定位相关推荐列表以及公开的直接/嵌套类型读取方法。 */
     fun locateVideoRelate(loader: ClassLoader): VideoRelatePoints? = runCatching {
         val responses = VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES.asSequence()
             .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
@@ -3170,7 +3248,7 @@ object VersionAdapter {
                     includeSuperclasses = true,
                     makeAccessible = true
                 ) { method ->
-                    method.name in setOf("getCardsList", "getRelatesList") &&
+                    method.name in setOf("getCardsList", "getRelatesList", "getListList") &&
                         method.parameterCount == 0 &&
                         (method.returnType isSubclassOf classOf<List<*>>()) &&
                         !method.isStatic && !method.isAbstract
@@ -3201,9 +3279,48 @@ object VersionAdapter {
             method.isPublic && !method.isStatic &&
             method.returnType == classOf<Long>()
 
+        fun isIntegralMethod(method: Method): Boolean = method.returnType in setOf(
+            classOf<Long>(),
+            classOf<Long>(primitiveType = false),
+            classOf<Int>(),
+            classOf<Int>(primitiveType = false)
+        )
+
         val cases = itemMethods("getCardCase").map { it.toHookPoint() }
         val gotos = itemMethods("getGoto").map { it.toHookPoint() }
         val types = itemMethods("getCardType").map { it.toHookPoint() }
+        val relateTypes = itemMethods("getRelateCardType")
+            .filter { it.returnType.isEnum || it.returnType == classOf<String>() }
+            .map { it.toHookPoint() }
+        val sourceTypes = itemMethods("getFromSourceType")
+            .filter(::isIntegralMethod)
+            .map { it.toHookPoint() }
+        val sourceTypeChains = itemMethods("getBasicInfo")
+            .mapNotNull { itemGetter ->
+                KavaMemberLookup.methods(
+                    itemGetter.returnType,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    method.name == "getFromSourceType" && method.parameterCount == 0 &&
+                        method.isPublic && !method.isStatic && isIntegralMethod(method)
+                }
+                    .distinctBy(Method::toGenericString)
+                    .singleOrNull()
+                    ?.let { sourceTypeGetter ->
+                        SourceTypeMethodChain(
+                            itemGetter = itemGetter.toHookPoint(),
+                            sourceTypeGetter = sourceTypeGetter.toHookPoint()
+                        )
+                    }
+            }
+            .distinctBy { it.itemGetter.label() + "->" + it.sourceTypeGetter.label() }
+        val relateTypeValues = itemMethods("getRelateCardTypeValue")
+            .filter {
+                it.returnType == classOf<Int>() ||
+                    it.returnType == classOf<Int>(primitiveType = false)
+            }
+            .map { it.toHookPoint() }
         val directDurations = itemMethods("getDuration")
             .filter(::isDurationMethod)
             .map { it.toHookPoint() }
@@ -3226,13 +3343,18 @@ object VersionAdapter {
             }
             .distinctBy { it.itemGetter.label() + "->" + it.durationGetter.label() }
         if (cases.isEmpty() && gotos.isEmpty() && types.isEmpty() &&
-            directDurations.isEmpty() && durationChains.isEmpty()
+            relateTypes.isEmpty() && sourceTypes.isEmpty() && sourceTypeChains.isEmpty() &&
+            relateTypeValues.isEmpty() && directDurations.isEmpty() && durationChains.isEmpty()
         ) return@runCatching null
         VideoRelatePoints(
             responseItemGetters = responses,
             cardCaseGetters = cases,
             gotoGetters = gotos,
             cardTypeGetters = types,
+            relateCardTypeGetters = relateTypes,
+            fromSourceTypeGetters = sourceTypes,
+            fromSourceTypeChains = sourceTypeChains,
+            relateCardTypeValueGetters = relateTypeValues,
             directDurationGetters = directDurations,
             durationChains = durationChains
         )
