@@ -130,7 +130,7 @@ object VersionAdapter {
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
     private const val SCHEMA_VERSION = 46
-    private const val ADAPTER_RULE_VERSION = 38
+    private const val ADAPTER_RULE_VERSION = 39
 
     enum class AdaptState {
         FOUND,
@@ -1751,9 +1751,9 @@ object VersionAdapter {
     private const val DYNAMIC_MEDIATOR_TAB_CLASS =
         "com.bilibili.bplus.followinglist.home.mediator.MediatorTabLayout"
     private val BLOCK_UPDATE_OWNER_CANDIDATES = listOf(
-        // 9.9.0 → 9.1.0/9.1.1；再到 8.99.0 → 8.84.0。每个 owner 仍须通过
+        // 9.10.0 → 9.1.0/9.1.1；再到 8.99.0 → 8.84.0。每个 owner 仍须通过
         // 精确 (Context) -> BiliUpgradeInfo 签名和叶子实现筛选，类名存在本身不算命中。
-        "Ro1.c", "Sn1.c", "Wm1.c", "wm1.c", "dl1.c",
+        "Ip1.c", "Ro1.c", "Sn1.c", "Wm1.c", "wm1.c", "dl1.c",
         "Uj1.c", "Ch1.c", "kh1.c", "ih1.c",
         "Xg1.c", "Lg1.c", "Kg1.c", "od1.c", "Sb1.c",
         "xb1.c", "Pa1.c", "si6.c", "oe6.c", "vd6.c",
@@ -1883,9 +1883,9 @@ object VersionAdapter {
     )
     private val PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES = listOf(
         // 新版 dex 可能保留旧混淆类，因此按新→旧探测；每个 owner 内仍要求唯一的
-        // 无参 Int 入口。8.84.0–8.99.0 与 9.1.0–9.9.0 均由
+        // 无参 Int 入口。8.84.0–8.99.0 与 9.1.0–9.10.0 均由
         // "quality settings:" / 画质偏好键的离线方法体语义交叉核验。
-        "Jq1.l", "Kp1.l", "Oo1.i", "oo1.g", "Vm1.i",
+        "Ar1.l", "Jq1.l", "Kp1.l", "Oo1.i", "oo1.g", "Vm1.i",
         "Kl1.j", "tj1.g", "bj1.i", "Zi1.h",
         "Oi1.f", "Ci1.f", "Bi1.f", "Ze1.h", "Dd1.h",
         "hd1.h", "zc1.h", "dm6.h", "zh6.h", "gh6.h",
@@ -3102,7 +3102,7 @@ object VersionAdapter {
     }.getOrNull()
 
     /**
-     * 定位官方客户端更新信息同步入口。候选类来自 8.90.2 与 9.1.0–9.9.0 的离线字符串/
+     * 定位官方客户端更新信息同步入口。候选类来自 8.90.2 与 9.1.0–9.10.0 的离线字符串/
      * 签名交叉验证；运行期仍要求精确的 (Context) -> BiliUpgradeInfo 结构。
      * 8.90.2 同时存在接口桥接 a(Context) 与真实网络实现 c(Context)，优先选择没有被接口
      * 声明的叶子方法；新版本只有一个实现时直接采用唯一候选。

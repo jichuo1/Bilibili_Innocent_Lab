@@ -259,7 +259,7 @@ class HookEntry : XposedModule() {
         private const val MODULE_PACKAGE = "com.Bilibili_Innocent_Lab.xposedmodule"
 
         /**
-         * 标准 LSPosed 只读取 API 102 Remote Preferences 白名单配置。协议会一次性校验目录、
+         * LSPosed 与已通过 NPatch 启动的宿主都只读取 API 102 Remote Preferences 白名单配置。协议会一次性校验目录、
          * 类型、摘要、条款和运行时修订号；失败时不回退到应用私有 prefs，避免把不可读或半更新配置
          * 当作默认值继续安装。读取必须在 attach 同步完成，不能等待 IPC 后延迟补装。
          */
@@ -299,6 +299,10 @@ class HookEntry : XposedModule() {
             rawReason == "not-ready" -> "remote_not_ready"
             rawReason == "schema" -> "remote_schema_mismatch"
             rawReason == "catalog" -> "remote_catalog_mismatch"
+            rawReason == "module-version" || rawReason == "module-version-type" ->
+                "remote_module_version_mismatch"
+            rawReason == "delivery-enabled-type" -> "remote_delivery_state_invalid"
+            rawReason.startsWith("no-root-revision-") -> "remote_no_root_revision_invalid"
             rawReason == "terms-version" -> "remote_terms_version_mismatch"
             rawReason == "terms-decision" -> "remote_terms_decision_invalid"
             rawReason.startsWith("generation-") -> "remote_generation_invalid"

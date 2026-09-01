@@ -811,6 +811,45 @@ class MainActivity : SkinnedActivity() {
         }, "InnocentLab-NoRootSync").apply { isDaemon = true }.start()
     }
 
+    /**
+     * 条款等待页尚未构建主设置树，只能由用户在此显式选择 NPatch 后建立免 Root 意图。
+     * 同步成功会由 Controller 在远端完整读回后推进待接受条款并触发界面重建。
+     */
+    private fun synchronizePendingTermsThroughNoRoot(enableFirst: Boolean) {
+        if (AndroidVersion.isLessThan(AndroidVersion.P)) {
+            toast(getString(R.string.no_root_status_unsupported_os))
+            return
+        }
+        val bridge = runCatching { prefs() }.getOrNull() ?: run {
+            toast(getString(R.string.no_root_enable_failed))
+            return
+        }
+        val appContext = applicationContext
+        if (enableFirst &&
+            !NoRootSupportController.setDesiredEnabled(appContext, enabled = true)
+        ) {
+            toast(getString(R.string.no_root_enable_failed))
+            return
+        }
+        val generation = NoRootSupportController.beginSynchronization(appContext) ?: run {
+            toast(getString(R.string.no_root_enable_failed))
+            return
+        }
+        termsPendingStatusView?.setText(R.string.no_root_status_checking)
+        val activityRef = WeakReference(this)
+        Thread({
+            NoRootSupportController.synchronize(appContext, bridge, generation) {
+                val activity = activityRef.get() ?: return@synchronize
+                activity.runOnUiThread {
+                    if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                    activity.termsAuthorizationSnapshot =
+                        UserTermsAuthorizationCoordinator.snapshot(appContext)
+                    activity.termsAuthorizationSnapshot?.let(activity::renderPendingTermsUi)
+                }
+            }
+        }, "InnocentLab-NoRootTermsSync").apply { isDaemon = true }.start()
+    }
+
     private fun synchronizeNoRootSupportIfEnabled() {
         if (AndroidVersion.isLessThan(AndroidVersion.P) ||
             !NoRootSupportStore.isDesiredEnabled(applicationContext)
@@ -1079,7 +1118,11 @@ class MainActivity : SkinnedActivity() {
                 text = getString(R.string.user_terms_retry_sync),
                 filled = true
             ) {
-                UserTermsAuthorizationCoordinator.retryPendingAcceptance(applicationContext)
+                if (NoRootSupportStore.isDesiredEnabled(applicationContext)) {
+                    synchronizePendingTermsThroughNoRoot(enableFirst = false)
+                } else {
+                    UserTermsAuthorizationCoordinator.retryPendingAcceptance(applicationContext)
+                }
                 termsAuthorizationSnapshot =
                     UserTermsAuthorizationCoordinator.snapshot(applicationContext)
                 termsAuthorizationSnapshot?.let(::renderPendingTermsUi)
@@ -1088,6 +1131,18 @@ class MainActivity : SkinnedActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
+        )
+        container.addView(
+            createTermsActionButton(
+                text = getString(R.string.user_terms_use_npatch_sync),
+                filled = false
+            ) {
+                synchronizePendingTermsThroughNoRoot(enableFirst = true)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (8 * density).toInt() }
         )
         container.addView(
             createTermsActionButton(
@@ -1153,24 +1208,33 @@ class MainActivity : SkinnedActivity() {
     private fun renderPendingTermsUi(snapshot: UserTermsAuthorizationSnapshot) {
         if (!snapshot.consentState.isAcceptancePending) return
         val status = RemoteHookConfigStore.status()
-        termsPendingStatusView?.text = when {
-            snapshot.failureCode == UserTermsAuthorizationCoordinator.FAILURE_LOCAL_WRITE ->
-                getString(R.string.user_terms_pending_local_failed)
-            snapshot.syncState == UserTermsSyncState.SYNCING ->
-                getString(R.string.user_terms_pending_syncing)
-            snapshot.syncState == UserTermsSyncState.WAITING_FOR_SERVICE ->
-                getString(R.string.user_terms_pending_waiting)
-            snapshot.syncState == UserTermsSyncState.UNSUPPORTED ->
-                getString(
-                    R.string.user_terms_pending_unsupported,
-                    status.name.ifBlank { "Xposed" },
-                    status.apiVersion
-                )
-            snapshot.syncState == UserTermsSyncState.FAILED ->
-                getString(R.string.user_terms_pending_failed)
-            else -> getString(R.string.user_terms_pending_syncing)
+        val noRootDesired = NoRootSupportStore.isDesiredEnabled(applicationContext)
+        termsPendingStatusView?.text = if (noRootDesired) {
+            getString(noRootStatusText(currentNoRootDisplayState()))
+        } else {
+            when {
+                snapshot.failureCode == UserTermsAuthorizationCoordinator.FAILURE_LOCAL_WRITE ->
+                    getString(R.string.user_terms_pending_local_failed)
+                snapshot.syncState == UserTermsSyncState.SYNCING ->
+                    getString(R.string.user_terms_pending_syncing)
+                snapshot.syncState == UserTermsSyncState.WAITING_FOR_SERVICE ->
+                    getString(R.string.user_terms_pending_waiting)
+                snapshot.syncState == UserTermsSyncState.UNSUPPORTED ->
+                    getString(
+                        R.string.user_terms_pending_unsupported,
+                        status.name.ifBlank { "Xposed" },
+                        status.apiVersion
+                    )
+                snapshot.syncState == UserTermsSyncState.FAILED ->
+                    getString(R.string.user_terms_pending_failed)
+                else -> getString(R.string.user_terms_pending_syncing)
+            }
         }
-        updateTermsManagerLauncher(status)
+        if (noRootDesired) {
+            termsManagerLauncher?.isVisible = false
+        } else {
+            updateTermsManagerLauncher(status)
+        }
         renderTermsGateDiagnostics()
     }
 

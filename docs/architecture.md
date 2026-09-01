@@ -59,8 +59,10 @@ cross-process mirrors, constructing the settings hierarchy, or starting update
 checks. An undecided user sees the scrollable terms gate; a declined user sees
 only a locked page with exit and review actions. Accept first commits private,
 non-authorizing pending metadata while retaining the previous decision. The
-existing single-thread API 102 publisher then publishes `ACCEPTED`; only a full
-Remote Preferences read-back promotes the private decision and clears pending.
+existing single-thread API 102 publisher then publishes `ACCEPTED`; the pending
+page also offers an explicit NPatch path for environments without a framework
+service. Both paths promote the private decision and clear pending only after a
+full Remote Preferences read-back.
 If the service is absent, the pending gate remains locked and resumes on service
 bind without asking the user to accept again. Decline continues to invalidate a
 pending accept, confirm the remote closed decision, and only then commit the
@@ -77,15 +79,18 @@ weaken the authorization gate.
 immediately when the decision is unauthorized, so an internal Activity launch
 or restored Activity stack cannot bypass the gate.
 
-API 102-capable frameworks use one authorization bootstrap. The module app
+API 102-capable frameworks use one authorization bootstrap. The standard path
 publishes a strictly allowlisted `hook_config` Remote Preferences group through
-`XposedService`; Bilibili reads that group synchronously in
+`XposedService`; the explicitly enabled NPatch path obtains `IXposedService`
+through `getRemoteService` with `modulePackageName` and publishes the same exact
+document. Bilibili reads that group synchronously in
 `Application.attach.before` and installs the complete Hook chain in the same
 ordering window. The host never opens the module app's private files and never
 falls back to Provider, ordered broadcast, or a legacy preference bridge.
-Schema, catalog, exact key set, value types/ranges, generation, terms decision
-and SHA-256 digest must all validate before either authorization or feature
-settings are consumed. Missing, partial, corrupt, or service-unavailable state
+Schema, catalog, exact key set, value types/ranges, generation, module version,
+delivery state, NPatch revision, terms decision and SHA-256 digest must all
+validate before either authorization or feature settings are consumed. Missing,
+partial, corrupt, stale-version, disabled-delivery, or service-unavailable state
 disables every feature. Pending terms metadata is private and additive; it is
 not a fifth wire decision, is excluded from backup, and never changes the
 Remote Preferences exact key set or digest.
@@ -111,7 +116,8 @@ the settings UI and backup system. `RemoteHookConfigStore` resolves every
 catalog record to its effective value and writes only the `hook_config` Remote
 Preferences group. The allowlist additionally contains the free-copy revision
 and adapter-reset timestamp. Metadata records schema, catalog, generation,
-terms version/decision, readiness and a canonical SHA-256 digest. Arbitrary
+module version, delivery state, NPatch revision, terms version/decision,
+readiness and a canonical SHA-256 digest. Arbitrary
 preferences, credentials, update throttles, UI state, language, skin state and
 framework operational data cannot enter this group.
 
@@ -122,6 +128,14 @@ values retain their generation and avoid another write. Each host process reads
 the group once, validates the exact document and converts it into an immutable
 `SnapshotHookConfigSource`; bind, scroll, draw and Hook callbacks perform no
 cross-process preference I/O.
+
+NPatch publication keeps the same read-update-read-back rule and never asks the
+host to call the module Provider. A disabled NPatch intent is represented by a
+newer complete document with `deliveryEnabled=false`, not by a partial delete or
+an app-private tombstone. Provider rejection, a dead or wrong-descriptor Binder,
+read-only storage, timeout, or read-back mismatch records a bounded failure and
+leaves the host fail-closed. The setting switch controls only this configuration
+delivery; it cannot disable native injection already embedded by NPatch.
 
 Accepting terms commits the private authoritative decision and then publishes
 an authorized configuration; publication failure rolls the private decision

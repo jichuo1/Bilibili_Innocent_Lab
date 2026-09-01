@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.settings.remote
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.modulePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
 import io.github.libxposed.service.XposedService
@@ -230,6 +231,9 @@ internal object RemoteHookConfigStore {
             val preferences = activeService.getRemotePreferences(RemoteHookConfigContract.GROUP)
             val current = RemoteHookConfigContract.decode(preferences.all)
             if (current is RemoteHookConfigDecodeResult.Ready &&
+                current.snapshot.moduleVersionCode == BuildConfig.VERSION_CODE.toLong() &&
+                current.snapshot.deliveryEnabled &&
+                current.snapshot.noRootRevision == 0L &&
                 current.snapshot.decision == decision &&
                 current.snapshot.values == values
             ) {
@@ -244,7 +248,14 @@ internal object RemoteHookConfigStore {
                 System.currentTimeMillis().coerceAtLeast(1L),
                 previousGeneration.nextGeneration()
             )
-            val encoded = RemoteHookConfigContract.encode(generation, decision, values)
+            val encoded = RemoteHookConfigContract.encode(
+                generation = generation,
+                moduleVersionCode = BuildConfig.VERSION_CODE.toLong(),
+                deliveryEnabled = true,
+                noRootRevision = 0L,
+                decision = decision,
+                values = values
+            )
             val editor = preferences.edit().clear()
             encoded.forEach { (key, value) ->
                 when (value) {
@@ -263,6 +274,15 @@ internal object RemoteHookConfigStore {
             }
             check(readBack.snapshot.generation == generation) {
                 "remote generation read-back mismatch"
+            }
+            check(readBack.snapshot.moduleVersionCode == BuildConfig.VERSION_CODE.toLong()) {
+                "remote module version read-back mismatch"
+            }
+            check(readBack.snapshot.deliveryEnabled) {
+                "remote delivery state read-back mismatch"
+            }
+            check(readBack.snapshot.noRootRevision == 0L) {
+                "remote no-root revision read-back mismatch"
             }
             check(readBack.snapshot.decision == decision) {
                 "remote decision read-back mismatch"
