@@ -40,11 +40,19 @@ internal class CommentFilterFeatureInstaller(
                 ?: return missing(environment, "missing-content-getter"),
             message = resolve(environment, "message", adapted.messageGetter)
                 ?: return missing(environment, "missing-message-getter"),
-            member = resolve(environment, "member", adapted.memberGetter)
-                ?: return missing(environment, "missing-member-getter"),
-            level = resolve(environment, "level", adapted.levelGetter)
-                ?: return missing(environment, "missing-level-getter")
+            member = adapted.memberGetter?.let { resolve(environment, "member", it) },
+            level = adapted.levelGetter?.let { resolve(environment, "level", it) },
+            memberV2 = adapted.memberV2Getter?.let {
+                resolve(environment, "member_v2", it)
+            },
+            memberV2Basic = adapted.memberV2BasicGetter?.let {
+                resolve(environment, "member_v2_basic", it)
+            },
+            memberV2Level = adapted.memberV2LevelGetter?.let {
+                resolve(environment, "member_v2_level", it)
+            }
         )
+        if (!accessors.hasLevelPath) return missing(environment, "missing-level-getter")
 
         var installed = 0
         adapted.replyListGetters.forEachIndexed { index, point ->
@@ -53,10 +61,18 @@ internal class CommentFilterFeatureInstaller(
                     after {
                         val source = result as? List<*> ?: return@after
                         if (source.isEmpty()) return@after
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         val filtered = filterComments(source) { reply ->
                             shouldRemove(readSignals(reply, accessors), keywords, minimumLevel)
                         }
-                        if (filtered !== source) result = filtered
+                        if (filtered !== source) {
+                            result = filtered
+                            environment.reportRuntimeEvidence(
+                                ID,
+                                FeatureRuntimeStage.APPLIED,
+                                source.size - filtered.size
+                            )
+                        }
                     }
                 }
                 installed += 1
@@ -68,11 +84,46 @@ internal class CommentFilterFeatureInstaller(
                 )
             }
         }
+
+        val defaultReply = adapted.replyDefaultInstanceGetter?.let { point ->
+            resolve(environment, "reply_default", point)?.let { getter ->
+                runCatching { getter.invoke(null) }.getOrNull()
+            }
+        }
+        if (defaultReply != null) {
+            adapted.topReplyGetters.forEachIndexed { index, point ->
+                runCatching {
+                    environment.registrar.adapted("comment.filter.top.$index", point) {
+                        after {
+                            val reply = result ?: return@after
+                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                            if (shouldRemove(readSignals(reply, accessors), keywords, minimumLevel)) {
+                                result = defaultReply
+                                environment.reportRuntimeEvidence(
+                                    ID,
+                                    FeatureRuntimeStage.APPLIED
+                                )
+                            }
+                        }
+                    }
+                    installed += 1
+                }.onFailure { throwable ->
+                    environment.logError(
+                        "comment_filter_top_$index",
+                        "[BIL] 置顶评论过滤 Hook 注册失败(" +
+                            "${point.className}#${point.methodName}): $throwable"
+                    )
+                }
+            }
+        }
         if (installed == 0) return missing(environment, "registration-failed")
-        val status = if (installed == adapted.replyListGetters.size) {
+        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
+        val expected = adapted.replyListGetters.size +
+            if (defaultReply == null) 0 else adapted.topReplyGetters.size
+        val status = if (installed == expected) {
             "success"
         } else {
-            "partial:$installed/${adapted.replyListGetters.size}"
+            "partial:$installed/$expected"
         }
         environment.reportStatus(CHANNEL_STATUS, status)
         if (status == "success") {
@@ -92,14 +143,22 @@ internal class CommentFilterFeatureInstaller(
     private fun readSignals(reply: Any, accessors: Accessors): Signals {
         val content = invokeCompatible(accessors.content, reply)
         val member = invokeCompatible(accessors.member, reply)
+        val legacyLevel = (invokeCompatible(accessors.level, member) as? Number)?.toInt()
+        val memberV2 = invokeCompatible(accessors.memberV2, reply)
+        val memberV2Basic = invokeCompatible(accessors.memberV2Basic, memberV2)
         return Signals(
             message = invokeCompatible(accessors.message, content)?.toString(),
-            level = (invokeCompatible(accessors.level, member) as? Number)?.toInt()
+            level = legacyLevel ?: (invokeCompatible(
+                accessors.memberV2Level,
+                memberV2Basic
+            ) as? Number)?.toInt()
         )
     }
 
-    private fun invokeCompatible(method: Method, target: Any?): Any? {
-        if (target == null || !method.declaringClass.isInstance(target)) return null
+    private fun invokeCompatible(method: Method?, target: Any?): Any? {
+        if (method == null || target == null || !method.declaringClass.isInstance(target)) {
+            return null
+        }
         return runCatching { method.invoke(target) }.getOrNull()
     }
 
@@ -134,9 +193,16 @@ internal class CommentFilterFeatureInstaller(
     private data class Accessors(
         val content: Method,
         val message: Method,
-        val member: Method,
-        val level: Method
-    )
+        val member: Method?,
+        val level: Method?,
+        val memberV2: Method?,
+        val memberV2Basic: Method?,
+        val memberV2Level: Method?
+    ) {
+        val hasLevelPath: Boolean
+            get() = (member != null && level != null) ||
+                (memberV2 != null && memberV2Basic != null && memberV2Level != null)
+    }
 
     companion object {
         const val ID = "comment_filter"

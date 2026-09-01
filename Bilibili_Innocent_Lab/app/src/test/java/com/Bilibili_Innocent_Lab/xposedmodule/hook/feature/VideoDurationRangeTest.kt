@@ -68,6 +68,32 @@ class VideoDurationRangeTest {
     }
 
     @Test
+    fun `home container reader prefers getter and falls back to annotated field`() {
+        val containerGetter = HomeItem::class.java.getMethod("getPlayerArgs")
+        val durationGetter = PlayerArgs::class.java.getMethod("getDuration")
+        val durationField = PlayerArgs::class.java.getField("duration")
+
+        assertEquals(
+            120L,
+            VideoDurationReader.fromContainer(
+                HomeItem(PlayerArgs(duration = 90, getterDuration = 120)),
+                containerGetter,
+                durationGetter,
+                durationField
+            )
+        )
+        assertEquals(
+            90L,
+            VideoDurationReader.fromContainer(
+                HomeItem(PlayerArgs(duration = 90, getterDuration = 0)),
+                containerGetter,
+                durationGetter,
+                durationField
+            )
+        )
+    }
+
+    @Test
     fun `detail reader supports direct and explicit nested duration methods`() {
         val direct = OldRelate::class.java.getMethod("getDuration")
         val itemGetter = NewRelate::class.java.getMethod("getAv")
@@ -86,7 +112,12 @@ class VideoDurationRangeTest {
         fun getPlayerArgs(): PlayerArgs = playerArgs
     }
 
-    private class PlayerArgs(@JvmField val duration: Int)
+    private class PlayerArgs(
+        @JvmField val duration: Int,
+        private val getterDuration: Int = duration
+    ) {
+        fun getDuration(): Int = getterDuration
+    }
 
     private class OldRelate(private val duration: Long) {
         fun getDuration(): Long = duration

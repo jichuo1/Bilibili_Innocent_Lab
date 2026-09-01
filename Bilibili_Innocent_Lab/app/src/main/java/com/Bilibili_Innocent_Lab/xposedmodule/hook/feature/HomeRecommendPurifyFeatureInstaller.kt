@@ -58,9 +58,11 @@ internal class HomeRecommendPurifyFeatureInstaller(
                 ?: return missing(environment, "missing-holder-getter"),
             bizType = resolveOptional(environment, "biz", adapted.bizTypeGetter),
             adInfo = resolveOptional(environment, "ad_info", adapted.adInfoGetter),
+            cardType = resolveOptional(environment, "card_type", adapted.cardTypeGetter),
             cardGoto = resolveOptional(environment, "card_goto", adapted.cardGotoGetter),
             goTo = resolveOptional(environment, "goto", adapted.goToGetter),
             uri = resolveOptional(environment, "uri", adapted.uriGetter),
+            param = resolveOptional(environment, "param", adapted.paramGetter),
             title = resolveOptional(environment, "title", adapted.titleGetter),
             subtitle = resolveOptional(environment, "subtitle", adapted.subtitleGetter),
             desc = resolveOptional(environment, "desc", adapted.descGetter),
@@ -82,11 +84,17 @@ internal class HomeRecommendPurifyFeatureInstaller(
                 environment.registrar.adapted("home.recommend.purify.$index", point) {
                     after {
                         val source = result as? List<*> ?: return@after
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         val filtered = CopyOnFilter.list(source) { item ->
                             shouldRemove(signals(item, accessors))
                         }
                         if (filtered !== source) {
                             result = filtered
+                            environment.reportRuntimeEvidence(
+                                ID,
+                                FeatureRuntimeStage.APPLIED,
+                                source.size - filtered.size
+                            )
                             environment.logInfo(
                                 "home_recommend_removed",
                                 "[BIL] 首页推荐服务端数据已过滤 ${source.size - filtered.size} 项"
@@ -104,6 +112,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
             }
         }
         if (installed == 0) return missing(environment, "registration-failed")
+        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.reportStatus(
             CHANNEL_STATUS,
             partialReason?.let { "partial:$it" } ?: "success"
@@ -116,20 +125,23 @@ internal class HomeRecommendPurifyFeatureInstaller(
         return FeatureInstallResult.Installed(installed)
     }
 
-    private fun shouldRemove(signals: Signals): Boolean =
-        (removeAds && isAdvertisement(signals)) ||
-            (removePictures && isPicture(signals)) ||
-            (removeGamePromotions && isGamePromotion(signals)) ||
+    private fun shouldRemove(signals: Signals): Boolean {
+        val kinds = HostContentSemanticClassifier.classify(signals.toHostSignals())
+        return (removeAds && HostContentKind.ADVERTISEMENT in kinds) ||
+            (removePictures && HostContentKind.PICTURE in kinds) ||
+            (removeGamePromotions && HostContentKind.GAME in kinds) ||
             RuleSetCodec.matches(titleKeywords, signals.title) ||
-            (removeLive && isLive(signals)) ||
-            (removeCourses && isCourse(signals)) ||
-            (removeVertical && isVertical(signals)) ||
-            (removeLarge && isLarge(signals)) ||
+            (removeLive && HostContentKind.LIVE in kinds) ||
+            (removeCourses && HostContentKind.COURSE in kinds) ||
+            (removeVertical && HostContentKind.VERTICAL in kinds) ||
+            (removeLarge && HostContentKind.LARGE in kinds) ||
             durationRange.shouldRemove(signals.durationSeconds)
+    }
 
     private fun signals(item: Any, accessors: Accessors): Signals {
         val needsRoute = removePictures || removeGamePromotions || removeLive ||
             removeCourses || removeVertical || removeLarge
+        val needsClassification = removeAds || needsRoute
         return Signals(
             holderType = if (removeAds || removeLarge) {
                 invokeString(accessors.holderType, item)
@@ -137,6 +149,9 @@ internal class HomeRecommendPurifyFeatureInstaller(
                 null
             },
             bizType = if (removeAds) invokeString(accessors.bizType, item) else null,
+            cardType = if (needsClassification) {
+                invokeString(accessors.cardType, item)
+            } else null,
             cardGoto = if (removeAds || needsRoute) {
                 invokeString(accessors.cardGoto, item)
             } else {
@@ -144,6 +159,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
             },
             goTo = if (needsRoute) invokeString(accessors.goTo, item) else null,
             uri = if (needsRoute) invokeString(accessors.uri, item) else null,
+            param = if (removeGamePromotions) invokeString(accessors.param, item) else null,
             title = if (titleKeywords.isNotEmpty() || removeGamePromotions) {
                 invokeString(accessors.title, item)
             } else {
@@ -155,9 +171,10 @@ internal class HomeRecommendPurifyFeatureInstaller(
                 invokeCompatible(accessors.adInfo, item) != null,
             durationSeconds = if (durationRange.isEnabled) {
                 accessors.duration?.let { duration ->
-                    VideoDurationReader.fromField(
+                    VideoDurationReader.fromContainer(
                         item,
                         duration.playerArgsGetter,
+                        duration.durationGetter,
                         duration.durationField
                     )
                 }
@@ -173,14 +190,19 @@ internal class HomeRecommendPurifyFeatureInstaller(
     ): DurationAccessor? {
         if (!durationRange.isEnabled) return null
         val getterPoint = points.playerArgsGetter ?: return null
-        val fieldName = points.playerArgsDurationField ?: return null
         val getter = resolve(environment, "player_args", getterPoint) ?: return null
-        val field = environment.hookPoints.resolveField(
-            "home.recommend.resolve.player_args_duration",
-            getter.returnType,
-            fieldName
-        ) ?: return null
-        return DurationAccessor(getter, field)
+        val durationGetter = points.playerArgsDurationGetter?.let { point ->
+            resolve(environment, "player_args_duration", point)
+        }
+        val durationField = points.playerArgsDurationField?.let { fieldName ->
+            environment.hookPoints.resolveField(
+                "home.recommend.resolve.player_args_duration_field",
+                getter.returnType,
+                fieldName
+            )
+        }
+        if (durationGetter == null && durationField == null) return null
+        return DurationAccessor(getter, durationGetter, durationField)
     }
 
     private fun resolveOptional(
@@ -223,9 +245,11 @@ internal class HomeRecommendPurifyFeatureInstaller(
     internal data class Signals(
         val holderType: String? = null,
         val bizType: String? = null,
+        val cardType: String? = null,
         val cardGoto: String? = null,
         val goTo: String? = null,
         val uri: String? = null,
+        val param: String? = null,
         val title: String? = null,
         val subtitle: String? = null,
         val desc: String? = null,
@@ -237,9 +261,11 @@ internal class HomeRecommendPurifyFeatureInstaller(
         val holderType: Method,
         val bizType: Method?,
         val adInfo: Method?,
+        val cardType: Method?,
         val cardGoto: Method?,
         val goTo: Method?,
         val uri: Method?,
+        val param: Method?,
         val title: Method?,
         val subtitle: Method?,
         val desc: Method?,
@@ -248,7 +274,8 @@ internal class HomeRecommendPurifyFeatureInstaller(
 
     private data class DurationAccessor(
         val playerArgsGetter: Method,
-        val durationField: Field
+        val durationGetter: Method?,
+        val durationField: Field?
     )
 
     companion object {
@@ -257,62 +284,42 @@ internal class HomeRecommendPurifyFeatureInstaller(
         private const val CHANNEL_STATUS = "home_recommend_purify_status"
 
         internal fun isAdvertisement(value: Signals): Boolean {
-            val holder = value.holderType.orEmpty().lowercase()
-            val biz = value.bizType.orEmpty()
-            val cardGoto = value.cardGoto.orEmpty().lowercase()
-            return value.hasAdInfo || biz.equals("AD", ignoreCase = true) ||
-                holder == "banner_v8" || holder.startsWith("cm_v2") ||
-                cardGoto.startsWith("ad_")
+            return HostContentKind.ADVERTISEMENT in
+                HostContentSemanticClassifier.classify(value.toHostSignals())
         }
 
         internal fun isPicture(value: Signals): Boolean =
-            value.cardGoto.equals("picture", ignoreCase = true) ||
-                value.goTo.equals("picture", ignoreCase = true) ||
-                value.uri?.startsWith("bilibili://opus/", ignoreCase = true) == true
+            HostContentKind.PICTURE in HostContentSemanticClassifier.classify(
+                value.toHostSignals()
+            )
 
-        internal fun isGamePromotion(value: Signals): Boolean {
-            val route = listOf(value.cardGoto, value.goTo, value.uri)
-                .joinToString(" ")
-                .lowercase()
-            if (GAME_ROUTE_MARKERS.any(route::contains)) return true
-            if (!value.hasAdInfo) return false
-            val text = listOf(value.title, value.subtitle, value.desc)
-                .joinToString(" ")
-                .lowercase()
-            return GAME_TEXT_MARKERS.any(text::contains)
-        }
+        internal fun isGamePromotion(value: Signals): Boolean =
+            HostContentKind.GAME in HostContentSemanticClassifier.classify(value.toHostSignals())
 
         internal fun isLive(value: Signals): Boolean =
-            value.cardGoto.equals("live", ignoreCase = true) ||
-                value.goTo.equals("live", ignoreCase = true) ||
-                value.uri?.contains("live.bilibili.com/", ignoreCase = true) == true ||
-                value.uri?.startsWith("bilibili://live/", ignoreCase = true) == true
+            HostContentKind.LIVE in HostContentSemanticClassifier.classify(value.toHostSignals())
 
         internal fun isCourse(value: Signals): Boolean =
-            value.cardGoto.equals("ketang", ignoreCase = true) ||
-                value.goTo.equals("ketang", ignoreCase = true) ||
-                value.cardGoto.equals("cheese", ignoreCase = true) ||
-                value.goTo.equals("cheese", ignoreCase = true) ||
-                value.uri?.contains("/cheese/play/", ignoreCase = true) == true
+            HostContentKind.COURSE in HostContentSemanticClassifier.classify(value.toHostSignals())
 
         internal fun isVertical(value: Signals): Boolean =
-            value.cardGoto.equals("vertical_av", ignoreCase = true) ||
-                value.goTo.equals("vertical_av", ignoreCase = true) ||
-                value.uri?.startsWith("bilibili://story/", ignoreCase = true) == true
+            HostContentKind.VERTICAL in HostContentSemanticClassifier.classify(value.toHostSignals())
 
-        internal fun isLarge(value: Signals): Boolean {
-            val holder = value.holderType.orEmpty()
-            return holder.startsWith("large_cover", ignoreCase = true)
-        }
+        internal fun isLarge(value: Signals): Boolean =
+            HostContentKind.LARGE in HostContentSemanticClassifier.classify(value.toHostSignals())
 
-        private val GAME_ROUTE_MARKERS = listOf(
-            "game_center",
-            "mini_game",
-            "h5_game",
-            "biligame",
-            "game.bilibili",
-            "promotion"
+        private fun Signals.toHostSignals(): HostContentSignals = HostContentSignals(
+            holderType = holderType,
+            bizType = bizType,
+            cardType = cardType,
+            cardGoto = cardGoto,
+            goTo = goTo,
+            uri = uri,
+            param = param,
+            title = title,
+            subtitle = subtitle,
+            desc = desc,
+            hasAdInfo = hasAdInfo
         )
-        private val GAME_TEXT_MARKERS = listOf("小游戏", "游戏中心", "试玩", "game")
     }
 }

@@ -4,6 +4,7 @@ import com.bilibili.app.comm.list.common.api.model.PlayerArgs;
 
 public class BasePegasusData {
     public String getBizType() { return "UGC"; }
+    public String getCardType() { return "CARD_TYPE_AV"; }
     public Object getAdInfo() { return null; }
     public String getCardGoto() { return "av"; }
     public String getGoTo() { return "av"; }

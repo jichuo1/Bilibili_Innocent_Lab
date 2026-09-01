@@ -81,11 +81,10 @@ internal class VideoRelateFilterFeatureInstaller(
                 environment.registrar.adapted("video.relate.response.$index", point) {
                     after {
                         val source = result as? List<*> ?: return@after
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         val filtered = CopyOnFilter.list(source) { item ->
                             val typeMatched = if (normalizedHidden.isNotEmpty()) {
-                                extractType(item, typeMethods)?.let { type ->
-                                    normalizeType(type) in normalizedHidden
-                                } == true
+                                matchesAnyType(extractTypes(item, typeMethods), normalizedHidden)
                             } else {
                                 false
                             }
@@ -95,6 +94,11 @@ internal class VideoRelateFilterFeatureInstaller(
                         }
                         if (filtered !== source) {
                             result = filtered
+                            environment.reportRuntimeEvidence(
+                                ID,
+                                FeatureRuntimeStage.APPLIED,
+                                source.size - filtered.size
+                            )
                             environment.logInfo(
                                 "video_relate_removed",
                                 "[BIL] 视频相关推荐过滤已移除 " +
@@ -113,6 +117,7 @@ internal class VideoRelateFilterFeatureInstaller(
             }
         }
         if (installed == 0) return missing(environment, "registration-failed")
+        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.reportStatus(
             CHANNEL_STATUS,
             partialReason?.let { "partial:$it" } ?: "success"
@@ -146,15 +151,14 @@ internal class VideoRelateFilterFeatureInstaller(
         return VideoDurationReader.buildMethodPaths(direct, chains)
     }
 
-    private fun extractType(item: Any, methods: List<Method>): String? {
+    private fun extractTypes(item: Any, methods: List<Method>): Set<String> = buildSet {
         methods.forEach { method ->
             if (!method.declaringClass.isInstance(item)) return@forEach
             val raw = runCatching { method.invoke(item) }.getOrNull() ?: return@forEach
             val value = (raw as? Enum<*>)?.name ?: raw.toString()
             val normalized = normalizeType(value)
-            if (normalized.isNotBlank() && normalized !in UNKNOWN_TYPES) return normalized
+            if (normalized.isNotBlank() && normalized !in UNKNOWN_TYPES) add(normalized)
         }
-        return null
     }
 
     private fun resolve(
@@ -186,10 +190,24 @@ internal class VideoRelateFilterFeatureInstaller(
         private const val CHANNEL_STATUS = "video_relate_filter_status"
         private val UNKNOWN_TYPES = setOf("UNKNOWN", "CARD_NOT_SET")
 
-        internal fun normalizeType(raw: String): String = raw.trim().uppercase()
-            .removePrefix("CARD_TYPE_")
+        internal fun normalizeType(raw: String): String =
+            HostContentSemanticClassifier.normalizedToken(raw).orEmpty()
+
+        internal fun matchesAnyType(types: Set<String>, hiddenTypes: Set<String>): Boolean {
+            if (types.isEmpty() || hiddenTypes.isEmpty()) return false
+            val normalizedHidden = hiddenTypes.mapTo(linkedSetOf(), ::normalizeType)
+            if (types.any { normalizeType(it) in normalizedHidden }) return true
+            val kinds = types.flatMapTo(linkedSetOf()) { type ->
+                HostContentSemanticClassifier.classify(
+                    HostContentSignals(cardCase = type, cardType = type, goTo = type)
+                )
+            }
+            return normalizedHidden.any { hidden ->
+                HostContentSemanticClassifier.hiddenKind(hidden)?.let(kinds::contains) == true
+            }
+        }
 
         internal fun shouldRemove(type: String?, hiddenTypes: Set<String>): Boolean =
-            type != null && hiddenTypes.any { normalizeType(it) == normalizeType(type) }
+            type != null && matchesAnyType(setOf(type), hiddenTypes)
     }
 }

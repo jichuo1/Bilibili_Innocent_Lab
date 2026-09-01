@@ -41,6 +41,7 @@ internal class MineComponentFilterFeatureInstaller(
             if (legacy is FeatureInstallResult.Installed) installed += legacy.hookCount
         }
         if (installed == 0) return missing(environment, "registration-failed")
+        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         val mode = if (hasHiddenConfiguration()) "filter+scan" else "scan"
         environment.reportStatus(CHANNEL_STATUS, "success:$mode")
         return FeatureInstallResult.Installed(installed)
@@ -99,6 +100,7 @@ internal class MineComponentFilterFeatureInstaller(
                     before {
                         val accountMine = args.getOrNull(1) ?: return@before
                         if (!accountMineClass.isInstance(accountMine)) return@before
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         pruneAccountMine(
                             accountMine = accountMine,
                             sectionsField = sectionsField,
@@ -248,6 +250,11 @@ internal class MineComponentFilterFeatureInstaller(
                 entries = entries
             )
             if (changed) {
+                environment.reportRuntimeEvidence(
+                    ID,
+                    FeatureRuntimeStage.APPLIED,
+                    (itemHidden + groupHidden).coerceAtLeast(1)
+                )
                 environment.logInfo(
                     "mine_account_mine_hit",
                     "[BIL] 已按数据层剪枝隐藏“我的”页组件 item=$itemHidden group=$groupHidden"
@@ -277,6 +284,7 @@ internal class MineComponentFilterFeatureInstaller(
                 environment.registrar.adapted("mine.components.list.$index", point) {
                     after {
                         val source = result as? List<*> ?: return@after
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         val scanned = ArrayList<MineComponentScanEntry>()
                         val filtered = CopyOnFilter.list(source) { item ->
                             val title = invokeString(item, titleMethods)
@@ -302,7 +310,14 @@ internal class MineComponentFilterFeatureInstaller(
                             selectable = false
                         )?.let(scanned::add)
                         snapshots.merge(setOf("item_filter"), scanned)
-                        if (filtered !== source) result = filtered
+                        if (filtered !== source) {
+                            result = filtered
+                            environment.reportRuntimeEvidence(
+                                ID,
+                                FeatureRuntimeStage.APPLIED,
+                                source.size - filtered.size
+                            )
+                        }
                     }
                 }
                 installed += 1
@@ -357,6 +372,7 @@ internal class MineComponentFilterFeatureInstaller(
                 environment.registrar.adapted("mine.components.legacy.$index", point) {
                     after {
                         val fragment = instance ?: return@after
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         val groups = runCatching { groupListField.get(fragment) as? List<*> }
                             .getOrNull() ?: return@after
                         val scanned = ArrayList<MineComponentScanEntry>()
@@ -389,6 +405,10 @@ internal class MineComponentFilterFeatureInstaller(
                         if (changed) runCatching {
                             adapterField?.get(fragment)?.let { notifyChanged?.invoke(it) }
                         }
+                        if (changed) environment.reportRuntimeEvidence(
+                            ID,
+                            FeatureRuntimeStage.APPLIED
+                        )
                     }
                 }
                 installed += 1

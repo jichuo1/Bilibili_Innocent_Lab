@@ -33,9 +33,15 @@
         android:name="${applicationId}.permission.QUERY_MINE_COMPONENT_SNAPSHOT"
         android:protectionLevel="signature" />
 
+    <!-- 仅模块 App 可以向 B 站主进程查询不含业务数据的运行时诊断回执。 -->
+    <permission
+        android:name="${applicationId}.permission.QUERY_HOST_RUNTIME_DIAGNOSTICS"
+        android:protectionLevel="signature" />
+
     <uses-permission android:name="${applicationId}.permission.SET_ROAMING_COMPAT" />
     <uses-permission android:name="${applicationId}.permission.SET_UI_LOCALE" />
     <uses-permission android:name="${applicationId}.permission.QUERY_MINE_COMPONENT_SNAPSHOT" />
+    <uses-permission android:name="${applicationId}.permission.QUERY_HOST_RUNTIME_DIAGNOSTICS" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
 

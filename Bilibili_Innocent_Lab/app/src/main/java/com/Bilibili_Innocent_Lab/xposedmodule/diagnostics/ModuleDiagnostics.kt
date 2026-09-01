@@ -11,7 +11,9 @@ internal enum class DiagnosticSeverity {
 internal enum class DiagnosticEvidence {
     CONFIGURED,
     PUBLISHED,
+    ADAPTED,
     OBSERVED,
+    APPLIED,
     NOT_AVAILABLE
 }
 
@@ -89,12 +91,23 @@ internal data class ModuleDiagnosticInputs(
     val settingsAutomaticCount: Int,
     val settingsManualCount: Int,
     val loggingEnabled: Boolean,
-    val verboseLogging: Boolean
+    val verboseLogging: Boolean,
+    val hostRuntimeReceiptAvailable: Boolean = false,
+    val hostRuntimeCapturedAtEpochMs: Long = 0L,
+    val hostAdaptedFeatureCount: Int = 0,
+    val hostObservedFeatureCount: Int = 0,
+    val hostAppliedFeatureCount: Int = 0,
+    val hostFeatures: List<DiagnosticHostFeature> = emptyList()
 )
 
 internal data class DiagnosticItem(
     val id: DiagnosticItemId,
     val severity: DiagnosticSeverity,
+    val evidence: DiagnosticEvidence
+)
+
+internal data class DiagnosticHostFeature(
+    val featureId: String,
     val evidence: DiagnosticEvidence
 )
 
@@ -169,8 +182,18 @@ internal object ModuleHealthEvaluator {
             ),
             DiagnosticItem(
                 DiagnosticItemId.HOST_ADAPTATION,
-                DiagnosticSeverity.UNKNOWN,
-                DiagnosticEvidence.NOT_AVAILABLE
+                when {
+                    !inputs.hostRuntimeReceiptAvailable -> DiagnosticSeverity.UNKNOWN
+                    inputs.hostAdaptedFeatureCount > 0 -> DiagnosticSeverity.OK
+                    else -> DiagnosticSeverity.INFO
+                },
+                when {
+                    !inputs.hostRuntimeReceiptAvailable -> DiagnosticEvidence.NOT_AVAILABLE
+                    inputs.hostAppliedFeatureCount > 0 -> DiagnosticEvidence.APPLIED
+                    inputs.hostObservedFeatureCount > 0 -> DiagnosticEvidence.OBSERVED
+                    inputs.hostAdaptedFeatureCount > 0 -> DiagnosticEvidence.ADAPTED
+                    else -> DiagnosticEvidence.NOT_AVAILABLE
+                }
             ),
             DiagnosticItem(
                 DiagnosticItemId.INTERFACE_SKIN,

@@ -23,6 +23,7 @@ import java.lang.reflect.Method
 import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotHostBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.HookConfigSource
@@ -2534,6 +2535,13 @@ class HookEntry : XposedModule() {
             }
 
             if (processName == TARGET_PACKAGE) {
+                HostRuntimeDiagnosticsBridge.initialize(
+                    context = authorizationContext,
+                    processName = processName,
+                    logError = { message ->
+                        logError("host_runtime_diagnostics_receiver", "[BIL] $message")
+                    }
+                )
                 MineComponentSnapshotHostBridge.initialize(
                     context = authorizationContext,
                     processName = processName,
@@ -2541,6 +2549,7 @@ class HookEntry : XposedModule() {
                         logError("mine_snapshot_query_receiver", "[BIL] $message")
                     }
                 )
+                HostRuntimeDiagnosticsBridge.publishAdaptation(hostAdaptResult)
             }
 
             val hookEnvironment = HookEnvironment(
@@ -2563,6 +2572,13 @@ class HookEntry : XposedModule() {
                             logError("mine_snapshot_host_cache", "[BIL] $message")
                         }
                     )
+                },
+                runtimeEvidence = if (processName == TARGET_PACKAGE) {
+                    { featureId, stage, delta ->
+                        HostRuntimeDiagnosticsBridge.record(featureId, stage, delta)
+                    }
+                } else {
+                    null
                 }
             )
             val featureInstallCoordinator = FeatureInstallCoordinator(hookEnvironment)
