@@ -9,11 +9,11 @@ import org.junit.Test
 class SettingsCatalogTest {
 
     @Test
-    fun `catalog is a unique allowlist with 78 automatic settings`() {
-        assertEquals(79, SettingsCatalog.specs.size)
-        assertEquals(79, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(79, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(78, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 80 settings`() {
+        assertEquals(80, SettingsCatalog.specs.size)
+        assertEquals(80, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(80, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(79, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(1, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -90,12 +90,28 @@ class SettingsCatalogTest {
         ).bufferedReader().useLines { lines ->
             lines.map(String::trim).filter(String::isNotEmpty).toList()
         }
+        assertEquals(
+            expected,
+            SettingsCatalog.specs
+                .filter { it.introducedCatalogVersion <= 5 }
+                .map { it.id }
+                .sorted()
+        )
+    }
+
+    @Test
+    fun `catalog v6 logical ids remain locked by a golden fixture`() {
+        val expected = requireNotNull(
+            javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v6.txt")
+        ).bufferedReader().useLines { lines ->
+            lines.map(String::trim).filter(String::isNotEmpty).toList()
+        }
         assertEquals(expected, SettingsCatalog.specs.map { it.id }.sorted())
     }
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(64, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(65, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(4, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(11, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 
@@ -159,6 +175,12 @@ class SettingsCatalogTest {
         assertEquals(4_096, reasonKeywords.maxStringLength)
         assertTrue(reasonKeywords.accepts(SettingValue.Text("a".repeat(4_096))))
         assertFalse(reasonKeywords.accepts(SettingValue.Text("a".repeat(4_097))))
+
+        val strongMode = requireNotNull(
+            SettingsCatalog.byId["video.related.strong_mode.enabled"]
+        )
+        assertEquals(6, strongMode.introducedCatalogVersion)
+        assertEquals(SettingValue.Bool(false), strongMode.defaultValue)
     }
 
     @Test

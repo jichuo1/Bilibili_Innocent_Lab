@@ -161,7 +161,13 @@ internal class SettingsMigrationRegistry(
 /** 已发布 catalog 版本之间的显式迁移链；纯新增设置也登记恒等迁移，避免虚假缺失警告。 */
 internal object SettingsCatalogMigrations {
     val current = SettingsMigrationRegistry(
-        migrations = listOf(CatalogV1ToV2, CatalogV2ToV3, CatalogV3ToV4, CatalogV4ToV5)
+        migrations = listOf(
+            CatalogV1ToV2,
+            CatalogV2ToV3,
+            CatalogV3ToV4,
+            CatalogV4ToV5,
+            CatalogV5ToV6
+        )
     )
 
     private object CatalogV1ToV2 : CatalogMigration {
@@ -191,6 +197,14 @@ internal object SettingsCatalogMigrations {
     private object CatalogV4ToV5 : CatalogMigration {
         override val fromVersion = 4
         override val toVersion = 5
+
+        override fun migrate(records: List<BackupSetting>) = MigrationStepResult(records)
+    }
+
+    /** v6 仅新增相关推荐强力模式，旧记录保持缺省关闭。 */
+    private object CatalogV5ToV6 : CatalogMigration {
+        override val fromVersion = 5
+        override val toVersion = 6
 
         override fun migrate(records: List<BackupSetting>) = MigrationStepResult(records)
     }

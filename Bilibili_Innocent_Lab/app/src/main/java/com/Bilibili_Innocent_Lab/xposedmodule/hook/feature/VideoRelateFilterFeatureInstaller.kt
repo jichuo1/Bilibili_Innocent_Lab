@@ -1,7 +1,10 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import java.lang.reflect.Field
 import java.lang.reflect.Method
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** 按相关推荐卡片的公开枚举/路由类型做精确过滤。 */
 internal class VideoRelateFilterFeatureInstaller(
@@ -9,6 +12,7 @@ internal class VideoRelateFilterFeatureInstaller(
     minDurationSeconds: Int,
     maxDurationSeconds: Int,
     private val matchingEnhancementEnabled: Boolean = false,
+    private val strongModeEnabled: Boolean = false,
     private val reasonFilterEnabled: Boolean = false,
     rawReasonKeywords: String = "",
     private val points: VersionAdapter.VideoRelatePoints?
@@ -33,8 +37,10 @@ internal class VideoRelateFilterFeatureInstaller(
                     HostContentKind.SPECIAL
                 )
             }
+        val strongModeActive = matchingEnhancementEnabled && strongModeEnabled
         val reasonFilteringActive = promotionReasonEnhancementActive ||
-            customReasonKeywords.isNotEmpty()
+            customReasonKeywords.isNotEmpty() || strongModeActive
+        val typeObservationActive = normalizedHidden.isNotEmpty() || strongModeActive
         if (durationRange.isConfigured && !durationRange.isValid) {
             environment.logError(
                 "video_relate_duration_invalid",
@@ -55,7 +61,7 @@ internal class VideoRelateFilterFeatureInstaller(
             return FeatureInstallResult.Skipped("non-main-process")
         }
         val adapted = points ?: return missing(environment, "missing-adapter-point")
-        val typeEvidence = if (normalizedHidden.isNotEmpty()) {
+        val typeEvidence = if (typeObservationActive) {
             buildList {
                 adapted.cardCaseGetters.forEachIndexed { index, point ->
                     resolve(environment, "case.$index", point)?.let(::add)
@@ -71,21 +77,21 @@ internal class VideoRelateFilterFeatureInstaller(
         } else {
             emptyList()
         }
-        val relateTypeEvidence = if (normalizedHidden.isNotEmpty()) {
+        val relateTypeEvidence = if (typeObservationActive) {
             adapted.relateCardTypeGetters.mapIndexedNotNull { index, point ->
                 resolve(environment, "relate_type.$index", point)
             }.distinctBy(Method::toGenericString)
         } else {
             emptyList()
         }
-        val sourceTypeEvidence = if (normalizedHidden.isNotEmpty()) {
+        val sourceTypeEvidence = if (typeObservationActive) {
             adapted.fromSourceTypeGetters.mapIndexedNotNull { index, point ->
                 resolve(environment, "source_type.$index", point)
             }.distinctBy(Method::toGenericString)
         } else {
             emptyList()
         }
-        val sourceTypeChainEvidence = if (normalizedHidden.isNotEmpty()) {
+        val sourceTypeChainEvidence = if (typeObservationActive) {
             adapted.fromSourceTypeChains.mapIndexedNotNull { index, chain ->
                 val itemGetter = resolve(
                     environment,
@@ -104,7 +110,7 @@ internal class VideoRelateFilterFeatureInstaller(
         } else {
             emptyList()
         }
-        val relateTypeValueEvidence = if (normalizedHidden.isNotEmpty()) {
+        val relateTypeValueEvidence = if (typeObservationActive) {
             adapted.relateCardTypeValueGetters.mapIndexedNotNull { index, point ->
                 resolve(environment, "relate_type_value.$index", point)
             }.distinctBy(Method::toGenericString)
@@ -116,19 +122,24 @@ internal class VideoRelateFilterFeatureInstaller(
             relateTypeValueEvidence.isNotEmpty()
         val durationPaths = resolveDurationPaths(environment, adapted)
         val reasonPaths = resolveReasonPaths(environment, adapted, reasonFilteringActive)
+        val commercialEvidencePaths = resolveCommercialEvidencePaths(
+            environment,
+            adapted,
+            strongModeActive
+        )
         val partialReasons = mutableListOf<String>()
-        if (normalizedHidden.isNotEmpty() && !hasTypeEvidence) {
-            if (durationPaths.isEmpty() && reasonPaths.isEmpty()) {
+        if (typeObservationActive && !hasTypeEvidence) {
+            if (!strongModeActive && durationPaths.isEmpty() && reasonPaths.isEmpty()) {
                 return missing(environment, "missing-type-getter")
             }
             partialReasons += "missing-type-getter"
             environment.logError(
                 "video_relate_type_missing",
-                "[BIL] 详情页推荐类型读取适配不完整，时长过滤继续生效"
+                "[BIL] 详情页推荐类型读取适配不完整，按当前模式继续处理"
             )
         }
         if (durationRange.isEnabled && durationPaths.isEmpty()) {
-            if (!hasTypeEvidence && reasonPaths.isEmpty()) {
+            if (!strongModeActive && !hasTypeEvidence && reasonPaths.isEmpty()) {
                 return missing(environment, "missing-duration-accessor")
             }
             partialReasons += "missing-duration-accessor"
@@ -138,59 +149,114 @@ internal class VideoRelateFilterFeatureInstaller(
             )
         }
         if (reasonFilteringActive && reasonPaths.isEmpty()) {
-            if (!hasTypeEvidence && durationPaths.isEmpty()) {
+            if (!strongModeActive && !hasTypeEvidence && durationPaths.isEmpty()) {
                 return missing(environment, "missing-reason-accessor")
             }
             partialReasons += "missing-reason-accessor"
             environment.logError(
                 "video_relate_reason_missing",
-                "[BIL] 详情页结构化推荐理由读取适配不完整，现有类型/时长过滤继续生效"
+                "[BIL] 详情页结构化推荐理由读取适配不完整，按当前模式继续处理"
             )
         }
 
+        val responseListFields = adapted.responseItemGetters.map { point ->
+            resolveResponseListField(environment, point)
+        }
+        if (responseListFields.any { it == null }) {
+            partialReasons += "missing-response-writeback"
+            environment.logError(
+                "video_relate_response_writeback_missing",
+                "[BIL] 部分详情页推荐响应缺少唯一列表字段，返回值过滤仍继续生效"
+            )
+        }
+        val detailServiceAccess = adapted.detailRelateService?.let { point ->
+            resolveDetailRelateServiceAccess(environment, point)
+        }
+        if (detailServiceAccess == null) {
+            partialReasons += "missing-service-layer"
+            environment.logError(
+                "video_relate_service_missing",
+                "[BIL] 详情页推荐组件第二层未唯一定位，第一层过滤仍继续生效"
+            )
+        }
+
+        val shouldRemoveResponseItem: (Any) -> Boolean = filter@{ item ->
+            val evidence = if (typeObservationActive) {
+                extractEvidence(
+                    item,
+                    typeEvidence,
+                    relateTypeEvidence,
+                    sourceTypeEvidence,
+                    sourceTypeChainEvidence,
+                    relateTypeValueEvidence
+                )
+            } else {
+                null
+            }
+            val typeMatched = if (normalizedHidden.isNotEmpty() && evidence != null) {
+                matchesNormalizedEvidence(
+                    evidence.types,
+                    evidence.relateCardTypes,
+                    evidence.fromSourceTypes,
+                    evidence.relateCardTypeValues,
+                    normalizedHidden
+                )
+            } else {
+                false
+            }
+            if (typeMatched) return@filter true
+            if (durationRange.shouldRemove(
+                    VideoDurationReader.fromMethods(item, durationPaths)
+                )) return@filter true
+            if (strongModeActive && VideoRelateBooleanEvidenceReader
+                    .hasPositiveEvidence(item, commercialEvidencePaths)
+            ) return@filter true
+            if (strongModeActive && (
+                    evidence == null || !hasRecognizedTypeEvidence(evidence)
+                )
+            ) return@filter true
+            if (!reasonFilteringActive) return@filter false
+            val observation = VideoRelateReasonReader.observe(item, reasonPaths)
+            val reasons = observation.reasons
+            val regularReasonMatched = VideoRelateReasonMatcher.matchesCustom(
+                reasons,
+                customReasonKeywords
+            ) || (
+                promotionReasonEnhancementActive &&
+                    VideoRelateReasonMatcher.matchesHighConfidencePromotion(reasons)
+                )
+            regularReasonMatched || (
+                strongModeActive && (
+                    !observation.hasUsableReason ||
+                        VideoRelateReasonMatcher.matchesStrongModePromotion(reasons) ||
+                        VideoRelateReasonMatcher.matchesLikeCount(reasons)
+                    )
+                )
+        }
+        val writeBackFailureLogged = AtomicBoolean(false)
+
         var installed = 0
         adapted.responseItemGetters.forEachIndexed { index, point ->
+            val responseListField = responseListFields[index]
             runCatching {
                 environment.registrar.adapted("video.relate.response.$index", point) {
                     after {
                         val source = result as? List<*> ?: return@after
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                        val filtered = CopyOnFilter.list(source) { item ->
-                            val typeMatched = if (normalizedHidden.isNotEmpty()) {
-                                val evidence = extractEvidence(
-                                    item,
-                                    typeEvidence,
-                                    relateTypeEvidence,
-                                    sourceTypeEvidence,
-                                    sourceTypeChainEvidence,
-                                    relateTypeValueEvidence
-                                )
-                                matchesNormalizedEvidence(
-                                    evidence.types,
-                                    evidence.relateCardTypes,
-                                    evidence.fromSourceTypes,
-                                    evidence.relateCardTypeValues,
-                                    normalizedHidden
-                                )
-                            } else {
-                                false
-                            }
-                            if (typeMatched) return@list true
-                            if (durationRange.shouldRemove(
-                                    VideoDurationReader.fromMethods(item, durationPaths)
-                                )) return@list true
-                            if (reasonPaths.isEmpty()) return@list false
-                            val reasons = VideoRelateReasonReader.read(item, reasonPaths)
-                            VideoRelateReasonMatcher.matchesCustom(
-                                reasons,
-                                customReasonKeywords
-                            ) || (
-                                promotionReasonEnhancementActive &&
-                                    VideoRelateReasonMatcher.matchesHighConfidencePromotion(reasons)
-                                )
-                        }
+                        val filtered = CopyOnFilter.list(source, shouldRemoveResponseItem)
                         if (filtered !== source) {
                             result = filtered
+                            if (responseListField != null && !writeBackVideoRelateItems(
+                                    target = thisObject,
+                                    field = responseListField,
+                                    items = filtered
+                                ) && writeBackFailureLogged.compareAndSet(false, true)
+                            ) {
+                                environment.logError(
+                                    "video_relate_response_writeback_failed",
+                                    "[BIL] 详情页推荐响应列表写回失败，已保留返回值过滤结果"
+                                )
+                            }
                             environment.reportRuntimeEvidence(
                                 ID,
                                 FeatureRuntimeStage.APPLIED,
@@ -213,6 +279,50 @@ internal class VideoRelateFilterFeatureInstaller(
                 )
             }
         }
+
+        detailServiceAccess?.let { access ->
+            runCatching {
+                environment.registrar.exact(
+                    "video.relate.service",
+                    access.componentFactory.declaringClass,
+                    access.componentFactory.name,
+                    *access.componentFactory.parameterTypes
+                ) {
+                    before {
+                        val item = args.firstOrNull() ?: return@before
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                        if (!shouldRemoveDetailServiceItem(
+                                item = item,
+                                access = access,
+                                normalizedHidden = normalizedHidden,
+                                typeMethods = typeEvidence,
+                                relateTypeMethods = relateTypeEvidence,
+                                sourceTypeMethods = sourceTypeEvidence,
+                                sourceTypePaths = sourceTypeChainEvidence,
+                                relateTypeValueMethods = relateTypeValueEvidence,
+                                reasonPaths = reasonPaths,
+                                commercialEvidencePaths = commercialEvidencePaths,
+                                promotionReasonEnhancementActive = promotionReasonEnhancementActive,
+                                strongModeActive = strongModeActive
+                            )
+                        ) return@before
+                        result = null
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                        environment.logInfo(
+                            "video_relate_service_blocked",
+                            "[BIL] 详情页推荐组件第二层已阻止一个匹配条目"
+                        )
+                    }
+                }
+                installed += 1
+            }.onFailure { throwable ->
+                partialReasons += "service-registration-failed"
+                environment.logError(
+                    "video_relate_service_registration",
+                    "[BIL] 详情页推荐组件第二层注册失败，第一层仍继续生效: $throwable"
+                )
+            }
+        }
         if (installed == 0) return missing(environment, "registration-failed")
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.reportStatus(
@@ -226,9 +336,147 @@ internal class VideoRelateFilterFeatureInstaller(
             "[BIL] 视频相关推荐过滤已安装，types=$normalizedHidden," +
                 "duration=${durationRange.isEnabled}," +
                 "reasonEnhancement=$promotionReasonEnhancementActive," +
+                "strongMode=$strongModeActive," +
+                "responseWriteback=${responseListFields.count { it != null }}," +
+                "service=${detailServiceAccess != null}," +
+                "commercialEvidence=${commercialEvidencePaths.size}," +
                 "customReasonKeywords=${customReasonKeywords.size}"
         )
         return FeatureInstallResult.Installed(installed)
+    }
+
+    private fun resolveResponseListField(
+        environment: HookEnvironment,
+        point: VersionAdapter.HookPoint
+    ): Field? {
+        val fieldName = point.viewField?.takeIf(String::isNotBlank) ?: return null
+        val loader = environment.classLoader ?: return null
+        val owner = KavaMemberLookup.classOrNull(loader, point.className)
+            ?: return null
+        return KavaMemberLookup.fields(
+            owner,
+            includeSuperclasses = true,
+            makeAccessible = true
+        ) { field -> field.name == fieldName && List::class.java.isAssignableFrom(field.type) }
+            .distinctBy(Field::toGenericString)
+            .singleOrNull()
+    }
+
+    private fun resolveDetailRelateServiceAccess(
+        environment: HookEnvironment,
+        point: VersionAdapter.DetailRelateServicePoint
+    ): DetailRelateServiceAccess? {
+        val componentFactory = resolve(environment, "service.factory", point.componentFactory)
+            ?: return null
+        if (componentFactory.parameterCount != 1 || componentFactory.returnType.isPrimitive ||
+            componentFactory.returnType == Void.TYPE
+        ) return null
+        val itemClass = componentFactory.parameterTypes.single()
+        val typeField = point.typeField?.let { fieldName ->
+            KavaMemberLookup.fields(
+                itemClass,
+                includeSuperclasses = true,
+                makeAccessible = true
+            ) { field -> field.name == fieldName }
+                .distinctBy(Field::toGenericString)
+                .singleOrNull()
+        }
+        val typeGetter = point.typeGetter?.let {
+            resolve(environment, "service.type", it)
+        }
+        val titleGetter = point.titleGetter?.let {
+            resolve(environment, "service.title", it)
+        }
+        return DetailRelateServiceAccess(
+            componentFactory = componentFactory,
+            typeField = typeField,
+            typeGetter = typeGetter,
+            titleGetter = titleGetter
+        )
+    }
+
+    private fun shouldRemoveDetailServiceItem(
+        item: Any,
+        access: DetailRelateServiceAccess,
+        normalizedHidden: Set<String>,
+        typeMethods: List<Method>,
+        relateTypeMethods: List<Method>,
+        sourceTypeMethods: List<Method>,
+        sourceTypePaths: List<Pair<Method, Method>>,
+        relateTypeValueMethods: List<Method>,
+        reasonPaths: List<VideoRelateReasonMethodPath>,
+        commercialEvidencePaths: List<VideoRelateBooleanMethodPath>,
+        promotionReasonEnhancementActive: Boolean,
+        strongModeActive: Boolean
+    ): Boolean {
+        val baseEvidence = extractEvidence(
+            item,
+            typeMethods,
+            relateTypeMethods,
+            sourceTypeMethods,
+            sourceTypePaths,
+            relateTypeValueMethods
+        )
+        val serviceTypes = buildSet {
+            access.typeGetter?.let { getter ->
+                if (getter.declaringClass.isInstance(item)) {
+                    runCatching { getter.invoke(item) }.getOrNull()
+                        ?.let(::normalizedObservedType)
+                        ?.let(::add)
+                }
+            }
+            access.typeField?.let { field ->
+                if (field.declaringClass.isInstance(item)) {
+                    runCatching { field.get(item) }.getOrNull()
+                        ?.let(::normalizedObservedType)
+                        ?.let(::add)
+                }
+            }
+        }
+        val evidence = baseEvidence.copy(types = baseEvidence.types + serviceTypes)
+        if (normalizedHidden.isNotEmpty() && matchesNormalizedEvidence(
+                evidence.types,
+                evidence.relateCardTypes,
+                evidence.fromSourceTypes,
+                evidence.relateCardTypeValues,
+                normalizedHidden
+            )
+        ) return true
+        if (strongModeActive && VideoRelateBooleanEvidenceReader.hasPositiveEvidence(
+                item,
+                commercialEvidencePaths
+            )
+        ) return true
+        if (strongModeActive && !hasRecognizedTypeEvidence(evidence)) return true
+
+        val reasonObservation = VideoRelateReasonReader.observe(item, reasonPaths)
+        val reasons = reasonObservation.reasons
+        if (VideoRelateReasonMatcher.matchesCustom(reasons, customReasonKeywords) ||
+            promotionReasonEnhancementActive &&
+            VideoRelateReasonMatcher.matchesHighConfidencePromotion(reasons)
+        ) return true
+        val title = access.titleGetter?.takeIf { it.declaringClass.isInstance(item) }
+            ?.let { getter -> runCatching { getter.invoke(item) }.getOrNull() as? CharSequence }
+            ?.toString()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && it.length <= MAX_SERVICE_TITLE_LENGTH }
+        if (promotionReasonEnhancementActive && title != null &&
+            VideoRelateReasonMatcher.matchesHighConfidencePromotion(setOf(title))
+        ) return true
+        return strongModeActive && (
+            !reasonObservation.hasUsableReason ||
+                VideoRelateReasonMatcher.matchesStrongModePromotion(reasons) ||
+                VideoRelateReasonMatcher.matchesLikeCount(reasons) ||
+                title != null && (
+                    VideoRelateReasonMatcher.matchesStrongModePromotion(setOf(title)) ||
+                        VideoRelateReasonMatcher.matchesLikeCount(setOf(title))
+                    )
+            )
+    }
+
+    private fun normalizedObservedType(raw: Any): String? {
+        val value = (raw as? Enum<*>)?.name ?: raw.toString()
+        return normalizeType(value).takeIf { it.isNotBlank() && it !in UNKNOWN_TYPES }
     }
 
     private fun resolveDurationPaths(
@@ -266,6 +514,22 @@ internal class VideoRelateFilterFeatureInstaller(
             methods.filterNotNull()
         }
         return VideoRelateReasonReader.buildMethodPaths(chains)
+    }
+
+    private fun resolveCommercialEvidencePaths(
+        environment: HookEnvironment,
+        points: VersionAdapter.VideoRelatePoints,
+        enabled: Boolean
+    ): List<VideoRelateBooleanMethodPath> {
+        if (!enabled) return emptyList()
+        val chains = points.commercialEvidenceChains.mapIndexedNotNull { chainIndex, chain ->
+            val methods = chain.steps.mapIndexed { stepIndex, point ->
+                resolve(environment, "commercial.$chainIndex.$stepIndex", point)
+            }
+            if (methods.any { it == null }) return@mapIndexedNotNull null
+            methods.filterNotNull()
+        }
+        return VideoRelateBooleanEvidenceReader.buildMethodPaths(chains)
     }
 
     private fun extractEvidence(
@@ -357,7 +621,24 @@ internal class VideoRelateFilterFeatureInstaller(
         const val ID = "video_relate_filter"
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val CHANNEL_STATUS = "video_relate_filter_status"
+        private const val MAX_SERVICE_TITLE_LENGTH = 256
         private val UNKNOWN_TYPES = setOf("UNKNOWN", "CARD_NOT_SET")
+        private val KNOWN_CARD_TYPES = setOf(
+            "AV",
+            "BANGUMI",
+            "RESOURCE",
+            "GAME",
+            "CM",
+            "LIVE",
+            "BANGUMI_AV",
+            "AI_CARD",
+            "BANGUMI_UGC",
+            "SPECIAL",
+            "COURSE",
+            "MINI_PROGRAM",
+            "HISTORY_AV"
+        )
+        private val KNOWN_RELATE_TYPE_VALUES = setOf(1, 3, 4, 5, 10)
 
         internal fun normalizeType(raw: String): String =
             HostContentSemanticClassifier.normalizedToken(raw).orEmpty()
@@ -434,12 +715,57 @@ internal class VideoRelateFilterFeatureInstaller(
             }
         }
 
+        internal fun hasRecognizedTypeEvidence(evidence: VideoRelateTypeEvidence): Boolean {
+            fun tokenRecognized(raw: String): Boolean {
+                val token = normalizeType(raw)
+                return token in KNOWN_CARD_TYPES || HostContentSemanticClassifier.classify(
+                    HostContentSignals(
+                        cardCase = token,
+                        cardType = token,
+                        goTo = token,
+                        relateCardType = token
+                    )
+                ).isNotEmpty()
+            }
+            if (evidence.types.any(::tokenRecognized) ||
+                evidence.relateCardTypes.any(::tokenRecognized)
+            ) return true
+            if (evidence.fromSourceTypes.any { sourceType ->
+                    HostContentSemanticClassifier.classify(
+                        HostContentSignals(fromSourceType = sourceType)
+                    ).isNotEmpty()
+                }
+            ) return true
+            return evidence.relateCardTypeValues.any { it in KNOWN_RELATE_TYPE_VALUES }
+        }
+
         internal fun shouldRemove(type: String?, hiddenTypes: Set<String>): Boolean =
             type != null && matchesAnyType(setOf(type), hiddenTypes)
     }
 }
 
-private data class VideoRelateTypeEvidence(
+internal data class DetailRelateServiceAccess(
+    val componentFactory: Method,
+    val typeField: Field?,
+    val typeGetter: Method?,
+    val titleGetter: Method?
+)
+
+/** 同步响应对象内部列表，避免宿主后续绕过 getter 返回值继续读取原集合。 */
+internal fun writeBackVideoRelateItems(
+    target: Any?,
+    field: Field,
+    items: List<*>
+): Boolean {
+    if (target == null || !field.declaringClass.isInstance(target)) return false
+    if (!field.type.isAssignableFrom(items.javaClass)) return false
+    return runCatching {
+        field.set(target, items)
+        true
+    }.getOrDefault(false)
+}
+
+internal data class VideoRelateTypeEvidence(
     val types: Set<String>,
     val relateCardTypes: Set<String>,
     val fromSourceTypes: Set<Long>,

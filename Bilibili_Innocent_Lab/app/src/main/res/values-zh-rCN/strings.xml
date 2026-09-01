@@ -215,7 +215,8 @@
     <string name="video_relate_filter_summary_none">未选择任何过滤内容</string>
     <string name="video_relate_filter_summary_selected">已选择 %1$d/%2$d 项内容过滤 · 重启哔哩哔哩后生效</string>
     <string name="video_relate_filter_summary_enhanced">已选择 %1$d/%2$d 项内容过滤 · 匹配增强已开启</string>
-    <string name="video_relate_filter_dialog_description">勾选需要隐藏的相关推荐类型；只有点击保存后才会一次性写入，无法识别的卡片仍会保留。</string>
+    <string name="video_relate_filter_summary_strong">已选择 %1$d/%2$d 项内容过滤 · 匹配增强与强力模式已开启</string>
+    <string name="video_relate_filter_dialog_description">勾选需要隐藏的相关推荐类型；只有点击保存后才会一次性写入，普通模式下无法识别的卡片仍会保留。</string>
     <string name="video_relate_filter_select_all">全选</string>
     <string name="video_relate_filter_clear">清空</string>
     <string name="video_relate_filter_save">保存 · 已选 %1$d 项</string>
@@ -223,6 +224,8 @@
     <string name="video_relate_filter_save_failed">相关推荐过滤保存失败，请重试。</string>
     <string name="video_relate_matching_enhancement">过滤匹配增强</string>
     <string name="video_relate_matching_enhancement_tip">将结构化推荐理由作为“商业推广”和“特殊推荐”的补充证据，不匹配普通标题或简介。</string>
+    <string name="video_relate_strong_mode">强力模式</string>
+    <string name="video_relate_strong_mode_tip">拦截未知类型、缺失或无法读取理由、点赞量推荐、“大家都在看”“立即体验”以及具有广告反馈菜单证据的卡片；可能同时隐藏部分普通推荐。</string>
     <string name="video_relate_reason_filter">按推荐理由过滤视频</string>
     <string name="video_relate_reason_filter_tip">仅在结构化推荐理由中匹配自定义关键词；理由缺失或读取失败时保留原内容。</string>
     <string name="video_relate_reason_filter_keywords">推荐理由过滤关键词</string>
