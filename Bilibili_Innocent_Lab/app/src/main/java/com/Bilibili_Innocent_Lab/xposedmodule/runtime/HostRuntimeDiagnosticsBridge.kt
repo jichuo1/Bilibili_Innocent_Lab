@@ -8,8 +8,12 @@ import android.content.pm.PackageInfo
 import android.os.Build
 import androidx.core.content.ContextCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallRecord
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureRuntimeStage
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureSkipReason
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -42,6 +46,7 @@ internal object HostRuntimeDiagnosticsBridge {
     @Volatile private var receiverRegistered = false
     @Volatile private var capturedAtEpochMs = 1L
     @Volatile private var lastPersistAtEpochMs = 0L
+    private var bootstrap = HostRuntimeBootstrapEvidence()
 
     fun initialize(
         context: Context,
@@ -58,6 +63,8 @@ internal object HostRuntimeDiagnosticsBridge {
             appContext = application
             source = currentSource
             restoreLocked(application, currentSource)
+            bootstrap = HostRuntimeBootstrapEvidence(bootstrapReached = true)
+            capturedAtEpochMs = System.currentTimeMillis().coerceAtLeast(1L)
             if (receiverRegistered) return true
             return runCatching {
                 ContextCompat.registerReceiver(
@@ -72,12 +79,142 @@ internal object HostRuntimeDiagnosticsBridge {
                 receiverRegistered = true
             }.onFailure { throwable ->
                 logError("宿主运行时诊断查询接收器注册失败: $throwable")
-            }.isSuccess
+            }.isSuccess.also { registered ->
+                if (registered) schedulePersistence()
+            }
         }
+    }
+
+    fun recordConfigAccepted(generation: Long, authorized: Boolean) {
+        if (generation <= 0L) return
+        updateBootstrap {
+            copy(
+                configState = if (authorized) HostConfigState.ACCEPTED
+                else HostConfigState.NOT_AUTHORIZED,
+                configGeneration = generation,
+                configReasonCode = null
+            )
+        }
+    }
+
+    fun recordConfigRejected(reasonCode: String) {
+        val bounded = reasonCode.takeIf {
+            it in HostRuntimeDiagnosticsCodec.allowedConfigReasonCodes
+        } ?: "unknown"
+        updateBootstrap {
+            copy(
+                configState = HostConfigState.REJECTED,
+                configGeneration = 0L,
+                configReasonCode = bounded,
+                installChainState = HostInstallChainState.NOT_STARTED
+            )
+        }
+    }
+
+    fun recordInstallChainStarted() {
+        updateBootstrap { copy(installChainState = HostInstallChainState.STARTED) }
+    }
+
+    fun recordInstallChainCompleted() {
+        updateBootstrap { copy(installChainState = HostInstallChainState.COMPLETED) }
+    }
+
+    fun recordInstallChainFailed() {
+        updateBootstrap { copy(installChainState = HostInstallChainState.FAILED) }
+    }
+
+    fun recordHookPointSummary(diagnostics: List<HookPointRegistry.Diagnostic>) {
+        var resolved = 0
+        var installed = 0
+        var missing = 0
+        var failed = 0
+        diagnostics.forEach { diagnostic ->
+            when (diagnostic.state) {
+                HookPointRegistry.State.RESOLVED -> resolved++
+                HookPointRegistry.State.INSTALLED -> installed++
+                HookPointRegistry.State.MISSING_CLASS,
+                HookPointRegistry.State.MISSING_PARAMETER_CLASS,
+                HookPointRegistry.State.MISSING_METHOD,
+                HookPointRegistry.State.MISSING_FIELD,
+                HookPointRegistry.State.MISSING_CONSTRUCTOR,
+                HookPointRegistry.State.AMBIGUOUS_METHOD -> missing++
+                HookPointRegistry.State.FAILED -> failed++
+                HookPointRegistry.State.DUPLICATE -> Unit
+            }
+        }
+        updateBootstrap {
+            copy(
+                hookPointResolvedCount = resolved.coerceAtMost(
+                    HostRuntimeDiagnosticsCodec.MAX_HOOK_COUNT
+                ),
+                hookPointInstalledCount = installed.coerceAtMost(
+                    HostRuntimeDiagnosticsCodec.MAX_HOOK_COUNT
+                ),
+                hookPointMissingCount = missing.coerceAtMost(
+                    HostRuntimeDiagnosticsCodec.MAX_HOOK_COUNT
+                ),
+                hookPointFailedCount = failed.coerceAtMost(
+                    HostRuntimeDiagnosticsCodec.MAX_HOOK_COUNT
+                )
+            )
+        }
+    }
+
+    fun recordInstallation(record: FeatureInstallRecord) {
+        if (record.id !in HostRuntimeDiagnosticsCodec.allowedFeatureIds) return
+        val outcome = when (val result = record.result) {
+            is FeatureInstallResult.Installed -> InstallOutcome(
+                HostFeatureInstallState.INSTALLED,
+                result.hookCount.coerceAtLeast(1),
+                null
+            )
+            is FeatureInstallResult.Skipped -> when (result.reasonCode) {
+                FeatureSkipReason.DISABLED -> InstallOutcome(
+                    HostFeatureInstallState.DISABLED, 0, result.reasonCode.name
+                )
+                FeatureSkipReason.NOT_APPLICABLE_PROCESS -> InstallOutcome(
+                    HostFeatureInstallState.NOT_APPLICABLE, 0, result.reasonCode.name
+                )
+                else -> InstallOutcome(
+                    HostFeatureInstallState.SKIPPED, 0, result.reasonCode.name
+                )
+            }
+            null -> InstallOutcome(
+                HostFeatureInstallState.FAILED,
+                0,
+                "INSTALLER_EXCEPTION"
+            )
+        }
+        synchronized(lock) {
+            val updated = HostRuntimeDiagnosticsCodec.withInstallOutcome(
+                evidence[record.id],
+                record.id,
+                outcome.state,
+                outcome.hookCount,
+                outcome.reasonCode
+            ) ?: return
+            evidence[record.id] = updated
+            capturedAtEpochMs = System.currentTimeMillis().coerceAtLeast(1L)
+        }
+        schedulePersistence()
     }
 
     fun publishAdaptation(result: VersionAdapter.AdaptResult?) {
         result ?: return
+        val pause = result.pause
+        if (pause.requestMethods.isNotEmpty() || pause.legacyCallback != null ||
+            pause.panelShow != null || pause.countdown != null
+        ) record("paused_ad", FeatureRuntimeStage.ADAPTED)
+        if (result.banner != null) record("home_banner", FeatureRuntimeStage.ADAPTED)
+        if (result.homeTopBar != null) record("home_top_bar_purify", FeatureRuntimeStage.ADAPTED)
+        if (result.mineVip != null) record("mine_vip_purify", FeatureRuntimeStage.ADAPTED)
+        if (result.blockUpdate != null) record("block_app_update", FeatureRuntimeStage.ADAPTED)
+        if (result.dynamicTabs != null) record("dynamic_tabs_purify", FeatureRuntimeStage.ADAPTED)
+        if (result.fullNumbers != null) record("full_number_display", FeatureRuntimeStage.ADAPTED)
+        if (result.playerPortrait != null) record(
+            "player_portrait_control", FeatureRuntimeStage.ADAPTED
+        )
+        if (result.playerStatusBar != null) record("player_status_bar", FeatureRuntimeStage.ADAPTED)
         if (result.homeRecommendFeed != null) record(
             "home_recommend_purify", FeatureRuntimeStage.ADAPTED
         )
@@ -90,6 +227,20 @@ internal object HostRuntimeDiagnosticsBridge {
         if (result.splashAds != null) record("splash_ad_purify", FeatureRuntimeStage.ADAPTED)
         if (result.mineAccountMine != null || result.mineComponents != null) record(
             "mine_component_filter", FeatureRuntimeStage.ADAPTED
+        )
+        if (result.homeTabs != null) record("home_tab_filter", FeatureRuntimeStage.ADAPTED)
+        if (result.homeComponents != null) record(
+            "home_component_filter", FeatureRuntimeStage.ADAPTED
+        )
+        if (result.bottomBar != null) record("bottom_bar", FeatureRuntimeStage.ADAPTED)
+        if (result.storyFeed != null) record("story_purify", FeatureRuntimeStage.ADAPTED)
+        if (result.teenagersMode != null) record(
+            "teenagers_mode_prompt", FeatureRuntimeStage.ADAPTED
+        )
+        if (result.commentSection != null) record("comment_section", FeatureRuntimeStage.ADAPTED)
+        if (result.commentTopology != null) record("comment_topology", FeatureRuntimeStage.ADAPTED)
+        if (result.commentLow != null || result.commentHigh != null) record(
+            "free_copy", FeatureRuntimeStage.ADAPTED
         )
     }
 
@@ -121,8 +272,17 @@ internal object HostRuntimeDiagnosticsBridge {
         HostRuntimeDiagnosticsSnapshot(
             capturedAtEpochMs = capturedAtEpochMs.coerceAtLeast(1L),
             processName = HostRuntimeDiagnosticsCodec.TARGET_PACKAGE,
-            features = evidence.values.toList()
+            features = evidence.values.toList(),
+            bootstrap = bootstrap
         )
+    }
+
+    private fun updateBootstrap(transform: HostRuntimeBootstrapEvidence.() -> HostRuntimeBootstrapEvidence) {
+        synchronized(lock) {
+            bootstrap = bootstrap.transform()
+            capturedAtEpochMs = System.currentTimeMillis().coerceAtLeast(1L)
+        }
+        schedulePersistence()
     }
 
     private fun schedulePersistence() {
@@ -158,6 +318,7 @@ internal object HostRuntimeDiagnosticsBridge {
     private fun restoreLocked(context: Context, expectedSource: HostRuntimeDiagnosticsSource) {
         evidence.clear()
         stageMasks.clear()
+        bootstrap = HostRuntimeBootstrapEvidence()
         capturedAtEpochMs = 1L
         val prefs = context.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE)
         val storedSource = HostRuntimeDiagnosticsSource(
@@ -179,6 +340,7 @@ internal object HostRuntimeDiagnosticsBridge {
             stageMasks[feature.featureId] = AtomicInteger(mask)
         }
         capturedAtEpochMs = restored.capturedAtEpochMs
+        bootstrap = restored.bootstrap
         lastPersistAtEpochMs = restored.capturedAtEpochMs
     }
 
@@ -248,4 +410,10 @@ internal object HostRuntimeDiagnosticsBridge {
     @Suppress("DEPRECATION")
     private fun PackageInfo.versionCodeCompat(): Long =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) longVersionCode else versionCode.toLong()
+
+    private data class InstallOutcome(
+        val state: HostFeatureInstallState,
+        val hookCount: Int,
+        val reasonCode: String?
+    )
 }

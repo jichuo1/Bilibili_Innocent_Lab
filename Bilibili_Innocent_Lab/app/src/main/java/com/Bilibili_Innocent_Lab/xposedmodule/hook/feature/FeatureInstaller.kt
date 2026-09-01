@@ -64,12 +64,49 @@ internal data class HookEnvironment(
      * 仅上报功能阶段；宿主桥对每项阶段只保留首次证据，null 时不影响 Hook。禁止传递设置值、
      * 卡片/评论正文、宿主成员名或异常文本。
      */
-    val runtimeEvidence: ((String, FeatureRuntimeStage, Int) -> Unit)? = null
+    val runtimeEvidence: ((String, FeatureRuntimeStage, Int) -> Unit)? = null,
+    /** 安装器结束后上报一次结构化结果；诊断异常不能反向影响 Hook 安装链。 */
+    val installationEvidence: ((FeatureInstallRecord) -> Unit)? = null
 )
 
 internal sealed interface FeatureInstallResult {
     data class Installed(val hookCount: Int = 1) : FeatureInstallResult
-    data class Skipped(val reason: String) : FeatureInstallResult
+    data class Skipped(val reason: String) : FeatureInstallResult {
+        val reasonCode: FeatureSkipReason = FeatureSkipReason.fromRaw(reason)
+    }
+}
+
+/** 把存量安装器的有界 reason 字符串收敛为稳定诊断码，不改变原日志和安装分支。 */
+internal enum class FeatureSkipReason {
+    DISABLED,
+    NOT_APPLICABLE_PROCESS,
+    MISSING_ADAPTER_POINT,
+    MISSING_HOST_STRUCTURE,
+    AMBIGUOUS_HOST_STRUCTURE,
+    REGISTRATION_FAILED,
+    NO_SAFE_HOOK_POINT,
+    OTHER;
+
+    companion object {
+        fun fromRaw(raw: String): FeatureSkipReason {
+            val reason = raw.trim().lowercase().replace('_', '-')
+            return when {
+                reason == "disabled" || reason.startsWith("no-types-enabled") ||
+                    reason.startsWith("no-rules") -> DISABLED
+                reason == "non-main-process" -> NOT_APPLICABLE_PROCESS
+                reason.contains("ambiguous") -> AMBIGUOUS_HOST_STRUCTURE
+                reason.contains("registration-failed") ||
+                    reason.contains("register-failed") -> REGISTRATION_FAILED
+                reason.contains("missing-adapter") -> MISSING_ADAPTER_POINT
+                reason.startsWith("no-legacy") -> MISSING_HOST_STRUCTURE
+                reason.contains("missing") -> MISSING_HOST_STRUCTURE
+                reason.contains("no-hook") || reason.contains("hook-point") ->
+                    NO_SAFE_HOOK_POINT
+                reason.contains("failed") -> REGISTRATION_FAILED
+                else -> OTHER
+            }
+        }
+    }
 }
 
 internal data class FeatureInstallRecord(
@@ -84,7 +121,7 @@ internal class FeatureInstallCoordinator(
 ) {
     fun installAll(installers: Iterable<FeatureInstaller>): List<FeatureInstallRecord> =
         installers.map { installer ->
-            runCatching { installer.install(environment) }
+            val record = runCatching { installer.install(environment) }
                 .fold(
                     onSuccess = { result ->
                         FeatureInstallRecord(installer.id, result, failure = null)
@@ -97,6 +134,14 @@ internal class FeatureInstallCoordinator(
                         FeatureInstallRecord(installer.id, result = null, failure = throwable)
                     }
                 )
+            runCatching { environment.installationEvidence?.invoke(record) }
+                .onFailure { throwable ->
+                    environment.logError(
+                        "feature_diagnostics_${installer.id}",
+                        "[BIL] 功能安装诊断上报失败，业务 Hook 状态不受影响: $throwable"
+                    )
+                }
+            record
         }
 }
 
