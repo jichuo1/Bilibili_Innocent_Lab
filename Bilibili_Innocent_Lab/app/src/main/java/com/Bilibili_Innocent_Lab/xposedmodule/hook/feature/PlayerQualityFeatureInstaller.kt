@@ -24,8 +24,13 @@ internal class PlayerQualityFeatureInstaller(
 
         return runCatching {
             environment.registrar.adapted("player.default_quality", point) {
-                before { result = normalizedQn }
+                before {
+                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                    result = normalizedQn
+                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                }
             }
+            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
             environment.reportStatus(CHANNEL_STATUS, "success")
             environment.logInfo(
                 "player_quality_ok",

@@ -51,6 +51,26 @@ internal object VideoDurationReader {
         return positiveSeconds(runCatching { durationField.get(container) }.getOrNull())
     }
 
+    /** 首页 PlayerArgs 优先使用公开 getter，字段注解路径作为旧模型兜底。 */
+    fun fromContainer(
+        item: Any,
+        containerGetter: Method,
+        durationGetter: Method?,
+        durationField: Field?
+    ): Long? {
+        if (!containerGetter.declaringClass.isInstance(item)) return null
+        val container = runCatching { containerGetter.invoke(item) }.getOrNull() ?: return null
+        durationGetter?.takeIf { it.declaringClass.isInstance(container) }?.let { getter ->
+            positiveSeconds(runCatching { getter.invoke(container) }.getOrNull())?.let {
+                return it
+            }
+        }
+        durationField?.takeIf { it.declaringClass.isInstance(container) }?.let { field ->
+            return positiveSeconds(runCatching { field.get(container) }.getOrNull())
+        }
+        return null
+    }
+
     fun buildMethodPaths(
         directDurationGetters: List<Method>,
         nestedChains: List<Pair<Method, Method>>

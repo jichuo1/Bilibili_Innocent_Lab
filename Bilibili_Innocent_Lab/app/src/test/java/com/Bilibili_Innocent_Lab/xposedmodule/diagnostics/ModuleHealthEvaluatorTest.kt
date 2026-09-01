@@ -91,6 +91,28 @@ class ModuleHealthEvaluatorTest {
         )
     }
 
+    @Test
+    fun `host receipt distinguishes adapted observed and applied evidence`() {
+        val adapted = ModuleHealthEvaluator.evaluate(
+            inputs(
+                hostRuntimeReceiptAvailable = true,
+                hostAdaptedFeatureCount = 2
+            )
+        ).item(DiagnosticItemId.HOST_ADAPTATION)
+        val applied = ModuleHealthEvaluator.evaluate(
+            inputs(
+                hostRuntimeReceiptAvailable = true,
+                hostAdaptedFeatureCount = 2,
+                hostObservedFeatureCount = 1,
+                hostAppliedFeatureCount = 1
+            )
+        ).item(DiagnosticItemId.HOST_ADAPTATION)
+
+        assertEquals(DiagnosticSeverity.OK, adapted.severity)
+        assertEquals(DiagnosticEvidence.ADAPTED, adapted.evidence)
+        assertEquals(DiagnosticEvidence.APPLIED, applied.evidence)
+    }
+
     private fun ModuleDiagnosticSnapshot.item(id: DiagnosticItemId): DiagnosticItem =
         requireNotNull(items.firstOrNull { it.id == id })
 }
@@ -104,7 +126,12 @@ internal fun inputs(
     remotePublishPending: Boolean = false,
     noRootDesiredEnabled: Boolean = false,
     noRootState: DiagnosticNoRootState = DiagnosticNoRootState.DISABLED,
-    skinFallbackCode: String? = null
+    skinFallbackCode: String? = null,
+    hostRuntimeReceiptAvailable: Boolean = false,
+    hostAdaptedFeatureCount: Int = 0,
+    hostObservedFeatureCount: Int = 0,
+    hostAppliedFeatureCount: Int = 0,
+    hostFeatures: List<DiagnosticHostFeature> = emptyList()
 ) = ModuleDiagnosticInputs(
     collectedAtEpochMs = 1_800_000_000_000L,
     moduleVersionName = "1.1.0",
@@ -136,5 +163,10 @@ internal fun inputs(
     settingsAutomaticCount = 73,
     settingsManualCount = 1,
     loggingEnabled = true,
-    verboseLogging = false
+    verboseLogging = false,
+    hostRuntimeReceiptAvailable = hostRuntimeReceiptAvailable,
+    hostAdaptedFeatureCount = hostAdaptedFeatureCount,
+    hostObservedFeatureCount = hostObservedFeatureCount,
+    hostAppliedFeatureCount = hostAppliedFeatureCount,
+    hostFeatures = hostFeatures
 )

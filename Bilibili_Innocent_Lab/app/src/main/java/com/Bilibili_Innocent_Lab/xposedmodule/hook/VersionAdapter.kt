@@ -25,6 +25,7 @@ import java.lang.reflect.ParameterizedType
 import java.lang.reflect.Method
 import java.lang.reflect.Type
 import java.lang.reflect.WildcardType
+import java.security.MessageDigest
 
 /**
  * 哔哩哔哩版本适配器（学 BiliRoaming 的 hook 点自动定位思路，轻量实现）。
@@ -127,8 +128,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 36
-    private const val ADAPTER_RULE_VERSION = 28
+    private const val SCHEMA_VERSION = 41
+    private const val ADAPTER_RULE_VERSION = 33
 
     enum class AdaptState {
         FOUND,
@@ -397,7 +398,11 @@ object VersionAdapter {
         val subtitleGetter: HookPoint?,
         val descGetter: HookPoint?,
         val playerArgsGetter: HookPoint?,
-        val playerArgsDurationField: String?
+        val playerArgsDurationField: String?,
+        /** app-card Base.card_type；旧模型缺失时继续使用 holder/card_goto/goto。 */
+        val cardTypeGetter: HookPoint? = null,
+        /** PlayerArgs.getDuration()；字段注解路径继续作为旧模型兜底。 */
+        val playerArgsDurationGetter: HookPoint? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("responses", JSONArray().apply { responseItemGetters.forEach { put(it.toJson()) } })
@@ -413,6 +418,8 @@ object VersionAdapter {
             descGetter?.let { put("desc", it.toJson()) }
             playerArgsGetter?.let { put("player_args", it.toJson()) }
             playerArgsDurationField?.let { put("player_args_duration", it) }
+            cardTypeGetter?.let { put("card_type", it.toJson()) }
+            playerArgsDurationGetter?.let { put("player_args_duration_getter", it.toJson()) }
         }
 
         companion object {
@@ -434,7 +441,10 @@ object VersionAdapter {
                 descGetter = o.optJSONObject("desc")?.let(HookPoint::fromJson),
                 playerArgsGetter = o.optJSONObject("player_args")?.let(HookPoint::fromJson),
                 playerArgsDurationField = o.optString("player_args_duration")
-                    .takeIf { it.isNotBlank() }
+                    .takeIf { it.isNotBlank() },
+                cardTypeGetter = o.optJSONObject("card_type")?.let(HookPoint::fromJson),
+                playerArgsDurationGetter = o.optJSONObject("player_args_duration_getter")
+                    ?.let(HookPoint::fromJson)
             )
         }
     }
@@ -766,17 +776,39 @@ object VersionAdapter {
         }
     }
 
-    /** 开屏响应对象的精确广告/策略 List getter。 */
-    data class SplashAdPoints(val listGetters: List<HookPoint>) {
+    data class SplashItemSignalPoint(val role: String, val getter: HookPoint) {
+        fun toJson(): JSONObject = JSONObject().put("role", role).put("getter", getter.toJson())
+
+        companion object {
+            fun fromJson(o: JSONObject): SplashItemSignalPoint = SplashItemSignalPoint(
+                role = o.getString("role"),
+                getter = HookPoint.fromJson(o.getJSONObject("getter"))
+            )
+        }
+    }
+
+    /** 开屏响应对象的精确广告/策略 List getter，以及可选的 SplashItem 语义 getter。 */
+    data class SplashAdPoints(
+        val listGetters: List<HookPoint>,
+        val itemSignalGetters: List<SplashItemSignalPoint> = emptyList()
+    ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("getters", JSONArray().apply { listGetters.forEach { put(it.toJson()) } })
+            put("signals", JSONArray().apply {
+                itemSignalGetters.forEach { put(it.toJson()) }
+            })
         }
 
         companion object {
             fun fromJson(o: JSONObject): SplashAdPoints = SplashAdPoints(
-                o.getJSONArray("getters").let { values ->
+                listGetters = o.getJSONArray("getters").let { values ->
                     (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
-                }
+                },
+                itemSignalGetters = o.optJSONArray("signals")?.let { values ->
+                    (0 until values.length()).map {
+                        SplashItemSignalPoint.fromJson(values.getJSONObject(it))
+                    }
+                }.orEmpty()
             )
         }
     }
@@ -817,15 +849,25 @@ object VersionAdapter {
         val replyListGetters: List<HookPoint>,
         val contentGetter: HookPoint,
         val messageGetter: HookPoint,
-        val memberGetter: HookPoint,
-        val levelGetter: HookPoint
+        val memberGetter: HookPoint?,
+        val levelGetter: HookPoint?,
+        val memberV2Getter: HookPoint? = null,
+        val memberV2BasicGetter: HookPoint? = null,
+        val memberV2LevelGetter: HookPoint? = null,
+        val topReplyGetters: List<HookPoint> = emptyList(),
+        val replyDefaultInstanceGetter: HookPoint? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("lists", JSONArray().apply { replyListGetters.forEach { put(it.toJson()) } })
             put("content", contentGetter.toJson())
             put("message", messageGetter.toJson())
-            put("member", memberGetter.toJson())
-            put("level", levelGetter.toJson())
+            memberGetter?.let { put("member", it.toJson()) }
+            levelGetter?.let { put("level", it.toJson()) }
+            memberV2Getter?.let { put("member_v2", it.toJson()) }
+            memberV2BasicGetter?.let { put("member_v2_basic", it.toJson()) }
+            memberV2LevelGetter?.let { put("member_v2_level", it.toJson()) }
+            put("top_replies", JSONArray().apply { topReplyGetters.forEach { put(it.toJson()) } })
+            replyDefaultInstanceGetter?.let { put("reply_default", it.toJson()) }
         }
 
         companion object {
@@ -835,8 +877,18 @@ object VersionAdapter {
                 },
                 contentGetter = HookPoint.fromJson(o.getJSONObject("content")),
                 messageGetter = HookPoint.fromJson(o.getJSONObject("message")),
-                memberGetter = HookPoint.fromJson(o.getJSONObject("member")),
-                levelGetter = HookPoint.fromJson(o.getJSONObject("level"))
+                memberGetter = o.optJSONObject("member")?.let(HookPoint::fromJson),
+                levelGetter = o.optJSONObject("level")?.let(HookPoint::fromJson),
+                memberV2Getter = o.optJSONObject("member_v2")?.let(HookPoint::fromJson),
+                memberV2BasicGetter = o.optJSONObject("member_v2_basic")
+                    ?.let(HookPoint::fromJson),
+                memberV2LevelGetter = o.optJSONObject("member_v2_level")
+                    ?.let(HookPoint::fromJson),
+                topReplyGetters = o.optJSONArray("top_replies")?.let { values ->
+                    (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                }.orEmpty(),
+                replyDefaultInstanceGetter = o.optJSONObject("reply_default")
+                    ?.let(HookPoint::fromJson)
             )
         }
     }
@@ -941,15 +993,21 @@ object VersionAdapter {
 
     /** 播放器默认画质计算边界；仅保存经逐版本核验的唯一无参 Int 方法。 */
     data class PlayerQualityPoints(
-        val defaultQualityMethod: HookPoint
+        val defaultQualityMethod: HookPoint,
+        /** 只读结构证据，不注册额外播放响应 Hook。 */
+        val capabilitySignals: List<String> = emptyList()
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("default", defaultQualityMethod.toJson())
+            put("capabilities", JSONArray(capabilitySignals))
         }
 
         companion object {
             fun fromJson(o: JSONObject): PlayerQualityPoints = PlayerQualityPoints(
-                HookPoint.fromJson(o.getJSONObject("default"))
+                defaultQualityMethod = HookPoint.fromJson(o.getJSONObject("default")),
+                capabilitySignals = o.optJSONArray("capabilities")?.let { values ->
+                    (0 until values.length()).map(values::getString)
+                }.orEmpty()
             )
         }
     }
@@ -1165,6 +1223,8 @@ object VersionAdapter {
         val splashAds: SplashAdPoints? = null,
         /** 宿主 APK + 适配规则指纹，防止只凭 versionCode 复用陈旧缓存。 */
         val hostFingerprint: String,
+        /** 公开协议 getter、返回类型、嵌套链及可用字段编号的结构摘要。 */
+        val protocolFingerprint: String,
         /** 每个逻辑 Hook 点的定位结果，供日志/UI 诊断。 */
         val diagnostics: List<AdaptDiagnostic>
     ) {
@@ -1200,6 +1260,7 @@ object VersionAdapter {
             commentSection?.let { put("comment_section", it.toJson()) }
             splashAds?.let { put("splash_ads", it.toJson()) }
             put("fp", hostFingerprint)
+            put("protocol_fp", protocolFingerprint)
             put("diag", JSONArray().apply { diagnostics.forEach { put(it.toJson()) } })
         }
 
@@ -1221,6 +1282,7 @@ object VersionAdapter {
 
         private fun isStructurallyValid(): Boolean =
             biliVersionCode >= 0 && hostFingerprint.isNotBlank() &&
+                protocolFingerprint.matches(PROTOCOL_FINGERPRINT_PATTERN) &&
                 commentLow?.isValid() != false && commentHigh?.isValid() != false &&
                 mineEntry?.let { mine ->
                     mine.groupListField.isNotBlank() && mine.buildMethods.all { it.isValid() } &&
@@ -1277,8 +1339,15 @@ object VersionAdapter {
                         value.subtitleGetter?.isValid() != false &&
                         value.descGetter?.isValid() != false &&
                         value.playerArgsGetter?.isValid() != false &&
-                        ((value.playerArgsGetter == null) ==
-                            value.playerArgsDurationField.isNullOrBlank())
+                        value.cardTypeGetter?.isValid() != false &&
+                        value.playerArgsDurationGetter?.isValid() != false &&
+                        if (value.playerArgsGetter == null) {
+                            value.playerArgsDurationField.isNullOrBlank() &&
+                                value.playerArgsDurationGetter == null
+                        } else {
+                            !value.playerArgsDurationField.isNullOrBlank() ||
+                                value.playerArgsDurationGetter != null
+                        }
                 } != false &&
                 videoRelate?.let { value ->
                     value.responseItemGetters.isNotEmpty() &&
@@ -1343,7 +1412,10 @@ object VersionAdapter {
                         value.itemClassName.isNotBlank() && value.itemStringFields.isNotEmpty() &&
                         value.itemStringFields.all { it.isNotBlank() }
                 } != false &&
-                playerQuality?.defaultQualityMethod?.isValid() != false &&
+                playerQuality?.let { value ->
+                    value.defaultQualityMethod.isValid() &&
+                        value.capabilitySignals.all { it in PLAYER_QUALITY_CAPABILITY_SIGNALS }
+                } != false &&
                 teenagersMode?.onCreateMethods?.let { methods ->
                     methods.isNotEmpty() && methods.all { it.isValid() }
                 } != false &&
@@ -1375,7 +1447,18 @@ object VersionAdapter {
                     value.replyListGetters.isNotEmpty() &&
                         value.replyListGetters.all { it.isValid() } &&
                         value.contentGetter.isValid() && value.messageGetter.isValid() &&
-                        value.memberGetter.isValid() && value.levelGetter.isValid()
+                        value.memberGetter?.isValid() != false &&
+                        value.levelGetter?.isValid() != false &&
+                        value.memberV2Getter?.isValid() != false &&
+                        value.memberV2BasicGetter?.isValid() != false &&
+                        value.memberV2LevelGetter?.isValid() != false &&
+                        ((value.memberGetter != null && value.levelGetter != null) ||
+                            (value.memberV2Getter != null &&
+                                value.memberV2BasicGetter != null &&
+                                value.memberV2LevelGetter != null)) &&
+                        value.topReplyGetters.all { it.isValid() } &&
+                        (value.topReplyGetters.isEmpty() ||
+                            value.replyDefaultInstanceGetter?.isValid() == true)
                 } != false &&
                 commentTopology?.let { value ->
                     value.mapperMethods.isNotEmpty() &&
@@ -1393,7 +1476,10 @@ object VersionAdapter {
                         } && value.locatableTagGetter.isValid()
                 } != false &&
                 splashAds?.listGetters?.let { getters ->
-                    getters.isNotEmpty() && getters.all { it.isValid() }
+                    getters.isNotEmpty() && getters.all { it.isValid() } &&
+                        splashAds.itemSignalGetters.all {
+                            it.role in SPLASH_SIGNAL_METHOD_NAMES && it.getter.isValid()
+                        }
                 } != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
@@ -1449,6 +1535,7 @@ object VersionAdapter {
                         ?.let(CommentSectionPoints::fromJson),
                     splashAds = o.optJSONObject("splash_ads")?.let(SplashAdPoints::fromJson),
                     hostFingerprint = o.optString("fp"),
+                    protocolFingerprint = o.optString("protocol_fp"),
                     diagnostics = diagnostics
                 ).takeIf { it.isStructurallyValid() }
             }
@@ -1584,6 +1671,20 @@ object VersionAdapter {
         "getShowList",
         "getAdList"
     )
+    private val SPLASH_SIGNAL_METHOD_NAMES = mapOf(
+        "is_ad" to setOf("getIsAd", "isAd"),
+        "is_ad_loc" to setOf("getIsAdLoc", "isAdLoc"),
+        "cm_mark" to setOf("getCmMark"),
+        "ad_cb" to setOf("getAdCb"),
+        "uri" to setOf("getUri"),
+        "card_type" to setOf("getCardType"),
+        "server_type" to setOf("getServerType")
+    )
+    private val SPLASH_ITEM_CLASS_CANDIDATES = listOf(
+        "com.bapis.bilibili.app.splash.v1.SplashItem",
+        "tv.danmaku.bili.splash.ad.model.SplashItem",
+        "tv.danmaku.bili.ui.splash.ad.model.SplashItem"
+    )
     private val BOTTOM_TAB_HOST_CLASS_CANDIDATES = listOf(
         "com.bilibili.lib.homepage.widget.TabHost",
         "com.bilibili.p5690lib.p5708homepage.widget.TabHost",
@@ -1601,6 +1702,29 @@ object VersionAdapter {
         "tg6.h", "hg6.h",
         // 8.84.0–8.87.0 的稳定公开入口；放在最后，避免新版残留包装器抢先命中。
         "com.bilibili.playerbizcommon.utils.PlayerSettingHelper"
+    )
+    private val PLAYER_QUALITY_CAPABILITY_SIGNALS = setOf(
+        "stream_quality",
+        "vip_entitlement",
+        "codec"
+    )
+    private val PLAYER_SHARED_CLASS_CANDIDATES = mapOf(
+        "stream_info" to listOf(
+            "com.bapis.bilibili.playershared.StreamInfo",
+            "com.bapis.bilibili.p4308playershared.StreamInfo"
+        ),
+        "dash_video" to listOf(
+            "com.bapis.bilibili.playershared.DashVideo",
+            "com.bapis.bilibili.p4308playershared.DashVideo"
+        ),
+        "video_vod" to listOf(
+            "com.bapis.bilibili.playershared.VideoVod",
+            "com.bapis.bilibili.p4308playershared.VideoVod"
+        ),
+        "vod_info" to listOf(
+            "com.bapis.bilibili.playershared.VodInfo",
+            "com.bapis.bilibili.p4308playershared.VodInfo"
+        )
     )
     private val TEENAGERS_MODE_ACTIVITY_CANDIDATES = listOf(
         "com.bilibili.teenagersmode.ui.TeenagersModeDialogActivity",
@@ -1645,6 +1769,8 @@ object VersionAdapter {
         "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
         "com.bapis.bilibili.p4311main.community.reply.p4312v1.ReplyInfo"
     )
+    private val PROTOCOL_FINGERPRINT_PATTERN =
+        Regex("protocol-v1:[0-9]+:[0-9a-f]{24}")
     private const val COMMENT_ITEM_CLASS = "com.bilibili.app.comment3.data.model.CommentItem"
     private val COMMENT_REPLY_MAPPER_CLASS_CANDIDATES = listOf(
         "com.bilibili.app.comment3.data.source.v1.c",
@@ -1852,6 +1978,7 @@ object VersionAdapter {
                     "commentTopology=${result?.commentTopology != null} " +
                     "commentSection=${result?.commentSection != null} " +
                     "splashAds=${result?.splashAds != null} " +
+                    "protocol=${result?.protocolFingerprint} " +
                     "diag=${result?.diagnosticSummary()}"
             )
         }, "BIL-VersionAdapter").apply {
@@ -1904,6 +2031,10 @@ object VersionAdapter {
             playerQuality == null && teenagersMode == null && commentPurify == null &&
             commentFilter == null && commentTopology == null && commentSection == null &&
             splashAds == null) return null
+        val protocolFingerprint = buildProtocolStructureFingerprint(
+            loader, homeRecommendFeed, videoRelate, commentFilter, playerQuality,
+            splashAds, mineAccountMine
+        )
         return AdaptResult(
             biliVersionCode = 0,
             ts = 0L,
@@ -1935,6 +2066,7 @@ object VersionAdapter {
             commentSection = commentSection,
             splashAds = splashAds,
             hostFingerprint = "runtime-no-context|rules=$ADAPTER_RULE_VERSION",
+            protocolFingerprint = protocolFingerprint.value,
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
                 dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
@@ -1943,7 +2075,7 @@ object VersionAdapter {
                 teenagersMode, commentPurify, commentFilter, commentTopology,
                 commentTopologyOutcome.failureDetail, commentSection,
                 splashAds
-            )
+            ) + protocolFingerprint.toDiagnostic()
         )
     }
 
@@ -2033,6 +2165,10 @@ object VersionAdapter {
             commentFilter == null && commentTopology == null && commentSection == null &&
             splashAds == null &&
             !anyClassExists) return null
+        val protocolFingerprint = buildProtocolStructureFingerprint(
+            loader, homeRecommendFeed, videoRelate, commentFilter, playerQuality,
+            splashAds, mineAccountMine
+        )
         return AdaptResult(
             biliVersionCode = vc,
             ts = System.currentTimeMillis(),
@@ -2064,6 +2200,7 @@ object VersionAdapter {
             commentSection = commentSection,
             splashAds = splashAds,
             hostFingerprint = buildHostFingerprint(context),
+            protocolFingerprint = protocolFingerprint.value,
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
                 dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
@@ -2072,8 +2209,139 @@ object VersionAdapter {
                 teenagersMode, commentPurify, commentFilter, commentTopology,
                 commentTopologyOutcome.failureDetail, commentSection,
                 splashAds
-            )
+            ) + protocolFingerprint.toDiagnostic()
         )
+    }
+
+    private data class ProtocolFingerprint(
+        val value: String,
+        val evidenceCount: Int
+    ) {
+        fun toDiagnostic(): AdaptDiagnostic = AdaptDiagnostic(
+            id = "protocol.structure",
+            state = if (evidenceCount > 0) AdaptState.FOUND else AdaptState.MISSING,
+            detail = value
+        )
+    }
+
+    /**
+     * 只在适配阶段计算公开协议结构摘要。成员解析失败时跳过该项，现有 Hook 点仍可按原路径
+     * 使用；摘要本身不参与业务热路径，也不包含宿主内容或用户数据。
+     */
+    private fun buildProtocolStructureFingerprint(
+        loader: ClassLoader,
+        home: HomeRecommendFeedPoints?,
+        relate: VideoRelatePoints?,
+        comment: CommentFilterPoints?,
+        quality: PlayerQualityPoints?,
+        splash: SplashAdPoints?,
+        mine: MineAccountMinePoints?
+    ): ProtocolFingerprint {
+        val descriptors = linkedSetOf<String>()
+
+        fun resolve(point: HookPoint): Method? {
+            val owner = KavaMemberLookup.classOrNull(loader, point.className) ?: return null
+            return KavaMemberLookup.methods(
+                owner,
+                includeSuperclasses = true,
+                makeAccessible = true
+            ) { method ->
+                method.name == point.methodName && point.paramClassNames?.let { expected ->
+                    method.parameterTypes.map(Class<*>::getName) == expected
+                } != false
+            }.distinctBy(Method::toGenericString).singleOrNull()
+        }
+
+        fun add(label: String, point: HookPoint?) {
+            point ?: return
+            val method = resolve(point) ?: return
+            val fieldNumber = method.protobufFieldNumberOrNull()?.let { "@field=$it" }.orEmpty()
+            descriptors += "$label:${method.declaringClass.name}#${method.name}(" +
+                method.parameterTypes.joinToString(",") { it.name } + ")" +
+                "->${method.returnType.name}$fieldNumber"
+        }
+
+        home?.let { points ->
+            points.responseItemGetters.forEachIndexed { index, point -> add("home.response.$index", point) }
+            add("home.holder", points.holderTypeGetter)
+            add("home.biz", points.bizTypeGetter)
+            add("home.ad_info", points.adInfoGetter)
+            add("home.card_type", points.cardTypeGetter)
+            add("home.card_goto", points.cardGotoGetter)
+            add("home.goto", points.goToGetter)
+            add("home.uri", points.uriGetter)
+            add("home.param", points.paramGetter)
+            add("home.player_args", points.playerArgsGetter)
+            add("home.duration", points.playerArgsDurationGetter)
+            if (!points.playerArgsDurationField.isNullOrBlank()) {
+                descriptors += "home.duration_field:${points.playerArgsDurationField}"
+            }
+        }
+        relate?.let { points ->
+            points.responseItemGetters.forEachIndexed { index, point -> add("relate.response.$index", point) }
+            points.cardCaseGetters.forEachIndexed { index, point -> add("relate.case.$index", point) }
+            points.gotoGetters.forEachIndexed { index, point -> add("relate.goto.$index", point) }
+            points.cardTypeGetters.forEachIndexed { index, point -> add("relate.type.$index", point) }
+            points.directDurationGetters.forEachIndexed { index, point ->
+                add("relate.duration.$index", point)
+            }
+            points.durationChains.forEachIndexed { index, chain ->
+                add("relate.chain.$index.container", chain.itemGetter)
+                add("relate.chain.$index.duration", chain.durationGetter)
+            }
+        }
+        comment?.let { points ->
+            points.replyListGetters.forEachIndexed { index, point -> add("comment.list.$index", point) }
+            add("comment.content", points.contentGetter)
+            add("comment.message", points.messageGetter)
+            add("comment.member", points.memberGetter)
+            add("comment.level", points.levelGetter)
+            add("comment.member_v2", points.memberV2Getter)
+            add("comment.member_v2_basic", points.memberV2BasicGetter)
+            add("comment.member_v2_level", points.memberV2LevelGetter)
+            points.topReplyGetters.forEachIndexed { index, point -> add("comment.top.$index", point) }
+        }
+        splash?.let { points ->
+            points.listGetters.forEachIndexed { index, point -> add("splash.list.$index", point) }
+            points.itemSignalGetters.forEachIndexed { index, signal ->
+                add("splash.${signal.role}.$index", signal.getter)
+            }
+        }
+        quality?.capabilitySignals.orEmpty().sorted().forEach { capability ->
+            descriptors += "player.capability:$capability"
+        }
+        mine?.let { points ->
+            descriptors += "mine.account:${points.accountMineClass}:" +
+                "section=${points.sectionListV2Field}:builders=${points.buildMethods.size}"
+        }
+
+        val canonical = descriptors.sorted().joinToString("\n")
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(canonical.toByteArray(Charsets.UTF_8))
+            .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+            .take(24)
+        return ProtocolFingerprint(
+            value = "protocol-v1:${descriptors.size}:$digest",
+            evidenceCount = descriptors.size
+        )
+    }
+
+    private fun Method.protobufFieldNumberOrNull(): Int? {
+        val stem = name.removePrefix("get").removePrefix("is")
+        if (stem.isBlank()) return null
+        val snake = stem.replace(Regex("([a-z0-9])([A-Z])"), "$1_$2").uppercase()
+        val candidates = linkedSetOf(
+            "${snake}_FIELD_NUMBER",
+            "${snake.removeSuffix("_LIST")}_FIELD_NUMBER",
+            "${snake.removeSuffix("_MAP")}_FIELD_NUMBER",
+            "${snake.removeSuffix("_VALUE")}_FIELD_NUMBER"
+        )
+        return declaringClass.fields.firstNotNullOfOrNull { field ->
+            if (field.name !in candidates || field.type != Int::class.javaPrimitiveType) {
+                return@firstNotNullOfOrNull null
+            }
+            runCatching { field.getInt(null) }.getOrNull()
+        }
     }
 
     private fun HookPoint.label(): String = buildString {
@@ -2323,14 +2591,16 @@ object VersionAdapter {
                 "home.recommend_feed",
                 stateFor(homeRecommendFeed != null, homeRecommendFeedCandidateExists),
                 homeRecommendFeed?.let {
-                    "responses=${it.responseItemGetters.size},holder=${it.holderTypeGetter.label()}"
+                    "contract=app-card-v1,responses=${it.responseItemGetters.size}," +
+                        "signals=${listOfNotNull(it.cardTypeGetter, it.cardGotoGetter, it.goToGetter, it.adInfoGetter).size}," +
+                        "duration=${it.playerArgsDurationGetter != null || !it.playerArgsDurationField.isNullOrBlank()}"
                 }.orEmpty()
             ),
             AdaptDiagnostic(
                 "video.relate",
                 stateFor(videoRelate != null, videoRelateCandidateExists),
                 videoRelate?.let {
-                    "responses=${it.responseItemGetters.size},types=" +
+                    "contract=viewunite-relate,responses=${it.responseItemGetters.size},types=" +
                         (it.cardCaseGetters.size + it.gotoGetters.size + it.cardTypeGetters.size)
                 }.orEmpty()
             ),
@@ -2376,7 +2646,10 @@ object VersionAdapter {
             AdaptDiagnostic(
                 "player.default_quality",
                 stateFor(playerQuality != null, playerQualityCandidateExists),
-                playerQuality?.defaultQualityMethod?.label().orEmpty()
+                playerQuality?.let {
+                    "contract=playershared,request_qn=true,capabilities=" +
+                        it.capabilitySignals.joinToString("+").ifBlank { "unobserved" }
+                }.orEmpty()
             ),
             AdaptDiagnostic(
                 "teenagers.mode",
@@ -2452,8 +2725,9 @@ object VersionAdapter {
                 "comment.filter",
                 stateFor(commentFilter != null, commentFilterCandidateExists),
                 commentFilter?.let { points ->
-                    "lists=${points.replyListGetters.joinToString("|") { it.label() }}," +
-                        "message=${points.messageGetter.label()},level=${points.levelGetter.label()}"
+                    "contract=reply-v1,lists=${points.replyListGetters.size}," +
+                        "top=${points.topReplyGetters.size}," +
+                        "level_paths=${listOfNotNull(points.levelGetter, points.memberV2LevelGetter).size}"
                 }.orEmpty()
             ),
             AdaptDiagnostic(
@@ -2476,7 +2750,10 @@ object VersionAdapter {
             AdaptDiagnostic(
                 "splash.ads",
                 stateFor(splashAds != null, splashCandidateExists),
-                splashAds?.listGetters?.joinToString("|") { it.label() }.orEmpty()
+                splashAds?.let {
+                    "contract=splash-v1,lists=${it.listGetters.size}," +
+                        "signals=${it.itemSignalGetters.map(SplashItemSignalPoint::role).distinct().size}"
+                }.orEmpty()
             )
         )
     }
@@ -2830,9 +3107,24 @@ object VersionAdapter {
         fun objectGetter(name: String): HookPoint? = objectGetterMethod(name)?.toHookPoint()
 
         val playerArgsGetter = objectGetterMethod("getPlayerArgs")
+        val playerArgsDurationGetter = playerArgsGetter?.returnType?.let { playerArgsClass ->
+            KavaMemberLookup.methods(
+                playerArgsClass,
+                includeSuperclasses = true,
+                makeAccessible = true
+            ) { method ->
+                method.name == "getDuration" && method.parameterCount == 0 &&
+                    method.isPublic && !method.isStatic &&
+                    method.returnType in setOf(
+                        classOf<Int>(), classOf<Long>(),
+                        classOf<Int>(primitiveType = false),
+                        classOf<Long>(primitiveType = false)
+                    )
+            }.distinctBy(Method::toGenericString).singleOrNull()
+        }
         val playerArgsDurationField = playerArgsGetter?.returnType?.let { playerArgsClass ->
             KavaMemberLookup.declaredFields(playerArgsClass, makeAccessible = true) { field ->
-                field.type == classOf<Int>() && field.isPublic &&
+                field.type in setOf(classOf<Int>(), classOf<Long>()) && field.isPublic &&
                     !field.isStatic && field.annotations.any { annotation ->
                         val annotationClass = annotation.annotationClass.java
                         val attributeName = when (annotationClass.name) {
@@ -2846,14 +3138,15 @@ object VersionAdapter {
                     }
             }.singleOrNull()
         }
-        val durationPair = playerArgsDurationField?.let {
-            requireNotNull(playerArgsGetter).toHookPoint() to it.name
+        val durationOwner = playerArgsGetter?.takeIf {
+            playerArgsDurationGetter != null || playerArgsDurationField != null
         }
         HomeRecommendFeedPoints(
             responseItemGetters = responseGetters,
             holderTypeGetter = holderType.toHookPoint(),
             bizTypeGetter = stringGetter("getBizType"),
             adInfoGetter = objectGetter("getAdInfo"),
+            cardTypeGetter = stringGetter("getCardType"),
             cardGotoGetter = stringGetter("getCardGoto"),
             goToGetter = stringGetter("getGoTo"),
             uriGetter = uri,
@@ -2861,8 +3154,9 @@ object VersionAdapter {
             titleGetter = stringGetter("getTitle"),
             subtitleGetter = stringGetter("getSubtitle"),
             descGetter = stringGetter("getDesc"),
-            playerArgsGetter = durationPair?.first,
-            playerArgsDurationField = durationPair?.second
+            playerArgsGetter = durationOwner?.toHookPoint(),
+            playerArgsDurationField = playerArgsDurationField?.name,
+            playerArgsDurationGetter = playerArgsDurationGetter?.toHookPoint()
         )
     }.getOrNull()
 
@@ -3350,9 +3644,9 @@ object VersionAdapter {
         )
     }.getOrNull()
 
-    /** 开屏净化只定位白名单响应类上的白名单 List getter。 */
+    /** 开屏净化定位白名单 List getter，并尽量补充公开 SplashItem 广告语义。 */
     fun locateSplashAds(loader: ClassLoader): SplashAdPoints? = runCatching {
-        val getters = SPLASH_RESPONSE_CLASS_CANDIDATES.asSequence()
+        val getterMethods = SPLASH_RESPONSE_CLASS_CANDIDATES.asSequence()
             .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
             .flatMap { owner ->
                 KavaMemberLookup.methods(
@@ -3366,9 +3660,43 @@ object VersionAdapter {
                 }.asSequence()
             }
             .distinctBy(Method::toGenericString)
-            .map { it.toHookPoint() }
             .toList()
-        getters.takeIf { it.isNotEmpty() }?.let(::SplashAdPoints)
+        if (getterMethods.isEmpty()) return@runCatching null
+        val genericItemClasses = getterMethods.mapNotNull { getter ->
+            (getter.genericReturnType as? ParameterizedType)
+                ?.actualTypeArguments?.singleOrNull()?.rawClassOrNull()
+                ?.takeIf { it != classOf<Any>() }
+        }
+        val itemClasses = (genericItemClasses + SPLASH_ITEM_CLASS_CANDIDATES.mapNotNull {
+            KavaMemberLookup.classOrNull(loader, it)
+        }).distinctBy { it.name }
+        val numericTypes = setOf(
+            classOf<Int>(), classOf<Long>(),
+            classOf<Int>(primitiveType = false), classOf<Long>(primitiveType = false)
+        )
+        val signals = itemClasses.flatMap { itemClass ->
+            SPLASH_SIGNAL_METHOD_NAMES.flatMap { (role, names) ->
+                KavaMemberLookup.methods(
+                    itemClass,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    !method.isStatic && method.isPublic && method.parameterCount == 0 &&
+                        method.name in names && when (role) {
+                            "is_ad", "is_ad_loc" -> method.returnType in setOf(
+                                classOf<Boolean>(), classOf<Boolean>(primitiveType = false)
+                            )
+                            "cm_mark", "card_type", "server_type" ->
+                                method.returnType in numericTypes
+                            else -> method.returnType == classOf<String>()
+                        }
+                }.map { method -> SplashItemSignalPoint(role, method.toHookPoint()) }
+            }
+        }.distinctBy { it.role + "|" + it.getter.label() }
+        SplashAdPoints(
+            listGetters = getterMethods.map { it.toHookPoint() },
+            itemSignalGetters = signals
+        )
     }.getOrNull()
 
     private fun Type.rawClassOrNull(): Class<*>? = when (this) {
@@ -3420,7 +3748,7 @@ object VersionAdapter {
      * 新版 dex 对旧混淆类的残留引用，也不会按宽泛方法名跨类批量安装。
      */
     fun locateDefaultVideoQuality(loader: ClassLoader): PlayerQualityPoints? = runCatching {
-        PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.firstNotNullOfOrNull { ownerName ->
+        val defaultMethod = PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.firstNotNullOfOrNull { ownerName ->
             val owner = KavaMemberLookup.classOrNull(loader, ownerName)
                 ?: return@firstNotNullOfOrNull null
             KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
@@ -3432,8 +3760,39 @@ object VersionAdapter {
                             "c",
                             "getDefaultQuality"
                         )
-            }.singleOrNull()?.let { PlayerQualityPoints(it.toHookPoint()) }
+            }.singleOrNull()
+        } ?: return@runCatching null
+
+        fun sharedClass(key: String): Class<*>? = PLAYER_SHARED_CLASS_CANDIDATES[key]
+            .orEmpty()
+            .firstNotNullOfOrNull { KavaMemberLookup.classOrNull(loader, it) }
+        fun hasPublicNoArg(owner: Class<*>?, names: Set<String>): Boolean = owner != null &&
+            KavaMemberLookup.methods(
+                owner,
+                includeSuperclasses = true,
+                makeAccessible = true
+            ) { method ->
+                !method.isStatic && method.isPublic && method.parameterCount == 0 &&
+                    method.name in names
+            }.isNotEmpty()
+
+        val streamInfo = sharedClass("stream_info")
+        val dashVideo = sharedClass("dash_video")
+        val videoVod = sharedClass("video_vod")
+        val vodInfo = sharedClass("vod_info")
+        val capabilities = buildList {
+            if (hasPublicNoArg(streamInfo, setOf("getQuality")) ||
+                hasPublicNoArg(videoVod, setOf("getQn")) ||
+                hasPublicNoArg(vodInfo, setOf("getQuality"))
+            ) add("stream_quality")
+            if (hasPublicNoArg(streamInfo, setOf("getNeedVip", "getVipFree"))) {
+                add("vip_entitlement")
+            }
+            if (hasPublicNoArg(dashVideo, setOf("getCodecid")) ||
+                hasPublicNoArg(vodInfo, setOf("getVideoCodecid"))
+            ) add("codec")
         }
+        PlayerQualityPoints(defaultMethod.toHookPoint(), capabilities)
     }.getOrNull()
 
     /**
@@ -3478,8 +3837,8 @@ object VersionAdapter {
         val messageGetter = publicNoArg(contentGetter.returnType, "getMessage")
             ?.takeIf { it.returnType == classOf<String>() } ?: return@runCatching null
         val memberGetter = publicNoArg(replyInfo, "getMember")
-            ?.takeIf { !it.returnType.isPrimitive } ?: return@runCatching null
-        val levelGetter = publicNoArg(memberGetter.returnType, "getLevel")
+            ?.takeIf { !it.returnType.isPrimitive }
+        val levelGetter = memberGetter?.let { getter -> publicNoArg(getter.returnType, "getLevel") }
             ?.takeIf { method ->
                 method.returnType in setOf(
                     classOf<Int>(),
@@ -3487,7 +3846,22 @@ object VersionAdapter {
                     classOf<Int>(primitiveType = false),
                     classOf<Long>(primitiveType = false)
                 )
-            } ?: return@runCatching null
+            }
+        val memberV2Getter = publicNoArg(replyInfo, "getMemberV2")
+            ?.takeIf { !it.returnType.isPrimitive }
+        val memberV2BasicGetter = memberV2Getter?.let { getter ->
+            publicNoArg(getter.returnType, "getBasic")?.takeIf { !it.returnType.isPrimitive }
+        }
+        val memberV2LevelGetter = memberV2BasicGetter?.let { getter ->
+            publicNoArg(getter.returnType, "getLevel")?.takeIf { method ->
+                method.returnType in setOf(
+                    classOf<Int>(), classOf<Long>(),
+                    classOf<Int>(primitiveType = false),
+                    classOf<Long>(primitiveType = false)
+                )
+            }
+        }
+        if (levelGetter == null && memberV2LevelGetter == null) return@runCatching null
 
         fun Method.returnsReplyInfoList(): Boolean {
             if (!(returnType isSubclassOf classOf<List<*>>())) return false
@@ -3516,12 +3890,40 @@ object VersionAdapter {
             .toList()
         if (listGetters.isEmpty()) return@runCatching null
 
+        val topReplyGetters = COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                listOf("getUpTop", "getAdminTop", "getVoteTop").asSequence()
+                    .mapNotNull { name ->
+                        publicNoArg(owner, name)?.takeIf { it.returnType == replyInfo }
+                    }
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
+        val replyDefaultInstance = KavaMemberLookup.declaredMethods(
+            replyInfo,
+            makeAccessible = true
+        ) { method ->
+            method.isStatic && method.isPublic && method.name == "getDefaultInstance" &&
+                method.parameterCount == 0 && method.returnType == replyInfo
+        }.singleOrNull()
+
         CommentFilterPoints(
             replyListGetters = listGetters,
             contentGetter = contentGetter.toHookPoint(),
             messageGetter = messageGetter.toHookPoint(),
-            memberGetter = memberGetter.toHookPoint(),
-            levelGetter = levelGetter.toHookPoint()
+            memberGetter = memberGetter?.takeIf { levelGetter != null }?.toHookPoint(),
+            levelGetter = levelGetter?.toHookPoint(),
+            memberV2Getter = memberV2Getter?.takeIf { memberV2LevelGetter != null }?.toHookPoint(),
+            memberV2BasicGetter = memberV2BasicGetter?.takeIf {
+                memberV2LevelGetter != null
+            }?.toHookPoint(),
+            memberV2LevelGetter = memberV2LevelGetter?.toHookPoint(),
+            topReplyGetters = topReplyGetters.takeIf { replyDefaultInstance != null }.orEmpty(),
+            replyDefaultInstanceGetter = replyDefaultInstance?.takeIf {
+                topReplyGetters.isNotEmpty()
+            }?.toHookPoint()
         )
     }.getOrNull()
 

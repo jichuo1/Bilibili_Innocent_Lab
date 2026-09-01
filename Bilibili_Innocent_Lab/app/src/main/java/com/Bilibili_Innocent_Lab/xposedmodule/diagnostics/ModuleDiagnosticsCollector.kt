@@ -5,6 +5,7 @@ import android.content.Context
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.ActivationDisplayState
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootDisplayState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
@@ -23,6 +24,7 @@ internal object ModuleDiagnosticsCollector {
         context: Context,
         skin: SkinSessionDiagnostics?,
         frameworkCheckPending: Boolean = false,
+        hostRuntime: HostRuntimeDiagnosticsSnapshot? = null,
         nowEpochMs: Long = System.currentTimeMillis()
     ): ModuleDiagnosticSnapshot {
         val appContext = context.applicationContext ?: context
@@ -89,7 +91,23 @@ internal object ModuleDiagnosticsCollector {
                 verboseLogging = preferences.getString(
                     HookEntry.PREF_LOG_LEVEL,
                     HookEntry.LOG_LEVEL_COMPLETE
-                ) != HookEntry.LOG_LEVEL_MINIMAL
+                ) != HookEntry.LOG_LEVEL_MINIMAL,
+                hostRuntimeReceiptAvailable = hostRuntime != null,
+                hostRuntimeCapturedAtEpochMs = hostRuntime?.capturedAtEpochMs ?: 0L,
+                hostAdaptedFeatureCount = hostRuntime?.adaptedFeatureCount ?: 0,
+                hostObservedFeatureCount = hostRuntime?.observedFeatureCount ?: 0,
+                hostAppliedFeatureCount = hostRuntime?.appliedFeatureCount ?: 0,
+                hostFeatures = hostRuntime?.features.orEmpty().map { feature ->
+                    DiagnosticHostFeature(
+                        featureId = feature.featureId,
+                        evidence = when {
+                            feature.appliedCount > 0L -> DiagnosticEvidence.APPLIED
+                            feature.observedCount > 0L -> DiagnosticEvidence.OBSERVED
+                            feature.adaptedCount > 0L -> DiagnosticEvidence.ADAPTED
+                            else -> DiagnosticEvidence.NOT_AVAILABLE
+                        }
+                    )
+                }
             )
         )
     }
