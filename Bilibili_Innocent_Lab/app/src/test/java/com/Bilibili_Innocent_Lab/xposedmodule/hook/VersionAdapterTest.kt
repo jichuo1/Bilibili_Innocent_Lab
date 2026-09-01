@@ -279,6 +279,17 @@ class VersionAdapterTest {
                         emptyList()
                     )
                 )
+            ),
+            reasonChains = listOf(
+                VersionAdapter.ReasonMethodChain(
+                    steps = listOf(
+                        VersionAdapter.HookPoint(
+                            "com.bapis.bilibili.app.view.v1.Relate",
+                            "getRcmdReason",
+                            emptyList()
+                        )
+                    )
+                )
             )
         ),
         homeTabs = VersionAdapter.HomeTabPoints(
@@ -654,6 +665,14 @@ class VersionAdapterTest {
                 .getJSONObject("source")
                 .put("m", "")
         }
+        val invalidRelateReasonChain = JSONObject(result().toJson().toString()).apply {
+            getJSONObject("video_relate")
+                .getJSONArray("reason_chains")
+                .getJSONObject(0)
+                .getJSONArray("steps")
+                .getJSONObject(0)
+                .put("m", "")
+        }
 
         assertNull(VersionAdapter.AdaptResult.fromJson(stale))
         assertNull(VersionAdapter.AdaptResult.fromJson(invalid))
@@ -661,6 +680,7 @@ class VersionAdapterTest {
         assertNull(VersionAdapter.AdaptResult.fromJson(invalidRelateDurationChain))
         assertNull(VersionAdapter.AdaptResult.fromJson(invalidRelateSourceType))
         assertNull(VersionAdapter.AdaptResult.fromJson(invalidRelateSourceTypeChain))
+        assertNull(VersionAdapter.AdaptResult.fromJson(invalidRelateReasonChain))
     }
 
     @Test
@@ -842,6 +862,21 @@ class VersionAdapterTest {
         assertTrue(points?.durationChains.orEmpty().all {
             it.durationGetter.methodName == "getDuration"
         })
+        assertEquals(8, points?.reasonChains?.size)
+        assertEquals(
+            setOf(
+                "getRcmdReason",
+                "getRcmdReasonExtra",
+                "getRcmdReasonStyle",
+                "getAv",
+                "getBangumi",
+                "getResource",
+                "getGame",
+                "getSpecial"
+            ),
+            points?.reasonChains?.map { it.steps.first().methodName }?.toSet()
+        )
+        assertTrue(points?.reasonChains.orEmpty().all { it.steps.size in 1..3 })
     }
 
     @Test

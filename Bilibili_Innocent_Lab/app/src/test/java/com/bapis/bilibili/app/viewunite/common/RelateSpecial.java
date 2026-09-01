@@ -1,6 +1,5 @@
 package com.bapis.bilibili.app.viewunite.common;
 
-public class RelateAVCard {
-    public long getDuration() { return 120L; }
+public class RelateSpecial {
     public BadgeInfo getRcmdReason() { return new BadgeInfo(); }
 }

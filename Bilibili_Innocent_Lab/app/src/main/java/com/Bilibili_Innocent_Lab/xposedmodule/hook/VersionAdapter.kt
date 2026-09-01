@@ -128,8 +128,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 43
-    private const val ADAPTER_RULE_VERSION = 35
+    private const val SCHEMA_VERSION = 44
+    private const val ADAPTER_RULE_VERSION = 36
 
     enum class AdaptState {
         FOUND,
@@ -485,6 +485,25 @@ object VersionAdapter {
         }
     }
 
+    /** 相关推荐结构化理由的公开 getter 链，长度限定为 1–3 层。 */
+    data class ReasonMethodChain(
+        val steps: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("steps", JSONArray().apply { steps.forEach { put(it.toJson()) } })
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): ReasonMethodChain = ReasonMethodChain(
+                steps = o.getJSONArray("steps").let { values ->
+                    (0 until values.length()).map {
+                        HookPoint.fromJson(values.getJSONObject(it))
+                    }
+                }
+            )
+        }
+    }
+
     /** 视频详情相关推荐响应与直接/嵌套类型公开读取边界。 */
     data class VideoRelatePoints(
         val responseItemGetters: List<HookPoint>,
@@ -496,7 +515,8 @@ object VersionAdapter {
         val fromSourceTypeChains: List<SourceTypeMethodChain>,
         val relateCardTypeValueGetters: List<HookPoint>,
         val directDurationGetters: List<HookPoint>,
-        val durationChains: List<DurationMethodChain>
+        val durationChains: List<DurationMethodChain>,
+        val reasonChains: List<ReasonMethodChain> = emptyList()
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("responses", JSONArray().apply { responseItemGetters.forEach { put(it.toJson()) } })
@@ -526,6 +546,10 @@ object VersionAdapter {
             put(
                 "duration_chains",
                 JSONArray().apply { durationChains.forEach { put(it.toJson()) } }
+            )
+            put(
+                "reason_chains",
+                JSONArray().apply { reasonChains.forEach { put(it.toJson()) } }
             )
         }
 
@@ -564,7 +588,12 @@ object VersionAdapter {
                     (0 until values.length()).map {
                         DurationMethodChain.fromJson(values.getJSONObject(it))
                     }
-                }.orEmpty()
+                }.orEmpty(),
+                reasonChains = o.getJSONArray("reason_chains").let { values ->
+                    (0 until values.length()).map {
+                        ReasonMethodChain.fromJson(values.getJSONObject(it))
+                    }
+                }
             )
         }
     }
@@ -1411,7 +1440,8 @@ object VersionAdapter {
                             value.fromSourceTypeChains.isNotEmpty() ||
                             value.relateCardTypeValueGetters.isNotEmpty() ||
                             value.directDurationGetters.isNotEmpty() ||
-                            value.durationChains.isNotEmpty()) &&
+                            value.durationChains.isNotEmpty() ||
+                            value.reasonChains.isNotEmpty()) &&
                         value.cardCaseGetters.all { it.isValid() } &&
                         value.gotoGetters.all { it.isValid() } &&
                         value.cardTypeGetters.all { it.isValid() } &&
@@ -1424,6 +1454,9 @@ object VersionAdapter {
                         value.directDurationGetters.all { it.isValid() } &&
                         value.durationChains.all { chain ->
                             chain.itemGetter.isValid() && chain.durationGetter.isValid()
+                        } &&
+                        value.reasonChains.all { chain ->
+                            chain.steps.size in 1..3 && chain.steps.all { it.isValid() }
                         }
                 } != false &&
                 homeTabs?.let { value ->
@@ -2364,6 +2397,11 @@ object VersionAdapter {
                 add("relate.chain.$index.container", chain.itemGetter)
                 add("relate.chain.$index.duration", chain.durationGetter)
             }
+            points.reasonChains.forEachIndexed { chainIndex, chain ->
+                chain.steps.forEachIndexed { stepIndex, point ->
+                    add("relate.reason.$chainIndex.$stepIndex", point)
+                }
+            }
         }
         comment?.let { points ->
             points.replyListGetters.forEachIndexed { index, point -> add("comment.list.$index", point) }
@@ -2679,7 +2717,8 @@ object VersionAdapter {
                         (it.cardCaseGetters.size + it.gotoGetters.size +
                             it.cardTypeGetters.size + it.relateCardTypeGetters.size +
                             it.fromSourceTypeGetters.size + it.fromSourceTypeChains.size +
-                            it.relateCardTypeValueGetters.size)
+                            it.relateCardTypeValueGetters.size) +
+                        ",reasons=${it.reasonChains.size}"
                 }.orEmpty()
             ),
             AdaptDiagnostic(
@@ -3286,6 +3325,28 @@ object VersionAdapter {
             classOf<Int>(primitiveType = false)
         )
 
+        fun isStringMethod(method: Method): Boolean = method.parameterCount == 0 &&
+            method.isPublic && !method.isStatic && method.returnType == classOf<String>()
+
+        fun reasonChain(prefix: List<Method>): ReasonMethodChain? {
+            val last = prefix.lastOrNull() ?: return null
+            val steps = if (last.returnType == classOf<String>()) {
+                prefix
+            } else {
+                val textGetter = KavaMemberLookup.methods(
+                    last.returnType,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method -> method.name == "getText" && isStringMethod(method) }
+                    .distinctBy(Method::toGenericString)
+                    .singleOrNull()
+                    ?: return null
+                prefix + textGetter
+            }
+            if (steps.size !in 1..3) return null
+            return ReasonMethodChain(steps.map { it.toHookPoint() })
+        }
+
         val cases = itemMethods("getCardCase").map { it.toHookPoint() }
         val gotos = itemMethods("getGoto").map { it.toHookPoint() }
         val types = itemMethods("getCardType").map { it.toHookPoint() }
@@ -3342,9 +3403,42 @@ object VersionAdapter {
                     }
             }
             .distinctBy { it.itemGetter.label() + "->" + it.durationGetter.label() }
+        val directReasonChains = listOf(
+            "getRcmdReason",
+            "getRcmdReasonExtra",
+            "getRcmdReasonStyle"
+        )
+            .flatMap(::itemMethods)
+            .mapNotNull { reasonChain(listOf(it)) }
+        val nestedReasonChains = listOf(
+            "getAv" to "getRcmdReason",
+            "getBangumi" to "getRcmdReason",
+            "getResource" to "getRcmdReason",
+            "getGame" to "getGameRcmdReason",
+            "getSpecial" to "getRcmdReason"
+        ).flatMap { (containerName, reasonName) ->
+            itemMethods(containerName).mapNotNull { itemGetter ->
+                val reasonGetter = KavaMemberLookup.methods(
+                    itemGetter.returnType,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    method.name == reasonName && method.parameterCount == 0 &&
+                        method.isPublic && !method.isStatic && method.returnType != Void.TYPE
+                }
+                    .distinctBy(Method::toGenericString)
+                    .singleOrNull()
+                    ?: return@mapNotNull null
+                reasonChain(listOf(itemGetter, reasonGetter))
+            }
+        }
+        val reasonChains = (directReasonChains + nestedReasonChains).distinctBy { chain ->
+            chain.steps.joinToString("->") { it.label() }
+        }
         if (cases.isEmpty() && gotos.isEmpty() && types.isEmpty() &&
             relateTypes.isEmpty() && sourceTypes.isEmpty() && sourceTypeChains.isEmpty() &&
-            relateTypeValues.isEmpty() && directDurations.isEmpty() && durationChains.isEmpty()
+            relateTypeValues.isEmpty() && directDurations.isEmpty() && durationChains.isEmpty() &&
+            reasonChains.isEmpty()
         ) return@runCatching null
         VideoRelatePoints(
             responseItemGetters = responses,
@@ -3356,7 +3450,8 @@ object VersionAdapter {
             fromSourceTypeChains = sourceTypeChains,
             relateCardTypeValueGetters = relateTypeValues,
             directDurationGetters = directDurations,
-            durationChains = durationChains
+            durationChains = durationChains,
+            reasonChains = reasonChains
         )
     }.getOrNull()
 
