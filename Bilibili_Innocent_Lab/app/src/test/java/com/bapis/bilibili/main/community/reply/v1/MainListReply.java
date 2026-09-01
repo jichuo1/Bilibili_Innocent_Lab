@@ -12,6 +12,18 @@ public final class MainListReply {
         return Collections.emptyList();
     }
 
+    public ReplyInfo getUpTop() {
+        return ReplyInfo.getDefaultInstance();
+    }
+
+    public ReplyInfo getAdminTop() {
+        return ReplyInfo.getDefaultInstance();
+    }
+
+    public ReplyInfo getVoteTop() {
+        return ReplyInfo.getDefaultInstance();
+    }
+
     public boolean hasQoe() {
         return true;
     }

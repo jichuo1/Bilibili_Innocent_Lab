@@ -52,10 +52,18 @@ internal class CommentPurifyFeatureInstaller(
                     environment.registrar.adapted("comment.purify.urls.$index", point) {
                         after {
                             val source = result as? Map<*, *> ?: return@after
+                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                             val filtered = withoutSearchUrls(source) { value ->
                                 isSearchUrlValue(value)
                             }
-                            if (filtered !== source) result = filtered
+                            if (filtered !== source) {
+                                result = filtered
+                                environment.reportRuntimeEvidence(
+                                    ID,
+                                    FeatureRuntimeStage.APPLIED,
+                                    source.size - filtered.size
+                                )
+                            }
                         }
                     }
                     installedCount += 1
@@ -86,7 +94,13 @@ internal class CommentPurifyFeatureInstaller(
                         "comment.purify.empty.content.$index",
                         point.contentGetter
                     ) {
-                        after { result = defaultInstance }
+                        after {
+                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                            if (result !== defaultInstance) {
+                                result = defaultInstance
+                                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                            }
+                        }
                     }
                     installedCount += 1
                 }.onFailure { throwable ->
@@ -107,7 +121,12 @@ internal class CommentPurifyFeatureInstaller(
                 runCatching {
                     environment.registrar.adapted("comment.purify.vote.$index", point) {
                         after {
-                            (instance as? View)?.visibility = View.GONE
+                            val target = instance as? View ?: return@after
+                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                            if (target.visibility != View.GONE) {
+                                target.visibility = View.GONE
+                                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                            }
                         }
                     }
                     installedCount += 1
@@ -147,7 +166,15 @@ internal class CommentPurifyFeatureInstaller(
                                 } else {
                                     runCatching { outerField.get(instance) }.getOrNull()
                                 }
-                                (target as? View)?.visibility = View.GONE
+                                val view = target as? View ?: return@after
+                                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                                if (view.visibility != View.GONE) {
+                                    view.visibility = View.GONE
+                                    environment.reportRuntimeEvidence(
+                                        ID,
+                                        FeatureRuntimeStage.APPLIED
+                                    )
+                                }
                             }
                         }
                         installedCount += 1
@@ -181,7 +208,16 @@ internal class CommentPurifyFeatureInstaller(
                                 ) {
                                     after {
                                         val root = instance as? ViewGroup ?: return@after
-                                        hideTypedChildren(root, followButtonClass)
+                                        environment.reportRuntimeEvidence(
+                                            ID,
+                                            FeatureRuntimeStage.OBSERVED
+                                        )
+                                        val hidden = hideTypedChildren(root, followButtonClass)
+                                        environment.reportRuntimeEvidence(
+                                            ID,
+                                            FeatureRuntimeStage.APPLIED,
+                                            hidden
+                                        )
                                     }
                                 }
                                 installedCount += 1
@@ -239,7 +275,11 @@ internal class CommentPurifyFeatureInstaller(
                     environment.registrar.adapted("comment.purify.quick_reply.$index", point) {
                         before {
                             val intent = args.firstOrNull() ?: return@before
-                            if (shouldBlockQuickReply(intent)) result = Unit
+                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                            if (shouldBlockQuickReply(intent)) {
+                                result = Unit
+                                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                            }
                         }
                     }
                     installedCount += 1
@@ -254,6 +294,7 @@ internal class CommentPurifyFeatureInstaller(
         }
 
         if (installedCount == 0) return missing(environment, "registration-failed")
+        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         val status = if (missingGroups.isEmpty() && installedCount == expectedCount) {
             "success"
         } else {
@@ -342,7 +383,13 @@ internal class CommentPurifyFeatureInstaller(
                 "comment.purify.$groupId.presence",
                 point.presenceGetter
             ) {
-                after { result = false }
+                after {
+                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                    if (result != false) {
+                        result = false
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                    }
+                }
             }
             installed += 1
         }.onFailure { throwable ->
@@ -356,7 +403,13 @@ internal class CommentPurifyFeatureInstaller(
                 "comment.purify.$groupId.content",
                 point.contentGetter
             ) {
-                after { result = defaultInstance }
+                after {
+                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                    if (result !== defaultInstance) {
+                        result = defaultInstance
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                    }
+                }
             }
             installed += 1
         }.onFailure { throwable ->
@@ -392,8 +445,10 @@ internal class CommentPurifyFeatureInstaller(
             for (index in 0 until root.childCount) {
                 val child = root.child(index)
                 if (targetClass.isInstance(child)) {
-                    child.visibility = View.GONE
-                    hidden += 1
+                    if (child.visibility != View.GONE) {
+                        child.visibility = View.GONE
+                        hidden += 1
+                    }
                 }
                 if (child is ViewGroup) hidden += hideTypedChildren(child, targetClass)
             }

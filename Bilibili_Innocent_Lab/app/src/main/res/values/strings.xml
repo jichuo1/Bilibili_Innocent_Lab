@@ -38,7 +38,7 @@
     <string name="paused_page_ad_enable">Hide paused-page video ads</string>
     <string name="paused_page_ad_tip">When enabled, promo ads that may pop up after pausing some videos are not displayed</string>
     <string name="roaming_compat_enable">Roaming version support extension</string>
-    <string name="roaming_compat_tip">Provides higher-version compatibility support for the roaming module; requires restarting Bilibili twice to take effect</string>
+    <string name="roaming_compat_tip">Provides higher-version compatibility support for the roaming module; requires restarting Bilibili twice to take effect. Before enabling this feature, cold-start the host with only the roaming module enabled so that it can build a complete cache for the host.</string>
     <string name="gamecard_ad_settings">Video detail page ads</string>
     <string name="gamecard_ad_enable">Hide game ads inside the \"Video mentioned\" section</string>
     <string name="gamecard_ad_tip">Cleans up the \"Video mentioned\" ads under videos with game tags</string>
@@ -471,7 +471,9 @@
     <string name="diagnostics_item_logging">Diagnostic logging</string>
     <string name="diagnostics_evidence_configured">Configured</string>
     <string name="diagnostics_evidence_published">Published and verified</string>
+    <string name="diagnostics_evidence_adapted">Structure adapted</string>
     <string name="diagnostics_evidence_observed">Observed</string>
+    <string name="diagnostics_evidence_applied">Applied</string>
     <string name="diagnostics_evidence_unavailable">No trusted receipt</string>
     <string name="diagnostics_state_ok">OK</string>
     <string name="diagnostics_state_info">Info</string>
@@ -496,6 +498,15 @@
     <string name="diagnostics_activation_checking">Waiting for activation evidence…</string>
     <string name="diagnostics_activation_unavailable">No valid LSPosed service or matching NPatch heartbeat is currently available.</string>
     <string name="diagnostics_adaptation_unknown">The module process cannot safely read the host app’s private adaptation cache. Open Bilibili and verify the actual feature behavior.</string>
+    <string name="diagnostics_adaptation_receipt">Verified host receipt: %1$d features adapted, %2$d observed at runtime, and %3$d actually applied. Not observed does not mean broken; the relevant page or content may not have appeared yet.</string>
+    <string name="diagnostics_host_feature_home_feed">Home feed purification</string>
+    <string name="diagnostics_host_feature_relate">Related-video purification</string>
+    <string name="diagnostics_host_feature_comment_filter">Comment filtering</string>
+    <string name="diagnostics_host_feature_comment_purify">Comment component purification</string>
+    <string name="diagnostics_host_feature_quality">Default playback quality</string>
+    <string name="diagnostics_host_feature_splash">Splash-ad purification</string>
+    <string name="diagnostics_host_feature_mine">Mine-page purification</string>
+    <string name="diagnostics_host_feature_unknown">Other host feature</string>
     <string name="diagnostics_skin_ready">Requested: %1$s · effective: %2$s%3$s</string>
     <string name="diagnostics_skin_backend"> · backend: %1$s</string>
     <string name="diagnostics_skin_fallback">The requested skin fell back safely (%1$s). Effective skin: %2$s.</string>

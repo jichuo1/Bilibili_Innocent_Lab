@@ -973,8 +973,20 @@ class DiagnosticsActivity : SkinnedActivity() {
                 }
             )
             DiagnosticItemId.NO_ROOT -> getString(noRootText(input.noRootState))
-            DiagnosticItemId.HOST_ADAPTATION ->
+            DiagnosticItemId.HOST_ADAPTATION -> if (input.hostRuntimeReceiptAvailable) {
+                val summary = getString(
+                    R.string.diagnostics_adaptation_receipt,
+                    input.hostAdaptedFeatureCount,
+                    input.hostObservedFeatureCount,
+                    input.hostAppliedFeatureCount
+                )
+                val features = input.hostFeatures.joinToString(separator = "\n") { feature ->
+                    "${hostFeatureTitle(feature.featureId)}：${evidenceText(feature.evidence)}"
+                }
+                if (features.isBlank()) summary else "$summary\n$features"
+            } else {
                 getString(R.string.diagnostics_adaptation_unknown)
+            }
             DiagnosticItemId.INTERFACE_SKIN -> if (input.skinFallbackCode != null) {
                 getString(
                     R.string.diagnostics_skin_fallback,
@@ -1024,6 +1036,19 @@ class DiagnosticsActivity : SkinnedActivity() {
         DiagnosticNoRootState.CONNECTION_TIMEOUT -> R.string.no_root_status_connection_timeout
         DiagnosticNoRootState.ERROR -> R.string.no_root_status_error
     }
+
+    private fun hostFeatureTitle(featureId: String): String = getString(
+        when (featureId) {
+            "home_recommend_purify" -> R.string.diagnostics_host_feature_home_feed
+            "video_relate_filter" -> R.string.diagnostics_host_feature_relate
+            "comment_filter" -> R.string.diagnostics_host_feature_comment_filter
+            "comment_purify" -> R.string.diagnostics_host_feature_comment_purify
+            "player_default_quality" -> R.string.diagnostics_host_feature_quality
+            "splash_ad_purify" -> R.string.diagnostics_host_feature_splash
+            "mine_component_filter" -> R.string.diagnostics_host_feature_mine
+            else -> R.string.diagnostics_host_feature_unknown
+        }
+    )
 
     // Dialog Window 自己消费返回并播放统一退场；底层 Activity 的 predictive back 仍保持 BLOCKED。
     @SuppressLint("GestureBackNavigation")
@@ -1247,7 +1272,9 @@ class DiagnosticsActivity : SkinnedActivity() {
         when (evidence) {
             DiagnosticEvidence.CONFIGURED -> R.string.diagnostics_evidence_configured
             DiagnosticEvidence.PUBLISHED -> R.string.diagnostics_evidence_published
+            DiagnosticEvidence.ADAPTED -> R.string.diagnostics_evidence_adapted
             DiagnosticEvidence.OBSERVED -> R.string.diagnostics_evidence_observed
+            DiagnosticEvidence.APPLIED -> R.string.diagnostics_evidence_applied
             DiagnosticEvidence.NOT_AVAILABLE -> R.string.diagnostics_evidence_unavailable
         }
     )

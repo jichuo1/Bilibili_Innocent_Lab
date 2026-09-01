@@ -10,4 +10,6 @@ public class PlayerArgs {
 
     @SerializedName("duration")
     public int fakeDuration;
+
+    public long getDuration() { return fakeDuration; }
 }

@@ -24,7 +24,16 @@ internal class SplashAdFeatureInstaller(
             runCatching {
                 environment.registrar.adapted("splash.purify.$index", point) {
                     after {
-                        if (result is List<*>) result = ArrayList<Any>(0)
+                        val source = result as? List<*> ?: return@after
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                        if (source.isNotEmpty()) {
+                            result = ArrayList<Any>(0)
+                            environment.reportRuntimeEvidence(
+                                ID,
+                                FeatureRuntimeStage.APPLIED,
+                                source.size
+                            )
+                        }
                     }
                 }
                 installed += 1
@@ -37,6 +46,7 @@ internal class SplashAdFeatureInstaller(
             }
         }
         if (installed == 0) return missing(environment, "registration-failed")
+        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.reportStatus(CHANNEL_STATUS, "success")
         environment.logInfo("splash_purify_ok", "[BIL] 开屏广告净化已安装，hooks=$installed")
         return FeatureInstallResult.Installed(installed)

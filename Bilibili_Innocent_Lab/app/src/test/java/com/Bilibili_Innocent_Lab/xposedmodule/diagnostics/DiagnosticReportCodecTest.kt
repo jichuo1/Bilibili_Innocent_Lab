@@ -9,7 +9,18 @@ import java.nio.charset.StandardCharsets
 class DiagnosticReportCodecTest {
     @Test
     fun `encoded report validates and declares its privacy exclusions`() {
-        val snapshot = ModuleHealthEvaluator.evaluate(inputs())
+        val snapshot = ModuleHealthEvaluator.evaluate(
+            inputs(
+                hostRuntimeReceiptAvailable = true,
+                hostAdaptedFeatureCount = 1,
+                hostFeatures = listOf(
+                    DiagnosticHostFeature(
+                        "home_recommend_purify",
+                        DiagnosticEvidence.ADAPTED
+                    )
+                )
+            )
+        )
         val bytes = DiagnosticReportCodec.encode(snapshot)
         val metadata = DiagnosticReportCodec.validate(bytes)
         val text = bytes.toString(StandardCharsets.UTF_8)
@@ -21,6 +32,7 @@ class DiagnosticReportCodecTest {
         DiagnosticReportCodec.excludedCategories.forEach { category ->
             assertTrue(text.contains(category))
         }
+        assertTrue(text.contains("home_recommend_purify"))
     }
 
     @Test
