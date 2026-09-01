@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -18,13 +20,27 @@ class DetailAppPromotionFeatureInstallerTest {
     }
 
     @Test
+    fun `legacy concrete view group subtype remains compatible`() {
+        assertTrue(
+            matches(
+                LegacyFixture::class.java.getDeclaredMethod(
+                    "getUpperNestView",
+                    FrameLayout::class.java,
+                    Bridge::class.java,
+                    Config::class.java
+                )
+            )
+        )
+    }
+
+    @Test
     fun `unknown and structurally incomplete methods fail open`() {
         assertFalse(matches(method("getUnknownView")))
         assertFalse(
             matches(
                 Fixture::class.java.getDeclaredMethod(
                     "wrongReturn",
-                    FrameLayout::class.java,
+                    ViewGroup::class.java,
                     Bridge::class.java,
                     Config::class.java
                 )
@@ -39,6 +55,34 @@ class DetailAppPromotionFeatureInstallerTest {
                 )
             )
         )
+        assertFalse(
+            matches(
+                IncompleteFixture::class.java.getDeclaredMethod(
+                    "getUpperNestView",
+                    View::class.java,
+                    Bridge::class.java,
+                    Config::class.java
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `runtime gate locates config without requiring caller service argument`() {
+        val expected = Config()
+
+        assertSame(
+            expected,
+            detailPromotionConfigOrNull(arrayOf(Any(), expected, Any()), Config::class.java)
+        )
+        assertNull(detailPromotionConfigOrNull(arrayOf(Any()), Config::class.java))
+    }
+
+    @Test
+    fun `runtime gate only accepts the unite detail scene`() {
+        assertTrue(matchesDetailPromotionScene(Scene.UNITE_DETAIL, Scene.UNITE_DETAIL))
+        assertFalse(matchesDetailPromotionScene(Scene.OTHER, Scene.UNITE_DETAIL))
+        assertFalse(matchesDetailPromotionScene(null, Scene.UNITE_DETAIL))
     }
 
     @Test
@@ -78,7 +122,7 @@ class DetailAppPromotionFeatureInstallerTest {
 
     private fun method(name: String) = Fixture::class.java.getDeclaredMethod(
         name,
-        FrameLayout::class.java,
+        ViewGroup::class.java,
         Bridge::class.java,
         Config::class.java
     )
@@ -96,41 +140,64 @@ class DetailAppPromotionFeatureInstallerTest {
 
     private class Config
 
+    private enum class Scene {
+        UNITE_DETAIL,
+        OTHER
+    }
+
     private class VideoDetail
 
     @Suppress("UNUSED_PARAMETER")
     private class Fixture {
         fun getUpperNestView(
-            container: FrameLayout,
+            container: ViewGroup,
             bridge: Bridge,
             config: Config
         ): Callback = error("signature fixture")
 
         fun getUpperAdView(
-            container: FrameLayout,
+            container: ViewGroup,
             bridge: Bridge,
             config: Config
         ): Callback = error("signature fixture")
 
         fun getUpperHDView(
-            container: FrameLayout,
+            container: ViewGroup,
             bridge: Bridge,
             config: Config
         ): Callback = error("signature fixture")
 
         fun getUnknownView(
-            container: FrameLayout,
+            container: ViewGroup,
             bridge: Bridge,
             config: Config
         ): Callback = error("signature fixture")
 
         fun wrongReturn(
-            container: FrameLayout,
+            container: ViewGroup,
             bridge: Bridge,
             config: Config
         ): String = error("signature fixture")
 
         fun missingContainer(
+            bridge: Bridge,
+            config: Config
+        ): Callback = error("signature fixture")
+    }
+
+    @Suppress("UNUSED_PARAMETER")
+    private class LegacyFixture {
+        fun getUpperNestView(
+            container: FrameLayout,
+            bridge: Bridge,
+            config: Config
+        ): Callback = error("signature fixture")
+    }
+
+    @Suppress("UNUSED_PARAMETER")
+    private class IncompleteFixture {
+        fun getUpperNestView(
+            container: View,
             bridge: Bridge,
             config: Config
         ): Callback = error("signature fixture")
