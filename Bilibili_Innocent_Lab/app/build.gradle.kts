@@ -184,6 +184,8 @@ dependencies {
     implementation(libs.androidx.constraintlayout)
 
     implementation(libs.material)
+    // GitHub Release body is Markdown; render it as bounded native Spannable content.
+    implementation(libs.markwon.core)
 
     testImplementation(libs.junit)
     // android.jar 的 org.json 是抛异常的 stub；单测需要真实实现解析 GitHub 响应。
