@@ -2,6 +2,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import com.highcapable.kavaref.extension.classOf
+import com.highcapable.kavaref.extension.isSubclassOf
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicBoolean
@@ -357,7 +359,7 @@ internal class VideoRelateFilterFeatureInstaller(
             owner,
             includeSuperclasses = true,
             makeAccessible = true
-        ) { field -> field.name == fieldName && List::class.java.isAssignableFrom(field.type) }
+        ) { field -> field.name == fieldName && field.type isSubclassOf classOf<List<*>>() }
             .distinctBy(Field::toGenericString)
             .singleOrNull()
     }
@@ -758,7 +760,7 @@ internal fun writeBackVideoRelateItems(
     items: List<*>
 ): Boolean {
     if (target == null || !field.declaringClass.isInstance(target)) return false
-    if (!field.type.isAssignableFrom(items.javaClass)) return false
+    if (!(items.javaClass isSubclassOf field.type)) return false
     return runCatching {
         field.set(target, items)
         true

@@ -64,6 +64,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentSto
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
+import com.highcapable.kavaref.extension.classOf
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.text.DateFormat
@@ -94,7 +95,7 @@ class SettingsBackupActivity : SkinnedActivity() {
 
     private val settingsStore by lazy { ModuleSettingsStore(prefs()) }
     private val backupViewModel by lazy {
-        ViewModelProvider(this)[SettingsBackupViewModel::class.java]
+        ViewModelProvider(this)[classOf<SettingsBackupViewModel>()]
     }
     private val planner = SettingsImportPlanner()
     private val mainHandler = Handler(Looper.getMainLooper())
