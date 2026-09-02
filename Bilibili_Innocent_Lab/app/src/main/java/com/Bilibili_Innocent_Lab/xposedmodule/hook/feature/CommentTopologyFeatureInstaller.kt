@@ -38,11 +38,13 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.overlay.ReplyTopologyPanelSessi
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.overlay.ReplyTopologyPanelState
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.overlay.ReplyTopologyPanelStrings
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.overlay.ReplyTopologyRenderSnapshot
+import com.highcapable.kavaref.extension.classOf
+import com.highcapable.kavaref.extension.isStatic
+import com.highcapable.kavaref.extension.isSubclassOf
 import java.lang.ref.WeakReference
 import java.lang.reflect.Constructor
 import java.lang.reflect.Field
 import java.lang.reflect.Method
-import java.lang.reflect.Modifier
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
@@ -114,9 +116,9 @@ internal fun collectReplyTopologyHighBindPoints(
             includeSuperclasses = true
         ) { candidate ->
             candidate.name == "getRoot" && candidate.parameterCount == 0 &&
-                View::class.java.isAssignableFrom(candidate.returnType)
+                candidate.returnType isSubclassOf classOf<View>()
         }.isNotEmpty() || KavaMemberLookup.declaredFields(parameterType) { candidate ->
-            View::class.java.isAssignableFrom(candidate.type)
+            candidate.type isSubclassOf classOf<View>()
         }.isNotEmpty()
     }
 
@@ -127,7 +129,7 @@ internal fun collectReplyTopologyHighBindPoints(
     return buildList {
         add(cachedPoint)
         declaredMethods.forEach { method ->
-            if (Modifier.isStatic(method.modifiers) || method.isSynthetic || method.isBridge) {
+            if (method.isStatic || method.isSynthetic || method.isBridge) {
                 return@forEach
             }
             if (method.parameterCount !in 1..5) return@forEach
@@ -305,7 +307,7 @@ internal class CommentTopologyFeatureInstaller(
             owner.javaClass,
             includeSuperclasses = true,
             makeAccessible = true
-        ) { candidate -> commentItemClass.isAssignableFrom(candidate.type) }.firstOrNull()
+        ) { candidate -> candidate.type isSubclassOf commentItemClass }.firstOrNull()
         if (field == null) {
             noCommentItemFieldClasses += owner.javaClass
             return null
@@ -326,7 +328,7 @@ internal class CommentTopologyFeatureInstaller(
                     "itemView",
                     includeSuperclasses = true
                 )
-                if (field != null && View::class.java.isAssignableFrom(field.type)) {
+                if (field != null && field.type isSubclassOf classOf<View>()) {
                     holderItemViewFields[owner.javaClass] = field
                     (runCatching { field.get(owner) }.getOrNull() as? View)?.let { return it }
                 } else {
@@ -350,7 +352,7 @@ internal class CommentTopologyFeatureInstaller(
             val method = KavaMemberLookup.inheritedMethodOrNull(owner.javaClass, "getRoot")
                 ?.takeIf { candidate ->
                     candidate.parameterCount == 0 &&
-                        View::class.java.isAssignableFrom(candidate.returnType)
+                        candidate.returnType isSubclassOf classOf<View>()
                 }
             if (method != null) {
                 bindingRootMethods[owner.javaClass] = method
@@ -367,12 +369,12 @@ internal class CommentTopologyFeatureInstaller(
             owner.javaClass,
             "a",
             includeSuperclasses = true
-        )?.takeIf { candidate -> View::class.java.isAssignableFrom(candidate.type) }
+        )?.takeIf { candidate -> candidate.type isSubclassOf classOf<View>() }
         val field = conventional ?: KavaMemberLookup.fields(
             declaringClass = owner.javaClass,
             includeSuperclasses = true,
             makeAccessible = true
-        ) { candidate -> View::class.java.isAssignableFrom(candidate.type) }
+        ) { candidate -> candidate.type isSubclassOf classOf<View>() }
             .firstOrNull { candidate ->
                 runCatching { candidate.get(owner) is View }.getOrDefault(false)
             }

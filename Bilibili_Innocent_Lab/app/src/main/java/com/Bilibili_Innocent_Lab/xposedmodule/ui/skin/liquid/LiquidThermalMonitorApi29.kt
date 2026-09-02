@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid
 import android.content.Context
 import android.os.PowerManager
 import androidx.annotation.RequiresApi
+import com.highcapable.kavaref.extension.classOf
 
 /** API 29+ Thermal 状态监听；回调由应用主线程 Executor 串行分发。 */
 @RequiresApi(29)
@@ -10,7 +11,7 @@ internal class LiquidThermalMonitorApi29(
     private val context: Context,
     private val onStatusChanged: (Int) -> Unit
 ) : LiquidThermalMonitor {
-    private val powerManager = context.getSystemService(PowerManager::class.java)
+    private val powerManager = context.getSystemService(classOf<PowerManager>())
     private val listener = PowerManager.OnThermalStatusChangedListener { status ->
         if (!started) return@OnThermalStatusChangedListener
         val normalized = LiquidPerformancePolicy.normalizeThermalStatus(status)
