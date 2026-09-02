@@ -98,7 +98,9 @@ internal object HostContentSemanticClassifier {
             uri.contains("/cheese/play/") || uri.startsWith("bilibili://cheese/")
         ) add(HostContentKind.COURSE)
 
-        if (tokens.any(::isVerticalToken) || uri.startsWith("bilibili://story/")) {
+        if (tokens.any(::isVerticalToken) || uri.startsWith("bilibili://story/") ||
+            uri.startsWith("bilibili://story_translucent/")
+        ) {
             add(HostContentKind.VERTICAL)
         }
 

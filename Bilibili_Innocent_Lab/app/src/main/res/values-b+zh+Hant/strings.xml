@@ -21,6 +21,8 @@
     <string name="user_terms_declined_message">您已拒絕使用者條款。在重新閱讀並明確同意前，模組設定將維持鎖定。</string>
     <string name="user_terms_read_again">重新閱讀條款</string>
     <string name="user_terms_exit">退出</string>
+    <string name="settings_ui_compatibility_title">設定介面相容保護</string>
+    <string name="settings_ui_compatibility_message">介面執行階段元件未能正確初始化。您的條款決定與模組設定均未被變更。請重新安裝本版本的完整建置後再次開啟模組；若問題持續，請匯出 LSPosed 日誌後回報。</string>
     <string name="user_terms_save_failed">無法儲存您的決定，請重試。</string>
     <string name="user_terms_need_framework_enable">尚未連接相容的 Xposed 框架服務。請確認本模組已在目前 Android 使用者或分身空間中啟用並勾選作用域，然後返回重試。</string>
     <string name="user_terms_need_api102">目前框架不支援遠端設定同步（需要 API 102 Remote Preferences），請升級相容框架後重試。</string>

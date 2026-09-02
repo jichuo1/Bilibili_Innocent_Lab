@@ -40,6 +40,7 @@ kavaref-extension = { group = "com.highcapable.kavaref", name = "kavaref-extensi
 hikage-bom = { group = "com.highcapable.hikage", name = "hikage-bom", version.ref = "hikage-bom" }
 hikage-core = { group = "com.highcapable.hikage", name = "hikage-core" }
 hikage-extension = { group = "com.highcapable.hikage", name = "hikage-extension" }
+hikage-runtime-attribute = { group = "com.highcapable.hikage", name = "hikage-runtime-attribute" }
 hikage-widget-androidx = { group = "com.highcapable.hikage", name = "hikage-widget-androidx" }
 hikage-widget-material = { group = "com.highcapable.hikage", name = "hikage-widget-material" }
 betterandroid-ui-component = { group = "com.highcapable.betterandroid", name = "ui-component", version.ref = "betterandroid-ui-component" }
