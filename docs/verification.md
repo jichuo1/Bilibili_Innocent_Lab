@@ -314,3 +314,16 @@ Liquid rendering, RenderThread timing, or device accessibility.
     evidence line. Installed-but-never-applied must be visible there; the flag
     controls display only and must never mark the feature failed when the user
     simply has not opened a portrait video.
+41. After any KavaRef extension migration, confirm `lintDebug` reports zero
+    `ReplaceWithKavaRefExtension` issues and that the JVM suite still passes.
+    The migration is meant to be a pure syntactic substitution: a diff that
+    changes which classes a `when` or a type comparison matches is a behaviour
+    change and must be evaluated separately, not folded into the migration.
+42. Hide a "mine" page component on a host whose `visible` / `localShow` field
+    is declared as a boxed `java.lang.Boolean` or `java.lang.Integer` rather
+    than a primitive. The component must actually disappear. Host 9.9.0
+    declares these fields as primitives and therefore exercises only the
+    pre-existing branch, so this path has JVM coverage but no device evidence
+    yet; a host or field shape that uses the boxed form is required to confirm
+    it. Before the fix, the boxed form matched no branch at all and the hide
+    was silently skipped while the component stayed visible.
