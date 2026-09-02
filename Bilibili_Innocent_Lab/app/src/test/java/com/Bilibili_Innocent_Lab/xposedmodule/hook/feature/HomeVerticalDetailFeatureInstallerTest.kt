@@ -75,7 +75,7 @@ class HomeVerticalDetailFeatureInstallerTest {
     }
 
     @Test
-    fun `installs global route constructors without home response adapter points`() {
+    fun `fails closed when the unit android jar exposes no activity launch hook`() {
         val statuses = mutableListOf<Pair<String, String>>()
         val environment = HookEnvironment(
             processName = "tv.danmaku.bili",
@@ -92,8 +92,16 @@ class HomeVerticalDetailFeatureInstallerTest {
             points = null
         ).install(environment)
 
-        assertTrue((result as FeatureInstallResult.Installed).hookCount >= 5)
-        assertEquals(listOf("home_vertical_detail_status" to "success"), statuses)
+        assertEquals(
+            FeatureInstallResult.Skipped("no-safe-activity-launch-hook-point"),
+            result
+        )
+        assertEquals(
+            listOf(
+                "home_vertical_detail_status" to "no-safe-activity-launch-hook-point"
+            ),
+            statuses
+        )
     }
 
     @Test
@@ -162,6 +170,92 @@ class HomeVerticalDetailFeatureInstallerTest {
                     componentPackage = "tv.danmaku.bili",
                     aid = "987654321"
                 )
+            )
+        )
+    }
+
+    @Test
+    fun `builds complete united launch contract only for numeric story with cid`() {
+        val plan = HomeVerticalDetailRoutePolicy.planActivityLaunch(
+            HomeVerticalActivityLaunchSnapshot(
+                dataUri = "bilibili://story/123456789?from_spmid=main.1.0.0&" +
+                    "player_preload=%7B%22cid%22%3A987654321%7D&-Arouter=story",
+                componentPackage = "tv.danmaku.bili",
+                aid = "123456789",
+                preloadCid = 987654321L
+            ),
+            HomeVerticalDetailBackend.UNITED
+        ) as HomeVerticalActivityLaunchPlan.United
+
+        assertEquals(
+            "bilibili://united_video/123456789?from_spmid=main.1.0.0&" +
+                "aid=123456789&bvid=",
+            plan.detailUri
+        )
+        assertEquals("bilibili://united_video/123456789", plan.targetUrl)
+        assertEquals(123456789L, plan.aid)
+        assertEquals(987654321L, plan.cid)
+
+        assertNull(
+            HomeVerticalDetailRoutePolicy.planActivityLaunch(
+                HomeVerticalActivityLaunchSnapshot(
+                    dataUri = "bilibili://story/123456789",
+                    preloadCid = null
+                ),
+                HomeVerticalDetailBackend.UNITED
+            )
+        )
+        assertNull(
+            HomeVerticalDetailRoutePolicy.planActivityLaunch(
+                HomeVerticalActivityLaunchSnapshot(
+                    dataUri = "bilibili://story/BV1xx411c7mD",
+                    preloadCid = 987654321L
+                ),
+                HomeVerticalDetailBackend.UNITED
+            )
+        )
+    }
+
+    @Test
+    fun `falls back to legacy detail activity contract without united cid`() {
+        val plan = HomeVerticalDetailRoutePolicy.planActivityLaunch(
+            HomeVerticalActivityLaunchSnapshot(
+                dataUri = "bilibili://story/BV1xx411c7mD?from=feed&-Atype=story",
+                targetPackage = "tv.danmaku.bili"
+            ),
+            HomeVerticalDetailBackend.LEGACY
+        ) as HomeVerticalActivityLaunchPlan.Legacy
+
+        assertEquals("bilibili://video/BV1xx411c7mD?from=feed", plan.detailUri)
+        assertNull(
+            HomeVerticalDetailRoutePolicy.planActivityLaunch(
+                HomeVerticalActivityLaunchSnapshot(
+                    dataUri = "bilibili://story_translucent/BV1xx411c7mD"
+                ),
+                HomeVerticalDetailBackend.LEGACY
+            )
+        )
+    }
+
+    @Test
+    fun `parses bounded preload cid and only sanitizes forced story hints`() {
+        assertEquals(
+            987654321L,
+            HomeVerticalDetailRoutePolicy.parsePlayerPreloadCid(
+                "{\"cid\":987654321,\"quality\":80}"
+            )
+        )
+        assertNull(HomeVerticalDetailRoutePolicy.parsePlayerPreloadCid("{\"cid\":0}"))
+        assertNull(HomeVerticalDetailRoutePolicy.parsePlayerPreloadCid("not-json"))
+        assertEquals(
+            "bilibili://story/123456789?from=feed#page",
+            HomeVerticalDetailRoutePolicy.sanitizeIntentHandlerUri(
+                "bilibili://story/123456789?-%41router=story&from=feed&-Atype=story#page"
+            )
+        )
+        assertNull(
+            HomeVerticalDetailRoutePolicy.sanitizeIntentHandlerUri(
+                "https://www.bilibili.com/video/BV1xx411c7mD?-Atype=story"
             )
         )
     }
