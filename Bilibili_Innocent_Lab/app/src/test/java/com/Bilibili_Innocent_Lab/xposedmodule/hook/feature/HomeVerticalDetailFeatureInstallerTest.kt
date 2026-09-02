@@ -174,9 +174,23 @@ class HomeVerticalDetailFeatureInstallerTest {
         )
     }
 
+    private fun planOf(
+        snapshot: HomeVerticalActivityLaunchSnapshot,
+        backend: HomeVerticalDetailBackend
+    ): HomeVerticalActivityLaunchPlan? =
+        (HomeVerticalDetailRoutePolicy.planActivityLaunch(snapshot, backend)
+            as? HomeVerticalActivityLaunchOutcome.Planned)?.plan
+
+    private fun skipOf(
+        snapshot: HomeVerticalActivityLaunchSnapshot,
+        backend: HomeVerticalDetailBackend
+    ): HomeVerticalLaunchSkip? =
+        (HomeVerticalDetailRoutePolicy.planActivityLaunch(snapshot, backend)
+            as? HomeVerticalActivityLaunchOutcome.Skipped)?.reason
+
     @Test
     fun `builds complete united launch contract only for numeric story with cid`() {
-        val plan = HomeVerticalDetailRoutePolicy.planActivityLaunch(
+        val plan = planOf(
             HomeVerticalActivityLaunchSnapshot(
                 dataUri = "bilibili://story/123456789?from_spmid=main.1.0.0&" +
                     "player_preload=%7B%22cid%22%3A987654321%7D&-Arouter=story",
@@ -195,9 +209,14 @@ class HomeVerticalDetailFeatureInstallerTest {
         assertEquals("bilibili://united_video/123456789", plan.targetUrl)
         assertEquals(123456789L, plan.aid)
         assertEquals(987654321L, plan.cid)
+    }
 
-        assertNull(
-            HomeVerticalDetailRoutePolicy.planActivityLaunch(
+    /** 每条放行都必须给出可归因的有界原因，不允许静默返回。 */
+    @Test
+    fun `reports a bounded reason for every united skip`() {
+        assertEquals(
+            HomeVerticalLaunchSkip.MISSING_PRELOAD_CID,
+            skipOf(
                 HomeVerticalActivityLaunchSnapshot(
                     dataUri = "bilibili://story/123456789",
                     preloadCid = null
@@ -205,8 +224,9 @@ class HomeVerticalDetailFeatureInstallerTest {
                 HomeVerticalDetailBackend.UNITED
             )
         )
-        assertNull(
-            HomeVerticalDetailRoutePolicy.planActivityLaunch(
+        assertEquals(
+            HomeVerticalLaunchSkip.BV_ONLY_UNITED,
+            skipOf(
                 HomeVerticalActivityLaunchSnapshot(
                     dataUri = "bilibili://story/BV1xx411c7mD",
                     preloadCid = 987654321L
@@ -214,11 +234,144 @@ class HomeVerticalDetailFeatureInstallerTest {
                 HomeVerticalDetailBackend.UNITED
             )
         )
+        assertEquals(
+            HomeVerticalLaunchSkip.NOT_STORY_ROUTE,
+            skipOf(
+                HomeVerticalActivityLaunchSnapshot(dataUri = "bilibili://video/123456789"),
+                HomeVerticalDetailBackend.UNITED
+            )
+        )
+        assertEquals(
+            HomeVerticalLaunchSkip.NO_DATA_URI,
+            skipOf(
+                HomeVerticalActivityLaunchSnapshot(dataUri = null),
+                HomeVerticalDetailBackend.UNITED
+            )
+        )
+        assertEquals(
+            HomeVerticalLaunchSkip.CROSS_PACKAGE,
+            skipOf(
+                HomeVerticalActivityLaunchSnapshot(
+                    dataUri = "bilibili://story/123456789",
+                    componentPackage = "com.example.other",
+                    preloadCid = 1L
+                ),
+                HomeVerticalDetailBackend.UNITED
+            )
+        )
+        assertEquals(
+            HomeVerticalLaunchSkip.IDENTITY_CONFLICT,
+            skipOf(
+                HomeVerticalActivityLaunchSnapshot(
+                    dataUri = "bilibili://story/123456789",
+                    aid = "987654321",
+                    preloadCid = 1L
+                ),
+                HomeVerticalDetailBackend.UNITED
+            )
+        )
+    }
+
+    /** 宿主同时注册了 story_translucent；它与 story 的身份契约一致，不应整条放行。 */
+    @Test
+    fun `handles story translucent on both backends`() {
+        val legacy = planOf(
+            HomeVerticalActivityLaunchSnapshot(
+                dataUri = "bilibili://story_translucent/BV1xx411c7mD?from=feed&-Atype=story"
+            ),
+            HomeVerticalDetailBackend.LEGACY
+        ) as HomeVerticalActivityLaunchPlan.Legacy
+        assertEquals("bilibili://video/BV1xx411c7mD?from=feed", legacy.detailUri)
+
+        val united = planOf(
+            HomeVerticalActivityLaunchSnapshot(
+                dataUri = "bilibili://story_translucent/123456789",
+                preloadCid = 987654321L
+            ),
+            HomeVerticalDetailBackend.UNITED
+        ) as HomeVerticalActivityLaunchPlan.United
+        assertEquals(123456789L, united.aid)
+        assertEquals(987654321L, united.cid)
+    }
+
+    /** 宿主注册了裸 bilibili://story；身份来自查询串或 Intent 结构化字段时同样要接管。 */
+    @Test
+    fun `recovers identity from query string and intent extras without a path token`() {
+        val fromQuery = planOf(
+            HomeVerticalActivityLaunchSnapshot(
+                dataUri = "bilibili://story?aid=123456789",
+                preloadCid = 987654321L
+            ),
+            HomeVerticalDetailBackend.UNITED
+        ) as HomeVerticalActivityLaunchPlan.United
+        assertEquals(123456789L, fromQuery.aid)
+
+        val fromExtras = planOf(
+            HomeVerticalActivityLaunchSnapshot(
+                dataUri = "bilibili://story",
+                aid = "123456789",
+                preloadCid = 987654321L
+            ),
+            HomeVerticalDetailBackend.UNITED
+        ) as HomeVerticalActivityLaunchPlan.United
+        assertEquals(123456789L, fromExtras.aid)
+
+        assertEquals(
+            HomeVerticalLaunchSkip.NO_IDENTITY,
+            skipOf(
+                HomeVerticalActivityLaunchSnapshot(
+                    dataUri = "bilibili://story",
+                    preloadCid = 987654321L
+                ),
+                HomeVerticalDetailBackend.UNITED
+            )
+        )
+    }
+
+    /**
+     * 回归锁：宿主 9.9.0 实测的真实 Story URI 长 35,657 字符，`player_preload` 内联了完整
+     * DASH manifest。旧上限 4096/8192 会把每一条带预加载的 URI 整条丢弃，且因为拒绝发生在
+     * 静默的入口门禁上，失败连日志都没有。
+     */
+    @Test
+    fun `handles a real world story uri with an inlined dash manifest`() {
+        val dashPadding = "%22base_url%22%3A%22https%3A%2F%2Fupos-sz-mirrorcos.bilivideo.com" +
+            "%2Fupgcxcode%2F90%2F37%2F41429503790%2F41429503790-1-100022.m4s%22%2C"
+        val preload = "%7B%22expire_time%22%3A1788360455%2C%22cid%22%3A41429503790%2C" +
+            "%22video_codecid%22%3A7%2C%22dash%22%3A%7B" +
+            dashPadding.repeat(120) +
+            "%22end%22%3A1%7D%7D"
+        val uri = "bilibili://story/117184055543713?story_item=%7B%7D&player_height=4660&" +
+            "player_preload=$preload"
+        assertTrue(uri.length > 8_192)
+        assertTrue(HomeVerticalDetailRoutePolicy.isStrictStoryVideoRoute(uri))
+
+        val plan = planOf(
+            HomeVerticalActivityLaunchSnapshot(
+                dataUri = uri,
+                componentPackage = "tv.danmaku.bili",
+                preloadCid = 41429503790L
+            ),
+            HomeVerticalDetailBackend.UNITED
+        ) as HomeVerticalActivityLaunchPlan.United
+        assertEquals(117184055543713L, plan.aid)
+        assertEquals(41429503790L, plan.cid)
+
+        // 入口门禁不再设长度上限；超长仍要有可归因的原因，而不是静默消失。
+        val oversized = "bilibili://story/117184055543713?x=" + "a".repeat(300_000)
+        assertTrue(HomeVerticalDetailRoutePolicy.isStrictStoryVideoRoute(oversized))
+        assertEquals(
+            HomeVerticalLaunchSkip.ROUTE_TOO_LONG,
+            skipOf(
+                HomeVerticalActivityLaunchSnapshot(dataUri = oversized, preloadCid = 1L),
+                HomeVerticalDetailBackend.UNITED
+            )
+        )
     }
 
     @Test
     fun `falls back to legacy detail activity contract without united cid`() {
-        val plan = HomeVerticalDetailRoutePolicy.planActivityLaunch(
+        val plan = planOf(
             HomeVerticalActivityLaunchSnapshot(
                 dataUri = "bilibili://story/BV1xx411c7mD?from=feed&-Atype=story",
                 targetPackage = "tv.danmaku.bili"
@@ -227,14 +380,6 @@ class HomeVerticalDetailFeatureInstallerTest {
         ) as HomeVerticalActivityLaunchPlan.Legacy
 
         assertEquals("bilibili://video/BV1xx411c7mD?from=feed", plan.detailUri)
-        assertNull(
-            HomeVerticalDetailRoutePolicy.planActivityLaunch(
-                HomeVerticalActivityLaunchSnapshot(
-                    dataUri = "bilibili://story_translucent/BV1xx411c7mD"
-                ),
-                HomeVerticalDetailBackend.LEGACY
-            )
-        )
     }
 
     @Test

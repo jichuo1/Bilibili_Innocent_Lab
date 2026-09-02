@@ -277,3 +277,22 @@ Liquid rendering, RenderThread timing, or device accessibility.
     must keep running on its already-installed hooks, and the next launch must
     re-locate. Make the fingerprint unreadable in a separate run and confirm
     the cache survives.
+37. Click a portrait (Story) video from the home feed and read the module log.
+    A rewrite logs `Story 视频已在 Activity 启动边界`; a pass-through logs
+    `home_vertical_skip_<reason>` exactly once per reason per process, carrying
+    the desensitized intent shape. Confirm the reason is one of the bounded
+    `HomeVerticalLaunchSkip` values and never a silent absence of both lines.
+38. From that skip line's `queryKeys` / `extraKeys`, determine where the host
+    actually carries `player_preload` and whether a numeric `cid` is present at
+    all. This is the prerequisite for any further change to cid resolution —
+    the current multi-source order is a superset built without a live capture,
+    not a verified contract. If no cid reaches the boundary in any form, the
+    fix is a read-only feed side-channel that records `aid -> cid`, never a
+    second route write point.
+39. Repeat on a `story_translucent` entry and on an entry whose URI has no path
+    token. Both are host-registered routes that previously passed through
+    untouched; they must now either rewrite or report a bounded reason.
+40. Open the diagnostics center and confirm `home_vertical_detail` now shows an
+    evidence line. Installed-but-never-applied must be visible there; the flag
+    controls display only and must never mark the feature failed when the user
+    simply has not opened a portrait video.
