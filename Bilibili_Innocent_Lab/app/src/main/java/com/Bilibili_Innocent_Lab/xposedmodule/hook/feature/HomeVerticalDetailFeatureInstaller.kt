@@ -9,6 +9,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -32,11 +33,9 @@ internal class HomeVerticalDetailFeatureInstaller(
         if (environment.processName != TARGET_PACKAGE) {
             return FeatureInstallResult.Skipped("non-main-process")
         }
-        val backend = resolveBackend(environment) ?: return missing(
-            environment,
-            "missing-detail-activity"
-        )
-        val instrumentationCount = installActivityLaunchBoundary(environment, backend)
+        val backends = resolveBackends(environment)
+        if (backends.isEmpty()) return missing(environment, "missing-detail-activity")
+        val instrumentationCount = installActivityLaunchBoundary(environment, backends)
         if (instrumentationCount == 0) {
             return missing(environment, "no-safe-activity-launch-hook-point")
         }
@@ -48,17 +47,23 @@ internal class HomeVerticalDetailFeatureInstaller(
         environment.reportStatus(CHANNEL_STATUS, "success")
         environment.logInfo(
             "home_vertical_ok",
-            "[BIL] 竖屏视频普通详情路由已安装，backend=${backend.name.lowercase()}," +
-                "instrumentation=$instrumentationCount,playConfig=$playConfigCount," +
+            "[BIL] 竖屏视频普通详情路由已安装，backend=" +
+                backends.joinToString("+") { it.name.lowercase() } +
+                ",instrumentation=$instrumentationCount,playConfig=$playConfigCount," +
                 "intentSanitizer=$intentSanitizerCount,status=success"
         )
         return FeatureInstallResult.Installed(installed)
     }
 
-    /** 以宿主实际存在的 Activity 选择后端；新旧类同时存在时优先 United。 */
-    private fun resolveBackend(environment: HookEnvironment): HomeVerticalDetailBackend? {
-        val loader = environment.classLoader ?: return null
-        return HomeVerticalDetailBackend.entries.firstOrNull { backend ->
+    /**
+     * 按偏好顺序返回宿主实际存在的后端。
+     *
+     * 之前只取第一个匹配并固化到整个进程：United 的任一前置条件不满足就直接放行，即使宿主
+     * 同时具备旧详情页也没有第二次机会。现在保留完整列表，由每个 Intent 自行降级。
+     */
+    private fun resolveBackends(environment: HookEnvironment): List<HomeVerticalDetailBackend> {
+        val loader = environment.classLoader ?: return emptyList()
+        return HomeVerticalDetailBackend.entries.filter { backend ->
             KavaMemberLookup.classOrNull(loader, backend.activityClassName)
                 ?.let(Activity::class.java::isAssignableFrom) == true
         }
@@ -112,7 +117,7 @@ internal class HomeVerticalDetailFeatureInstaller(
      */
     private fun installActivityLaunchBoundary(
         environment: HookEnvironment,
-        backend: HomeVerticalDetailBackend
+        backends: List<HomeVerticalDetailBackend>
     ): Int {
         val candidates = KavaMemberLookup.declaredMethods(
             Instrumentation::class.java,
@@ -141,14 +146,21 @@ internal class HomeVerticalDetailFeatureInstaller(
                             return@before
                         }
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                        val rewritten = rewriteIntentSafely(intent, backend, environment)
-                            ?: return@before
-                        args[intentIndex] = rewritten
+                        val applied = when (
+                            val outcome = rewriteIntentSafely(intent, backends, environment)
+                        ) {
+                            is LaunchRewrite.Applied -> outcome
+                            is LaunchRewrite.Skipped -> {
+                                logSkipOnce(environment, intent, outcome.reason)
+                                return@before
+                            }
+                        }
+                        args[intentIndex] = applied.intent
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
                         environment.logInfo(
                             "home_vertical_activity_launch",
                             "[BIL] Story 视频已在 Activity 启动边界按 " +
-                                "${backend.name} 完整契约改为普通详情页"
+                                "${applied.backend.name} 完整契约改为普通详情页"
                         )
                     }
                 }
@@ -196,26 +208,88 @@ internal class HomeVerticalDetailFeatureInstaller(
 
     private fun rewriteIntentSafely(
         intent: Intent,
-        backend: HomeVerticalDetailBackend,
+        backends: List<HomeVerticalDetailBackend>,
         environment: HookEnvironment
-    ): Intent? = runCatching {
+    ): LaunchRewrite = runCatching {
         val component = intent.component
-        val plan = HomeVerticalDetailRoutePolicy.planActivityLaunch(
-            HomeVerticalActivityLaunchSnapshot(
-                dataUri = intent.data?.toString(),
-                componentPackage = component?.packageName,
-                targetPackage = intent.`package`,
-                aid = intent.extraToken(AID_EXTRA),
-                avid = intent.extraToken(AVID_EXTRA),
-                bvid = intent.extraToken(BVID_EXTRA),
-                preloadCid = HomeVerticalDetailRoutePolicy.parsePlayerPreloadCid(
-                    intent.data?.getQueryParameter(PLAYER_PRELOAD_EXTRA)
-                )
-            ),
-            backend
-        ) ?: return@runCatching null
+        // cid 解析要对 player_preload 做 JSON 解析，而宿主内联的 DASH manifest 实测可达
+        // 28 KB。先用不含 cid 的快照判定；只有策略层明确说"就差 cid"时才付这笔开销，
+        // 跨包、超长、身份冲突等注定放行的 Intent 完全不会触发解析。
+        var snapshot = HomeVerticalActivityLaunchSnapshot(
+            dataUri = intent.data?.toString(),
+            componentPackage = component?.packageName,
+            targetPackage = intent.`package`,
+            aid = intent.extraToken(AID_EXTRA),
+            avid = intent.extraToken(AVID_EXTRA),
+            bvid = intent.extraToken(BVID_EXTRA),
+            preloadCid = null
+        )
+        var cidResolved = false
+        var firstReason: HomeVerticalLaunchSkip? = null
+        // 按偏好顺序逐个尝试：United 缺 cid 或身份不是 aid 时，仍可能由 Legacy 详情页承接。
+        backends.forEach { backend ->
+            var outcome = HomeVerticalDetailRoutePolicy.planActivityLaunch(snapshot, backend)
+            if (
+                outcome is HomeVerticalActivityLaunchOutcome.Skipped &&
+                outcome.reason == HomeVerticalLaunchSkip.MISSING_PRELOAD_CID &&
+                !cidResolved
+            ) {
+                cidResolved = true
+                snapshot = snapshot.copy(preloadCid = resolvePreloadCid(intent))
+                if (snapshot.preloadCid != null) {
+                    outcome = HomeVerticalDetailRoutePolicy.planActivityLaunch(snapshot, backend)
+                }
+            }
+            when (outcome) {
+                is HomeVerticalActivityLaunchOutcome.Skipped -> {
+                    if (firstReason == null) firstReason = outcome.reason
+                }
+
+                is HomeVerticalActivityLaunchOutcome.Planned -> {
+                    // 构造或完整契约校验失败时不记原因，交由 null 表示"非策略层主动放行"。
+                    val built = buildIntent(intent, outcome.plan, backend)
+                    if (built != null) return@runCatching LaunchRewrite.Applied(built, backend)
+                }
+            }
+        }
+        LaunchRewrite.Skipped(firstReason)
+    }.getOrElse { throwable ->
+        environment.logError(
+            "home_vertical_intent_rewrite_failed",
+            "[BIL] Story 启动 Intent 构造异常，已保留宿主原 Intent: $throwable"
+        )
+        LaunchRewrite.Skipped(null)
+    }
+
+    /**
+     * 多来源解析 United 契约必需的 cid。
+     *
+     * 原实现只读 URI 查询参数 `player_preload`，而模块自己写回时用的是 Intent extra——读写
+     * 方向不对称，且"宿主一定把它放在查询串里"这个前提从未被设备实测确认。这里按 URI 查询、
+     * extra JSON、extra 数字 cid、URI 查询 cid 的顺序依次尝试，任一命中即可。
+     */
+    private fun resolvePreloadCid(intent: Intent): Long? {
+        val uri = intent.data
+        HomeVerticalDetailRoutePolicy.parsePlayerPreloadCid(
+            runCatching { uri?.getQueryParameter(PLAYER_PRELOAD_EXTRA) }.getOrNull()
+        )?.let { return it }
+        HomeVerticalDetailRoutePolicy.parsePlayerPreloadCid(
+            intent.extraToken(PLAYER_PRELOAD_EXTRA)
+        )?.let { return it }
+        intent.extraToken(CID_EXTRA)?.toLongOrNull()?.takeIf { it > 0L }?.let { return it }
+        return runCatching { uri?.getQueryParameter(CID_EXTRA) }
+            .getOrNull()
+            ?.toLongOrNull()
+            ?.takeIf { it > 0L }
+    }
+
+    private fun buildIntent(
+        intent: Intent,
+        plan: HomeVerticalActivityLaunchPlan,
+        backend: HomeVerticalDetailBackend
+    ): Intent? {
         val rewritten = Intent(intent)
-        when (plan) {
+        return when (plan) {
             is HomeVerticalActivityLaunchPlan.Legacy -> {
                 rewritten.data = Uri.parse(plan.detailUri)
                 rewritten.component = ComponentName(TARGET_PACKAGE, backend.activityClassName)
@@ -241,12 +315,52 @@ internal class HomeVerticalDetailFeatureInstaller(
                 }
             }
         }
-    }.getOrElse { throwable ->
-        environment.logError(
-            "home_vertical_intent_rewrite_failed",
-            "[BIL] Story 启动 Intent 构造异常，已保留宿主原 Intent: $throwable"
+    }
+
+    /**
+     * 每个放行原因在本进程只记一条，附带脱敏的 Intent 结构。
+     *
+     * 只输出路由根、是否有路径身份、查询串 key 列表与 extra 的 key/类型；不输出任何取值、
+     * 标题、完整 URI 或跟踪参数。这足以回答"`player_preload` 到底在查询串还是 extra 里"
+     * 这类问题，而不必再猜宿主行为。
+     */
+    private fun logSkipOnce(
+        environment: HookEnvironment,
+        intent: Intent,
+        reason: HomeVerticalLaunchSkip?
+    ) {
+        val label = reason?.name?.lowercase() ?: "build-or-validate-failed"
+        if (!loggedSkipReasons.add(label)) return
+        val shape = runCatching { describeIntentShape(intent) }.getOrElse { "shape-unavailable" }
+        environment.logInfo(
+            "home_vertical_skip_$label",
+            "[BIL] Story 视频未改写，reason=$label $shape"
         )
-        null
+    }
+
+    private fun describeIntentShape(intent: Intent): String {
+        val uri = intent.data
+        val root = uri?.let { "${it.scheme}://${it.host}" } ?: "none"
+        val hasPath = uri?.path?.trim('/')?.isNotEmpty() == true
+        val queryKeys = runCatching {
+            uri?.queryParameterNames.orEmpty()
+                .take(MAX_LOGGED_KEYS)
+                .joinToString(",") { it.take(MAX_LOGGED_KEY_LENGTH) }
+        }.getOrDefault("")
+        val extraKeys = runCatching {
+            intent.extras?.keySet().orEmpty()
+                .take(MAX_LOGGED_KEYS)
+                .joinToString(",") { key ->
+                    @Suppress("DEPRECATION")
+                    val type = runCatching { intent.extras?.get(key) }
+                        .getOrNull()
+                        ?.javaClass
+                        ?.simpleName
+                        ?: "null"
+                    "${key.take(MAX_LOGGED_KEY_LENGTH)}:$type"
+                }
+        }.getOrDefault("")
+        return "root=$root hasPath=$hasPath queryKeys=[$queryKeys] extraKeys=[$extraKeys]"
     }
 
     private fun validateLegacyIntent(
@@ -301,6 +415,16 @@ internal class HomeVerticalDetailFeatureInstaller(
         return FeatureInstallResult.Skipped(reason)
     }
 
+    private sealed interface LaunchRewrite {
+        data class Applied(
+            val intent: Intent,
+            val backend: HomeVerticalDetailBackend
+        ) : LaunchRewrite
+
+        /** [reason] 为 null 表示 Intent 构造或完整契约校验失败，而非策略层主动放行。 */
+        data class Skipped(val reason: HomeVerticalLaunchSkip?) : LaunchRewrite
+    }
+
     companion object {
         const val ID = "home_vertical_detail"
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
@@ -321,6 +445,11 @@ internal class HomeVerticalDetailFeatureInstaller(
         private const val UNITED_VIDEO_PAGE = "bilibili://united_video/"
         private const val DETAIL_SOURCE = 7
         private const val MAX_PLAYER_PRELOAD_TOKEN = 999_999_998L
+        private const val MAX_LOGGED_KEYS = 24
+        private const val MAX_LOGGED_KEY_LENGTH = 40
+
+        /** 有界：至多 HomeVerticalLaunchSkip 枚举项数 + 1 条构造失败记录。 */
+        private val loggedSkipReasons = ConcurrentHashMap.newKeySet<String>()
         private val playerPreloadSequence = AtomicLong(
             (System.nanoTime() and 0x3fff_ffffL).coerceAtLeast(1L)
         )

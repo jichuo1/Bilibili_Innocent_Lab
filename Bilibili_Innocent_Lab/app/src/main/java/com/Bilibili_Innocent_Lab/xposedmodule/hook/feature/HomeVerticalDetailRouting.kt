@@ -79,7 +79,18 @@ internal object HomeVerticalDetailRoutePolicy {
     private const val VIDEO_URI_PREFIX = "$VIDEO_URI_ROOT/"
     private const val VERTICAL_AV_GOTO = "vertical_av"
     private const val AV_GOTO = "av"
-    private const val MAX_ROUTE_LENGTH = 4_096
+    /**
+     * 真实 Story 路由长度上限。
+     *
+     * 2026-09-02 在宿主 9.9.0 实测：首页竖屏卡片的 Intent data URI 长 **35,657** 字符——
+     * `player_preload` 里内联了完整 DASH manifest（每个清晰度的 CDN 直链）。原值 4096 会把
+     * 每一条带预加载的 Story URI 在第一道长度检查就丢弃，这正是"有概率不生效"的真实成因：
+     * 未预加载的短 URI 能通过，预加载过的长 URI 一律失败。
+     *
+     * 现值留足量级余量。Intent 受 Binder 事务上限约束（实践中数百 KB），256 KB 之外属于
+     * 病态输入。
+     */
+    private const val MAX_ROUTE_LENGTH = 262_144
     private val BV_PATTERN = Regex("BV[0-9A-Za-z]{6,30}", RegexOption.IGNORE_CASE)
     private val AID_PATTERN = Regex("(?:av)?[0-9]{1,19}", RegexOption.IGNORE_CASE)
     private val excludedKinds = setOf(
@@ -243,14 +254,22 @@ internal object HomeVerticalDetailRoutePolicy {
     fun planActivityLaunch(
         snapshot: HomeVerticalActivityLaunchSnapshot,
         backend: HomeVerticalDetailBackend
-    ): HomeVerticalActivityLaunchPlan? {
+    ): HomeVerticalActivityLaunchOutcome {
+        fun skip(reason: HomeVerticalLaunchSkip) =
+            HomeVerticalActivityLaunchOutcome.Skipped(reason)
         if (snapshot.componentPackage != null && snapshot.componentPackage != TARGET_PACKAGE) {
-            return null
+            return skip(HomeVerticalLaunchSkip.CROSS_PACKAGE)
         }
-        if (snapshot.targetPackage != null && snapshot.targetPackage != TARGET_PACKAGE) return null
-        val original = snapshot.dataUri ?: return null
-        val route = parseUnambiguousRoute(original, STORY_URI_ROOT) ?: return null
-        if (route.rawToken == null) return null
+        if (snapshot.targetPackage != null && snapshot.targetPackage != TARGET_PACKAGE) {
+            return skip(HomeVerticalLaunchSkip.CROSS_PACKAGE)
+        }
+        val original = snapshot.dataUri ?: return skip(HomeVerticalLaunchSkip.NO_DATA_URI)
+        // story 与 story_translucent 都是宿主注册的竖屏路由；两者只有根不同，身份契约一致。
+        val storyRoot = storyRootFor(original) ?: return skip(HomeVerticalLaunchSkip.NOT_STORY_ROUTE)
+        // 长度拒绝必须落在这里而不是入口门禁：门禁静默，这里才有原因可上报。
+        if (original.length > MAX_ROUTE_LENGTH) {
+            return skip(HomeVerticalLaunchSkip.ROUTE_TOO_LONG)
+        }
 
         val extraIdentities = parseIntentIdentities(
             HomeVerticalIntentRouteSnapshot(
@@ -261,23 +280,44 @@ internal object HomeVerticalDetailRoutePolicy {
                 avid = snapshot.avid,
                 bvid = snapshot.bvid
             )
-        ) ?: return null
+        ) ?: return skip(HomeVerticalLaunchSkip.MALFORMED_INTENT_IDENTITY)
+
+        // 路径身份缺失时不再整体放弃：查询串身份由 parseUnambiguousRoute 直接给出，两者都
+        // 没有的裸根路由再退回 Intent 结构化字段，与卡片层 decide() 的既有语义对齐。
+        val route = parseUnambiguousRoute(original, storyRoot)
+            ?: run {
+                if (!permitsFallbackIdentity(original, storyRoot)) {
+                    return skip(HomeVerticalLaunchSkip.MALFORMED_ROUTE)
+                }
+                val fallback = extraIdentities
+                    .singleOrNull { it.kind == CanonicalHomeVideoId.Kind.AID }
+                    ?: extraIdentities.singleOrNull()
+                    ?: return skip(HomeVerticalLaunchSkip.NO_IDENTITY)
+                ParsedRoute(fallback, setOf(fallback), rawToken = null)
+            }
+
         val identities = linkedSetOf<CanonicalHomeVideoId>().apply {
             addAll(route.identities)
             addAll(extraIdentities)
         }
-        if (identities.groupBy(CanonicalHomeVideoId::kind).any { it.value.size > 1 }) return null
+        if (identities.groupBy(CanonicalHomeVideoId::kind).any { it.value.size > 1 }) {
+            return skip(HomeVerticalLaunchSkip.IDENTITY_CONFLICT)
+        }
 
-        return when (backend) {
+        val plan = when (backend) {
             HomeVerticalDetailBackend.LEGACY -> HomeVerticalActivityLaunchPlan.Legacy(
-                detailUri = rewriteStoryRoute(original, route, STORY_URI_ROOT)
+                detailUri = rewriteStoryRoute(original, route, storyRoot)
             )
 
             HomeVerticalDetailBackend.UNITED -> {
                 val identity = route.primaryIdentity
-                if (identity.kind != CanonicalHomeVideoId.Kind.AID) return null
-                val aid = identity.value.toLongOrNull()?.takeIf { it > 0L } ?: return null
-                val cid = snapshot.preloadCid?.takeIf { it > 0L } ?: return null
+                if (identity.kind != CanonicalHomeVideoId.Kind.AID) {
+                    return skip(HomeVerticalLaunchSkip.BV_ONLY_UNITED)
+                }
+                val aid = identity.value.toLongOrNull()?.takeIf { it > 0L }
+                    ?: return skip(HomeVerticalLaunchSkip.NO_IDENTITY)
+                val cid = snapshot.preloadCid?.takeIf { it > 0L }
+                    ?: return skip(HomeVerticalLaunchSkip.MISSING_PRELOAD_CID)
                 val targetUrl = "$UNITED_VIDEO_URI_ROOT/$aid"
                 val fromSpmid = uniqueQueryValue(original, FROM_SPMID_QUERY)
                     ?.takeIf { it.length <= MAX_FROM_SPMID_LENGTH }
@@ -299,6 +339,7 @@ internal object HomeVerticalDetailRoutePolicy {
                 )
             }
         }
+        return HomeVerticalActivityLaunchOutcome.Planned(plan)
     }
 
     /** 仅清理 IntentHandler 中强制回到 Story 的参数，不在该层改写目标页面。 */
@@ -307,8 +348,19 @@ internal object HomeVerticalDetailRoutePolicy {
         return sanitizeStoryRoutingHints(uri).takeUnless { it == uri }
     }
 
+    /**
+     * 启动边界的廉价前置门禁：只判断是不是宿主的竖屏路由根。
+     *
+     * 这里**刻意不设长度上限**。门禁返回 false 是完全静默的（否则每次 Activity 启动都会打
+     * 日志），所以任何在此处被拒绝的情况都不可归因。实测教训：原实现在门禁上叠了
+     * `length <= 4096`，而真实 Story URI 长 35,657 字符，于是每一次失败都既无 OBSERVED
+     * 也无放行原因，排查时表现为"功能像是没装"。
+     *
+     * 现在门禁只回答"这条路由是不是我们的"（`startsWith` 与 URI 长度无关），长度、身份、
+     * cid 等一切拒绝理由都由 [planActivityLaunch] 给出有界原因。
+     */
     fun isStrictStoryVideoRoute(uri: String?): Boolean =
-        parseUnambiguousRoute(uri, STORY_URI_ROOT)?.rawToken != null
+        uri != null && storyRootFor(uri) != null
 
     fun parsePlayerPreloadCid(raw: String?): Long? {
         val json = raw?.takeIf { it.length in 2..MAX_PLAYER_PRELOAD_LENGTH } ?: return null
@@ -440,10 +492,13 @@ internal object HomeVerticalDetailRoutePolicy {
     private fun isStoryRoutingHint(component: String): Boolean {
         val delimiter = component.indexOf('=')
         val encodedName = if (delimiter >= 0) component.substring(0, delimiter) else component
-        val encodedValue = if (delimiter >= 0) component.substring(delimiter + 1) else ""
         val name = decodeQueryComponent(encodedName)?.lowercase() ?: return false
+        // 先判名再解值：宿主把整个 DASH manifest 内联进 player_preload（实测解码后 28 KB），
+        // 无条件解码每个组件的值只为查白名单，纯属浪费。名字不在白名单里就没必要解码。
+        if (name !in STORY_ROUTING_QUERY_KEYS) return false
+        val encodedValue = if (delimiter >= 0) component.substring(delimiter + 1) else ""
         val value = decodeQueryComponent(encodedValue) ?: return false
-        return name in STORY_ROUTING_QUERY_KEYS && value.equals("story", ignoreCase = true)
+        return value.equals("story", ignoreCase = true)
     }
 
     /** 返回 null 表示出现了显式但无效的 aid/BV 查询身份，调用方据此 fail-open。 */
@@ -508,7 +563,12 @@ internal object HomeVerticalDetailRoutePolicy {
     private const val UNITED_VIDEO_URI_ROOT = "bilibili://united_video"
     private const val FROM_SPMID_QUERY = "from_spmid"
     private const val MAX_FROM_SPMID_LENGTH = 512
-    private const val MAX_PLAYER_PRELOAD_LENGTH = 8_192
+    /**
+     * 实测同一条 URI 的 `player_preload` 解码后为 **28,449** 字符。原值 8192 与
+     * [MAX_ROUTE_LENGTH] 的旧值 4096 还自相矛盾——preload 是 URI 的子串，8192 的载荷永远
+     * 装不进 4096 的 URI。必须小于 [MAX_ROUTE_LENGTH]。
+     */
+    private const val MAX_PLAYER_PRELOAD_LENGTH = 131_072
     private const val TARGET_PACKAGE = "tv.danmaku.bili"
 
     internal const val NORMAL_AV_GOTO: String = AV_GOTO
@@ -541,8 +601,33 @@ internal data class HomeVerticalActivityLaunchSnapshot(
     val aid: String? = null,
     val avid: String? = null,
     val bvid: String? = null,
+    /** 已由调用方按多来源解析出的 cid；策略层不关心它来自 URI 查询还是 Intent extra。 */
     val preloadCid: Long? = null
 )
+
+/**
+ * 启动边界未改写的有界原因。
+ *
+ * 只用于日志与诊断，不携带任何 URI 内容、视频身份或跟踪参数。放行原因必须可枚举——静默
+ * `return` 会让"有概率不生效"退化成无法定位的现象。
+ */
+internal enum class HomeVerticalLaunchSkip {
+    NO_DATA_URI,
+    CROSS_PACKAGE,
+    NOT_STORY_ROUTE,
+    ROUTE_TOO_LONG,
+    MALFORMED_ROUTE,
+    NO_IDENTITY,
+    MALFORMED_INTENT_IDENTITY,
+    IDENTITY_CONFLICT,
+    BV_ONLY_UNITED,
+    MISSING_PRELOAD_CID
+}
+
+internal sealed interface HomeVerticalActivityLaunchOutcome {
+    data class Planned(val plan: HomeVerticalActivityLaunchPlan) : HomeVerticalActivityLaunchOutcome
+    data class Skipped(val reason: HomeVerticalLaunchSkip) : HomeVerticalActivityLaunchOutcome
+}
 
 internal sealed interface HomeVerticalActivityLaunchPlan {
     val detailUri: String
