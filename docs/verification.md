@@ -78,6 +78,24 @@ and rejecting an archive with no DEX. They do not prove native library loading,
 DexKit query behavior, or the cache audit's runtime effect; those are device
 checks.
 
+Two suites lock the primitive-versus-boxed reflection boundary, which the
+KavaRef `ReplaceWithKavaRefExtension` lint suggestions do not distinguish on
+their own. `ReflectAccessPrimitiveArgTest` resolves methods whose parameters are
+`boolean`, `int`, `long`, `double` and `char`, and additionally pins the two
+facts that make those suggestions unsafe to apply blindly: `classOf<T>()`
+resolves to the primitive type while `classOf<T>(primitiveType = false)`
+resolves to the boxed one, and Kotlin's `X::class.java` is identical to
+`X::class.javaPrimitiveType`. A primitive `Class` returns false from
+`isInstance` for every argument, so substituting one for the other silently
+disables parameter matching rather than failing loudly.
+`MineComponentHiddenFlagWriterTest` locks the hidden-flag writer against both
+field representations: it first asserts that its own fixture really declares
+primitive and boxed fields — otherwise the remaining assertions prove nothing —
+then writes and reads every value reflectively, because reading a wrapper field
+through Kotlin source maps it back to the primitive type and masks the
+difference. Unsupported field types must be left untouched rather than guessed
+at.
+
 Diagnostics tests lock the pure severity/evidence matrix and the local report's
 version, size limit, privacy exclusions, and read-back schema. The transition test
 also locks the dedicated entry/full-window endpoints, staged content reveal, title

@@ -485,19 +485,8 @@ internal class MineComponentFilterFeatureInstaller(
     }
 
     private fun setHiddenFlags(instance: Any, visible: Field?, localShow: Field?) {
-        visible?.let { field ->
-            runCatching {
-                // 注意：只覆盖原始类型。原写法列了 `javaPrimitiveType, ::class.java` 两项，
-                // 但 Kotlin 的 `Boolean::class.java` 本身就是原始类型，二者完全相同，
-                // 装箱字段（java.lang.Boolean/Integer）从来就不在覆盖范围内。此处按原行为
-                // 收敛为单项，未扩大匹配范围。
-                when (field.type) {
-                    classOf<Boolean>() -> field.set(instance, false)
-                    classOf<Int>() -> field.set(instance, 0)
-                }
-            }
-        }
-        localShow?.let { field -> runCatching { field.set(instance, false) } }
+        MineComponentHiddenFlagWriter.apply(instance, visible)
+        MineComponentHiddenFlagWriter.apply(instance, localShow)
     }
 
     private fun missing(environment: HookEnvironment, reason: String): FeatureInstallResult.Skipped {
@@ -561,5 +550,36 @@ internal class MineComponentFilterFeatureInstaller(
         const val ID = "mine_component_filter"
         private const val TARGET_PACKAGE = MineComponentSnapshotCodec.TARGET_PACKAGE
         private const val CHANNEL_STATUS = "mine_component_filter_status"
+    }
+}
+
+/**
+ * 按字段实际类型写入「隐藏」值。
+ *
+ * 宿主的 `visible` / `localShow` 可能声明为 `boolean`/`int`，也可能是对应的装箱形式
+ * （FastJSON 反序列化出的可空字段常为后者）。Kotlin 的 `Boolean::class.java` 只表示
+ * **原始** 类型，与 `javaPrimitiveType` 完全相同——旧实现把这两者并列，看似覆盖了原始与
+ * 装箱，实际两个分支条件重复，装箱字段一个都匹配不上，隐藏操作被静默跳过。
+ *
+ * 因此装箱形式必须显式用 `classOf<T>(primitiveType = false)` 列出。写入值仍用 Kotlin 的
+ * `false`/`0`，Java 反射会按目标字段自动装箱或拆箱，两种形式共用同一个值。
+ */
+internal object MineComponentHiddenFlagWriter {
+
+    /** 返回该字段类型对应的隐藏值；无法表达「隐藏」语义的类型返回 null，不写入。 */
+    fun hiddenValueFor(type: Class<*>): Any? = when (type) {
+        classOf<Boolean>(), classOf<Boolean>(primitiveType = false) -> false
+        classOf<Int>(), classOf<Int>(primitiveType = false) -> 0
+        else -> null
+    }
+
+    /** 写入成功返回 true；字段缺失、类型不支持或宿主拒绝写入均返回 false 且不抛出。 */
+    fun apply(instance: Any, field: Field?): Boolean {
+        val target = field ?: return false
+        val value = hiddenValueFor(target.type) ?: return false
+        return runCatching {
+            target.set(instance, value)
+            true
+        }.getOrDefault(false)
     }
 }
