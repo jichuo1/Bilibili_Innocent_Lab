@@ -23,7 +23,7 @@ internal object DexKitAssistEngine : DexAssistEngine {
             return DexAssistResult.Unavailable(DexAssistResult.Reason.NO_CODE_PATH)
         }
         if (codePaths.size > MAX_CODE_ARCHIVES) {
-            return DexAssistResult.Unavailable(DexAssistResult.Reason.TOO_MANY_MATCHES)
+            return DexAssistResult.Unavailable(DexAssistResult.Reason.TOO_MANY_ARCHIVES)
         }
         if (!ensureNativeLoaded()) {
             return DexAssistResult.Unavailable(DexAssistResult.Reason.NATIVE_UNAVAILABLE)

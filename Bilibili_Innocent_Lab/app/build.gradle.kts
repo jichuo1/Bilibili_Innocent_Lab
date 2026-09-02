@@ -78,6 +78,13 @@ android {
         versionName = releaseVersionNameOverride ?: gropify.project.app.versionName
         versionCode = gropify.project.app.versionCode
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            // 只有 DexKit 带原生核心。Xposed/LSPosed 实机部署实际只有 ARM，x86 与
+            // x86_64 两份 libdexkit.so 会多占约 627 KB；缺失时 DexKitAssistEngine 按
+            // NATIVE_UNAVAILABLE 优雅降级，仅失去 block-update 的 DEX 兜底定位，
+            // 其余功能不受影响。x86 模拟器上调试 DEX 兜底时需临时去掉此过滤。
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
     val fixedReleaseSigning = if (hasCompleteReleaseSigningValues) {
         signingConfigs.create("fixedRelease") {

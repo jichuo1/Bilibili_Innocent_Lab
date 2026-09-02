@@ -69,6 +69,15 @@ contain `assets/xposed_init`, `META-INF/yukihookapi_init`, an
 JVM protocol success does not prove framework service binding or device Hook
 execution; those remain device checks.
 
+The DEX-assist tests lock the adaptation cache's atomic replacement (a valid
+payload replaces the cache, a rejected one leaves the previous cache intact),
+the candidate selector's bridge-versus-leaf disambiguation and its fail-closed
+behavior when several owners match, and the DEX content fingerprint: stable
+across archives whose resources differ, changed by a modified secondary DEX,
+and rejecting an archive with no DEX. They do not prove native library loading,
+DexKit query behavior, or the cache audit's runtime effect; those are device
+checks.
+
 Diagnostics tests lock the pure severity/evidence matrix and the local report's
 version, size limit, privacy exclusions, and read-back schema. The transition test
 also locks the dedicated entry/full-window endpoints, staged content reveal, title
@@ -245,3 +254,26 @@ Liquid rendering, RenderThread timing, or device accessibility.
     pre-entry failure rather than a module configuration failure. The module
     switch must not claim to disable or recover native injection, and no module
     Hook/heartbeat may be reported as observed in that case.
+33. Force a re-adaptation and confirm the `dex.assist` diagnostic appears
+    exactly once. On every currently supported host, `locateBlockUpdate` still
+    resolves directly, so the expected detail is
+    `block-update:not-required`. Any other detail means the fallback ran and
+    its outcome must be read before shipping.
+34. Confirm DexKit's native core actually loads inside the host process. The
+    `.so` files are stored uncompressed, so this depends on the framework
+    adding the module APK's `lib/<abi>` to the module ClassLoader's library
+    search path. Verify under LSPosed and separately under NPatch; a failure
+    must surface as `block-update:native_unavailable` and must not crash the
+    host or disable any other feature. The module ships arm64-v8a and
+    armeabi-v7a only, so an x86 emulator is expected to report
+    `native_unavailable`.
+35. Measure peak native RSS in the Bilibili process while a forced
+    re-adaptation runs the DEX query. Host 9.10.0 carries 31 DEX files and
+    roughly 291,072 classes, and `MAX_DEX_ENTRIES` bounds fingerprinting only,
+    not the query itself.
+36. Exercise the cache audit by changing DEX content without changing
+    `versionCode` — re-patching the host through NPatch is the realistic case.
+    The `BIL-DexAudit` thread must invalidate the cache, the current process
+    must keep running on its already-installed hooks, and the next launch must
+    re-locate. Make the fingerprint unreadable in a separate run and confirm
+    the cache survives.
