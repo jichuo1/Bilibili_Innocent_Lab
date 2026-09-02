@@ -20,6 +20,8 @@
     <string name="user_terms_declined_message">You declined the terms. Module settings remain unavailable until you review the terms and explicitly agree.</string>
     <string name="user_terms_read_again">Review terms</string>
     <string name="user_terms_exit">Exit</string>
+    <string name="settings_ui_compatibility_title">Settings interface compatibility protection</string>
+    <string name="settings_ui_compatibility_message">The interface runtime did not initialize correctly. Your terms decision and module settings were not changed. Reinstall a complete build of this version, then reopen the module. If the problem persists, export an LSPosed log and report it.</string>
     <string name="user_terms_save_failed">Could not save your decision. Please try again.</string>
     <string name="user_terms_need_framework_enable">No compatible Xposed framework service is connected. Enable this module and its scope in the current Android user or cloned-app profile, then return and retry.</string>
     <string name="user_terms_need_api102">The current framework cannot synchronize remote configuration. API 102 Remote Preferences support is required.</string>

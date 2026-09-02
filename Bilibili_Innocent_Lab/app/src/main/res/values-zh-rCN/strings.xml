@@ -21,6 +21,8 @@
     <string name="user_terms_declined_message">您已拒绝用户条款。在重新阅读并明确同意前，模块设置将保持锁定。</string>
     <string name="user_terms_read_again">重新阅读条款</string>
     <string name="user_terms_exit">退出</string>
+    <string name="settings_ui_compatibility_title">设置界面兼容保护</string>
+    <string name="settings_ui_compatibility_message">界面运行时组件未能正确初始化。您的条款决定和模块设置均未被更改。请重新安装本版本的完整构建后再次打开模块；若问题持续，请导出 LSPosed 日志后反馈。</string>
     <string name="user_terms_save_failed">无法保存您的决定，请重试。</string>
     <string name="user_terms_need_framework_enable">尚未连接兼容的 Xposed 框架服务。请确认本模块已在当前 Android 用户或分身空间中启用并勾选作用域，然后返回重试。</string>
     <string name="user_terms_need_api102">当前框架不支持远程配置同步（需要 API 102 Remote Preferences），请升级兼容框架后重试。</string>

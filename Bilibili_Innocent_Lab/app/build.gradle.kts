@@ -115,7 +115,10 @@ android {
 gradle.taskGraph.whenReady {
     val releasePackagingRequested = allTasks.any { task ->
         task.project == project &&
-            task.name.matches(Regex("(?i)^(assemble|bundle|package|sign).*release.*$"))
+            (
+                task.name.matches(Regex("(?i)^(assemble|bundle|sign).*release.*$")) ||
+                    task.name.equals("packageRelease", ignoreCase = true)
+            )
     }
     if (releasePackagingRequested && !hasCompleteReleaseSigningValues) {
         throw GradleException(
@@ -165,6 +168,7 @@ dependencies {
     implementation(platform(libs.hikage.bom))
     implementation(libs.hikage.core)
     implementation(libs.hikage.extension)
+    implementation(libs.hikage.runtime.attribute)
     implementation(libs.hikage.widget.androidx)
     implementation(libs.hikage.widget.material)
 
