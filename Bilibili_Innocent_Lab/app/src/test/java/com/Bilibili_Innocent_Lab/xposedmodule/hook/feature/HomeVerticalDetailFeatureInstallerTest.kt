@@ -105,90 +105,6 @@ class HomeVerticalDetailFeatureInstallerTest {
     }
 
     @Test
-    fun `uses structured player aid when card route is absent but rejects non ugc player args`() {
-        val decision = HomeVerticalDetailRoutePolicy.decide(
-            HomeVerticalRouteSnapshot(
-                cardGoto = "vertical_av",
-                playerAid = 123456789L
-            )
-        )
-        assertEquals(
-            "bilibili://video/123456789",
-            (decision as HomeVerticalRouteDecision.Rewrite).plan.detailUri
-        )
-
-        val nonUgc = HomeVerticalDetailRoutePolicy.decide(
-            HomeVerticalRouteSnapshot(
-                cardGoto = "vertical_av",
-                playerAid = 123456789L,
-                playerNonUgc = true
-            )
-        )
-        assertEquals(
-            HomeVerticalRouteDecision.Reason.UNSAFE_CONTENT_KIND,
-            (nonUgc as HomeVerticalRouteDecision.KeepOriginal).reason
-        )
-    }
-
-    @Test
-    fun `plans only compatible story intent fallback and retargets explicit story activity`() {
-        val direct = HomeVerticalDetailRoutePolicy.planIntentFallback(
-            HomeVerticalIntentRouteSnapshot(
-                dataUri = "bilibili://story_translucent/BV1xx411c7mD?from=feed",
-                componentPackage = "tv.danmaku.bili",
-                componentClass = "com.bilibili.video.story.StoryTransparentActivity"
-            )
-        )
-        assertEquals("bilibili://video/BV1xx411c7mD?from=feed", direct?.detailUri)
-        assertTrue(direct?.retargetToIntentHandler == true)
-
-        val identityFromExtra = HomeVerticalDetailRoutePolicy.planIntentFallback(
-            HomeVerticalIntentRouteSnapshot(
-                dataUri = "bilibili://story?from=feed",
-                targetPackage = "tv.danmaku.bili",
-                aid = "123456789"
-            )
-        )
-        assertEquals(
-            "bilibili://video/123456789?from=feed",
-            identityFromExtra?.detailUri
-        )
-        assertFalse(identityFromExtra?.retargetToIntentHandler ?: true)
-
-        assertNull(
-            HomeVerticalDetailRoutePolicy.planIntentFallback(
-                HomeVerticalIntentRouteSnapshot(
-                    dataUri = "bilibili://story/BV1xx411c7mD",
-                    componentPackage = "com.example.other"
-                )
-            )
-        )
-        assertNull(
-            HomeVerticalDetailRoutePolicy.planIntentFallback(
-                HomeVerticalIntentRouteSnapshot(
-                    dataUri = "bilibili://story/123456789",
-                    componentPackage = "tv.danmaku.bili",
-                    aid = "987654321"
-                )
-            )
-        )
-    }
-
-    private fun planOf(
-        snapshot: HomeVerticalActivityLaunchSnapshot,
-        backend: HomeVerticalDetailBackend
-    ): HomeVerticalActivityLaunchPlan? =
-        (HomeVerticalDetailRoutePolicy.planActivityLaunch(snapshot, backend)
-            as? HomeVerticalActivityLaunchOutcome.Planned)?.plan
-
-    private fun skipOf(
-        snapshot: HomeVerticalActivityLaunchSnapshot,
-        backend: HomeVerticalDetailBackend
-    ): HomeVerticalLaunchSkip? =
-        (HomeVerticalDetailRoutePolicy.planActivityLaunch(snapshot, backend)
-            as? HomeVerticalActivityLaunchOutcome.Skipped)?.reason
-
-    @Test
     fun `builds complete united launch contract only for numeric story with cid`() {
         val plan = planOf(
             HomeVerticalActivityLaunchSnapshot(
@@ -406,117 +322,6 @@ class HomeVerticalDetailFeatureInstallerTest {
     }
 
     @Test
-    fun `builds a conservative plan for a normal vertical video`() {
-        val decision = HomeVerticalDetailRoutePolicy.decide(
-            HomeVerticalRouteSnapshot(
-                cardGoto = "vertical_av",
-                goTo = "vertical_av",
-                uri = "bilibili://story/BV1xx411c7mD?from=feed",
-                param = "BV1xx411c7mD"
-            )
-        )
-
-        val plan = (decision as HomeVerticalRouteDecision.Rewrite).plan
-        assertEquals(CanonicalHomeVideoId.Kind.BV, plan.identity.kind)
-        assertEquals("BV1xx411c7mD", plan.identity.value)
-        assertEquals("bilibili://video/BV1xx411c7mD?from=feed", plan.detailUri)
-        assertTrue(plan.rewriteCardGoto)
-        assertTrue(plan.rewriteGoTo)
-        assertTrue(plan.rewriteUri)
-    }
-
-    @Test
-    fun `keeps unsafe or conflicting vertical routes unchanged`() {
-        val advertisement = HomeVerticalDetailRoutePolicy.decide(
-            HomeVerticalRouteSnapshot(
-                bizType = "AD",
-                cardGoto = "vertical_av",
-                uri = "bilibili://story/BV1xx411c7mD"
-            )
-        )
-        assertEquals(
-            HomeVerticalRouteDecision.Reason.UNSAFE_CONTENT_KIND,
-            (advertisement as HomeVerticalRouteDecision.KeepOriginal).reason
-        )
-
-        val conflicting = HomeVerticalDetailRoutePolicy.decide(
-            HomeVerticalRouteSnapshot(
-                cardGoto = "vertical_av",
-                uri = "bilibili://story/BV1xx411c7mD",
-                param = "BV1Q5411c7mD"
-            )
-        )
-        assertEquals(
-            HomeVerticalRouteDecision.Reason.CONFLICTING_VIDEO_ID,
-            (conflicting as HomeVerticalRouteDecision.KeepOriginal).reason
-        )
-    }
-
-    @Test
-    fun `accepts aid and BV as complementary identities but rejects same-kind conflicts`() {
-        val complementary = HomeVerticalDetailRoutePolicy.decide(
-            HomeVerticalRouteSnapshot(
-                cardGoto = "vertical_av",
-                uri = "bilibili://story/123456789?from=feed&-Arouter=story",
-                param = "BV1xx411c7mD"
-            )
-        )
-
-        val plan = (complementary as HomeVerticalRouteDecision.Rewrite).plan
-        assertEquals("bilibili://video/123456789?from=feed", plan.detailUri)
-        assertEquals(2, plan.aliases.size)
-        assertTrue(
-            CanonicalHomeVideoId(CanonicalHomeVideoId.Kind.AID, "123456789") in plan.aliases
-        )
-        assertTrue(
-            CanonicalHomeVideoId(CanonicalHomeVideoId.Kind.BV, "BV1xx411c7mD") in plan.aliases
-        )
-
-        val conflictingAid = HomeVerticalDetailRoutePolicy.decide(
-            HomeVerticalRouteSnapshot(
-                cardGoto = "vertical_av",
-                uri = "bilibili://story/123456789?aid=987654321"
-            )
-        )
-        assertEquals(
-            HomeVerticalRouteDecision.Reason.CONFLICTING_VIDEO_ID,
-            (conflictingAid as HomeVerticalRouteDecision.KeepOriginal).reason
-        )
-    }
-
-    @Test
-    fun `supports query-only story identity and removes forced story hints`() {
-        val decision = HomeVerticalDetailRoutePolicy.decide(
-            HomeVerticalRouteSnapshot(
-                cardGoto = "vertical_av",
-                uri = "bilibili://story?aid=123456789&-Arouter=story&from=feed#page"
-            )
-        )
-
-        val plan = (decision as HomeVerticalRouteDecision.Rewrite).plan
-        assertEquals(
-            "bilibili://video/123456789?aid=123456789&from=feed#page",
-            plan.detailUri
-        )
-    }
-
-    @Test
-    fun `cleans forced story hints from an existing video route`() {
-        val decision = HomeVerticalDetailRoutePolicy.decide(
-            HomeVerticalRouteSnapshot(
-                holderType = "vertical",
-                cardGoto = "av",
-                goTo = "av",
-                uri = "bilibili://video/BV1xx411c7mD?-Atype=story&from=feed"
-            )
-        )
-
-        val plan = (decision as HomeVerticalRouteDecision.Rewrite).plan
-        assertEquals("bilibili://video/BV1xx411c7mD?from=feed", plan.detailUri)
-        assertTrue(plan.rewriteUri)
-    }
-
-    @Test
     fun `mutates annotated concrete fields behind abstract getters and clears uri cache`() {
         val card = AnnotatedCard(
             cardGoto = "vertical_av",
@@ -524,12 +329,10 @@ class HomeVerticalDetailFeatureInstallerTest {
             uri = "bilibili://story/BV1xx411c7mD"
         )
         val snapshot = card.snapshot()
-        val plan = (HomeVerticalDetailRoutePolicy.decide(snapshot) as
-            HomeVerticalRouteDecision.Rewrite).plan
         val result = ConcreteHomeVerticalRouteMutator().apply(
             card,
             snapshot,
-            plan,
+            rewritePlan("bilibili://video/BV1xx411c7mD", rewriteGoTo = true),
             readers()
         )
 
@@ -543,12 +346,10 @@ class HomeVerticalDetailFeatureInstallerTest {
     fun `rolls back earlier route writes when a later writer fails`() {
         val card = ThrowingUriCard()
         val snapshot = card.snapshot()
-        val plan = (HomeVerticalDetailRoutePolicy.decide(snapshot) as
-            HomeVerticalRouteDecision.Rewrite).plan
         val result = ConcreteHomeVerticalRouteMutator().apply(
             card,
             snapshot,
-            plan,
+            rewritePlan("bilibili://video/BV1xx411c7mD", rewriteGoTo = false),
             readers()
         )
 
@@ -564,6 +365,35 @@ class HomeVerticalDetailFeatureInstallerTest {
             uri = getUri(),
             param = getParam()
         )
+
+    private fun planOf(
+        snapshot: HomeVerticalActivityLaunchSnapshot,
+        backend: HomeVerticalDetailBackend
+    ): HomeVerticalActivityLaunchPlan? =
+        (HomeVerticalDetailRoutePolicy.planActivityLaunch(snapshot, backend)
+            as? HomeVerticalActivityLaunchOutcome.Planned)?.plan
+
+    private fun skipOf(
+        snapshot: HomeVerticalActivityLaunchSnapshot,
+        backend: HomeVerticalDetailBackend
+    ): HomeVerticalLaunchSkip? =
+        (HomeVerticalDetailRoutePolicy.planActivityLaunch(snapshot, backend)
+            as? HomeVerticalActivityLaunchOutcome.Skipped)?.reason
+
+    /**
+     * 直接构造改写计划。原先经 `decide()` 生成，但该函数在单一写入点重构后已成死代码并
+     * 于本次清理删除；直接构造反而让这两个用例真正隔离测试变异器本身。
+     */
+    private fun rewritePlan(
+        detailUri: String,
+        rewriteGoTo: Boolean
+    ): HomeVerticalRoutePlan = HomeVerticalRoutePlan(
+        identity = CanonicalHomeVideoId(CanonicalHomeVideoId.Kind.BV, "BV1xx411c7mD"),
+        detailUri = detailUri,
+        rewriteCardGoto = true,
+        rewriteGoTo = rewriteGoTo,
+        rewriteUri = true
+    )
 
     private fun readers(): HomeVerticalReadAccessors = HomeVerticalReadAccessors(
         cardGoto = AbstractRouteCard::class.java.getMethod("getCardGoto"),
