@@ -12,6 +12,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootUpgradeRecoveryCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import com.highcapable.kavaref.extension.classOf
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -110,7 +111,7 @@ class RoamingOpenReceiver : BroadcastReceiver() {
         val callback = IntentCompat.getParcelableExtra(
             request,
             EXTRA_BOOTSTRAP_CALLBACK,
-            PendingIntent::class.java
+            classOf<PendingIntent>()
         ) ?: return
         if (callback.creatorPackage != HookEntry.TARGET_PACKAGE) return
         val nonce = request.getStringExtra(EXTRA_BOOTSTRAP_NONCE).orEmpty()
@@ -134,7 +135,7 @@ class RoamingOpenReceiver : BroadcastReceiver() {
         val callerProof = IntentCompat.getParcelableExtra(
             intent,
             EXTRA_CALLER_PROOF,
-            PendingIntent::class.java
+            classOf<PendingIntent>()
         ) ?: return
         if (callerProof.creatorPackage != HookEntry.TARGET_PACKAGE) return
         val targetPackage = intent.getStringExtra(

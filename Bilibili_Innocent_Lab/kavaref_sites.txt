@@ -1,0 +1,8 @@
+MineComponentFilterFeatureInstaller.kt:490	Can be replaced with `classOf&lt;Boolean>()`.
+MineComponentFilterFeatureInstaller.kt:490	Can be replaced with `classOf&lt;Boolean>()`.
+MineComponentFilterFeatureInstaller.kt:491	Can be replaced with `classOf&lt;Int>()`.
+MineComponentFilterFeatureInstaller.kt:491	Can be replaced with `classOf&lt;Int>()`.
+ReflectAccess.kt:63	Can be replaced with `method.isStatic`.
+VersionAdapter.kt:2746	Can be replaced with `classOf&lt;Int>()`.
+VideoRelateReasonFilter.kt:135	Can be replaced with `classOf&lt;Boolean>()`.
+VideoRelateReasonFilter.kt:136	Can be replaced with `classOf&lt;Boolean>(primitiveType = false)`.

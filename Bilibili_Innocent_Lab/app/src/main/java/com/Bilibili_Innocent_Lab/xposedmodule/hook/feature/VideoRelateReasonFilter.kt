@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.highcapable.kavaref.extension.classOf
 import com.highcapable.kavaref.extension.isSubclassOf
 import java.lang.reflect.Method
 
@@ -132,8 +133,8 @@ internal object VideoRelateBooleanEvidenceReader {
                 }
             }
             .filter { methods ->
-                methods.last().returnType == Boolean::class.javaPrimitiveType ||
-                    methods.last().returnType == Boolean::class.javaObjectType
+                methods.last().returnType == classOf<Boolean>() ||
+                    methods.last().returnType == classOf<Boolean>(primitiveType = false)
             }
             .map(::VideoRelateBooleanMethodPath)
             .distinctBy { path -> path.methods.joinToString("->", transform = Method::toGenericString) }

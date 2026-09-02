@@ -145,6 +145,7 @@ import android.widget.TextView as NativeTextView
 import androidx.core.graphics.ColorUtils
 import androidx.core.content.edit
 import android.R as Android_R
+import com.highcapable.kavaref.extension.classOf
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -6048,7 +6049,7 @@ class MainActivity : SkinnedActivity() {
         dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         editor.requestFocus()
         editor.postDelayed({
-            getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+            getSystemService(classOf<android.view.inputmethod.InputMethodManager>())
                 ?.showSoftInput(editor, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
         }, 220L)
     }
@@ -6177,7 +6178,7 @@ class MainActivity : SkinnedActivity() {
         if (card != null && title != null) {
             SettingsBackupTransitionOriginRegistry.register(card, title, sourceWindow)
         }
-        val launchIntent = Intent(this, SettingsBackupActivity::class.java)
+        val launchIntent = Intent(this, classOf<SettingsBackupActivity>())
         SettingsBackupTransitionOriginRegistry.snapshot()?.putInto(launchIntent)
         settingsBackupLauncher.launch(launchIntent)
         suppressLegacyActivityTransition()
@@ -6190,7 +6191,7 @@ class MainActivity : SkinnedActivity() {
         if (entry != null && title != null) {
             DiagnosticsTransitionOriginRegistry.register(entry, title, sourceWindow)
         }
-        val launchIntent = Intent(this, DiagnosticsActivity::class.java)
+        val launchIntent = Intent(this, classOf<DiagnosticsActivity>())
         DiagnosticsTransitionOriginRegistry.snapshot()?.putInto(launchIntent)
         startActivity(launchIntent)
         suppressLegacyActivityTransition()
@@ -6305,7 +6306,7 @@ class MainActivity : SkinnedActivity() {
             }
             return
         }
-        val attributeRuntimeCheck = runCatching { AttributeSetResolver::class.java }
+        val attributeRuntimeCheck = runCatching { classOf<AttributeSetResolver>() }
         if (attributeRuntimeCheck.isFailure) {
             showSettingsUiCompatibilityFallback(
                 reason = "attribute-runtime-unavailable",

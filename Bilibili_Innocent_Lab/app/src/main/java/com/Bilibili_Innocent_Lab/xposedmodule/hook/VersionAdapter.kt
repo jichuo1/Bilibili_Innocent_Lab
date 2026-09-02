@@ -21,6 +21,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigCo
 import com.highcapable.betterandroid.system.extension.component.versionCodeCompat
 import com.highcapable.kavaref.extension.classOf
 import com.highcapable.kavaref.extension.isAbstract
+import com.highcapable.kavaref.extension.isFinal
 import com.highcapable.kavaref.extension.isPublic
 import com.highcapable.kavaref.extension.isStatic
 import com.highcapable.kavaref.extension.isSubclassOf
@@ -2742,7 +2743,7 @@ object VersionAdapter {
             "${snake.removeSuffix("_VALUE")}_FIELD_NUMBER"
         )
         return declaringClass.fields.firstNotNullOfOrNull { field ->
-            if (field.name !in candidates || field.type != Int::class.javaPrimitiveType) {
+            if (field.name !in candidates || field.type != classOf<Int>()) {
                 return@firstNotNullOfOrNull null
             }
             runCatching { field.getInt(null) }.getOrNull()
@@ -4035,16 +4036,16 @@ object VersionAdapter {
                 ?.name
 
         val sectionsField = fieldName(accountMine) {
-            it.name == "sectionListV2" && java.util.List::class.java.isAssignableFrom(it.type)
+            it.name == "sectionListV2" && it.type isSubclassOf classOf<java.util.List<*>>()
         } ?: fieldName(accountMine) {
-            it.name.startsWith("sectionListV2") && java.util.List::class.java.isAssignableFrom(it.type)
+            it.name.startsWith("sectionListV2") && it.type isSubclassOf classOf<java.util.List<*>>()
         } ?: return@runCatching null
         val groupTitleField = fieldName(group) {
             it.name == "title" && it.type == classOf<String>()
         }
         val groupItemsField = fieldName(group) {
-            !it.isStatic && !java.lang.reflect.Modifier.isFinal(it.modifiers) &&
-                java.util.List::class.java.isAssignableFrom(it.type) &&
+            !it.isStatic && !it.isFinal &&
+                it.type isSubclassOf classOf<java.util.List<*>>() &&
                 (it.genericType as? java.lang.reflect.ParameterizedType)
                     ?.actualTypeArguments?.singleOrNull()?.rawClassOrNull()?.name == itemName
         } ?: return@runCatching null
@@ -4177,7 +4178,7 @@ object VersionAdapter {
                 makeAccessible = true
             ) { field ->
                 !field.isStatic &&
-                    !java.lang.reflect.Modifier.isFinal(field.modifiers) &&
+                    !field.isFinal &&
                     field.type isSubclassOf classOf<List<*>>() &&
                     ((field.genericType as? ParameterizedType)
                         ?.actualTypeArguments

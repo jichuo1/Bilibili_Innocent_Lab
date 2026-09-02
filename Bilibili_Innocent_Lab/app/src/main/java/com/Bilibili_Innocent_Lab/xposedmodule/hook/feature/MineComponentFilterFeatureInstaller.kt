@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import com.highcapable.kavaref.extension.classOf
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 
@@ -486,9 +487,13 @@ internal class MineComponentFilterFeatureInstaller(
     private fun setHiddenFlags(instance: Any, visible: Field?, localShow: Field?) {
         visible?.let { field ->
             runCatching {
+                // 注意：只覆盖原始类型。原写法列了 `javaPrimitiveType, ::class.java` 两项，
+                // 但 Kotlin 的 `Boolean::class.java` 本身就是原始类型，二者完全相同，
+                // 装箱字段（java.lang.Boolean/Integer）从来就不在覆盖范围内。此处按原行为
+                // 收敛为单项，未扩大匹配范围。
                 when (field.type) {
-                    Boolean::class.javaPrimitiveType, Boolean::class.java -> field.set(instance, false)
-                    Int::class.javaPrimitiveType, Int::class.java -> field.set(instance, 0)
+                    classOf<Boolean>() -> field.set(instance, false)
+                    classOf<Int>() -> field.set(instance, 0)
                 }
             }
         }
