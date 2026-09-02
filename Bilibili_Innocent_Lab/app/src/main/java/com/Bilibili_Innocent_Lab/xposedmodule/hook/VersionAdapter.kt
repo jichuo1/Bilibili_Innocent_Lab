@@ -8,6 +8,13 @@ import android.view.MenuInflater
 import android.view.View
 import android.widget.TextView
 import android.widget.Toast
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.AtomicJsonCache
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistCandidateSelector
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistRequest
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexKitAssistEngine
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexSourceFingerprint
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetAppStorage
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
@@ -27,6 +34,7 @@ import java.lang.reflect.Method
 import java.lang.reflect.Type
 import java.lang.reflect.WildcardType
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 哔哩哔哩版本适配器（学 BiliRoaming 的 hook 点自动定位思路，轻量实现）。
@@ -54,12 +62,21 @@ object VersionAdapter {
     @Volatile
     private var lastCacheStatus = "not-read"
 
+    private val adaptationRunning = AtomicBoolean(false)
+
     /**
      * 二级缓存文件（B 站自身 cache 目录，loadApp 阶段无 Context 也可同步读；
      * 模块 prefs 在部分设备（官方 LSPosed 无 DirectAccessService）不可用时，
      * 此文件承担「适配完成后快路径」的载体）。
      */
     private fun cacheFile(): java.io.File = TargetAppStorage.cacheFile("innocent_lab_adapt.json")
+
+    private fun writeCache(result: AdaptResult): Boolean {
+        val payload = result.toJson().toString()
+        return AtomicJsonCache.write(cacheFile(), payload) { candidate ->
+            runCatching { AdaptResult.fromJson(JSONObject(candidate)) != null }.getOrDefault(false)
+        }
+    }
 
     /** 适配状态回调（toast 提示用） */
     interface AdaptCallback {
@@ -129,8 +146,11 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 47
-    private const val ADAPTER_RULE_VERSION = 40
+    private const val SCHEMA_VERSION = 48
+    private const val ADAPTER_RULE_VERSION = 41
+    private const val DEX_SOURCE_UNAVAILABLE = "unavailable"
+    private val DEX_SOURCE_FINGERPRINT_PATTERN =
+        Regex("^dex-v1:[1-9][0-9]*:[0-9a-f]{64}$")
 
     enum class AdaptState {
         FOUND,
@@ -1371,7 +1391,9 @@ object VersionAdapter {
         /** 公开协议 getter、返回类型、嵌套链及可用字段编号的结构摘要。 */
         val protocolFingerprint: String,
         /** 每个逻辑 Hook 点的定位结果，供日志/UI 诊断。 */
-        val diagnostics: List<AdaptDiagnostic>
+        val diagnostics: List<AdaptDiagnostic>,
+        /** 宿主全部 classes*.dex 的中央目录内容指纹；不包含安装路径。 */
+        val dexSourceFingerprint: String = DEX_SOURCE_UNAVAILABLE
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("sv", SCHEMA_VERSION)
@@ -1406,6 +1428,7 @@ object VersionAdapter {
             splashAds?.let { put("splash_ads", it.toJson()) }
             put("fp", hostFingerprint)
             put("protocol_fp", protocolFingerprint)
+            put("dex_fp", dexSourceFingerprint)
             put("diag", JSONArray().apply { diagnostics.forEach { put(it.toJson()) } })
         }
 
@@ -1427,6 +1450,8 @@ object VersionAdapter {
 
         private fun isStructurallyValid(): Boolean =
             biliVersionCode >= 0 && hostFingerprint.isNotBlank() &&
+                (dexSourceFingerprint == DEX_SOURCE_UNAVAILABLE ||
+                    dexSourceFingerprint.matches(DEX_SOURCE_FINGERPRINT_PATTERN)) &&
                 protocolFingerprint.matches(PROTOCOL_FINGERPRINT_PATTERN) &&
                 commentLow?.isValid() != false && commentHigh?.isValid() != false &&
                 mineEntry?.let { mine ->
@@ -1706,7 +1731,8 @@ object VersionAdapter {
                     splashAds = o.optJSONObject("splash_ads")?.let(SplashAdPoints::fromJson),
                     hostFingerprint = o.optString("fp"),
                     protocolFingerprint = o.optString("protocol_fp"),
-                    diagnostics = diagnostics
+                    diagnostics = diagnostics,
+                    dexSourceFingerprint = o.getString("dex_fp")
                 ).takeIf { it.isStructurallyValid() }
             }
         }
@@ -2077,6 +2103,73 @@ object VersionAdapter {
         return null
     }
 
+    /**
+     * 以实时结构定位为主，只用已经过宿主指纹校验的缓存补齐缺失点。
+     *
+     * 该合并使后台 DexKit 的结果能在下一次冷启动参与 Hook 注册，同时禁止缓存覆盖当前
+     * ClassLoader 已确认的点。调用方必须给 [loadCached] 传入宿主 Context 后再传到这里。
+     */
+    internal fun mergeRuntimeWithCached(
+        runtime: AdaptResult?,
+        cached: AdaptResult?
+    ): AdaptResult? {
+        if (runtime == null) return cached
+        if (cached == null) return runtime
+        val mergedDiagnostics = (runtime.diagnostics.map { it.id } + cached.diagnostics.map { it.id })
+            .distinct()
+            .mapNotNull { id ->
+                val live = runtime.diagnostics.firstOrNull { it.id == id }
+                val stored = cached.diagnostics.firstOrNull { it.id == id }
+                when {
+                    live == null -> stored
+                    stored == null -> live
+                    stored.state == AdaptState.FOUND && live.state != AdaptState.FOUND -> stored
+                    id == "dex.assist" && stored.state == AdaptState.FOUND -> stored
+                    else -> live
+                }
+            }
+        return runtime.copy(
+            biliVersionCode = cached.biliVersionCode,
+            ts = cached.ts,
+            commentLow = runtime.commentLow ?: cached.commentLow,
+            commentHigh = runtime.commentHigh ?: cached.commentHigh,
+            mineEntry = runtime.mineEntry ?: cached.mineEntry,
+            pause = PausePoints(
+                requestMethods = (runtime.pause.requestMethods + cached.pause.requestMethods)
+                    .distinct(),
+                legacyCallback = runtime.pause.legacyCallback ?: cached.pause.legacyCallback,
+                panelShow = runtime.pause.panelShow ?: cached.pause.panelShow,
+                countdown = runtime.pause.countdown ?: cached.pause.countdown
+            ),
+            banner = runtime.banner ?: cached.banner,
+            homeTopBar = runtime.homeTopBar ?: cached.homeTopBar,
+            mineVip = runtime.mineVip ?: cached.mineVip,
+            blockUpdate = runtime.blockUpdate ?: cached.blockUpdate,
+            dynamicTabs = runtime.dynamicTabs ?: cached.dynamicTabs,
+            fullNumbers = runtime.fullNumbers ?: cached.fullNumbers,
+            playerPortrait = runtime.playerPortrait ?: cached.playerPortrait,
+            playerStatusBar = runtime.playerStatusBar ?: cached.playerStatusBar,
+            homeRecommendFeed = runtime.homeRecommendFeed ?: cached.homeRecommendFeed,
+            videoRelate = runtime.videoRelate ?: cached.videoRelate,
+            homeTabs = runtime.homeTabs ?: cached.homeTabs,
+            homeComponents = runtime.homeComponents ?: cached.homeComponents,
+            mineComponents = runtime.mineComponents ?: cached.mineComponents,
+            mineAccountMine = runtime.mineAccountMine ?: cached.mineAccountMine,
+            storyFeed = runtime.storyFeed ?: cached.storyFeed,
+            bottomBar = runtime.bottomBar ?: cached.bottomBar,
+            playerQuality = runtime.playerQuality ?: cached.playerQuality,
+            teenagersMode = runtime.teenagersMode ?: cached.teenagersMode,
+            commentPurify = runtime.commentPurify ?: cached.commentPurify,
+            commentFilter = runtime.commentFilter ?: cached.commentFilter,
+            commentTopology = runtime.commentTopology ?: cached.commentTopology,
+            commentSection = runtime.commentSection ?: cached.commentSection,
+            splashAds = runtime.splashAds ?: cached.splashAds,
+            hostFingerprint = cached.hostFingerprint,
+            diagnostics = mergedDiagnostics,
+            dexSourceFingerprint = cached.dexSourceFingerprint
+        )
+    }
+
     /** 缓存是否覆盖当前版本 */
     fun isCached(context: Context, resetTimestamp: Long): Boolean {
         val cached = loadCached(context, resetTimestamp) ?: return false
@@ -2126,62 +2219,74 @@ object VersionAdapter {
             // 快路径命中：确保文件缓存存在（loadApp 阶段无 context 只读文件缓存；
             // prefs 命中但文件缺失时补写，避免下次启动 loadApp 回退内置候选）
             runCatching {
-                if (!cacheFile().exists()) cacheFile().writeText(cached.toJson().toString())
+                if (!cacheFile().exists()) writeCache(cached)
             }
             return // 快路径：已适配
+        }
+        if (!adaptationRunning.compareAndSet(false, true)) {
+            ModernHookLog.info("[BIL] 版本适配已在本进程运行，跳过重复请求")
+            return
         }
         ModernHookLog.info(
             "[BIL] 版本适配启动 vc=$vc cached=${cached != null} " +
                 "cacheStatus=$lastCacheStatus"
         )
         // 后台执行（不阻塞启动；toast 提示用户等待）
-        callback?.onAdaptStarted()
-        Thread({
-            val result = runCatching { adapt(context, classLoader) }.getOrNull()
-            if (result != null) {
-                // 写文件缓存（loadApp 快路径载体）
-                runCatching {
-                    cacheFile().writeText(result.toJson().toString())
+        runCatching { callback?.onAdaptStarted() }
+        val worker = Thread({
+            var result: AdaptResult? = null
+            try {
+                result = runCatching { adapt(context, classLoader) }.getOrNull()
+                if (result != null) {
+                    // 写文件缓存（loadApp 快路径载体）；校验后原子替换，旧缓存不会被半截 JSON 覆盖。
+                    if (!writeCache(result)) {
+                        ModernHookLog.error("[BIL] 版本适配文件缓存写入失败")
+                    }
+                    // 写 prefs 缓存（模块 App 侧可读，供 UI 展示适配状态）
+                    runCatching {
+                        prefs(context).edit()
+                            .putInt(KEY_ADAPTED_VERSION, result.biliVersionCode)
+                            .putString(KEY_ADAPT_RESULT, result.toJson().toString())
+                            .apply()
+                    }
                 }
-                // 写 prefs 缓存（模块 App 侧可读，供 UI 展示适配状态）
-                runCatching {
-                    prefs(context).edit()
-                        .putInt(KEY_ADAPTED_VERSION, result.biliVersionCode)
-                        .putString(KEY_ADAPT_RESULT, result.toJson().toString())
-                        .apply()
-                }
+            } finally {
+                adaptationRunning.set(false)
+                runCatching { callback?.onAdaptFinished(result != null) }
+                ModernHookLog.info(
+                    "[BIL] 版本适配${if (result != null) "完成" else "失败"} " +
+                        "v=${result?.biliVersionCode} low=${result?.commentLow} high=${result?.commentHigh} " +
+                        "mine=${result?.mineEntry != null} pause=${result?.pause?.requestMethods?.size ?: 0} " +
+                        "banner=${result?.banner != null} homeTop=${result?.homeTopBar != null} " +
+                        "mineVip=${result?.mineVip != null} " +
+                        "blockUpdate=${result?.blockUpdate != null} " +
+                        "dynamicTabs=${result?.dynamicTabs != null} " +
+                        "playerPortrait=${result?.playerPortrait != null} " +
+                        "playerStatusBar=${result?.playerStatusBar != null} " +
+                        "homeRecommendFeed=${result?.homeRecommendFeed != null} " +
+                        "videoRelate=${result?.videoRelate != null} " +
+                        "homeTabs=${result?.homeTabs != null} " +
+                        "homeComponents=${result?.homeComponents != null} " +
+                        "mineComponents=${result?.mineComponents != null} " +
+                        "storyFeed=${result?.storyFeed != null} " +
+                        "bottomBar=${result?.bottomBar != null} " +
+                        "playerQuality=${result?.playerQuality != null} " +
+                        "teenagersMode=${result?.teenagersMode != null} " +
+                        "commentPurify=${result?.commentPurify != null} " +
+                        "commentFilter=${result?.commentFilter != null} " +
+                        "commentTopology=${result?.commentTopology != null} " +
+                        "commentSection=${result?.commentSection != null} " +
+                        "splashAds=${result?.splashAds != null} " +
+                        "dex=${result?.dexSourceFingerprint} " +
+                        "protocol=${result?.protocolFingerprint} " +
+                        "diag=${result?.diagnosticSummary()}"
+                )
             }
-            callback?.onAdaptFinished(result != null)
-            ModernHookLog.info(
-                "[BIL] 版本适配${if (result != null) "完成" else "失败"} " +
-                    "v=${result?.biliVersionCode} low=${result?.commentLow} high=${result?.commentHigh} " +
-                    "mine=${result?.mineEntry != null} pause=${result?.pause?.requestMethods?.size ?: 0} " +
-                    "banner=${result?.banner != null} homeTop=${result?.homeTopBar != null} " +
-                    "mineVip=${result?.mineVip != null} " +
-                    "blockUpdate=${result?.blockUpdate != null} " +
-                    "dynamicTabs=${result?.dynamicTabs != null} " +
-                    "playerPortrait=${result?.playerPortrait != null} " +
-                    "playerStatusBar=${result?.playerStatusBar != null} " +
-                    "homeRecommendFeed=${result?.homeRecommendFeed != null} " +
-                    "videoRelate=${result?.videoRelate != null} " +
-                    "homeTabs=${result?.homeTabs != null} " +
-                    "homeComponents=${result?.homeComponents != null} " +
-                    "mineComponents=${result?.mineComponents != null} " +
-                    "storyFeed=${result?.storyFeed != null} " +
-                    "bottomBar=${result?.bottomBar != null} " +
-                    "playerQuality=${result?.playerQuality != null} " +
-                    "teenagersMode=${result?.teenagersMode != null} " +
-                    "commentPurify=${result?.commentPurify != null} " +
-                    "commentFilter=${result?.commentFilter != null} " +
-                    "commentTopology=${result?.commentTopology != null} " +
-                    "commentSection=${result?.commentSection != null} " +
-                    "splashAds=${result?.splashAds != null} " +
-                    "protocol=${result?.protocolFingerprint} " +
-                    "diag=${result?.diagnosticSummary()}"
-            )
-        }, "BIL-VersionAdapter").apply {
-            isDaemon = true
-            start()
+        }, "BIL-VersionAdapter").apply { isDaemon = true }
+        runCatching { worker.start() }.onFailure { throwable ->
+            adaptationRunning.set(false)
+            runCatching { callback?.onAdaptFinished(false) }
+            ModernHookLog.error("[BIL] 版本适配线程启动失败", throwable)
         }
     }
 
@@ -2273,7 +2378,11 @@ object VersionAdapter {
                 teenagersMode, commentPurify, commentFilter, commentTopology,
                 commentTopologyOutcome.failureDetail, commentSection,
                 splashAds
-            ) + protocolFingerprint.toDiagnostic()
+            ) + protocolFingerprint.toDiagnostic() + AdaptDiagnostic(
+                id = "dex.assist",
+                state = AdaptState.NOT_APPLICABLE,
+                detail = "quick-locate"
+            )
         )
     }
 
@@ -2285,6 +2394,9 @@ object VersionAdapter {
      */
     private fun adapt(context: Context, loader: ClassLoader): AdaptResult? {
         val vc = biliVersionCode(context)
+        val dexSource = runCatching {
+            context.packageManager.getPackageInfo("tv.danmaku.bili", 0).applicationInfo
+        }.getOrNull()?.let(DexSourceFingerprint::inspect)
         val low = locateCommentLow(loader)
         val high = locateCommentHigh(loader)
         val mine = locateMineEntry(loader)
@@ -2292,7 +2404,20 @@ object VersionAdapter {
         val banner = locateBanner(loader)
         val homeTopBar = locateHomeTopBar(loader)
         val mineVip = locateMineVip(loader)
-        val blockUpdate = locateBlockUpdate(loader)
+        val directBlockUpdate = locateBlockUpdate(loader)
+        val blockUpdateAssist = if (directBlockUpdate == null) {
+            locateBlockUpdateByDex(loader, dexSource)
+        } else {
+            BlockUpdateDexAssist(
+                point = null,
+                diagnostic = AdaptDiagnostic(
+                    id = "dex.assist",
+                    state = AdaptState.NOT_APPLICABLE,
+                    detail = "block-update:not-required"
+                )
+            )
+        }
+        val blockUpdate = directBlockUpdate ?: blockUpdateAssist.point
         val dynamicTabs = locateDynamicTabs(loader)
         val fullNumbers = locateFullNumbers(loader)
         val playerPortrait = locatePlayerPortrait(loader)
@@ -2407,7 +2532,8 @@ object VersionAdapter {
                 teenagersMode, commentPurify, commentFilter, commentTopology,
                 commentTopologyOutcome.failureDetail, commentSection,
                 splashAds
-            ) + protocolFingerprint.toDiagnostic()
+            ) + protocolFingerprint.toDiagnostic() + blockUpdateAssist.diagnostic,
+            dexSourceFingerprint = dexSource?.value ?: DEX_SOURCE_UNAVAILABLE
         )
     }
 
@@ -3141,6 +3267,75 @@ object VersionAdapter {
         }
         null
     }.getOrNull()
+
+    private data class BlockUpdateDexAssist(
+        val point: HookPoint?,
+        val diagnostic: AdaptDiagnostic
+    )
+
+    /**
+     * 仅在内置 owner 全部未命中时执行全 DEX 精确签名查询；查询结果仍由宿主 ClassLoader
+     * 解析，并复用 KavaRef/反射结构约束二次验真。任何不唯一结果都按缺失处理。
+     */
+    private fun locateBlockUpdateByDex(
+        loader: ClassLoader,
+        dexSource: DexSourceFingerprint.Result?
+    ): BlockUpdateDexAssist {
+        val source = dexSource ?: return BlockUpdateDexAssist(
+            point = null,
+            diagnostic = AdaptDiagnostic(
+                id = "dex.assist",
+                state = AdaptState.MISSING,
+                detail = "block-update:no-dex-source"
+            )
+        )
+        val upgradeInfo = KavaMemberLookup.classOrNull(loader, BILI_UPGRADE_INFO_CLASS)
+            ?: return BlockUpdateDexAssist(
+                point = null,
+                diagnostic = AdaptDiagnostic(
+                    id = "dex.assist",
+                    state = AdaptState.MISSING,
+                    detail = "block-update:return-type-missing"
+                )
+            )
+        return when (val result = DexKitAssistEngine.resolve(
+            DexAssistRequest(
+                query = DexAssistQuery.BLOCK_UPDATE,
+                codePaths = source.codePaths,
+                classLoader = loader
+            )
+        )) {
+            is DexAssistResult.Candidates -> {
+                val verified = result.methods.filter { method ->
+                    !method.isStatic && !method.isAbstract &&
+                        method.returnType == upgradeInfo &&
+                        method.parameterTypes.contentEquals(arrayOf(classOf<Context>()))
+                }
+                val selected = DexAssistCandidateSelector.selectUniqueLeaf(verified)
+                BlockUpdateDexAssist(
+                    point = selected?.toHookPoint(),
+                    diagnostic = AdaptDiagnostic(
+                        id = "dex.assist",
+                        state = if (selected != null) AdaptState.FOUND else AdaptState.MISSING,
+                        detail = if (selected != null) {
+                            "block-update:${selected.toHookPoint().label()}"
+                        } else {
+                            "block-update:ambiguous:${verified.size}"
+                        }
+                    )
+                )
+            }
+
+            is DexAssistResult.Unavailable -> BlockUpdateDexAssist(
+                point = null,
+                diagnostic = AdaptDiagnostic(
+                    id = "dex.assist",
+                    state = AdaptState.MISSING,
+                    detail = "block-update:${result.reason.name.lowercase()}"
+                )
+            )
+        }
+    }
 
     /**
      * 动态页页签定位。8.90.2、9.1.x 与 9.9.0 的渲染方法可能被 R8 内联，不能依赖

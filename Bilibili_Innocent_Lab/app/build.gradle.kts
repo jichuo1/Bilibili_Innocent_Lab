@@ -163,6 +163,9 @@ dependencies {
     implementation(libs.kavaref.android)
     implementation(libs.kavaref.extension)
 
+    // 仅在后台版本适配缺点时启用；不进入 quickLocate 与 Hook 热路径。
+    implementation(libs.dexkit)
+
     // Hikage via BOM (https://betterandroid.github.io/Hikage/zh-cn/library/hikage-bom.html)
     // 插件已自动装配 KSP 与 hikage-compiler，无需手动 ksp 声明
     implementation(platform(libs.hikage.bom))

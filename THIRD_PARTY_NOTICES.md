@@ -47,3 +47,18 @@ other optional extensions are not included.
 Copyright 2019 Dimitry Ivanov
 
 Licensed under the Apache License, Version 2.0.
+
+## DexKit
+
+The module uses
+[DexKit](https://github.com/LuckyPray/DexKit), version `2.0.7`, only as a
+background fallback for bounded host DEX adaptation queries. DexKit is not
+created from the synchronous `quickLocate` path or any installed Hook callback,
+and each bridge is closed immediately after its query.
+
+Copyright © LuckyPray
+
+Except for DexKit's `Core/` directory, the upstream project is licensed under
+the Apache License, Version 2.0. The native core is licensed under the GNU
+Lesser General Public License, Version 3.0. See the upstream repository for the
+corresponding complete license texts and source code.
