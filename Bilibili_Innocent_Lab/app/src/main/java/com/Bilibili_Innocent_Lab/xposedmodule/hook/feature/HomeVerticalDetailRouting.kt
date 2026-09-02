@@ -22,18 +22,7 @@ internal data class HomeVerticalRouteSnapshot(
     /** PlayerArgs 已明确指向直播、番剧等非普通投稿时禁止改写。 */
     val playerNonUgc: Boolean = false,
     val hasAdInfo: Boolean = false
-) {
-    fun toHostSignals(): HostContentSignals = HostContentSignals(
-        holderType = holderType,
-        bizType = bizType,
-        cardType = cardType,
-        cardGoto = cardGoto,
-        goTo = goTo,
-        uri = uri,
-        param = param,
-        hasAdInfo = hasAdInfo
-    )
-}
+)
 
 /** 规范视频身份，不保存标题、完整 URI 或跟踪参数。 */
 internal data class CanonicalHomeVideoId(
@@ -53,21 +42,6 @@ internal data class HomeVerticalRoutePlan(
     val rewriteUri: Boolean
 )
 
-internal sealed interface HomeVerticalRouteDecision {
-    data object NotVertical : HomeVerticalRouteDecision
-
-    data class KeepOriginal(val reason: Reason) : HomeVerticalRouteDecision
-
-    data class Rewrite(val plan: HomeVerticalRoutePlan) : HomeVerticalRouteDecision
-
-    enum class Reason {
-        UNSAFE_CONTENT_KIND,
-        MISSING_OR_INVALID_VIDEO_ID,
-        CONFLICTING_VIDEO_ID,
-        NO_ROUTE_CHANGE_REQUIRED
-    }
-}
-
 /**
  * 纯路由策略：只在结构化证据确认是普通投稿型竖屏卡片、且 BV/aid 可验证时生成改写计划。
  * 未知、冲突或特殊业务卡片全部 fail-open。
@@ -77,7 +51,6 @@ internal object HomeVerticalDetailRoutePolicy {
     private const val STORY_TRANSLUCENT_URI_ROOT = "bilibili://story_translucent"
     private const val VIDEO_URI_ROOT = "bilibili://video"
     private const val VIDEO_URI_PREFIX = "$VIDEO_URI_ROOT/"
-    private const val VERTICAL_AV_GOTO = "vertical_av"
     private const val AV_GOTO = "av"
     /**
      * 真实 Story 路由长度上限。
@@ -93,103 +66,6 @@ internal object HomeVerticalDetailRoutePolicy {
     private const val MAX_ROUTE_LENGTH = 262_144
     private val BV_PATTERN = Regex("BV[0-9A-Za-z]{6,30}", RegexOption.IGNORE_CASE)
     private val AID_PATTERN = Regex("(?:av)?[0-9]{1,19}", RegexOption.IGNORE_CASE)
-    private val excludedKinds = setOf(
-        HostContentKind.ADVERTISEMENT,
-        HostContentKind.PICTURE,
-        HostContentKind.GAME,
-        HostContentKind.LIVE,
-        HostContentKind.COURSE,
-        HostContentKind.BANGUMI,
-        HostContentKind.SPECIAL
-    )
-
-    fun decide(snapshot: HomeVerticalRouteSnapshot): HomeVerticalRouteDecision {
-        val kinds = HostContentSemanticClassifier.classify(snapshot.toHostSignals())
-        if (HostContentKind.VERTICAL !in kinds) return HomeVerticalRouteDecision.NotVertical
-        if (snapshot.playerNonUgc || kinds.any(excludedKinds::contains)) {
-            return HomeVerticalRouteDecision.KeepOriginal(
-                HomeVerticalRouteDecision.Reason.UNSAFE_CONTENT_KIND
-            )
-        }
-
-        val playerIdentity = snapshot.playerAid
-            ?.takeIf { it > 0L }
-            ?.let { CanonicalHomeVideoId(CanonicalHomeVideoId.Kind.AID, it.toString()) }
-        val storyRoot = storyRootFor(snapshot.uri)
-        val parsedStoryRoute = storyRoot?.let { parseRoute(snapshot.uri, it) }
-        val storyRoute = parsedStoryRoute ?: if (
-            storyRoot != null && playerIdentity != null &&
-            permitsFallbackIdentity(snapshot.uri, storyRoot)
-        ) {
-            ParsedRoute(playerIdentity, setOf(playerIdentity), rawToken = null)
-        } else {
-            null
-        }
-        val videoRoute = parseRoute(snapshot.uri, VIDEO_URI_ROOT)
-        if (storyRoot != null && storyRoute == null) {
-            return HomeVerticalRouteDecision.KeepOriginal(
-                HomeVerticalRouteDecision.Reason.MISSING_OR_INVALID_VIDEO_ID
-            )
-        }
-        if (isRouteFor(snapshot.uri, VIDEO_URI_ROOT) && videoRoute == null) {
-            return HomeVerticalRouteDecision.KeepOriginal(
-                HomeVerticalRouteDecision.Reason.MISSING_OR_INVALID_VIDEO_ID
-            )
-        }
-        if (!snapshot.uri.isNullOrBlank() && storyRoute == null && videoRoute == null) {
-            return HomeVerticalRouteDecision.KeepOriginal(
-                HomeVerticalRouteDecision.Reason.MISSING_OR_INVALID_VIDEO_ID
-            )
-        }
-
-        val paramIdentity = canonicalIdentity(snapshot.param)
-        val identities = linkedSetOf<CanonicalHomeVideoId>().apply {
-            storyRoute?.identities?.let(::addAll)
-            videoRoute?.identities?.let(::addAll)
-            paramIdentity?.let(::add)
-            playerIdentity?.let(::add)
-        }
-        if (identities.groupBy(CanonicalHomeVideoId::kind).any { it.value.size > 1 }) {
-            return HomeVerticalRouteDecision.KeepOriginal(
-                HomeVerticalRouteDecision.Reason.CONFLICTING_VIDEO_ID
-            )
-        }
-        // BV 与 aid 是同一视频的两种命名空间，无法离线互算；同种身份冲突才是不安全证据。
-        val identity = storyRoute?.primaryIdentity ?: videoRoute?.primaryIdentity ?: paramIdentity
-            ?: playerIdentity
-            ?: return HomeVerticalRouteDecision.KeepOriginal(
-                HomeVerticalRouteDecision.Reason.MISSING_OR_INVALID_VIDEO_ID
-            )
-
-        val detailUri = when {
-            storyRoute != null -> rewriteStoryRoute(
-                snapshot.uri.orEmpty(),
-                storyRoute,
-                checkNotNull(storyRoot)
-            )
-            videoRoute != null -> sanitizeStoryRoutingHints(snapshot.uri.orEmpty())
-            else -> VIDEO_URI_PREFIX + identity.routeToken()
-        }
-        val rewriteCardGoto = snapshot.cardGoto == VERTICAL_AV_GOTO
-        val rewriteGoTo = snapshot.goTo == VERTICAL_AV_GOTO
-        val rewriteUri = storyRoute != null || videoRoute == null || detailUri != snapshot.uri
-        if (!rewriteCardGoto && !rewriteGoTo && !rewriteUri) {
-            return HomeVerticalRouteDecision.KeepOriginal(
-                HomeVerticalRouteDecision.Reason.NO_ROUTE_CHANGE_REQUIRED
-            )
-        }
-        return HomeVerticalRouteDecision.Rewrite(
-            HomeVerticalRoutePlan(
-                identity = identity,
-                aliases = identities,
-                detailUri = detailUri,
-                rewriteCardGoto = rewriteCardGoto,
-                rewriteGoTo = rewriteGoTo,
-                rewriteUri = rewriteUri
-            )
-        )
-    }
-
     /**
      * 在宿主统一路由边界将具有明确视频身份的 Story 路由规范化为普通详情路由。
      * 无 aid/BV 的 Story 根页、身份冲突或非哔哩哔哩路由均 fail-open。
@@ -204,48 +80,6 @@ internal object HomeVerticalDetailRoutePolicy {
         return sanitizeStoryRoutingHints(uri).takeUnless { it == uri }
     }
 
-    /**
-     * 最终 Activity 启动兜底使用的纯策略。只接管哔哩哔哩自身的 Story 路由；URI 没有
-     * 身份时可读取 Intent 中已有的 aid/avid/bvid，冲突或跨包启动一律 fail-open。
-     */
-    fun planIntentFallback(snapshot: HomeVerticalIntentRouteSnapshot): HomeVerticalIntentRoutePlan? {
-        if (snapshot.componentPackage != null && snapshot.componentPackage != TARGET_PACKAGE) {
-            return null
-        }
-        if (snapshot.targetPackage != null && snapshot.targetPackage != TARGET_PACKAGE) return null
-        val original = snapshot.dataUri ?: return null
-        val isStoryComponent = snapshot.componentClass in STORY_ACTIVITY_CLASSES
-        val extraIdentities = parseIntentIdentities(snapshot) ?: return null
-        val uriRoute = storyRootFor(original)?.let { parseRoute(original, it) }
-            ?: parseRoute(original, VIDEO_URI_ROOT)
-        val combinedIdentities = linkedSetOf<CanonicalHomeVideoId>().apply {
-            uriRoute?.identities?.let(::addAll)
-            addAll(extraIdentities)
-        }
-        if (combinedIdentities.groupBy(CanonicalHomeVideoId::kind).any { it.value.size > 1 }) {
-            return null
-        }
-        val normalized = normalizeVideoDetailUri(original)
-            ?: original.takeIf {
-                isStoryComponent && parseUnambiguousRoute(it, VIDEO_URI_ROOT) != null
-            }
-            ?: run {
-                val root = storyRootFor(original) ?: return null
-                if (!permitsFallbackIdentity(original, root)) return null
-                val identity = extraIdentities.firstOrNull {
-                    it.kind == CanonicalHomeVideoId.Kind.BV
-                } ?: extraIdentities.firstOrNull() ?: return null
-                rewriteStoryRoute(
-                    original,
-                    ParsedRoute(identity, extraIdentities, rawToken = null),
-                    root
-                )
-            }
-        return HomeVerticalIntentRoutePlan(
-            detailUri = normalized,
-            retargetToIntentHandler = isStoryComponent
-        )
-    }
 
     /**
      * 在最终 Activity 启动边界生成完整的普通详情页契约。新版宿主优先使用 United 详情页，
@@ -582,11 +416,6 @@ internal data class HomeVerticalIntentRouteSnapshot(
     val aid: String? = null,
     val avid: String? = null,
     val bvid: String? = null
-)
-
-internal data class HomeVerticalIntentRoutePlan(
-    val detailUri: String,
-    val retargetToIntentHandler: Boolean
 )
 
 internal enum class HomeVerticalDetailBackend(val activityClassName: String) {
