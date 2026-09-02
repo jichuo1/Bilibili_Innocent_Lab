@@ -3373,9 +3373,6 @@ object VersionAdapter {
                     }
             }.singleOrNull()
         }
-        val durationOwner = playerArgsGetter?.takeIf {
-            playerArgsDurationGetter != null || playerArgsDurationField != null
-        }
         val intentHandlerOnCreate = KavaMemberLookup.classOrNull(
             loader,
             HOME_VERTICAL_INTENT_HANDLER_CLASS
@@ -3400,7 +3397,8 @@ object VersionAdapter {
             titleGetter = stringGetter("getTitle"),
             subtitleGetter = stringGetter("getSubtitle"),
             descGetter = stringGetter("getDesc"),
-            playerArgsGetter = durationOwner?.toHookPoint(),
+            // PlayerArgs 除时长外还承载稳定 aid/直播/番剧身份，不能因时长字段缺失而整体丢弃。
+            playerArgsGetter = playerArgsGetter?.toHookPoint(),
             playerArgsDurationField = playerArgsDurationField?.name,
             playerArgsDurationGetter = playerArgsDurationGetter?.toHookPoint(),
             intentHandlerOnCreate = intentHandlerOnCreate

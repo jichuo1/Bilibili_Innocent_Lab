@@ -70,6 +70,7 @@ import com.highcapable.hikage.core.base.Hikagable
 import com.highcapable.hikage.core.layout.Layout
 import com.highcapable.hikage.core.layout.LayoutParams
 import com.highcapable.hikage.extension.setContentView
+import com.highcapable.hikage.runtime.attribute.AttributeSetResolver
 import com.highcapable.hikage.widget.android.widget.ImageView
 import com.highcapable.hikage.widget.android.widget.LinearLayout
 import com.highcapable.hikage.widget.android.widget.FrameLayout
@@ -1469,6 +1470,75 @@ class MainActivity : SkinnedActivity() {
         )
         container.addView(
             buttonRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (22 * density).toInt() }
+        )
+
+        root.addView(
+            container,
+            NativeFrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.CENTER
+                setMargins(
+                    (24 * density).toInt(),
+                    (36 * density).toInt(),
+                    (24 * density).toInt(),
+                    (36 * density).toInt()
+                )
+            }
+        )
+        setContentView(root)
+    }
+
+    /** Hikage 属性运行时异常时提供不依赖 DSL 的可退出页面，并保留全部用户状态。 */
+    private fun showSettingsUiCompatibilityFallback(reason: String, failure: Throwable? = null) {
+        if (failure == null) {
+            Log.e("BilibiliInnocentLab", "settings UI compatibility fallback: $reason")
+        } else {
+            Log.e("BilibiliInnocentLab", "settings UI compatibility fallback: $reason", failure)
+        }
+        val density = resources.displayMetrics.density
+        val root = createTermsNeutralRoot()
+        val container = createModalContainer().apply {
+            scaleX = 1f
+            scaleY = 1f
+            alpha = 1f
+        }
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.settings_ui_compatibility_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 20f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.settings_ui_compatibility_message)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 14f
+                alpha = 0.78f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (12 * density).toInt() }
+        )
+        container.addView(
+            createTermsActionButton(
+                text = getString(R.string.user_terms_exit),
+                filled = true
+            ) { finish() },
             NativeLinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -6235,6 +6305,14 @@ class MainActivity : SkinnedActivity() {
             }
             return
         }
+        val attributeRuntimeCheck = runCatching { AttributeSetResolver::class.java }
+        if (attributeRuntimeCheck.isFailure) {
+            showSettingsUiCompatibilityFallback(
+                reason = "attribute-runtime-unavailable",
+                failure = attributeRuntimeCheck.exceptionOrNull()
+            )
+            return
+        }
         prepareSkinSession()
 
         // 读取广告开关配置：prefs() 只创建一次跨进程 bridge，两个开关复用（降低初始化开销）
@@ -6678,8 +6756,9 @@ class MainActivity : SkinnedActivity() {
         // See: https://github.com/BetterAndroid/Hikage
         // Don't like it or want to switch back to XML writing? Can refer to res/layout/activity_main.xml
         // 不喜欢或者想切换回 XML 写法？可以参考 res/layout/activity_main.xml
-        setContentView {
-            LinearLayout(
+        try {
+            setContentView {
+                LinearLayout(
                 lparams = LayoutParams(matchParent = true),
                 init = {
                     orientation = LinearLayout.VERTICAL
@@ -10125,7 +10204,15 @@ class MainActivity : SkinnedActivity() {
                         Layout(createPromotionItem(R.string.about_module_extension, R.mipmap.ic_kavaref))
                     }
                 }
+                }
             }
+        } catch (throwable: Throwable) {
+            if (!SettingsUiCompatibility.isInvalidXmlDocumentFailure(throwable)) throw throwable
+            showSettingsUiCompatibilityFallback(
+                reason = "stale-attribute-document",
+                failure = throwable
+            )
+            return
         }
 
         liquidStretchViewport = liquidStretchScrollTarget?.let {

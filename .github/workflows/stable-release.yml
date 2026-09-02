@@ -27,7 +27,7 @@ env:
 
 jobs:
   verify:
-    name: Build, test and lint Stable
+    name: Build, test, lint and validate Stable Release minification
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -39,7 +39,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -130,26 +130,26 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Install Android SDK packages
         shell: bash
         run: sdkmanager "platforms;android-${CI_COMPILE_SDK}" "build-tools;${CI_BUILD_TOOLS}"
 
-      - name: Build, test and lint
+      - name: Build, test, lint and validate Release minification
         working-directory: Bilibili_Innocent_Lab
         shell: bash
         run: |
           set -euo pipefail
           ./gradlew \
             "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
-            assembleDebug testDebugUnitTest lintDebug \
+            assembleDebug testDebugUnitTest lintDebug minifyReleaseWithR8 \
             --console=plain --no-daemon
 
   publish:
@@ -164,7 +164,7 @@ jobs:
 
     steps:
       - name: Check out source and release template
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -194,13 +194,13 @@ jobs:
           fi
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Install Android SDK packages
         shell: bash
@@ -273,6 +273,17 @@ jobs:
           cp "$apk" "release-asset/$apk_filename"
           apk_sha256="$(sha256sum "release-asset/$apk_filename" | awk '{print $1}')"
           signer_sha256="$(sed -n 's/^apk_signer_certificate_sha256=//p' "$GITHUB_OUTPUT" | tail -n 1)"
+          mapping="Bilibili_Innocent_Lab/app/build/outputs/mapping/release/mapping.txt"
+          test -s "$mapping"
+          mapping_id="$(sed -n 's/^# pg_map_id: //p' "$mapping" | head -n 1)"
+          if [[ ! "$mapping_id" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo "Release mapping has no valid pg_map_id: $mapping_id"
+            exit 1
+          fi
+          mapping_sha256="$(sha256sum "$mapping" | awk '{print $1}')"
+          mapping_filename="mapping-${RELEASE_TAG}-${short_sha}.txt"
+          mkdir -p release-symbols
+          cp "$mapping" "release-symbols/$mapping_filename"
           {
             printf 'release_channel=stable\n'
             printf 'release_tag=%s\n' "$RELEASE_TAG"
@@ -286,6 +297,9 @@ jobs:
             printf 'apk_signer_certificate_sha256=%s\n' "$signer_sha256"
             printf 'apk_filename=%s\n' "$apk_filename"
             printf 'apk_sha256=%s\n' "$apk_sha256"
+            printf 'r8_mapping_id=%s\n' "$mapping_id"
+            printf 'r8_mapping_sha256=%s\n' "$mapping_sha256"
+            printf 'r8_mapping_artifact=%s\n' "$mapping_filename"
           } > release-asset/BUILD_INFO.txt
           (
             cd release-asset
@@ -302,15 +316,25 @@ jobs:
             echo "- versionCode: \`$EXPECTED_VERSION_CODE\`"
             echo "- Certificate SHA-256: \`$signer_sha256\`"
             echo "- APK SHA-256: \`$apk_sha256\`"
+            echo "- R8 mapping ID: \`$mapping_id\`"
+            echo "- R8 mapping SHA-256: \`$mapping_sha256\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload verified signed Stable asset
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: stable-signed-release-asset-${{ github.sha }}
           path: release-asset
           if-no-files-found: error
           retention-days: 7
+
+      - name: Upload Stable R8 mapping
+        uses: actions/upload-artifact@v6
+        with:
+          name: stable-r8-mapping-${{ github.sha }}
+          path: release-symbols
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Render standardized Stable release notes
         shell: bash

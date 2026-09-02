@@ -17,7 +17,18 @@ class ReleaseWorkflowSigningTest(unittest.TestCase):
                 self.assertIn("apk_build_type=release", content)
                 self.assertIn("apk_debuggable=false", content)
                 self.assertIn("apk_signer_certificate_sha256", content)
+                self.assertIn("minifyReleaseWithR8", content)
+                self.assertIn("app/build/outputs/mapping/release/mapping.txt", content)
+                self.assertIn("r8_mapping_id=", content)
+                self.assertIn("r8_mapping_sha256=", content)
+                self.assertIn("release-symbols", content)
+                self.assertIn("actions/upload-artifact@v6", content)
                 self.assertNotIn("app-debug.apk", content)
+                publish_block = content.split("- name: Create GitHub", 1)[1].split(
+                    "- name: Read back", 1
+                )[0]
+                self.assertNotIn("release-symbols", publish_block)
+                self.assertNotIn("mapping-", publish_block)
                 for secret_name in (
                     "ANDROID_SIGNING_KEY_BASE64",
                     "ANDROID_SIGNING_STORE_PASSWORD",
@@ -27,6 +38,27 @@ class ReleaseWorkflowSigningTest(unittest.TestCase):
                 ):
                     self.assertIn(f"secrets.{secret_name}", content)
 
+    def test_workflows_use_node_24_action_generations(self) -> None:
+        for workflow_name in (
+            "alpha-release.yml",
+            "stable-release.yml",
+            "sync-lsposed-release.yml",
+        ):
+            with self.subTest(workflow=workflow_name):
+                content = (WORKFLOW_DIRECTORY / workflow_name).read_text(encoding="utf-8")
+                self.assertIn("actions/checkout@v5", content)
+                self.assertIn("android-actions/setup-android@v4", content)
+                self.assertNotIn("actions/checkout@v4", content)
+                self.assertNotIn("actions/setup-java@v4", content)
+                self.assertNotIn("android-actions/setup-android@v3", content)
+                self.assertNotIn("actions/upload-artifact@v4", content)
+
+        for workflow_name in ("alpha-release.yml", "stable-release.yml"):
+            with self.subTest(release_workflow=workflow_name):
+                content = (WORKFLOW_DIRECTORY / workflow_name).read_text(encoding="utf-8")
+                self.assertIn("actions/setup-java@v5", content)
+                self.assertIn("actions/upload-artifact@v6", content)
+
     def test_gradle_release_packaging_fails_without_complete_signing_identity(self) -> None:
         gradle_script = (
             REPOSITORY_ROOT / "Bilibili_Innocent_Lab" / "app" / "build.gradle.kts"
@@ -35,6 +67,8 @@ class ReleaseWorkflowSigningTest(unittest.TestCase):
         self.assertIn("isDebuggable = false", gradle_script)
         self.assertIn("Release packaging requires the fixed signing identity", gradle_script)
         self.assertIn("INNOCENT_LAB_SIGNING_STORE_FILE", gradle_script)
+        self.assertIn('task.name.equals("packageRelease", ignoreCase = true)', gradle_script)
+        self.assertNotIn("(assemble|bundle|package|sign)", gradle_script)
 
 
 if __name__ == "__main__":
