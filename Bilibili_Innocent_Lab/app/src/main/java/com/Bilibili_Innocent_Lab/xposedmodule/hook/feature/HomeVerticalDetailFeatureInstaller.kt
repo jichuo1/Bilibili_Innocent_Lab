@@ -7,19 +7,22 @@ import android.content.Intent
 import android.net.Uri
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
+import java.util.concurrent.atomic.AtomicLong
 
-/** 全局规范化具有明确视频身份的 Story 路由，首页卡片改写仅作为前置优化。 */
+/**
+ * 在最终 Activity 启动边界把明确的 Story 视频转换为普通详情页。
+ *
+ * 这里只保留一个路由写入点：不再提前修改卡片、RouteRequest 或 Builder，避免宿主继续沿用
+ * Story 路由创建的业务状态。新版宿主写入完整 United 契约，旧版宿主使用 Legacy Activity。
+ */
 internal class HomeVerticalDetailFeatureInstaller(
     private val enabled: Boolean,
     private val points: VersionAdapter.HomeRecommendFeedPoints?
 ) : FeatureInstaller {
 
     override val id: String = ID
-
-    private val routeMutator = ConcreteHomeVerticalRouteMutator()
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!enabled) {
@@ -29,372 +32,35 @@ internal class HomeVerticalDetailFeatureInstaller(
         if (environment.processName != TARGET_PACKAGE) {
             return FeatureInstallResult.Skipped("non-main-process")
         }
-        val routeHooks = installRouteNormalizer(environment)
-        val responseHooks = runCatching { installOptionalCardLayer(environment) }
-            .getOrElse { throwable ->
-                environment.logError(
-                    "home_vertical_card_layer_failed",
-                    "[BIL] 首页卡片前置改写安装异常，全局路由规范化不受影响: $throwable"
-                )
-                0
-            }
-        val installed = routeHooks.total + responseHooks
-        if (installed == 0) return missing(environment, "registration-failed")
-
-        val status = if (routeHooks.finalizerCount == EXPECTED_ROUTE_FINALIZER_HOOKS) {
-            "success"
-        } else {
-            "partial:route-finalizer=${routeHooks.finalizerCount}/$EXPECTED_ROUTE_FINALIZER_HOOKS"
+        val backend = resolveBackend(environment) ?: return missing(
+            environment,
+            "missing-detail-activity"
+        )
+        val instrumentationCount = installActivityLaunchBoundary(environment, backend)
+        if (instrumentationCount == 0) {
+            return missing(environment, "no-safe-activity-launch-hook-point")
         }
+        val playConfigCount = installPlayConfigStorySuppression(environment)
+        val intentSanitizerCount = installIntentHandlerSanitizer(environment)
+        val installed = instrumentationCount + playConfigCount + intentSanitizerCount
+
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
-        environment.reportStatus(CHANNEL_STATUS, status)
+        environment.reportStatus(CHANNEL_STATUS, "success")
         environment.logInfo(
             "home_vertical_ok",
-            "[BIL] 竖屏视频普通详情路由已安装，routeBuilder=${routeHooks.builderCount}," +
-                "routeFinalizer=${routeHooks.finalizerCount},playConfig=${routeHooks.playConfigCount}," +
-                "instrumentation=${routeHooks.instrumentationCount}," +
-                "intentFallback=${routeHooks.intentCount},cardResponse=$responseHooks,status=$status"
+            "[BIL] 竖屏视频普通详情路由已安装，backend=${backend.name.lowercase()}," +
+                "instrumentation=$instrumentationCount,playConfig=$playConfigCount," +
+                "intentSanitizer=$intentSanitizerCount,status=success"
         )
         return FeatureInstallResult.Installed(installed)
     }
 
-    private fun installOptionalCardLayer(environment: HookEnvironment): Int {
-        val adapted = points ?: run {
-            environment.logInfo(
-                "home_vertical_card_layer_unavailable",
-                "[BIL] 首页卡片前置改写适配点不可用，全局路由规范化不受影响"
-            )
-            return 0
-        }
-        val playerArgs = resolveOptional(environment, "player_args", adapted.playerArgsGetter)
-        val accessors = ReadAccessors(
-            holderType = resolve(environment, "holder_type", adapted.holderTypeGetter)
-                ?: return cardLayerUnavailable(environment, "missing-holder-getter"),
-            bizType = resolveOptional(environment, "biz_type", adapted.bizTypeGetter),
-            adInfo = resolveOptional(environment, "ad_info", adapted.adInfoGetter),
-            cardType = resolveOptional(environment, "card_type", adapted.cardTypeGetter),
-            cardGoto = resolveOptional(environment, "card_goto", adapted.cardGotoGetter),
-            goTo = resolveOptional(environment, "goto", adapted.goToGetter),
-            uri = adapted.uriGetter?.let { resolve(environment, "uri", it) }
-                ?: return cardLayerUnavailable(environment, "missing-uri-getter"),
-            param = resolveOptional(environment, "param", adapted.paramGetter),
-            playerArgs = playerArgs,
-            playerFields = playerArgs?.returnType?.let(::resolvePlayerFields)
-        )
-
-        var responseHooks = 0
-        adapted.responseItemGetters.forEachIndexed { index, point ->
-            runCatching {
-                environment.registrar.adapted("home.vertical.response.$index", point) {
-                    after {
-                        val items = result as? List<*> ?: return@after
-                        handleItems(items, accessors, environment)
-                    }
-                }
-                responseHooks += 1
-            }.onFailure { throwable ->
-                environment.logError(
-                    "home_vertical_response_$index",
-                    "[BIL] 首页竖屏详情响应 Hook 注册失败(" +
-                        "${point.className}#${point.methodName}): $throwable"
-                )
-            }
-        }
-        return responseHooks
-    }
-
-    private fun handleItems(
-        items: List<*>,
-        accessors: ReadAccessors,
-        environment: HookEnvironment
-    ) {
-        var observed = 0
-        var eligible = 0
-        var applied = 0
-        var unsafe = 0
-        var noAccessor = 0
-        var rolledBack = 0
-        var rollbackIncomplete = 0
-        val reasonCounts = linkedMapOf<HomeVerticalRouteDecision.Reason, Int>()
-        items.forEach { item ->
-            if (item == null || !accessors.holderType.declaringClass.isInstance(item)) return@forEach
-            val snapshot = snapshot(item, accessors)
-            when (val decision = HomeVerticalDetailRoutePolicy.decide(snapshot)) {
-                HomeVerticalRouteDecision.NotVertical -> Unit
-                is HomeVerticalRouteDecision.KeepOriginal -> {
-                    observed += 1
-                    unsafe += 1
-                    reasonCounts[decision.reason] = (reasonCounts[decision.reason] ?: 0) + 1
-                }
-                is HomeVerticalRouteDecision.Rewrite -> {
-                    observed += 1
-                    eligible += 1
-                    when (
-                        routeMutator.apply(
-                            item,
-                            snapshot,
-                            decision.plan,
-                            HomeVerticalReadAccessors(
-                                cardGoto = accessors.cardGoto,
-                                goTo = accessors.goTo,
-                                uri = accessors.uri
-                            )
-                        )
-                    ) {
-                        HomeVerticalMutationResult.APPLIED -> applied += 1
-                        HomeVerticalMutationResult.NO_SAFE_ACCESSOR -> noAccessor += 1
-                        HomeVerticalMutationResult.ROLLED_BACK -> rolledBack += 1
-                        HomeVerticalMutationResult.ROLLBACK_INCOMPLETE -> rollbackIncomplete += 1
-                    }
-                }
-            }
-        }
-        if (observed == 0) return
-        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED, observed)
-        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED, applied)
-        val reasonSummary = reasonCounts.entries
-            .sortedBy { it.key.ordinal }
-            .joinToString("|") { "${it.key.name.lowercase()}=${it.value}" }
-            .ifEmpty { "none" }
-        environment.logInfo(
-            "home_vertical_runtime",
-            "[BIL] 首页竖屏详情处理 observed=$observed,eligible=$eligible,applied=$applied," +
-                "unsafe=$unsafe,noAccessor=$noAccessor,rolledBack=$rolledBack," +
-                "reasons=$reasonSummary"
-        )
-        if (rollbackIncomplete > 0) {
-            environment.logError(
-                "home_vertical_rollback_incomplete",
-                "[BIL] 首页竖屏详情存在 $rollbackIncomplete 项未能完整回滚，已停止继续修改对应卡片"
-            )
-        }
-    }
-
-    private fun snapshot(item: Any, accessors: ReadAccessors): HomeVerticalRouteSnapshot {
-        val playerArgs = invokeCompatible(accessors.playerArgs, item)
-        val playerFields = accessors.playerFields
-        return HomeVerticalRouteSnapshot(
-            holderType = invokeString(accessors.holderType, item),
-            bizType = invokeString(accessors.bizType, item),
-            cardType = invokeString(accessors.cardType, item),
-            cardGoto = invokeString(accessors.cardGoto, item),
-            goTo = invokeString(accessors.goTo, item),
-            uri = invokeString(accessors.uri, item),
-            param = invokeString(accessors.param, item),
-            playerAid = readPositiveLong(playerFields?.aid, playerArgs),
-            playerNonUgc = playerArgs != null && playerFields != null && (
-                readPositiveLong(playerFields.isLive, playerArgs) != null ||
-                    readPositiveLong(playerFields.roomId, playerArgs) != null ||
-                    readPositiveLong(playerFields.epid, playerArgs) != null ||
-                    readPositiveLong(playerFields.seasonId, playerArgs) != null
-                ),
-            hasAdInfo = invokeCompatible(accessors.adInfo, item) != null
-        )
-    }
-
-    private fun resolvePlayerFields(type: Class<*>): PlayerFields {
-        val numericFields = KavaMemberLookup.fields(
-            type,
-            includeSuperclasses = true,
-            makeAccessible = true
-        ) { field ->
-            !Modifier.isStatic(field.modifiers) && field.type in NUMERIC_FIELD_TYPES
-        }.distinctBy(Field::toGenericString)
-        fun field(vararg serializedNames: String): Field? {
-            val names = serializedNames.toSet()
-            val annotated = numericFields.filter { it.serializedNameValue() in names }
-            if (annotated.size == 1) return annotated.single()
-            val named = numericFields.filter { it.name in names }
-            return named.singleOrNull()
-        }
-        return PlayerFields(
-            aid = field("aid"),
-            isLive = field("is_live", "isLive"),
-            roomId = field("room_id", "roomId"),
-            epid = field("epid", "ep_id"),
-            seasonId = field("pgc_season_id", "season_id", "pgcSeasonId")
-        )
-    }
-
-    private fun readPositiveLong(field: Field?, target: Any?): Long? {
-        if (field == null || target == null || !field.declaringClass.isInstance(target)) return null
-        return runCatching { (field.get(target) as? Number)?.toLong()?.takeIf { it > 0L } }
-            .getOrNull()
-    }
-
-    private fun Field.serializedNameValue(): String? =
-        declaredAnnotations.firstNotNullOfOrNull { annotation ->
-            val annotationType = annotation.annotationClass.java
-            val attribute = when (annotationType.name) {
-                GSON_SERIALIZED_NAME -> "value"
-                FASTJSON_JSON_FIELD -> "name"
-                else -> null
-            } ?: return@firstNotNullOfOrNull null
-            runCatching { annotationType.getMethod(attribute).invoke(annotation) as? String }.getOrNull()
-        }
-
-    private fun installRouteNormalizer(environment: HookEnvironment): RouteHookInstallCount {
-        var builderCount = 0
-        var finalizerCount = 0
-        var playConfigCount = 0
-        var instrumentationCount = 0
-        var intentCount = 0
-        val stringConstructor = environment.hookPoints.resolveConstructor(
-            "home.vertical.route.string.resolve",
-            ROUTE_REQUEST_BUILDER_CLASS,
-            listOf(String::class.java.name)
-        )
-        if (stringConstructor != null) {
-            runCatching {
-                environment.registrar.constructor(
-                    "home.vertical.route.string",
-                    stringConstructor
-                ) {
-                    before {
-                        val original = args.getOrNull(0) as? String ?: return@before
-                        val rewritten = normalizeRouteSafely(original, environment) ?: return@before
-                        args[0] = rewritten
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
-                        environment.logInfo(
-                            "home_vertical_route_normalized",
-                            "[BIL] Story 视频已在字符串路由构造阶段改为普通详情页"
-                        )
-                    }
-                }
-                builderCount += 1
-            }.onFailure { throwable ->
-                environment.logError(
-                    "home_vertical_route_string_failed",
-                    "[BIL] 首页竖屏字符串路由兜底注册失败: $throwable"
-                )
-            }
-        }
-
-        val uriConstructor = environment.hookPoints.resolveConstructor(
-            "home.vertical.route.uri.resolve",
-            ROUTE_REQUEST_BUILDER_CLASS,
-            listOf(Uri::class.java.name)
-        )
-        if (uriConstructor != null) {
-            runCatching {
-                environment.registrar.constructor("home.vertical.route.uri", uriConstructor) {
-                    before {
-                        val original = args.getOrNull(0) as? Uri ?: return@before
-                        val rewritten = normalizeRouteSafely(original.toString(), environment)
-                            ?: return@before
-                        args[0] = Uri.parse(rewritten)
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
-                        environment.logInfo(
-                            "home_vertical_route_normalized",
-                            "[BIL] Story 视频已在 URI 路由构造阶段改为普通详情页"
-                        )
-                    }
-                }
-                builderCount += 1
-            }.onFailure { throwable ->
-                environment.logError(
-                    "home_vertical_route_uri_failed",
-                    "[BIL] 首页竖屏 URI 路由兜底注册失败: $throwable"
-                )
-            }
-        }
-
-        finalizerCount = installRouteRequestFinalizer(environment)
-        playConfigCount = installPlayConfigStorySuppression(environment)
-        instrumentationCount = installInstrumentationFallback(environment)
-
-        points?.intentHandlerOnCreate?.let { point ->
-            runCatching {
-                environment.registrar.adapted("home.vertical.intent_handler", point) {
-                    before {
-                        val activity = instance as? Activity ?: return@before
-                        val intent = activity.intent ?: return@before
-                        val rewritten = rewriteIntentSafely(
-                            intent,
-                            environment,
-                            retargetComponent = false
-                        ) ?: return@before
-                        activity.intent = rewritten
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
-                        environment.logInfo(
-                            "home_vertical_intent_handler_fallback",
-                            "[BIL] Story 视频已在宿主 Intent 入口改为普通详情页"
-                        )
-                    }
-                }
-                intentCount += 1
-            }.onFailure { throwable ->
-                environment.logError(
-                    "home_vertical_intent_handler_failed",
-                    "[BIL] 首页竖屏宿主 Intent 入口兜底注册失败: $throwable"
-                )
-            }
-        }
-        return RouteHookInstallCount(
-            builderCount = builderCount,
-            finalizerCount = finalizerCount,
-            playConfigCount = playConfigCount,
-            instrumentationCount = instrumentationCount,
-            intentCount = intentCount
-        )
-    }
-
-    /**
-     * Builder.build()、RouteRequest(Uri)、newBuilder().build() 最终都会经过该构造器；在宿主
-     * 路由请求冻结前改写 Builder，覆盖创建后又被拦截器改回 Story 的链路。
-     */
-    private fun installRouteRequestFinalizer(environment: HookEnvironment): Int {
-        val routeRequestClass = environment.hookPoints.resolveClass(
-            "home.vertical.route.finalizer.request",
-            ROUTE_REQUEST_CLASS
-        ) ?: return 0
-        val builderClass = environment.hookPoints.resolveClass(
-            "home.vertical.route.finalizer.builder",
-            ROUTE_REQUEST_BUILDER_CLASS
-        ) ?: return 0
-        val constructor = environment.hookPoints.resolveConstructor(
-            "home.vertical.route.finalizer.constructor",
-            ROUTE_REQUEST_CLASS,
-            listOf(ROUTE_REQUEST_BUILDER_CLASS)
-        ) ?: return 0
-        val getTargetUri = KavaMemberLookup.methodOrNull(builderClass, "getTargetUri")
-            ?.takeIf { it.returnType == Uri::class.java && !Modifier.isStatic(it.modifiers) }
-            ?: return 0
-        val setTargetUri = KavaMemberLookup.methodOrNull(builderClass, "setTargetUri", Uri::class.java)
-            ?.takeIf { !Modifier.isStatic(it.modifiers) }
-            ?: return 0
-        if (constructor.declaringClass != routeRequestClass) return 0
-        return runCatching {
-            environment.registrar.constructor("home.vertical.route.finalizer", constructor) {
-                before {
-                    val builder = args.getOrNull(0)
-                        ?.takeIf(builderClass::isInstance) ?: return@before
-                    val original = runCatching { getTargetUri.invoke(builder) as? Uri }.getOrNull()
-                        ?: return@before
-                    val rewritten = normalizeRouteSafely(original.toString(), environment)
-                        ?: return@before
-                    val applied = runCatching {
-                        setTargetUri.invoke(builder, Uri.parse(rewritten))
-                    }.isSuccess
-                    if (!applied) return@before
-                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
-                    environment.logInfo(
-                        "home_vertical_route_normalized",
-                        "[BIL] Story 视频已在路由请求冻结阶段改为普通详情页"
-                    )
-                }
-            }
-            1
-        }.getOrElse { throwable ->
-            environment.logError(
-                "home_vertical_route_finalizer_failed",
-                "[BIL] 路由请求最终封口注册失败，已保留其他兜底层: $throwable"
-            )
-            0
+    /** 以宿主实际存在的 Activity 选择后端；新旧类同时存在时优先 United。 */
+    private fun resolveBackend(environment: HookEnvironment): HomeVerticalDetailBackend? {
+        val loader = environment.classLoader ?: return null
+        return HomeVerticalDetailBackend.entries.firstOrNull { backend ->
+            KavaMemberLookup.classOrNull(loader, backend.activityClassName)
+                ?.let(Activity::class.java::isAssignableFrom) == true
         }
     }
 
@@ -441,14 +107,13 @@ internal class HomeVerticalDetailFeatureInstaller(
     }
 
     /**
-     * 最终启动边界兜底。只枚举名称精确为 execStartActivity 且仅含一个 Intent 参数的系统
-     * 签名；不扫描宿主对象图，也不接管非 bilibili Story 路由。
+     * 唯一路由写入边界。动态查找 Intent 参数，先复制再构造并校验完整契约，任何异常均保留
+     * 宿主原 Intent。
      */
-    private fun installInstrumentationFallback(environment: HookEnvironment): Int {
-        val intentHandlerAvailable = environment.classLoader?.let { loader ->
-            KavaMemberLookup.classOrNull(loader, INTENT_HANDLER_ACTIVITY_CLASS)
-                ?.let { owner -> Activity::class.java.isAssignableFrom(owner) }
-        } == true
+    private fun installActivityLaunchBoundary(
+        environment: HookEnvironment,
+        backend: HomeVerticalDetailBackend
+    ): Int {
         val candidates = KavaMemberLookup.declaredMethods(
             Instrumentation::class.java,
             makeAccessible = true
@@ -469,17 +134,21 @@ internal class HomeVerticalDetailFeatureInstaller(
                 ) {
                     before {
                         val intent = args.getOrNull(intentIndex) as? Intent ?: return@before
-                        val rewritten = rewriteIntentSafely(
-                            intent,
-                            environment,
-                            retargetComponent = intentHandlerAvailable
-                        ) ?: return@before
-                        args[intentIndex] = rewritten
+                        if (!HomeVerticalDetailRoutePolicy.isStrictStoryVideoRoute(
+                                intent.data?.toString()
+                            )
+                        ) {
+                            return@before
+                        }
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                        val rewritten = rewriteIntentSafely(intent, backend, environment)
+                            ?: return@before
+                        args[intentIndex] = rewritten
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
                         environment.logInfo(
-                            "home_vertical_instrumentation_fallback",
-                            "[BIL] Story 视频已在 Activity 启动边界改为普通详情页"
+                            "home_vertical_activity_launch",
+                            "[BIL] Story 视频已在 Activity 启动边界按 " +
+                                "${backend.name} 完整契约改为普通详情页"
                         )
                     }
                 }
@@ -487,60 +156,125 @@ internal class HomeVerticalDetailFeatureInstaller(
             }.onFailure { throwable ->
                 environment.logError(
                     "home_vertical_instrumentation_$index",
-                    "[BIL] Activity 启动兜底注册失败(${method.parameterCount} 参数): $throwable"
+                    "[BIL] Activity 启动边界注册失败(${method.parameterCount} 参数): $throwable"
                 )
             }
         }
         return installed
     }
 
-    private fun normalizeRouteSafely(uri: String, environment: HookEnvironment): String? =
-        runCatching { HomeVerticalDetailRoutePolicy.normalizeVideoDetailUri(uri) }
-            .getOrElse { throwable ->
-                environment.logError(
-                    "home_vertical_route_normalize_failed",
-                    "[BIL] Story 视频路由规范化异常，已保留宿主原路由: $throwable"
-                )
-                null
+    /** IntentHandler 只清理强制 Story 参数，不再承担目标页面改写。 */
+    private fun installIntentHandlerSanitizer(environment: HookEnvironment): Int {
+        val point = points?.intentHandlerOnCreate ?: return 0
+        return runCatching {
+            environment.registrar.adapted("home.vertical.intent_handler_sanitizer", point) {
+                before {
+                    val activity = instance as? Activity ?: return@before
+                    val original = activity.intent ?: return@before
+                    val sanitizedUri = original.data?.toString()
+                        ?.let(HomeVerticalDetailRoutePolicy::sanitizeIntentHandlerUri)
+                        ?: return@before
+                    val sanitized = Intent(original).apply { data = Uri.parse(sanitizedUri) }
+                    activity.intent = sanitized
+                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                    environment.logInfo(
+                        "home_vertical_intent_handler_sanitized",
+                        "[BIL] 已清理宿主 Intent 入口的强制 Story 参数"
+                    )
+                }
             }
+            1
+        }.getOrElse { throwable ->
+            environment.logError(
+                "home_vertical_intent_handler_failed",
+                "[BIL] 宿主 Intent 入口参数清理注册失败: $throwable"
+            )
+            0
+        }
+    }
 
     private fun rewriteIntentSafely(
         intent: Intent,
-        environment: HookEnvironment,
-        retargetComponent: Boolean
+        backend: HomeVerticalDetailBackend,
+        environment: HookEnvironment
     ): Intent? = runCatching {
         val component = intent.component
-        val plan = HomeVerticalDetailRoutePolicy.planIntentFallback(
-            HomeVerticalIntentRouteSnapshot(
+        val plan = HomeVerticalDetailRoutePolicy.planActivityLaunch(
+            HomeVerticalActivityLaunchSnapshot(
                 dataUri = intent.data?.toString(),
                 componentPackage = component?.packageName,
-                componentClass = component?.className,
                 targetPackage = intent.`package`,
-                aid = intent.extraToken("aid"),
-                avid = intent.extraToken("avid"),
-                bvid = intent.extraToken("bvid")
-            )
+                aid = intent.extraToken(AID_EXTRA),
+                avid = intent.extraToken(AVID_EXTRA),
+                bvid = intent.extraToken(BVID_EXTRA),
+                preloadCid = HomeVerticalDetailRoutePolicy.parsePlayerPreloadCid(
+                    intent.data?.getQueryParameter(PLAYER_PRELOAD_EXTRA)
+                )
+            ),
+            backend
         ) ?: return@runCatching null
         val rewritten = Intent(intent)
-        rewritten.data = Uri.parse(plan.detailUri)
-        val targetUrl = intent.getStringExtra(BLROUTER_TARGET_URL_EXTRA)
-        if (targetUrl != null && STORY_ROUTE_PREFIXES.any {
-                targetUrl.startsWith(it, ignoreCase = true)
+        when (plan) {
+            is HomeVerticalActivityLaunchPlan.Legacy -> {
+                rewritten.data = Uri.parse(plan.detailUri)
+                rewritten.component = ComponentName(TARGET_PACKAGE, backend.activityClassName)
+                rewritten.takeIf { validateLegacyIntent(it, plan, backend) }
             }
-        ) {
-            rewritten.putExtra(BLROUTER_TARGET_URL_EXTRA, plan.detailUri)
+
+            is HomeVerticalActivityLaunchPlan.United -> {
+                val preloadToken = nextPlayerPreloadToken()
+                UNITED_REPLACED_EXTRAS.forEach(rewritten::removeExtra)
+                rewritten.data = Uri.parse(plan.detailUri)
+                rewritten.component = ComponentName(TARGET_PACKAGE, backend.activityClassName)
+                rewritten.putExtra(PLAYER_PRELOAD_EXTRA, preloadToken)
+                rewritten.putExtra(BLROUTER_TARGET_URL_EXTRA, plan.targetUrl)
+                rewritten.putExtra(BLROUTER_PAGE_NAME_EXTRA, UNITED_VIDEO_PAGE)
+                rewritten.putExtra(BLROUTER_MATCH_RULE_EXTRA, UNITED_VIDEO_PAGE)
+                rewritten.putExtra(JUMP_FROM_EXTRA, DETAIL_SOURCE)
+                rewritten.putExtra(AID_EXTRA, plan.aid)
+                rewritten.putExtra(CID_EXTRA, plan.cid)
+                rewritten.putExtra(BVID_EXTRA, "")
+                rewritten.putExtra(FROM_EXTRA, DETAIL_SOURCE)
+                rewritten.takeIf {
+                    validateUnitedIntent(it, plan, backend, preloadToken)
+                }
+            }
         }
-        if (retargetComponent && plan.retargetToIntentHandler) {
-            rewritten.component = ComponentName(TARGET_PACKAGE, INTENT_HANDLER_ACTIVITY_CLASS)
-        }
-        rewritten
     }.getOrElse { throwable ->
         environment.logError(
             "home_vertical_intent_rewrite_failed",
-            "[BIL] Story 启动 Intent 规范化异常，已保留宿主原 Intent: $throwable"
+            "[BIL] Story 启动 Intent 构造异常，已保留宿主原 Intent: $throwable"
         )
         null
     }
+
+    private fun validateLegacyIntent(
+        intent: Intent,
+        plan: HomeVerticalActivityLaunchPlan.Legacy,
+        backend: HomeVerticalDetailBackend
+    ): Boolean = intent.data?.toString() == plan.detailUri &&
+        intent.component?.packageName == TARGET_PACKAGE &&
+        intent.component?.className == backend.activityClassName
+
+    private fun validateUnitedIntent(
+        intent: Intent,
+        plan: HomeVerticalActivityLaunchPlan.United,
+        backend: HomeVerticalDetailBackend,
+        preloadToken: String
+    ): Boolean = intent.data?.toString() == plan.detailUri &&
+        intent.component?.packageName == TARGET_PACKAGE &&
+        intent.component?.className == backend.activityClassName &&
+        intent.getStringExtra(PLAYER_PRELOAD_EXTRA) == preloadToken &&
+        preloadToken.all(Char::isDigit) &&
+        intent.getStringExtra(BLROUTER_TARGET_URL_EXTRA) == plan.targetUrl &&
+        intent.getStringExtra(BLROUTER_PAGE_NAME_EXTRA) == UNITED_VIDEO_PAGE &&
+        intent.getStringExtra(BLROUTER_MATCH_RULE_EXTRA) == UNITED_VIDEO_PAGE &&
+        intent.getLongExtra(AID_EXTRA, -1L) == plan.aid &&
+        intent.getLongExtra(CID_EXTRA, -1L) == plan.cid &&
+        intent.getStringExtra(BVID_EXTRA) == "" &&
+        intent.getIntExtra(JUMP_FROM_EXTRA, -1) == DETAIL_SOURCE &&
+        intent.getIntExtra(FROM_EXTRA, -1) == DETAIL_SOURCE
 
     @Suppress("DEPRECATION")
     private fun Intent.extraToken(key: String): String? = runCatching {
@@ -551,38 +285,9 @@ internal class HomeVerticalDetailFeatureInstaller(
         }
     }.getOrNull()
 
-    private fun cardLayerUnavailable(environment: HookEnvironment, reason: String): Int {
-        environment.logError(
-            "home_vertical_card_layer_unavailable",
-            "[BIL] 首页卡片前置改写不可用($reason)，全局路由规范化不受影响"
-        )
-        return 0
-    }
-
-    private fun resolveOptional(
-        environment: HookEnvironment,
-        suffix: String,
-        point: VersionAdapter.HookPoint?
-    ): Method? = point?.let { resolve(environment, suffix, it) }
-
-    private fun resolve(
-        environment: HookEnvironment,
-        suffix: String,
-        point: VersionAdapter.HookPoint
-    ): Method? = environment.hookPoints.resolveAdapted(
-        "home.vertical.resolve.$suffix",
-        point.className,
-        point.methodName,
-        point.paramClassNames
-    )
-
-    private fun invokeString(method: Method?, target: Any): String? =
-        invokeCompatible(method, target)?.toString()
-
-    private fun invokeCompatible(method: Method?, target: Any): Any? {
-        if (method == null || !method.declaringClass.isInstance(target)) return null
-        return runCatching { method.invoke(target) }.getOrNull()
-    }
+    private fun nextPlayerPreloadToken(): String = playerPreloadSequence.updateAndGet { current ->
+        if (current >= MAX_PLAYER_PRELOAD_TOKEN) 1L else current + 1L
+    }.toString()
 
     private fun missing(
         environment: HookEnvironment,
@@ -596,74 +301,44 @@ internal class HomeVerticalDetailFeatureInstaller(
         return FeatureInstallResult.Skipped(reason)
     }
 
-    private data class ReadAccessors(
-        val holderType: Method,
-        val bizType: Method?,
-        val adInfo: Method?,
-        val cardType: Method?,
-        val cardGoto: Method?,
-        val goTo: Method?,
-        val uri: Method,
-        val param: Method?,
-        val playerArgs: Method?,
-        val playerFields: PlayerFields?
-    )
-
-    private data class PlayerFields(
-        val aid: Field?,
-        val isLive: Field?,
-        val roomId: Field?,
-        val epid: Field?,
-        val seasonId: Field?
-    )
-
-    private data class RouteHookInstallCount(
-        val builderCount: Int,
-        val finalizerCount: Int,
-        val playConfigCount: Int,
-        val instrumentationCount: Int,
-        val intentCount: Int
-    ) {
-        val total: Int
-            get() = builderCount + finalizerCount + playConfigCount + instrumentationCount +
-                intentCount
-    }
-
     companion object {
         const val ID = "home_vertical_detail"
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val CHANNEL_STATUS = "home_vertical_detail_status"
-        private const val EXPECTED_ROUTE_FINALIZER_HOOKS = 1
-        private const val ROUTE_REQUEST_CLASS = "com.bilibili.lib.blrouter.RouteRequest"
-        private const val ROUTE_REQUEST_BUILDER_CLASS =
-            "com.bilibili.lib.blrouter.RouteRequest\$Builder"
         private const val BOOL_VALUE_CLASS = "com.bapis.bilibili.app.distribution.BoolValue"
         private const val PLAY_CONFIG_CLASS =
             "com.bapis.bilibili.app.distribution.setting.play.PlayConfig"
-        private const val INTENT_HANDLER_ACTIVITY_CLASS =
-            "tv.danmaku.bili.ui.intent.IntentHandlerActivity"
+        private const val PLAYER_PRELOAD_EXTRA = "player_preload"
         private const val BLROUTER_TARGET_URL_EXTRA = "blrouter.targeturl"
-        private const val GSON_SERIALIZED_NAME = "com.google.gson.annotations.SerializedName"
-        private const val FASTJSON_JSON_FIELD = "com.alibaba.fastjson.annotation.JSONField"
+        private const val BLROUTER_PAGE_NAME_EXTRA = "blrouter.pagename"
+        private const val BLROUTER_MATCH_RULE_EXTRA = "blrouter.matchrule"
+        private const val JUMP_FROM_EXTRA = "jumpFrom"
+        private const val AID_EXTRA = "aid"
+        private const val AVID_EXTRA = "avid"
+        private const val CID_EXTRA = "cid"
+        private const val BVID_EXTRA = "bvid"
+        private const val FROM_EXTRA = "from"
+        private const val UNITED_VIDEO_PAGE = "bilibili://united_video/"
+        private const val DETAIL_SOURCE = 7
+        private const val MAX_PLAYER_PRELOAD_TOKEN = 999_999_998L
+        private val playerPreloadSequence = AtomicLong(
+            (System.nanoTime() and 0x3fff_ffffL).coerceAtLeast(1L)
+        )
         private val PLAY_CONFIG_STORY_GETTERS = listOf(
             "getLandscapeAutoStory",
             "getShouldAutoStory"
         )
-        private val STORY_ROUTE_PREFIXES = listOf(
-            "bilibili://story/",
-            "bilibili://story?",
-            "bilibili://story_translucent/",
-            "bilibili://story_translucent?"
-        )
-        private val NUMERIC_FIELD_TYPES = setOf(
-            java.lang.Byte.TYPE,
-            java.lang.Short.TYPE,
-            java.lang.Integer.TYPE,
-            java.lang.Long.TYPE,
-            Byte::class.javaObjectType,
-            Short::class.javaObjectType,
-            Int::class.javaObjectType,
-            Long::class.javaObjectType
+        private val UNITED_REPLACED_EXTRAS = listOf(
+            PLAYER_PRELOAD_EXTRA,
+            BLROUTER_TARGET_URL_EXTRA,
+            BLROUTER_PAGE_NAME_EXTRA,
+            BLROUTER_MATCH_RULE_EXTRA,
+            JUMP_FROM_EXTRA,
+            AID_EXTRA,
+            AVID_EXTRA,
+            CID_EXTRA,
+            BVID_EXTRA,
+            FROM_EXTRA
         )
 
         internal fun normalizeVideoRouteUri(uri: String): String? =
