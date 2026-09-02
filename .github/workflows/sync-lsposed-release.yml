@@ -68,7 +68,7 @@ jobs:
           echo "source_tag=$source_tag" >> "$GITHUB_OUTPUT"
 
       - name: Check out synchronization tooling
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # Release events may point GITHUB_SHA at an older published tag. Keep the
           # synchronization implementation on the default branch for that event;
@@ -97,7 +97,7 @@ jobs:
             -p 'test_*.py'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Install APK inspection tools
         shell: bash

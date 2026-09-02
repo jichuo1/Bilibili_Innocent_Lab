@@ -1,7 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.google.gson.annotations.SerializedName
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -12,24 +14,154 @@ class HomeVerticalDetailFeatureInstallerTest {
     fun `rewrites only a valid story route and preserves query`() {
         assertEquals(
             "bilibili://video/BV1xx411c7mD?from=feed#page",
-            HomeVerticalDetailFeatureInstaller.rewriteStoryUri(
+            HomeVerticalDetailFeatureInstaller.normalizeVideoRouteUri(
                 "bilibili://story/BV1xx411c7mD?from=feed#page"
             )
         )
         assertNull(
-            HomeVerticalDetailFeatureInstaller.rewriteStoryUri(
+            HomeVerticalDetailFeatureInstaller.normalizeVideoRouteUri(
                 "bilibili://video/BV1xx411c7mD"
             )
         )
         assertNull(
-            HomeVerticalDetailFeatureInstaller.rewriteStoryUri(
+            HomeVerticalDetailFeatureInstaller.normalizeVideoRouteUri(
                 "bilibili://story/not-a-video"
             )
         )
         assertEquals(
             "bilibili://video/BV1xx411c7mD?from=feed#page",
-            HomeVerticalDetailFeatureInstaller.rewriteStoryUri(
+            HomeVerticalDetailFeatureInstaller.normalizeVideoRouteUri(
                 "bilibili://story/BV1xx411c7mD?from=feed&-Arouter=story&-Atype=story#page"
+            )
+        )
+    }
+
+    @Test
+    fun `normalizes every identified video route but preserves story roots and conflicts`() {
+        assertEquals(
+            "bilibili://video/123456789?aid=123456789&from=search#page",
+            HomeVerticalDetailFeatureInstaller.normalizeVideoRouteUri(
+                "bilibili://story?aid=123456789&-%41router=story&from=search#page"
+            )
+        )
+        assertEquals(
+            "bilibili://video/BV1xx411c7mD?from=dynamic",
+            HomeVerticalDetailFeatureInstaller.normalizeVideoRouteUri(
+                "bilibili://video/BV1xx411c7mD?-Atype=story&from=dynamic"
+            )
+        )
+        assertNull(HomeVerticalDetailFeatureInstaller.normalizeVideoRouteUri("bilibili://story"))
+        assertEquals(
+            "bilibili://video/BV1xx411c7mD?from=feed",
+            HomeVerticalDetailFeatureInstaller.normalizeVideoRouteUri(
+                "bilibili://story_translucent/BV1xx411c7mD?from=feed&-Atype=story"
+            )
+        )
+        assertNull(
+            HomeVerticalDetailFeatureInstaller.normalizeVideoRouteUri(
+                "bilibili://story_translucent"
+            )
+        )
+        assertNull(
+            HomeVerticalDetailFeatureInstaller.normalizeVideoRouteUri(
+                "bilibili://story/123456789?aid=987654321"
+            )
+        )
+        assertNull(
+            HomeVerticalDetailFeatureInstaller.normalizeVideoRouteUri(
+                "https://www.bilibili.com/video/BV1xx411c7mD"
+            )
+        )
+    }
+
+    @Test
+    fun `installs global route constructors without home response adapter points`() {
+        val statuses = mutableListOf<Pair<String, String>>()
+        val environment = HookEnvironment(
+            processName = "tv.danmaku.bili",
+            classLoader = javaClass.classLoader,
+            hookPoints = HookPointRegistry(javaClass.classLoader),
+            registrar = TestHookRegistrar,
+            logInfo = { _, _ -> },
+            logError = { _, _ -> },
+            reportStatus = { channel, status -> statuses += channel to status }
+        )
+
+        val result = HomeVerticalDetailFeatureInstaller(
+            enabled = true,
+            points = null
+        ).install(environment)
+
+        assertTrue((result as FeatureInstallResult.Installed).hookCount >= 5)
+        assertEquals(listOf("home_vertical_detail_status" to "success"), statuses)
+    }
+
+    @Test
+    fun `uses structured player aid when card route is absent but rejects non ugc player args`() {
+        val decision = HomeVerticalDetailRoutePolicy.decide(
+            HomeVerticalRouteSnapshot(
+                cardGoto = "vertical_av",
+                playerAid = 123456789L
+            )
+        )
+        assertEquals(
+            "bilibili://video/123456789",
+            (decision as HomeVerticalRouteDecision.Rewrite).plan.detailUri
+        )
+
+        val nonUgc = HomeVerticalDetailRoutePolicy.decide(
+            HomeVerticalRouteSnapshot(
+                cardGoto = "vertical_av",
+                playerAid = 123456789L,
+                playerNonUgc = true
+            )
+        )
+        assertEquals(
+            HomeVerticalRouteDecision.Reason.UNSAFE_CONTENT_KIND,
+            (nonUgc as HomeVerticalRouteDecision.KeepOriginal).reason
+        )
+    }
+
+    @Test
+    fun `plans only compatible story intent fallback and retargets explicit story activity`() {
+        val direct = HomeVerticalDetailRoutePolicy.planIntentFallback(
+            HomeVerticalIntentRouteSnapshot(
+                dataUri = "bilibili://story_translucent/BV1xx411c7mD?from=feed",
+                componentPackage = "tv.danmaku.bili",
+                componentClass = "com.bilibili.video.story.StoryTransparentActivity"
+            )
+        )
+        assertEquals("bilibili://video/BV1xx411c7mD?from=feed", direct?.detailUri)
+        assertTrue(direct?.retargetToIntentHandler == true)
+
+        val identityFromExtra = HomeVerticalDetailRoutePolicy.planIntentFallback(
+            HomeVerticalIntentRouteSnapshot(
+                dataUri = "bilibili://story?from=feed",
+                targetPackage = "tv.danmaku.bili",
+                aid = "123456789"
+            )
+        )
+        assertEquals(
+            "bilibili://video/123456789?from=feed",
+            identityFromExtra?.detailUri
+        )
+        assertFalse(identityFromExtra?.retargetToIntentHandler ?: true)
+
+        assertNull(
+            HomeVerticalDetailRoutePolicy.planIntentFallback(
+                HomeVerticalIntentRouteSnapshot(
+                    dataUri = "bilibili://story/BV1xx411c7mD",
+                    componentPackage = "com.example.other"
+                )
+            )
+        )
+        assertNull(
+            HomeVerticalDetailRoutePolicy.planIntentFallback(
+                HomeVerticalIntentRouteSnapshot(
+                    dataUri = "bilibili://story/123456789",
+                    componentPackage = "tv.danmaku.bili",
+                    aid = "987654321"
+                )
             )
         )
     }
@@ -184,34 +316,6 @@ class HomeVerticalDetailFeatureInstallerTest {
         assertEquals(HomeVerticalMutationResult.ROLLED_BACK, result)
         assertEquals("vertical_av", card.getCardGoto())
         assertEquals("bilibili://story/BV1xx411c7mD", card.getUri())
-    }
-
-    @Test
-    fun `route fallback only rewrites recent home identities and expires them`() {
-        var now = 1_000L
-        val registry = RecentHomeVideoRegistry(
-            maxEntries = 2,
-            ttlMillis = 100L,
-            nowMillis = { now }
-        )
-        registry.register(CanonicalHomeVideoId(CanonicalHomeVideoId.Kind.BV, "BV1xx411c7mD"))
-
-        assertEquals(
-            "bilibili://video/BV1xx411c7mD?from=feed",
-            registry.rewriteIfRegistered("bilibili://story/BV1xx411c7mD?from=feed")
-        )
-        assertNull(registry.rewriteIfRegistered("bilibili://story/BV1Q5411c7mD"))
-
-        registry.register(CanonicalHomeVideoId(CanonicalHomeVideoId.Kind.AID, "123456789"))
-        assertEquals(
-            "bilibili://video/123456789?aid=123456789&from=feed",
-            registry.rewriteIfRegistered(
-                "bilibili://story?aid=123456789&-Arouter=story&from=feed"
-            )
-        )
-
-        now += 101L
-        assertNull(registry.rewriteIfRegistered("bilibili://story/BV1xx411c7mD"))
     }
 
     private fun AbstractRouteCard.snapshot(): HomeVerticalRouteSnapshot =
