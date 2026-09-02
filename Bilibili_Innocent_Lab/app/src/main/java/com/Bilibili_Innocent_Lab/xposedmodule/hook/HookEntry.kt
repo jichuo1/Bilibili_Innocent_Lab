@@ -2539,11 +2539,21 @@ class HookEntry : XposedModule() {
                 0L
             )
 
-            // 每个宿主进程只做一次实时结构探测。优先实时结果，避免版本升级后的旧文件缓存
-            // 在 Application.attach 写入新缓存前误导 loadApp 阶段的 Hook 注册。
+            // 每个宿主进程只做一次实时结构探测。实时结果始终优先；只有实时存在缺口时，
+            // 才让同一宿主指纹且通过结构校验的缓存补位，使后台 DEX 适配结果在下次冷启动生效。
             val hostAdaptResult by lazy(LazyThreadSafetyMode.NONE) {
-                biliClassLoader?.let { VersionAdapter.quickLocate(it) }
-                    ?: VersionAdapter.loadCached(null, 0L)
+                val runtime = biliClassLoader?.let { VersionAdapter.quickLocate(it) }
+                if (runtime?.blockUpdate != null) {
+                    runtime
+                } else {
+                    VersionAdapter.mergeRuntimeWithCached(
+                        runtime = runtime,
+                        cached = VersionAdapter.loadCached(
+                            authorizationContext,
+                            versionAdapterResetTimestamp
+                        )
+                    )
+                }
             }
 
             // 读取日志开关 + 详细度档位（默认：开启 + 完整）

@@ -10,6 +10,37 @@ import org.junit.Test
 
 class VersionAdapterTest {
 
+    @Test
+    fun `runtime result keeps live points and fills missing dex assisted point from cache`() {
+        val cached = result()
+        val runtimePoint = VersionAdapter.HookPoint("runtime.Comment", "bind", emptyList())
+        val runtime = cached.copy(
+            biliVersionCode = 0,
+            ts = 0L,
+            commentHigh = runtimePoint,
+            blockUpdate = null,
+            hostFingerprint = "runtime-no-context|rules=41",
+            dexSourceFingerprint = "unavailable",
+            diagnostics = listOf(
+                VersionAdapter.AdaptDiagnostic(
+                    "update.block",
+                    VersionAdapter.AdaptState.MISSING
+                ),
+                VersionAdapter.AdaptDiagnostic(
+                    "dex.assist",
+                    VersionAdapter.AdaptState.NOT_APPLICABLE,
+                    "quick-locate"
+                )
+            )
+        )
+
+        val merged = VersionAdapter.mergeRuntimeWithCached(runtime, cached)
+
+        assertEquals(runtimePoint, merged?.commentHigh)
+        assertEquals(cached.blockUpdate, merged?.blockUpdate)
+        assertEquals(cached.hostFingerprint, merged?.hostFingerprint)
+    }
+
     private fun result(): VersionAdapter.AdaptResult = VersionAdapter.AdaptResult(
         biliVersionCode = 9090300,
         ts = 1234L,
