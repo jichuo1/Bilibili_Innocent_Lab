@@ -7,8 +7,10 @@ import android.content.Intent
 import android.net.Uri
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import com.highcapable.kavaref.extension.classOf
+import com.highcapable.kavaref.extension.isStatic
+import com.highcapable.kavaref.extension.isSubclassOf
 import java.lang.reflect.Method
-import java.lang.reflect.Modifier
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -65,7 +67,7 @@ internal class HomeVerticalDetailFeatureInstaller(
         val loader = environment.classLoader ?: return emptyList()
         return HomeVerticalDetailBackend.entries.filter { backend ->
             KavaMemberLookup.classOrNull(loader, backend.activityClassName)
-                ?.let(Activity::class.java::isAssignableFrom) == true
+                ?.let { it isSubclassOf classOf<Activity>() } == true
         }
     }
 
@@ -75,7 +77,7 @@ internal class HomeVerticalDetailFeatureInstaller(
         val boolValueClass = KavaMemberLookup.classOrNull(loader, BOOL_VALUE_CLASS) ?: return 0
         val playConfigClass = KavaMemberLookup.classOrNull(loader, PLAY_CONFIG_CLASS) ?: return 0
         val defaultMethod = KavaMemberLookup.methodOrNull(boolValueClass, "getDefaultInstance")
-            ?.takeIf { Modifier.isStatic(it.modifiers) && it.returnType == boolValueClass }
+            ?.takeIf { it.isStatic && it.returnType == boolValueClass }
             ?: return 0
         val defaultValue = runCatching { defaultMethod.invoke(null) }
             .getOrNull()
@@ -85,7 +87,7 @@ internal class HomeVerticalDetailFeatureInstaller(
         PLAY_CONFIG_STORY_GETTERS.forEach { methodName ->
             val method = KavaMemberLookup.methodOrNull(playConfigClass, methodName)
                 ?.takeIf {
-                    !Modifier.isStatic(it.modifiers) && it.parameterCount == 0 &&
+                    !it.isStatic && it.parameterCount == 0 &&
                         it.returnType == boolValueClass
                 } ?: return@forEach
             runCatching {
@@ -120,15 +122,15 @@ internal class HomeVerticalDetailFeatureInstaller(
         backends: List<HomeVerticalDetailBackend>
     ): Int {
         val candidates = KavaMemberLookup.declaredMethods(
-            Instrumentation::class.java,
+            classOf<Instrumentation>(),
             makeAccessible = true
         ) { method ->
-            method.name == "execStartActivity" && !Modifier.isStatic(method.modifiers) &&
-                method.parameterTypes.count { it == Intent::class.java } == 1
+            method.name == "execStartActivity" && !method.isStatic &&
+                method.parameterTypes.count { it == classOf<Intent>() } == 1
         }.distinctBy(Method::toGenericString)
         var installed = 0
         candidates.forEachIndexed { index, method ->
-            val intentIndex = method.parameterTypes.indexOf(Intent::class.java)
+            val intentIndex = method.parameterTypes.indexOf(classOf<Intent>())
             if (intentIndex < 0) return@forEachIndexed
             runCatching {
                 environment.registrar.exact(

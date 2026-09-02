@@ -1,9 +1,12 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import com.highcapable.kavaref.extension.classOf
+import com.highcapable.kavaref.extension.isAbstract
+import com.highcapable.kavaref.extension.isFinal
+import com.highcapable.kavaref.extension.isStatic
 import java.lang.reflect.Field
 import java.lang.reflect.Method
-import java.lang.reflect.Modifier
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
@@ -581,8 +584,8 @@ internal class ConcreteHomeVerticalRouteMutator {
             includeSuperclasses = true,
             makeAccessible = true
         ) { field ->
-            !Modifier.isStatic(field.modifiers) &&
-                !Modifier.isFinal(field.modifiers) &&
+            !field.isStatic &&
+                !field.isFinal &&
                 !field.type.isPrimitive &&
                 field.name in ROUTE_CACHE_FIELD_NAMES
         }.distinctBy(Field::toGenericString)
@@ -602,9 +605,9 @@ internal class ConcreteHomeVerticalRouteMutator {
                 makeAccessible = true
             ) { method ->
                 method.name == setterName && method.parameterCount == 1 &&
-                    method.parameterTypes[0] == String::class.java &&
-                    !Modifier.isStatic(method.modifiers) &&
-                    !Modifier.isAbstract(method.modifiers)
+                    method.parameterTypes[0] == classOf<String>() &&
+                    !method.isStatic &&
+                    !method.isAbstract
             }.distinctBy(Method::toGenericString)
         )
         val stringFields = KavaMemberLookup.fields(
@@ -612,8 +615,8 @@ internal class ConcreteHomeVerticalRouteMutator {
             includeSuperclasses = true,
             makeAccessible = true
         ) { field ->
-            field.type == String::class.java && !Modifier.isStatic(field.modifiers) &&
-                !Modifier.isFinal(field.modifiers)
+            field.type == classOf<String>() && !field.isStatic &&
+                !field.isFinal
         }.distinctBy(Field::toGenericString)
         val annotated = mostSpecific(
             type,

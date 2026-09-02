@@ -6,8 +6,10 @@ import android.view.View
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.highcapable.kavaref.extension.classOf
+import com.highcapable.kavaref.extension.isAbstract
 import com.highcapable.kavaref.extension.isStatic
 import com.highcapable.kavaref.extension.isSubclassOf
+import com.highcapable.kavaref.extension.makeAccessible
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
@@ -208,7 +210,7 @@ internal class DetailAppPromotionFeatureInstaller(
             ?: return 0
         val baseComponent = GEMINI_BINDING_COMPONENT_CLASSES.firstNotNullOfOrNull { className ->
             KavaMemberLookup.classOrNull(loader, className)?.takeIf { candidate ->
-                java.lang.reflect.Modifier.isAbstract(candidate.modifiers) &&
+                candidate.isAbstract &&
                     KavaMemberLookup.methods(
                         candidate,
                         includeSuperclasses = true,
@@ -223,21 +225,21 @@ internal class DetailAppPromotionFeatureInstaller(
         } ?: return 0
         val gameComponent = RELATE_GAME_COMPONENT_CLASSES.mapNotNull { className ->
             KavaMemberLookup.classOrNull(loader, className)?.takeIf { candidate ->
-                baseComponent.isAssignableFrom(candidate) &&
+                candidate isSubclassOf baseComponent &&
                     !candidate.isInterface &&
-                    !java.lang.reflect.Modifier.isAbstract(candidate.modifiers) &&
+                    !candidate.isAbstract &&
                     KavaMemberLookup.declaredMethods(candidate, makeAccessible = true) { method ->
                         method.parameterTypes.contentEquals(
                             arrayOf(
-                                Context::class.java,
-                                LayoutInflater::class.java,
-                                ViewGroup::class.java
+                                classOf<Context>(),
+                                classOf<LayoutInflater>(),
+                                classOf<ViewGroup>()
                             )
-                        ) && viewBindingClass.isAssignableFrom(method.returnType)
+                        ) && method.returnType isSubclassOf viewBindingClass
                     }.isNotEmpty() &&
                     KavaMemberLookup.declaredMethods(candidate, makeAccessible = true) { method ->
                         method.parameterCount == 2 &&
-                            viewBindingClass.isAssignableFrom(method.parameterTypes[0]) &&
+                            method.parameterTypes[0] isSubclassOf viewBindingClass &&
                             method.parameterTypes[1].name == KOTLIN_CONTINUATION
                     }.isNotEmpty()
             }
@@ -245,9 +247,9 @@ internal class DetailAppPromotionFeatureInstaller(
         val simpleViewEntry = KavaMemberLookup.classOrNull(loader, GEMINI_SIMPLE_VIEW_ENTRY)
             ?: return 0
         val simpleViewEntryConstructor = simpleViewEntry.declaredConstructors
-            .filter { it.parameterTypes.contentEquals(arrayOf(View::class.java)) }
+            .filter { it.parameterTypes.contentEquals(arrayOf(classOf<View>())) }
             .singleOrNull()
-            ?.apply { isAccessible = true }
+            ?.apply { makeAccessible() }
             ?: return 0
         val createViewEntry = KavaMemberLookup.methods(
             baseComponent,
@@ -255,7 +257,7 @@ internal class DetailAppPromotionFeatureInstaller(
             makeAccessible = true
         ) { method ->
             method.name == CREATE_VIEW_ENTRY && method.parameterTypes.contentEquals(
-                arrayOf(Context::class.java, ViewGroup::class.java)
+                arrayOf(classOf<Context>(), classOf<ViewGroup>())
             )
         }.distinctBy(Method::toGenericString).singleOrNull() ?: return 0
         val bindToView = KavaMemberLookup.methods(
@@ -472,7 +474,7 @@ internal class DetailAppPromotionFeatureInstaller(
         mostSpecificMethods(owner) {
             it.name == GET_RELATE && it.parameterCount == 0 &&
                 !it.returnType.isPrimitive &&
-                (it.returnType == Any::class.java || it.returnType isSubclassOf relateClass)
+                (it.returnType == classOf<Any>() || it.returnType isSubclassOf relateClass)
         }.singleOrNull()
 
     private fun installRelateRenderHooks(
@@ -481,7 +483,7 @@ internal class DetailAppPromotionFeatureInstaller(
         relateClass: Class<*>
     ) {
         if (!attemptedRelateClasses.add(owner)) return
-        if (!relateClass.isAssignableFrom(owner)) return
+        if (!(owner isSubclassOf relateClass)) return
         val methods = mostSpecificMethods(owner) { method ->
             matchesDetailRelateAdRenderMethod(method)
         }
@@ -780,8 +782,8 @@ internal class DetailAppPromotionFeatureInstaller(
 /** 广告推荐接口只允许拦截明确的 View/回调生产方法；基础类型返回值一律不碰。 */
 internal fun matchesDetailRelateAdRenderMethod(method: Method): Boolean =
     method.name == "getAdRelateView" &&
-        !java.lang.reflect.Modifier.isStatic(method.modifiers) &&
-        !java.lang.reflect.Modifier.isAbstract(method.modifiers) &&
+        !method.isStatic &&
+        !method.isAbstract &&
         method.returnType != Void.TYPE &&
         !method.returnType.isPrimitive
 
