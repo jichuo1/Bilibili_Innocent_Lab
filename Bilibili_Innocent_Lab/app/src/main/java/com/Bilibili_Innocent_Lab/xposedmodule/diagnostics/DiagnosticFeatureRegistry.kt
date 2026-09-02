@@ -41,7 +41,13 @@ internal object DiagnosticFeatureRegistry {
             runtimeEvidenceExpected = true
         ),
         DiagnosticFeatureDescriptor("home_top_bar_purify", DiagnosticFeatureCategory.HOME_AND_DYNAMIC),
-        DiagnosticFeatureDescriptor("home_vertical_detail", DiagnosticFeatureCategory.HOME_AND_DYNAMIC),
+        // 该功能可能长期"已安装但从未生效"（宿主路由缺 cid 等）。标记为期望运行时证据，
+        // 诊断页才会显示 OBSERVED/APPLIED 行，让"装了却不工作"可见。
+        DiagnosticFeatureDescriptor(
+            "home_vertical_detail",
+            DiagnosticFeatureCategory.HOME_AND_DYNAMIC,
+            runtimeEvidenceExpected = true
+        ),
         DiagnosticFeatureDescriptor(
             "home_recommend_purify",
             DiagnosticFeatureCategory.HOME_AND_DYNAMIC,
