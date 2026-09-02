@@ -23,6 +23,8 @@ internal sealed interface DexAssistResult {
         NATIVE_UNAVAILABLE,
         NO_MATCH,
         QUERY_FAILED,
+        /** 代码归档数量超出预期；属于 split 布局异常，与命中歧义是两回事。 */
+        TOO_MANY_ARCHIVES,
         TOO_MANY_MATCHES
     }
 }

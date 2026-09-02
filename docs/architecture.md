@@ -193,6 +193,44 @@ Preference values, custom rules, file paths, log text, exception details, and ho
 class/member names are structurally absent. No storage permission or network operation
 is used.
 
+## Host version adaptation and DEX assist
+
+`hook/VersionAdapter` locates every hook point by structure — field shapes,
+parameter types, return types resolved through KavaRef — because obfuscated
+names do not survive host rebuilds. `quickLocate` serves the `loadApp` fast
+path. `ensureAdapted` itself runs synchronously inside `Application.attach`;
+only the `adapt()` location work moves to a daemon thread. The synchronous
+path must therefore stay free of file and ZIP I/O.
+
+`hook/adapter/dex` is a bounded fallback for the single case where structural
+location fails. DexKit sits behind the `DexAssistEngine` interface, so neither
+the adapter nor the hook registry holds a bridge object. A bridge is created
+only from the background adaptation thread, only when every built-in owner
+candidate for the block-update point has missed, and is closed as soon as its
+archive has been queried. It is never created from `quickLocate`, from
+`loadApp`, or from an installed hook callback. The native library is probed
+through a tri-state latch; a load failure degrades the point to missing rather
+than raising. Candidates returned by a query are re-resolved through the host
+ClassLoader and re-checked against the same reflection constraints, and an
+ambiguous result — several owners, or several leaves under one owner — is
+treated as missing. Every outcome, including each failure reason, is recorded
+as a single `dex.assist` diagnostic.
+
+The adaptation cache is written through `AtomicJsonCache`: a same-directory
+temporary file is synced, parsed back through `AdaptResult.fromJson`, and only
+then atomically renamed over the live cache, so an interrupted write cannot
+replace a working result with a truncated document.
+
+`dexSourceFingerprint` is a content digest over the `classes*.dex` central
+directory entries of every code archive. It covers two blind spots in the host
+fingerprint, which reads only the base APK's length and modification time: a
+change confined to a DEX-bearing split, and a reinstall of identical content.
+It is deliberately excluded from the synchronous cache-validity check. A
+daemon thread compares it after a fast-path hit; a mismatch only invalidates
+the cache so the next launch re-locates, because hooks in the current process
+are already installed against the previous result and cannot be retrofitted.
+An unreadable fingerprint leaves the cache intact.
+
 ## Shared runtime helpers
 
 `runtime/TargetAppStorage` centralizes Bilibili cache path construction and
