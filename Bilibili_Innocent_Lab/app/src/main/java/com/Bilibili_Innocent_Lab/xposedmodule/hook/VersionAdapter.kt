@@ -64,6 +64,8 @@ object VersionAdapter {
 
     private val adaptationRunning = AtomicBoolean(false)
 
+    private val dexAuditRunning = AtomicBoolean(false)
+
     /**
      * 二级缓存文件（B 站自身 cache 目录，loadApp 阶段无 Context 也可同步读；
      * 模块 prefs 在部分设备（官方 LSPosed 无 DirectAccessService）不可用时，
@@ -2194,6 +2196,54 @@ object VersionAdapter {
     }
 
     /**
+     * 后台校验缓存里的 DEX 内容指纹是否仍与宿主一致。
+     *
+     * **为什么不放进快路径**：[ensureAdapted] 在 `Application.attach` 内同步执行，指纹需要
+     * 打开每个代码 APK 的 ZIP 中央目录，属于 I/O；快路径必须保持零开销，因此比对下沉到
+     * 守护线程。
+     *
+     * **为什么只作废不重适配**：本进程的 Hook 已按旧缓存安装完毕，就地重定位无法回填已装
+     * 的 Hook，中途替换只会制造「一半新一半旧」的不一致状态。作废缓存后由下次启动重新
+     * 定位，与 [clearCache] 的既有语义一致。
+     *
+     * **为什么读不出来时保留缓存**：一次 I/O 失败不足以推翻一份正在正常工作的适配结果，
+     * 失败放行优于误删。
+     *
+     * 这条通道覆盖 [buildHostFingerprint] 看不到的两种情况：变化只发生在带 DEX 的 split
+     * APK 里（宿主指纹只取 `sourceDir`），以及 base APK 的 `lastModified` 因重装而变化但
+     * 内容其实没变（内容指纹稳定，可避免无谓重适配）。
+     */
+    private fun auditDexSourceAsync(context: Context, cached: AdaptResult) {
+        val expected = cached.dexSourceFingerprint
+        if (expected == DEX_SOURCE_UNAVAILABLE) return
+        if (!dexAuditRunning.compareAndSet(false, true)) return
+        val worker = Thread({
+            try {
+                val actual = runCatching {
+                    context.packageManager.getPackageInfo("tv.danmaku.bili", 0).applicationInfo
+                }.getOrNull()?.let(DexSourceFingerprint::inspect)?.value
+                when (actual) {
+                    null -> ModernHookLog.info("[BIL] DEX 指纹不可读，保留现有适配缓存")
+                    expected -> Unit
+                    else -> {
+                        ModernHookLog.info(
+                            "[BIL] 宿主 DEX 内容已变化，作废适配缓存 " +
+                                "expected=$expected actual=$actual"
+                        )
+                        clearCache(context, modulePrefs = null)
+                    }
+                }
+            } finally {
+                dexAuditRunning.set(false)
+            }
+        }, "BIL-DexAudit").apply { isDaemon = true }
+        runCatching { worker.start() }.onFailure { throwable ->
+            dexAuditRunning.set(false)
+            ModernHookLog.error("[BIL] DEX 缓存审计线程启动失败", throwable)
+        }
+    }
+
+    /**
      * 判断并执行适配。在 B 站启动（loadApp 完成注册后）调用：
      * - 缓存命中当前版本 → 直接返回缓存（快路径，零开销）
      * - 需要适配 → 主线程 toast + 后台线程定位 + 写缓存
@@ -2221,6 +2271,8 @@ object VersionAdapter {
             runCatching {
                 if (!cacheFile().exists()) writeCache(cached)
             }
+            // 快路径本身保持零 I/O；DEX 内容比对下沉到守护线程，不一致只作废缓存。
+            auditDexSourceAsync(context, cached)
             return // 快路径：已适配
         }
         if (!adaptationRunning.compareAndSet(false, true)) {
