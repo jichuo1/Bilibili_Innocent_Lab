@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid
 import android.annotation.SuppressLint
 import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
+import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorFilter
@@ -11,6 +12,7 @@ import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Handler
@@ -160,6 +162,7 @@ internal class LiquidActivityRenderer(
     private val realtimeCaptureCanvas = Canvas()
     private val realtimeCaptureMask = Path()
     private val realtimeCaptureBounds = Rect()
+    private val suppressionScaleBounds = Rect()
     private var realtimeSamplePixelBudget = LiquidRealtimeCapturePolicy.TARGET_SAMPLE_PIXELS
     private val realtimeCaptureSourceRect = Rect()
     private val realtimeRootLocation = IntArray(2)
@@ -175,6 +178,25 @@ internal class LiquidActivityRenderer(
      * 所以看不出来。改为在发起截图时用当帧已绘制的 footprint 几何构建，工作量不变、时机对齐。
      */
     private var realtimeMaskReady = false
+
+    /** 实测采集吞吐；只统计连续成功完成之间的间隔，失败/熔断/重建都会重置。 */
+    private val captureThroughput = LiquidCaptureThroughputTracker()
+
+    /** 吞吐自适应给出的刷新率上限；`null` 表示尚未降档。会话内只降不升。 */
+    private var throughputRefreshRateCap: Float? = null
+
+    /**
+     * 预缩放到截图尺寸的稳定底图，供反馈抑制按 1:1 填充。
+     *
+     * 抑制原本用 0.25 倍的稳定底图逐帧**双线性放大**填进截图（1440p 上是 360×800 → 671×1490，
+     * 约 2.9 倍面积），这是主线程上的软件光栅化，夹在 GPU→CPU 回读与纹理上传之间。预缩放一次后
+     * 逐帧只剩 1:1 的 alpha 混合，输出内容不变（同一双线性滤波、同一源，只是重采样从每帧一次变成
+     * 尺寸变化时一次）。代价是一张截图尺寸的位图（1,000,000 px 约 3.81 MiB），内存压力下释放。
+     */
+    private var suppressionUnderlay: Bitmap? = null
+    private var suppressionUnderlayShader: BitmapShader? = null
+    private var suppressionUnderlaySource: LiquidBackdropSource? = null
+    private val suppressionPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val stretchViewportOrigins = WeakHashMap<View, LiquidViewportOrigin>()
     private val stretchBounds = Rect()
     private val stretchBoundaryPath = Path().apply { fillType = Path.FillType.EVEN_ODD }
@@ -294,6 +316,9 @@ internal class LiquidActivityRenderer(
     fun onActivityStarted() {
         if (closed) return
         activityVisible = true
+        // 新会话重新从设备最高档开始探测；只降不升的策略靠会话边界自愈。
+        captureThroughput.reset()
+        throughputRefreshRateCap = null
         if (effectProfile == LiquidEffectProfile.REALTIME_CAPTURE &&
             !realtimeCaptureSuspended
         ) {
@@ -492,6 +517,7 @@ internal class LiquidActivityRenderer(
     }
 
     private fun releaseGraphicsForMemoryPressure() {
+        releaseSuppressionUnderlay()
         suspendRealtimeCapture(releaseBuffers = true)
         // 高阶折射/模糊和实时三缓冲可以在压力下永久降级，但最多 2 MiB 的稳定 underlay
         // 仍是用户可见背景本身。释放它会让当前 Activity 无重建地退回纯色，表现为自定义
@@ -885,10 +911,14 @@ internal class LiquidActivityRenderer(
             currentRefreshRate = display.refreshRate,
             supportedRefreshRates = supportedRates
         )
-        realtimeTargetRefreshRate = LiquidPerformancePolicy.targetRefreshRate(
+        val thermalLimited = LiquidPerformancePolicy.targetRefreshRate(
             requestedRefreshRate = requestedRefreshRate,
             thermalStatus = thermalStatus
         )
+        // 吞吐上限与热上限取更严格的一方；两者都只收紧、不放宽设备原始能力。
+        realtimeTargetRefreshRate = throughputRefreshRateCap
+            ?.let { minOf(thermalLimited, it) }
+            ?: thermalLimited
         realtimeFrameIntervalNanos = LiquidRealtimeCapturePolicy.frameIntervalNanos(
             realtimeTargetRefreshRate
         )
@@ -920,6 +950,7 @@ internal class LiquidActivityRenderer(
             return
         }
         val root = boundRoot ?: return
+        captureThroughput.reset()
         configureRealtimeRefreshRate(root, status)
         // 只降帧率仅减少"做几次"；同时降采样分辨率才能压住每次的回读与纹理上传量。
         val budget = LiquidPerformancePolicy.samplePixelBudget(thermalStatus = status)
@@ -1033,6 +1064,7 @@ internal class LiquidActivityRenderer(
             if (result == PixelCopy.SUCCESS) {
                 val outcome = sanitizeRealtimeCapture(captureSource)
                 if (outcome != LiquidCaptureOutcome.FAILED) {
+                    applyCaptureThroughputSample(workStartedNanos)
                     // NO_GLASS_VISIBLE 说明本帧压根没画玻璃，截图里也就不含自身反馈，可直接
                     // 采用；把它计入熔断计数会让长列表滚动 33ms 就永久关掉整个实时效果。
                     realtimeCaptureFailureCount = 0
@@ -1043,6 +1075,8 @@ internal class LiquidActivityRenderer(
                 }
             }
 
+            // 失败会拉长下一次完成间隔，不能算进稳态吞吐。
+            captureThroughput.reset()
             if (result != PixelCopy.ERROR_SOURCE_NO_DATA) realtimeCaptureFailureCount += 1
             if (LiquidRealtimeCapturePolicy.shouldSuspend(realtimeCaptureFailureCount)) {
                 suspendRealtimeCapture(releaseBuffers = true)
@@ -1063,6 +1097,84 @@ internal class LiquidActivityRenderer(
      *
      * 返回值区分"没有可见玻璃"与"真的失败"，调用方只对后者累计熔断计数。
      */
+    /**
+     * 记录一次成功完成，必要时按实测吞吐降一档刷新率。
+     *
+     * 只降不升：升档需要先请求更高刷新率才能观察可行性，"试探→失败→降回"会在相邻档位之间反复
+     * 切换且肉眼可见。会话重建、热状态变化与缓冲重建都会重置统计，届时重新从设备最高档开始。
+     */
+    private fun applyCaptureThroughputSample(completionNanos: Long) {
+        val shouldStepDown = captureThroughput.onCaptureCompleted(
+            nowNanos = completionNanos,
+            currentTargetFps = realtimeTargetRefreshRate
+        )
+        if (!shouldStepDown) return
+        val root = boundRoot ?: return
+        val display = root.display ?: return
+        val currentMode = display.mode
+        val supported = display.supportedModes.asSequence()
+            .filter {
+                it.physicalWidth == currentMode.physicalWidth &&
+                    it.physicalHeight == currentMode.physicalHeight
+            }
+            .map { it.refreshRate }
+            .toList()
+        val next = LiquidCaptureThroughputPolicy.stepDownTarget(
+            currentTargetFps = realtimeTargetRefreshRate,
+            measuredFps = captureThroughput.measuredFramesPerSecond,
+            supportedRefreshRates = supported
+        )
+        captureThroughput.reset()
+        if (next >= realtimeTargetRefreshRate - 0.5f) return
+        throughputRefreshRateCap = next
+        configureRealtimeRefreshRate(root)
+    }
+
+    /**
+     * 准备与当前截图尺寸 1:1 的抑制底图；尺寸或稳定底图变化时重建。
+     *
+     * @return 可用时返回 true；分配失败按"本次不做抑制"处理，由调用方回退。
+     */
+    private fun ensureSuppressionUnderlay(
+        stableBackdrop: LiquidBackdropSource,
+        width: Int,
+        height: Int
+    ): Boolean {
+        val cached = suppressionUnderlay
+        if (cached != null && !cached.isRecycled &&
+            cached.width == width && cached.height == height &&
+            suppressionUnderlaySource === stableBackdrop && !stableBackdrop.isClosed
+        ) {
+            return true
+        }
+        releaseSuppressionUnderlay()
+        if (width <= 0 || height <= 0 || stableBackdrop.isClosed) return false
+        return runCatching {
+            val bitmap = createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            suppressionScaleBounds.set(0, 0, width, height)
+            // 这一次放大与原逐帧填充使用同一滤波与同一源，输出内容一致。
+            stableBackdrop.drawRoot(canvas, suppressionScaleBounds, 255)
+            bitmap.prepareToDraw()
+            val shader = BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+            suppressionUnderlay = bitmap
+            suppressionUnderlayShader = shader
+            suppressionUnderlaySource = stableBackdrop
+            suppressionPaint.shader = shader
+            true
+        }.getOrElse {
+            releaseSuppressionUnderlay()
+            false
+        }
+    }
+
+    private fun releaseSuppressionUnderlay() {
+        suppressionPaint.shader = null
+        suppressionUnderlayShader = null
+        suppressionUnderlaySource = null
+        suppressionUnderlay = null
+    }
+
     /**
      * 按**发起截图那一刻**的已绘制几何构建抑制遮罩。
      *
@@ -1169,14 +1281,19 @@ internal class LiquidActivityRenderer(
         realtimeCaptureBounds.set(0, 0, bitmap.width, bitmap.height)
         realtimeCaptureCanvas.setBitmap(bitmap)
         return try {
-            // 一次带 Shader 的路径填充，几何与旧的 clipPath + 全图 drawBitmap 完全一致，
-            // 但不再为整张目标位图分配抗锯齿裁剪掩码。
-            stableBackdrop.drawRootMasked(
-                realtimeCaptureCanvas,
-                realtimeCaptureMask,
-                realtimeCaptureBounds,
-                LiquidRealtimeCapturePolicy.BASE_SUPPRESSION_ALPHA
-            )
+            if (ensureSuppressionUnderlay(stableBackdrop, bitmap.width, bitmap.height)) {
+                // 预缩放底图与截图 1:1，逐帧只剩 alpha 混合，不再做双线性放大。
+                suppressionPaint.alpha = LiquidRealtimeCapturePolicy.BASE_SUPPRESSION_ALPHA
+                realtimeCaptureCanvas.drawPath(realtimeCaptureMask, suppressionPaint)
+            } else {
+                // 预缩放位图分配失败时回退到原路径，抑制强度与几何完全一致。
+                stableBackdrop.drawRootMasked(
+                    realtimeCaptureCanvas,
+                    realtimeCaptureMask,
+                    realtimeCaptureBounds,
+                    LiquidRealtimeCapturePolicy.BASE_SUPPRESSION_ALPHA
+                )
+            }
             LiquidCaptureOutcome.SUPPRESSED
         } finally {
             realtimeCaptureCanvas.setBitmap(null)
@@ -1239,6 +1356,9 @@ internal class LiquidActivityRenderer(
         val stableBackdrop = backdropSource
         realtimeBackdropSource = null
         driverBoundSources.clear()
+        // 缓冲尺寸变化会改变单次回读成本，旧吞吐样本不再代表当前配置。
+        captureThroughput.reset()
+        releaseSuppressionUnderlay()
         if (rebindStableBackdrop && stableBackdrop != null && !stableBackdrop.isClosed &&
             backendDriver?.backend != LiquidRenderBackend.TRANSLUCENT
         ) {
@@ -1382,6 +1502,7 @@ internal class LiquidActivityRenderer(
         stretchViewports.clear()
         onFirstVisibleDraw = null
         onFatalFailure = null
+        releaseSuppressionUnderlay()
         preparedDrivers.values.forEach(LiquidBackendDriver::close)
         preparedDrivers.clear()
         backendDriver = null
