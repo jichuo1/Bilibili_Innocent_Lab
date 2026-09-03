@@ -40,7 +40,7 @@ concurrency:
 
 env:
   TARGET_REPOSITORY: Xposed-Modules-Repo/com.Bilibili_Innocent_Lab.xposedmodule
-  CI_BUILD_TOOLS: '35.0.0'
+  CI_BUILD_TOOLS: '36.0.0'
 
 jobs:
   sync:
