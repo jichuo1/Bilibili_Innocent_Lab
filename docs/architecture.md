@@ -295,7 +295,47 @@ switch at an intermediate expansion. Internal preview/error back navigation
 never runs the cross-Activity morph. Restored or incompatible window geometry
 falls back to a neutral fade/scale rather than targeting stale screen coordinates.
 
-## Module UI skin foundation (M0)
+## Module UI Liquid renderer (current protocol 9)
+
+The executable source currently identifies the Liquid renderer as protocol version 9.
+Material You remains the default and safe fallback; Liquid selection, pending activation,
+health confirmation, and rollback remain isolated in `ui_skin_preferences`. An Activity may
+create its skin session only after its own terms gate and early-return checks have completed.
+`MainActivity`, `FreeCopyActivity`, `SettingsBackupActivity`, and `DiagnosticsActivity` all
+participate. The process registry allows multiple owners for the same renderer version and
+activation attempt, so closing one translucent or secondary Activity cannot invalidate another.
+
+The one-way backend order remains REFRACTION (API 33+ RuntimeShader), BLUR (API 31+
+RenderNode/RenderEffect), then TRANSLUCENT. Construction and runtime-draw failures advance to a
+lower backend without retrying the failed backend in the same Activity. Bounded degradation
+reasons are exposed only in local diagnostics; complete renderer failure persists the Material
+You rollback before an Activity may recreate.
+
+Every Activity retains a stable generated or user-selected underlay for its root background and
+fallbacks. When the explicit real-time option is enabled on a supported hardware Canvas, Liquid
+surfaces may additionally sample a sanitized full-root PixelCopy source. Capture uses three
+buffers, a default 1,000,000-pixel budget, and a 0.72 scale ceiling. The stable underlay replaces
+already-rendered glass regions before a captured frame becomes the next backdrop, preventing
+recursive feedback; `NO_GLASS_VISIBLE` is a valid frame outcome rather than a capture failure.
+
+Capture scheduling starts from the highest supported display mode up to 120 Hz. Thermal policy
+caps both cadence and pixel budget, while measured successful-completion throughput can only step
+the session down to a supported mode no lower than 60 Hz. The suppression mask is built when the
+PixelCopy request is issued from draw-time surface origins, not later from callback-time geometry.
+Scroll callbacks invalidate only surfaces whose recorded root-space origin actually moved;
+content, optical-intensity, and backdrop changes still invalidate all affected surfaces.
+
+Bitmap, shader, Paint, Path, RenderNode, and coordinate buffers are reused. Only the active
+backend is rebound to a new backdrop; the stable suppression underlay is pre-scaled per capture
+size, and completed real-time buffers are prepared for drawing before the next surface traversal.
+Foreground/background lifecycle stops capture and performance hints, critical memory pressure
+releases real-time resources and advances to TRANSLUCENT, and Activity destruction closes its own
+owner idempotently.
+
+The M0, M1a, and M1b sections below preserve the historical design stages. Their milestone-only
+scope statements do not describe or override the current protocol-9 implementation above.
+
+## Module UI skin foundation (M0, historical milestone)
 
 The module UI has a passive skin foundation under `ui/skin`. Material You remains
 the only effective renderer in M0: there is no user-visible skin selector, Liquid
@@ -331,7 +371,7 @@ cannot release the new Activity's owner. Future Liquid code must use
 and release that owner during renderer teardown; it must not call the pure recovery
 guard directly.
 
-## Module UI Liquid renderer (M1a)
+## Module UI Liquid renderer (M1a, historical milestone)
 
 M1a activates renderer protocol version 1 without changing the Material You
 default. MainActivity exposes a single-choice "Interface appearance" entry as the
@@ -393,7 +433,7 @@ Kyant0/AndroidLiquidGlass commit `65ab177e90e5c1d8c62e70cf7755841982da65f6`.
 Its source header, `THIRD_PARTY_NOTICES.md`, and the complete Apache-2.0 license in
 `third_party/AndroidLiquidGlass-LICENSE.txt` are part of the implementation.
 
-## Module UI Liquid background pipeline (M1b)
+## Module UI Liquid background pipeline (M1b, historical milestone)
 
 Renderer protocol version 2 supersedes M1a's background presentation while keeping
 the same skin selection, recovery owner, and one-way backend order. The root window

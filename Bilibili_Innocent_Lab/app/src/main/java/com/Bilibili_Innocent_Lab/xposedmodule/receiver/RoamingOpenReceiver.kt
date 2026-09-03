@@ -93,6 +93,12 @@ class RoamingOpenReceiver : BroadcastReceiver() {
         val previous = lastAcceptedRequestMs.get()
         if (previous > 0L && now - previous < MIN_REQUEST_INTERVAL_MS) return
         lastAcceptedRequestMs.set(now)
+        // 这里保持接收器直启（Android 13 真机已验证），不走 B 站自建 PendingIntent
+        // 的回放（2026-09-04 撤回）：一是 `send()` 仍按创建者身份解析目标，而本通道
+        // 被使用的前提正是 B 站侧解析失败；二是 `PendingIntent.send()` 只在结果码落在
+        // 致命段 [-100, -1] 时抛 CanceledException，BAL 中止属于非致命段
+        // （START_ABORTED=102），成功返回并不证明 Activity 真的启动，用它当回退开关
+        // 会在正要防的场景里静默吞掉这次点击。Android 17 的 BAL 复验见 verification.md。
         runCatching {
             val launch = Intent().apply {
                 setClassName("me.iacn.biliroaming", "me.iacn.biliroaming.MainActivityAlias")
