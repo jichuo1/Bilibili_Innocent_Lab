@@ -3543,6 +3543,11 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
+    // GestureBackNavigation 抑制说明：targetSdk 37 下手势导航的返回已由上方注册的
+    // OnBackInvokedCallback（API 33+）接管并收敛到同一退场动画；此处的 KEYCODE_BACK
+    // 拦截仅服务三键/硬件导航（它们仍派发按键事件），lint 的启发式检查不感知该
+    // 双路径迁移，故定点抑制。
+    @Suppress("GestureBackNavigation")
     private fun presentModalDialog(
         dialog: Dialog,
         container: NativeLinearLayout,
@@ -3570,10 +3575,75 @@ class MainActivity : SkinnedActivity() {
         }
         dialog.setContentView(root)
         // 系统返回键也必须走项目统一的 180ms scale + fade 退场动画。
+        // 预测性返回启用（targetSdk 33+ 注册、Android 16+ 系统强制）后，手势导航的
+        // 返回不再向 Dialog 派发 KEYCODE_BACK，改走 OnBackInvokedCallback；三键导航
+        // 仍派发按键并保留 setOnKeyListener。两条路径都收敛到同一退场动画与回调。
+        // API 34+ 进一步注册 OnBackAnimationCallback：手势拖动时弹窗按
+        // BackEvent.progress（0..1）预览缩小（对齐退场终值 0.92 的中途态）、取消时
+        // 回弹、松手提交时从当前预览状态无缝续接 180ms 退场（ViewPropertyAnimator
+        // 天然从当前值起步）。API 33 的普通回调没有进度事件，保持松手才动画。
+        // dismissing 防重入：退场动画一旦启动，后续手势/按键回调一律忽略——四个回调
+        // 都要判，`onBackStarted` 尤其不能漏，它才是调用 container.animate().cancel()
+        // 的那处，取消在途退场会立刻触发收尾监听器（见该回调内注释）。
+        var dismissing = false
+        fun requestDismiss() {
+            if (dismissing) return
+            dismissing = true
+            dismissWithAnimation(dialog, container, onBackDismiss)
+        }
+        var predictiveBackCallback: android.window.OnBackInvokedCallback? = null
+        if (AndroidVersion.isAtLeast(AndroidVersion.U)) {
+            predictiveBackCallback =
+                object : android.window.OnBackAnimationCallback {
+                    override fun onBackStarted(event: android.window.BackEvent) {
+                        // 退场动画期间再起手势必须整条忽略：`dismissWithAnimation` 用
+                        // AnimatorListenerAdapter 收尾，而 ViewPropertyAnimator 在 cancel()
+                        // 后仍会派发 onAnimationEnd，取消在途退场会让 dialog.dismiss() 与
+                        // onDismissed() 立刻执行、180ms 退场被截断。
+                        if (dismissing) return
+                        // 中断在途动画（入场或回弹），后续属性由手势进度直接驱动
+                        container.animate().cancel()
+                    }
+
+                    override fun onBackProgressed(event: android.window.BackEvent) {
+                        if (dismissing) return
+                        val progress = event.progress
+                        container.scaleX = 1f - 0.05f * progress
+                        container.scaleY = 1f - 0.05f * progress
+                        container.alpha = 1f - 0.15f * progress
+                    }
+
+                    override fun onBackCancelled() {
+                        if (dismissing) return
+                        container.animate()
+                            .scaleX(1f).scaleY(1f).alpha(1f)
+                            .setDuration(260L)
+                            .setInterpolator(emphasizedDecelerate)
+                            .start()
+                    }
+
+                    override fun onBackInvoked() {
+                        requestDismiss()
+                    }
+                }
+        } else if (AndroidVersion.isAtLeast(AndroidVersion.T)) {
+            predictiveBackCallback = android.window.OnBackInvokedCallback {
+                requestDismiss()
+            }
+        }
+        val callbackToRegister = predictiveBackCallback
+        if (callbackToRegister != null && AndroidVersion.isAtLeast(AndroidVersion.T)) {
+            runCatching {
+                dialog.onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                    android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                    callbackToRegister
+                )
+            }
+        }
         dialog.setOnKeyListener { _, keyCode, event ->
             if (keyCode == KeyEvent.KEYCODE_BACK) {
                 if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) {
-                    dismissWithAnimation(dialog, container, onBackDismiss)
+                    requestDismiss()
                 }
                 true
             } else {
@@ -3582,6 +3652,12 @@ class MainActivity : SkinnedActivity() {
         }
         dialog.setOnDismissListener {
             if (activeConfirmDialog === dialog) activeConfirmDialog = null
+            val callback = predictiveBackCallback
+            if (callback != null && AndroidVersion.isAtLeast(AndroidVersion.T)) {
+                runCatching {
+                    dialog.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback)
+                }
+            }
         }
         activeConfirmDialog = dialog
         dialog.show()
@@ -9906,39 +9982,44 @@ class MainActivity : SkinnedActivity() {
                                     textSize = 12f
                                 }
                                 // 预见式返回动画（Android 14+）：实验性开关，运行时切换 window 的
-                                // OnBackInvokedCallback 体系，返回时显示系统缩放预览动画
-                                MaterialSwitch(
-                                    lparams = LayoutParams(widthMatchParent = true) {
-                                        topMargin = 5.dp
-                                        bottomMargin = 5.dp
-                                    }
-                                ) {
-                                    text = stringResource(R.string.predictive_back_enable)
-                                    isAllCaps = false
-                                    textColor = colorResource(R.color.colorTextGray)
-                                    textSize = 15f
-                                    isChecked = predictiveBackEnabled
-                                    setOnCheckedChangeListener { _, isChecked ->
-                                        predictiveBackEnabled = isChecked
-                                        runCatching {
-                                            prefs().edit { putBoolean(HookEntry.PREF_PREDICTIVE_BACK_ENABLED, isChecked) }
-                                        }.onFailure { t ->
-                                            Log.e("BilibiliInnocentLab", "write predictive back prefs failed", t)
+                                // OnBackInvokedCallback 体系，返回时显示系统缩放预览动画。
+                                // Android 16（API 36）+ 系统对 targetSdk 36+ 的应用强制启用
+                                // 预测性返回（隐藏 API 的关闭调用被忽略），开关失去实际效果，
+                                // 此时整组隐藏；偏好键与备份 catalog 条目保留以兼容旧备份。
+                                if (!PredictiveBack.isSystemEnforced) {
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 5.dp
+                                            bottomMargin = 5.dp
                                         }
-                                        // 立即作用于当前 window（无需重启界面）
-                                        applyPredictiveBack()
+                                    ) {
+                                        text = stringResource(R.string.predictive_back_enable)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = predictiveBackEnabled
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            predictiveBackEnabled = isChecked
+                                            runCatching {
+                                                prefs().edit { putBoolean(HookEntry.PREF_PREDICTIVE_BACK_ENABLED, isChecked) }
+                                            }.onFailure { t ->
+                                                Log.e("BilibiliInnocentLab", "write predictive back prefs failed", t)
+                                            }
+                                            // 立即作用于当前 window（无需重启界面）
+                                            applyPredictiveBack()
+                                        }
                                     }
-                                }
-                                TextView(
-                                    lparams = LayoutParams(widthMatchParent = true) {
-                                        topMargin = 0.dp
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 0.dp
+                                        }
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.predictive_back_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
                                     }
-                                ) {
-                                    alpha = 0.6f
-                                    setLineSpacing(6f, 1f)
-                                    text = stringResource(R.string.predictive_back_tip)
-                                    textColor = colorResource(R.color.colorTextDark)
-                                    textSize = 12f
                                 }
                                 // 气泡亮暗色自动跟随（实验性功能）：开启后气泡颜色自动跟随
                                 // B 站亮暗主题（进入视频详情页时判定缓存，弹泡零反射）；

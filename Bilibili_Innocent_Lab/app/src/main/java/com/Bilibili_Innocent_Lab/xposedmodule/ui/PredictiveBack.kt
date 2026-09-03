@@ -19,6 +19,14 @@ import com.highcapable.kavaref.extension.classOf
  */
 object PredictiveBack {
 
+    /**
+     * Android 16（API 36）起，系统对 targetSdk 36+ 的应用强制启用预测性返回：
+     * Window / ApplicationInfo 的隐藏开关被系统忽略，运行时无法再关闭。
+     * 此时设置页开关不再有实际效果，直接隐藏（targetApi 已抬升到 37）。
+     */
+    val isSystemEnforced: Boolean
+        get() = AndroidVersion.isAtLeast(AndroidVersion.BAKLAVA)
+
     /** Window 隐藏方法反射缓存（不存在/被拦截时为 null，resolved 标记防止重复探测） */
     @Volatile
     private var windowMethod: java.lang.reflect.Method? = null
