@@ -12,16 +12,17 @@ class LiquidRealtimeCapturePolicyTest {
     fun `sampling follows a pixel budget instead of a fixed scale`() {
         assertEquals(3, LiquidRealtimeCapturePolicy.BUFFER_COUNT)
         val budget = LiquidRealtimeCapturePolicy.TARGET_SAMPLE_PIXELS
+        assertEquals(1_000_000L, budget)
 
-        // 1080p 面板原本就接近预算，采样倍率几乎不变（仍在 0.70..0.72 之间）。
+        // 1080p 面板按 100 万像素预算收敛到约 0.62 倍，为高刷新率滑动留出余量。
         val common = LiquidRealtimeCapturePolicy.resolveSize(1080, 2400)
         assertTrue(common.pixels <= budget)
-        assertTrue(common.width / 1080f > 0.70f && common.width / 1080f <= 0.72f)
+        assertTrue(common.width / 1080f > 0.60f && common.width / 1080f < 0.64f)
 
-        // 1440p 面板不再随分辨率平方增长：缓冲尺寸与 1080p 基本一致，倍率自动降到约 0.53。
+        // 1440p 面板不再随分辨率平方增长：缓冲尺寸与 1080p 基本一致，倍率约 0.47。
         val dense = LiquidRealtimeCapturePolicy.resolveSize(1440, 3200)
         assertTrue(dense.pixels <= budget)
-        assertTrue(dense.width / 1440f < 0.6f)
+        assertTrue(dense.width / 1440f < 0.5f)
         assertTrue(abs(dense.pixels - common.pixels) < budget / 20)
 
         // 低分屏不会被反向放大到超过原有清晰度。

@@ -32,10 +32,6 @@ internal data class LiquidParameters(
     val fallbackMotionSurfaceAlpha: Float,
     val highlightWidthDp: Float,
     val highlightAlpha: Float,
-    val highlightGlowWidthDp: Float,
-    val highlightGlowAlpha: Float,
-    /** 定向高光的柔和度；越大越柔，映射为 shader 的镜面指数。 */
-    val highlightBlurRadiusDp: Float,
     /**
      * 光源方位角。约定 `L = float2(cos θ, sin θ)`，屏幕 y 轴向下，
      * 因此 `-145°` 指向左上方，外法线朝左/朝上的边缘被点亮。

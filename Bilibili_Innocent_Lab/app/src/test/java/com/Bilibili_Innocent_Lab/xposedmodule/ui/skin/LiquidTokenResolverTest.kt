@@ -76,7 +76,7 @@ class LiquidTokenResolverTest {
     }
 
     @Test
-    fun `realtime profile exaggerates optics while preserving readable fallback`() {
+    fun `realtime profile keeps optics visible while preserving readable fallback`() {
         val tuning = LiquidVisualTuningPolicy.resolve(dark = true)
         val standard = LiquidTokenResolver.resolve(tuning)
         val realtime = LiquidTokenResolver.resolve(
@@ -87,12 +87,13 @@ class LiquidTokenResolverTest {
         assertTrue(realtime.refractionHeightDp > standard.refractionHeightDp)
         assertTrue(realtime.refractionAmountDp > standard.refractionAmountDp)
         assertTrue(realtime.interiorDistortionDp > 0f)
-        assertTrue(realtime.chromaticShiftDp > 0f)
+        // 边缘色散关闭后每像素少两次纹理采样，也不会再生成突兀彩边。
+        assertEquals(0f, realtime.chromaticShiftDp, 0f)
         assertTrue(realtime.scatteringRadiusDp > 0f)
         assertTrue(realtime.scatteringStrength > 0f)
         assertTrue(realtime.surfaceAlpha < standard.surfaceAlpha)
-        assertTrue(realtime.highlightWidthDp > standard.highlightWidthDp)
-        assertTrue(realtime.highlightGlowAlpha > 0f)
+        assertTrue(realtime.highlightWidthDp <= standard.highlightWidthDp)
+        assertTrue(realtime.highlightAlpha < standard.highlightAlpha)
         assertEquals(standard.fallbackSurfaceAlpha, realtime.fallbackSurfaceAlpha, 0f)
     }
 
@@ -109,11 +110,13 @@ class LiquidTokenResolverTest {
         assertTrue(realtime.fresnelStrength > 0f)
         assertTrue(realtime.causticLuminanceGain > 0f)
         assertTrue(realtime.innerShadowStrength > 0f)
-        // 边缘亮度由 shader 的定向高光承担后，均匀白描边必须让位，避免两层叠加把边缘压死。
-        assertTrue(realtime.highlightAlpha < 0.72f)
+        // 边缘亮度由 shader 的定向高光承担后，均匀白描边必须明显让位。
+        assertTrue(realtime.highlightAlpha <= 0.22f)
+        assertTrue(realtime.specularStrength <= 0.20f)
+        assertTrue(realtime.fresnelStrength <= 0.08f)
+        assertTrue(realtime.causticLuminanceGain <= 0.55f)
         // 光源方位角约定 L = (cos θ, sin θ)、y 轴向下；-145° 指向左上方。
         assertEquals(-145f, realtime.highlightAngleDegrees, 0f)
         assertEquals(standard.highlightAngleDegrees, realtime.highlightAngleDegrees, 0f)
-        assertTrue(realtime.highlightBlurRadiusDp > standard.highlightBlurRadiusDp)
     }
 }

@@ -80,12 +80,6 @@ internal class LiquidRefractionBackendApi33(
             sin(lightRadians).toFloat()
         )
         shader.setFloatUniform("specularStrength", parameters.specularStrength)
-        // 高光越"糊"指数越低；1.5dp -> 8.0、2.2dp -> 约 5.5，均落在可见但不刺眼的区间。
-        shader.setFloatUniform(
-            "specularSharpness",
-            (SPECULAR_SHARPNESS_NUMERATOR / parameters.highlightBlurRadiusDp.coerceAtLeast(0.5f))
-                .coerceIn(2f, 24f)
-        )
         shader.setFloatUniform("fresnelStrength", parameters.fresnelStrength)
         shader.setFloatUniform("causticLuminanceGain", parameters.causticLuminanceGain)
         shader.setFloatUniform("innerShadowStrength", parameters.innerShadowStrength)
@@ -102,6 +96,12 @@ internal class LiquidRefractionBackendApi33(
             "backdropScale",
             source.bitmap.width.toFloat() / source.fullWidth.toFloat(),
             source.bitmap.height.toFloat() / source.fullHeight.toFloat()
+        )
+        // 根空间下 backdrop 的有效范围；shader 用它把折射位移收在页面之内。
+        shader.setFloatUniform(
+            "backdropExtent",
+            source.fullWidth.toFloat(),
+            source.fullHeight.toFloat()
         )
     }
 
@@ -148,7 +148,6 @@ internal class LiquidRefractionBackendApi33(
     private companion object {
         const val FULL_SCATTER_TAPS = 1f
         const val REDUCED_SCATTER_TAPS = 0f
-        const val SPECULAR_SHARPNESS_NUMERATOR = 12f
     }
 }
 
@@ -159,6 +158,7 @@ uniform float2 size;
 uniform float2 offset;
 uniform float2 backdropScale;
 uniform float2 backdropOrigin;
+uniform float2 backdropExtent;
 uniform float4 cornerRadii;
 uniform float refractionHeight;
 uniform float refractionAmount;
@@ -171,7 +171,6 @@ uniform float chromaMultiplier;
 uniform float opticalIntensity;
 uniform float2 lightDirection;
 uniform float specularStrength;
-uniform float specularSharpness;
 uniform float fresnelStrength;
 uniform float causticLuminanceGain;
 uniform float innerShadowStrength;
@@ -252,7 +251,8 @@ half4 sampleScattered(
     float2 canvasCoord,
     float2 direction,
     float edgeWeight,
-    float interiorLens
+    float interiorLens,
+    float edgeReach
 ) {
     half4 core = sampleRefracted(canvasCoord, direction);
     if (scatteringStrength <= 0.001 || scatteringRadius <= 0.001) return core;
@@ -264,7 +264,8 @@ half4 sampleScattered(
 
     float2 normal = safeNormalize(direction, float2(0.0, 1.0));
     float2 tangent = float2(-normal.y, normal.x);
-    float radius = scatteringRadius * opticalIntensity * mix(0.42, 1.0, edgeWeight);
+    float radius = scatteringRadius * opticalIntensity * mix(0.42, 1.0, edgeWeight)
+        * edgeReach;
     half4 tangentPositive = sampleContent(canvasCoord + tangent * radius);
     half4 tangentNegative = sampleContent(canvasCoord - tangent * radius);
     // 两条分支的权重都归一化到 1.0，降抽样不会改变整体亮度，只降低扩散的各向同性。
@@ -317,9 +318,27 @@ half4 main(float2 coord) {
     );
     float2 direction = safeNormalize(mix(interiorDirection, grad, edgeWeight), grad);
 
-    float2 refractedCoord = coord + interiorOffset + d * grad;
+    // 页面最左右（及上下）边缘的收敛。
+    //
+    // 折射把采样点朝表面外侧推最多 `refractionAmount * opticalIntensity`，散射再加一圈半径。
+    // 当玻璃贴着页面边缘时这些采样会越过 backdrop 范围，而 `content` 是 CLAMP 平铺的
+    // BitmapShader——越界部分全部取到边缘那一列像素，于是整条带被横向抹开，表现为"背景被拉伸"。
+    // 这里按当前像素到 backdrop 边界的可用余量线性收敛位移强度：远离边缘时 `edgeReach` 为 1，
+    // 画面中部完全不受影响；贴边时收敛到 0，折射平滑变浅而不是让平铺模式去补像素。
+    // 代价是每像素约 9 条 ALU，没有额外纹理读取、没有新的 pass。
+    float2 rootCoord = coord + offset + backdropOrigin;
+    float2 edgeMargin = min(rootCoord, backdropExtent - rootCoord);
+    float nearestMargin = max(min(edgeMargin.x, edgeMargin.y), 0.0);
+    float sampleReach = max(
+        refractionAmount * opticalIntensity + scatteringRadius * opticalIntensity,
+        1.0
+    );
+    // 线性收敛保证位移不超过余量；smoothstep 在 t>0.5 时会大于 t，反而重新越界。
+    float edgeReach = clamp(nearestMargin / sampleReach, 0.0, 1.0);
+
+    float2 refractedCoord = coord + (interiorOffset + d * grad) * edgeReach;
     half4 color = saturateColor(
-        sampleScattered(refractedCoord, direction, edgeWeight, interiorLens),
+        sampleScattered(refractedCoord, direction, edgeWeight, interiorLens, edgeReach),
         chromaMultiplier
     );
 
@@ -330,18 +349,22 @@ half4 main(float2 coord) {
     }
 
     // 掠射角增亮（Fresnel）：反射率随入射角上升，边缘因此比正面更亮。
+    // 乘 edgeReach：贴着屏幕边缘时折射位移已收敛为 0，此处再保留全强度亮带就成了一条与玻璃
+    // 无关的粗白边（折射带宽 refractionHeight 达 34dp）。让它随折射一起收敛，屏幕最外侧的
+    // 高光因此变窄，画面中部的玻璃边缘逐像素不变。
     if (fresnelStrength > 0.001) {
         float fresnel = edgeWeight * edgeWeight * edgeWeight
-            * fresnelStrength * opticalIntensity;
+            * fresnelStrength * opticalIntensity * edgeReach;
         color.rgb = mix(color.rgb, half3(1.0), clamp(fresnel, 0.0, 0.5));
     }
 
-    // 定向镜面高光：只有外法线朝向光源的边缘会亮，取代四边亮度相同的均匀描边。
+    // 定向镜面高光：三次曲线比可变指数更柔和且只需乘法；mix 避免加白后提前截断。
     if (specularStrength > 0.001) {
         float facing = clamp(dot(grad, lightDirection), 0.0, 1.0);
-        float specular = pow(facing, specularSharpness) * edgeWeight
-            * specularStrength * opticalIntensity;
-        color.rgb = min(color.rgb + half3(clamp(specular, 0.0, 1.0)), half3(1.0));
+        float specularLobe = facing * facing * facing;
+        float specular = specularLobe * edgeWeight
+            * specularStrength * opticalIntensity * edgeReach;
+        color.rgb = mix(color.rgb, half3(1.0), clamp(specular, 0.0, 0.35));
     }
     return color;
 }
