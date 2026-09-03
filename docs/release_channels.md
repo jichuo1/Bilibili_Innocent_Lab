@@ -17,7 +17,9 @@
   Alpha 标签暗中改写它。
 - 发布任务还必须等待 `verify` 任务通过，随后使用 `alpha-release` 环境恢复固定签名、构建
   Release APK 并发布 Pre-release。
-- CI 会在 GitHub Runner 上使用可用的 Android 35 SDK 进行验证构建；本地开发仍可使用项目默认的 compileSdk 配置。
+- CI 会在 GitHub Runner 上安装 `platforms;android-37.0` 与 `build-tools;36.0.0`，用与源码
+  一致的 compileSdk 37 进行验证构建；自 2026-09-03 起本地与 CI 的 SDK 已对齐，不再存在
+  “本地能过、CI 过不了”的分叉。
 - 工作流只接受远端 `main` 的最新提交：所选 ref、事件 SHA、实际 checkout SHA 与
   `origin/main` 任一不一致都会立即失败，避免从旧分支、旧标签或旧提交生成 Release。
 - Alpha 标签会覆盖 APK 内部 `versionName`（例如稳定基础版为 `1.0.6` 时写入
