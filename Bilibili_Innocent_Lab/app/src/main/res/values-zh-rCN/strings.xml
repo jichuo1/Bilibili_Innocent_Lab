@@ -471,7 +471,7 @@
     <string name="settings_backup_choose_again">重新选择文件</string>
     <string name="settings_backup_migration_warning">部分目录迁移步骤不可用；只会恢复仍能精确兼容的自描述设置，其余项目全部保持当前状态。</string>
     <string name="no_root_support_enable">免 Root 支持（NPatch，实验性）</string>
-    <string name="no_root_support_tip">此开关只控制本模块通过 NPatch 同步配置，不会关闭已修补应用的 NPatch 原生注入。部分 NPatch 1.0.7 构建存在上游启动崩溃问题（#139）；请仅使用已明确包含修复的构建。仅在此开关开启时连接 NPatch。</string>
+    <string name="no_root_support_tip">此开关只控制本模块通过 NPatch 同步配置，不会关闭已修补应用的 NPatch 原生注入。部分 NPatch 1.0.7 构建存在上游启动崩溃问题，请仅使用已明确包含修复的构建。仅在此开关开启时连接 NPatch。</string>
     <string name="no_root_status_unsupported_os">状态：不可用，需要 Android 9 或更高版本。</string>
     <string name="no_root_status_disabled">状态：已关闭，不会连接 NPatch。</string>
     <string name="no_root_status_checking">状态：正在检查本地配置…</string>
