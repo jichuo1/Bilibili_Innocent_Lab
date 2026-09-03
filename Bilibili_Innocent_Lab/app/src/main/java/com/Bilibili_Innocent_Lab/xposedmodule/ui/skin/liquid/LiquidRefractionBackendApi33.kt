@@ -31,6 +31,8 @@ import android.graphics.RuntimeShader
 import androidx.annotation.RequiresApi
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.LiquidParameters
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.LiquidRenderBackend
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * View renderer adaptation of AndroidLiquidGlass `Shaders.kt` at commit `65ab177`, with the
@@ -53,6 +55,7 @@ internal class LiquidRefractionBackendApi33(
         this.shader = this@LiquidRefractionBackendApi33.shader
     }
     private var source: LiquidBackdropSource? = null
+    private var appliedScatterTapMode = FULL_SCATTER_TAPS
 
     init {
         shader.setFloatUniform(
@@ -69,6 +72,24 @@ internal class LiquidRefractionBackendApi33(
         shader.setFloatUniform("scatteringRadius", parameters.scatteringRadiusDp * density)
         shader.setFloatUniform("scatteringStrength", parameters.scatteringStrength)
         shader.setFloatUniform("chromaMultiplier", parameters.saturation)
+        // 屏幕 y 轴向下；约定 L = (cos θ, sin θ)，外法线朝向光源的边缘被点亮。
+        val lightRadians = Math.toRadians(parameters.highlightAngleDegrees.toDouble())
+        shader.setFloatUniform(
+            "lightDirection",
+            cos(lightRadians).toFloat(),
+            sin(lightRadians).toFloat()
+        )
+        shader.setFloatUniform("specularStrength", parameters.specularStrength)
+        // 高光越"糊"指数越低；1.5dp -> 8.0、2.2dp -> 约 5.5，均落在可见但不刺眼的区间。
+        shader.setFloatUniform(
+            "specularSharpness",
+            (SPECULAR_SHARPNESS_NUMERATOR / parameters.highlightBlurRadiusDp.coerceAtLeast(0.5f))
+                .coerceIn(2f, 24f)
+        )
+        shader.setFloatUniform("fresnelStrength", parameters.fresnelStrength)
+        shader.setFloatUniform("causticLuminanceGain", parameters.causticLuminanceGain)
+        shader.setFloatUniform("innerShadowStrength", parameters.innerShadowStrength)
+        shader.setFloatUniform("scatterTapMode", FULL_SCATTER_TAPS)
     }
 
     override fun bindBackdrop(source: LiquidBackdropSource) {
@@ -98,6 +119,16 @@ internal class LiquidRefractionBackendApi33(
         shader.setFloatUniform("backdropOrigin", viewX.toFloat(), viewY.toFloat())
         shader.setFloatUniform("cornerRadii", radiusPx, radiusPx, radiusPx, radiusPx)
         shader.setFloatUniform("opticalIntensity", opticalIntensity.coerceIn(1f, 1.85f))
+        // 全屏模态按面积降到 2 抽样散射；卡片级表面保持 4 抽样，权重两侧都守恒。
+        val reducedTaps = LiquidRealtimeCapturePolicy.useReducedScatterTaps(
+            bounds.width(),
+            bounds.height()
+        )
+        val tapMode = if (reducedTaps) REDUCED_SCATTER_TAPS else FULL_SCATTER_TAPS
+        if (appliedScatterTapMode != tapMode) {
+            shader.setFloatUniform("scatterTapMode", tapMode)
+            appliedScatterTapMode = tapMode
+        }
         canvas.drawRoundRect(
             bounds.left.toFloat(),
             bounds.top.toFloat(),
@@ -112,6 +143,12 @@ internal class LiquidRefractionBackendApi33(
     override fun close() {
         source = null
         paint.shader = null
+    }
+
+    private companion object {
+        const val FULL_SCATTER_TAPS = 1f
+        const val REDUCED_SCATTER_TAPS = 0f
+        const val SPECULAR_SHARPNESS_NUMERATOR = 12f
     }
 }
 
@@ -132,6 +169,13 @@ uniform float scatteringRadius;
 uniform float scatteringStrength;
 uniform float chromaMultiplier;
 uniform float opticalIntensity;
+uniform float2 lightDirection;
+uniform float specularStrength;
+uniform float specularSharpness;
+uniform float fresnelStrength;
+uniform float causticLuminanceGain;
+uniform float innerShadowStrength;
+uniform float scatterTapMode;
 
 const half3 rgbToY = half3(0.2126, 0.7152, 0.0722);
 
@@ -213,21 +257,33 @@ half4 sampleScattered(
     half4 core = sampleRefracted(canvasCoord, direction);
     if (scatteringStrength <= 0.001 || scatteringRadius <= 0.001) return core;
 
+    float spatialWeight = clamp(edgeWeight * 0.82 + interiorLens * 0.34, 0.0, 1.0);
+    float amount = clamp(scatteringStrength * spatialWeight, 0.0, 0.72);
+    // 权重可忽略时 mix 的结果与 core 在 8 位量化下不可分辨，直接省掉 2-4 次纹理取样。
+    if (amount < 0.004) return core;
+
     float2 normal = safeNormalize(direction, float2(0.0, 1.0));
     float2 tangent = float2(-normal.y, normal.x);
-    float spatialWeight = clamp(edgeWeight * 0.82 + interiorLens * 0.34, 0.0, 1.0);
     float radius = scatteringRadius * opticalIntensity * mix(0.42, 1.0, edgeWeight);
     half4 tangentPositive = sampleContent(canvasCoord + tangent * radius);
     half4 tangentNegative = sampleContent(canvasCoord - tangent * radius);
-    half4 normalPositive = sampleContent(canvasCoord + normal * radius * 0.58);
-    half4 normalNegative = sampleContent(canvasCoord - normal * radius * 0.58);
-    half4 diffused = core * 0.46
-        + (tangentPositive + tangentNegative) * 0.16
-        + (normalPositive + normalNegative) * 0.11;
-    float amount = clamp(scatteringStrength * spatialWeight, 0.0, 0.72);
+    // 两条分支的权重都归一化到 1.0，降抽样不会改变整体亮度，只降低扩散的各向同性。
+    half4 diffused;
+    if (scatterTapMode > 0.5) {
+        half4 normalPositive = sampleContent(canvasCoord + normal * radius * 0.58);
+        half4 normalNegative = sampleContent(canvasCoord - normal * radius * 0.58);
+        diffused = core * 0.46
+            + (tangentPositive + tangentNegative) * 0.16
+            + (normalPositive + normalNegative) * 0.11;
+    } else {
+        diffused = core * 0.56 + (tangentPositive + tangentNegative) * 0.22;
+    }
     half4 scattered = mix(core, diffused, amount);
-    float caustic = edgeWeight * scatteringStrength * 0.075 * opticalIntensity;
-    scattered.rgb = mix(scattered.rgb, half3(1.0), clamp(caustic, 0.0, 0.12));
+    // 内容感知焦散：背后越亮，边缘的白色焦散越强。亮度用 sRGB 近似，避免额外一次线性化。
+    float backdropLuma = dot(scattered.rgb, rgbToY);
+    float caustic = edgeWeight * scatteringStrength * 0.075 * opticalIntensity
+        * (1.0 + causticLuminanceGain * backdropLuma);
+    scattered.rgb = mix(scattered.rgb, half3(1.0), clamp(caustic, 0.0, 0.2));
     return scattered;
 }
 
@@ -262,9 +318,31 @@ half4 main(float2 coord) {
     float2 direction = safeNormalize(mix(interiorDirection, grad, edgeWeight), grad);
 
     float2 refractedCoord = coord + interiorOffset + d * grad;
-    return saturateColor(
+    half4 color = saturateColor(
         sampleScattered(refractedCoord, direction, edgeWeight, interiorLens),
         chromaMultiplier
     );
+
+    // 折射带内侧的环境遮蔽：在带的中段最深、两端归零，制造"玻璃有厚度"的立体感。
+    if (innerShadowStrength > 0.001) {
+        float band = clamp(edgeWeight * (1.0 - edgeWeight) * 4.0, 0.0, 1.0);
+        color.rgb *= half3(1.0 - innerShadowStrength * band);
+    }
+
+    // 掠射角增亮（Fresnel）：反射率随入射角上升，边缘因此比正面更亮。
+    if (fresnelStrength > 0.001) {
+        float fresnel = edgeWeight * edgeWeight * edgeWeight
+            * fresnelStrength * opticalIntensity;
+        color.rgb = mix(color.rgb, half3(1.0), clamp(fresnel, 0.0, 0.5));
+    }
+
+    // 定向镜面高光：只有外法线朝向光源的边缘会亮，取代四边亮度相同的均匀描边。
+    if (specularStrength > 0.001) {
+        float facing = clamp(dot(grad, lightDirection), 0.0, 1.0);
+        float specular = pow(facing, specularSharpness) * edgeWeight
+            * specularStrength * opticalIntensity;
+        color.rgb = min(color.rgb + half3(clamp(specular, 0.0, 1.0)), half3(1.0));
+    }
+    return color;
 }
 """
