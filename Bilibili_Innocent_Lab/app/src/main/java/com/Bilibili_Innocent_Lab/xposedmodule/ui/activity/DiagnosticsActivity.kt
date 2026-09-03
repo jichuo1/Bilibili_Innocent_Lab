@@ -1014,12 +1014,17 @@ class DiagnosticsActivity : SkinnedActivity() {
                 val backend = input.liquidBackendName?.let {
                     getString(R.string.diagnostics_skin_backend, it)
                 }.orEmpty()
+                // 降级原因直接展示在后端旁边：AGSL 被驱动拒绝时用户侧只会看到"效果变朴素"，
+                // 没有这一行就无法把跨 GPU 的兼容问题反馈回来。
+                val degrade = input.liquidBackendDegradeReason?.let {
+                    getString(R.string.diagnostics_skin_backend_degraded, it)
+                }.orEmpty()
                 getString(
                     R.string.diagnostics_skin_ready,
                     input.requestedSkin,
                     input.effectiveSkin,
                     backend
-                )
+                ) + degrade
             }
             DiagnosticItemId.SETTINGS_CATALOG -> getString(
                 R.string.diagnostics_catalog_detail,

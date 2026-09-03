@@ -84,6 +84,7 @@ internal object ModuleDiagnosticsCollector {
                 effectiveSkin = effectiveSkin,
                 skinFallbackCode = skin?.fallbackReason,
                 liquidBackendName = skin?.liquidBackendName,
+                liquidBackendDegradeReason = skin?.liquidBackendDegradeReason,
                 settingsCatalogVersion = SettingsCatalog.CATALOG_VERSION,
                 settingsTotalCount = SettingsCatalog.specs.size,
                 settingsAutomaticCount = automaticCount,
