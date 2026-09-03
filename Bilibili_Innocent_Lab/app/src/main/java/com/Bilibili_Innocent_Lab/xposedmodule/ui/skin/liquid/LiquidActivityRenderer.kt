@@ -142,6 +142,7 @@ internal class LiquidActivityRenderer(
     )
     private val fallbackPlan = LiquidBackendFallbackPlan(backendCandidates)
     private val preparedDrivers = linkedMapOf<LiquidRenderBackend, LiquidBackendDriver>()
+    private val backendFailures = linkedMapOf<LiquidRenderBackend, String>()
     private val overlayPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -261,11 +262,47 @@ internal class LiquidActivityRenderer(
     init {
         backendCandidates.forEach { candidate ->
             runCatching { createBackend(candidate) }
-                .getOrNull()
-                ?.let { preparedDrivers[candidate] = it }
+                .onSuccess { preparedDrivers[candidate] = it }
+                .onFailure { throwable -> recordBackendFailure(candidate, throwable) }
         }
         selectCurrentPreparedBackend()
     }
+
+    /**
+     * 记录某个后端为什么用不了。
+     *
+     * `RuntimeShader` 在构造期由厂商驱动编译 AGSL，失败会直接抛异常。原实现把它整个吞掉，
+     * 于是 Adreno 能跑、Mali 被拒这类跨驱动问题在用户侧只表现为"效果变朴素了"，没有任何可上报的
+     * 线索。这里只保留异常类型与截断后的 message，不含任何用户数据。
+     */
+    private fun recordBackendFailure(backend: LiquidRenderBackend, throwable: Throwable) {
+        val message = throwable.message
+            ?.replace('\n', ' ')
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?.take(MAX_BACKEND_FAILURE_MESSAGE)
+        backendFailures[backend] = if (message == null) {
+            throwable.javaClass.simpleName
+        } else {
+            "${throwable.javaClass.simpleName}: $message"
+        }
+    }
+
+    /**
+     * 当前后端之前那些更优先候选的失败原因；没有降级时为 null。
+     *
+     * 供设置页在后端名称旁展示，用户可以直接把它反馈回来，而不是只说"不好看"。
+     */
+    val backendDegradeReason: String?
+        get() {
+            val active = backendDriver?.backend ?: fallbackPlan.current ?: return null
+            if (backendFailures.isEmpty()) return null
+            return backendCandidates
+                .takeWhile { it != active }
+                .firstNotNullOfOrNull { candidate ->
+                    backendFailures[candidate]?.let { "${candidate.name}: $it" }
+                }
+        }
 
     @MainThread
     fun bindRoot(
@@ -1064,6 +1101,9 @@ internal class LiquidActivityRenderer(
             if (result == PixelCopy.SUCCESS) {
                 val outcome = sanitizeRealtimeCapture(captureSource)
                 if (outcome != LiquidCaptureOutcome.FAILED) {
+                    // 位图刚被改写，立刻提示 HWUI 预上传纹理；否则上传会推迟到下一帧 draw 中间，
+                    // 变成 RenderThread 上的一次同步停顿。每帧一张约 3.81 MiB 的实时缓冲。
+                    runCatching { captureSource.bitmap.prepareToDraw() }
                     applyCaptureThroughputSample(workStartedNanos)
                     // NO_GLASS_VISIBLE 说明本帧压根没画玻璃，截图里也就不含自身反馈，可直接
                     // 采用；把它计入熔断计数会让长列表滚动 33ms 就永久关掉整个实时效果。
@@ -1417,6 +1457,7 @@ internal class LiquidActivityRenderer(
     }
 
     private fun advanceAfterFailure(failed: LiquidRenderBackend): Boolean {
+        backendFailures.getOrPut(failed) { "runtime-draw-failed" }
         driverBoundSources.remove(failed)
         preparedDrivers.remove(failed)?.close()
         if (backendDriver?.backend == failed) backendDriver = null
@@ -1546,6 +1587,9 @@ internal class LiquidActivityRenderer(
 }
 
 private const val NANOS_PER_MILLISECOND = 1_000_000L
+
+/** 降级原因只保留有界长度，避免把驱动的长堆栈文本带进界面。 */
+private const val MAX_BACKEND_FAILURE_MESSAGE = 160
 
 /**
  * 超出回弹亮边的层数与线宽。
