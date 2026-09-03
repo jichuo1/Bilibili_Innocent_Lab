@@ -575,6 +575,7 @@
     <string name="diagnostics_host_feature_unknown">其他宿主功能</string>
     <string name="diagnostics_skin_ready">请求：%1$s · 实际：%2$s%3$s</string>
     <string name="diagnostics_skin_backend"> · 后端：%1$s</string>
+    <string name="diagnostics_skin_backend_degraded">\n· 高阶后端不可用：%1$s</string>
     <string name="diagnostics_skin_fallback">请求的皮肤已安全回退（%1$s），实际皮肤为 %2$s。</string>
     <string name="diagnostics_catalog_detail">目录 v%1$d · 共 %2$d 项（%3$d 项自动、%4$d 项手动）</string>
     <string name="diagnostics_logging_off">日志记录已关闭；导出的报告仍不会包含日志正文。</string>
