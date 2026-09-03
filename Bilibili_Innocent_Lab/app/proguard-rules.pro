@@ -39,7 +39,17 @@
 }
 
 -dontwarn io.github.libxposed.annotation.**
--adaptresourcefilenames
+# 只允许改写 java_init.list 的**内容**（把入口类名换成混淆后的名字）。
+#
+# 曾经这里还有一条**无过滤器**的 `-adaptresourcefilenames`：它会把 Java 资源的路径
+# 按混淆后的包名改写，而 R8 full mode 把 `kotlin` 等包压平后，
+# `kotlin/collections/collections.kotlin_builtins` 变成了 `/collections.kotlin_builtins`
+# ——**以 `/` 开头的绝对路径 zip 条目**（release APK 里共 9 条，含 commonmark 的
+# `org/commonmark/internal/util/entities.properties`）。后果：
+#   1. NPatch 用 `java.util.zip.ZipFile` 打开模块 APK 做模块识别，Android 的 zip
+#      路径穿越加固会拒绝这类条目，异常被 NPatch 静默吞掉 → 模块列表恒为 0；
+#   2. Kotlin 内建元数据与 commonmark 实体表按资源路径查找，release 下也一并失效。
+# 详见长期文档 2026-09-04 条目。不要再加回不带过滤器的 -adaptresourcefilenames。
 -adaptresourcefilecontents META-INF/xposed/java_init.list
 -keep,allowoptimization,allowobfuscation public class * extends io.github.libxposed.api.XposedModule {
     public <init>();
