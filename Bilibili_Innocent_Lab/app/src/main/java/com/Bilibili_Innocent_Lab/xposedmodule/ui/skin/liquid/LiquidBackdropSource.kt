@@ -5,13 +5,16 @@ import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
+import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RadialGradient
 import android.graphics.Rect
 import android.graphics.Shader
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.ColorUtils
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
+import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
 import kotlin.math.roundToInt
 
 /**
@@ -35,6 +38,27 @@ internal class LiquidBackdropSource private constructor(
     val bitmapShader = BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
 
     private val rootPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+
+    /**
+     * 反馈抑制专用的独立 Shader 与 Matrix。
+     *
+     * 不能复用 [bitmapShader]：那一份已经作为 RuntimeShader 的 `content` 输入被后端持有，
+     * 逐帧改写它的 local matrix 会污染折射采样。
+     */
+    private val maskShader by lazy(LazyThreadSafetyMode.NONE) {
+        BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
+            // 与旧路径的 FILTER_BITMAP_FLAG 对齐：稳定底图是 0.25 倍采样，最近邻会在
+            // 抑制区域露出明显色块。setFilterMode 是 API 33 才有的显式声明，31-32 仍依赖
+            // maskPaint 的 FILTER_BITMAP_FLAG。
+            if (AndroidVersion.isAtLeast(AndroidVersion.T)) {
+                setFilterMode(BitmapShader.FILTER_MODE_LINEAR)
+            }
+        }
+    }
+    private val maskMatrix = Matrix()
+    private val maskPaint by lazy(LazyThreadSafetyMode.NONE) {
+        Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { shader = maskShader }
+    }
     private var closed = false
 
     val isClosed: Boolean
@@ -52,6 +76,26 @@ internal class LiquidBackdropSource private constructor(
         check(!closed) { "Liquid backdrop source is closed" }
         rootPaint.alpha = alpha.coerceIn(0, 255)
         canvas.drawBitmap(bitmap, null, bounds, rootPaint)
+    }
+
+    /**
+     * 以本底图填充给定路径，几何映射与 `drawRoot(canvas, dstBounds, alpha)` 完全一致。
+     *
+     * 旧实现是 `clipPath` + 全图 `drawBitmap`：即使裁剪把光栅化限制在玻璃区域，Skia 仍要为
+     * 整张目标位图建立一次抗锯齿裁剪掩码并做 save/restore。改成一次带 Shader 的路径填充后
+     * 输出逐像素相同，但不再分配裁剪掩码。
+     */
+    fun drawRootMasked(canvas: Canvas, path: Path, dstBounds: Rect, alpha: Int) {
+        check(!closed) { "Liquid backdrop source is closed" }
+        if (dstBounds.isEmpty || bitmap.width <= 0 || bitmap.height <= 0) return
+        maskMatrix.setScale(
+            dstBounds.width().toFloat() / bitmap.width.toFloat(),
+            dstBounds.height().toFloat() / bitmap.height.toFloat()
+        )
+        maskMatrix.postTranslate(dstBounds.left.toFloat(), dstBounds.top.toFloat())
+        maskShader.setLocalMatrix(maskMatrix)
+        maskPaint.alpha = alpha.coerceIn(0, 255)
+        canvas.drawPath(path, maskPaint)
     }
 
     override fun close() {

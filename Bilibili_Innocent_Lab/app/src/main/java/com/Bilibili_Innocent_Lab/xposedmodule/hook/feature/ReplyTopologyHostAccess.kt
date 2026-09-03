@@ -113,8 +113,16 @@ internal class ReplyTopologySeedStore(
         else -> maxRememberedRoots * IDENTITY_CAPACITY_MULTIPLIER
     }
     private val byIdentity =
-        LinkedHashMap<IdentityWeakReference, ReplyTopologySeed>(32, 0.75f, true)
+        LinkedHashMap<IdentityKey, ReplyTopologySeed>(32, 0.75f, true)
     private val byRpid = LinkedHashMap<Long, ReplyTopologySeed>(32, 0.75f, true)
+
+    /**
+     * 查询用的可复用探针，避免每次绑定都分配一个 WeakReference。
+     *
+     * 引用对象需要 GC 单独跟踪，评论滚动时每条绑定分配一个是持续的 GC 压力。[get] 是
+     * `@Synchronized` 且只在主线程调用，单例探针安全；存储侧仍是弱引用，回收语义不变。
+     */
+    private val lookupProbe = IdentityProbe()
 
     @Synchronized
     fun put(commentItem: Any, seed: ReplyTopologySeed) {
@@ -138,8 +146,13 @@ internal class ReplyTopologySeedStore(
     @Synchronized
     fun get(commentItem: Any, commentItemId: Long?): ReplyTopologySeed? {
         drainCollectedKeys()
-        return byIdentity[IdentityWeakReference(commentItem, null)]
-            ?: commentItemId?.takeIf { it > 0L }?.let(byRpid::get)
+        val identityHit = try {
+            lookupProbe.target = commentItem
+            byIdentity[lookupProbe]
+        } finally {
+            lookupProbe.target = null
+        }
+        return identityHit ?: commentItemId?.takeIf { it > 0L }?.let(byRpid::get)
     }
 
     @Synchronized
@@ -156,24 +169,55 @@ internal class ReplyTopologySeedStore(
         }
     }
 
+    /** 身份键的共同契约，让弱引用键与复用探针可以互相比较。 */
+    private interface IdentityKey {
+        val identityHash: Int
+        fun referent(): Any?
+    }
+
     private class IdentityWeakReference(
         referent: Any,
         queue: ReferenceQueue<Any>?
-    ) : WeakReference<Any>(referent, queue) {
-        private val identityHash = System.identityHashCode(referent)
+    ) : WeakReference<Any>(referent, queue), IdentityKey {
+        override val identityHash = System.identityHashCode(referent)
+
+        override fun referent(): Any? = get()
 
         override fun hashCode(): Int = identityHash
 
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (other !is IdentityWeakReference || identityHash != other.identityHash) return false
-            val left = get()
-            return left != null && left === other.get()
-        }
+        override fun equals(other: Any?): Boolean = identityKeyEquals(this, other)
+    }
+
+    /**
+     * 只在一次 [get] 调用期间持有目标，调用结束立即清空，不会延长 CommentItem 生命周期。
+     * 被回收键的移除仍依赖 `HashMap.remove` 的引用相等短路，与探针无关。
+     */
+    private class IdentityProbe : IdentityKey {
+        var target: Any? = null
+            set(value) {
+                field = value
+                identityHash = if (value == null) 0 else System.identityHashCode(value)
+            }
+
+        override var identityHash: Int = 0
+            private set
+
+        override fun referent(): Any? = target
+
+        override fun hashCode(): Int = identityHash
+
+        override fun equals(other: Any?): Boolean = identityKeyEquals(this, other)
     }
 
     private companion object {
         const val IDENTITY_CAPACITY_MULTIPLIER = 2
+
+        fun identityKeyEquals(self: IdentityKey, other: Any?): Boolean {
+            if (self === other) return true
+            if (other !is IdentityKey || self.identityHash != other.identityHash) return false
+            val left = self.referent()
+            return left != null && left === other.referent()
+        }
     }
 }
 

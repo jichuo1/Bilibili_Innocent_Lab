@@ -29,9 +29,13 @@ class LiquidTokenResolverTest {
                 0f
             )
             assertEquals(tuning.saturation, parameters.saturation, 0f)
-            assertFalse(parameters.chromaticAberration)
             assertEquals(0f, parameters.scatteringStrength, 0f)
             assertEquals(1.1f, parameters.highlightWidthDp, 0f)
+            // 标准档必须把全部新增光学项保持为 0，未开启实时取样的用户观感完全不变。
+            assertEquals(0f, parameters.specularStrength, 0f)
+            assertEquals(0f, parameters.fresnelStrength, 0f)
+            assertEquals(0f, parameters.causticLuminanceGain, 0f)
+            assertEquals(0f, parameters.innerShadowStrength, 0f)
         }
     }
 
@@ -83,7 +87,6 @@ class LiquidTokenResolverTest {
         assertTrue(realtime.refractionHeightDp > standard.refractionHeightDp)
         assertTrue(realtime.refractionAmountDp > standard.refractionAmountDp)
         assertTrue(realtime.interiorDistortionDp > 0f)
-        assertTrue(realtime.chromaticAberration)
         assertTrue(realtime.chromaticShiftDp > 0f)
         assertTrue(realtime.scatteringRadiusDp > 0f)
         assertTrue(realtime.scatteringStrength > 0f)
@@ -91,5 +94,26 @@ class LiquidTokenResolverTest {
         assertTrue(realtime.highlightWidthDp > standard.highlightWidthDp)
         assertTrue(realtime.highlightGlowAlpha > 0f)
         assertEquals(standard.fallbackSurfaceAlpha, realtime.fallbackSurfaceAlpha, 0f)
+    }
+
+    @Test
+    fun `realtime profile enables directional optics and standard profile does not`() {
+        val tuning = LiquidVisualTuningPolicy.resolve(dark = true)
+        val standard = LiquidTokenResolver.resolve(tuning)
+        val realtime = LiquidTokenResolver.resolve(
+            tuning,
+            LiquidEffectProfile.REALTIME_CAPTURE
+        )
+
+        assertTrue(realtime.specularStrength > 0f)
+        assertTrue(realtime.fresnelStrength > 0f)
+        assertTrue(realtime.causticLuminanceGain > 0f)
+        assertTrue(realtime.innerShadowStrength > 0f)
+        // 边缘亮度由 shader 的定向高光承担后，均匀白描边必须让位，避免两层叠加把边缘压死。
+        assertTrue(realtime.highlightAlpha < 0.72f)
+        // 光源方位角约定 L = (cos θ, sin θ)、y 轴向下；-145° 指向左上方。
+        assertEquals(-145f, realtime.highlightAngleDegrees, 0f)
+        assertEquals(standard.highlightAngleDegrees, realtime.highlightAngleDegrees, 0f)
+        assertTrue(realtime.highlightBlurRadiusDp > standard.highlightBlurRadiusDp)
     }
 }
