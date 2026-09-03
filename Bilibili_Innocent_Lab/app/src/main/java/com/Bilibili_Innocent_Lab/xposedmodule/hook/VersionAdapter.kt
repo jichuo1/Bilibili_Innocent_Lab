@@ -150,7 +150,16 @@ object VersionAdapter {
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
     private const val SCHEMA_VERSION = 48
-    private const val ADAPTER_RULE_VERSION = 41
+    private const val ADAPTER_RULE_VERSION = 42
+
+    /**
+     * DEX 兜底诊断 id 前缀。每个兜底点各占一条诊断，便于在诊断中心直接读到"兜底是否被用到、
+     * 结论是什么"；缓存合并按前缀识别，见 [mergeRuntimeWithCached]。
+     * `dex.assist` 保持为 block-update 的历史 id，不改名以兼容既有缓存。
+     */
+    private const val DEX_ASSIST_ID_PREFIX = "dex.assist"
+    private const val DEX_ASSIST_BLOCK_UPDATE_ID = DEX_ASSIST_ID_PREFIX
+    private const val DEX_ASSIST_COMMENT_TOPOLOGY_ID = "$DEX_ASSIST_ID_PREFIX.comment_topology"
     private const val DEX_SOURCE_UNAVAILABLE = "unavailable"
     private val DEX_SOURCE_FINGERPRINT_PATTERN =
         Regex("^dex-v1:[1-9][0-9]*:[0-9a-f]{64}$")
@@ -1999,14 +2008,28 @@ object VersionAdapter {
     private val PROTOCOL_FINGERPRINT_PATTERN =
         Regex("protocol-v1:[0-9]+:[0-9a-f]{24}")
     private const val COMMENT_ITEM_CLASS = "com.bilibili.app.comment3.data.model.CommentItem"
-    private val COMMENT_REPLY_MAPPER_CLASS_CANDIDATES = listOf(
-        "com.bilibili.app.comment3.data.source.v1.c",
-        "com.bilibili.app.comment3.data.source.v1.d",
-        "com.bilibili.app.comment3.data.source.v1.e",
-        "com.bilibili.p4439app.comment3.data.source.v1.c",
-        "com.bilibili.p4439app.comment3.data.source.v1.d",
-        "com.bilibili.p4439app.comment3.data.source.v1.e"
-    )
+    private const val COMMENT_REPLY_MAPPER_PACKAGE =
+        "com.bilibili.app.comment3.data.source.v1"
+
+    /**
+     * `ReplyInfo -> CommentItem` 的映射一直落在同一个包的 Kotlin file facade 上，但类名随每次
+     * 混淆漂移，实测：8.63.0–8.96.0=e、8.97.0=c、8.98.0/8.99.0=d、9.1.0–9.2.0=c、
+     * 9.3.0–9.5.0=d、9.6.0=b、9.7.0–9.9.0=c、9.10.0=b。写死名单必然过期——9.6.0 与 9.10.0 已各
+     * 静默失效一次，因此改为在稳定包内按有界字母表列出候选，真正的判定仍由
+     * [locateCommentTopologyWithDiagnostic] 的结构过滤完成
+     *（static + 非 abstract + 非 synthetic + 首参 ReplyInfo + 返回 CommentItem）。
+     *
+     * 该包历史上最多 13 个单字母类（9.10.0 为 a..j），a..z 足以覆盖；若宿主改用多字母混淆名，
+     * 先由 [DexAssistQuery.COMMENT_REPLY_MAPPER] 兜底，兜底也落空时诊断会在
+     * `reply-mapper-methods` 阶段报 MISSING，属于可观测的有界失败，不会静默。
+     *
+     * 这里**不**再枚举 jadx 重定位包（`com.bilibili.p4439app.*`）。它是反编译器改名产物，运行时
+     * 从不存在；单点写 3 个候选无所谓，展开成 26 个就变成 26 次必失败的 `loadClass`，而
+     * `quickLocate` 在 loadApp 快路径上跑，这类浪费不该进去（失败结果虽然被
+     * `KavaMemberLookup` 负缓存，但每进程仍要真实走一遍多 dex 查找）。
+     */
+    private val COMMENT_REPLY_MAPPER_CLASS_CANDIDATES: List<String> =
+        ('a'..'z').map { letter -> "$COMMENT_REPLY_MAPPER_PACKAGE.$letter" }
     private val FEED_PAGINATION_CLASS_CANDIDATES = listOf(
         "com.bapis.bilibili.pagination.FeedPagination",
         "com.bapis.bilibili.p4309pagination.FeedPagination"
@@ -2127,7 +2150,8 @@ object VersionAdapter {
                     live == null -> stored
                     stored == null -> live
                     stored.state == AdaptState.FOUND && live.state != AdaptState.FOUND -> stored
-                    id == "dex.assist" && stored.state == AdaptState.FOUND -> stored
+                    id.startsWith(DEX_ASSIST_ID_PREFIX) &&
+                        stored.state == AdaptState.FOUND -> stored
                     else -> live
                 }
             }
@@ -2431,10 +2455,17 @@ object VersionAdapter {
                 teenagersMode, commentPurify, commentFilter, commentTopology,
                 commentTopologyOutcome.failureDetail, commentSection,
                 splashAds
-            ) + protocolFingerprint.toDiagnostic() + AdaptDiagnostic(
-                id = "dex.assist",
-                state = AdaptState.NOT_APPLICABLE,
-                detail = "quick-locate"
+            ) + protocolFingerprint.toDiagnostic() + listOf(
+                AdaptDiagnostic(
+                    id = DEX_ASSIST_BLOCK_UPDATE_ID,
+                    state = AdaptState.NOT_APPLICABLE,
+                    detail = "quick-locate"
+                ),
+                AdaptDiagnostic(
+                    id = DEX_ASSIST_COMMENT_TOPOLOGY_ID,
+                    state = AdaptState.NOT_APPLICABLE,
+                    detail = "quick-locate"
+                )
             )
         )
     }
@@ -2464,7 +2495,7 @@ object VersionAdapter {
             BlockUpdateDexAssist(
                 point = null,
                 diagnostic = AdaptDiagnostic(
-                    id = "dex.assist",
+                    id = DEX_ASSIST_BLOCK_UPDATE_ID,
                     state = AdaptState.NOT_APPLICABLE,
                     detail = "block-update:not-required"
                 )
@@ -2487,7 +2518,23 @@ object VersionAdapter {
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
         val commentFilter = locateCommentFilter(loader)
-        val commentTopologyOutcome = locateCommentTopologyWithDiagnostic(loader)
+        val directTopologyOutcome = locateCommentTopologyWithDiagnostic(loader)
+        val topologyAssist = if (directTopologyOutcome.points == null) {
+            locateCommentTopologyMapperByDex(loader, dexSource)
+        } else {
+            CommentTopologyDexAssist(
+                mapperOwners = emptyList(),
+                diagnostic = commentTopologyAssistDiagnostic(
+                    AdaptState.NOT_APPLICABLE,
+                    "not-required"
+                )
+            )
+        }
+        val commentTopologyOutcome = if (topologyAssist.mapperOwners.isEmpty()) {
+            directTopologyOutcome
+        } else {
+            locateCommentTopologyWithDiagnostic(loader, topologyAssist.mapperOwners)
+        }
         val commentTopology = commentTopologyOutcome.points
         val commentSection = locateCommentSection(loader)
         val splashAds = locateSplashAds(loader)
@@ -2585,7 +2632,8 @@ object VersionAdapter {
                 teenagersMode, commentPurify, commentFilter, commentTopology,
                 commentTopologyOutcome.failureDetail, commentSection,
                 splashAds
-            ) + protocolFingerprint.toDiagnostic() + blockUpdateAssist.diagnostic,
+            ) + protocolFingerprint.toDiagnostic() + blockUpdateAssist.diagnostic +
+                topologyAssist.diagnostic,
             dexSourceFingerprint = dexSource?.value ?: DEX_SOURCE_UNAVAILABLE
         )
     }
@@ -3337,7 +3385,7 @@ object VersionAdapter {
         val source = dexSource ?: return BlockUpdateDexAssist(
             point = null,
             diagnostic = AdaptDiagnostic(
-                id = "dex.assist",
+                id = DEX_ASSIST_BLOCK_UPDATE_ID,
                 state = AdaptState.MISSING,
                 detail = "block-update:no-dex-source"
             )
@@ -3346,7 +3394,7 @@ object VersionAdapter {
             ?: return BlockUpdateDexAssist(
                 point = null,
                 diagnostic = AdaptDiagnostic(
-                    id = "dex.assist",
+                    id = DEX_ASSIST_BLOCK_UPDATE_ID,
                     state = AdaptState.MISSING,
                     detail = "block-update:return-type-missing"
                 )
@@ -3368,7 +3416,7 @@ object VersionAdapter {
                 BlockUpdateDexAssist(
                     point = selected?.toHookPoint(),
                     diagnostic = AdaptDiagnostic(
-                        id = "dex.assist",
+                        id = DEX_ASSIST_BLOCK_UPDATE_ID,
                         state = if (selected != null) AdaptState.FOUND else AdaptState.MISSING,
                         detail = if (selected != null) {
                             "block-update:${selected.toHookPoint().label()}"
@@ -3382,9 +3430,91 @@ object VersionAdapter {
             is DexAssistResult.Unavailable -> BlockUpdateDexAssist(
                 point = null,
                 diagnostic = AdaptDiagnostic(
-                    id = "dex.assist",
+                    id = DEX_ASSIST_BLOCK_UPDATE_ID,
                     state = AdaptState.MISSING,
                     detail = "block-update:${result.reason.name.lowercase()}"
+                )
+            )
+        }
+    }
+
+    private data class CommentTopologyDexAssist(
+        val mapperOwners: List<Class<*>>,
+        val diagnostic: AdaptDiagnostic
+    )
+
+    private fun commentTopologyAssistDiagnostic(
+        state: AdaptState,
+        detail: String
+    ): AdaptDiagnostic = AdaptDiagnostic(
+        id = DEX_ASSIST_COMMENT_TOPOLOGY_ID,
+        state = state,
+        detail = "comment-topology:$detail"
+    )
+
+    /**
+     * 仅在包内字母表候选全部落空时执行 DEX 查询，补齐 `ReplyInfo -> CommentItem` 的 mapper owner。
+     *
+     * 这里只回传 owner 类，不回传判定结论：候选仍由宿主 ClassLoader 解析，再交回
+     * [locateCommentTopologyWithDiagnostic] 的同一段结构过滤复核，兜底路径不存在第二份规则。
+     * 该 facade 在所有已验证版本上都是唯一类，因此多 owner 一律按缺失处理，禁止把分散在多个类里
+     * 的候选拼成一组安装。
+     */
+    private fun locateCommentTopologyMapperByDex(
+        loader: ClassLoader,
+        dexSource: DexSourceFingerprint.Result?
+    ): CommentTopologyDexAssist {
+        val source = dexSource ?: return CommentTopologyDexAssist(
+            mapperOwners = emptyList(),
+            diagnostic = commentTopologyAssistDiagnostic(AdaptState.MISSING, "no-dex-source")
+        )
+        val replyInfo = COMMENT_REPLY_INFO_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .firstOrNull() ?: return CommentTopologyDexAssist(
+            mapperOwners = emptyList(),
+            diagnostic = commentTopologyAssistDiagnostic(AdaptState.MISSING, "reply-info-missing")
+        )
+        val commentItem = KavaMemberLookup.classOrNull(loader, COMMENT_ITEM_CLASS)
+            ?: return CommentTopologyDexAssist(
+                mapperOwners = emptyList(),
+                diagnostic = commentTopologyAssistDiagnostic(
+                    AdaptState.MISSING,
+                    "comment-item-missing"
+                )
+            )
+        return when (val result = DexKitAssistEngine.resolve(
+            DexAssistRequest(
+                query = DexAssistQuery.COMMENT_REPLY_MAPPER,
+                codePaths = source.codePaths,
+                classLoader = loader
+            )
+        )) {
+            is DexAssistResult.Candidates -> {
+                val verified = result.methods.filter { method ->
+                    method.isStatic && !method.isAbstract && !method.isSynthetic &&
+                        method.returnType == commentItem &&
+                        method.parameterTypes.firstOrNull() == replyInfo
+                }
+                val grouped = DexAssistCandidateSelector.selectSingleOwnerGroup(verified)
+                val owner = grouped.firstOrNull()?.declaringClass
+                CommentTopologyDexAssist(
+                    mapperOwners = listOfNotNull(owner),
+                    diagnostic = commentTopologyAssistDiagnostic(
+                        state = if (owner != null) AdaptState.FOUND else AdaptState.MISSING,
+                        detail = if (owner != null) {
+                            "${owner.name},mappers=${grouped.size}"
+                        } else {
+                            "ambiguous:${verified.map(Method::getDeclaringClass).distinct().size}"
+                        }
+                    )
+                )
+            }
+
+            is DexAssistResult.Unavailable -> CommentTopologyDexAssist(
+                mapperOwners = emptyList(),
+                diagnostic = commentTopologyAssistDiagnostic(
+                    AdaptState.MISSING,
+                    result.reason.name.lowercase()
                 )
             )
         }
@@ -4650,8 +4780,13 @@ object VersionAdapter {
     fun locateCommentTopology(loader: ClassLoader): CommentTopologyPoints? =
         locateCommentTopologyWithDiagnostic(loader).points
 
+    /**
+     * @param extraMapperOwners DEX 兜底补充的 mapper owner。它只扩大候选 owner 集合，不放宽
+     *   任何结构判定——所有候选仍走下面同一段过滤，避免兜底路径出现第二份判定规则。
+     */
     private fun locateCommentTopologyWithDiagnostic(
-        loader: ClassLoader
+        loader: ClassLoader,
+        extraMapperOwners: List<Class<*>> = emptyList()
     ): CommentTopologyLocateOutcome {
         var stage = "reply-info-class"
         val attempt = runCatching {
@@ -4663,8 +4798,12 @@ object VersionAdapter {
         val commentItem = KavaMemberLookup.classOrNull(loader, COMMENT_ITEM_CLASS)
             ?: return@runCatching null
         stage = "reply-mapper-methods"
-        val mapperMethods = COMMENT_REPLY_MAPPER_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+        val mapperMethods = (
+            COMMENT_REPLY_MAPPER_CLASS_CANDIDATES.asSequence()
+                .mapNotNull { KavaMemberLookup.classOrNull(loader, it) } +
+                extraMapperOwners.asSequence()
+            )
+            .distinct()
             .flatMap { mapperOwner ->
                 KavaMemberLookup.declaredMethods(mapperOwner, makeAccessible = true) { method ->
                     method.isStatic && !method.isAbstract && !method.isSynthetic &&
