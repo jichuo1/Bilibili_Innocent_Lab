@@ -74,9 +74,27 @@ payload replaces the cache, a rejected one leaves the previous cache intact),
 the candidate selector's bridge-versus-leaf disambiguation and its fail-closed
 behavior when several owners match, and the DEX content fingerprint: stable
 across archives whose resources differ, changed by a modified secondary DEX,
-and rejecting an archive with no DEX. They do not prove native library loading,
-DexKit query behavior, or the cache audit's runtime effect; those are device
-checks.
+and rejecting an archive with no DEX. The selector carries two distinct
+selection semantics that must not be swapped: block-update needs the unique
+leaf, while the reply-topology mapper needs the whole group declared by a single
+owner, so its tests also lock ordered single-owner groups, cross-owner
+fail-closed behavior and the empty candidate set. They do not prove native
+library loading, DexKit query behavior, or the cache audit's runtime effect;
+those are device checks.
+
+Reply-topology locator tests pin the host-side stubs against obfuscated owner
+drift. The `ReplyInfo -> CommentItem` mapper lives on a Kotlin file facade whose
+obfuscated class name moves between single letters across host releases, so the
+candidate list is generated from the stable package plus a bounded alphabet and
+every decision is made by the structural filter. One test asserts the newest
+facade name is reachable and that a same-owner overload whose first parameter is
+not `ReplyInfo` is excluded; another hides that facade through a filtering class
+loader and asserts the older name still resolves. These tests need the protobuf
+and moss stubs (`DetailListReq`, `DetailListReply`, `ReplyMoss`,
+`FeedPagination`, `FeedPaginationReply`, `ParentReplyMember`, `CommentItem`) to
+keep the exact member shapes the locator requires; weakening a stub silently
+weakens the guarantee. They do not prove that the panel renders or that host
+paging succeeds, which stay device checks.
 
 Two suites lock the primitive-versus-boxed reflection boundary, which the
 KavaRef `ReplaceWithKavaRefExtension` lint suggestions do not distinguish on
