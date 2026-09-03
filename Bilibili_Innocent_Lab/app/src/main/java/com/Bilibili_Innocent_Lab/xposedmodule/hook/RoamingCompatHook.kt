@@ -605,6 +605,12 @@ object RoamingCompatHook {
         // 启动抛 ActivityNotFoundException，Provider 通道同样被隔离（Unknown
         // authority）。改用显式广播到本模块 App（广播投递不受包可见性过滤），
         // 由 RoamingOpenReceiver 以模块 App 身份代开漫游设置。
+        //
+        // 这里不再随广播附带 B 站自建的一次性 PendingIntent（2026-09-04 撤回）：
+        // `PendingIntent.send()` 仍以创建者（B 站）的 uid 与包可见性解析目标组件，
+        // 与上面刚失败的 `context.startActivity` 完全同源；本分支被执行的前提就是
+        // 那次解析已经失败，回放必然拿到 START_CLASS_NOT_FOUND。详见长期文档
+        // 2026-09-04 条目。
         runCatching {
             val modulePackage = "com.Bilibili_Innocent_Lab.xposedmodule"
             val receiverClass = "$modulePackage.receiver.RoamingOpenReceiver"

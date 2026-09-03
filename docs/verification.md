@@ -345,3 +345,60 @@ Liquid rendering, RenderThread timing, or device accessibility.
     yet; a host or field shape that uses the boxed form is required to confirm
     it. Before the fix, the boxed form matched no branch at all and the hide
     was silently skipped while the component stayed visible.
+
+## targetSdk 37 (Android 17 behavior set)
+
+The module targets API 37 since 2026-09-03. The module App (settings UI,
+backup, diagnostics, receivers) runs standalone without LSPosed, so its
+behavior changes can be validated on an Android 17 x86_64 emulator; the
+emulator must not be used to claim host-hook verification.
+
+1. On an Android 17 emulator, open MainActivity, SettingsBackupActivity and
+   DiagnosticsActivity at tablet size (sw>=600dp), in rotation and in split
+   screen. Orientation declarations are ignored on large screens from API 36;
+   verify the programmatic UI adapts and the backup/diagnostic transition
+   geometry (device check 18/30 contracts) stays correct.
+2. With predictive back enforced (no opt-out on API 36+ devices), open each
+   confirm dialog in MainActivity and interact with the back gesture:
+   - On API 34+ devices (OnBackAnimationCallback registered), dragging the
+     gesture must shrink and fade the dialog in real time following
+     `BackEvent.progress`, releasing it must continue seamlessly into the
+     180ms scale+fade exit from the previewed state, and cancelling the
+     gesture must spring the dialog back to full scale/alpha in 260ms
+     without dismissing it.
+   - On API 33 devices (plain callback, no progress events), releasing the
+     back gesture must trigger the 180ms exit animation and `onBackDismiss`.
+   - With three-button navigation on any API level, the same animation and
+     callback must run through the `KEYCODE_BACK` listener.
+   While an exit animation is already running, additional back input
+   (gesture or key) must be ignored (dismissing guard), never canceling the
+   in-flight animation.
+3. On API 36+ emulator devices, confirm the predictive-back settings row is
+   hidden entirely; on API 33-35 emulator devices with the switch disabled,
+   confirm the dialog back path still falls back to the key listener.
+4. Run the update check on both channels (Stable and Preview) and confirm
+   GitHub requests still succeed with certificate transparency enabled by
+   default (API 37+ targets).
+5. Verify the roaming-settings receiver rejects an adb-originated explicit
+   broadcast via the sender-package check. The accept path is a device check
+   below.
+6. On an Android 13 device, repeat the existing device checks plus the
+   roaming entry click inside Bilibili. On a device whose host process can
+   resolve `me.iacn.biliroaming`, the host opens it directly (host log
+   "已打开哔哩漫游设置"). Where package visibility isolates the host, the
+   click must reach the module receiver, which starts the activity itself
+   (host log "已请求打开哔哩漫游设置（经模块 App 代开）"). The broadcast carries
+   no launch PendingIntent; the 2026-09-04 entry in the long-form document
+   records why that channel cannot work on the devices that need this path.
+7. Pending Android 17 hardware (blocked on LSPosed support): re-verify the
+   receiver-side direct start under the new BAL rules, and re-run checks 1-5
+   on real hardware.
+
+Known residual risks (documented, not blocking): the receiver-side activity
+start on Android 17 hardware. If BAL blocks it there, no PendingIntent
+workaround exists — `PendingIntent.send()` resolves the target under the
+creator's uid and package visibility, which is the same identity that already
+failed. That case needs a different entry design, not a patch to this channel.
+Separately, static-final immutability and the lock-free MessageQueue take
+effect per the *host app's* targetSdk, so KavaRef field writes in the Bilibili
+process may need a re-audit if Bilibili itself moves to API 37.
