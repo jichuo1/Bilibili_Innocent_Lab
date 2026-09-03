@@ -1236,6 +1236,45 @@ class VersionAdapterTest {
     }
 
     @Test
+    fun `locates reply topology mapper facade after obfuscated class name drifts`() {
+        val points = VersionAdapter.locateCommentTopology(requireNotNull(javaClass.classLoader))
+
+        assertNotNull(points)
+        val mappers = requireNotNull(points).mapperMethods
+        // 9.6.0 与 9.10.0 的 facade 名为 b；旧的 c/d/e 写死名单会在这里落空。
+        assertTrue(
+            mappers.any { it.className == "com.bilibili.app.comment3.data.source.v1.b" }
+        )
+        // 同 owner 内首参不是 ReplyInfo 的重载（b#M）必须被结构过滤排除。
+        assertEquals(setOf("B"), mappers.map { it.methodName }.toSet())
+        assertEquals(
+            "com.bapis.bilibili.main.community.reply.v1.ReplyMoss",
+            points.replyMossClassName
+        )
+        assertTrue(points.hasRequiredMethods())
+    }
+
+    @Test
+    fun `falls back to older reply topology mapper facade when latest name is absent`() {
+        val parent = requireNotNull(javaClass.classLoader)
+        val legacyLoader = object : ClassLoader(parent) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if (name == "com.bilibili.app.comment3.data.source.v1.b") {
+                    throw ClassNotFoundException(name)
+                }
+                return super.loadClass(name, resolve)
+            }
+        }
+
+        val points = VersionAdapter.locateCommentTopology(legacyLoader)
+
+        assertEquals(
+            listOf("com.bilibili.app.comment3.data.source.v1.c"),
+            points?.mapperMethods?.map { it.className }
+        )
+    }
+
+    @Test
     fun `locates empty comment guides with matching protobuf default getters`() {
         val points = VersionAdapter.locateCommentPurify(requireNotNull(javaClass.classLoader))
             ?.emptyPageGetters.orEmpty()

@@ -4,4 +4,8 @@ public final class Member {
     public long getLevel() {
         return 6L;
     }
+
+    public String getName() {
+        return "member";
+    }
 }
