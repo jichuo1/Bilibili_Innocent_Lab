@@ -65,6 +65,43 @@ class ReplyTopologySeedStoreTest {
         assertEquals(third, store.get(thirdCommentItem, commentItemId = null))
     }
 
+    @Test
+    fun repeatedIdentityLookupsStayStableAndDoNotInsertEntries() {
+        // 查询探针被复用；反复查询不得污染 map，也不得让"未命中"意外建立条目。
+        val store = ReplyTopologySeedStore(maxRememberedRoots = 2)
+        val known = Any()
+        val unknown = Any()
+        val stored = seed(rootRpid = 401L)
+        store.put(known, stored)
+
+        repeat(64) {
+            assertEquals(stored, store.get(known, commentItemId = null))
+            assertNull(store.get(unknown, commentItemId = null))
+        }
+
+        // 未命中查询若插入了条目，容量为 2 的身份表会把 known 挤掉。
+        assertEquals(stored, store.get(known, commentItemId = null))
+        assertEquals(stored, store.get(Any(), commentItemId = 401L))
+    }
+
+    @Test
+    fun identityLookupKeepsAccessOrderAfterProbeReuse() {
+        // rpid 容量为 1 时身份表容量为 2；探针复用不能破坏 LRU 提升。
+        val store = ReplyTopologySeedStore(maxRememberedRoots = 1)
+        val first = Any()
+        val second = Any()
+        val third = Any()
+        store.put(first, seed(rootRpid = 501L))
+        store.put(second, seed(rootRpid = 502L))
+
+        repeat(8) { assertEquals(seed(rootRpid = 501L), store.get(first, commentItemId = null)) }
+        store.put(third, seed(rootRpid = 503L))
+
+        assertEquals(seed(rootRpid = 501L), store.get(first, commentItemId = null))
+        assertNull(store.get(second, commentItemId = null))
+        assertEquals(seed(rootRpid = 503L), store.get(third, commentItemId = null))
+    }
+
     private fun seed(rootRpid: Long): ReplyTopologySeed {
         val key = ReplyTopologyThreadKey(
             oid = 10_000L + rootRpid,

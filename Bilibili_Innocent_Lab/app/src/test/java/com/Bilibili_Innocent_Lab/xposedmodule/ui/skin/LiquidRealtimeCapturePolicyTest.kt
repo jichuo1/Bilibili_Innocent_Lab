@@ -9,15 +9,45 @@ import kotlin.math.abs
 
 class LiquidRealtimeCapturePolicyTest {
     @Test
-    fun `uses high quality bounded triple buffering`() {
-        val common = LiquidRealtimeCapturePolicy.resolveSize(1080, 2400)
-        assertEquals(778, common.width)
-        assertEquals(1728, common.height)
+    fun `sampling follows a pixel budget instead of a fixed scale`() {
         assertEquals(3, LiquidRealtimeCapturePolicy.BUFFER_COUNT)
+        val budget = LiquidRealtimeCapturePolicy.TARGET_SAMPLE_PIXELS
+
+        // 1080p 面板原本就接近预算，采样倍率几乎不变（仍在 0.70..0.72 之间）。
+        val common = LiquidRealtimeCapturePolicy.resolveSize(1080, 2400)
+        assertTrue(common.pixels <= budget)
+        assertTrue(common.width / 1080f > 0.70f && common.width / 1080f <= 0.72f)
+
+        // 1440p 面板不再随分辨率平方增长：缓冲尺寸与 1080p 基本一致，倍率自动降到约 0.53。
+        val dense = LiquidRealtimeCapturePolicy.resolveSize(1440, 3200)
+        assertTrue(dense.pixels <= budget)
+        assertTrue(dense.width / 1440f < 0.6f)
+        assertTrue(abs(dense.pixels - common.pixels) < budget / 20)
+
+        // 低分屏不会被反向放大到超过原有清晰度。
+        val small = LiquidRealtimeCapturePolicy.resolveSize(720, 1280)
+        assertEquals(0.72f, small.width / 720f, 0.01f)
 
         val large = LiquidRealtimeCapturePolicy.resolveSize(4000, 3000)
-        assertTrue(large.width.toLong() * large.height.toLong() <= 2_400_000L)
+        assertTrue(large.pixels <= budget)
         assertTrue(abs(large.width.toFloat() / large.height - 4f / 3f) < 0.01f)
+    }
+
+    @Test
+    fun `tighter budgets shrink the buffer and never fall below the floor`() {
+        val tight = LiquidRealtimeCapturePolicy.resolveSize(1440, 3200, pixelBudget = 600_000L)
+        assertTrue(tight.pixels <= 600_000L)
+
+        val floored = LiquidRealtimeCapturePolicy.resolveSize(1440, 3200, pixelBudget = 1L)
+        assertTrue(floored.pixels <= LiquidRealtimeCapturePolicy.MIN_SAMPLE_PIXELS)
+        assertTrue(floored.width > 0 && floored.height > 0)
+    }
+
+    @Test
+    fun `only large surfaces drop to reduced scatter taps`() {
+        assertFalse(LiquidRealtimeCapturePolicy.useReducedScatterTaps(1080, 620))
+        assertFalse(LiquidRealtimeCapturePolicy.useReducedScatterTaps(1300, 900))
+        assertTrue(LiquidRealtimeCapturePolicy.useReducedScatterTaps(1440, 3200))
     }
 
     @Test

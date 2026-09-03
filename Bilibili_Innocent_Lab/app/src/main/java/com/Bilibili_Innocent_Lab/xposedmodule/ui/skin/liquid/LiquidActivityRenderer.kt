@@ -125,6 +125,7 @@ internal class LiquidActivityRenderer(
     private val realtimeCaptureCanvas = Canvas()
     private val realtimeCaptureMask = Path()
     private val realtimeCaptureBounds = Rect()
+    private var realtimeSamplePixelBudget = LiquidRealtimeCapturePolicy.TARGET_SAMPLE_PIXELS
     private val realtimeCaptureSourceRect = Rect()
     private val realtimeRootLocation = IntArray(2)
     private val realtimeSurfaceLocation = IntArray(2)
@@ -137,6 +138,15 @@ internal class LiquidActivityRenderer(
     }
 
     private var backendDriver: LiquidBackendDriver? = null
+
+    /**
+     * 当前 backdrop 只绑定到**正在使用**的后端。
+     *
+     * 旧实现每帧遍历 `preparedDrivers` 全量绑定：API 33 上 BLUR 后端永远不会被绘制，却仍在
+     * 每帧 `discardDisplayList()` + `beginRecording()` 重录一个引用整张截图的 display list。
+     * 现在改为记录"已绑定的 source"，切换后端时再补绑。
+     */
+    private val driverBoundSources = HashMap<LiquidRenderBackend, LiquidBackdropSource>()
     private var backdropSource: LiquidBackdropSource? = null
     private var realtimeBackdropSource: LiquidBackdropSource? = null
     private var realtimeCaptureSources: List<LiquidBackdropSource> = emptyList()
@@ -212,11 +222,14 @@ internal class LiquidActivityRenderer(
         }
         rootLayoutListener = layoutListener
         root.addOnLayoutChangeListener(layoutListener)
-        val scrollListener = ViewTreeObserver.OnScrollChangedListener {
-            invalidateRegisteredSurfaces()
+        // 实时档的采样回调本来就逐帧 invalidate 全部表面，再挂滚动监听只会重复失效同一批 View。
+        if (effectProfile != LiquidEffectProfile.REALTIME_CAPTURE) {
+            val scrollListener = ViewTreeObserver.OnScrollChangedListener {
+                invalidateRegisteredSurfaces()
+            }
+            rootScrollListener = scrollListener
+            root.viewTreeObserver.addOnScrollChangedListener(scrollListener)
         }
-        rootScrollListener = scrollListener
-        root.viewTreeObserver.addOnScrollChangedListener(scrollListener)
 
         rebuildBackdrop(root)
         val drawable = LiquidRootDrawable(this, palette.background)
@@ -828,6 +841,12 @@ internal class LiquidActivityRenderer(
         }
         val root = boundRoot ?: return
         configureRealtimeRefreshRate(root, status)
+        // 只降帧率仅减少"做几次"；同时降采样分辨率才能压住每次的回读与纹理上传量。
+        val budget = LiquidPerformancePolicy.samplePixelBudget(thermalStatus = status)
+        if (budget != realtimeSamplePixelBudget) {
+            realtimeSamplePixelBudget = budget
+            releaseRealtimeCaptureSources(rebindStableBackdrop = true)
+        }
         realtimeNextCaptureNanos = System.nanoTime() + realtimeFrameIntervalNanos
     }
 
@@ -928,12 +947,17 @@ internal class LiquidActivityRenderer(
                 return
             }
 
-            if (result == PixelCopy.SUCCESS && sanitizeRealtimeCapture(captureSource)) {
-                realtimeCaptureFailureCount = 0
-                realtimeBackdropSource = captureSource
-                bindPreparedBackendsToBackdrop(captureSource)
-                invalidateRegisteredSurfaces()
-                return
+            if (result == PixelCopy.SUCCESS) {
+                val outcome = sanitizeRealtimeCapture(captureSource)
+                if (outcome != LiquidCaptureOutcome.FAILED) {
+                    // NO_GLASS_VISIBLE 说明本帧压根没画玻璃，截图里也就不含自身反馈，可直接
+                    // 采用；把它计入熔断计数会让长列表滚动 33ms 就永久关掉整个实时效果。
+                    realtimeCaptureFailureCount = 0
+                    realtimeBackdropSource = captureSource
+                    bindPreparedBackendsToBackdrop(captureSource)
+                    invalidateRegisteredSurfaces()
+                    return
+                }
             }
 
             if (result != PixelCopy.ERROR_SOURCE_NO_DATA) realtimeCaptureFailureCount += 1
@@ -953,12 +977,16 @@ internal class LiquidActivityRenderer(
     /**
      * 把已绘制玻璃区域以 0xDC 的稳定底图覆盖，仍保留约 14% 上一帧轮廓作为内部景深。
      * 该递推强度严格小于 1，可抑制无限反馈，同时让实时画面在边缘折射中保持可感知。
+     *
+     * 返回值区分"没有可见玻璃"与"真的失败"，调用方只对后者累计熔断计数。
      */
-    private fun sanitizeRealtimeCapture(captureSource: LiquidBackdropSource): Boolean {
-        val root = boundRoot ?: return false
-        val stableBackdrop = backdropSource ?: return false
+    private fun sanitizeRealtimeCapture(
+        captureSource: LiquidBackdropSource
+    ): LiquidCaptureOutcome {
+        val root = boundRoot ?: return LiquidCaptureOutcome.FAILED
+        val stableBackdrop = backdropSource ?: return LiquidCaptureOutcome.FAILED
         if (captureSource.isClosed || stableBackdrop.isClosed || root.width <= 0 || root.height <= 0) {
-            return false
+            return LiquidCaptureOutcome.FAILED
         }
 
         val bitmap = captureSource.bitmap
@@ -1043,21 +1071,21 @@ internal class LiquidActivityRenderer(
                 hasMask = true
             }
         }
-        if (!hasMask) return false
+        if (!hasMask) return LiquidCaptureOutcome.NO_GLASS_VISIBLE
 
         realtimeCaptureBounds.set(0, 0, bitmap.width, bitmap.height)
         realtimeCaptureCanvas.setBitmap(bitmap)
-        val saveCount = realtimeCaptureCanvas.save()
         return try {
-            realtimeCaptureCanvas.clipPath(realtimeCaptureMask)
-            stableBackdrop.drawRoot(
+            // 一次带 Shader 的路径填充，几何与旧的 clipPath + 全图 drawBitmap 完全一致，
+            // 但不再为整张目标位图分配抗锯齿裁剪掩码。
+            stableBackdrop.drawRootMasked(
                 realtimeCaptureCanvas,
+                realtimeCaptureMask,
                 realtimeCaptureBounds,
                 LiquidRealtimeCapturePolicy.BASE_SUPPRESSION_ALPHA
             )
-            true
+            LiquidCaptureOutcome.SUPPRESSED
         } finally {
-            realtimeCaptureCanvas.restoreToCount(saveCount)
             realtimeCaptureCanvas.setBitmap(null)
         }
     }
@@ -1069,7 +1097,11 @@ internal class LiquidActivityRenderer(
             scheduleRealtimeCapture(LiquidRealtimeCapturePolicy.RETRY_DELAY_MS)
             return null
         }
-        val target = LiquidRealtimeCapturePolicy.resolveSize(width, height)
+        val target = LiquidRealtimeCapturePolicy.resolveSize(
+            fullWidth = width,
+            fullHeight = height,
+            pixelBudget = realtimeSamplePixelBudget
+        )
         val existing = realtimeCaptureSources
         if (existing.size == LiquidRealtimeCapturePolicy.BUFFER_COUNT &&
             existing.all {
@@ -1113,6 +1145,7 @@ internal class LiquidActivityRenderer(
     private fun releaseRealtimeCaptureSources(rebindStableBackdrop: Boolean) {
         val stableBackdrop = backdropSource
         realtimeBackdropSource = null
+        driverBoundSources.clear()
         if (rebindStableBackdrop && stableBackdrop != null && !stableBackdrop.isClosed &&
             backendDriver?.backend != LiquidRenderBackend.TRANSLUCENT
         ) {
@@ -1138,24 +1171,48 @@ internal class LiquidActivityRenderer(
         return false
     }
 
-    /** 预先绑定所有后备驱动，运行时 draw 失败只做 Map 切换。 */
+    /**
+     * 只把新 backdrop 绑定到当前后端；其余后备驱动在真正被选中时再补绑。
+     *
+     * 逐帧全量绑定是纯浪费：`LiquidBlurBackendApi31.bindBackdrop` 每次都会丢弃并重录一个引用
+     * 整张实时截图的 RenderNode display list，而 API 33 设备上它永远不会被绘制。
+     */
     private fun bindPreparedBackendsToBackdrop(source: LiquidBackdropSource) {
-        val failed = ArrayList<LiquidRenderBackend>()
-        preparedDrivers.forEach { (backend, driver) ->
-            if (driver.requiresBackdrop && runCatching { driver.bindBackdrop(source) }.isFailure) {
-                failed += backend
+        driverBoundSources.clear()
+        if (!ensureCurrentDriverBound(source)) dispatchFatalFailure()
+    }
+
+    /** 绑定失败按后端失败处理并降级；成功后记录已绑定的 source，避免重复绑定。 */
+    private fun ensureCurrentDriverBound(source: LiquidBackdropSource): Boolean {
+        while (!closed) {
+            val driver = backendDriver ?: if (selectCurrentPreparedBackend()) {
+                backendDriver
+            } else null
+            if (driver == null) return false
+            if (!driver.requiresBackdrop) return true
+            if (driverBoundSources[driver.backend] === source) return true
+            if (runCatching { driver.bindBackdrop(source) }.isSuccess) {
+                driverBoundSources[driver.backend] = source
+                return true
             }
+            driverBoundSources.remove(driver.backend)
+            preparedDrivers.remove(driver.backend)?.close()
+            backendDriver = null
+            if (fallbackPlan.advanceAfterFailure(driver.backend) == null) return false
         }
-        failed.forEach { backend -> preparedDrivers.remove(backend)?.close() }
-        if (backendDriver?.backend in failed) backendDriver = null
-        if (!selectCurrentPreparedBackend()) dispatchFatalFailure()
+        return false
     }
 
     private fun advanceAfterFailure(failed: LiquidRenderBackend): Boolean {
+        driverBoundSources.remove(failed)
         preparedDrivers.remove(failed)?.close()
         if (backendDriver?.backend == failed) backendDriver = null
         fallbackPlan.advanceAfterFailure(failed) ?: return false
         val activated = selectCurrentPreparedBackend()
+        val source = realtimeBackdropSource ?: backdropSource
+        if (activated && source != null && !source.isClosed && !ensureCurrentDriverBound(source)) {
+            return false
+        }
         invalidateRegisteredSurfaces()
         return activated
     }
