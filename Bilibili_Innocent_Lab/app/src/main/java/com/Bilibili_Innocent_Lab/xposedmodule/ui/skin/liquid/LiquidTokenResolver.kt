@@ -18,7 +18,10 @@ internal object LiquidTokenResolver {
             chromaticShiftDp = if (realtime) 1.8f else 0f,
             scatteringRadiusDp = if (realtime) 5.5f else 0f,
             scatteringStrength = if (realtime) 0.48f else 0f,
-            chromaticAberration = realtime,
+            specularStrength = if (realtime) 0.34f else 0f,
+            fresnelStrength = if (realtime) 0.16f else 0f,
+            causticLuminanceGain = if (realtime) 1.1f else 0f,
+            innerShadowStrength = if (realtime) 0.10f else 0f,
             saturation = if (realtime) (tuning.saturation + 0.08f).coerceAtMost(2f)
             else tuning.saturation,
             surfaceAlpha = if (realtime) tuning.cardGlassAlpha * 0.72f
@@ -31,11 +34,13 @@ internal object LiquidTokenResolver {
             fallbackModalSurfaceAlpha = tuning.modalFallbackAlpha,
             fallbackMotionSurfaceAlpha = tuning.motionFallbackAlpha,
             highlightWidthDp = if (realtime) 1.7f else 1.1f,
-            highlightAlpha = if (realtime) 0.72f else 0.4f,
+            // 实时档的边缘亮度改由 shader 的定向高光承担，均匀描边只保留勾勒轮廓的作用。
+            highlightAlpha = if (realtime) 0.46f else 0.4f,
             highlightGlowWidthDp = if (realtime) 6.8f else 0f,
             highlightGlowAlpha = if (realtime) 0.18f else 0f,
-            highlightBlurRadiusDp = 1.5f,
-            highlightAngleDegrees = -35f,
+            highlightBlurRadiusDp = if (realtime) 2.2f else 1.5f,
+            // 屏幕 y 轴向下；-145° => (-0.819, -0.574)，光源位于左上方。
+            highlightAngleDegrees = -145f,
             effectPaddingDp = if (realtime) 34f else 18f
         )
     }

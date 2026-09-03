@@ -14,6 +14,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import com.highcapable.betterandroid.ui.extension.view.childOrNull
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
@@ -162,6 +163,30 @@ internal class CommentTopologyFeatureInstaller(
 
     override val id: String = ID
     private val bindingTokens = WeakHashMap<ViewGroup, Any>()
+
+    /**
+     * 每个绑定根实例的入口几何缓存。
+     *
+     * `findAnchorTarget` 原本对每一条评论绑定都要做四次 `ViewGroup.findViewById`，而它是整棵
+     * 子树的深度优先递归；9.10.0 的一条评论展开后约 90–120 个 View，两个绑定点都命中时单条
+     * 绑定要走几百个节点，快速滑动时直接压在 UI 线程的帧预算上。
+     *
+     * RecyclerView 只复用十几个 itemView 且子结构在复用中稳定，因此把"位置"缓存下来，只在
+     * 廉价校验失败时重算。**随数据变化的部分不缓存**：`insertIndex` 每次用 `indexOfChild`
+     * 重算，`scope` 每次重新读取 primary/secondary 的可见性，判定顺序与原实现完全一致。
+     */
+    private val anchorGeometries = WeakHashMap<View, AnchorGeometry>()
+
+    /**
+     * 每个操作行最多保留一次在途的动画帧补绑回调。
+     *
+     * 原实现对每条命中 CLEAR_AND_RETRY/RETRY_ONLY 的绑定都 `postOnAnimation` 一个新回调，
+     * 同一行被 `d`/`e` 两个绑定点触发时还会翻倍，全部落在滚动的动画帧上。这里改为"最新请求表
+     * + 单个在途回调"：回调执行时读取该行的最新请求，语义与原来的 token 校验一致（本来也只有
+     * 最新 token 有效）。回调因宿主丢弃 RunQueue 而没跑成时，由时间戳在下一次绑定自愈补发。
+     */
+    private val pendingSeedRetries = WeakHashMap<ViewGroup, SeedRetryRequest>()
+    private val pendingSeedRetryPostedAtMs = WeakHashMap<ViewGroup, Long>()
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!enabled) {
@@ -464,30 +489,48 @@ internal class CommentTopologyFeatureInstaller(
         coordinator: ReplyTopologyCoordinator,
         environment: HookEnvironment
     ) {
-        val boundViewRef = WeakReference(boundView)
-        val targetRowRef = WeakReference(targetRow)
-        val commentItemRef = WeakReference(commentItem)
+        val rowRef = WeakReference(targetRow)
+        pendingSeedRetries[targetRow] = SeedRetryRequest(
+            boundView = WeakReference(boundView),
+            token = token,
+            commentItem = WeakReference(commentItem),
+            expectedCommentItemId = expectedCommentItemId
+        )
+        val now = SystemClock.uptimeMillis()
+        val postedAt = pendingSeedRetryPostedAtMs[targetRow]
+        if (postedAt != null && now - postedAt < SEED_RETRY_STALE_MS) return
+        pendingSeedRetryPostedAtMs[targetRow] = now
         boundView.postOnAnimation {
-            val currentView = boundViewRef.get() ?: return@postOnAnimation
-            val currentRow = targetRowRef.get() ?: return@postOnAnimation
-            if (!currentRow.isAttachedToWindow) return@postOnAnimation
-            val isCurrent = synchronized(bindingTokens) {
-                bindingTokens[currentRow] === token
-            }
-            if (!isCurrent) return@postOnAnimation
-            val currentItem = commentItemRef.get() ?: return@postOnAnimation
-            if (host.readCommentItemId(currentItem) != expectedCommentItemId) {
-                return@postOnAnimation
-            }
-            val refreshedTarget = findAnchorTarget(currentView) ?: return@postOnAnimation
-            if (refreshedTarget.row !== currentRow ||
-                (refreshedTarget.scope != ReplyTopologyBindingScope.OWNER &&
-                    refreshedTarget.scope != ReplyTopologyBindingScope.PRIMARY)
-            ) return@postOnAnimation
-            val refreshedSeed = seedStore.get(currentItem, expectedCommentItemId)
-                ?: return@postOnAnimation
-            showAnchor(refreshedTarget, refreshedSeed, coordinator, environment)
+            val row = rowRef.get() ?: return@postOnAnimation
+            runSeedRetry(row, seedStore, host, coordinator, environment)
         }
+    }
+
+    /** 读取该行最新的补绑请求；校验链与原实现逐条一致。 */
+    private fun runSeedRetry(
+        targetRow: ViewGroup,
+        seedStore: ReplyTopologySeedStore,
+        host: ReplyTopologyHostAccess,
+        coordinator: ReplyTopologyCoordinator,
+        environment: HookEnvironment
+    ) {
+        pendingSeedRetryPostedAtMs.remove(targetRow)
+        val request = pendingSeedRetries.remove(targetRow) ?: return
+        val currentView = request.boundView.get() ?: return
+        if (!targetRow.isAttachedToWindow) return
+        val isCurrent = synchronized(bindingTokens) {
+            bindingTokens[targetRow] === request.token
+        }
+        if (!isCurrent) return
+        val currentItem = request.commentItem.get() ?: return
+        if (host.readCommentItemId(currentItem) != request.expectedCommentItemId) return
+        val refreshedTarget = findAnchorTarget(currentView) ?: return
+        if (refreshedTarget.row !== targetRow ||
+            (refreshedTarget.scope != ReplyTopologyBindingScope.OWNER &&
+                refreshedTarget.scope != ReplyTopologyBindingScope.PRIMARY)
+        ) return
+        val refreshedSeed = seedStore.get(currentItem, request.expectedCommentItemId) ?: return
+        showAnchor(refreshedTarget, refreshedSeed, coordinator, environment)
     }
 
     private fun showAnchor(
@@ -705,19 +748,80 @@ internal class CommentTopologyFeatureInstaller(
     }
 
     private fun findAnchorTarget(start: View): AnchorTarget? {
+        val geometry = resolveAnchorGeometry(start) ?: return null
+        val scope = resolveBindingScope(start, geometry)
+        val index = geometry.row.indexOfChild(geometry.referenceView)
+        if (index < 0) {
+            // 宿主重排了操作行的子节点：作废缓存重算一次，仍失败才按缺失处理。
+            anchorGeometries.remove(start)
+            val refreshed = resolveAnchorGeometry(start) ?: return null
+            val refreshedIndex = refreshed.row.indexOfChild(refreshed.referenceView)
+            if (refreshedIndex < 0) return null
+            return refreshed.toTarget(refreshedIndex, resolveBindingScope(start, refreshed))
+        }
+        return geometry.toTarget(index, scope)
+    }
+
+    /** 命中缓存时只做 O(层级) 的指针校验，不再触碰任何子树。 */
+    private fun resolveAnchorGeometry(start: View): AnchorGeometry? {
+        anchorGeometries[start]?.let { cached ->
+            if (isGeometryUsable(start, cached)) return cached
+            anchorGeometries.remove(start)
+        }
+        val fresh = buildAnchorGeometry(start) ?: return null
+        anchorGeometries[start] = fresh
+        return fresh
+    }
+
+    private fun isGeometryUsable(start: View, geometry: AnchorGeometry): Boolean {
+        if (!start.isAttachedToWindow) return false
+        if (!geometry.include.isAttachedToWindow || !geometry.row.isAttachedToWindow) return false
+        if (geometry.referenceView.parent !== geometry.row) return false
+        if (!isWithin(geometry.row, geometry.include)) return false
+        geometry.primaryMessage?.let { if (!isWithin(it, start)) return false }
+        geometry.secondaryMessage?.let { if (!isWithin(it, start)) return false }
+        return sharesSearchScope(start, geometry.include)
+    }
+
+    /** include 仍位于 [findActionInclude] 会检查的祖先范围内，否则缓存不再代表同一棵树。 */
+    private fun sharesSearchScope(start: View, include: ViewGroup): Boolean {
+        var current: View? = start
+        repeat(MAX_PARENT_SEARCH_DEPTH) {
+            val node = current ?: return false
+            if (node is RecyclerView) return false
+            if (node === include || isWithin(include, node)) return true
+            val parent = node.parent as? View ?: return false
+            if (parent is RecyclerView) return false
+            current = parent
+        }
+        return false
+    }
+
+    private fun buildAnchorGeometry(start: View): AnchorGeometry? {
         val include = findActionInclude(start) ?: return null
-        val scope = resolveBindingScope(start, include)
+        val startGroup = start as? ViewGroup
+        val primaryMessageId = resolveHostViewId(start, "primary_message")
+        val secondaryMessageId = resolveHostViewId(start, "secondary_message")
+        // primary/secondary 在 `cmt3_next_experiment3_item_rich_text` 中与根布局一同 inflate，
+        // 不是 ViewStub，因此 View 引用可安全缓存；每次绑定重新读取的是它们的可见性。
+        val primaryMessage = primaryMessageId.takeIf { it > 0 }?.let {
+            startGroup?.findViewById<View>(it)
+        }
+        val secondaryMessage = secondaryMessageId.takeIf { it > 0 }?.let {
+            startGroup?.findViewById<View>(it)
+        }
         val moreButtonId = resolveHostViewId(start, "more_button")
         if (moreButtonId > 0) {
             include.findViewById<View>(moreButtonId)?.let { moreButton ->
                 val row = moreButton.parent as? ViewGroup
                 if (row != null && isWithin(row, include)) {
-                    return AnchorTarget(
+                    return AnchorGeometry(
+                        include = include,
                         row = row,
-                        insertIndex = row.indexOfChild(moreButton),
-                        scope = scope,
                         referenceView = moreButton,
-                        beforeReference = true
+                        beforeReference = true,
+                        primaryMessage = primaryMessage,
+                        secondaryMessage = secondaryMessage
                     )
                 }
             }
@@ -727,12 +831,13 @@ internal class CommentTopologyFeatureInstaller(
             include.findViewById<View>(replyButtonId)?.let { replyButton ->
                 val row = replyButton.parent as? ViewGroup
                 if (row != null && isWithin(row, include)) {
-                    return AnchorTarget(
+                    return AnchorGeometry(
+                        include = include,
                         row = row,
-                        insertIndex = row.indexOfChild(replyButton) + 1,
-                        scope = scope,
                         referenceView = replyButton,
-                        beforeReference = false
+                        beforeReference = false,
+                        primaryMessage = primaryMessage,
+                        secondaryMessage = secondaryMessage
                     )
                 }
             }
@@ -740,37 +845,63 @@ internal class CommentTopologyFeatureInstaller(
         return null
     }
 
+    /**
+     * 逐层向上查找操作行 include。
+     *
+     * 原实现在每一层都对整棵子树 `findViewById`，而第 k 层的子树完整包含第 k-1 层，重复搜索
+     * 使成本随层数近似平方增长。这里保持"由近及远、逐层深度优先"的原有顺序与命中结果，只跳过
+     * 上一层已经搜索过、且确认没有命中的那棵子树——跳过它不可能改变结果。
+     */
     private fun findActionInclude(start: View): ViewGroup? {
         val id = resolveHostViewId(start, "item_include_actions")
         if (id <= 0) return null
         var current: View? = start
+        var searched: View? = null
         repeat(MAX_PARENT_SEARCH_DEPTH) {
-            if (current is RecyclerView) return null
-            val direct = if (current?.id == id) current as? ViewGroup else null
-            if (direct != null) return direct
-            val nested = (current as? ViewGroup)?.findViewById<View>(id) as? ViewGroup
-            if (nested != null) return nested
-            val parent = current?.parent as? View ?: return null
+            val node = current ?: return null
+            if (node is RecyclerView) return null
+            if (node.id == id) return node as? ViewGroup
+            val group = node as? ViewGroup
+            if (group != null) {
+                if (searched == null) {
+                    (group.findViewById<View>(id) as? ViewGroup)?.let { return it }
+                } else {
+                    for (index in 0 until group.childCount) {
+                        val child = group.childOrNull<View>(index) ?: continue
+                        if (child === searched) continue
+                        if (child.id == id) {
+                            (child as? ViewGroup)?.let { return it }
+                            continue
+                        }
+                        val nested = (child as? ViewGroup)?.findViewById<View>(id) as? ViewGroup
+                        if (nested != null) return nested
+                    }
+                }
+            }
+            val parent = node.parent as? View ?: return null
             if (parent is RecyclerView) return null
+            searched = node
             current = parent
         }
         return null
     }
 
+    /**
+     * 判定顺序与原实现逐字一致：先 OWNER，再消息可见性，最后父链兜底。
+     * 唯一的变化是 primary/secondary 的 View 引用来自 [AnchorGeometry] 缓存，
+     * 可见性仍逐次读取，因此复用的 View 在 PRIMARY/SECONDARY 之间翻转仍能被正确识别。
+     */
     private fun resolveBindingScope(
         boundView: View,
-        include: ViewGroup
+        geometry: AnchorGeometry
     ): ReplyTopologyBindingScope {
+        val include = geometry.include
         if (isWithin(include, boundView)) return ReplyTopologyBindingScope.OWNER
         val primaryMessageId = resolveHostViewId(boundView, "primary_message")
         val secondaryMessageId = resolveHostViewId(boundView, "secondary_message")
         val boundGroup = boundView as? ViewGroup
-        val primaryMessage = primaryMessageId.takeIf { it > 0 }?.let { id ->
-            boundGroup?.findViewById<View>(id)
-        }
-        val secondaryMessage = secondaryMessageId.takeIf { it > 0 }?.let { id ->
-            boundGroup?.findViewById<View>(id)
-        }
+        val primaryMessage = geometry.primaryMessage
+        val secondaryMessage = geometry.secondaryMessage
         val messageScope = replyTopologyMessageScope(
             primaryPresent = primaryMessage != null,
             primaryVisible = isVisibleWithin(primaryMessage, boundGroup),
@@ -852,6 +983,9 @@ internal class CommentTopologyFeatureInstaller(
         private const val CHANNEL_STATUS = "comment_topology_status"
         private const val MAX_PARENT_SEARCH_DEPTH = 9
 
+        /** 在途补绑回调超过该时长仍未执行时视为已丢失，由下一次绑定重新投递。 */
+        private const val SEED_RETRY_STALE_MS = 100L
+
         private val hostViewIds = ConcurrentHashMap<String, Int>()
         private val commentItemFields = ConcurrentHashMap<Class<*>, Field>()
         private val noCommentItemFieldClasses = ConcurrentHashMap.newKeySet<Class<*>>()
@@ -864,6 +998,31 @@ internal class CommentTopologyFeatureInstaller(
         private val constraintLayoutParamsAccess =
             ConcurrentHashMap<Class<*>, ConstraintLayoutParamsAccess>()
         private val noConstraintLayoutParamsAccess = ConcurrentHashMap.newKeySet<Class<*>>()
+    }
+
+    private class SeedRetryRequest(
+        val boundView: WeakReference<View>,
+        val token: Any,
+        val commentItem: WeakReference<Any>,
+        val expectedCommentItemId: Long
+    )
+
+    /** 只保存复用中稳定的"位置"；insertIndex 与 scope 一律逐次重算。 */
+    private class AnchorGeometry(
+        val include: ViewGroup,
+        val row: ViewGroup,
+        val referenceView: View,
+        val beforeReference: Boolean,
+        val primaryMessage: View?,
+        val secondaryMessage: View?
+    ) {
+        fun toTarget(referenceIndex: Int, scope: ReplyTopologyBindingScope) = AnchorTarget(
+            row = row,
+            insertIndex = if (beforeReference) referenceIndex else referenceIndex + 1,
+            scope = scope,
+            referenceView = referenceView,
+            beforeReference = beforeReference
+        )
     }
 
     private data class AnchorTarget(

@@ -1,7 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin
 
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidPerformancePolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidRealtimeCapturePolicy
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LiquidPerformancePolicyTest {
@@ -73,6 +75,55 @@ class LiquidPerformancePolicyTest {
                 LiquidPerformancePolicy.THERMAL_STATUS_CRITICAL
             ),
             0f
+        )
+    }
+
+    @Test
+    fun `thermal pressure also shrinks the sampling budget`() {
+        val base = LiquidRealtimeCapturePolicy.TARGET_SAMPLE_PIXELS
+        val none = LiquidPerformancePolicy.samplePixelBudget(
+            thermalStatus = LiquidPerformancePolicy.THERMAL_STATUS_NONE
+        )
+        val light = LiquidPerformancePolicy.samplePixelBudget(
+            thermalStatus = LiquidPerformancePolicy.THERMAL_STATUS_LIGHT
+        )
+        val moderate = LiquidPerformancePolicy.samplePixelBudget(
+            thermalStatus = LiquidPerformancePolicy.THERMAL_STATUS_MODERATE
+        )
+        val severe = LiquidPerformancePolicy.samplePixelBudget(
+            thermalStatus = LiquidPerformancePolicy.THERMAL_STATUS_SEVERE
+        )
+        val critical = LiquidPerformancePolicy.samplePixelBudget(
+            thermalStatus = LiquidPerformancePolicy.THERMAL_STATUS_CRITICAL
+        )
+
+        assertEquals(base, none)
+        assertEquals(base, light)
+        assertTrue(moderate < none)
+        assertTrue(severe < moderate)
+        assertTrue(critical < severe)
+        assertTrue(critical >= LiquidRealtimeCapturePolicy.MIN_SAMPLE_PIXELS)
+    }
+
+    @Test
+    fun `sampling budget never rises above the caller base and clamps invalid status`() {
+        val small = 300_000L
+        assertEquals(
+            small,
+            LiquidPerformancePolicy.samplePixelBudget(
+                basePixelBudget = small,
+                thermalStatus = LiquidPerformancePolicy.THERMAL_STATUS_NONE
+            )
+        )
+        assertTrue(
+            LiquidPerformancePolicy.samplePixelBudget(
+                basePixelBudget = small,
+                thermalStatus = LiquidPerformancePolicy.THERMAL_STATUS_CRITICAL
+            ) <= small
+        )
+        assertEquals(
+            LiquidRealtimeCapturePolicy.TARGET_SAMPLE_PIXELS,
+            LiquidPerformancePolicy.samplePixelBudget(thermalStatus = 99)
         )
     }
 
