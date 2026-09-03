@@ -210,7 +210,9 @@ internal class DetailAppPromotionFeatureInstaller(
             ?: return 0
         val baseComponent = GEMINI_BINDING_COMPONENT_CLASSES.firstNotNullOfOrNull { className ->
             KavaMemberLookup.classOrNull(loader, className)?.takeIf { candidate ->
-                candidate.isAbstract &&
+                // 接口的 isAbstract 同样为 true；gemini 包里的 UIComponent 正是接口，
+                // 必须显式排除，否则字母表候选会把它当成基类。
+                candidate.isAbstract && !candidate.isInterface &&
                     KavaMemberLookup.methods(
                         candidate,
                         includeSuperclasses = true,
@@ -761,21 +763,36 @@ internal class DetailAppPromotionFeatureInstaller(
         private const val KOTLIN_CONTINUATION = "kotlin.coroutines.Continuation"
         private const val CREATE_VIEW_ENTRY = "createViewEntry"
         private const val BIND_TO_VIEW = "bindToView"
-        private val RELATE_GAME_COMPONENT_CLASSES = listOf(
-            "com.bilibili.ship.theseus.united.page.intro.module.relate.game.e",
-            "com.bilibili.ship.theseus.united.page.intro.module.relate.game.d",
-            "com.bilibili.ship.theseus.united.page.intro.module.relate.game.f",
-            "com.bilibili.ship.theseus.united.page.intro.module.relate.game.RelateGameComponent"
-        )
-        private val GEMINI_BINDING_COMPONENT_CLASSES = listOf(
-            "com.bilibili.app.gemini.ui.l",
-            "com.bilibili.app.gemini.ui.m",
-            "com.bilibili.app.gemini.ui.k",
-            "com.bilibili.app.gemini.ui.j",
-            "com.bilibili.app.gemini.ui.c",
-            "com.bilibili.app.gemini.ui.d",
-            "com.bilibili.app.gemini.ui.e"
-        )
+        private const val RELATE_GAME_PACKAGE =
+            "com.bilibili.ship.theseus.united.page.intro.module.relate.game"
+        private const val GEMINI_UI_PACKAGE = "com.bilibili.app.gemini.ui"
+
+        /**
+         * 相关游戏推广组件的类名随混淆在单字母之间漂移，实测：8.84.0–8.96.0 为未混淆的
+         * `RelateGameComponent`、8.97.0=f、8.98.0=g、8.99.0=d、9.1.0/9.1.1=i、
+         * 9.2.0/9.3.0/9.5.0/9.9.0=g、9.4.0=f、9.6.0=h、9.7.0/9.10.0=e。
+         *
+         * 旧的 `e/d/f/RelateGameComponent` 固定名单因此在 8.98.0、9.1.0、9.1.1、9.2.0、9.3.0、
+         * 9.5.0、9.6.0、9.9.0 共 8 个宿主上全程未安装，而这些位置在别的版本上又分别是 synthetic
+         * lambda 或接口——名单命中与否纯属巧合，且失败完全不可观测。改为在稳定包内按有界字母表
+         * 列出候选，判定完全由 [installRelateGameComponentBlock] 的结构过滤承担（继承 gemini 基类
+         * + 非接口非抽象 + `(Context, LayoutInflater, ViewGroup) -> ViewBinding` +
+         * `(ViewBinding, Continuation)`），并保留 `singleOrNull()`：命中不唯一即按缺失处理。
+         */
+        private val RELATE_GAME_COMPONENT_CLASSES: List<String> =
+            ('a'..'z').map { letter -> "$RELATE_GAME_PACKAGE.$letter" } +
+                "$RELATE_GAME_PACKAGE.RelateGameComponent"
+
+        /**
+         * gemini 绑定基类同样漂移（8.84.0–8.96.0=k、8.97.0–9.6.0=m、9.7.0–9.10.0=l）。
+         * 这里必须保留原有的显式优先顺序：
+         * 同一个包里 `UIComponent`（接口）与 `DataBindingComponent` 也满足"两个双参方法"的形状，
+         * 只有靠 `isAbstract && !isInterface` 加上先命中已验证候选才不会选错基类。字母表候选只
+         * 追加在已验证名单之后，用于覆盖尚未遇到过的新字母。
+         */
+        private val GEMINI_BINDING_COMPONENT_CLASSES: List<String> = (
+            listOf("l", "m", "k", "j", "c", "d", "e") + ('a'..'z').map(Char::toString)
+            ).distinct().map { letter -> "$GEMINI_UI_PACKAGE.$letter" }
     }
 }
 

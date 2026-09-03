@@ -9,5 +9,9 @@ public final class MemberV2 {
         public long getLevel() {
             return 6L;
         }
+
+        public String getName() {
+            return "member";
+        }
     }
 }
