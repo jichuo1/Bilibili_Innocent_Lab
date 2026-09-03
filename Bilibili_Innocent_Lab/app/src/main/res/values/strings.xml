@@ -470,7 +470,7 @@
     <string name="settings_backup_choose_again">Choose another file</string>
     <string name="settings_backup_migration_warning">Some catalog migration steps are unavailable. Only self-describing settings that are still exactly compatible will be restored; all other items remain unchanged.</string>
     <string name="no_root_support_enable">No-root support (NPatch, experimental)</string>
-    <string name="no_root_support_tip">This switch controls only this module\'s configuration delivery through NPatch; it cannot disable NPatch native injection in an already patched app. Some NPatch 1.0.7 builds have the upstream startup crash tracked as #139, so use only a build explicitly confirmed to contain that fix. NPatch is contacted only while this switch is on.</string>
+    <string name="no_root_support_tip">This switch controls only this module\'s configuration delivery through NPatch; it cannot disable NPatch native injection in an already patched app. Some NPatch 1.0.7 builds have an upstream startup crash, so use only a build explicitly confirmed to contain that fix. NPatch is contacted only while this switch is on.</string>
     <string name="no_root_status_unsupported_os">Status: unavailable; Android 9 or later is required.</string>
     <string name="no_root_status_disabled">Status: off. No NPatch connection will be made.</string>
     <string name="no_root_status_checking">Status: checking the local configuration…</string>
