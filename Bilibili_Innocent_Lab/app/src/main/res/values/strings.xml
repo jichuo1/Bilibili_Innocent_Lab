@@ -574,6 +574,7 @@
     <string name="diagnostics_host_feature_unknown">Other host feature</string>
     <string name="diagnostics_skin_ready">Requested: %1$s · effective: %2$s%3$s</string>
     <string name="diagnostics_skin_backend"> · backend: %1$s</string>
+    <string name="diagnostics_skin_backend_degraded">\n· Higher backend unavailable: %1$s</string>
     <string name="diagnostics_skin_fallback">The requested skin fell back safely (%1$s). Effective skin: %2$s.</string>
     <string name="diagnostics_catalog_detail">Catalog v%1$d · %2$d entries (%3$d automatic, %4$d manual)</string>
     <string name="diagnostics_logging_off">Logging is off. The exported report still contains no log text.</string>

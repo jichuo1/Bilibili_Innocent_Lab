@@ -575,6 +575,7 @@
     <string name="diagnostics_host_feature_unknown">其他宿主功能</string>
     <string name="diagnostics_skin_ready">請求：%1$s · 實際：%2$s%3$s</string>
     <string name="diagnostics_skin_backend"> · 後端：%1$s</string>
+    <string name="diagnostics_skin_backend_degraded">\n· 高階後端不可用：%1$s</string>
     <string name="diagnostics_skin_fallback">請求的皮膚已安全回退（%1$s），實際皮膚為 %2$s。</string>
     <string name="diagnostics_catalog_detail">目錄 v%1$d · 共 %2$d 項（%3$d 項自動、%4$d 項手動）</string>
     <string name="diagnostics_logging_off">日誌記錄已關閉；匯出的報告仍不會包含日誌正文。</string>

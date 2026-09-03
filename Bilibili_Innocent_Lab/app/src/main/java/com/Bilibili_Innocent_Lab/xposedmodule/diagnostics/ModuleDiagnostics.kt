@@ -117,6 +117,13 @@ internal data class ModuleDiagnosticInputs(
     val effectiveSkin: String,
     val skinFallbackCode: String?,
     val liquidBackendName: String?,
+    /**
+     * 高阶 Liquid 后端被 GPU 驱动拒绝时的有界原因（异常类型 + 截断 message）。
+     *
+     * **只在本机诊断界面展示，不进入可导出报告**：它是驱动侧的自由文本，无法像枚举 code 那样
+     * 事先穷举与脱敏，因此不放进 `DiagnosticReportCodec` 的白名单字段。
+     */
+    val liquidBackendDegradeReason: String? = null,
     val settingsCatalogVersion: Int,
     val settingsTotalCount: Int,
     val settingsAutomaticCount: Int,

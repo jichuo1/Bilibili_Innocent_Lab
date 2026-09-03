@@ -26,7 +26,9 @@ internal data class SkinSessionDiagnostics(
     val requestedSkin: SkinId,
     val effectiveSkin: SkinId,
     val fallbackReason: String?,
-    val liquidBackendName: String?
+    val liquidBackendName: String?,
+    /** 高阶后端被驱动拒绝时的有界原因；未降级为 null。 */
+    val liquidBackendDegradeReason: String?
 )
 
 /**
@@ -56,11 +58,15 @@ internal class ActivitySkinSession private constructor(
                     "liquid_renderer_initialization_failed"
                 else -> null
             },
-            liquidBackendName = liquidBackendName
+            liquidBackendName = liquidBackendName,
+            liquidBackendDegradeReason = liquidBackendDegradeReason
         )
 
     val liquidBackendName: String?
         get() = liquidRenderer?.backend?.name.takeIf { effectiveSkin == SkinId.LIQUID }
+
+    val liquidBackendDegradeReason: String?
+        get() = liquidRenderer?.backendDegradeReason.takeIf { effectiveSkin == SkinId.LIQUID }
 
     var isClosed: Boolean = false
         private set
