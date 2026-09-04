@@ -2849,6 +2849,10 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS,
                             false
                         ),
+                        removeCmV2 = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_HOME_RECOMMEND_CM_V2,
+                            false
+                        ),
                         removeBanner = prefs.getBoolean(PREF_BANNER_ENABLED, true),
                         removePictures = prefs.getBoolean(
                             FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES,

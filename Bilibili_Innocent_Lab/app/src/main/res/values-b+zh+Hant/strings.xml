@@ -92,6 +92,8 @@
     <string name="advanced_comment_category">評論區</string>
     <string name="home_top_bar_settings">首頁頂端列</string>
     <string name="hide_home_game_menu">隱藏首頁遊戲中心</string>
+    <string name="remove_home_recommend_cm_v2">過濾主頁資訊流偽裝廣告</string>
+    <string name="remove_home_recommend_cm_v2_tip">開啟後識別並移除偽裝成影片小卡的主頁推薦資訊流廣告。重新啟動 Bilibili 後生效。</string>
     <string name="hide_home_game_menu_tip">啟用後，隱藏首頁頂端的遊戲中心入口；搜尋、掃一掃等其他入口不受影響。重新啟動 Bilibili 後生效。</string>
     <string name="hide_home_search_default_word">隱藏搜尋推薦詞</string>
     <string name="hide_home_search_default_word_tip">啟用後，搜尋框不再顯示預設推薦詞，搜尋入口與功能維持不變。重新啟動 Bilibili 後生效。</string>
