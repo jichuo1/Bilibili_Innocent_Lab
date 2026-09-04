@@ -1,54 +1,69 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * 白名单断言全部打在 [VersionAdapter.PLAYER_INTERACTIVE_MOSS_FAMILIES] 上——那是运行时
+ * 真正读的那一份。策略层不再自带副本，避免"测试锁一份、Hook 用另一份"。
+ */
 class PlayerInteractiveOverlayPolicyTest {
 
+    private val familyByGuide = VersionAdapter.PLAYER_INTERACTIVE_MOSS_FAMILIES
+        .associateBy { it.guideClassName }
+
     @Test
-    fun `viewunite whitelist never includes chapter points`() {
-        assertFalse(
-            PlayerInteractiveOverlayPolicy.PRESERVED_VIDEO_POINT_CLEAR in
-                PlayerInteractiveOverlayPolicy.viewUniteGuideClears
+    fun `policy reuses the adapter whitelist instead of copying it`() {
+        assertEquals(
+            VersionAdapter.PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR,
+            PlayerInteractiveOverlayPolicy.PRESERVED_VIDEO_POINT_CLEAR
         )
-        assertTrue(
-            PlayerInteractiveOverlayPolicy.viewUniteGuideClears.containsAll(
-                listOf("clearContractCard", "clearMaterial", "clearRightMaterial")
+    }
+
+    @Test
+    fun `no family whitelist ever includes chapter points`() {
+        assertTrue(VersionAdapter.PLAYER_INTERACTIVE_MOSS_FAMILIES.isNotEmpty())
+        VersionAdapter.PLAYER_INTERACTIVE_MOSS_FAMILIES.forEach { family ->
+            assertFalse(
+                "family ${family.guideClassName} must keep chapter points",
+                VersionAdapter.PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR in family.clearNames
             )
+            assertTrue(family.clearNames.isNotEmpty())
+            assertTrue(family.clearNames.all { it.startsWith("clear") })
+            assertEquals(family.clearNames.distinct(), family.clearNames)
+        }
+    }
+
+    @Test
+    fun `viewunite whitelist covers contract and material cards only`() {
+        val family = requireNotNull(
+            familyByGuide["com.bapis.bilibili.app.viewunite.v1.VideoGuide"]
+        )
+        assertEquals(
+            listOf("clearContractCard", "clearMaterial", "clearRightMaterial"),
+            family.clearNames
         )
     }
 
     @Test
     fun `view v1 whitelist covers vote follow contract and command cards`() {
-        assertTrue(
-            PlayerInteractiveOverlayPolicy.viewV1GuideClears.containsAll(
-                listOf(
-                    "clearAttention",
-                    "clearCommandDms",
-                    "clearContractCard",
-                    "clearOperationCard",
-                    "clearOperationCardNew",
-                    "clearCardsSecond"
-                )
-            )
+        val family = requireNotNull(
+            familyByGuide["com.bapis.bilibili.app.view.v1.VideoGuide"]
         )
-        assertFalse(
-            PlayerInteractiveOverlayPolicy.PRESERVED_VIDEO_POINT_CLEAR in
-                PlayerInteractiveOverlayPolicy.viewV1GuideClears
-        )
-    }
-
-    @Test
-    fun `accepted clears drop chapter points`() {
         assertEquals(
-            listOf("clearContractCard"),
-            PlayerInteractiveOverlayPolicy.acceptedClears(
-                listOf("clearContractCard", "clearVideoPoint", "getVideoGuide")
-            )
+            listOf(
+                "clearAttention",
+                "clearCommandDms",
+                "clearContractCard",
+                "clearOperationCard",
+                "clearOperationCardNew",
+                "clearCardsSecond"
+            ),
+            family.clearNames
         )
-        assertTrue(PlayerInteractiveOverlayPolicy.acceptedClears(emptyList()).isEmpty())
     }
 
     @Test
@@ -62,6 +77,11 @@ class PlayerInteractiveOverlayPolicyTest {
         assertEquals(1, PlayerInteractiveOverlayPolicy.applyClears(target, methods))
         assertEquals(1, target.contract)
         assertEquals(0, target.point)
+    }
+
+    @Test
+    fun `applyClears counts nothing when the method list is empty`() {
+        assertEquals(0, PlayerInteractiveOverlayPolicy.applyClears(ClearProbe(), emptyList()))
     }
 
     class ClearProbe {

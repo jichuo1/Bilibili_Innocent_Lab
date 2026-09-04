@@ -698,10 +698,15 @@ class VersionAdapterTest {
                 requireNotNull(javaClass.classLoader)
             )
         )
-        val replyNames = points.families.map { it.replyClassName }.toSet()
-        assertTrue("com.bapis.bilibili.app.view.v1.ViewProgressReply" in replyNames)
-        assertTrue("com.bapis.bilibili.app.viewunite.v1.ViewProgressReply" in replyNames)
-        assertFalse(points.families.any { it.replyClassName.contains("mall.tab3") })
+        // 精确集合，不是 contains：类路径上还放了一个同样带 `.viewunite.` 的诱饵包
+        // （com.bapis.bilibili.mall.tab3.viewunite.v1），任何"按包名子串放宽匹配"的改动都会在这里挂。
+        assertEquals(
+            setOf(
+                "com.bapis.bilibili.app.view.v1.ViewProgressReply",
+                "com.bapis.bilibili.app.viewunite.v1.ViewProgressReply"
+            ),
+            points.families.map { it.replyClassName }.toSet()
+        )
         assertTrue(
             points.families.none { family ->
                 family.guideClears.any { it.methodName == "clearVideoPoint" }
@@ -710,6 +715,42 @@ class VersionAdapterTest {
         assertNotNull(points.commandClear)
         assertTrue(points.mossExecutes.any { it.methodName == "executeViewProgress" })
         assertTrue(points.mossExecutes.any { it.methodName == "executeDmView" })
+    }
+
+    @Test
+    fun `player interactive families carry their own whitelist and default instance`() {
+        val points = requireNotNull(
+            VersionAdapter.locatePlayerInteractiveOverlays(
+                requireNotNull(javaClass.classLoader)
+            )
+        )
+        val byReply = points.families.associateBy { it.replyClassName }
+        val viewV1 = requireNotNull(byReply["com.bapis.bilibili.app.view.v1.ViewProgressReply"])
+        val unite = requireNotNull(
+            byReply["com.bapis.bilibili.app.viewunite.v1.ViewProgressReply"]
+        )
+        assertEquals(6, viewV1.guideClears.size)
+        assertEquals(
+            listOf("clearContractCard", "clearMaterial", "clearRightMaterial"),
+            unite.guideClears.map { it.methodName }
+        )
+        // 空 Guide 判定依赖它；缺了就只能退回"无条件清 + 恒报生效"。
+        points.families.forEach { family ->
+            val default = requireNotNull(family.guideDefault)
+            assertEquals("getDefaultInstance", default.methodName)
+        }
+        assertNotNull(points.commandDefault)
+    }
+
+    @Test
+    fun `player interactive points survive a cache round trip`() {
+        val points = requireNotNull(
+            VersionAdapter.locatePlayerInteractiveOverlays(
+                requireNotNull(javaClass.classLoader)
+            )
+        )
+        val restored = VersionAdapter.PlayerInteractiveOverlayPoints.fromJson(points.toJson())
+        assertEquals(points, restored)
     }
 
     @Test

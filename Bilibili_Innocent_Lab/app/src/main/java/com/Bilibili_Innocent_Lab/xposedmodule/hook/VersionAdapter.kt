@@ -149,8 +149,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 49
-    private const val ADAPTER_RULE_VERSION = 43
+    private const val SCHEMA_VERSION = 50
+    private const val ADAPTER_RULE_VERSION = 44
 
     /**
      * DEX 兜底诊断 id 前缀。每个兜底点各占一条诊断，便于在诊断中心直接读到"兜底是否被用到、
@@ -407,12 +407,15 @@ object VersionAdapter {
     data class PlayerInteractiveGuideFamily(
         val replyClassName: String,
         val guideGetter: HookPoint,
-        val guideClears: List<HookPoint>
+        val guideClears: List<HookPoint>,
+        /** Guide 的静态 `getDefaultInstance()`；用于识别空 Guide，缺失时安装器降级为无条件清。 */
+        val guideDefault: HookPoint? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("reply", replyClassName)
             put("getter", guideGetter.toJson())
             put("clears", JSONArray().apply { guideClears.forEach { put(it.toJson()) } })
+            guideDefault?.let { put("default", it.toJson()) }
         }
 
         companion object {
@@ -424,7 +427,8 @@ object VersionAdapter {
                         (0 until values.length()).map {
                             HookPoint.fromJson(values.getJSONObject(it))
                         }
-                    }
+                    },
+                    guideDefault = o.optJSONObject("default")?.let(HookPoint::fromJson)
                 )
         }
     }
@@ -1581,7 +1585,8 @@ object VersionAdapter {
                             family.guideClears.all { it.isValid() } &&
                             family.guideClears.none {
                                 it.methodName == PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR
-                            }
+                            } &&
+                            family.guideDefault?.isValid() != false
                     } &&
                         value.mossExecutes.all { it.isValid() } &&
                         value.commandGetter?.isValid() != false &&
@@ -1902,45 +1907,65 @@ object VersionAdapter {
     private val PLAYER_PORTRAIT_CLASS_CANDIDATES = listOf(
         "com.bilibili.app.gemini.player.widget.story.GeminiPlayerFullStoryWidget"
     )
-    private const val PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR = "clearVideoPoint"
-    private val PLAYER_INTERACTIVE_VIEW_V1_GUIDE_CLEARS = listOf(
-        "clearAttention",
-        "clearCommandDms",
-        "clearContractCard",
-        "clearOperationCard",
-        "clearOperationCardNew",
-        "clearCardsSecond"
+    /**
+     * 播放器互动层的 `clear*` 白名单唯一来源。安装器与策略层都从这里读，禁止再复制一份，
+     * 否则"golden test 锁着一份、运行时用另一份"的假保障会重新出现（2026-09-04 补记）。
+     */
+    internal const val PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR = "clearVideoPoint"
+
+    /**
+     * 一个互动层协议家族：Moss / Reply / Guide 三个稳定类名，外加**显式**的 `clear*` 名单。
+     * 名单跟着家族写死，不按包名子串推断——`.viewunite.` 这类子串判断会在同名子包上误选。
+     */
+    internal data class PlayerInteractiveFamilySpec(
+        val mossClassName: String,
+        val replyClassName: String,
+        val guideClassName: String,
+        val clearNames: List<String>
     )
-    private val PLAYER_INTERACTIVE_VIEW_UNITE_GUIDE_CLEARS = listOf(
-        "clearContractCard",
-        "clearMaterial",
-        "clearRightMaterial"
-    )
-    private val PLAYER_INTERACTIVE_MOSS_FAMILIES = listOf(
-        Triple(
-            "com.bapis.bilibili.app.view.v1.ViewMoss",
-            "com.bapis.bilibili.app.view.v1.ViewProgressReply",
-            "com.bapis.bilibili.app.view.v1.VideoGuide"
+
+    internal val PLAYER_INTERACTIVE_MOSS_FAMILIES = listOf(
+        PlayerInteractiveFamilySpec(
+            mossClassName = "com.bapis.bilibili.app.view.v1.ViewMoss",
+            replyClassName = "com.bapis.bilibili.app.view.v1.ViewProgressReply",
+            guideClassName = "com.bapis.bilibili.app.view.v1.VideoGuide",
+            clearNames = listOf(
+                "clearAttention",
+                "clearCommandDms",
+                "clearContractCard",
+                "clearOperationCard",
+                "clearOperationCardNew",
+                "clearCardsSecond"
+            )
         ),
-        Triple(
-            "com.bapis.bilibili.app.viewunite.v1.ViewMoss",
-            "com.bapis.bilibili.app.viewunite.v1.ViewProgressReply",
-            "com.bapis.bilibili.app.viewunite.v1.VideoGuide"
+        PlayerInteractiveFamilySpec(
+            mossClassName = "com.bapis.bilibili.app.viewunite.v1.ViewMoss",
+            replyClassName = "com.bapis.bilibili.app.viewunite.v1.ViewProgressReply",
+            guideClassName = "com.bapis.bilibili.app.viewunite.v1.VideoGuide",
+            // 章节点 clearVideoPoint 必须保留，永远不进名单。
+            clearNames = listOf(
+                "clearContractCard",
+                "clearMaterial",
+                "clearRightMaterial"
+            )
         )
     )
-    private const val PLAYER_INTERACTIVE_DM_MOSS_CLASS =
+    internal const val PLAYER_INTERACTIVE_DM_MOSS_CLASS =
         "com.bapis.bilibili.community.service.dm.v1.DMMoss"
-    private const val PLAYER_INTERACTIVE_DM_REPLY_CLASS =
+    internal const val PLAYER_INTERACTIVE_DM_REPLY_CLASS =
         "com.bapis.bilibili.community.service.dm.v1.DmViewReply"
-    private const val PLAYER_INTERACTIVE_DM_COMMAND_CLASS =
+    internal const val PLAYER_INTERACTIVE_DM_COMMAND_CLASS =
         "com.bapis.bilibili.community.service.dm.v1.Command"
+    internal const val PLAYER_INTERACTIVE_DM_REPLY_CLEAR = "clearCommand"
+    private const val PLAYER_INTERACTIVE_DEFAULT_INSTANCE_GETTER = "getDefaultInstance"
     private val PLAYER_INTERACTIVE_CANDIDATE_CLASSES =
-        PLAYER_INTERACTIVE_MOSS_FAMILIES.flatMap { listOf(it.first, it.second, it.third) } +
-            listOf(
-                PLAYER_INTERACTIVE_DM_MOSS_CLASS,
-                PLAYER_INTERACTIVE_DM_REPLY_CLASS,
-                PLAYER_INTERACTIVE_DM_COMMAND_CLASS
-            )
+        PLAYER_INTERACTIVE_MOSS_FAMILIES.flatMap {
+            listOf(it.mossClassName, it.replyClassName, it.guideClassName)
+        } + listOf(
+            PLAYER_INTERACTIVE_DM_MOSS_CLASS,
+            PLAYER_INTERACTIVE_DM_REPLY_CLASS,
+            PLAYER_INTERACTIVE_DM_COMMAND_CLASS
+        )
     private val PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES = listOf(
         "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity"
     )
@@ -3181,7 +3206,9 @@ object VersionAdapter {
                 "player.interactive_overlay",
                 stateFor(playerInteractiveOverlays != null, playerInteractiveCandidateExists),
                 playerInteractiveOverlays?.let { points ->
-                    "families=${points.families.size},moss=${points.mossExecutes.size}," +
+                    "families=${points.families.size}," +
+                        "clears=${points.families.sumOf { it.guideClears.size }}," +
+                        "moss=${points.mossExecutes.size}," +
                         "command=${points.commandClear != null}"
                 }.orEmpty()
             ),
@@ -3788,31 +3815,36 @@ object VersionAdapter {
         methods.takeIf { it.isNotEmpty() }?.let(::PlayerPortraitPoints)
     }.getOrNull()
 
+    /** protobuf 生成类上的静态 `getDefaultInstance()`；缺失时返回 null，由调用方降级。 */
+    private fun locateDefaultInstanceGetter(owner: Class<*>): Method? =
+        KavaMemberLookup.methodOrNull(owner, PLAYER_INTERACTIVE_DEFAULT_INSTANCE_GETTER)
+            ?.takeIf { method ->
+                method.isStatic && method.parameterCount == 0 && method.returnType == owner
+            }
+
     /**
-     * 定位播放器互动层 protobuf 读边界。只认公开稳定类名，按 Guide 上实际存在的
-     * 白名单 `clear*` 缓存方法；`clearVideoPoint` 永不进入名单。
+     * 定位播放器互动层 protobuf 读边界。只认公开稳定类名，按家族自带的白名单在 Guide 上
+     * 取实际存在的 `clear*`；`clearVideoPoint` 永不进入名单。
+     *
+     * 每个家族额外缓存 Guide 的 `getDefaultInstance()`：字段未设置时 getter 返回的是进程级
+     * 单例，安装器要靠它区分"空 Guide"和"真的有互动卡"，既不动单例也不谎报生效。
      */
     fun locatePlayerInteractiveOverlays(
         loader: ClassLoader
     ): PlayerInteractiveOverlayPoints? = runCatching {
         val families = ArrayList<PlayerInteractiveGuideFamily>(PLAYER_INTERACTIVE_MOSS_FAMILIES.size)
         val mossExecutes = ArrayList<HookPoint>(PLAYER_INTERACTIVE_MOSS_FAMILIES.size)
-        PLAYER_INTERACTIVE_MOSS_FAMILIES.forEach { (mossName, replyName, guideName) ->
-            val moss = KavaMemberLookup.classOrNull(loader, mossName)
-            val reply = KavaMemberLookup.classOrNull(loader, replyName)
-            val guide = KavaMemberLookup.classOrNull(loader, guideName)
+        PLAYER_INTERACTIVE_MOSS_FAMILIES.forEach { spec ->
+            val moss = KavaMemberLookup.classOrNull(loader, spec.mossClassName)
+            val reply = KavaMemberLookup.classOrNull(loader, spec.replyClassName)
+            val guide = KavaMemberLookup.classOrNull(loader, spec.guideClassName)
             if (reply == null || guide == null) return@forEach
             val getter = KavaMemberLookup.methodOrNull(reply, "getVideoGuide")
                 ?.takeIf { method ->
                     !method.isStatic && method.parameterCount == 0 &&
                         method.returnType == guide
                 } ?: return@forEach
-            val clearNames = if (guideName.contains(".viewunite.")) {
-                PLAYER_INTERACTIVE_VIEW_UNITE_GUIDE_CLEARS
-            } else {
-                PLAYER_INTERACTIVE_VIEW_V1_GUIDE_CLEARS
-            }
-            val clears = clearNames.mapNotNull { name ->
+            val clears = spec.clearNames.mapNotNull { name ->
                 KavaMemberLookup.methodOrNull(guide, name)?.takeIf { method ->
                     !method.isStatic && method.parameterCount == 0 &&
                         method.returnType == Void.TYPE &&
@@ -3821,9 +3853,10 @@ object VersionAdapter {
             }
             if (clears.isEmpty()) return@forEach
             families += PlayerInteractiveGuideFamily(
-                replyClassName = replyName,
+                replyClassName = spec.replyClassName,
                 guideGetter = getter.toHookPoint(),
-                guideClears = clears.map { it.toHookPoint() }
+                guideClears = clears.map { it.toHookPoint() },
+                guideDefault = locateDefaultInstanceGetter(guide)?.toHookPoint()
             )
             if (moss != null) {
                 KavaMemberLookup.declaredMethods(moss, makeAccessible = true) { method ->
@@ -3842,16 +3875,13 @@ object VersionAdapter {
             }
         }
         val commandClear = dmReply?.let { owner ->
-            KavaMemberLookup.methodOrNull(owner, "clearCommand")?.takeIf { method ->
-                !method.isStatic && method.parameterCount == 0 &&
-                    method.returnType == Void.TYPE
-            }
+            KavaMemberLookup.methodOrNull(owner, PLAYER_INTERACTIVE_DM_REPLY_CLEAR)
+                ?.takeIf { method ->
+                    !method.isStatic && method.parameterCount == 0 &&
+                        method.returnType == Void.TYPE
+                }
         }
-        val commandDefault = dmCommand?.let { owner ->
-            KavaMemberLookup.methodOrNull(owner, "getDefaultInstance")?.takeIf { method ->
-                method.isStatic && method.parameterCount == 0 && method.returnType == owner
-            }
-        }
+        val commandDefault = dmCommand?.let(::locateDefaultInstanceGetter)
         val dmMoss = KavaMemberLookup.classOrNull(loader, PLAYER_INTERACTIVE_DM_MOSS_CLASS)
         if (dmMoss != null && dmReply != null) {
             KavaMemberLookup.declaredMethods(dmMoss, makeAccessible = true) { method ->
