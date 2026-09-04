@@ -11,6 +11,13 @@ class VideoGuide {
     fun clearMaterial() = Unit
     fun clearRightMaterial() = Unit
     fun clearVideoPoint() = Unit
+
+    companion object {
+        @JvmStatic
+        fun getDefaultInstance(): VideoGuide = DEFAULT_INSTANCE
+
+        private val DEFAULT_INSTANCE = VideoGuide()
+    }
 }
 
 class ViewProgressReply {

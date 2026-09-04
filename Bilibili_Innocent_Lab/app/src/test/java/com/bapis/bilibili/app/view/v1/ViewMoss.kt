@@ -13,6 +13,13 @@ class VideoGuide {
     fun clearOperationCard() = Unit
     fun clearOperationCardNew() = Unit
     fun clearCardsSecond() = Unit
+
+    companion object {
+        @JvmStatic
+        fun getDefaultInstance(): VideoGuide = DEFAULT_INSTANCE
+
+        private val DEFAULT_INSTANCE = VideoGuide()
+    }
 }
 
 class ViewProgressReply {
