@@ -149,8 +149,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 50
-    private const val ADAPTER_RULE_VERSION = 44
+    private const val SCHEMA_VERSION = 52
+    private const val ADAPTER_RULE_VERSION = 46
 
     /**
      * DEX 兜底诊断 id 前缀。每个兜底点各占一条诊断，便于在诊断中心直接读到"兜底是否被用到、
@@ -409,13 +409,22 @@ object VersionAdapter {
         val guideGetter: HookPoint,
         val guideClears: List<HookPoint>,
         /** Guide 的静态 `getDefaultInstance()`；用于识别空 Guide，缺失时安装器降级为无条件清。 */
-        val guideDefault: HookPoint? = null
+        val guideDefault: HookPoint? = null,
+        /** `ViewProgressReply.getDm()`：互动层的第二个载体，只有 viewunite 有。 */
+        val dmGetter: HookPoint? = null,
+        val dmClears: List<HookPoint> = emptyList(),
+        val dmDefault: HookPoint? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("reply", replyClassName)
             put("getter", guideGetter.toJson())
             put("clears", JSONArray().apply { guideClears.forEach { put(it.toJson()) } })
             guideDefault?.let { put("default", it.toJson()) }
+            dmGetter?.let { put("dm_getter", it.toJson()) }
+            if (dmClears.isNotEmpty()) {
+                put("dm_clears", JSONArray().apply { dmClears.forEach { put(it.toJson()) } })
+            }
+            dmDefault?.let { put("dm_default", it.toJson()) }
         }
 
         companion object {
@@ -428,7 +437,14 @@ object VersionAdapter {
                             HookPoint.fromJson(values.getJSONObject(it))
                         }
                     },
-                    guideDefault = o.optJSONObject("default")?.let(HookPoint::fromJson)
+                    guideDefault = o.optJSONObject("default")?.let(HookPoint::fromJson),
+                    dmGetter = o.optJSONObject("dm_getter")?.let(HookPoint::fromJson),
+                    dmClears = o.optJSONArray("dm_clears")?.let { values ->
+                        (0 until values.length()).map {
+                            HookPoint.fromJson(values.getJSONObject(it))
+                        }
+                    }.orEmpty(),
+                    dmDefault = o.optJSONObject("dm_default")?.let(HookPoint::fromJson)
                 )
         }
     }
@@ -438,7 +454,9 @@ object VersionAdapter {
         val mossExecutes: List<HookPoint>,
         val commandGetter: HookPoint?,
         val commandClear: HookPoint?,
-        val commandDefault: HookPoint?
+        val commandDefault: HookPoint?,
+        /** `DmViewReply.clearActivityMeta()`：清运营活动横幅（TV 版推广那块图）。 */
+        val commandActivityMetaClear: HookPoint? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("families", JSONArray().apply { families.forEach { put(it.toJson()) } })
@@ -446,6 +464,7 @@ object VersionAdapter {
             commandGetter?.let { put("command_getter", it.toJson()) }
             commandClear?.let { put("command_clear", it.toJson()) }
             commandDefault?.let { put("command_default", it.toJson()) }
+            commandActivityMetaClear?.let { put("activity_meta_clear", it.toJson()) }
         }
 
         companion object {
@@ -463,7 +482,9 @@ object VersionAdapter {
                     }.orEmpty(),
                     commandGetter = o.optJSONObject("command_getter")?.let(HookPoint::fromJson),
                     commandClear = o.optJSONObject("command_clear")?.let(HookPoint::fromJson),
-                    commandDefault = o.optJSONObject("command_default")?.let(HookPoint::fromJson)
+                    commandDefault = o.optJSONObject("command_default")?.let(HookPoint::fromJson),
+                    commandActivityMetaClear = o.optJSONObject("activity_meta_clear")
+                        ?.let(HookPoint::fromJson)
                 )
         }
     }
@@ -1586,12 +1607,17 @@ object VersionAdapter {
                             family.guideClears.none {
                                 it.methodName == PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR
                             } &&
-                            family.guideDefault?.isValid() != false
+                            family.guideDefault?.isValid() != false &&
+                            family.dmGetter?.isValid() != false &&
+                            family.dmClears.all { it.isValid() } &&
+                            family.dmDefault?.isValid() != false &&
+                            (family.dmGetter != null || family.dmClears.isEmpty())
                     } &&
                         value.mossExecutes.all { it.isValid() } &&
                         value.commandGetter?.isValid() != false &&
                         value.commandClear?.isValid() != false &&
                         value.commandDefault?.isValid() != false &&
+                        value.commandActivityMetaClear?.isValid() != false &&
                         (value.families.isNotEmpty() || value.commandClear != null)
                 } != false &&
                 playerStatusBar?.onCreateMethods?.let { methods ->
@@ -1921,7 +1947,15 @@ object VersionAdapter {
         val mossClassName: String,
         val replyClassName: String,
         val guideClassName: String,
-        val clearNames: List<String>
+        val clearNames: List<String>,
+        /**
+         * 同一族互动层的**第二个载体**：`ViewProgressReply.dm`（`DmResource`）。
+         * 只有 viewunite 有这个字段，`view.v1.ViewProgressReply` 没有。
+         * 它装的是关注引导 / 卡片 / 指令弹幕，与 `VideoGuide` 目标一致，不含弹幕流本身。
+         * 2026-09-04 对照哔哩漫游 `remove_video_cmd_dms` 时发现我们整族漏了这一路。
+         */
+        val dmClassName: String? = null,
+        val dmClearNames: List<String> = emptyList()
     )
 
     internal val PLAYER_INTERACTIVE_MOSS_FAMILIES = listOf(
@@ -1947,6 +1981,12 @@ object VersionAdapter {
                 "clearContractCard",
                 "clearMaterial",
                 "clearRightMaterial"
+            ),
+            dmClassName = "com.bapis.bilibili.app.viewunite.v1.DmResource",
+            dmClearNames = listOf(
+                "clearAttention",
+                "clearCards",
+                "clearCommandDms"
             )
         )
     )
@@ -1957,6 +1997,14 @@ object VersionAdapter {
     internal const val PLAYER_INTERACTIVE_DM_COMMAND_CLASS =
         "com.bapis.bilibili.community.service.dm.v1.Command"
     internal const val PLAYER_INTERACTIVE_DM_REPLY_CLEAR = "clearCommand"
+
+    /**
+     * `DmViewReply.activityMeta`（field 18，repeated string）。每条是一段 JSON，形如
+     * `{"id":10011,"start":0,"end":5,"picture":{"mime":"image","resource":"<png url>"}}`，
+     * 图里烘焙着「云视听小电视 / 开电视 看B站TV版 / 同步播出」整块横幅——**文案不在协议里，在图里**，
+     * 所以任何按文案搜协议的探针都搜不到。2026-09-04 由 Reqable HAR 实证定位。
+     */
+    internal const val PLAYER_INTERACTIVE_DM_ACTIVITY_META_CLEAR = "clearActivityMeta"
     private const val PLAYER_INTERACTIVE_DEFAULT_INSTANCE_GETTER = "getDefaultInstance"
     private val PLAYER_INTERACTIVE_CANDIDATE_CLASSES =
         PLAYER_INTERACTIVE_MOSS_FAMILIES.flatMap {
@@ -3208,8 +3256,10 @@ object VersionAdapter {
                 playerInteractiveOverlays?.let { points ->
                     "families=${points.families.size}," +
                         "clears=${points.families.sumOf { it.guideClears.size }}," +
+                        "dm=${points.families.sumOf { it.dmClears.size }}," +
                         "moss=${points.mossExecutes.size}," +
-                        "command=${points.commandClear != null}"
+                        "command=${points.commandClear != null}," +
+                        "activity=${points.commandActivityMetaClear != null}"
                 }.orEmpty()
             ),
             AdaptDiagnostic(
@@ -3852,11 +3902,33 @@ object VersionAdapter {
                 }
             }
             if (clears.isEmpty()) return@forEach
+            // 第二载体 DmResource：缺任何一环就整条降级为不装，绝不半路留个空 getter。
+            val dmClass = spec.dmClassName?.let { KavaMemberLookup.classOrNull(loader, it) }
+            val dmGetter = dmClass?.let {
+                KavaMemberLookup.methodOrNull(reply, "getDm")?.takeIf { method ->
+                    !method.isStatic && method.parameterCount == 0 && method.returnType == it
+                }
+            }
+            val dmClears = if (dmClass == null || dmGetter == null) {
+                emptyList()
+            } else {
+                spec.dmClearNames.mapNotNull { name ->
+                    KavaMemberLookup.methodOrNull(dmClass, name)?.takeIf { method ->
+                        !method.isStatic && method.parameterCount == 0 &&
+                            method.returnType == Void.TYPE &&
+                            method.name != PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR
+                    }
+                }
+            }
             families += PlayerInteractiveGuideFamily(
                 replyClassName = spec.replyClassName,
                 guideGetter = getter.toHookPoint(),
                 guideClears = clears.map { it.toHookPoint() },
-                guideDefault = locateDefaultInstanceGetter(guide)?.toHookPoint()
+                guideDefault = locateDefaultInstanceGetter(guide)?.toHookPoint(),
+                // dmClears 只在 dmGetter 存在时才可能非空，两者要么同时有要么同时无。
+                dmGetter = if (dmClears.isEmpty()) null else dmGetter?.toHookPoint(),
+                dmClears = dmClears.map { it.toHookPoint() },
+                dmDefault = dmClass?.let(::locateDefaultInstanceGetter)?.toHookPoint()
             )
             if (moss != null) {
                 KavaMemberLookup.declaredMethods(moss, makeAccessible = true) { method ->
@@ -3882,6 +3954,13 @@ object VersionAdapter {
                 }
         }
         val commandDefault = dmCommand?.let(::locateDefaultInstanceGetter)
+        val activityMetaClear = dmReply?.let { owner ->
+            KavaMemberLookup.methodOrNull(owner, PLAYER_INTERACTIVE_DM_ACTIVITY_META_CLEAR)
+                ?.takeIf { method ->
+                    !method.isStatic && method.parameterCount == 0 &&
+                        method.returnType == Void.TYPE
+                }
+        }
         val dmMoss = KavaMemberLookup.classOrNull(loader, PLAYER_INTERACTIVE_DM_MOSS_CLASS)
         if (dmMoss != null && dmReply != null) {
             KavaMemberLookup.declaredMethods(dmMoss, makeAccessible = true) { method ->
@@ -3896,7 +3975,8 @@ object VersionAdapter {
             mossExecutes = mossExecutes.distinctBy { it.label() },
             commandGetter = commandGetter?.toHookPoint(),
             commandClear = commandClear?.toHookPoint(),
-            commandDefault = commandDefault?.toHookPoint()
+            commandDefault = commandDefault?.toHookPoint(),
+            commandActivityMetaClear = activityMetaClear?.toHookPoint()
         )
     }.getOrNull()
 
