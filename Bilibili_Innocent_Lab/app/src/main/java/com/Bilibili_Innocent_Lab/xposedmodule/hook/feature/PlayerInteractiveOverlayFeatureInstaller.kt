@@ -4,16 +4,30 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import java.lang.reflect.Method
 
 /**
- * 在 protobuf 读边界清除播放器互动层：投票、关注引导、三连契约卡、指令弹幕。
+ * 在 protobuf 读边界清除播放器互动层：投票、关注引导、三连契约卡、指令弹幕，
+ * 以及左上角的运营活动横幅（电视版推广）。
  *
  * 不替换整份 VideoGuide（viewunite 还带章节点），不扫描播放器 View 树。
  *
- * 覆盖单位与状态口径（2026-09-04 补记）：
+ * 四类载体（2026-09-04 补记二/三）：
+ * 1. `ViewProgressReply.videoGuide` —— 两个家族各一份白名单。
+ * 2. `ViewProgressReply.dm`（`DmResource`）—— 只有 viewunite 有，装关注引导/卡片/指令弹幕，
+ *    与 Guide **相互独立**，Guide 解析失败不得连带跳过它。
+ * 3. `DmViewReply.command` —— 指令弹幕。
+ * 4. `DmViewReply.activityMeta` —— 运营活动横幅，**文案烘焙在下发的 PNG 里，协议里没有中文**，
+ *    所以只能按字段清，按文案搜协议是搜不到的。
+ *
+ * 覆盖单位与状态口径：
  * - 每个已适配的 Guide 家族算一个单位，`clear*` 解析不到也照样计入 expected，
  *   否则"两个家族全灭 + 指令弹幕装上"会被算成 success。
- * - 指令弹幕算一个单位；只有能拿到 `Command.getDefaultInstance()` 才允许改写 getter 返回值，
+ * - DmResource、指令弹幕、运营活动横幅各算一个单位。
+ * - 指令弹幕只有能拿到 `Command.getDefaultInstance()` 才允许改写 getter 返回值，
  *   拿不到就退回 `clearCommand` + Moss 边界，不注册那个改不动返回值的 getter Hook。
  * - Moss execute 是双保险，每个点各算一个单位。
+ *
+ * **运营活动横幅刻意不上报 APPLIED**：`clearActivityMeta()` 对空列表同样静默成功，
+ * 拿"invoke 没抛"当证据就是假阳性（本模块在 2026-09-04 补记一里刚为这个栽过）。
+ * 要给它精确证据得再定位 `getActivityMetaCount()`，本轮没做——宁可少报，不可多报。
  */
 internal class PlayerInteractiveOverlayFeatureInstaller(
     private val enabled: Boolean,
@@ -105,9 +119,78 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
             }
         }
 
+        // 第二载体与 Guide 相互独立：Guide 白名单解析失败不应连带跳过 DmResource，
+        // 所以这里单独走一轮，而不是挂在上面那个 forEachIndexed 里。
+        adapted.families.forEachIndexed { familyIndex, family ->
+            // 第二载体 DmResource（只有 viewunite 有）：关注引导 / 卡片 / 指令弹幕的另一条出口。
+            val dmPoint = family.dmGetter
+            if (dmPoint != null && family.dmClears.isNotEmpty()) {
+                expected += 1
+                val dmClears = family.dmClears.mapNotNull { point ->
+                    environment.hookPoints.resolveAdapted(
+                        "player.interactive.dm_clear.$familyIndex.${point.methodName}",
+                        point.className,
+                        point.methodName,
+                        point.paramClassNames
+                    )
+                }
+                val defaultDm = resolveDefaultInstance(
+                    environment,
+                    "player.interactive.dm_default.$familyIndex",
+                    family.dmDefault
+                )
+                if (dmClears.isEmpty()) {
+                    environment.logError(
+                        "player_interactive_dm_$familyIndex",
+                        "[BIL] 播放器互动层 DmResource 白名单解析为空: ${family.replyClassName}"
+                    )
+                } else {
+                    runCatching {
+                        environment.registrar.adapted(
+                            "player.interactive.dm.$familyIndex",
+                            dmPoint
+                        ) {
+                            after {
+                                if (hasThrowable) return@after
+                                val resource = result ?: return@after
+                                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                                if (defaultDm != null && resource === defaultDm) return@after
+                                val applied = PlayerInteractiveOverlayPolicy.applyClears(
+                                    resource,
+                                    dmClears
+                                )
+                                if (applied > 0) {
+                                    environment.reportRuntimeEvidence(
+                                        ID,
+                                        FeatureRuntimeStage.APPLIED,
+                                        applied
+                                    )
+                                }
+                            }
+                        }
+                        installed += 1
+                    }.onFailure { throwable ->
+                        environment.logError(
+                            "player_interactive_dm_reg_$familyIndex",
+                            "[BIL] 播放器互动层 DmResource Hook 注册失败(" +
+                                "${dmPoint.className}#${dmPoint.methodName}): $throwable"
+                        )
+                    }
+                }
+            }
+        }
+
         val commandClear = adapted.commandClear?.let { point ->
             environment.hookPoints.resolveAdapted(
                 "player.interactive.command_clear",
+                point.className,
+                point.methodName,
+                point.paramClassNames
+            )
+        }
+        val activityMetaClear = adapted.commandActivityMetaClear?.let { point ->
+            environment.hookPoints.resolveAdapted(
+                "player.interactive.activity_meta_clear",
                 point.className,
                 point.methodName,
                 point.paramClassNames
@@ -129,6 +212,12 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                     after {
                         if (hasThrowable) return@after
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                        // instance 就是 DmViewReply，顺手清掉运营活动横幅（TV 版推广那块图）。
+                        instance?.let { reply ->
+                            activityMetaClear?.let {
+                                PlayerInteractiveOverlayPolicy.applyClears(reply, listOf(it))
+                            }
+                        }
                         if (result !== emptyCommand) {
                             result = emptyCommand
                             environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
@@ -205,12 +294,12 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                                 )
                             }
                         }
-                        if (commandClear != null &&
-                            commandClear.declaringClass.isInstance(reply)
-                        ) {
+                        val dmClearsForReply = listOfNotNull(commandClear, activityMetaClear)
+                            .filter { it.declaringClass.isInstance(reply) }
+                        if (dmClearsForReply.isNotEmpty()) {
                             val cleared = PlayerInteractiveOverlayPolicy.applyClears(
                                 reply,
-                                listOf(commandClear)
+                                dmClearsForReply
                             )
                             // getter Hook 已经能精确判断"本来就有指令弹幕"，证据以它为准。
                             if (!commandGetterHooked) applied += cleared
@@ -233,6 +322,19 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                     "player_interactive_moss_$index",
                     "[BIL] 播放器互动层 Moss execute Hook 注册失败(" +
                         "${point.className}#${point.methodName}): $throwable"
+                )
+            }
+        }
+
+        // 运营活动横幅（TV 版推广）单独算一个覆盖单位：它和指令弹幕是 DmViewReply 上两个独立字段。
+        if (adapted.commandActivityMetaClear != null) {
+            expected += 1
+            if (activityMetaClear != null && (commandGetterHooked || dmMossInstalled)) {
+                installed += 1
+            } else {
+                environment.logError(
+                    "player_interactive_activity_meta_missing",
+                    "[BIL] 播放器运营活动横幅无可用清除路径"
                 )
             }
         }

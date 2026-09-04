@@ -20,6 +20,20 @@ class VideoGuide {
     }
 }
 
+class DmResource {
+    fun clearAttention() = Unit
+    fun clearCards() = Unit
+    fun clearCommandDms() = Unit
+
+    companion object {
+        @JvmStatic
+        fun getDefaultInstance(): DmResource = DEFAULT_INSTANCE
+
+        private val DEFAULT_INSTANCE = DmResource()
+    }
+}
+
 class ViewProgressReply {
     fun getVideoGuide(): VideoGuide = VideoGuide()
+    fun getDm(): DmResource = DmResource()
 }

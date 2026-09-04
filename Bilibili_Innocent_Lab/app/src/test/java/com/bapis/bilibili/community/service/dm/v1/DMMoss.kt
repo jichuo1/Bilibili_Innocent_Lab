@@ -12,6 +12,7 @@ class Command {
 class DmViewReply {
     fun getCommand(): Command = Command()
     fun clearCommand() = Unit
+    fun clearActivityMeta() = Unit
 }
 
 class DMMoss {

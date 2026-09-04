@@ -713,6 +713,11 @@ class VersionAdapterTest {
             }
         )
         assertNotNull(points.commandClear)
+        // 运营活动横幅（TV 版推广）：文案烘焙在图里，只能按字段清。
+        assertEquals(
+            "clearActivityMeta",
+            requireNotNull(points.commandActivityMetaClear).methodName
+        )
         assertTrue(points.mossExecutes.any { it.methodName == "executeViewProgress" })
         assertTrue(points.mossExecutes.any { it.methodName == "executeDmView" })
     }
@@ -740,6 +745,16 @@ class VersionAdapterTest {
             assertEquals("getDefaultInstance", default.methodName)
         }
         assertNotNull(points.commandDefault)
+
+        // 第二载体 DmResource 只存在于 viewunite；view.v1 的 ViewProgressReply 没有 dm 字段。
+        assertEquals("getDm", requireNotNull(unite.dmGetter).methodName)
+        assertEquals(
+            listOf("clearAttention", "clearCards", "clearCommandDms"),
+            unite.dmClears.map { it.methodName }
+        )
+        assertEquals("getDefaultInstance", requireNotNull(unite.dmDefault).methodName)
+        assertNull(viewV1.dmGetter)
+        assertTrue(viewV1.dmClears.isEmpty())
     }
 
     @Test
