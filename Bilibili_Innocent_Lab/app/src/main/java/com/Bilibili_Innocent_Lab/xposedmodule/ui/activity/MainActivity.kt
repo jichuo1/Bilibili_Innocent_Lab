@@ -262,6 +262,7 @@ class MainActivity : SkinnedActivity() {
     private var preferDynamicVideoTab = false
     private var showFullNumbers = false
     private var hidePlayerPortraitControl = false
+    private var hidePlayerInteractiveOverlays = false
     private var transparentPlayerStatusBar = false
     private var removeRelateCommercial = false
     private var removeRelateGame = false
@@ -6618,6 +6619,14 @@ class MainActivity : SkinnedActivity() {
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read player portrait prefs failed", t)
         }.getOrDefault(false)
+        hidePlayerInteractiveOverlays = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.HIDE_PLAYER_INTERACTIVE_OVERLAYS,
+                false
+            ) ?: false
+        }.onFailure { t ->
+            Log.e("BilibiliInnocentLab", "read player interactive overlays prefs failed", t)
+        }.getOrDefault(false)
         transparentPlayerStatusBar = runCatching {
             modulePrefs?.getBoolean(
                 FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR,
@@ -8620,6 +8629,44 @@ class MainActivity : SkinnedActivity() {
                                 alpha = 0.6f
                                 setLineSpacing(6f, 1f)
                                 text = stringResource(R.string.hide_player_portrait_control_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.hide_player_interactive_overlays)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = hidePlayerInteractiveOverlays
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    hidePlayerInteractiveOverlays = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.HIDE_PLAYER_INTERACTIVE_OVERLAYS,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write player interactive overlays prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true)
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.hide_player_interactive_overlays_tip)
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }

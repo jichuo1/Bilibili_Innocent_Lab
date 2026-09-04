@@ -1177,6 +1177,7 @@ class DiagnosticsActivity : SkinnedActivity() {
             "mine_vip_purify" -> R.string.hide_mine_vip
             "video_relate_filter" -> R.string.diagnostics_host_feature_relate
             "player_portrait_control" -> R.string.hide_player_portrait_control
+            "player_interactive_overlay" -> R.string.hide_player_interactive_overlays
             "player_status_bar" -> R.string.transparent_player_status_bar
             "comment_filter" -> R.string.diagnostics_host_feature_comment_filter
             "comment_purify" -> R.string.diagnostics_host_feature_comment_purify

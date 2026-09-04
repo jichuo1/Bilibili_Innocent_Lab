@@ -27,6 +27,7 @@ internal object FeaturePreferences {
     const val PREFER_DYNAMIC_VIDEO_TAB = "prefer_dynamic_video_tab"
     const val SHOW_FULL_NUMBERS = "show_full_numbers"
     const val HIDE_PLAYER_PORTRAIT_CONTROL = "hide_player_portrait_control"
+    const val HIDE_PLAYER_INTERACTIVE_OVERLAYS = "hide_player_interactive_overlays"
     const val TRANSPARENT_PLAYER_STATUS_BAR = "transparent_player_status_bar"
     const val REMOVE_RELATE_COMMERCIAL = "remove_relate_commercial"
     const val REMOVE_RELATE_GAME = "remove_relate_game"

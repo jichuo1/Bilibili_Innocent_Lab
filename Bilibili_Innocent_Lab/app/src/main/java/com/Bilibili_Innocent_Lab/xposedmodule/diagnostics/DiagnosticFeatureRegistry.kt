@@ -65,6 +65,11 @@ internal object DiagnosticFeatureRegistry {
             runtimeEvidenceExpected = true
         ),
         DiagnosticFeatureDescriptor("player_portrait_control", DiagnosticFeatureCategory.PLAYER_AND_DETAIL),
+        DiagnosticFeatureDescriptor(
+            "player_interactive_overlay",
+            DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
+            runtimeEvidenceExpected = true
+        ),
         DiagnosticFeatureDescriptor("player_status_bar", DiagnosticFeatureCategory.PLAYER_AND_DETAIL),
         DiagnosticFeatureDescriptor(
             "video_relate_filter",
