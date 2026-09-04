@@ -12,11 +12,10 @@ import java.io.File
  */
 object TargetAppStorage {
 
-    private const val PER_USER_RANGE = 100_000
     private const val TARGET_PACKAGE = "tv.danmaku.bili"
 
     /** Android uid 的 userId 部分；公开以便 JVM 单测覆盖多用户路径。 */
-    fun userIdFromUid(uid: Int): Int = (uid / PER_USER_RANGE).coerceAtLeast(0)
+    fun userIdFromUid(uid: Int): Int = AndroidUserSpace.userIdFromUid(uid)
 
     /** 生成目标 App 缓存文件的绝对路径，不依赖 Context。 */
     @SuppressLint("SdCardPath") // Hook 运行时无模块 Context，且目标 App uid 目录是有意路径。

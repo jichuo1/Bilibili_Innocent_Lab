@@ -1,13 +1,13 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.settings.terms
 
 import android.content.Context
-import android.content.pm.PackageManager
 import android.os.Process
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AndroidUserSpace
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigPublishState
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
 
 internal const val USER_TERMS_TARGET_PACKAGE = "tv.danmaku.bili"
-internal const val ANDROID_UIDS_PER_USER = 100_000
+internal const val ANDROID_UIDS_PER_USER = AndroidUserSpace.UIDS_PER_USER
 internal const val USER_TERMS_FAILURE_SERVICE_NOT_CONNECTED = "service_not_connected"
 internal const val USER_TERMS_FAILURE_API_UNSUPPORTED = "api_unsupported"
 internal const val USER_TERMS_FAILURE_REMOTE_PUBLISH = "remote_publish_failed"
@@ -30,11 +30,10 @@ internal data class UserTermsGateDiagnosticsSnapshot(
 internal fun resolveSameAndroidUser(
     moduleUserId: Int,
     targetUserId: Int?
-): Boolean? = targetUserId?.let { it == moduleUserId }
+): Boolean? = AndroidUserSpace.resolveSameUser(moduleUserId, targetUserId)
 
 /** Android UID 编码为 userId * 100000 + appId；只处理系统分配的非负 UID。 */
-internal fun androidUserIdFromUid(uid: Int): Int =
-    if (uid < 0) 0 else uid / ANDROID_UIDS_PER_USER
+internal fun androidUserIdFromUid(uid: Int): Int = AndroidUserSpace.userIdFromUid(uid)
 
 /**
  * 把发布器内部的有界错误码归一化成条款门禁可直接复制、检索的稳定诊断码。
@@ -83,7 +82,8 @@ internal object UserTermsGateDiagnostics {
         return UserTermsGateDiagnosticsSnapshot(
             moduleUid = moduleUid,
             moduleUserId = moduleUserId,
-            possibleSecondaryOrCloneProfile = moduleUserId != 0,
+            possibleSecondaryOrCloneProfile =
+                AndroidUserSpace.isSecondaryOrCloneProfile(moduleUserId),
             frameworkConnected = framework.connected,
             frameworkName = framework.name,
             frameworkApiVersion = framework.apiVersion,
@@ -104,11 +104,6 @@ internal object UserTermsGateDiagnostics {
 
     private fun userIdOf(uid: Int): Int = androidUserIdFromUid(uid)
 
-    @Suppress("DEPRECATION")
-    private fun currentUserTargetUid(context: Context): Int? = runCatching {
-        context.packageManager.getApplicationInfo(
-            USER_TERMS_TARGET_PACKAGE,
-            PackageManager.MATCH_DISABLED_COMPONENTS
-        ).uid
-    }.getOrNull()
+    private fun currentUserTargetUid(context: Context): Int? =
+        AndroidUserSpace.targetUidInCurrentUser(context, USER_TERMS_TARGET_PACKAGE)
 }

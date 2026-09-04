@@ -17,6 +17,8 @@ internal object MineComponentSnapshotQueryContract {
     const val EXTRA_REQUEST_NONCE = "mine_snapshot_request_nonce"
     const val EXTRA_HANDLED = "mine_snapshot_handled"
     const val EXTRA_STATUS = "mine_snapshot_status"
+    /** 请求方要哪一个宿主 UI 面的快照；缺省按"我的"页，兼容旧版模块 UI。 */
+    const val EXTRA_SURFACE = "mine_snapshot_surface"
     const val EXTRA_PAYLOAD = "mine_snapshot_payload"
     const val EXTRA_PAYLOAD_SHA256 = "mine_snapshot_payload_sha256"
     const val EXTRA_TARGET_VERSION = "mine_snapshot_target_version"

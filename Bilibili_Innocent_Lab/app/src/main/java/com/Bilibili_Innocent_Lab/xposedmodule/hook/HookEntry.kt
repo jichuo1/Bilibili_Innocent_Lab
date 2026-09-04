@@ -2382,9 +2382,18 @@ class HookEntry : XposedModule() {
     }
 
     override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
-        if (param.packageName != TARGET_PACKAGE || !targetHooksStarted.compareAndSet(false, true)) {
+        if (param.packageName != TARGET_PACKAGE) {
+            // 模块 scope 固定为 tv.danmaku.bili（module.prop 的 staticScope=true），改包名的
+            // 克隆宿主既进不了作用域、也无法复用按 TARGET_PACKAGE 解析的宿主资源 id。过去这里
+            // 静默 return，失败完全不可观测；至少要留下实际包名，让"多开为什么不生效"可查。
+            logError(
+                "package_scope_mismatch_${param.packageName}",
+                "[BIL] 忽略非目标宿主包(actual=${param.packageName}, expected=$TARGET_PACKAGE)：" +
+                    "模块只支持同包名宿主，改包名多开的克隆不在支持范围内"
+            )
             return
         }
+        if (!targetHooksStarted.compareAndSet(false, true)) return
         installTargetHooks(param.classLoader, loadedProcessName)
     }
 
@@ -2636,12 +2645,13 @@ class HookEntry : XposedModule() {
                     mainHandlerOrNull()?.post(action)
                 },
                 // 扫描热路径只更新宿主内存/私有缓存；模块设置页再主动拉取并校验落盘。
-                writeMineScanSnapshot = { json ->
+                writeScanSnapshot = { surface, json ->
                     MineComponentSnapshotHostBridge.update(
                         context = authorizationContext,
+                        surface = surface,
                         payload = json,
                         logError = { message ->
-                            logError("mine_snapshot_host_cache", "[BIL] $message")
+                            logError("mine_snapshot_host_cache_$surface", "[BIL] $message")
                         }
                     )
                 },
@@ -2892,6 +2902,10 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.HOME_TAB_HIDDEN_RULES,
                             ""
                         ).orEmpty(),
+                        selectors = prefs.getString(
+                            FeaturePreferences.HOME_TAB_HIDDEN_SELECTORS,
+                            ""
+                        ).orEmpty(),
                         points = hostAdaptResult?.homeTabs
                     ),
                     HomeComponentFilterFeatureInstaller(
@@ -2899,11 +2913,19 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.HOME_COMPONENT_HIDDEN_RULES,
                             ""
                         ).orEmpty(),
+                        selectors = prefs.getString(
+                            FeaturePreferences.HOME_COMPONENT_HIDDEN_SELECTORS,
+                            ""
+                        ).orEmpty(),
                         points = hostAdaptResult?.homeComponents
                     ),
                     BottomBarFeatureInstaller(
                         rules = prefs.getString(
                             FeaturePreferences.BOTTOM_BAR_HIDDEN_RULES,
+                            ""
+                        ).orEmpty(),
+                        selectors = prefs.getString(
+                            FeaturePreferences.BOTTOM_BAR_HIDDEN_SELECTORS,
                             ""
                         ).orEmpty(),
                         points = hostAdaptResult?.bottomBar

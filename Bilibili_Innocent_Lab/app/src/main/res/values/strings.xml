@@ -11,6 +11,9 @@
     <string name="module_activation_waiting_framework">Waiting for a compatible Xposed framework service</string>
     <string name="module_activation_service_unavailable">No compatible Xposed framework service is connected</string>
     <string name="module_activation_framework_unsupported">The connected framework does not support the required API 102 service</string>
+    <!-- Multi-user hints: the framework pushes the libxposed service per Android user, so a cloned-app or work profile needs the module enabled for that user too. -->
+    <string name="module_activation_service_unavailable_secondary_user">No framework service for Android user %1$d. Enable this module for that user in your framework manager.</string>
+    <string name="module_activation_user_space_mismatch">Module is in user %1$d, Bilibili is in user %2$d.</string>
     <string name="display_settings">Display settings</string>
     <string name="user_terms_dialog_title">Terms and risk notice</string>
     <string name="user_terms_body" tools:ignore="Typos">User Notice:\n\nThis project is an unofficial, non-commercial personal learning and research project. It is not affiliated with, authorized by, partnered with, or endorsed by Bilibili or any of its affiliates.\n\nUsing an Xposed/LSPosed module may change how the target app behaves and may be affected by client updates, system security policies, vendor ROMs, account experiment groups, or other modules. Users must assess the risks themselves and are responsible for installation, activation, data backups, and their device environment.\n\nThis project does not provide any content resources, participate in account trading, provide access credentials, or guarantee the availability of third-party extension services. Use it only in compliance with applicable local laws and regulations, target-platform rules, and open-source project licenses.\n\nTo support stable project maintenance, do not indiscriminately distribute project-related content on public social media in forms including, but not limited to, files, text, icons, links, images, videos, or code. This is a non-profit project. It does not charge software service fees in any way and does not proactively collect and transmit your personal information without consent. If you suspect that a file obtained from another source conflicts with these principles, be sure to compare it with the Release HASH for the corresponding version. A mismatched HASH may indicate third-party tampering, and this project cannot guarantee the safety of that file. If you knowingly continue to use it, you assume all resulting risks and consequences.\n\nAdditional disclaimers and risk notices: https://github.com/jichuo1/Bilibili_Innocent_Lab\n\nPlease read both this summary and the complete additional content before making your decision.</string>
@@ -110,15 +113,15 @@
     <string name="remove_home_recommend_large">Filter large-card recommendations</string>
     <string name="home_recommend_purify_tip">When enabled, filters the selected Home recommendations while keeping ordinary video recommendations. Restart Bilibili to apply.</string>
     <string name="custom_home_tab_hide">Customize Home tabs</string>
-    <string name="custom_home_tab_hide_tip">Enter Home tab names to hide. Separate multiple names with commas, semicolons, or line breaks; at least one tab is always kept.</string>
+    <string name="custom_home_tab_hide_tip">Open Bilibili’s Home page once, then tick the tabs to hide from the scan; manual name rules still work. At least one tab is always kept.</string>
     <string name="custom_home_tab_hide_dialog_title">Hidden Home tab rules</string>
     <string name="custom_home_tab_hide_hint">Example: Live, Mall</string>
     <string name="custom_home_component_hide">Customize Home components</string>
-    <string name="custom_home_component_hide_tip">Enter keywords for Home components to hide. Separate multiple keywords with commas, semicolons, or line breaks.</string>
+    <string name="custom_home_component_hide_tip">Open Bilibili’s Home page once, then tick the components to hide from the scan; manual keyword rules still work. Restart Bilibili to apply.</string>
     <string name="custom_home_component_hide_dialog_title">Hidden Home component rules</string>
     <string name="custom_home_component_hide_hint">Example: Popular, LiveHome</string>
     <string name="custom_bottom_bar_hide">Customize the bottom bar</string>
-    <string name="custom_bottom_bar_hide_tip">Enter bottom-bar names to hide. Separate multiple names with commas, semicolons, or line breaks; at least one entry is always kept.</string>
+    <string name="custom_bottom_bar_hide_tip">Open Bilibili once, then tick the bottom-bar entries to hide from the scan; manual name rules still work. At least one entry is always kept.</string>
     <string name="custom_bottom_bar_hide_dialog_title">Hidden bottom-bar rules</string>
     <string name="custom_bottom_bar_hide_hint">Example: Dynamic, Mall</string>
     <string name="recommend_video_duration_range">Filter recommended videos by duration</string>
@@ -151,6 +154,18 @@
     <string name="custom_mine_component_snapshot_unavailable">Could not reach an active Bilibili process. Start Bilibili with the module enabled, then open the Mine page.</string>
     <string name="custom_mine_component_snapshot_invalid">The returned scan failed validation. Restart Bilibili and scan the Mine page again.</string>
     <string name="custom_mine_component_snapshot_store_failed">The scan was read but could not be saved. You can use it this time; check again after restarting the module app.</string>
+    <!-- Shared picker copy: %1$s is the surface name, reused by the bottom bar / home tabs / home components. -->
+    <string name="component_picker_surface_bottom_bar">bottom bar items</string>
+    <string name="component_picker_surface_home_tabs">home tabs</string>
+    <string name="component_picker_surface_home_components">home components</string>
+    <string name="component_picker_snapshot_ready">Detected %2$d selectable %1$s. Restart Bilibili after saving. Keep at least one item enabled.</string>
+    <string name="component_picker_snapshot_stale">This %1$s scan is over 7 days old. Open that page in Bilibili once before choosing. Keep at least one item enabled.</string>
+    <string name="component_picker_snapshot_legacy">This is a legacy %1$s scan. Saving migrates selections to stable keys. Keep at least one item enabled.</string>
+    <string name="component_picker_snapshot_querying">Reading the latest %1$s scan from Bilibili…</string>
+    <string name="component_picker_snapshot_waiting_page">The module is connected, but Bilibili has not cached the %1$s yet. Open or refresh that page first.</string>
+    <string name="component_picker_snapshot_unavailable">Could not reach an active Bilibili process. Start Bilibili with the module enabled, then open the page that shows the %1$s.</string>
+    <string name="component_picker_snapshot_invalid">The returned %1$s scan failed validation. Restart Bilibili and scan again.</string>
+    <string name="component_picker_snapshot_store_failed">The %1$s scan was read but could not be saved. You can use it this time; check again after restarting the module app.</string>
     <string name="custom_mine_component_legacy_locked"> (hidden by a legacy manual rule)</string>
     <string name="custom_mine_component_not_selectable"> (detection only on this page version)</string>
     <string name="custom_mine_component_manual_rules">Manual rules</string>
@@ -540,6 +555,8 @@
     <string name="diagnostics_framework_ready">%1$s · API %2$d · Remote Preferences available</string>
     <string name="diagnostics_framework_unsupported">Connected to %1$s · API %2$d, but the required Remote Preferences capability is unavailable.</string>
     <string name="diagnostics_framework_waiting">Waiting for the framework service. NPatch may still provide an independent heartbeat.</string>
+    <string name="diagnostics_framework_secondary_user">This module app runs in non-primary Android user %1$d (possibly a cloned app or work profile). The libxposed service is delivered per user, so the module must also be enabled for that user in the framework manager.</string>
+    <string name="diagnostics_user_space_mismatch">The module app (user %1$d) and Bilibili (user %2$d) are in different Android users, so settings cannot reach the host. Install and enable both in the same user.</string>
     <string name="diagnostics_remote_ready">Snapshot was written and read back successfully · generation %1$d</string>
     <string name="diagnostics_remote_publishing">Publishing the latest settings snapshot…</string>
     <string name="diagnostics_remote_waiting">Waiting for a compatible framework service before publishing.</string>

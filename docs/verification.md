@@ -402,3 +402,41 @@ failed. That case needs a different entry design, not a patch to this channel.
 Separately, static-final immutability and the lock-free MessageQueue take
 effect per the *host app's* targetSdk, so KavaRef field writes in the Bilibili
 process may need a re-audit if Bilibili itself moves to API 37.
+
+## Multi-user and cloned-app boundary
+
+The supported boundary is stated in `architecture.md`: only clones that keep the
+`tv.danmaku.bili` package name (system multi-user, dual app, work profile) are
+supported. Renamed clones and VirtualApp-style containers are out of scope and
+must not be "made to work" by relaxing the module scope.
+
+Local builds cannot prove any of the following. All three need real hardware.
+
+1. Install the module in the primary user only, run Bilibili in a cloned user
+   (MIUI dual app uses userId 999), and open the module in that user if a copy
+   exists there. Record whether the framework delivers the libxposed service to
+   the cloned-user module process at all.
+2. Determine whether the framework stores Remote Preferences per Android user.
+   Publish `hook_config` from the primary user, then read the host log in the
+   cloned user. If the group is empty there, the host must reject with
+   `remote_key_set_mismatch` and install no feature Hook — a partially applied
+   configuration would be a defect.
+3. With `staticScope=true`, record how the framework manager applies the fixed
+   scope to secondary users: automatically, per user, or not at all.
+
+UI checks that can be run as soon as a secondary user exists:
+
+4. In a non-primary user with no framework service, the activation card must
+   read "no framework service for Android user N" with the real user id, not the
+   generic "no compatible service" text, and the source line must wrap instead of
+   ellipsizing. In the primary user the wording and single-line behavior must be
+   unchanged.
+5. Install the module and Bilibili in different users. The activation card must
+   append the module/target user id pair, and the diagnostics `FRAMEWORK_SERVICE`
+   item must show the same mismatch line. `TARGET_APP` must report the target as
+   missing rather than guessing an identity from another user.
+6. Confirm the multi-user hints never change item severity or the overall status,
+   and that an exported diagnostic report still validates at format version 3
+   with no user id field in it.
+7. Scope a renamed host clone by any means available and confirm the module logs
+   the observed package name once and installs nothing.
