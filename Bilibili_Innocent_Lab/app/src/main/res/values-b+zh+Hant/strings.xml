@@ -12,6 +12,8 @@
     <string name="module_activation_waiting_framework">正在等待相容的 Xposed 框架服務</string>
     <string name="module_activation_service_unavailable">尚未連接相容的 Xposed 框架服務</string>
     <string name="module_activation_framework_unsupported">目前框架不支援所需的 API 102 服務</string>
+    <string name="module_activation_service_unavailable_secondary_user">目前 Android 使用者 %1$d 下沒有框架服務；請在框架管理器中為該使用者啟用本模組。</string>
+    <string name="module_activation_user_space_mismatch">模組在使用者 %1$d，嗶哩嗶哩在使用者 %2$d。</string>
     <string name="display_settings">顯示設定</string>
     <string name="user_terms_dialog_title">使用者條款與風險提示</string>
     <string name="user_terms_body">使用者須知：\n\n本專案是非官方、非商業性質的個人學習與研究專案，與嗶哩嗶哩及其關聯公司不存在隸屬、授權、合作或背書關係。\n\n使用 Xposed/LSPosed 模組可能改變目標應用程式的執行行為，並可能受到用戶端更新、系統安全策略、廠商 ROM、帳號實驗分組或其他模組影響。使用者應自行評估風險，並對安裝、啟用、資料備份及裝置環境負責。\n\n本專案不提供任何內容資源，不參與帳號交易，不提供存取憑證，也不保證第三方擴充服務的可用性。請在遵守所在地法律法規、目標平台規則及開源專案授權條款的前提下使用。\n\n為確保專案穩定維護，請勿將本專案相關內容以包括但不限於檔案、文字、圖示、連結、圖片、影片、程式碼等形式，在公開社群媒體進行不定向傳播。本專案為非營利性專案，不會以任何方式收取軟體服務費用，也不會在未經同意的前提下主動取得並傳輸您的個人資訊。若您懷疑從其他管道取得的檔案與上述宗旨相違背，請務必對照對應版本的 Release HASH；若檔案 HASH 不一致，該檔案可能已遭第三方竄改，本專案無法保證其安全性。若您知悉後仍繼續使用，由此產生的一切風險與後果請自行承擔。\n\n附加免責聲明與風險提示詳見：https://github.com/jichuo1/Bilibili_Innocent_Lab\n\n請務必閱讀完畢摘要內容與完整附加內容，再作決定。</string>
@@ -111,15 +113,15 @@
     <string name="remove_home_recommend_large">過濾大型卡片推薦</string>
     <string name="home_recommend_purify_tip">啟用後，依上方選項過濾首頁推薦內容，一般影片推薦不受影響。重新啟動 Bilibili 後生效。</string>
     <string name="custom_home_tab_hide">自訂首頁分頁</string>
-    <string name="custom_home_tab_hide_tip">輸入要隱藏的首頁分頁名稱，多個名稱可用逗號、分號或換行分隔；系統會始終保留至少一個分頁。</string>
+    <string name="custom_home_tab_hide_tip">先開啟一次嗶哩嗶哩首頁即可依掃描結果勾選要隱藏的頂欄標籤，也可繼續使用手動名稱規則；系統會始終保留至少一個分頁。</string>
     <string name="custom_home_tab_hide_dialog_title">首頁分頁隱藏規則</string>
     <string name="custom_home_tab_hide_hint">例如：直播, 會員購</string>
     <string name="custom_home_component_hide">自訂首頁元件</string>
-    <string name="custom_home_component_hide_tip">輸入要隱藏的首頁元件關鍵字，多個關鍵字可用逗號、分號或換行分隔。</string>
+    <string name="custom_home_component_hide_tip">先開啟一次嗶哩嗶哩首頁即可依掃描結果勾選要隱藏的首頁元件，也可繼續使用手動關鍵字規則；修改後重新啟動嗶哩嗶哩才會生效。</string>
     <string name="custom_home_component_hide_dialog_title">首頁元件隱藏規則</string>
     <string name="custom_home_component_hide_hint">例如：Popular, LiveHome</string>
     <string name="custom_bottom_bar_hide">自訂底部導覽列</string>
-    <string name="custom_bottom_bar_hide_tip">輸入要隱藏的底部導覽列名稱，多個名稱可用逗號、分號或換行分隔；系統會始終保留至少一個入口。</string>
+    <string name="custom_bottom_bar_hide_tip">先開啟一次嗶哩嗶哩即可依掃描結果勾選要隱藏的底欄入口，也可繼續使用手動名稱規則；系統會始終保留至少一個入口。</string>
     <string name="custom_bottom_bar_hide_dialog_title">底部導覽列隱藏規則</string>
     <string name="custom_bottom_bar_hide_hint">例如：動態, 會員購</string>
     <string name="recommend_video_duration_range">依影片時長過濾推薦</string>
@@ -152,6 +154,18 @@
     <string name="custom_mine_component_snapshot_unavailable">未連線到已啟用的嗶哩嗶哩程序；請啟用模組後啟動嗶哩嗶哩並進入「我的」頁面。</string>
     <string name="custom_mine_component_snapshot_invalid">傳回的掃描結果驗證失敗；請重新啟動嗶哩嗶哩後再次進入「我的」頁面掃描。</string>
     <string name="custom_mine_component_snapshot_store_failed">已讀取掃描結果，但模組快取寫入失敗；本次仍可選擇，重新啟動模組介面後請再次檢查。</string>
+    <!-- 勾選面板通用文案：%1$s 為面名稱，供底欄 / 首頁標籤 / 首頁元件共用。 -->
+    <string name="component_picker_surface_bottom_bar">底欄元件</string>
+    <string name="component_picker_surface_home_tabs">首頁頂欄標籤</string>
+    <string name="component_picker_surface_home_components">首頁元件</string>
+    <string name="component_picker_snapshot_ready">已辨識 %2$d 個可選的%1$s；修改後需重新啟動嗶哩嗶哩才會生效。請至少保留一項。</string>
+    <string name="component_picker_snapshot_stale">這份%1$s掃描結果已超過 7 天；建議先在嗶哩嗶哩開啟一次對應頁面再勾選。請至少保留一項。</string>
+    <string name="component_picker_snapshot_legacy">這是舊版%1$s掃描結果；儲存時會遷移為穩定選擇鍵。請至少保留一項。</string>
+    <string name="component_picker_snapshot_querying">正在從嗶哩嗶哩讀取最新的%1$s掃描結果…</string>
+    <string name="component_picker_snapshot_waiting_page">已連線到模組 Hook，但嗶哩嗶哩尚未快取%1$s；請先開啟或重新整理一次對應頁面。</string>
+    <string name="component_picker_snapshot_unavailable">未連線到已啟用的嗶哩嗶哩處理程序；請在啟用模組後啟動嗶哩嗶哩，並開啟含%1$s的頁面。</string>
+    <string name="component_picker_snapshot_invalid">傳回的%1$s掃描結果驗證失敗；請重新啟動嗶哩嗶哩後重新掃描。</string>
+    <string name="component_picker_snapshot_store_failed">已讀取%1$s掃描結果，但模組快取寫入失敗；本次仍可選擇，重新啟動模組介面後請再次檢查。</string>
     <string name="custom_mine_component_legacy_locked">（由舊手動規則隱藏）</string>
     <string name="custom_mine_component_not_selectable">（目前頁面僅支援識別）</string>
     <string name="custom_mine_component_manual_rules">手動規則</string>
@@ -541,6 +555,8 @@
     <string name="diagnostics_framework_ready">%1$s · API %2$d · Remote Preferences 可用</string>
     <string name="diagnostics_framework_unsupported">已連線 %1$s · API %2$d，但缺少所需的 Remote Preferences 能力。</string>
     <string name="diagnostics_framework_waiting">正在等待框架服務；NPatch 仍可透過獨立 heartbeat 提供證據。</string>
+    <string name="diagnostics_framework_secondary_user">模組設定 App 執行在非主要使用者 %1$d（可能是應用程式分身或工作資料）。libxposed 服務會依使用者投遞，因此必須在框架管理器中同時為該使用者啟用本模組。</string>
+    <string name="diagnostics_user_space_mismatch">模組設定 App（使用者 %1$d）與嗶哩嗶哩（使用者 %2$d）不在同一 Android 使用者，設定無法送達宿主。請在同一個使用者下安裝並啟用兩者。</string>
     <string name="diagnostics_remote_ready">快照已寫入並成功讀回驗證 · 世代 %1$d</string>
     <string name="diagnostics_remote_publishing">正在發佈最新設定快照…</string>
     <string name="diagnostics_remote_waiting">正在等待相容的框架服務後再發佈。</string>

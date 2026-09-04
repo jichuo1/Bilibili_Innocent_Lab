@@ -62,8 +62,10 @@ import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticItemId
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticNoRootState
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticRemotePublishState
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticSeverity
+import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.ModuleDiagnosticInputs
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.ModuleDiagnosticSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AndroidUserSpace
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatusListener
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
@@ -921,6 +923,27 @@ class DiagnosticsActivity : SkinnedActivity() {
         }
     )
 
+    /**
+     * 多用户空间提示。只在真的可能影响服务投递时出现，主用户下恒为空列表，不给正常环境
+     * 增加噪声。分身用户本身不是故障，因此这些提示不参与 severity，只解释"为什么收不到服务"。
+     */
+    private fun userSpaceHints(input: ModuleDiagnosticInputs): List<String> = buildList {
+        if (!input.frameworkCapable &&
+            AndroidUserSpace.isSecondaryOrCloneProfile(input.moduleUserId)
+        ) {
+            add(getString(R.string.diagnostics_framework_secondary_user, input.moduleUserId))
+        }
+        if (input.sameAndroidUser == false && input.targetUserId != null) {
+            add(
+                getString(
+                    R.string.diagnostics_user_space_mismatch,
+                    input.moduleUserId,
+                    input.targetUserId
+                )
+            )
+        }
+    }
+
     private fun itemDetail(id: DiagnosticItemId, snapshot: ModuleDiagnosticSnapshot): String {
         val input = snapshot.inputs
         return when (id) {
@@ -938,18 +961,21 @@ class DiagnosticsActivity : SkinnedActivity() {
                 input.targetVersionName.orEmpty(),
                 input.targetVersionCode
             ) else getString(R.string.diagnostics_target_missing)
-            DiagnosticItemId.FRAMEWORK_SERVICE -> when {
-                input.frameworkCapable -> getString(
-                    R.string.diagnostics_framework_ready,
-                    input.frameworkName.ifBlank { "LSPosed" },
-                    input.frameworkApiVersion
-                )
-                input.frameworkConnected -> getString(
-                    R.string.diagnostics_framework_unsupported,
-                    input.frameworkName.ifBlank { "Xposed" },
-                    input.frameworkApiVersion
-                )
-                else -> getString(R.string.diagnostics_framework_waiting)
+            DiagnosticItemId.FRAMEWORK_SERVICE -> {
+                val base = when {
+                    input.frameworkCapable -> getString(
+                        R.string.diagnostics_framework_ready,
+                        input.frameworkName.ifBlank { "LSPosed" },
+                        input.frameworkApiVersion
+                    )
+                    input.frameworkConnected -> getString(
+                        R.string.diagnostics_framework_unsupported,
+                        input.frameworkName.ifBlank { "Xposed" },
+                        input.frameworkApiVersion
+                    )
+                    else -> getString(R.string.diagnostics_framework_waiting)
+                }
+                (listOf(base) + userSpaceHints(input)).joinToString(separator = "\n")
             }
             DiagnosticItemId.REMOTE_CONFIG -> when {
                 input.remotePublishPending &&
