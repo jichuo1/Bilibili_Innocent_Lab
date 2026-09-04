@@ -536,10 +536,12 @@ internal class MineComponentFilterFeatureInstaller(
             }
             capabilities.clear()
             capabilities.addAll(newCapabilities)
-            environment.writeMineScanSnapshot?.invoke(
+            environment.writeScanSnapshot?.invoke(
+                MineComponentSnapshotCodec.SURFACE_MINE,
                 MineComponentSnapshotCodec.encode(
                     processName = environment.processName,
                     capabilities = capabilities,
+                    surface = MineComponentSnapshotCodec.SURFACE_MINE,
                     entries = entries.values
                 )
             )

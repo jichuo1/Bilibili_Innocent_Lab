@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AndroidUserSpace
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.ActivationDisplayState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootDisplayState
@@ -57,6 +58,8 @@ internal object ModuleDiagnosticsCollector {
         val manualCount = SettingsCatalog.specs.size - automaticCount
         val requestedSkin = skin?.requestedSkin?.name ?: "NOT_PREPARED"
         val effectiveSkin = skin?.effectiveSkin?.name ?: "NOT_PREPARED"
+        // 一次 PackageManager 查询，与上面的 targetInfo 同属本次采集；诊断页刷新是低频操作。
+        val userSpace = AndroidUserSpace.capture(appContext, NoRootSupportState.TARGET_PACKAGE)
         return ModuleHealthEvaluator.evaluate(
             ModuleDiagnosticInputs(
                 collectedAtEpochMs = nowEpochMs.coerceAtLeast(1L),
@@ -138,7 +141,10 @@ internal object ModuleDiagnosticsCollector {
                 hostHookPointMissingCount = hostRuntime?.bootstrap?.hookPointMissingCount ?: 0,
                 hostHookPointFailedCount = hostRuntime?.bootstrap?.hookPointFailedCount ?: 0,
                 hostInstalledFeatureCount = hostRuntime?.installedFeatureCount ?: 0,
-                hostFailedFeatureCount = hostRuntime?.failedFeatureCount ?: 0
+                hostFailedFeatureCount = hostRuntime?.failedFeatureCount ?: 0,
+                moduleUserId = userSpace.moduleUserId,
+                targetUserId = userSpace.targetUserId,
+                sameAndroidUser = userSpace.sameUser
             )
         )
     }

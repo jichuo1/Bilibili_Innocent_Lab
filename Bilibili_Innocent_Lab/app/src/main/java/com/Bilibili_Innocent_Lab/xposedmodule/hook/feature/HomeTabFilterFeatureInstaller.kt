@@ -6,17 +6,19 @@ import java.lang.reflect.Field
 /** 在首页 Tab 构建参数进入宿主前按 id/title/uri/reporterId 自定义过滤。 */
 internal class HomeTabFilterFeatureInstaller(
     rules: String,
+    selectors: String = "",
     private val points: VersionAdapter.HomeTabPoints?
 ) : FeatureInstaller {
 
     override val id: String = ID
     private val tokens = RuleSetCodec.parse(rules)
+    private val selectorSet = MineComponentSelectionCodec.decode(selectors)
+
+    private fun hasHiddenConfiguration(): Boolean =
+        tokens.isNotEmpty() || selectorSet.isNotEmpty()
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
-        if (tokens.isEmpty()) {
-            environment.reportStatus(CHANNEL_STATUS, "disabled")
-            return FeatureInstallResult.Skipped("disabled")
-        }
+        // 即使一项都没勾也要装：不扫描就永远产不出勾选列表（沿用"我的"页的 scan / filter+scan 口径）。
         if (environment.processName != TARGET_PACKAGE) {
             return FeatureInstallResult.Skipped("non-main-process")
         }
@@ -37,11 +39,30 @@ internal class HomeTabFilterFeatureInstaller(
             return missing(environment, "missing-resource-fields")
         }
 
+        val publisher = ScanSnapshotPublisher(
+            environment,
+            MineComponentSnapshotCodec.SURFACE_HOME_TABS,
+            setOf("home_tab_filter")
+        )
         return runCatching {
             environment.registrar.adapted("home.tabs.build", adapted.buildMethod) {
                 before {
                     val source = args.firstOrNull() as? List<*> ?: return@before
                     if (source.isEmpty()) return@before
+                    // 先按未过滤的完整列表出快照，勾选面板才看得到"当前被隐藏的那几项"。
+                    publisher.publish(
+                        source.mapNotNull { item ->
+                            if (!resource.isInstance(item) || item == null) return@mapNotNull null
+                            MineComponentScanEntry.create(
+                                kind = "home_tab",
+                                title = readString(fields.title, item),
+                                id = readString(fields.id, item),
+                                uri = readString(fields.uri, item),
+                                showing = !matches(item, fields)
+                            )
+                        }
+                    )
+                    if (!hasHiddenConfiguration()) return@before
                     val filtered = CopyOnFilter.list(source) { item ->
                         resource.isInstance(item) && matches(item, fields)
                     }
@@ -50,7 +71,8 @@ internal class HomeTabFilterFeatureInstaller(
                     }
                 }
             }
-            environment.reportStatus(CHANNEL_STATUS, "success")
+            val mode = if (hasHiddenConfiguration()) "filter+scan" else "scan"
+            environment.reportStatus(CHANNEL_STATUS, "success:$mode")
             environment.logInfo("home_tabs_ok", "[BIL] 首页 Tab 自定义隐藏已安装")
             FeatureInstallResult.Installed()
         }.getOrElse { throwable ->
@@ -66,13 +88,25 @@ internal class HomeTabFilterFeatureInstaller(
         suffix: String
     ): Field? = environment.hookPoints.resolveField("home.tabs.$suffix", owner, name)
 
-    private fun matches(item: Any, fields: Fields): Boolean = RuleSetCodec.matches(
-        tokens,
-        readString(fields.id, item),
-        readString(fields.title, item),
-        readString(fields.uri, item),
-        readString(fields.reporter, item)
-    )
+    /** 手填规则与勾选选择器取并集；两条来源互不依赖，任一命中即隐藏。 */
+    private fun matches(item: Any, fields: Fields): Boolean {
+        if (tokens.isNotEmpty() && RuleSetCodec.matches(
+                tokens,
+                readString(fields.id, item),
+                readString(fields.title, item),
+                readString(fields.uri, item),
+                readString(fields.reporter, item)
+            )
+        ) return true
+        if (selectorSet.isEmpty()) return false
+        val key = MineComponentSelector.key(
+            "home_tab",
+            readString(fields.title, item),
+            readString(fields.id, item),
+            readString(fields.uri, item)
+        )
+        return key != null && key in selectorSet
+    }
 
     private fun readString(field: Field?, target: Any): String? = runCatching {
         field?.get(target) as? String

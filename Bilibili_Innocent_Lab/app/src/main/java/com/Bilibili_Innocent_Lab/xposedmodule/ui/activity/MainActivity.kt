@@ -87,8 +87,11 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureI
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentScanEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSelectionCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshot
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshotCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.RuleSetCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AndroidUserSpace
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AndroidUserSpaceSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.GitHubReleaseChecker
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
@@ -255,7 +258,8 @@ class MainActivity : SkinnedActivity() {
     private var hideMineVip = false
     private var keepMineVipSpace = false
     private var mineComponentHiddenRules = ""
-    private var mineComponentSnapshotQueryInFlight = false
+    /** 每个面各自节流一次查询；四个面的面板可以互不阻塞地打开。仅在主线程读写。 */
+    private val componentSnapshotQueryInFlight = mutableSetOf<String>()
     private var blockAppUpdate = false
     private var hideDynamicCityTab = false
     private var hideDynamicSchoolTab = false
@@ -377,6 +381,13 @@ class MainActivity : SkinnedActivity() {
     private val activationMainHandler = Handler(Looper.getMainLooper())
     private var frameworkStatusCheckPending = true
     private var frameworkServiceObserved = false
+
+    /**
+     * 模块与宿主的 Android 用户空间关系。`renderActivationUi` 会被框架状态回调、皮肤刷新和
+     * 免 Root 状态变化反复调用，因此这里缓存 `onStart` 采集的一次 PackageManager 结果，不在
+     * 渲染路径里重复查询。未采集前按主用户处理，不产生任何提示。
+     */
+    private var moduleUserSpace = AndroidUserSpaceSnapshot.PRIMARY
     private val frameworkStatusTimeout = Runnable {
         frameworkStatusCheckPending = false
         if (userTermsDecision.isAuthorized &&
@@ -713,8 +724,14 @@ class MainActivity : SkinnedActivity() {
                 ActivationDisplayState.UNAVAILABLE -> R.string.module_activation_not_detected
             }
         )
+        // 只有真的要展示多用户提示时才放开换行；判定来自状态而不是文案长度，避免翻译一改
+        // 就悄悄退回单行省略。
+        val showsSecondaryUserText = displayState == ActivationDisplayState.UNAVAILABLE &&
+            !framework.connected &&
+            moduleUserSpace.possibleSecondaryOrCloneProfile
+        val showsUserSpaceHint = showsSecondaryUserText || moduleUserSpace.sameUser == false
         activationSourceView?.apply {
-            text = when (displayState) {
+            val baseText = when (displayState) {
                 ActivationDisplayState.ACTIVE_LSPOSED -> if (framework.apiVersion > 0) getString(
                     R.string.activated_by,
                     framework.name,
@@ -727,14 +744,34 @@ class MainActivity : SkinnedActivity() {
                     getString(R.string.no_root_activated_by_npatch)
                 ActivationDisplayState.CHECKING ->
                     getString(R.string.module_activation_waiting_framework)
-                ActivationDisplayState.UNAVAILABLE ->
-                    getString(
-                        if (framework.connected) {
-                            R.string.module_activation_framework_unsupported
-                        } else {
-                            R.string.module_activation_service_unavailable
-                        }
+                ActivationDisplayState.UNAVAILABLE -> when {
+                    framework.connected ->
+                        getString(R.string.module_activation_framework_unsupported)
+                    // 分身/工作资料用户里"收不到服务"几乎总是"该用户下没启用模块"，而不是
+                    // "框架没装"。旧文案把两者压成同一句，用户无从判断该去哪里改。
+                    moduleUserSpace.possibleSecondaryOrCloneProfile -> getString(
+                        R.string.module_activation_service_unavailable_secondary_user,
+                        moduleUserSpace.moduleUserId
                     )
+                    else -> getString(R.string.module_activation_service_unavailable)
+                }
+            }
+            val mismatchText = moduleUserSpace.targetUserId
+                ?.takeIf { moduleUserSpace.sameUser == false }
+                ?.let { targetUserId ->
+                    getString(
+                        R.string.module_activation_user_space_mismatch,
+                        moduleUserSpace.moduleUserId,
+                        targetUserId
+                    )
+                }
+            text = listOfNotNull(baseText, mismatchText).joinToString(separator = "\n")
+            // 多用户提示需要换行才能读完；其余状态保持原来的单行省略，不改变正常观感。
+            if (showsUserSpaceHint) {
+                isSingleLine = false
+                maxLines = 3
+            } else {
+                isSingleLine = true
             }
             isVisible = true
         }
@@ -3676,16 +3713,156 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
-    /** 新协议快照同时校验来源版本；旧快照仍按原有协议兼容读取。 */
-    private fun readMineComponentSnapshot(): MineComponentSnapshot? =
-        MineComponentSnapshotStore.read(this)
+    /**
+     * 勾选式屏蔽面板的"面"描述符：把四个面的差异全部收敛到这一处。
+     *
+     * "我的"页 / 底栏 / 首页顶栏标签 / 首页组件共用同一条
+     * 宿主扫描 → 跨进程查询 → 勾选 → 写回 selector 的链路，面板本身完全一致。
+     */
+    private class ComponentPickerSurface(
+        val surface: String,
+        @StringRes val titleRes: Int,
+        @StringRes val hintRes: Int,
+        @StringRes val labelRes: Int,
+        val selectorsKey: String,
+        val rulesKey: String,
+        val status: PickerStatusText,
+        val currentRules: () -> String,
+        val onRulesSaved: (String) -> Unit,
+        val summaryView: () -> NativeTextView?,
+        /** 仅"我的"页有历史遗留的 id 名单；其余面为 null。 */
+        val legacyIdsKey: String? = null
+    )
 
-    private fun queryMineComponentSnapshotAndOpenPicker() {
-        if (mineComponentSnapshotQueryInFlight) return
-        mineComponentSnapshotQueryInFlight = true
-        toast(getString(R.string.custom_mine_component_snapshot_querying))
-        MineComponentSnapshotQueryClient.query(this) { result ->
-            mineComponentSnapshotQueryInFlight = false
+    /**
+     * 面板状态文案。
+     *
+     * 用现成字符串而不是 `@StringRes`：`"我的"`页沿用它原有的专属文案（措辞不动），
+     * 另外三个面共用一套带面名占位符的通用文案，两者格式化参数的形状并不一致。
+     */
+    private class PickerStatusText(
+        val querying: String,
+        val waitingPage: String,
+        val unavailable: String,
+        val invalid: String,
+        val storeFailed: String,
+        val stale: String,
+        val legacy: String,
+        val ready: (Int) -> String
+    )
+
+    private fun mineStatusText() = PickerStatusText(
+        querying = getString(R.string.custom_mine_component_snapshot_querying),
+        waitingPage = getString(R.string.custom_mine_component_snapshot_waiting_page),
+        unavailable = getString(R.string.custom_mine_component_snapshot_unavailable),
+        invalid = getString(R.string.custom_mine_component_snapshot_invalid),
+        storeFailed = getString(R.string.custom_mine_component_snapshot_store_failed),
+        stale = getString(R.string.custom_mine_component_snapshot_stale),
+        legacy = getString(R.string.custom_mine_component_snapshot_legacy),
+        ready = { count -> getString(R.string.custom_mine_component_snapshot_ready, count) }
+    )
+
+    private fun genericStatusText(@StringRes nameRes: Int): PickerStatusText {
+        val name = getString(nameRes)
+        return PickerStatusText(
+            querying = getString(R.string.component_picker_snapshot_querying, name),
+            waitingPage = getString(R.string.component_picker_snapshot_waiting_page, name),
+            unavailable = getString(R.string.component_picker_snapshot_unavailable, name),
+            invalid = getString(R.string.component_picker_snapshot_invalid, name),
+            storeFailed = getString(R.string.component_picker_snapshot_store_failed, name),
+            stale = getString(R.string.component_picker_snapshot_stale, name),
+            legacy = getString(R.string.component_picker_snapshot_legacy, name),
+            ready = { count ->
+                getString(R.string.component_picker_snapshot_ready, name, count)
+            }
+        )
+    }
+
+    private fun mineComponentPickerSurface() = ComponentPickerSurface(
+        surface = MineComponentSnapshotCodec.SURFACE_MINE,
+        titleRes = R.string.custom_mine_component_hide_dialog_title,
+        hintRes = R.string.custom_mine_component_hide_hint,
+        labelRes = R.string.custom_mine_component_hide,
+        selectorsKey = FeaturePreferences.MINE_COMPONENT_HIDDEN_SELECTORS,
+        rulesKey = FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES,
+        status = mineStatusText(),
+        currentRules = { mineComponentHiddenRules },
+        onRulesSaved = { mineComponentHiddenRules = it },
+        summaryView = { mineComponentRulesSummaryView },
+        legacyIdsKey = FeaturePreferences.MINE_COMPONENT_HIDDEN_IDS
+    )
+
+    private fun bottomBarPickerSurface() = ComponentPickerSurface(
+        surface = MineComponentSnapshotCodec.SURFACE_BOTTOM_BAR,
+        titleRes = R.string.custom_bottom_bar_hide_dialog_title,
+        hintRes = R.string.custom_bottom_bar_hide_hint,
+        labelRes = R.string.custom_bottom_bar_hide,
+        selectorsKey = FeaturePreferences.BOTTOM_BAR_HIDDEN_SELECTORS,
+        rulesKey = FeaturePreferences.BOTTOM_BAR_HIDDEN_RULES,
+        status = genericStatusText(R.string.component_picker_surface_bottom_bar),
+        currentRules = { bottomBarHiddenRules },
+        onRulesSaved = { bottomBarHiddenRules = it },
+        summaryView = { bottomBarRulesSummaryView }
+    )
+
+    private fun homeTabPickerSurface() = ComponentPickerSurface(
+        surface = MineComponentSnapshotCodec.SURFACE_HOME_TABS,
+        titleRes = R.string.custom_home_tab_hide_dialog_title,
+        hintRes = R.string.custom_home_tab_hide_hint,
+        labelRes = R.string.custom_home_tab_hide,
+        selectorsKey = FeaturePreferences.HOME_TAB_HIDDEN_SELECTORS,
+        rulesKey = FeaturePreferences.HOME_TAB_HIDDEN_RULES,
+        status = genericStatusText(R.string.component_picker_surface_home_tabs),
+        currentRules = { homeTabHiddenRules },
+        onRulesSaved = { homeTabHiddenRules = it },
+        summaryView = { homeTabRulesSummaryView }
+    )
+
+    private fun homeComponentPickerSurface() = ComponentPickerSurface(
+        surface = MineComponentSnapshotCodec.SURFACE_HOME_COMPONENTS,
+        titleRes = R.string.custom_home_component_hide_dialog_title,
+        hintRes = R.string.custom_home_component_hide_hint,
+        labelRes = R.string.custom_home_component_hide,
+        selectorsKey = FeaturePreferences.HOME_COMPONENT_HIDDEN_SELECTORS,
+        rulesKey = FeaturePreferences.HOME_COMPONENT_HIDDEN_RULES,
+        status = genericStatusText(R.string.component_picker_surface_home_components),
+        currentRules = { homeComponentHiddenRules },
+        onRulesSaved = { homeComponentHiddenRules = it },
+        summaryView = { homeComponentRulesSummaryView }
+    )
+
+    /** 勾选数 + 手填规则的两行摘要；两者是并集关系，缺一方就只显示另一方。 */
+    private fun ComponentPickerSurface.summaryText(): String {
+        val selectorCount = MineComponentSelectionCodec.decode(
+            prefs().getString(selectorsKey, "").orEmpty()
+        ).size
+        val selectorSummary = if (selectorCount > 0) {
+            getString(R.string.custom_mine_component_selected_count, selectorCount)
+        } else {
+            ""
+        }
+        val rules = currentRules()
+        val manualSummary = ruleSummary(rules)
+        return when {
+            selectorSummary.isEmpty() -> manualSummary
+            rules.isBlank() -> selectorSummary
+            else -> "$selectorSummary\n$manualSummary"
+        }
+    }
+
+    private fun ComponentPickerSurface.refreshSummary() {
+        summaryView()?.text = getString(labelRes) + "\n" + summaryText()
+    }
+
+    /** 新协议快照同时校验来源版本；旧快照仍按原有协议兼容读取。 */
+    private fun readComponentSnapshot(spec: ComponentPickerSurface): MineComponentSnapshot? =
+        MineComponentSnapshotStore.read(this, spec.surface)
+
+    private fun queryComponentSnapshotAndOpenPicker(spec: ComponentPickerSurface) {
+        if (!componentSnapshotQueryInFlight.add(spec.surface)) return
+        toast(spec.status.querying)
+        MineComponentSnapshotQueryClient.query(this, spec.surface) { result ->
+            componentSnapshotQueryInFlight.remove(spec.surface)
             if (isFinishing || isDestroyed ||
                 !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             ) return@query
@@ -3693,62 +3870,60 @@ class MainActivity : SkinnedActivity() {
                 MineComponentSnapshotQueryClient.Status.READY -> {
                     val snapshot = result.snapshot
                     if (snapshot != null && snapshot.entries.isNotEmpty()) {
-                        showMineComponentPickerDialog(snapshot)
+                        showComponentPickerDialog(spec, snapshot)
                     } else {
-                        showMineSnapshotFallback(R.string.custom_mine_component_snapshot_invalid)
+                        showComponentSnapshotFallback(spec, spec.status.invalid)
                     }
                 }
 
                 MineComponentSnapshotQueryClient.Status.WAITING_PAGE ->
-                    showMineSnapshotFallback(R.string.custom_mine_component_snapshot_waiting_page)
+                    showComponentSnapshotFallback(spec, spec.status.waitingPage)
 
                 MineComponentSnapshotQueryClient.Status.TARGET_UNAVAILABLE ->
-                    showMineSnapshotFallback(R.string.custom_mine_component_snapshot_unavailable)
+                    showComponentSnapshotFallback(spec, spec.status.unavailable)
 
                 MineComponentSnapshotQueryClient.Status.INVALID_RESPONSE ->
-                    showMineSnapshotFallback(R.string.custom_mine_component_snapshot_invalid)
+                    showComponentSnapshotFallback(spec, spec.status.invalid)
 
                 MineComponentSnapshotQueryClient.Status.STORE_FAILED ->
-                    showMineSnapshotFallback(
-                        R.string.custom_mine_component_snapshot_store_failed,
+                    showComponentSnapshotFallback(
+                        spec,
+                        spec.status.storeFailed,
                         result.snapshot
                     )
             }
         }
     }
 
-    private fun showMineSnapshotFallback(
-        @StringRes messageRes: Int,
+    private fun showComponentSnapshotFallback(
+        spec: ComponentPickerSurface,
+        message: String,
         transientSnapshot: MineComponentSnapshot? = null
     ) {
-        toast(getString(messageRes))
-        val snapshot = transientSnapshot ?: readMineComponentSnapshot()
+        toast(message)
+        val snapshot = transientSnapshot ?: readComponentSnapshot(spec)
         if (snapshot != null && snapshot.entries.isNotEmpty()) {
-            showMineComponentPickerDialog(snapshot)
+            showComponentPickerDialog(spec, snapshot)
         } else {
-            showMineManualRuleEditor()
+            showComponentManualRuleEditor(spec)
         }
     }
 
-    private fun showMineManualRuleEditor() {
-        showRuleEditorDialog(
-            R.string.custom_mine_component_hide_dialog_title,
-            R.string.custom_mine_component_hide_hint,
-            mineComponentHiddenRules
-        ) { value ->
-            mineComponentHiddenRules = value
-            prefs().edit {
-                putString(FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES, value)
-            }
-            mineComponentRulesSummaryView?.text =
-                getString(R.string.custom_mine_component_hide) + "\n" + mineComponentSummary()
+    private fun showComponentManualRuleEditor(spec: ComponentPickerSurface) {
+        showRuleEditorDialog(spec.titleRes, spec.hintRes, spec.currentRules()) { value ->
+            spec.onRulesSaved(value)
+            prefs().edit { putString(spec.rulesKey, value) }
+            spec.refreshSummary()
         }
     }
 
     /**
      * 动态勾选只写稳定 selector；旧 id 和用户手写标题规则仅作为兼容输入，不会被覆盖。
      */
-    private fun showMineComponentPickerDialog(snapshot: MineComponentSnapshot) {
+    private fun showComponentPickerDialog(
+        spec: ComponentPickerSurface,
+        snapshot: MineComponentSnapshot
+    ) {
         val entries = snapshot.entries
         if (entries.isEmpty()) return
 
@@ -3758,7 +3933,7 @@ class MainActivity : SkinnedActivity() {
 
         container.addView(
             NativeTextView(this).apply {
-                text = getString(R.string.custom_mine_component_hide_dialog_title)
+                text = getString(spec.titleRes)
                 textColor = getColor(R.color.colorTextDark)
                 textSize = 17f
                 setLineSpacing(4 * density, 1f)
@@ -3774,12 +3949,9 @@ class MainActivity : SkinnedActivity() {
         container.addView(
             NativeTextView(this).apply {
                 text = when {
-                    snapshot.generatedAt <= 0L ->
-                        getString(R.string.custom_mine_component_snapshot_legacy)
-                    snapshotAge > MINE_COMPONENT_SNAPSHOT_STALE_MS ->
-                        getString(R.string.custom_mine_component_snapshot_stale)
-                    else -> getString(
-                        R.string.custom_mine_component_snapshot_ready,
+                    snapshot.generatedAt <= 0L -> spec.status.legacy
+                    snapshotAge > MINE_COMPONENT_SNAPSHOT_STALE_MS -> spec.status.stale
+                    else -> spec.status.ready(
                         entries.count(MineComponentScanEntry::selectable)
                     )
                 }
@@ -3794,16 +3966,16 @@ class MainActivity : SkinnedActivity() {
         )
 
         val initialSelectors = MineComponentSelectionCodec.decode(
-            prefs().getString(
-                FeaturePreferences.MINE_COMPONENT_HIDDEN_SELECTORS,
-                ""
-            ).orEmpty()
+            prefs().getString(spec.selectorsKey, "").orEmpty()
         )
-        val initialHiddenIds = prefs().getString(
-            FeaturePreferences.MINE_COMPONENT_HIDDEN_IDS, ""
-        ).orEmpty().split(Regex("[,，;；\\r\\n]+")).filter { it.isNotBlank() }.toSet()
+        val initialHiddenIds = spec.legacyIdsKey
+            ?.let { prefs().getString(it, "") }
+            .orEmpty()
+            .split(Regex("[,，;；\\r\\n]+"))
+            .filter { it.isNotBlank() }
+            .toSet()
         val initialHiddenRules = RuleSetCodec.parse(
-            prefs().getString(FeaturePreferences.MINE_COMPONENT_HIDDEN_RULES, "").orEmpty()
+            prefs().getString(spec.rulesKey, "").orEmpty()
         )
         fun legacyHidden(e: MineComponentScanEntry): Boolean =
             (e.id != null && e.id in initialHiddenIds) ||
@@ -3879,7 +4051,9 @@ class MainActivity : SkinnedActivity() {
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
-                    dismissWithAnimation(dialog, container, ::showMineManualRuleEditor)
+                    dismissWithAnimation(dialog, container) {
+                        showComponentManualRuleEditor(spec)
+                    }
                 }
             },
             NativeLinearLayout.LayoutParams(
@@ -3927,12 +4101,11 @@ class MainActivity : SkinnedActivity() {
                 val hiddenSelectors = (initialSelectors - editableKeys) + checkedSelectors
                 prefs().edit {
                     putString(
-                        FeaturePreferences.MINE_COMPONENT_HIDDEN_SELECTORS,
+                        spec.selectorsKey,
                         MineComponentSelectionCodec.encode(hiddenSelectors)
                     )
                 }
-                mineComponentRulesSummaryView?.text =
-                    getString(R.string.custom_mine_component_hide) + "\n" + mineComponentSummary()
+                spec.refreshSummary()
                 toast(getString(R.string.custom_mine_component_restart_required))
                 dismissWithAnimation(dialog, container) {}
             },
@@ -4356,24 +4529,6 @@ class MainActivity : SkinnedActivity() {
         getString(R.string.custom_hide_rules_empty)
     } else {
         getString(R.string.custom_hide_rules_current, value)
-    }
-
-    private fun mineComponentSummary(): String {
-        val selectorCount = MineComponentSelectionCodec.decode(
-            prefs().getString(
-                FeaturePreferences.MINE_COMPONENT_HIDDEN_SELECTORS,
-                ""
-            ).orEmpty()
-        ).size
-        val selectorSummary = if (selectorCount > 0) {
-            getString(R.string.custom_mine_component_selected_count, selectorCount)
-        } else {
-            ""
-        }
-        val manualSummary = ruleSummary(mineComponentHiddenRules)
-        return if (selectorSummary.isEmpty()) manualSummary
-        else if (mineComponentHiddenRules.isBlank()) selectorSummary
-        else "$selectorSummary\n$manualSummary"
     }
 
     private fun openExternalUrl(url: String) {
@@ -5029,6 +5184,8 @@ class MainActivity : SkinnedActivity() {
                 FRAMEWORK_STATUS_SETTLE_MS
             )
         }
+        // 用户空间在进程存活期间不会变，但宿主可能被装进/卸出当前用户，所以每次前台重采一次。
+        moduleUserSpace = AndroidUserSpace.capture(applicationContext, HookEntry.TARGET_PACKAGE)
         renderActivationUi(framework)
     }
 
@@ -7941,7 +8098,7 @@ class MainActivity : SkinnedActivity() {
                             ) {
                                 homeTabRulesSummaryView = this
                                 text = stringResource(R.string.custom_home_tab_hide) + "\n" +
-                                    ruleSummary(homeTabHiddenRules)
+                                    homeTabPickerSurface().summaryText()
                                 textColor = colorResource(R.color.colorTextGray)
                                 textSize = 15f
                                 maxLines = 3
@@ -7952,22 +8109,7 @@ class MainActivity : SkinnedActivity() {
                                 isClickable = true
                                 isFocusable = true
                                 setOnClickListener {
-                                    showRuleEditorDialog(
-                                        R.string.custom_home_tab_hide_dialog_title,
-                                        R.string.custom_home_tab_hide_hint,
-                                        homeTabHiddenRules
-                                    ) { value ->
-                                        homeTabHiddenRules = value
-                                        prefs().edit {
-                                            putString(
-                                                FeaturePreferences.HOME_TAB_HIDDEN_RULES,
-                                                value
-                                            )
-                                        }
-                                        homeTabRulesSummaryView?.text =
-                                            stringResource(R.string.custom_home_tab_hide) + "\n" +
-                                                ruleSummary(value)
-                                    }
+                                    queryComponentSnapshotAndOpenPicker(homeTabPickerSurface())
                                 }
                             }
                             TextView(
@@ -7985,7 +8127,7 @@ class MainActivity : SkinnedActivity() {
                             ) {
                                 homeComponentRulesSummaryView = this
                                 text = stringResource(R.string.custom_home_component_hide) + "\n" +
-                                    ruleSummary(homeComponentHiddenRules)
+                                    homeComponentPickerSurface().summaryText()
                                 textColor = colorResource(R.color.colorTextGray)
                                 textSize = 15f
                                 maxLines = 3
@@ -7996,22 +8138,9 @@ class MainActivity : SkinnedActivity() {
                                 isClickable = true
                                 isFocusable = true
                                 setOnClickListener {
-                                    showRuleEditorDialog(
-                                        R.string.custom_home_component_hide_dialog_title,
-                                        R.string.custom_home_component_hide_hint,
-                                        homeComponentHiddenRules
-                                    ) { value ->
-                                        homeComponentHiddenRules = value
-                                        prefs().edit {
-                                            putString(
-                                                FeaturePreferences.HOME_COMPONENT_HIDDEN_RULES,
-                                                value
-                                            )
-                                        }
-                                        homeComponentRulesSummaryView?.text =
-                                            stringResource(R.string.custom_home_component_hide) + "\n" +
-                                                ruleSummary(value)
-                                    }
+                                    queryComponentSnapshotAndOpenPicker(
+                                        homeComponentPickerSurface()
+                                    )
                                 }
                             }
                             TextView(
@@ -8029,7 +8158,7 @@ class MainActivity : SkinnedActivity() {
                             ) {
                                 bottomBarRulesSummaryView = this
                                 text = stringResource(R.string.custom_bottom_bar_hide) + "\n" +
-                                    ruleSummary(bottomBarHiddenRules)
+                                    bottomBarPickerSurface().summaryText()
                                 textColor = colorResource(R.color.colorTextGray)
                                 textSize = 15f
                                 maxLines = 3
@@ -8040,22 +8169,7 @@ class MainActivity : SkinnedActivity() {
                                 isClickable = true
                                 isFocusable = true
                                 setOnClickListener {
-                                    showRuleEditorDialog(
-                                        R.string.custom_bottom_bar_hide_dialog_title,
-                                        R.string.custom_bottom_bar_hide_hint,
-                                        bottomBarHiddenRules
-                                    ) { value ->
-                                        bottomBarHiddenRules = value
-                                        prefs().edit {
-                                            putString(
-                                                FeaturePreferences.BOTTOM_BAR_HIDDEN_RULES,
-                                                value
-                                            )
-                                        }
-                                        bottomBarRulesSummaryView?.text =
-                                            stringResource(R.string.custom_bottom_bar_hide) + "\n" +
-                                                ruleSummary(value)
-                                    }
+                                    queryComponentSnapshotAndOpenPicker(bottomBarPickerSurface())
                                 }
                             }
                             TextView(
@@ -8203,7 +8317,7 @@ class MainActivity : SkinnedActivity() {
                             ) {
                                 mineComponentRulesSummaryView = this
                                 text = stringResource(R.string.custom_mine_component_hide) + "\n" +
-                                    mineComponentSummary()
+                                    mineComponentPickerSurface().summaryText()
                                 textColor = colorResource(R.color.colorTextGray)
                                 textSize = 15f
                                 maxLines = 3
@@ -8214,7 +8328,9 @@ class MainActivity : SkinnedActivity() {
                                 isClickable = true
                                 isFocusable = true
                                 setOnClickListener {
-                                    queryMineComponentSnapshotAndOpenPicker()
+                                    queryComponentSnapshotAndOpenPicker(
+                                        mineComponentPickerSurface()
+                                    )
                                 }
                             }
                             TextView(

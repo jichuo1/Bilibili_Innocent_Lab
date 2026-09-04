@@ -35,7 +35,11 @@ internal object MineComponentSnapshotQueryClient {
         Thread(runnable, "bil-mine-query-validate").apply { isDaemon = true }
     }
 
-    fun query(context: Context, callback: (Result) -> Unit) {
+    fun query(
+        context: Context,
+        surface: String = MineComponentSnapshotCodec.SURFACE_MINE,
+        callback: (Result) -> Unit
+    ) {
         val appContext = context.applicationContext ?: context
         val mainHandler = Handler(Looper.getMainLooper())
         val transportCompleted = AtomicBoolean(false)
@@ -89,6 +93,7 @@ internal object MineComponentSnapshotQueryClient {
                 MineComponentSnapshotQueryContract.PROTOCOL_VERSION
             )
             .putExtra(MineComponentSnapshotQueryContract.EXTRA_REQUEST_NONCE, nonce)
+            .putExtra(MineComponentSnapshotQueryContract.EXTRA_SURFACE, surface)
         runCatching {
             CrossAppBroadcastCompat.sendOrderedBroadcast(
                 context = appContext,
