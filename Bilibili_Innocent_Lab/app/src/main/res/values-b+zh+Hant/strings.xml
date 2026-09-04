@@ -181,7 +181,7 @@
     <string name="hide_player_portrait_control">隱藏直向影片動態按鈕</string>
     <string name="hide_player_portrait_control_tip">啟用後，隱藏播放器中的「進入看一看」按鈕；全螢幕等其他控制項不受影響。重新啟動 Bilibili 後生效。</string>
     <string name="hide_player_interactive_overlays">隱藏播放器互動元件</string>
-    <string name="hide_player_interactive_overlays_tip">啟用後，屏蔽播放器內的投票卡、關注引導、三連契約卡與指令彈幕；進度章節點不受影響。重新啟動 Bilibili 後生效。</string>
+    <string name="hide_player_interactive_overlays_tip">啟用後，屏蔽播放器內的投票卡、關注引導、三連契約卡、指令彈幕，以及左上角的電視版推廣橫幅；進度章節點與彈幕不受影響。重新啟動 Bilibili 後生效。</string>
     <string name="transparent_player_status_bar">播放器狀態列透明</string>
     <string name="transparent_player_status_bar_tip">啟用後，影片詳細頁的狀態列使用透明樣式。重新啟動 Bilibili 後生效。</string>
     <string name="story_purify_settings">直向影片動態</string>

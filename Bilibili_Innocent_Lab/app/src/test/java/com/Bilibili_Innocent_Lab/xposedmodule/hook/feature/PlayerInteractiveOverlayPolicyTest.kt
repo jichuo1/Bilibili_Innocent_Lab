@@ -67,6 +67,21 @@ class PlayerInteractiveOverlayPolicyTest {
     }
 
     @Test
+    fun `only viewunite carries the second DmResource whitelist`() {
+        val unite = requireNotNull(familyByGuide["com.bapis.bilibili.app.viewunite.v1.VideoGuide"])
+        val viewV1 = requireNotNull(familyByGuide["com.bapis.bilibili.app.view.v1.VideoGuide"])
+        assertEquals("com.bapis.bilibili.app.viewunite.v1.DmResource", unite.dmClassName)
+        assertEquals(listOf("clearAttention", "clearCards", "clearCommandDms"), unite.dmClearNames)
+        assertEquals(null, viewV1.dmClassName)
+        assertTrue(viewV1.dmClearNames.isEmpty())
+        VersionAdapter.PLAYER_INTERACTIVE_MOSS_FAMILIES.forEach { family ->
+            assertFalse(
+                VersionAdapter.PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR in family.dmClearNames
+            )
+        }
+    }
+
+    @Test
     fun `applyClears invokes zero-arg methods and ignores chapter points`() {
         val target = ClearProbe()
         val methods = listOf(
