@@ -36,6 +36,40 @@ class HostContentSemanticClassifierTest {
     }
 
     @Test
+    fun `cm_v2 feed ads match exact card type only`() {
+        assertTrue(
+            HostContentSemanticClassifier.isCmV2(
+                HostContentSignals(cardType = "cm_v2")
+            )
+        )
+        assertTrue(
+            HostContentSemanticClassifier.isCmV2(
+                HostContentSignals(cardType = "CARD_TYPE_CM_V2")
+            )
+        )
+        assertTrue(
+            HostContentKind.ADVERTISEMENT in HostContentSemanticClassifier.classify(
+                HostContentSignals(cardType = "cm_v2")
+            )
+        )
+        assertFalse(
+            HostContentSemanticClassifier.isCmV2(
+                HostContentSignals(cardType = "small_cover_v2", cardGoto = "ad_web_s")
+            )
+        )
+        assertFalse(
+            HostContentSemanticClassifier.isCmV2(
+                HostContentSignals(cardType = "ogv_small_cover", hasAdInfo = true)
+            )
+        )
+        assertFalse(
+            HostContentSemanticClassifier.isCmV2(
+                HostContentSignals(cardType = "banner_v8")
+            )
+        )
+    }
+
+    @Test
     fun `unknown signals remain fail open`() {
         assertEquals(emptySet<HostContentKind>(), HostContentSemanticClassifier.classify(
             HostContentSignals(cardType = "FUTURE_CARD_V99")

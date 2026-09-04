@@ -9,11 +9,11 @@ import org.junit.Test
 class SettingsCatalogTest {
 
     @Test
-    fun `catalog is a unique allowlist with 84 settings`() {
-        assertEquals(84, SettingsCatalog.specs.size)
-        assertEquals(84, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(84, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(83, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 85 settings`() {
+        assertEquals(85, SettingsCatalog.specs.size)
+        assertEquals(85, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(85, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(84, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(1, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -127,7 +127,7 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(66, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(67, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(4, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(14, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 
