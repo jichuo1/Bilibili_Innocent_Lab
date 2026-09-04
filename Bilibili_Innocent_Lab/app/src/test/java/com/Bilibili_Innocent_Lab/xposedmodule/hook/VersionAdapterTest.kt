@@ -692,6 +692,27 @@ class VersionAdapterTest {
     }
 
     @Test
+    fun `locates player interactive overlays from stable protobuf stubs`() {
+        val points = requireNotNull(
+            VersionAdapter.locatePlayerInteractiveOverlays(
+                requireNotNull(javaClass.classLoader)
+            )
+        )
+        val replyNames = points.families.map { it.replyClassName }.toSet()
+        assertTrue("com.bapis.bilibili.app.view.v1.ViewProgressReply" in replyNames)
+        assertTrue("com.bapis.bilibili.app.viewunite.v1.ViewProgressReply" in replyNames)
+        assertFalse(points.families.any { it.replyClassName.contains("mall.tab3") })
+        assertTrue(
+            points.families.none { family ->
+                family.guideClears.any { it.methodName == "clearVideoPoint" }
+            }
+        )
+        assertNotNull(points.commandClear)
+        assertTrue(points.mossExecutes.any { it.methodName == "executeViewProgress" })
+        assertTrue(points.mossExecutes.any { it.methodName == "executeDmView" })
+    }
+
+    @Test
     fun `quick adaptation emits a versioned protocol structure fingerprint`() {
         val located = requireNotNull(
             VersionAdapter.quickLocate(requireNotNull(javaClass.classLoader))

@@ -63,6 +63,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineVipFeatureInstall
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PausedAdFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPortraitFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerInteractiveOverlayFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerStatusBarFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.StoryPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SplashAdFeatureInstaller
@@ -2974,6 +2975,18 @@ class HookEntry : XposedModule() {
                             false
                         ),
                         points = hostAdaptResult?.playerPortrait
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    PlayerInteractiveOverlayFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.HIDE_PLAYER_INTERACTIVE_OVERLAYS,
+                            false
+                        ),
+                        points = hostAdaptResult?.playerInteractiveOverlays
                     )
                 )
             )
