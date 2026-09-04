@@ -23,11 +23,13 @@ class HomeRecommendPurifyFeatureInstallerTest {
         minSeconds: Int,
         maxSeconds: Int,
         removeAds: Boolean = false,
+        removeCmV2: Boolean = false,
         removeBanner: Boolean = false,
         points: VersionAdapter.HomeRecommendFeedPoints? =
             VersionAdapter.locateHomeRecommendFeed(requireNotNull(javaClass.classLoader))
     ) = HomeRecommendPurifyFeatureInstaller(
         removeAds = removeAds,
+        removeCmV2 = removeCmV2,
         removeBanner = removeBanner,
         removePictures = false,
         removeGamePromotions = false,
@@ -125,6 +127,55 @@ class HomeRecommendPurifyFeatureInstallerTest {
                 HomeRecommendPurifyFeatureInstaller.Signals(title = "首页 Banner 推荐")
             )
         )
+    }
+
+    @Test
+    fun `classifies cm_v2 feed ads only from exact card type`() {
+        assertTrue(
+            HomeRecommendPurifyFeatureInstaller.isCmV2(
+                HomeRecommendPurifyFeatureInstaller.Signals(cardType = "cm_v2")
+            )
+        )
+        assertTrue(
+            HomeRecommendPurifyFeatureInstaller.isCmV2(
+                HomeRecommendPurifyFeatureInstaller.Signals(cardType = "CARD_TYPE_CM_V2")
+            )
+        )
+        assertFalse(
+            HomeRecommendPurifyFeatureInstaller.isCmV2(
+                HomeRecommendPurifyFeatureInstaller.Signals(cardType = "small_cover_v2")
+            )
+        )
+        assertFalse(
+            HomeRecommendPurifyFeatureInstaller.isCmV2(
+                HomeRecommendPurifyFeatureInstaller.Signals(cardType = "ogv_small_cover")
+            )
+        )
+        assertFalse(
+            HomeRecommendPurifyFeatureInstaller.isCmV2(
+                HomeRecommendPurifyFeatureInstaller.Signals(cardType = "banner_v8")
+            )
+        )
+        assertFalse(
+            HomeRecommendPurifyFeatureInstaller.isCmV2(
+                HomeRecommendPurifyFeatureInstaller.Signals(cardGoto = "ad_web_s")
+            )
+        )
+    }
+
+    @Test
+    fun `cm_v2 switch installs alone and stays independent from ads switch`() {
+        val statuses = mutableListOf<Pair<String, String>>()
+        val points = requireNotNull(
+            VersionAdapter.locateHomeRecommendFeed(requireNotNull(javaClass.classLoader))
+        )
+
+        assertEquals(
+            FeatureInstallResult.Installed(points.responseItemGetters.size),
+            installer(minSeconds = 0, maxSeconds = 0, removeCmV2 = true, points = points)
+                .install(environment(statuses))
+        )
+        assertEquals(listOf("home_recommend_purify_status" to "success"), statuses)
     }
 
     @Test

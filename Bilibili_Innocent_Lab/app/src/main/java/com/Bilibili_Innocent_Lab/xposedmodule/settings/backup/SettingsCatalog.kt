@@ -112,6 +112,7 @@ internal object SettingsCatalog {
         bool("home.top_bar.search_word.hidden", FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD, R.string.hide_home_search_default_word),
         bool("home.vertical.open_detail", FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL, R.string.home_vertical_open_detail),
         bool("home.recommend.ads.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS, R.string.remove_home_recommend_ads),
+        bool("home.recommend.cm_v2.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_CM_V2, R.string.remove_home_recommend_cm_v2, introducedCatalogVersion = 9),
         bool("home.recommend.pictures.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES, R.string.remove_home_recommend_pictures),
         bool("home.recommend.game_promotions.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS, R.string.remove_home_recommend_game_promotions),
         bool("home.recommend.title_filter.enabled", FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_ENABLED, R.string.home_recommend_title_filter),
@@ -322,7 +323,7 @@ internal object SettingsCatalog {
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
 
     init {
-        check(specs.size == 84) { "Expected 84 catalog settings, found ${specs.size}" }
+        check(specs.size == 85) { "Expected 85 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"
