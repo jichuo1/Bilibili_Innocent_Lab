@@ -92,6 +92,8 @@
     <string name="advanced_comment_category">Comments</string>
     <string name="home_top_bar_settings">Home top bar</string>
     <string name="hide_home_game_menu">Hide the top-bar game center entry</string>
+    <string name="remove_home_recommend_cm_v2">Filter disguised home feed ads</string>
+    <string name="remove_home_recommend_cm_v2_tip">When enabled, detects and removes home recommendation feed ads disguised as video cards. Restart Bilibili to apply.</string>
     <string name="hide_home_game_menu_tip">Only blocks the game-center menu item; search, scan, and other entries remain available. Restart Bilibili to apply.</string>
     <string name="hide_home_search_default_word">Hide the default search suggestion</string>
     <string name="hide_home_search_default_word_tip">Keeps search and its click behavior available while clearing only the suggested text. Restart Bilibili to apply.</string>

@@ -51,6 +51,14 @@ internal object HostContentSemanticClassifier {
         signals.goTo
     ).any { normalizedToken(it) == HOME_BANNER_TOKEN }
 
+    /**
+     * 首页推荐信息流标准广告（cm_v2）：HAR 实证 `card_type=cm_v2/card_goto=ad_web_s`，
+     * 顶层无标题/封面/uri，真文案藏在 `ad_info.creative_content`。只认 cardType 精确值，
+     * 与伪装成视频/直播/番剧的带 ad_info 卡无关。
+     */
+    fun isCmV2(signals: HostContentSignals): Boolean =
+        normalizedToken(signals.cardType) == CM_V2_TOKEN
+
     fun classify(signals: HostContentSignals): Set<HostContentKind> = buildSet {
         val tokens = listOf(
             signals.holderType,
@@ -169,10 +177,12 @@ internal object HostContentSemanticClassifier {
         "AD",
         "ADVERTISEMENT",
         "CM",
+        CM_V2_TOKEN,
         "COMMERCIAL",
         "BANNER_V8"
     )
     private const val HOME_BANNER_TOKEN = "BANNER_V8"
+    private const val CM_V2_TOKEN = "CM_V2"
     private val PICTURE_TOKENS = setOf("PICTURE", "ARTICLE", "OPUS")
     private val GAME_TOKENS = setOf("GAME", "GAME_CENTER", "MINI_GAME", "H5_GAME")
     private val LIVE_TOKENS = setOf("LIVE", "LIVE_ROOM")

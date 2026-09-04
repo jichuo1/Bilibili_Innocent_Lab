@@ -30,6 +30,7 @@ free_copy.light_mode.enabled
 home.components.hidden_rules
 home.components.hidden_selectors
 home.recommend.ads.removed
+home.recommend.cm_v2.removed
 home.recommend.courses.removed
 home.recommend.game_promotions.removed
 home.recommend.large.removed

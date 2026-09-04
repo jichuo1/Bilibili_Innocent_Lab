@@ -230,6 +230,7 @@ class MainActivity : SkinnedActivity() {
     private var hideHomeSearchDefaultWord = false
     private var homeVerticalOpenDetail = false
     private var removeHomeRecommendAds = false
+    private var removeHomeRecommendCmV2 = false
     private var removeHomeRecommendPictures = false
     private var removeHomeRecommendGamePromotions = false
     private var homeRecommendTitleFilterEnabled = false
@@ -6625,6 +6626,9 @@ class MainActivity : SkinnedActivity() {
         removeHomeRecommendAds = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS, false) ?: false
         }.getOrDefault(false)
+        removeHomeRecommendCmV2 = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_CM_V2, false) ?: false
+        }.getOrDefault(false)
         removeHomeRecommendPictures = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES, false)
                 ?: false
@@ -7763,6 +7767,45 @@ class MainActivity : SkinnedActivity() {
                                 textColor = monetColors.primary
                                 textSize = 12f
                                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.remove_home_recommend_cm_v2)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = removeHomeRecommendCmV2
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    removeHomeRecommendCmV2 = isChecked
+                                    runCatching {
+                                        prefs().edit {
+                                            putBoolean(
+                                                FeaturePreferences.REMOVE_HOME_RECOMMEND_CM_V2,
+                                                isChecked
+                                            )
+                                        }
+                                    }.onFailure { t ->
+                                        Log.e(
+                                            "BilibiliInnocentLab",
+                                            "write home recommend cm_v2 prefs failed",
+                                            t
+                                        )
+                                    }
+                                }
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 12.dp
+                                }
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.remove_home_recommend_cm_v2_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
                             }
                             MaterialSwitch(
                                 lparams = LayoutParams(widthMatchParent = true) {

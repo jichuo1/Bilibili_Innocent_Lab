@@ -92,6 +92,8 @@
     <string name="advanced_comment_category">评论区</string>
     <string name="home_top_bar_settings">首页顶部栏</string>
     <string name="hide_home_game_menu">隐藏首页游戏中心</string>
+    <string name="remove_home_recommend_cm_v2">过滤主页信息流伪装广告</string>
+    <string name="remove_home_recommend_cm_v2_tip">开启后识别并移除伪装成视频小卡的主页推荐信息流广告。重启哔哩哔哩后生效。</string>
     <string name="hide_home_game_menu_tip">开启后，隐藏首页顶部的游戏中心入口，搜索、扫一扫等其他入口不受影响。重启哔哩哔哩后生效。</string>
     <string name="hide_home_search_default_word">隐藏搜索推荐词</string>
     <string name="hide_home_search_default_word_tip">开启后，搜索框不再显示默认推荐词，搜索入口和搜索功能保持不变。重启哔哩哔哩后生效。</string>

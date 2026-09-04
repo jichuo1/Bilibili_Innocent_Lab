@@ -7,6 +7,7 @@ import java.lang.reflect.Method
 /** 在首页推荐响应的公开 List 边界过滤广告、图文和游戏推广。 */
 internal class HomeRecommendPurifyFeatureInstaller(
     private val removeAds: Boolean,
+    private val removeCmV2: Boolean,
     private val removeBanner: Boolean,
     private val removePictures: Boolean,
     private val removeGamePromotions: Boolean,
@@ -31,7 +32,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
     override val id: String = ID
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
-        val hasContentFilter = removeAds || removeBanner || removePictures || removeGamePromotions ||
+        val hasContentFilter = removeAds || removeCmV2 || removeBanner || removePictures || removeGamePromotions ||
             titleKeywords.isNotEmpty() || removeLive || removeCourses || removeVertical ||
             removeLarge
         if (durationRange.isConfigured && !durationRange.isValid) {
@@ -142,8 +143,10 @@ internal class HomeRecommendPurifyFeatureInstaller(
     }
 
     private fun shouldRemove(signals: Signals): Boolean {
-        val kinds = HostContentSemanticClassifier.classify(signals.toHostSignals())
-        return (removeAds && HostContentKind.ADVERTISEMENT in kinds) ||
+        val hostSignals = signals.toHostSignals()
+        val kinds = HostContentSemanticClassifier.classify(hostSignals)
+        return (removeCmV2 && HostContentSemanticClassifier.isCmV2(hostSignals)) ||
+            (removeAds && HostContentKind.ADVERTISEMENT in kinds) ||
             (removePictures && HostContentKind.PICTURE in kinds) ||
             (removeGamePromotions && HostContentKind.GAME in kinds) ||
             RuleSetCodec.matches(titleKeywords, signals.title) ||
@@ -157,7 +160,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
     private fun signals(item: Any, accessors: Accessors): Signals {
         val needsRoute = removePictures || removeGamePromotions || removeLive ||
             removeCourses || removeVertical || removeLarge
-        val needsClassification = removeAds || needsRoute
+        val needsClassification = removeAds || removeCmV2 || needsRoute
         return Signals(
             holderType = if (removeAds || removeBanner || removeLarge) {
                 invokeString(accessors.holderType, item)
@@ -314,6 +317,9 @@ internal class HomeRecommendPurifyFeatureInstaller(
 
         internal fun isHomeBanner(value: Signals): Boolean =
             HostContentSemanticClassifier.isHomeBanner(value.toHostSignals())
+
+        internal fun isCmV2(value: Signals): Boolean =
+            HostContentSemanticClassifier.isCmV2(value.toHostSignals())
 
         internal fun isPicture(value: Signals): Boolean =
             HostContentKind.PICTURE in HostContentSemanticClassifier.classify(
