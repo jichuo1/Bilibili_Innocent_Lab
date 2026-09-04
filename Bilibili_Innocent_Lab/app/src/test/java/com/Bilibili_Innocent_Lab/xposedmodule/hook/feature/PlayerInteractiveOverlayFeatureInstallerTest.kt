@@ -24,6 +24,15 @@ class PlayerInteractiveOverlayFeatureInstallerTest {
             VersionAdapter.locatePlayerInteractiveOverlays(requireNotNull(javaClass.classLoader))
         )
 
+    /** 覆盖单位 = Guide 家族 + DmResource 第二载体 + Moss 双保险 + 指令弹幕 + 运营活动横幅。 */
+    private fun expectedUnits(
+        points: VersionAdapter.PlayerInteractiveOverlayPoints
+    ): Int = points.families.size +
+        points.families.count { it.dmGetter != null && it.dmClears.isNotEmpty() } +
+        points.mossExecutes.size +
+        1 +
+        (if (points.commandActivityMetaClear != null) 1 else 0)
+
     private fun status(): String = statuses.single()
         .also { assertEquals(CHANNEL, it.first) }
         .second
@@ -68,8 +77,7 @@ class PlayerInteractiveOverlayFeatureInstallerTest {
             points = points
         ).install(environment)
 
-        // 2 个 Guide 家族 + 3 个 Moss execute + 1 个指令弹幕单位
-        val expected = points.families.size + points.mossExecutes.size + 1
+        val expected = expectedUnits(points)
         assertEquals(FeatureInstallResult.Installed(expected), result)
         assertEquals("success", status())
     }
@@ -99,7 +107,7 @@ class PlayerInteractiveOverlayFeatureInstallerTest {
             .install(environment)
 
         // 家族被跳过也必须计入分母，否则整组白名单失效会被算成 success。
-        val expected = broken.families.size + broken.mossExecutes.size + 1
+        val expected = expectedUnits(broken)
         assertEquals("partial:${expected - 1}/$expected", status())
     }
 
@@ -118,8 +126,9 @@ class PlayerInteractiveOverlayFeatureInstallerTest {
         PlayerInteractiveOverlayFeatureInstaller(enabled = true, points = stranded)
             .install(environment)
 
-        val expected = stranded.families.size + stranded.mossExecutes.size + 1
-        assertEquals("partial:${expected - 1}/$expected", status())
+        // 指令弹幕与运营活动横幅共用这两条通路，两条都断就是两个单位一起丢。
+        val expected = expectedUnits(stranded)
+        assertEquals("partial:${expected - 2}/$expected", status())
     }
 
     @Test
