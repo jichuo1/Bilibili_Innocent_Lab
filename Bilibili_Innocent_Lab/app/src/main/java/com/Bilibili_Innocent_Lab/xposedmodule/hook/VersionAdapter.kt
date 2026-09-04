@@ -149,8 +149,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 48
-    private const val ADAPTER_RULE_VERSION = 42
+    private const val SCHEMA_VERSION = 49
+    private const val ADAPTER_RULE_VERSION = 43
 
     /**
      * DEX 兜底诊断 id 前缀。每个兜底点各占一条诊断，便于在诊断中心直接读到"兜底是否被用到、
@@ -395,6 +395,72 @@ object VersionAdapter {
                     }
                 )
             }
+        }
+    }
+
+    /**
+     * 播放器互动层（投票/关注引导/契约卡/指令弹幕）的 protobuf 读边界。
+     *
+     * Guide 只缓存白名单 `clear*`，不含 `clearVideoPoint`。Moss execute 是双保险，
+     * getter 才是主路径。
+     */
+    data class PlayerInteractiveGuideFamily(
+        val replyClassName: String,
+        val guideGetter: HookPoint,
+        val guideClears: List<HookPoint>
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("reply", replyClassName)
+            put("getter", guideGetter.toJson())
+            put("clears", JSONArray().apply { guideClears.forEach { put(it.toJson()) } })
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): PlayerInteractiveGuideFamily =
+                PlayerInteractiveGuideFamily(
+                    replyClassName = o.getString("reply"),
+                    guideGetter = HookPoint.fromJson(o.getJSONObject("getter")),
+                    guideClears = o.getJSONArray("clears").let { values ->
+                        (0 until values.length()).map {
+                            HookPoint.fromJson(values.getJSONObject(it))
+                        }
+                    }
+                )
+        }
+    }
+
+    data class PlayerInteractiveOverlayPoints(
+        val families: List<PlayerInteractiveGuideFamily>,
+        val mossExecutes: List<HookPoint>,
+        val commandGetter: HookPoint?,
+        val commandClear: HookPoint?,
+        val commandDefault: HookPoint?
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("families", JSONArray().apply { families.forEach { put(it.toJson()) } })
+            put("moss", JSONArray().apply { mossExecutes.forEach { put(it.toJson()) } })
+            commandGetter?.let { put("command_getter", it.toJson()) }
+            commandClear?.let { put("command_clear", it.toJson()) }
+            commandDefault?.let { put("command_default", it.toJson()) }
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): PlayerInteractiveOverlayPoints =
+                PlayerInteractiveOverlayPoints(
+                    families = o.getJSONArray("families").let { values ->
+                        (0 until values.length()).map {
+                            PlayerInteractiveGuideFamily.fromJson(values.getJSONObject(it))
+                        }
+                    },
+                    mossExecutes = o.optJSONArray("moss")?.let { values ->
+                        (0 until values.length()).map {
+                            HookPoint.fromJson(values.getJSONObject(it))
+                        }
+                    }.orEmpty(),
+                    commandGetter = o.optJSONObject("command_getter")?.let(HookPoint::fromJson),
+                    commandClear = o.optJSONObject("command_clear")?.let(HookPoint::fromJson),
+                    commandDefault = o.optJSONObject("command_default")?.let(HookPoint::fromJson)
+                )
         }
     }
 
@@ -1366,6 +1432,8 @@ object VersionAdapter {
         val fullNumbers: FullNumberPoints?,
         /** 播放器竖屏切换控件自身的可见性入口。 */
         val playerPortrait: PlayerPortraitPoints?,
+        /** 播放器投票/关注/契约卡/指令弹幕的 protobuf 读边界。 */
+        val playerInteractiveOverlays: PlayerInteractiveOverlayPoints? = null,
         /** 视频详情页透明状态栏的精确 Activity 生命周期入口。 */
         val playerStatusBar: PlayerStatusBarPoints?,
         /** 首页推荐服务端响应及卡片公开读取边界。 */
@@ -1422,6 +1490,7 @@ object VersionAdapter {
             dynamicTabs?.let { put("dynamic_tabs", it.toJson()) }
             fullNumbers?.let { put("full_numbers", it.toJson()) }
             playerPortrait?.let { put("player_portrait", it.toJson()) }
+            playerInteractiveOverlays?.let { put("player_interactive_overlays", it.toJson()) }
             playerStatusBar?.let { put("player_status_bar", it.toJson()) }
             homeRecommendFeed?.let { put("home_recommend_feed", it.toJson()) }
             videoRelate?.let { put("video_relate", it.toJson()) }
@@ -1503,6 +1572,22 @@ object VersionAdapter {
                 } != false &&
                 playerPortrait?.visibilityMethods?.let { methods ->
                     methods.isNotEmpty() && methods.all { it.isValid() }
+                } != false &&
+                playerInteractiveOverlays?.let { value ->
+                    value.families.all { family ->
+                        family.replyClassName.isNotBlank() &&
+                            family.guideGetter.isValid() &&
+                            family.guideClears.isNotEmpty() &&
+                            family.guideClears.all { it.isValid() } &&
+                            family.guideClears.none {
+                                it.methodName == PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR
+                            }
+                    } &&
+                        value.mossExecutes.all { it.isValid() } &&
+                        value.commandGetter?.isValid() != false &&
+                        value.commandClear?.isValid() != false &&
+                        value.commandDefault?.isValid() != false &&
+                        (value.families.isNotEmpty() || value.commandClear != null)
                 } != false &&
                 playerStatusBar?.onCreateMethods?.let { methods ->
                     methods.isNotEmpty() && methods.all { it.isValid() }
@@ -1713,6 +1798,8 @@ object VersionAdapter {
                     fullNumbers = o.optJSONObject("full_numbers")?.let(FullNumberPoints::fromJson),
                     playerPortrait = o.optJSONObject("player_portrait")
                         ?.let(PlayerPortraitPoints::fromJson),
+                    playerInteractiveOverlays = o.optJSONObject("player_interactive_overlays")
+                        ?.let(PlayerInteractiveOverlayPoints::fromJson),
                     playerStatusBar = o.optJSONObject("player_status_bar")
                         ?.let(PlayerStatusBarPoints::fromJson),
                     homeRecommendFeed = o.optJSONObject("home_recommend_feed")
@@ -1815,6 +1902,45 @@ object VersionAdapter {
     private val PLAYER_PORTRAIT_CLASS_CANDIDATES = listOf(
         "com.bilibili.app.gemini.player.widget.story.GeminiPlayerFullStoryWidget"
     )
+    private const val PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR = "clearVideoPoint"
+    private val PLAYER_INTERACTIVE_VIEW_V1_GUIDE_CLEARS = listOf(
+        "clearAttention",
+        "clearCommandDms",
+        "clearContractCard",
+        "clearOperationCard",
+        "clearOperationCardNew",
+        "clearCardsSecond"
+    )
+    private val PLAYER_INTERACTIVE_VIEW_UNITE_GUIDE_CLEARS = listOf(
+        "clearContractCard",
+        "clearMaterial",
+        "clearRightMaterial"
+    )
+    private val PLAYER_INTERACTIVE_MOSS_FAMILIES = listOf(
+        Triple(
+            "com.bapis.bilibili.app.view.v1.ViewMoss",
+            "com.bapis.bilibili.app.view.v1.ViewProgressReply",
+            "com.bapis.bilibili.app.view.v1.VideoGuide"
+        ),
+        Triple(
+            "com.bapis.bilibili.app.viewunite.v1.ViewMoss",
+            "com.bapis.bilibili.app.viewunite.v1.ViewProgressReply",
+            "com.bapis.bilibili.app.viewunite.v1.VideoGuide"
+        )
+    )
+    private const val PLAYER_INTERACTIVE_DM_MOSS_CLASS =
+        "com.bapis.bilibili.community.service.dm.v1.DMMoss"
+    private const val PLAYER_INTERACTIVE_DM_REPLY_CLASS =
+        "com.bapis.bilibili.community.service.dm.v1.DmViewReply"
+    private const val PLAYER_INTERACTIVE_DM_COMMAND_CLASS =
+        "com.bapis.bilibili.community.service.dm.v1.Command"
+    private val PLAYER_INTERACTIVE_CANDIDATE_CLASSES =
+        PLAYER_INTERACTIVE_MOSS_FAMILIES.flatMap { listOf(it.first, it.second, it.third) } +
+            listOf(
+                PLAYER_INTERACTIVE_DM_MOSS_CLASS,
+                PLAYER_INTERACTIVE_DM_REPLY_CLASS,
+                PLAYER_INTERACTIVE_DM_COMMAND_CLASS
+            )
     private val PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES = listOf(
         "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity"
     )
@@ -2175,6 +2301,8 @@ object VersionAdapter {
             dynamicTabs = runtime.dynamicTabs ?: cached.dynamicTabs,
             fullNumbers = runtime.fullNumbers ?: cached.fullNumbers,
             playerPortrait = runtime.playerPortrait ?: cached.playerPortrait,
+            playerInteractiveOverlays = runtime.playerInteractiveOverlays
+                ?: cached.playerInteractiveOverlays,
             playerStatusBar = runtime.playerStatusBar ?: cached.playerStatusBar,
             homeRecommendFeed = runtime.homeRecommendFeed ?: cached.homeRecommendFeed,
             videoRelate = runtime.videoRelate ?: cached.videoRelate,
@@ -2383,6 +2511,7 @@ object VersionAdapter {
         val dynamicTabs = locateDynamicTabs(loader)
         val fullNumbers = locateFullNumbers(loader)
         val playerPortrait = locatePlayerPortrait(loader)
+        val playerInteractiveOverlays = locatePlayerInteractiveOverlays(loader)
         val playerStatusBar = locatePlayerStatusBar(loader)
         val homeRecommendFeed = locateHomeRecommendFeed(loader)
         val videoRelate = locateVideoRelate(loader)
@@ -2405,6 +2534,7 @@ object VersionAdapter {
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
+            playerInteractiveOverlays == null &&
             playerStatusBar == null && homeRecommendFeed == null && videoRelate == null &&
             homeTabs == null && homeComponents == null && mineComponents == null &&
             mineAccountMine == null && storyFeed == null && bottomBar == null &&
@@ -2429,6 +2559,7 @@ object VersionAdapter {
             dynamicTabs = dynamicTabs,
             fullNumbers = fullNumbers,
             playerPortrait = playerPortrait,
+            playerInteractiveOverlays = playerInteractiveOverlays,
             playerStatusBar = playerStatusBar,
             homeRecommendFeed = homeRecommendFeed,
             videoRelate = videoRelate,
@@ -2449,7 +2580,8 @@ object VersionAdapter {
             protocolFingerprint = protocolFingerprint.value,
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
-                dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
+                dynamicTabs, fullNumbers, playerPortrait, playerInteractiveOverlays,
+                playerStatusBar, homeRecommendFeed,
                 videoRelate, homeTabs, homeComponents, mineComponents, storyFeed, bottomBar,
                 playerQuality,
                 teenagersMode, commentPurify, commentFilter, commentTopology,
@@ -2505,6 +2637,7 @@ object VersionAdapter {
         val dynamicTabs = locateDynamicTabs(loader)
         val fullNumbers = locateFullNumbers(loader)
         val playerPortrait = locatePlayerPortrait(loader)
+        val playerInteractiveOverlays = locatePlayerInteractiveOverlays(loader)
         val playerStatusBar = locatePlayerStatusBar(loader)
         val homeRecommendFeed = locateHomeRecommendFeed(loader)
         val videoRelate = locateVideoRelate(loader)
@@ -2545,6 +2678,7 @@ object VersionAdapter {
             || KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS)
             || FULL_NUMBER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || PLAYER_PORTRAIT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || PLAYER_INTERACTIVE_CANDIDATE_CLASSES.any { KavaMemberLookup.hasClass(loader, it) }
             || PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES.any {
                 KavaMemberLookup.hasClass(loader, it)
             }
@@ -2581,6 +2715,7 @@ object VersionAdapter {
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
+            playerInteractiveOverlays == null &&
             playerStatusBar == null && homeRecommendFeed == null && videoRelate == null &&
             homeTabs == null && homeComponents == null && mineComponents == null &&
             mineAccountMine == null && storyFeed == null && bottomBar == null &&
@@ -2606,6 +2741,7 @@ object VersionAdapter {
             dynamicTabs = dynamicTabs,
             fullNumbers = fullNumbers,
             playerPortrait = playerPortrait,
+            playerInteractiveOverlays = playerInteractiveOverlays,
             playerStatusBar = playerStatusBar,
             homeRecommendFeed = homeRecommendFeed,
             videoRelate = videoRelate,
@@ -2626,7 +2762,8 @@ object VersionAdapter {
             protocolFingerprint = protocolFingerprint.value,
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
-                dynamicTabs, fullNumbers, playerPortrait, playerStatusBar, homeRecommendFeed,
+                dynamicTabs, fullNumbers, playerPortrait, playerInteractiveOverlays,
+                playerStatusBar, homeRecommendFeed,
                 videoRelate, homeTabs, homeComponents, mineComponents, storyFeed, bottomBar,
                 playerQuality,
                 teenagersMode, commentPurify, commentFilter, commentTopology,
@@ -2822,6 +2959,7 @@ object VersionAdapter {
         dynamicTabs: DynamicTabsPoint?,
         fullNumbers: FullNumberPoints?,
         playerPortrait: PlayerPortraitPoints?,
+        playerInteractiveOverlays: PlayerInteractiveOverlayPoints?,
         playerStatusBar: PlayerStatusBarPoints?,
         homeRecommendFeed: HomeRecommendFeedPoints?,
         videoRelate: VideoRelatePoints?,
@@ -2864,6 +3002,9 @@ object VersionAdapter {
             KavaMemberLookup.hasClass(loader, it)
         }
         val playerPortraitCandidateExists = PLAYER_PORTRAIT_CLASS_CANDIDATES.any {
+            KavaMemberLookup.hasClass(loader, it)
+        }
+        val playerInteractiveCandidateExists = PLAYER_INTERACTIVE_CANDIDATE_CLASSES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
         val playerStatusBarCandidateExists = PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES.any {
@@ -3035,6 +3176,14 @@ object VersionAdapter {
                 "player.portrait",
                 stateFor(playerPortrait != null, playerPortraitCandidateExists),
                 playerPortrait?.visibilityMethods?.joinToString("|") { it.label() }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "player.interactive_overlay",
+                stateFor(playerInteractiveOverlays != null, playerInteractiveCandidateExists),
+                playerInteractiveOverlays?.let { points ->
+                    "families=${points.families.size},moss=${points.mossExecutes.size}," +
+                        "command=${points.commandClear != null}"
+                }.orEmpty()
             ),
             AdaptDiagnostic(
                 "player.status_bar",
@@ -3637,6 +3786,88 @@ object VersionAdapter {
             .map { it.toHookPoint() }
             .toList()
         methods.takeIf { it.isNotEmpty() }?.let(::PlayerPortraitPoints)
+    }.getOrNull()
+
+    /**
+     * 定位播放器互动层 protobuf 读边界。只认公开稳定类名，按 Guide 上实际存在的
+     * 白名单 `clear*` 缓存方法；`clearVideoPoint` 永不进入名单。
+     */
+    fun locatePlayerInteractiveOverlays(
+        loader: ClassLoader
+    ): PlayerInteractiveOverlayPoints? = runCatching {
+        val families = ArrayList<PlayerInteractiveGuideFamily>(PLAYER_INTERACTIVE_MOSS_FAMILIES.size)
+        val mossExecutes = ArrayList<HookPoint>(PLAYER_INTERACTIVE_MOSS_FAMILIES.size)
+        PLAYER_INTERACTIVE_MOSS_FAMILIES.forEach { (mossName, replyName, guideName) ->
+            val moss = KavaMemberLookup.classOrNull(loader, mossName)
+            val reply = KavaMemberLookup.classOrNull(loader, replyName)
+            val guide = KavaMemberLookup.classOrNull(loader, guideName)
+            if (reply == null || guide == null) return@forEach
+            val getter = KavaMemberLookup.methodOrNull(reply, "getVideoGuide")
+                ?.takeIf { method ->
+                    !method.isStatic && method.parameterCount == 0 &&
+                        method.returnType == guide
+                } ?: return@forEach
+            val clearNames = if (guideName.contains(".viewunite.")) {
+                PLAYER_INTERACTIVE_VIEW_UNITE_GUIDE_CLEARS
+            } else {
+                PLAYER_INTERACTIVE_VIEW_V1_GUIDE_CLEARS
+            }
+            val clears = clearNames.mapNotNull { name ->
+                KavaMemberLookup.methodOrNull(guide, name)?.takeIf { method ->
+                    !method.isStatic && method.parameterCount == 0 &&
+                        method.returnType == Void.TYPE &&
+                        method.name != PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR
+                }
+            }
+            if (clears.isEmpty()) return@forEach
+            families += PlayerInteractiveGuideFamily(
+                replyClassName = replyName,
+                guideGetter = getter.toHookPoint(),
+                guideClears = clears.map { it.toHookPoint() }
+            )
+            if (moss != null) {
+                KavaMemberLookup.declaredMethods(moss, makeAccessible = true) { method ->
+                    !method.isStatic && method.name == "executeViewProgress" &&
+                        method.parameterCount == 1 && method.returnType == reply
+                }.firstOrNull()?.let { mossExecutes += it.toHookPoint() }
+            }
+        }
+
+        val dmReply = KavaMemberLookup.classOrNull(loader, PLAYER_INTERACTIVE_DM_REPLY_CLASS)
+        val dmCommand = KavaMemberLookup.classOrNull(loader, PLAYER_INTERACTIVE_DM_COMMAND_CLASS)
+        val commandGetter = dmReply?.let { owner ->
+            KavaMemberLookup.methodOrNull(owner, "getCommand")?.takeIf { method ->
+                !method.isStatic && method.parameterCount == 0 &&
+                    (dmCommand == null || method.returnType == dmCommand)
+            }
+        }
+        val commandClear = dmReply?.let { owner ->
+            KavaMemberLookup.methodOrNull(owner, "clearCommand")?.takeIf { method ->
+                !method.isStatic && method.parameterCount == 0 &&
+                    method.returnType == Void.TYPE
+            }
+        }
+        val commandDefault = dmCommand?.let { owner ->
+            KavaMemberLookup.methodOrNull(owner, "getDefaultInstance")?.takeIf { method ->
+                method.isStatic && method.parameterCount == 0 && method.returnType == owner
+            }
+        }
+        val dmMoss = KavaMemberLookup.classOrNull(loader, PLAYER_INTERACTIVE_DM_MOSS_CLASS)
+        if (dmMoss != null && dmReply != null) {
+            KavaMemberLookup.declaredMethods(dmMoss, makeAccessible = true) { method ->
+                !method.isStatic && method.name == "executeDmView" &&
+                    method.parameterCount == 1 && method.returnType == dmReply
+            }.firstOrNull()?.let { mossExecutes += it.toHookPoint() }
+        }
+
+        if (families.isEmpty() && commandClear == null) return@runCatching null
+        PlayerInteractiveOverlayPoints(
+            families = families,
+            mossExecutes = mossExecutes.distinctBy { it.label() },
+            commandGetter = commandGetter?.toHookPoint(),
+            commandClear = commandClear?.toHookPoint(),
+            commandDefault = commandDefault?.toHookPoint()
+        )
     }.getOrNull()
 
     /**
