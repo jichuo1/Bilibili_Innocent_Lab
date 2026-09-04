@@ -7,17 +7,19 @@ import java.lang.reflect.Method
 /** 仅对父 Fragment 链属于首页容器的子 Fragment 按类名规则隐藏根 View。 */
 internal class HomeComponentFilterFeatureInstaller(
     rules: String,
+    selectors: String = "",
     private val points: VersionAdapter.HomeComponentPoints?
 ) : FeatureInstaller {
 
     override val id: String = ID
     private val tokens = RuleSetCodec.parse(rules)
+    private val selectorSet = MineComponentSelectionCodec.decode(selectors)
+
+    private fun hasHiddenConfiguration(): Boolean =
+        tokens.isNotEmpty() || selectorSet.isNotEmpty()
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
-        if (tokens.isEmpty()) {
-            environment.reportStatus(CHANNEL_STATUS, "disabled")
-            return FeatureInstallResult.Skipped("disabled")
-        }
+        // 空配置也要装：不扫描就产不出勾选列表。
         if (environment.processName != TARGET_PACKAGE) {
             return FeatureInstallResult.Skipped("non-main-process")
         }
@@ -29,6 +31,11 @@ internal class HomeComponentFilterFeatureInstaller(
             adapted.parentFragmentGetter.paramClassNames
         ) ?: return missing(environment, "missing-parent-getter")
 
+        val publisher = ScanSnapshotPublisher(
+            environment,
+            MineComponentSnapshotCodec.SURFACE_HOME_COMPONENTS,
+            setOf("home_component_filter")
+        )
         return runCatching {
             environment.registrar.adapted("home.components.view", adapted.onViewCreated) {
                 after {
@@ -38,13 +45,23 @@ internal class HomeComponentFilterFeatureInstaller(
                     if (!isCandidate(className) || !isHomeChild(fragment, parentGetter)) {
                         return@after
                     }
-                    if (RuleSetCodec.matches(tokens, className, className.substringAfterLast('.'))) {
-                        root.visibility = View.GONE
-                    }
+                    val hide = matches(className)
+                    // 标识只有混淆类名，另外摸一个可读标题当副标题；摸不到就只显示类名。
+                    publisher.accumulate(
+                        MineComponentScanEntry.create(
+                            kind = "home_component",
+                            title = firstText(root, 0),
+                            id = className,
+                            uri = null,
+                            showing = !hide
+                        )
+                    )
+                    if (hide) root.visibility = View.GONE
                 }
             }
-            environment.reportStatus(CHANNEL_STATUS, "success")
-            environment.logInfo("home_components_ok", "[BIL] 首页组件自定义隐藏已安装")
+            val mode = if (hasHiddenConfiguration()) "filter+scan" else "scan"
+            environment.reportStatus(CHANNEL_STATUS, "success:$mode")
+            environment.logInfo("home_components_ok", "[BIL] 首页组件自定义隐藏已安装($mode)")
             FeatureInstallResult.Installed()
         }.getOrElse { throwable ->
             environment.logError(
@@ -70,6 +87,32 @@ internal class HomeComponentFilterFeatureInstaller(
         method.invoke(target)
     }.getOrNull()
 
+    /** 手填规则与勾选选择器取并集。 */
+    private fun matches(className: String): Boolean {
+        if (tokens.isNotEmpty() &&
+            RuleSetCodec.matches(tokens, className, className.substringAfterLast('.'))
+        ) return true
+        if (selectorSet.isEmpty()) return false
+        val key = MineComponentSelector.key("home_component", null, className, null)
+        return key != null && key in selectorSet
+    }
+
+    /** 一次性、深度受限地摸一个可读标题；只在扫描时走，不进任何逐帧路径。 */
+    private fun firstText(view: View, depth: Int): String? {
+        if (depth > MAX_TITLE_DEPTH) return null
+        if (view is android.widget.TextView) {
+            val text = view.text?.toString()?.trim()
+            if (!text.isNullOrEmpty() && text.length <= MAX_TITLE_CHARS) return text
+        }
+        if (view is android.view.ViewGroup) {
+            for (index in 0 until view.childCount) {
+                val child = view.getChildAt(index) ?: continue
+                firstText(child, depth + 1)?.let { return it }
+            }
+        }
+        return null
+    }
+
     private fun isCandidate(className: String): Boolean {
         val lower = className.lowercase()
         if (!lower.startsWith("com.bilibili") && !lower.startsWith("tv.danmaku")) return false
@@ -92,6 +135,8 @@ internal class HomeComponentFilterFeatureInstaller(
         const val ID = "home_component_filter"
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val CHANNEL_STATUS = "home_component_filter_status"
+        private const val MAX_TITLE_DEPTH = 6
+        private const val MAX_TITLE_CHARS = 24
         private const val MAX_PARENT_DEPTH = 12
         private val HOME_CONTAINER_MARKERS = listOf(
             "basehomefragment",

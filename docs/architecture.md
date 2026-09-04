@@ -111,6 +111,24 @@ from `onSystemServerStarting`. Packaging uses only
 `assets/xposed_init`, Yuki initializer resource, manifest `xposedminversion`,
 YukiHookAPI dependency and rovo89 API dependency are absent.
 
+`module.prop` declares `staticScope=true` and `scope.list` contains only
+`tv.danmaku.bili` and `system`, so the scope cannot be extended in the framework
+manager. The supported multi-instance boundary follows from that: system
+multi-user, dual-app and work-profile clones keep the official package name and
+are supported, while renamed clones and VirtualApp-style containers are not.
+`onPackageReady` rejects any other package and logs the observed name once per
+package, because a silent early return makes that failure unobservable. Host
+resource ids are resolved with `getIdentifier(name, "id", TARGET_PACKAGE)` and
+host caches live under `/data/user/<userId>/tv.danmaku.bili/`, so a renamed host
+would fail on both paths even if a framework injected it.
+
+The libxposed service binder is delivered per Android user: the framework calls
+`XposedProvider` with `SendBinder`, and `XposedServiceHelper` is purely passive —
+it never binds or retries on its own. A missing service therefore always means
+the framework does not treat this process, in this user, as an enabled module.
+The module surfaces that distinction in the activation card and the diagnostics
+`FRAMEWORK_SERVICE` item; it never works around it.
+
 The module's ordinary default preferences remain private and authoritative for
 the settings UI and backup system. `RemoteHookConfigStore` resolves every
 catalog record to its effective value and writes only the `hook_config` Remote
@@ -233,10 +251,19 @@ An unreadable fingerprint leaves the cache intact.
 
 ## Shared runtime helpers
 
+`runtime/AndroidUserSpace` is the single point that resolves Android user
+spaces. It converts a uid to a user id, classifies any non-primary user as a
+possible clone or work profile, compares the module and target user ids, and
+captures a bounded snapshot holding only those user ids. `TargetAppStorage` and
+the user-terms gate helpers delegate to it instead of keeping their own copies.
+The result feeds display text only: it never changes hook authorization, never
+alters `ModuleHealthEvaluator` severity, and never enters the exported
+diagnostic report.
+
 `runtime/TargetAppStorage` centralizes Bilibili cache path construction and
-derives the Android user id from the current process uid. This prevents the
-version-adapter cache and roaming cache from diverging on work-profile or
-multi-user devices.
+derives the Android user id from the current process uid through
+`AndroidUserSpace`. This prevents the version-adapter cache and roaming cache
+from diverging on work-profile or multi-user devices.
 
 `runtime/ShellCommandRunner` owns bounded root-command execution. It merges and
 continuously drains process output so the settings UI cannot leave a background

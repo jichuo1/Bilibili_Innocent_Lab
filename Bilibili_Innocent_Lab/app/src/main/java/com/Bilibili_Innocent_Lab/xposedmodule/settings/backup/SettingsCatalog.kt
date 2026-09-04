@@ -17,7 +17,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorS
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 7
+    const val CATALOG_VERSION = 9
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
     const val ID_FREE_COPY_DESCRIPTION = "free_copy.description.enabled"
     const val ID_RECOMMEND_VIDEO_MIN_DURATION =
@@ -121,7 +121,19 @@ internal object SettingsCatalog {
         bool("home.recommend.vertical.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_VERTICAL, R.string.remove_home_recommend_vertical),
         bool("home.recommend.large.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE, R.string.remove_home_recommend_large),
         text("home.tabs.hidden_rules", FeaturePreferences.HOME_TAB_HIDDEN_RULES, R.string.custom_home_tab_hide),
+        text(
+            "home.tabs.hidden_selectors",
+            FeaturePreferences.HOME_TAB_HIDDEN_SELECTORS,
+            R.string.custom_home_tab_hide,
+            introducedCatalogVersion = 9
+        ),
         text("home.components.hidden_rules", FeaturePreferences.HOME_COMPONENT_HIDDEN_RULES, R.string.custom_home_component_hide),
+        text(
+            "home.components.hidden_selectors",
+            FeaturePreferences.HOME_COMPONENT_HIDDEN_SELECTORS,
+            R.string.custom_home_component_hide,
+            introducedCatalogVersion = 9
+        ),
 
         bool("mine.vip.hidden", FeaturePreferences.HIDE_MINE_VIP, R.string.hide_mine_vip),
         bool("mine.vip.space_kept", FeaturePreferences.KEEP_MINE_VIP_SPACE, R.string.keep_mine_vip_space),
@@ -192,6 +204,12 @@ internal object SettingsCatalog {
         bool("story.music.removed", FeaturePreferences.REMOVE_STORY_MUSIC, R.string.remove_story_music),
 
         text("navigation.bottom_bar.hidden_rules", FeaturePreferences.BOTTOM_BAR_HIDDEN_RULES, R.string.custom_bottom_bar_hide),
+        text(
+            "navigation.bottom_bar.hidden_selectors",
+            FeaturePreferences.BOTTOM_BAR_HIDDEN_SELECTORS,
+            R.string.custom_bottom_bar_hide,
+            introducedCatalogVersion = 9
+        ),
         integer(
             ID_RECOMMEND_VIDEO_MIN_DURATION,
             FeaturePreferences.RECOMMEND_VIDEO_MIN_DURATION_SECONDS,
@@ -304,7 +322,7 @@ internal object SettingsCatalog {
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
 
     init {
-        check(specs.size == 81) { "Expected 81 catalog settings, found ${specs.size}" }
+        check(specs.size == 84) { "Expected 84 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"
