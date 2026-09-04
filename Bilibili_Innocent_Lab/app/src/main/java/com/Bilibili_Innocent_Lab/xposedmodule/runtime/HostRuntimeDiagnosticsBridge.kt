@@ -214,6 +214,9 @@ internal object HostRuntimeDiagnosticsBridge {
         if (result.playerPortrait != null) record(
             "player_portrait_control", FeatureRuntimeStage.ADAPTED
         )
+        if (result.playerInteractiveOverlays != null) record(
+            "player_interactive_overlay", FeatureRuntimeStage.ADAPTED
+        )
         if (result.playerStatusBar != null) record("player_status_bar", FeatureRuntimeStage.ADAPTED)
         if (result.homeRecommendFeed != null) record(
             "home_recommend_purify", FeatureRuntimeStage.ADAPTED

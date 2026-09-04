@@ -17,7 +17,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorS
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 6
+    const val CATALOG_VERSION = 7
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
     const val ID_FREE_COPY_DESCRIPTION = "free_copy.description.enabled"
     const val ID_RECOMMEND_VIDEO_MIN_DURATION =
@@ -139,6 +139,12 @@ internal object SettingsCatalog {
         bool("dynamic.video_tab.preferred", FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB, R.string.prefer_dynamic_video_tab),
         bool("numbers.full.enabled", FeaturePreferences.SHOW_FULL_NUMBERS, R.string.show_full_numbers),
         bool("player.portrait_control.hidden", FeaturePreferences.HIDE_PLAYER_PORTRAIT_CONTROL, R.string.hide_player_portrait_control),
+        bool(
+            "player.interactive_overlays.hidden",
+            FeaturePreferences.HIDE_PLAYER_INTERACTIVE_OVERLAYS,
+            R.string.hide_player_interactive_overlays,
+            introducedCatalogVersion = 7
+        ),
         bool("player.status_bar.transparent", FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR, R.string.transparent_player_status_bar),
 
         bool("video.related.commercial.removed", FeaturePreferences.REMOVE_RELATE_COMMERCIAL, R.string.remove_relate_commercial),
@@ -298,7 +304,7 @@ internal object SettingsCatalog {
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
 
     init {
-        check(specs.size == 80) { "Expected 80 catalog settings, found ${specs.size}" }
+        check(specs.size == 81) { "Expected 81 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"
