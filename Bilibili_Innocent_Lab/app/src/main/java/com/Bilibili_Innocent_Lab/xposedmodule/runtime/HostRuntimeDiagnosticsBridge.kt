@@ -217,6 +217,9 @@ internal object HostRuntimeDiagnosticsBridge {
         if (result.playerInteractiveOverlays != null) record(
             "player_interactive_overlay", FeatureRuntimeStage.ADAPTED
         )
+        if (result.pgcAutoActivityPopup != null) record(
+            "pgc_auto_activity_popup", FeatureRuntimeStage.ADAPTED
+        )
         if (result.playerStatusBar != null) record("player_status_bar", FeatureRuntimeStage.ADAPTED)
         if (result.homeRecommendFeed != null) record(
             "home_recommend_purify", FeatureRuntimeStage.ADAPTED

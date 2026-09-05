@@ -9,11 +9,11 @@ import org.junit.Test
 class SettingsCatalogTest {
 
     @Test
-    fun `catalog is a unique allowlist with 85 settings`() {
-        assertEquals(85, SettingsCatalog.specs.size)
-        assertEquals(85, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(85, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(84, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 86 settings`() {
+        assertEquals(86, SettingsCatalog.specs.size)
+        assertEquals(86, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(86, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(85, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(1, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -122,12 +122,26 @@ class SettingsCatalogTest {
         ).bufferedReader().useLines { lines ->
             lines.map(String::trim).filter(String::isNotEmpty).toList()
         }
+        assertEquals(expected, SettingsCatalog.specs
+            .filter { it.introducedCatalogVersion <= 9 }.map { it.id }.sorted())
+    }
+
+    @Test
+    fun `catalog v10 adds only the opt in PGC activity setting`() {
+        val expected = requireNotNull(
+            javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v10.txt")
+        ).bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(expected, SettingsCatalog.specs.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 10 }.single()
+        assertEquals("pgc.auto_activity_popup.hidden", added.id)
+        assertEquals(SettingValue.Bool(false), added.defaultValue)
+        assertEquals(RestorePolicy.AUTOMATIC, added.restorePolicy)
+        assertTrue(ImportEffect.RESTART_BILIBILI in added.effects)
     }
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(67, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(68, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(4, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(14, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 

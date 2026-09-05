@@ -62,6 +62,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MerchandiseFeatureIns
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineVipFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PausedAdFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PgcAutoActivityPopupFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPortraitFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerInteractiveOverlayFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerStatusBarFeatureInstaller
@@ -3027,6 +3028,13 @@ class HookEntry : XposedModule() {
 
             featureInstallCoordinator.installAll(
                 listOf(
+                    PgcAutoActivityPopupFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP,
+                            false
+                        ),
+                        points = hostAdaptResult?.pgcAutoActivityPopup
+                    ),
                     PlayerStatusBarFeatureInstaller(
                         enabled = prefs.getBoolean(
                             FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR,

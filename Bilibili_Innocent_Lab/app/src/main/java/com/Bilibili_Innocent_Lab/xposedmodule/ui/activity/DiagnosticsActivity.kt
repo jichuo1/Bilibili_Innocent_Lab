@@ -1227,6 +1227,7 @@ class DiagnosticsActivity : SkinnedActivity() {
             "video_relate_filter" -> R.string.diagnostics_host_feature_relate
             "player_portrait_control" -> R.string.hide_player_portrait_control
             "player_interactive_overlay" -> R.string.hide_player_interactive_overlays
+            "pgc_auto_activity_popup" -> R.string.hide_pgc_auto_activity_popup
             "player_status_bar" -> R.string.transparent_player_status_bar
             "comment_filter" -> R.string.diagnostics_host_feature_comment_filter
             "comment_purify" -> R.string.diagnostics_host_feature_comment_purify

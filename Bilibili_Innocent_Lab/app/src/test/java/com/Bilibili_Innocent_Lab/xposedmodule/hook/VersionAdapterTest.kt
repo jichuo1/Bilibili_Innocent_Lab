@@ -11,6 +11,25 @@ import org.junit.Test
 class VersionAdapterTest {
 
     @Test
+    fun `PGC construction point participates in full cache validation and merge`() {
+        val points = requireNotNull(VersionAdapter.locatePgcAutoActivityPopup(javaClass.classLoader!!))
+        val current = result().copy(pgcAutoActivityPopup = points)
+        val restored = VersionAdapter.AdaptResult.fromJson(current.toJson())
+        assertEquals(points, restored?.pgcAutoActivityPopup)
+        assertEquals(53, current.toJson().getInt("sv"))
+        assertNull(VersionAdapter.AdaptResult.fromJson(current.toJson().put("sv", 52)))
+        assertNull(VersionAdapter.AdaptResult.fromJson(
+            current.toJson().apply { getJSONObject("pgc_auto_activity_popup").put("index", -1) }
+        ))
+        val live = current.copy(pgcAutoActivityPopup = points.copy(propertiesField = "newField"))
+        assertEquals(live.pgcAutoActivityPopup,
+            VersionAdapter.mergeRuntimeWithCached(live, current)?.pgcAutoActivityPopup)
+        assertEquals(points,
+            VersionAdapter.mergeRuntimeWithCached(current.copy(pgcAutoActivityPopup = null), current)
+                ?.pgcAutoActivityPopup)
+    }
+
+    @Test
     fun `runtime result keeps live points and fills missing dex assisted point from cache`() {
         val cached = result()
         val runtimePoint = VersionAdapter.HookPoint("runtime.Comment", "bind", emptyList())
