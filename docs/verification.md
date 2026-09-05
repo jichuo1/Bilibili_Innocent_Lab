@@ -63,7 +63,7 @@ one fixed-policy suite:
 ```
 
 The packaged APK must contain `META-INF/xposed/java_init.list`, `module.prop`
-with `minApiVersion=102`/`targetApiVersion=102`, and `scope.list`. It must not
+with `minApiVersion=101`/`targetApiVersion=102`, and `scope.list`. It must not
 contain `assets/xposed_init`, `META-INF/yukihookapi_init`, an
 `xposedminversion` manifest entry, YukiHookAPI classes, or rovo89 API classes.
 JVM protocol success does not prove framework service binding or device Hook
@@ -219,8 +219,9 @@ Liquid rendering, RenderThread timing, or device accessibility.
     Make the private preference read and first migration commit fail where
     practical; both failures must remain unauthorized rather than falling into
     legacy inference.
-24. On each supported API 102 framework, open the module UI and confirm the
-    service status reports connected, API 102 and Remote Preferences capable.
+24. On each supported Modern framework (including the pinned Irena API 101
+    baseline), open the module UI and confirm the service status reports connected,
+    its actual API version and Remote Preferences capability.
     If the service is unavailable, the host must fail closed and install no
     feature Hook; it must not fall back to the compatibility Provider or an
     ordered broadcast authorization race. Click Accept once while disconnected:
@@ -248,7 +249,7 @@ Liquid rendering, RenderThread timing, or device accessibility.
     group name and exact document are identical apart from delivery/revision and
     generation values.
 27. Restart Bilibili main, web, download and player processes. Every process must
-    log `API 102 Remote Preferences 验证成功` with the same generation and must not
+    log `Modern Remote Preferences 验证成功` with the same generation and must not
     log an API 82 file or authorization-mirror fallback. Verify free copy, then enable
     reply topology and sample at least one home, player and comment feature.
 28. Change representative Boolean, integer and text settings in one session,
@@ -403,6 +404,14 @@ failed. That case needs a different entry design, not a patch to this channel.
 Separately, static-final immutability and the lock-free MessageQueue take
 effect per the *host app's* targetSdk, so KavaRef field writes in the Bilibili
 process may need a re-audit if Bilibili itself moves to API 37.
+
+## Irena API 101 compatibility acceptance
+
+Use [irena_compatibility.md](irena_compatibility.md) for the fixed 2.0.0/7316 API
+and Service commits, binary smoke procedure and device matrix. Verify explicit
+obsolete-key cleanup after a failed submission, actual old-interface linkage,
+replacement without duplicate callbacks, and 102 regression. Keep hot reload
+disabled and record Java/ART/device evidence separately.
 
 ## Vector compatibility acceptance
 

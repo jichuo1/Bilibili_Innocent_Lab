@@ -5,6 +5,14 @@ import org.junit.Test
 
 class FrameworkManagerPolicyTest {
     @Test
+    fun `Irena and its actual LSPosed service name use the existing LSPosed manager`() {
+        val expected = frameworkManagerTargets("LSPosed")
+        assertEquals(expected, frameworkManagerTargets("Irena"))
+        assertEquals(expected, frameworkManagerTargets("LSPosed-Irena"))
+        assertEquals("org.lsposed.manager", expected.first().packageName)
+        assertEquals("org.lsposed.manager.LAUNCH_MANAGER", expected.last().category)
+    }
+    @Test
     fun `Vector uses its own standalone package and parasitic category`() {
         val targets = frameworkManagerTargets("Vector")
         assertEquals("org.matrix.vector.manager", targets.first().packageName)

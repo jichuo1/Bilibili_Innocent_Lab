@@ -1,7 +1,7 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">Bilibili_Innocent_Lab</string>
     <string name="xposed_desc">A cleaner, more complete Bilibili interface</string>
-    <string name="about_module">This module uses libxposed Modern API 102.\nLearn more https://github.com/libxposed/api</string>
+    <string name="about_module">This module uses libxposed Modern API 101/102.\nLearn more https://github.com/libxposed/api</string>
     <string name="about_module_extension">This Xposed Module is powered by KavaRef.\nLearn more https://github.com/HighCapable/KavaRef</string>
     <string name="module_version">Module version: %1$s</string>
     <string name="module_not_activated">Module not activated</string>
@@ -10,7 +10,7 @@
     <string name="module_activation_not_detected">Module activation not detected</string>
     <string name="module_activation_waiting_framework">Waiting for a compatible Xposed framework service</string>
     <string name="module_activation_service_unavailable">No compatible Xposed framework service is connected</string>
-    <string name="module_activation_framework_unsupported">The connected framework does not support the required API 102 service</string>
+    <string name="module_activation_framework_unsupported">The connected framework does not support the required Modern API 101+ service</string>
     <!-- Multi-user hints: the framework pushes the libxposed service per Android user, so a cloned-app or work profile needs the module enabled for that user too. -->
     <string name="module_activation_service_unavailable_secondary_user">No framework service for Android user %1$d. Enable this module for that user in your framework manager.</string>
     <string name="module_activation_user_space_mismatch">Module is in user %1$d, Bilibili is in user %2$d.</string>
@@ -27,15 +27,15 @@
     <string name="settings_ui_compatibility_message">The interface runtime did not initialize correctly. Your terms decision and module settings were not changed. Reinstall a complete build of this version, then reopen the module. If the problem persists, export an LSPosed log and report it.</string>
     <string name="user_terms_save_failed">Could not save your decision. Please try again.</string>
     <string name="user_terms_need_framework_enable">No compatible Xposed framework service is connected. Enable this module and its scope in the current Android user or cloned-app profile, then return and retry.</string>
-    <string name="user_terms_need_api102">The current framework cannot synchronize remote configuration. API 102 Remote Preferences support is required.</string>
-    <string name="user_terms_need_api102_named">%1$s is connected with API %2$d, but it does not provide the required API 102 Remote Preferences capability.</string>
+    <string name="user_terms_need_api102">The current framework cannot synchronize remote configuration. Modern API 101+ Remote Preferences support is required.</string>
+    <string name="user_terms_need_api102_named">%1$s is connected with API %2$d, but it does not provide the required Modern API 101+ Remote Preferences capability.</string>
     <string name="user_terms_publish_failed">The framework is connected, but configuration submission or validation failed. Module features remain disabled; please retry.</string>
     <string name="user_terms_open_framework_manager">Open framework manager</string>
     <string name="user_terms_pending_title">Your agreement was recorded</string>
     <string name="user_terms_pending_message">Waiting for a compatible Xposed framework to complete secure synchronization. Module settings and hooks remain disabled until verification succeeds; you do not need to review or accept the terms again.</string>
     <string name="user_terms_pending_waiting">Status: no framework service is connected. Check module activation and scope in the current Android user or cloned-app profile; synchronization will continue automatically after connection.</string>
-    <string name="user_terms_pending_syncing">Status: publishing and fully verifying the API 102 configuration…</string>
-    <string name="user_terms_pending_unsupported">Status: %1$s is connected with API %2$d, but it does not provide the required API 102 Remote Preferences capability.</string>
+    <string name="user_terms_pending_syncing">Status: publishing and fully verifying the Modern configuration…</string>
+    <string name="user_terms_pending_unsupported">Status: %1$s is connected with API %2$d, but it does not provide the required Modern API 101+ Remote Preferences capability.</string>
     <string name="user_terms_pending_failed">Status: configuration synchronization is incomplete, so module features remain disabled. You can retry now.</string>
     <string name="user_terms_pending_local_failed">Status: the remote authorization was revoked because the final local state could not be saved. Check storage and retry.</string>
     <string name="user_terms_retry_sync">Retry now</string>
@@ -570,7 +570,7 @@
     <string name="diagnostics_activation_unavailable">No valid compatible Xposed framework service or matching NPatch heartbeat is currently available.</string>
     <string name="diagnostics_bootstrap_unavailable">No activated Bilibili main process is reachable. Start Bilibili, then refresh diagnostics.</string>
     <string name="diagnostics_bootstrap_invalid">A host receipt was returned, but its protocol, source version, or digest validation failed. Restart Bilibili and refresh.</string>
-    <string name="diagnostics_bootstrap_config_rejected">The host started, but API 102 configuration validation was rejected (%1$s). Open the module UI once to publish, then cold-start Bilibili.</string>
+    <string name="diagnostics_bootstrap_config_rejected">The host started, but Modern configuration validation was rejected (%1$s). Open the module UI once to publish, then cold-start Bilibili.</string>
     <string name="diagnostics_bootstrap_not_authorized">The host read the configuration, but no hooks were installed because the user terms have not been accepted.</string>
     <string name="diagnostics_bootstrap_install_failed">Configuration was authorized, but the isolated feature installation chain failed. Export this report and correlate it with LSPosed logs.</string>
     <string name="diagnostics_bootstrap_ready" tools:ignore="PluralsCandidate">Configuration generation %1$d was authorized and installation completed. Hook points: %2$d installed, %3$d only resolved, %4$d missing/ambiguous, %5$d failed.</string>
