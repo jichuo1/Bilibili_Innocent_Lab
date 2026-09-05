@@ -226,7 +226,8 @@ Liquid rendering, RenderThread timing, or device accessibility.
     ordered broadcast authorization race. Click Accept once while disconnected:
     the UI must retain a non-authorizing pending state, avoid asking for a second
     acceptance, and automatically converge to `ACCEPTED` only after service bind
-    and full read-back. Without the standard framework service, use the explicit
+    and acknowledged commit plus complete client-cache validation. Verify a
+    failed commit cannot become a cached success on retry. Without the standard framework service, use the explicit
     NPatch action and confirm it follows the same pending-to-read-back-to-local
     completion order. Repeat in the owner user and one cloned-app/profile user.
 25. Repeat the gate, pending-sync page, declined page, save-failure path, and accepted settings page
@@ -259,7 +260,7 @@ Liquid rendering, RenderThread timing, or device accessibility.
     Each case must log an exact reason and install no feature Hook. Test ACCEPTED,
     DECLINED, UNDECIDED and LEGACY_EXEMPT separately; decline must publish denial
     before the private decision, and acceptance publication failure must leave
-    the UI decision rolled back.
+    the private decision non-authorizing with its pending request retained.
 30. Open the diagnostics center from the activation card in Material You and Liquid
     modes, in all supported locales, with large font, TalkBack, rotation, and Android
     predictive back. Verify only the dedicated diagnostics row is clickable; its rounded
@@ -402,6 +403,16 @@ failed. That case needs a different entry design, not a patch to this channel.
 Separately, static-final immutability and the lock-free MessageQueue take
 effect per the *host app's* targetSdk, so KavaRef field writes in the Bilibili
 process may need a re-audit if Bilibili itself moves to API 37.
+
+## Vector compatibility acceptance
+
+Use [vector_compatibility.md](vector_compatibility.md) for the fixed 3080/3110
+baselines, upstream delivery issues and device matrix. Local JVM coverage is
+independent of Vector ART acceptance. Specifically verify that a failed commit
+which updated only the SDK cache is sent again on retry, that reconnecting
+reconfirms an identical document without advancing its generation unnecessarily,
+and that diagnostic format 4 distinguishes submission from a matching host
+receipt. Keep existing LSPosed and NPatch regressions in the same acceptance run.
 
 ## Multi-user and cloned-app boundary
 

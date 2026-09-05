@@ -12,8 +12,8 @@ import android.os.Process
  * `module.prop` 的 `staticScope=true` 挡在作用域外，后者根本不产生独立的 Android 用户。
  *
  * libxposed Service 102 的 binder 是**框架主动推送**的（`XposedProvider.call("SendBinder")`），
- * 模块侧无法自行绑定或重试。因此"收不到服务"在分身用户里几乎总是"框架没把这个用户下的模块
- * 当成已启用模块"，而不是"框架没装"。这里的判定只用于把这两种情况在 UI 上区分开，不参与
+ * 模块侧无法自行绑定或重试。收不到服务可能来自该用户未启用模块，也可能来自框架投递或
+ * 进程重连异常，单凭此状态不能确定原因。这里的判定只为 UI 提供用户空间线索，不参与
  * 任何授权决策：授权链仍然只认 Remote Preferences 的完整快照。
  */
 internal object AndroidUserSpace {

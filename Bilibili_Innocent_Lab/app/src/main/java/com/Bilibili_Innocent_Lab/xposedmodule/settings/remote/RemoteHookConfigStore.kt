@@ -11,7 +11,6 @@ import io.github.libxposed.service.XposedServiceHelper
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.max
 
 internal sealed interface RemoteHookConfigPublishResult {
     val succeeded: Boolean
@@ -31,13 +30,6 @@ internal sealed interface RemoteHookConfigPublishResult {
     }
 }
 
-internal data class ModernFrameworkStatus(
-    val connected: Boolean,
-    val capable: Boolean,
-    val name: String,
-    val apiVersion: Int
-)
-
 internal enum class RemoteHookConfigPublishState {
     NOT_INITIALIZED,
     WAITING_FOR_SERVICE,
@@ -55,7 +47,8 @@ internal data class RemoteHookConfigDiagnostics(
     val lastSuccessAtEpochMs: Long,
     val generation: Long,
     val failureCode: String?,
-    val publishPending: Boolean
+    val publishPending: Boolean,
+    val connectionId: Long = 0L
 )
 
 internal fun interface ModernFrameworkStatusListener {
@@ -86,6 +79,8 @@ internal fun shouldRepeatRemotePublish(
 internal object RemoteHookConfigStore {
     private const val TAG = "BilibiliInnocentLab"
     private val lock = Any()
+    private val committer = RemoteHookConfigCommitter()
+    private var connectionId = 0L
     private val observedKeys = RemoteHookConfigContract.hookValueKeys
     private val publishScheduled = AtomicBoolean(false)
     private val publishDirty = AtomicBoolean(false)
@@ -194,16 +189,20 @@ internal object RemoteHookConfigStore {
             activeService == null -> RemoteHookConfigPublishResult.Failure(
                 "Xposed service is not connected"
             )
+            !frameworkStatus.capable && frameworkStatus.failureCode == "framework_metadata_unavailable" ->
+                RemoteHookConfigPublishResult.Failure("Xposed framework metadata is unavailable")
             !frameworkStatus.capable -> RemoteHookConfigPublishResult.Failure(
                 "Xposed framework does not provide API 102 remote preferences"
             )
             else -> publishWithService(appContext, decision, activeService)
         }
+        if (!result.succeeded) committer.invalidate()
         publishDiagnostics = when (result) {
             is RemoteHookConfigPublishResult.Success -> publishDiagnostics.copy(
                 state = RemoteHookConfigPublishState.READY,
                 lastSuccessAtEpochMs = System.currentTimeMillis().coerceAtLeast(attemptAt),
                 generation = result.generation,
+                connectionId = connectionId,
                 failureCode = null,
                 publishPending = false
             )
@@ -225,76 +224,39 @@ internal object RemoteHookConfigStore {
         decision: UserTermsDecision,
         activeService: XposedService
     ): RemoteHookConfigPublishResult = runCatching {
-            val values = RemoteHookConfigContract.resolveSourceValues(
-                appContext.modulePreferences().all
-            )
-            val preferences = activeService.getRemotePreferences(RemoteHookConfigContract.GROUP)
-            val current = RemoteHookConfigContract.decode(preferences.all)
-            if (current is RemoteHookConfigDecodeResult.Ready &&
-                current.snapshot.moduleVersionCode == BuildConfig.VERSION_CODE.toLong() &&
-                current.snapshot.deliveryEnabled &&
-                current.snapshot.noRootRevision == 0L &&
-                current.snapshot.decision == decision &&
-                current.snapshot.values == values
-            ) {
-                return@runCatching RemoteHookConfigPublishResult.Success(
-                    generation = current.snapshot.generation,
-                    changed = false
-                )
-            }
-            val previousGeneration = (preferences.all[RemoteHookConfigContract.KEY_GENERATION]
-                as? Long)?.coerceAtLeast(0L) ?: 0L
-            val generation = max(
-                System.currentTimeMillis().coerceAtLeast(1L),
-                previousGeneration.nextGeneration()
-            )
-            val encoded = RemoteHookConfigContract.encode(
-                generation = generation,
-                moduleVersionCode = BuildConfig.VERSION_CODE.toLong(),
-                deliveryEnabled = true,
-                noRootRevision = 0L,
-                decision = decision,
-                values = values
-            )
-            val editor = preferences.edit().clear()
-            encoded.forEach { (key, value) ->
-                when (value) {
-                    is Boolean -> editor.putBoolean(key, value)
-                    is Int -> editor.putInt(key, value)
-                    is Long -> editor.putLong(key, value)
-                    is String -> editor.putString(key, value)
-                    else -> error("Unsupported remote preference value")
+        val values = RemoteHookConfigContract.resolveSourceValues(appContext.modulePreferences().all)
+        val preferences = activeService.getRemotePreferences(RemoteHookConfigContract.GROUP)
+        committer.publish(
+            connectionId = connectionId,
+            moduleVersionCode = BuildConfig.VERSION_CODE.toLong(),
+            decision = decision,
+            values = values,
+            nowEpochMs = System.currentTimeMillis(),
+            backend = object : RemoteHookConfigBackend {
+                override fun readCached(): Map<String, *> = preferences.all
+
+                override fun commit(document: Map<String, Any>): Boolean {
+                    // 仅替换专用远端分组，不清除模块私有设置。clear 保证失败后的重试确实发送。
+                    val editor = preferences.edit().clear()
+                    document.forEach { (key, value) ->
+                        when (value) {
+                            is Boolean -> editor.putBoolean(key, value)
+                            is Int -> editor.putInt(key, value)
+                            is Long -> editor.putLong(key, value)
+                            is String -> editor.putString(key, value)
+                            else -> error("Unsupported remote preference value")
+                        }
+                    }
+                    return editor.commit()
                 }
             }
-            check(editor.commit()) { "remote preferences commit returned false" }
-            val readBack = RemoteHookConfigContract.decode(preferences.all)
-            check(readBack is RemoteHookConfigDecodeResult.Ready) {
-                "remote read-back failed: " +
-                    (readBack as RemoteHookConfigDecodeResult.Invalid).reason
-            }
-            check(readBack.snapshot.generation == generation) {
-                "remote generation read-back mismatch"
-            }
-            check(readBack.snapshot.moduleVersionCode == BuildConfig.VERSION_CODE.toLong()) {
-                "remote module version read-back mismatch"
-            }
-            check(readBack.snapshot.deliveryEnabled) {
-                "remote delivery state read-back mismatch"
-            }
-            check(readBack.snapshot.noRootRevision == 0L) {
-                "remote no-root revision read-back mismatch"
-            }
-            check(readBack.snapshot.decision == decision) {
-                "remote decision read-back mismatch"
-            }
-            check(readBack.snapshot.values == values) { "remote value read-back mismatch" }
-            RemoteHookConfigPublishResult.Success(generation, changed = true)
-        }.getOrElse { throwable ->
-            RemoteHookConfigPublishResult.Failure(
-                throwable.message ?: throwable.javaClass.simpleName,
-                throwable
-            )
-        }
+        )
+    }.getOrElse { throwable ->
+        committer.invalidate()
+        RemoteHookConfigPublishResult.Failure(
+            throwable.message ?: throwable.javaClass.simpleName, throwable
+        )
+    }
 
     fun status(): ModernFrameworkStatus = frameworkStatus
 
@@ -335,52 +297,50 @@ internal object RemoteHookConfigStore {
         if (!listenerRegistered.compareAndSet(false, true)) return
         XposedServiceHelper.registerListener(object : XposedServiceHelper.OnServiceListener {
             override fun onServiceBind(boundService: XposedService) {
-                val capable = boundService.apiVersion >= XposedService.API_102 &&
-                    boundService.frameworkProperties and XposedService.PROP_CAP_REMOTE != 0L
-                val newStatus = ModernFrameworkStatus(
-                    connected = true,
-                    capable = capable,
-                    name = boundService.frameworkName,
-                    apiVersion = boundService.apiVersion
+                val metadata = readModernFrameworkStatus(
+                    readApiVersion = { boundService.apiVersion },
+                    readProperties = { boundService.frameworkProperties },
+                    readName = { boundService.frameworkName },
+                    readVersion = { boundService.frameworkVersion },
+                    readVersionCode = { boundService.frameworkVersionCode }
                 )
-                val changed = synchronized(lock) {
-                    if (!capable && service != null) {
-                        false
+                val newStatus = synchronized(lock) {
+                    if (!metadata.capable && frameworkStatus.capable && service !== boundService) {
+                        null
                     } else {
-                        service = boundService
-                        if (frameworkStatus == newStatus) {
-                            false
-                        } else {
-                            frameworkStatus = newStatus
-                            true
+                        if (service !== boundService) {
+                            connectionId += 1L
+                            committer.invalidate()
+                            publishDiagnostics = publishDiagnostics.copy(
+                                state = RemoteHookConfigPublishState.WAITING_FOR_SERVICE,
+                                failureCode = null
+                            )
                         }
+                        service = boundService
+                        metadata.copy(connectionId = connectionId).also { frameworkStatus = it }
                     }
                 }
-                if (changed) notifyStatusListeners(newStatus)
+                if (newStatus != null) notifyStatusListeners(newStatus)
                 applicationContext?.let(::requestPublish)
             }
 
             override fun onServiceDied(deadService: XposedService) {
-                val disconnected = ModernFrameworkStatus(
-                    connected = false,
-                    capable = false,
-                    name = "",
-                    apiVersion = 0
-                )
-                val changed = synchronized(lock) {
+                val disconnected = synchronized(lock) {
                     if (service !== deadService) {
-                        false
+                        null
                     } else {
                         service = null
-                        if (frameworkStatus == disconnected) {
-                            false
-                        } else {
-                            frameworkStatus = disconnected
-                            true
-                        }
+                        committer.invalidate()
+                        publishDiagnostics = publishDiagnostics.copy(
+                            state = RemoteHookConfigPublishState.WAITING_FOR_SERVICE,
+                            failureCode = "service_not_connected"
+                        )
+                        frameworkStatus.copy(
+                            connected = false, capable = false, failureCode = "service_died"
+                        ).also { frameworkStatus = it }
                     }
                 }
-                if (changed) notifyStatusListeners(disconnected)
+                if (disconnected != null) notifyStatusListeners(disconnected)
             }
         })
     }
@@ -432,14 +392,9 @@ internal object RemoteHookConfigStore {
         }
     }
 
-    private fun Long.nextGeneration(): Long = when {
-        this < 1L -> 1L
-        this == Long.MAX_VALUE -> Long.MAX_VALUE
-        else -> this + 1L
-    }
-
     private fun RemoteHookConfigPublishResult.Failure.toFailureCode(): String = when (reason) {
         "Xposed service is not connected" -> "service_not_connected"
+        "Xposed framework metadata is unavailable" -> "framework_metadata_unavailable"
         "Xposed framework does not provide API 102 remote preferences" ->
             "remote_preferences_unsupported"
         else -> "publish_failed"

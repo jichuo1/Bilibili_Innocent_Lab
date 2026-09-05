@@ -201,6 +201,8 @@ dependencies {
     implementation(libs.markwon.core)
 
     testImplementation(libs.junit)
+    // JVM 验证 Modern Hook 边界，生产 APK 仍由框架提供 API。
+    testImplementation(libs.libxposed.api)
     // android.jar 的 org.json 是抛异常的 stub；单测需要真实实现解析 GitHub 响应。
     testImplementation(libs.test.org.json)
     androidTestImplementation(libs.androidx.test.ext.junit)
