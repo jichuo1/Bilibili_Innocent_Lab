@@ -7,7 +7,7 @@ import org.junit.Test
 class DiagnosticFeatureRegistryTest {
     @Test
     fun `registry is unique bounded and covers specialized feature paths`() {
-        assertEquals(30, DiagnosticFeatureRegistry.descriptors.size)
+        assertEquals(31, DiagnosticFeatureRegistry.descriptors.size)
         assertEquals(
             DiagnosticFeatureRegistry.descriptors.size,
             DiagnosticFeatureRegistry.ids.size
@@ -15,6 +15,7 @@ class DiagnosticFeatureRegistryTest {
         assertTrue("free_copy" in DiagnosticFeatureRegistry.ids)
         assertTrue("roaming_compat" in DiagnosticFeatureRegistry.ids)
         assertTrue("player_interactive_overlay" in DiagnosticFeatureRegistry.ids)
+        assertTrue(DiagnosticFeatureRegistry.descriptorOrNull("pgc_auto_activity_popup")?.runtimeEvidenceExpected == true)
         assertTrue(
             DiagnosticFeatureRegistry.descriptors
                 .filter { it.runtimeEvidenceExpected }

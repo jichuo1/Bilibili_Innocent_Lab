@@ -1,0 +1,63 @@
+[
+  {
+    "code": 0,
+    "data": {
+      "closeType": "close_win",
+      "container": [],
+      "showTime": "",
+      "play_half_container": {
+        "action": "url",
+        "closeType": "close_win",
+        "login": true,
+        "showTime": "ENTER",
+        "h5url": "https://example.invalid/auto-activity?msource=halfscreen",
+        "win_id": "fixture-window"
+      },
+      "link": "",
+      "pp_float_layer": {
+        "action": "",
+        "showTime": "ENTER"
+      }
+    }
+  },
+  {
+    "code": 0,
+    "data": {
+      "closeType": "close_win",
+      "container": [],
+      "showTime": ""
+    }
+  },
+  {
+    "code": 0,
+    "data": {
+      "closeType": "close_win",
+      "container": [],
+      "showTime": ""
+    }
+  },
+  {
+    "code": 0,
+    "data": {
+      "closeType": "close_win",
+      "container": [],
+      "showTime": ""
+    }
+  },
+  {
+    "code": 0,
+    "data": {
+      "closeType": "close_win",
+      "container": [],
+      "showTime": ""
+    }
+  },
+  {
+    "code": 0,
+    "data": {
+      "closeType": "close_win",
+      "container": [],
+      "showTime": ""
+    }
+  }
+]
