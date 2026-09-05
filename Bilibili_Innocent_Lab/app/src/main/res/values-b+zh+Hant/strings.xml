@@ -328,6 +328,13 @@
     <string name="log_level_minimal_desc">僅輸出顯著錯誤與執行問題</string>
     <string name="log_level_complete_desc">輸出所有 hook 命中與攔截詳細資訊</string>
     <string name="experimental_features">實驗性功能</string>
+    <string name="experimental_appearance">外觀</string>
+    <string name="experimental_appearance_summary">風格、配色、語言與桌面圖示</string>
+    <string name="experimental_compatibility">相容</string>
+    <string name="experimental_compatibility_summary">框架支援與宿主適配</string>
+    <string name="appearance_style_and_color">風格與配色</string>
+    <string name="settings_search_section_appearance">實驗性功能 · 外觀</string>
+    <string name="settings_search_section_compatibility">實驗性功能 · 相容</string>
     <string name="skin_setting_title">介面美學</string>
     <string name="skin_current_material_you">目前：Material You</string>
     <string name="skin_current_liquid">目前：Liquid Glass（實驗性） · %1$s</string>
@@ -499,7 +506,7 @@
     <string name="settings_backup_nothing_to_apply">沒有可安全套用的變更。</string>
     <string name="settings_backup_choose_again">重新選擇檔案</string>
     <string name="settings_backup_migration_warning">部分目錄遷移步驟無法使用；只會還原仍能精確相容的自描述設定，其餘項目全部保留目前狀態。</string>
-    <string name="no_root_support_enable">免 Root 支援（NPatch，實驗性）</string>
+    <string name="no_root_support_enable">免 Root 支援</string>
     <string name="no_root_support_tip">此開關只控制本模組透過 NPatch 同步設定，不會關閉已修補應用程式的 NPatch 原生注入。部分 NPatch 1.0.7 組建存在上游啟動崩潰問題，請只使用已明確包含修正的組建。僅在此開關開啟時連線 NPatch。</string>
     <string name="no_root_status_unsupported_os">狀態：無法使用，需要 Android 9 或更新版本。</string>
     <string name="no_root_status_disabled">狀態：已關閉，不會連線 NPatch。</string>
