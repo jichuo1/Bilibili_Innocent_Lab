@@ -505,3 +505,35 @@ An isolated app_process probe against the connected Android 16 device was attemp
 without installing or launching the module/host. Both launches exited 137 before
 reporting results. It supplies no runtime pass evidence. Device/UI acceptance and
 Vector/Irena/NPatch framework-specific checks therefore remain pending.
+
+## Experimental appearance, compatibility and alignment (2026-09-05)
+
+The third SettingsOrganizationInstrumentedTest case verifies the static Experimental
+primary card, independent Appearance/Compatibility submenus, relocated display
+controls, the existing predictive-back guard and search for both a menu title and a
+child option. It measures the five appearance title origins and row right edges;
+all must align and have nonzero layout dimensions. It also compares launcher
+component state and application locale tags in addition to all 86 catalog values.
+
+All three UI cases passed on Android 16 in 19.253 seconds after allowing the framework
+module-update heads-up notification to expire. Keep the search editor scoped to the
+Dialog root and avoid disabling notifications for tests. The production build passed
+121 suites / 675 tests, Lint (0 errors / 170 warnings), Debug and Release R8. Final
+screenshots and APK/installed hash evidence are in the experimental-appearance task
+folder; settings_organization.md records the current inventory and validation digest.
+
+
+## Functional submenu insets and enhancement folding (2026-09-05)
+
+SettingsMenuSpacing owns the purification baseline (8dp shell + 12dp content).
+Enhancement regions use the same collapsible group builder, with no duplicate root
+padding. Compatibility compensates for its own 10dp shell in actual pixels. The
+instrumented inset case opens all groups and compares control origins and right
+edges relative to each outer submenu card, including all seven enhancement entries.
+It also rejects an ellipsized compatibility title, now shortened to “免 Root 支持”.
+
+All four device cases passed on Android 16 in 22.42 seconds. They also verify that
+expanding one enhancement group leaves others unchanged and parent-menu toggling
+preserves child-group states. Existing appearance and search checks continue to run,
+with all 86 stored catalog values unchanged. Final local gates passed 675 JVM tests,
+Lint (0 errors / 170 warnings), Debug, Release R8 and the instrumentation APK build.

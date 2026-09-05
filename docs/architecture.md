@@ -563,9 +563,19 @@ owns its advanced submenu as its last child at construction time. Free-copy acti
 and both bubble-appearance options live together in Enhancements. The former
 post-construction move below Experimental has been removed.
 
+Experimental is now a static primary section with independent Appearance and
+Compatibility submenus. Appearance owns skin, Liquid background, color spec,
+language and launcher visibility; Compatibility owns framework support and host
+adaptation, retaining the existing platform guard for predictive back. Display no
+longer occupies a separate primary card. The four submenu states share the same
+bounded animation and search-revelation entry, with no preference-key migration.
+Appearance applies horizontal insets once at its content root; clickable rows and
+switch titles do not add competing insets. Purpose-specific local vector icons use
+the existing theme tint, with upstream attribution in THIRD_PARTY_NOTICES.md.
+
 Advanced categories carry a purpose and a localized region title. The six ordinary
-purification regions use independent collapsible cards; shared Home/detail duration
-filtering and the four small enhancement regions use plain section headings.
+purification regions and all four enhancement regions use the same independent
+collapsible cards; only shared Home/detail duration filtering uses a plain heading.
 `AdvancedCategoryLayoutPolicy` partitions by headings only and preserves every
 non-heading child, including the final description before the next heading. Invalid
 markers keep the original layout. Regrouping happens before the first draw, reuses
