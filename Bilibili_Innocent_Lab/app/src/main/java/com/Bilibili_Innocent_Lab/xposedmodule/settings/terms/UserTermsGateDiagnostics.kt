@@ -24,7 +24,12 @@ internal data class UserTermsGateDiagnosticsSnapshot(
     val targetUid: Int?,
     val targetUserId: Int?,
     val sameAndroidUser: Boolean?,
-    val failureCode: String?
+    val failureCode: String?,
+    val frameworkVersion: String? = null,
+    val frameworkVersionCode: Long? = null,
+    val frameworkProperties: Long? = null,
+    val frameworkConnectionId: Long = 0L,
+    val frameworkFailureCode: String? = null
 )
 
 internal fun resolveSameAndroidUser(
@@ -48,6 +53,7 @@ internal fun resolveUserTermsGateFailureCode(
     val normalizedExplicit = when (explicitFailureCode) {
         UserTermsAuthorizationCoordinator.FAILURE_LOCAL_WRITE -> explicitFailureCode
         "service_not_connected" -> USER_TERMS_FAILURE_SERVICE_NOT_CONNECTED
+        "framework_metadata_unavailable" -> "framework_metadata_unavailable"
         "remote_preferences_unsupported" -> USER_TERMS_FAILURE_API_UNSUPPORTED
         "publish_failed" -> USER_TERMS_FAILURE_REMOTE_PUBLISH
         null, "" -> null
@@ -87,6 +93,11 @@ internal object UserTermsGateDiagnostics {
             frameworkConnected = framework.connected,
             frameworkName = framework.name,
             frameworkApiVersion = framework.apiVersion,
+            frameworkVersion = framework.version,
+            frameworkVersionCode = framework.versionCode,
+            frameworkProperties = framework.properties,
+            frameworkConnectionId = framework.connectionId,
+            frameworkFailureCode = framework.failureCode,
             remoteCapabilityAvailable = framework.connected && framework.capable,
             targetPackageVisible = targetUid != null,
             targetUid = targetUid,

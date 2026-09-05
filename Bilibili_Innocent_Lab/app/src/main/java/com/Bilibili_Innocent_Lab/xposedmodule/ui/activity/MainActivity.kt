@@ -1352,7 +1352,10 @@ class MainActivity : SkinnedActivity() {
         val frameworkLine = if (diagnostics.frameworkConnected) {
             getString(
                 R.string.user_terms_diagnostics_framework_connected,
-                diagnostics.frameworkName.ifBlank { "Xposed" },
+                listOfNotNull(
+                    diagnostics.frameworkName.ifBlank { "Xposed" },
+                    diagnostics.frameworkVersion
+                ).joinToString(" "),
                 diagnostics.frameworkApiVersion
             )
         } else {
@@ -1385,7 +1388,7 @@ class MainActivity : SkinnedActivity() {
                 null -> R.string.user_terms_diagnostics_same_user_unknown
             }
         )
-        valueView.text = listOf(
+        valueView.text = (listOf(
             getString(
                 R.string.user_terms_diagnostics_module_identity,
                 diagnostics.moduleUserId,
@@ -1401,7 +1404,11 @@ class MainActivity : SkinnedActivity() {
                 diagnostics.failureCode
                     ?: getString(R.string.user_terms_diagnostics_failure_none)
             )
-        ).joinToString("\n")
+        ) + frameworkDiagnosticsDetails(
+            this, diagnostics.frameworkName, diagnostics.frameworkVersion,
+            diagnostics.frameworkVersionCode, diagnostics.frameworkProperties,
+            diagnostics.frameworkConnectionId, diagnostics.frameworkFailureCode
+        )).joinToString("\n")
     }
 
     private fun createTermsManagerLauncher(): NativeTextView {

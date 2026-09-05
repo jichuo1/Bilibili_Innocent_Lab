@@ -152,15 +152,21 @@ internal data class ModuleDiagnosticInputs(
     /**
      * 模块进程所属的 Android userId（0 = 主用户）。
      *
-     * 只用于把"框架没装"和"当前用户下没启用模块"这两种同样表现为"收不到 libxposed 服务"的
-     * 情况在界面上区分开，**不参与健康度评估**：分身用户本身不是故障，`ModuleHealthEvaluator`
+     * 只在界面提供当前用户空间线索；服务缺失也可能来自框架投递或进程重连异常。
+     * **不参与健康度评估**：分身用户本身不是故障，`ModuleHealthEvaluator`
      * 的 severity 不因它改变。也不进入 `DiagnosticReportCodec` 的导出白名单。
      */
     val moduleUserId: Int = 0,
     /** 当前用户下目标 App 的 userId；不可见或未安装时为 null。 */
     val targetUserId: Int? = null,
     /** 模块与目标是否属于同一 Android 用户；目标不可见时为 null，不做猜测。 */
-    val sameAndroidUser: Boolean? = null
+    val sameAndroidUser: Boolean? = null,
+    val frameworkVersion: String? = null,
+    val frameworkVersionCode: Long? = null,
+    val frameworkProperties: Long? = null,
+    val frameworkConnectionId: Long = 0L,
+    val frameworkFailureCode: String? = null,
+    val remoteConnectionId: Long = 0L
 )
 
 internal data class DiagnosticItem(

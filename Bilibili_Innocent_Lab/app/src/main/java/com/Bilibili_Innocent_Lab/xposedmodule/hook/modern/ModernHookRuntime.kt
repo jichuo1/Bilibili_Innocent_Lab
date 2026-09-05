@@ -2,7 +2,6 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.modern
 
 import android.util.Log
 import io.github.libxposed.api.XposedInterface
-import io.github.libxposed.api.XposedModule
 import java.lang.reflect.Executable
 import java.lang.reflect.Method
 import java.util.concurrent.CopyOnWriteArrayList
@@ -13,7 +12,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  * 该层只兼容项目实际使用的最小 DSL，不模拟 Legacy XposedBridge，也不允许回调保存 Chain。
  */
 internal class ModernHookRuntime(
-    private val module: XposedModule
+    private val module: XposedInterface
 ) {
     private val handles = CopyOnWriteArrayList<XposedInterface.HookHandle>()
 

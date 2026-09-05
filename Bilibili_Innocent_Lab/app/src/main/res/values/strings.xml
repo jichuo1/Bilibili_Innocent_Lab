@@ -29,7 +29,7 @@
     <string name="user_terms_need_framework_enable">No compatible Xposed framework service is connected. Enable this module and its scope in the current Android user or cloned-app profile, then return and retry.</string>
     <string name="user_terms_need_api102">The current framework cannot synchronize remote configuration. API 102 Remote Preferences support is required.</string>
     <string name="user_terms_need_api102_named">%1$s is connected with API %2$d, but it does not provide the required API 102 Remote Preferences capability.</string>
-    <string name="user_terms_publish_failed">The framework is connected, but configuration publication or full read-back verification failed. Module features remain disabled; please retry.</string>
+    <string name="user_terms_publish_failed">The framework is connected, but configuration submission or validation failed. Module features remain disabled; please retry.</string>
     <string name="user_terms_open_framework_manager">Open framework manager</string>
     <string name="user_terms_pending_title">Your agreement was recorded</string>
     <string name="user_terms_pending_message">Waiting for a compatible Xposed framework to complete secure synchronization. Module settings and hooks remain disabled until verification succeeds; you do not need to review or accept the terms again.</string>
@@ -539,7 +539,7 @@
     <string name="diagnostics_item_catalog">Settings catalog</string>
     <string name="diagnostics_item_logging">Diagnostic logging</string>
     <string name="diagnostics_evidence_configured">Configured</string>
-    <string name="diagnostics_evidence_published">Published and verified</string>
+    <string name="diagnostics_evidence_published">Publication confirmed</string>
     <string name="diagnostics_evidence_adapted">Structure adapted</string>
     <string name="diagnostics_evidence_observed">Observed</string>
     <string name="diagnostics_evidence_applied">Applied</string>
@@ -556,13 +556,13 @@
     <string name="diagnostics_target_missing">The target Bilibili app is not installed or cannot be queried.</string>
     <string name="diagnostics_framework_ready">%1$s · API %2$d · Remote Preferences available</string>
     <string name="diagnostics_framework_unsupported">Connected to %1$s · API %2$d, but the required Remote Preferences capability is unavailable.</string>
-    <string name="diagnostics_framework_waiting">Waiting for the framework service. NPatch may still provide an independent heartbeat.</string>
+    <string name="diagnostics_framework_waiting">No framework service has been received. Check module enablement and the current Android user; framework delivery or process connection errors can also cause this. NPatch reports its own heartbeat separately.</string>
     <string name="diagnostics_framework_secondary_user">This module app runs in non-primary Android user %1$d (possibly a cloned app or work profile). The libxposed service is delivered per user, so the module must also be enabled for that user in the framework manager.</string>
     <string name="diagnostics_user_space_mismatch">The module app (user %1$d) and Bilibili (user %2$d) are in different Android users, so settings cannot reach the host. Install and enable both in the same user.</string>
-    <string name="diagnostics_remote_ready">Snapshot was written and read back successfully · generation %1$d</string>
+    <string name="diagnostics_remote_ready">Framework acknowledged the commit and the client cache passed validation · generation %1$d. Host receipt is reported separately.</string>
     <string name="diagnostics_remote_publishing">Publishing the latest settings snapshot…</string>
     <string name="diagnostics_remote_waiting">Waiting for a compatible framework service before publishing.</string>
-    <string name="diagnostics_remote_failed">The last publish or read-back verification failed (%1$s).</string>
+    <string name="diagnostics_remote_failed">The last submission or client cache validation failed (%1$s).</string>
     <string name="diagnostics_remote_not_initialized">No publication attempt has been recorded in this process yet.</string>
     <string name="diagnostics_activation_lsposed">Compatible Xposed framework service capability detected. Host adaptation remains a separate evidence item.</string>
     <string name="diagnostics_activation_npatch">A heartbeat matching the current module and Bilibili version was received.</string>
@@ -608,4 +608,18 @@
     <string name="diagnostics_export_running">Writing and verifying the report…</string>
     <string name="diagnostics_export_success">Diagnostic report saved and verified.</string>
     <string name="diagnostics_export_failed">Could not save or verify the diagnostic report.</string>
+    <string name="diagnostics_value_unknown">unknown</string>
+    <string name="diagnostics_value_yes">yes</string>
+    <string name="diagnostics_value_no">no</string>
+    <string name="diagnostics_framework_build">Version: %1$s · Build: %2$s · Connection: %3$d</string>
+    <string name="diagnostics_framework_properties">Capabilities: Remote %1$s · System %2$s · API protection %3$s</string>
+    <string name="diagnostics_framework_metadata_failure">Framework status is incomplete or disconnected (%1$s). Refresh diagnostics or reopen the module.</string>
+    <string name="diagnostics_vector_api27">Vector modern package callbacks on Android 8.1 have not been verified. A connected service alone does not confirm this module can run.</string>
+    <string name="diagnostics_vector_3080">Vector build 3080 predates upstream service-delivery fixes. Include this build number when reporting connection or process-restart problems.</string>
+    <string name="diagnostics_delivery_matched">The host confirmed the same generation %1$d. Individual feature execution is a separate result.</string>
+    <string name="diagnostics_delivery_older">Host generation %1$d is older than submitted generation %2$d. Restart Bilibili to use the new snapshot.</string>
+    <string name="diagnostics_delivery_newer">The host reports a newer generation than this collection. Refresh diagnostics to compare again.</string>
+    <string name="diagnostics_delivery_rejected">The host rejected the configuration. See the host bootstrap result for its reason.</string>
+    <string name="diagnostics_delivery_not_checked">The host has not confirmed a configuration snapshot yet.</string>
+    <string name="diagnostics_delivery_unavailable">No host configuration receipt is available. Start or restart Bilibili, then refresh diagnostics.</string>
 </resources>
