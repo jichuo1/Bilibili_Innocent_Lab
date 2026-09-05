@@ -12,7 +12,8 @@ internal fun frameworkManagerTargets(frameworkName: String): List<FrameworkManag
     val lsposed = FrameworkManagerTarget("org.lsposed.manager")
     val manager = when {
         frameworkName.contains("vector", ignoreCase = true) -> vector
-        frameworkName.contains("lsposed", ignoreCase = true) -> lsposed
+        frameworkName.contains("lsposed", ignoreCase = true) ||
+            frameworkName.contains("irena", ignoreCase = true) -> lsposed
         else -> return listOf(lsposed, vector)
     }
     return listOf(

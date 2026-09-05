@@ -6,7 +6,7 @@ import kotlin.math.max
 /** Service 102 的读取返回客户端缓存；commit 返回值才是本次远端调用的确认。 */
 internal interface RemoteHookConfigBackend {
     fun readCached(): Map<String, *>
-    fun commit(document: Map<String, Any>): Boolean
+    fun commit(document: Map<String, Any>, removedKeys: Set<String>): Boolean
 }
 
 /**
@@ -23,6 +23,8 @@ internal class RemoteHookConfigCommitter {
     )
 
     private var acknowledged: Acknowledgement? = null
+    private var cleanupConnectionId = 0L
+    private val pendingRemovals = linkedSetOf<String>()
 
     fun invalidate() {
         acknowledged = null
@@ -37,14 +39,21 @@ internal class RemoteHookConfigCommitter {
         backend: RemoteHookConfigBackend
     ): RemoteHookConfigPublishResult = runCatching {
         check(connectionId > 0L) { "remote service connection is unavailable" }
+        if (cleanupConnectionId != connectionId) {
+            cleanupConnectionId = connectionId
+            pendingRemovals.clear()
+        }
         val cached = backend.readCached()
+        // 只清理专用 group 中当前协议以外的键，失败后仍保留删除意图。
+        // SDK 可能已从本地缓存删掉它们，但 Irena 远端仍保留旧键，不能在重试时丢失。
+        pendingRemovals.addAll(cached.keys - RemoteHookConfigContract.persistedKeys)
         val current = RemoteHookConfigContract.decode(cached)
         val matchingSnapshot = (current as? RemoteHookConfigDecodeResult.Ready)?.snapshot?.takeIf {
             it.moduleVersionCode == moduleVersionCode && it.deliveryEnabled &&
                 it.noRootRevision == 0L && it.decision == decision && it.values == values
         }
         val confirmation = acknowledged
-        if (matchingSnapshot != null &&
+        if (matchingSnapshot != null && pendingRemovals.isEmpty() &&
             confirmation?.connectionId == connectionId &&
             confirmation.generation == matchingSnapshot.generation &&
             confirmation.digest == cached[RemoteHookConfigContract.KEY_DIGEST]
@@ -70,7 +79,9 @@ internal class RemoteHookConfigCommitter {
             decision = decision,
             values = values
         )
-        check(backend.commit(document)) { "remote preferences commit returned false" }
+        check(backend.commit(document, pendingRemovals.toSet())) {
+            "remote preferences commit returned false"
+        }
         val localCopy = backend.readCached()
         val decoded = RemoteHookConfigContract.decode(localCopy)
         check(decoded is RemoteHookConfigDecodeResult.Ready && localCopy == document) {
@@ -79,6 +90,7 @@ internal class RemoteHookConfigCommitter {
         acknowledged = Acknowledgement(
             connectionId, generation, document.getValue(RemoteHookConfigContract.KEY_DIGEST) as String
         )
+        pendingRemovals.clear()
         RemoteHookConfigPublishResult.Success(generation, changed = true)
     }.getOrElse { throwable ->
         invalidate()

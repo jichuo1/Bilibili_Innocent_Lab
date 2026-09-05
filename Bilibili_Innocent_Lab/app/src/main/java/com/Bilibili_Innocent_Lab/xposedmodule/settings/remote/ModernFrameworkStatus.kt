@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.settings.remote
 
 import io.github.libxposed.service.XposedService
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ModernApiSupport
 
 internal data class ModernFrameworkStatus(
     val connected: Boolean,
@@ -33,7 +34,7 @@ internal fun readModernFrameworkStatus(
     val versionCode = runCatching(readVersionCode)
     return ModernFrameworkStatus(
         connected = true,
-        capable = (api.getOrNull() ?: 0) >= XposedService.API_102 &&
+        capable = (api.getOrNull() ?: 0) >= ModernApiSupport.MIN_API &&
             properties.getOrNull()?.let { it and XposedService.PROP_CAP_REMOTE != 0L } == true,
         name = name.getOrNull().orEmpty().take(128),
         apiVersion = api.getOrNull()?.coerceAtLeast(0) ?: 0,

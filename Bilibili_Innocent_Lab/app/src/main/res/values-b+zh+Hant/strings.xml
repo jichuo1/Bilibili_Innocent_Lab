@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Bilibili_Innocent_Lab</string>
     <string name="xposed_desc">讓 Bilibili 介面更加純淨</string>
-    <string name="about_module">此模組使用 libxposed Modern API 102 建構。\n瞭解更多 https://github.com/libxposed/api</string>
+    <string name="about_module">此模組使用 libxposed Modern API 101/102 建構。\n瞭解更多 https://github.com/libxposed/api</string>
     <string name="about_module_extension">此 Xposed 模組由 KavaRef 驅動。\n瞭解更多 https://github.com/HighCapable/KavaRef</string>
     <string name="module_version">模組版本：%1$s</string>
     <string name="module_not_activated">模組尚未啟用</string>
@@ -11,7 +11,7 @@
     <string name="module_activation_not_detected">未偵測到模組啟用</string>
     <string name="module_activation_waiting_framework">正在等待相容的 Xposed 框架服務</string>
     <string name="module_activation_service_unavailable">尚未連接相容的 Xposed 框架服務</string>
-    <string name="module_activation_framework_unsupported">目前框架不支援所需的 API 102 服務</string>
+    <string name="module_activation_framework_unsupported">目前框架不支援所需的 Modern API 101+ 服務</string>
     <string name="module_activation_service_unavailable_secondary_user">目前 Android 使用者 %1$d 下沒有框架服務；請在框架管理器中為該使用者啟用本模組。</string>
     <string name="module_activation_user_space_mismatch">模組在使用者 %1$d，嗶哩嗶哩在使用者 %2$d。</string>
     <string name="display_settings">顯示設定</string>
@@ -27,15 +27,15 @@
     <string name="settings_ui_compatibility_message">介面執行階段元件未能正確初始化。您的條款決定與模組設定均未被變更。請重新安裝本版本的完整建置後再次開啟模組；若問題持續，請匯出 LSPosed 日誌後回報。</string>
     <string name="user_terms_save_failed">無法儲存您的決定，請重試。</string>
     <string name="user_terms_need_framework_enable">尚未連接相容的 Xposed 框架服務。請確認本模組已在目前 Android 使用者或分身空間中啟用並勾選作用域，然後返回重試。</string>
-    <string name="user_terms_need_api102">目前框架不支援遠端設定同步（需要 API 102 Remote Preferences），請升級相容框架後重試。</string>
-    <string name="user_terms_need_api102_named">已連接 %1$s（API %2$d），但其不支援所需的 API 102 Remote Preferences 能力。</string>
+    <string name="user_terms_need_api102">目前框架不支援遠端設定同步（需要 Modern API 101+ Remote Preferences），請升級相容框架後重試。</string>
+    <string name="user_terms_need_api102_named">已連接 %1$s（API %2$d），但其不支援所需的 Modern API 101+ Remote Preferences 能力。</string>
     <string name="user_terms_publish_failed">框架已經連接，但設定提交或校驗失敗。模組功能仍維持關閉，請重試。</string>
     <string name="user_terms_open_framework_manager">開啟框架管理器</string>
     <string name="user_terms_pending_title">已記錄您的同意</string>
     <string name="user_terms_pending_message">正在等待相容的 Xposed 框架完成安全同步。同步完成前，模組設定與 Hook 功能均不會啟用，您不需要重新閱讀或再次同意。</string>
     <string name="user_terms_pending_waiting">目前狀態：尚未連接框架服務。請檢查目前 Android 使用者或分身空間中的模組啟用狀態與作用域；連接後將自動繼續。</string>
-    <string name="user_terms_pending_syncing">目前狀態：正在發佈並完整校驗 API 102 設定…</string>
-    <string name="user_terms_pending_unsupported">目前狀態：已連接 %1$s（API %2$d），但不具備所需的 API 102 Remote Preferences 能力。</string>
+    <string name="user_terms_pending_syncing">目前狀態：正在發佈並完整校驗 Modern 設定…</string>
+    <string name="user_terms_pending_unsupported">目前狀態：已連接 %1$s（API %2$d），但不具備所需的 Modern API 101+ Remote Preferences 能力。</string>
     <string name="user_terms_pending_failed">目前狀態：設定同步尚未完成，模組功能仍維持關閉。您可以立即重試。</string>
     <string name="user_terms_pending_local_failed">目前狀態：遠端設定已撤銷，但本機最終狀態儲存失敗。請檢查儲存狀態後重試。</string>
     <string name="user_terms_retry_sync">立即重試</string>
@@ -570,7 +570,7 @@
     <string name="diagnostics_activation_unavailable">目前沒有有效的相容 Xposed 框架服務或相符的 NPatch heartbeat。</string>
     <string name="diagnostics_bootstrap_unavailable">未連線到已啟用的嗶哩嗶哩主處理程序。請先啟動嗶哩嗶哩，再重新整理診斷。</string>
     <string name="diagnostics_bootstrap_invalid">已收到宿主回執，但通訊協定、來源版本或摘要驗證失敗；請重新啟動嗶哩嗶哩後再重新整理。</string>
-    <string name="diagnostics_bootstrap_config_rejected">宿主已啟動，但 API 102 設定驗證遭拒（%1$s）。請先開啟一次模組介面完成發佈，再冷啟動嗶哩嗶哩。</string>
+    <string name="diagnostics_bootstrap_config_rejected">宿主已啟動，但 Modern 設定驗證遭拒（%1$s）。請先開啟一次模組介面完成發佈，再冷啟動嗶哩嗶哩。</string>
     <string name="diagnostics_bootstrap_not_authorized">宿主已讀取設定，但使用者條款尚未同意，因此未安裝任何 Hook。</string>
     <string name="diagnostics_bootstrap_install_failed">設定已授權，但功能安裝鏈發生隔離失敗。請匯出診斷報告，並搭配 LSPosed 日誌定位。</string>
     <string name="diagnostics_bootstrap_ready">設定世代 %1$d 已授權，安裝鏈已完成。Hook 點：已安裝 %2$d、僅解析 %3$d、缺失／歧義 %4$d、失敗 %5$d。</string>

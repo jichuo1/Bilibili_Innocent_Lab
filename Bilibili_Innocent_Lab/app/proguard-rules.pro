@@ -39,6 +39,10 @@
 }
 
 -dontwarn io.github.libxposed.annotation.**
+# API 101 的 HookBuilder 没有 setId；该版本桥不能被内联或合并到兼容路径。
+-keep,allowobfuscation class com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookIdsApi102 {
+    *;
+}
 # 只允许改写 java_init.list 的**内容**（把入口类名换成混淆后的名字）。
 #
 # 曾经这里还有一条**无过滤器**的 `-adaptresourcefilenames`：它会把 Java 资源的路径
