@@ -135,19 +135,62 @@ class RemoteHookConfigCommitterTest {
         var failCommit = false
         var failRead = false
         var corruptAfterCommit = false
+        val removals = mutableListOf<Set<String>>()
 
         override fun readCached(): Map<String, *> {
             check(!failRead) { "simulated read failure" }
             return cached.toMap()
         }
 
-        override fun commit(document: Map<String, Any>): Boolean {
+        override fun commit(document: Map<String, Any>, removedKeys: Set<String>): Boolean {
             commits += 1
-            cached = document.toMap()
+            removals += removedKeys.toSet()
+            cached = (cached - removedKeys) + document
             if (failCommit) return false
-            remote = document.toMap()
+            remote = (remote - removedKeys) + document
             if (corruptAfterCommit) cached = cached - RemoteHookConfigContract.KEY_DIGEST
             return true
         }
+    }
+
+    @Test
+    fun `Irena style store deletes obsolete keys without clear support`() {
+        backend.cached = mapOf("obsolete_setting" to "old", "obsolete_schema_key" to true)
+        backend.remote = backend.cached
+        assertTrue(publish().succeeded)
+        assertEquals(setOf("obsolete_setting", "obsolete_schema_key"), backend.removals.single())
+        assertEquals(RemoteHookConfigContract.persistedKeys, backend.remote.keys)
+        assertEquals(backend.cached, backend.remote)
+    }
+
+    @Test
+    fun `failed cleanup is repeated even after the SDK cache forgot the obsolete key`() {
+        backend.cached = mapOf("obsolete_setting" to "old")
+        backend.remote = backend.cached
+        backend.failCommit = true
+        assertFalse(publish().succeeded)
+        assertFalse(backend.cached.containsKey("obsolete_setting"))
+        assertTrue(backend.remote.containsKey("obsolete_setting"))
+        backend.failCommit = false
+        assertTrue(publish().succeeded)
+        assertEquals(listOf(setOf("obsolete_setting"), setOf("obsolete_setting")), backend.removals)
+        assertEquals(RemoteHookConfigContract.persistedKeys, backend.remote.keys)
+        assertEquals(backend.cached, backend.remote)
+    }
+
+    @Test
+    fun `pending cleanup is scoped to its service connection`() {
+        backend.cached = mapOf("old_framework_key" to "old")
+        backend.failCommit = true
+        assertFalse(publish().succeeded)
+        val nextBackend = CachedBackend().apply {
+            cached = mapOf("new_framework_key" to "new")
+            remote = cached
+        }
+        assertTrue(committer.publish(
+            2L, BuildConfig.VERSION_CODE.toLong(), UserTermsDecision.ACCEPTED, values, 100L, nextBackend
+        ).succeeded)
+        assertEquals(setOf("new_framework_key"), nextBackend.removals.single())
+        assertEquals(RemoteHookConfigContract.persistedKeys, nextBackend.remote.keys)
     }
 }

@@ -192,7 +192,7 @@ internal object RemoteHookConfigStore {
             !frameworkStatus.capable && frameworkStatus.failureCode == "framework_metadata_unavailable" ->
                 RemoteHookConfigPublishResult.Failure("Xposed framework metadata is unavailable")
             !frameworkStatus.capable -> RemoteHookConfigPublishResult.Failure(
-                "Xposed framework does not provide API 102 remote preferences"
+                "Xposed framework does not provide supported Modern remote preferences"
             )
             else -> publishWithService(appContext, decision, activeService)
         }
@@ -235,9 +235,11 @@ internal object RemoteHookConfigStore {
             backend = object : RemoteHookConfigBackend {
                 override fun readCached(): Map<String, *> = preferences.all
 
-                override fun commit(document: Map<String, Any>): Boolean {
-                    // 仅替换专用远端分组，不清除模块私有设置。clear 保证失败后的重试确实发送。
-                    val editor = preferences.edit().clear()
+                override fun commit(document: Map<String, Any>, removedKeys: Set<String>): Boolean {
+                    // Irena 101 不处理 clear 标志。显式删除 + 全量 put 在同次提交中更新 group。
+                    // SDK 不会省略相同值的 put；完整白名单保证每次重试都真实发送。
+                    val editor = preferences.edit()
+                    removedKeys.forEach(editor::remove)
                     document.forEach { (key, value) ->
                         when (value) {
                             is Boolean -> editor.putBoolean(key, value)
@@ -395,7 +397,7 @@ internal object RemoteHookConfigStore {
     private fun RemoteHookConfigPublishResult.Failure.toFailureCode(): String = when (reason) {
         "Xposed service is not connected" -> "service_not_connected"
         "Xposed framework metadata is unavailable" -> "framework_metadata_unavailable"
-        "Xposed framework does not provide API 102 remote preferences" ->
+        "Xposed framework does not provide supported Modern remote preferences" ->
             "remote_preferences_unsupported"
         else -> "publish_failed"
     }

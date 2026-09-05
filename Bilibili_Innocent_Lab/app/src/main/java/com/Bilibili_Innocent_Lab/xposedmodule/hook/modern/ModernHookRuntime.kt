@@ -1,13 +1,15 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.modern
 
 import android.util.Log
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ModernApiSupport
 import io.github.libxposed.api.XposedInterface
 import java.lang.reflect.Executable
 import java.lang.reflect.Method
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicReference
 
 /**
- * 把项目既有 before/after/replace 语义映射到 API 102 interceptor chain。
+ * 把项目既有 before/after/replace 语义映射到 Modern API 101/102 interceptor chain。
  *
  * 该层只兼容项目实际使用的最小 DSL，不模拟 Legacy XposedBridge，也不允许回调保存 Chain。
  */
@@ -15,17 +17,44 @@ internal class ModernHookRuntime(
     private val module: XposedInterface
 ) {
     private val handles = CopyOnWriteArrayList<XposedInterface.HookHandle>()
+    // HookEntry 构造时还没 attachFramework，必须等首次安装再查询。
+    private val apiVersion by lazy { module.apiVersion }
+    private data class CompatibilityKey(val executable: Executable, val id: String)
+    private class CompatibilityHook(
+        val callback: AtomicReference<XposedInterface.Hooker>,
+        val handle: XposedInterface.HookHandle
+    )
+    private val compatibilityHooks by lazy { HashMap<CompatibilityKey, CompatibilityHook>() }
 
     fun install(
         id: String,
         executable: Executable,
         block: ModernMemberHookCreator.() -> Unit
     ): XposedInterface.HookHandle {
+        check(apiVersion >= ModernApiSupport.MIN_API) { "Modern API 101 or newer is required" }
         val creator = ModernMemberHookCreator(executable).apply(block)
-        val handle = module.hook(executable)
-            .setId(id)
+        val callback = XposedInterface.Hooker { chain -> creator.invoke(chain) }
+        if (apiVersion < ModernApiSupport.HOOK_IDS_API) {
+            // 101 没有框架 Hook ID。相同逻辑点保留一条原生 Hook，只原子切换回调。
+            // 在途调用已取到旧回调，before/after 始终属于同一次注册，不受替换影响。
+            val key = CompatibilityKey(executable, id)
+            return synchronized(compatibilityHooks) {
+                compatibilityHooks[key]?.let { existing ->
+                    existing.callback.set(callback)
+                    return@synchronized existing.handle
+                }
+                val reference = AtomicReference(callback)
+                val handle = module.hook(executable)
+                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                    .intercept { chain -> reference.get().intercept(chain) }
+                compatibilityHooks[key] = CompatibilityHook(reference, handle)
+                handles += handle
+                handle
+            }
+        }
+        val handle = ModernHookIdsApi102.assign(module, module.hook(executable), id)
             .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
-            .intercept(XposedInterface.Hooker { chain -> creator.invoke(chain) })
+            .intercept(callback)
         handles += handle
         return handle
     }

@@ -128,9 +128,11 @@ class ModernHookRuntimeTest {
             else -> error(name)
         } }
         val api = proxy<XposedInterface> { name, args ->
-            assertEquals("hook", name)
-            assertSame(method, args[0])
-            builder
+            if (name == "getApiVersion") 102 else {
+                assertEquals("hook", name)
+                assertSame(method, args[0])
+                builder
+            }
         }
         val runtime = ModernHookRuntime(api)
         assertSame(handle, runtime.install("feature:point", method) { replaceTo(1) })
@@ -146,6 +148,98 @@ class ModernHookRuntimeTest {
         Proxy.newProxyInstance(T::class.java.classLoader, arrayOf(T::class.java)) { _, member, args ->
             invoke(member.name, args ?: emptyArray())
         } as T
+
+    @Test
+    fun `API 101 never calls setId and repeated logical points replace rather than stack`() {
+        val backend = Api101Backend()
+        val runtime = ModernHookRuntime(backend.api)
+        val first = runtime.install("same", method) { replaceTo(1) }
+        val second = runtime.install("same", method) { replaceTo(2) }
+        assertSame(first, second)
+        assertEquals(1, backend.callbacks.size)
+        assertEquals(2, backend.callbacks.single().intercept(TestChain(method)))
+        assertEquals(XposedInterface.ExceptionMode.PROTECTIVE, backend.mode)
+    }
+
+    @Test
+    fun `API 101 replacement keeps the current invocation on its original callback`() {
+        val backend = Api101Backend()
+        val runtime = ModernHookRuntime(backend.api)
+        runtime.install("same", method) { after { result = (result as Int) + 10 } }
+        val original = TestChain(method) { _, _ ->
+            runtime.install("same", method) { replaceTo(99) }
+            3
+        }
+        assertEquals(13, backend.callbacks.single().intercept(original))
+        assertEquals(99, backend.callbacks.single().intercept(TestChain(method)))
+        assertEquals(1, backend.callbacks.size)
+    }
+
+    @Test
+    fun `API 101 separates different logical ids and executables`() {
+        val backend = Api101Backend()
+        val runtime = ModernHookRuntime(backend.api)
+        runtime.install("first", method) { replaceTo(1) }
+        runtime.install("second", method) { replaceTo(2) }
+        runtime.install("first", Fixture::class.java.getDeclaredConstructor()) { intercept() }
+        assertEquals(3, backend.callbacks.size)
+    }
+
+    @Test
+    fun `API 101 installation failure leaves the logical point retryable`() {
+        val backend = Api101Backend().apply { failInstall = true }
+        val runtime = ModernHookRuntime(backend.api)
+        try {
+            runtime.install("same", method) { replaceTo(1) }
+            fail("expected registration failure")
+        } catch (_: IllegalStateException) {
+        }
+        backend.failInstall = false
+        runtime.install("same", method) { replaceTo(2) }
+        assertEquals(1, backend.callbacks.size)
+        assertEquals(2, backend.callbacks.single().intercept(TestChain(method)))
+    }
+
+    @Test
+    fun `unsupported API does not install a legacy fallback`() {
+        val api = proxy<XposedInterface> { name, _ ->
+            check(name == "getApiVersion") { "unsupported API attempted a hook" }
+            100
+        }
+        try {
+            ModernHookRuntime(api).install("unsupported", method) { intercept() }
+            fail("API 100 must remain unsupported")
+        } catch (expected: IllegalStateException) {
+            assertEquals("Modern API 101 or newer is required", expected.message)
+        }
+    }
+
+    private inner class Api101Backend {
+        val callbacks = mutableListOf<XposedInterface.Hooker>()
+        var mode: XposedInterface.ExceptionMode? = null
+        var failInstall = false
+        private val handle = proxy<XposedInterface.HookHandle> { _, _ -> null }
+        val api: XposedInterface = proxy { name, _ -> when (name) {
+            "getApiVersion" -> 101
+            "hook" -> newBuilder()
+            else -> error(name)
+        } }
+
+        private fun newBuilder(): XposedInterface.HookBuilder {
+            lateinit var builder: XposedInterface.HookBuilder
+            builder = proxy { name, args -> when (name) {
+                "setExceptionMode" -> builder.also { mode = args[0] as XposedInterface.ExceptionMode }
+                "intercept" -> {
+                    check(!failInstall) { "simulated install failure" }
+                    callbacks += args[0] as XposedInterface.Hooker
+                    handle
+                }
+                // A 101 framework cannot resolve setId; even attempting it is an error.
+                else -> error("API 101 does not support $name")
+            } }
+            return builder
+        }
+    }
 
     private class TestChain(
         private val member: Executable,

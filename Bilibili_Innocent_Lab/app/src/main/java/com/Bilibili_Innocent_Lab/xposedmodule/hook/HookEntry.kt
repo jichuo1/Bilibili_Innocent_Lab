@@ -283,7 +283,7 @@ class HookEntry : XposedModule() {
                     is RemoteHookConfigDecodeResult.Ready ->
                         RemoteHookConfigQueryOutcome.Ready(decoded.snapshot)
                     is RemoteHookConfigDecodeResult.Invalid -> {
-                        frameworkLog("[BIL] API 102 Remote Preferences 配置无效(reason=${decoded.reason})")
+                        frameworkLog("[BIL] Modern Remote Preferences 配置无效(reason=${decoded.reason})")
                         RemoteHookConfigQueryOutcome.Rejected(
                             remoteConfigReasonCode(decoded.reason)
                         )
@@ -291,7 +291,7 @@ class HookEntry : XposedModule() {
                 }
             }.onFailure { throwable ->
                 frameworkLog(
-                    "[BIL] API 102 Remote Preferences 读取失败: " +
+                    "[BIL] Modern Remote Preferences 读取失败: " +
                         "${throwable.javaClass.simpleName}: ${throwable.message}"
                 )
             }.getOrElse {
@@ -2382,7 +2382,7 @@ class HookEntry : XposedModule() {
         moduleInstance = this
         loadedProcessName = param.processName
         ModernHookLog.bind(modernRuntime)
-        frameworkLog("[BIL] API 102 模块入口已加载(process=${param.processName})")
+        frameworkLog("[BIL] Modern 模块入口已加载(api=$apiVersion, process=${param.processName})")
     }
 
     override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
@@ -4004,7 +4004,7 @@ class HookEntry : XposedModule() {
                                 }
                         }
                     }
-                    logInfo("free_copy_desc_ok", "[BIL] 简介自由复制 hook 已注册(API 102 setText+steal+touch)")
+                    logInfo("free_copy_desc_ok", "[BIL] 简介自由复制 hook 已注册(Modern setText+steal+touch)")
                     // 官方震动拦截（长按窗口内）：8.90.2 官方长按检测（mall.a RunnableC0238a）
                     // 在 DOWN 后 ~400ms 触发官方 performHapticFeedback——与我们的震动叠加成
                     // 连续两次马达震动。长按窗口内（touch 标志非空）拦官方震动，只保留
@@ -4332,14 +4332,14 @@ class HookEntry : XposedModule() {
                         }
                         authorizedInstallerRef.set(null)
                         frameworkLog(
-                            "[BIL] API 102 Remote Preferences 不可用；请打开一次模块界面后重启 B 站，" +
+                            "[BIL] Modern Remote Preferences 不可用；请打开一次模块界面后重启 B 站，" +
                                 "当前宿主进程不安装任何功能"
                         )
                         return
                     }
                 }
                 frameworkLog(
-                    "[BIL] API 102 Remote Preferences 验证成功" +
+                    "[BIL] Modern Remote Preferences 验证成功" +
                         "(generation=${config.generation}, authorized=${config.authorized})"
                 )
                 performAuthorizationAndInstall(appContext, config)
