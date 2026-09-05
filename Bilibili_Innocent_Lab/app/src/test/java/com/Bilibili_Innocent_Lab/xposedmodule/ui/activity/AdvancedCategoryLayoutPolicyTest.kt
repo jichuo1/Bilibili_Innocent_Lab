@@ -6,12 +6,12 @@ import org.junit.Test
 
 class AdvancedCategoryLayoutPolicyTest {
     @Test
-    fun `splits four categories and excludes legacy separators`() {
+    fun `keeps the last control or description immediately before the next heading`() {
         assertEquals(
             listOf(
-                AdvancedCategoryChildRange(1, 4),
-                AdvancedCategoryChildRange(6, 9),
-                AdvancedCategoryChildRange(11, 14),
+                AdvancedCategoryChildRange(1, 5),
+                AdvancedCategoryChildRange(6, 10),
+                AdvancedCategoryChildRange(11, 15),
                 AdvancedCategoryChildRange(16, 20)
             ),
             AdvancedCategoryLayoutPolicy.resolve(
@@ -22,8 +22,22 @@ class AdvancedCategoryLayoutPolicyTest {
     }
 
     @Test
+    fun `every non heading child belongs to exactly one group for different menu sizes`() {
+        for (groupCount in 1..12) {
+            val markers = List(groupCount) { it * 4 }
+            val childCount = groupCount * 4
+            val ranges = requireNotNull(AdvancedCategoryLayoutPolicy.resolve(markers, childCount))
+            val moved = ranges.flatMap { (it.startInclusive until it.endExclusive).toList() }
+            assertEquals((0 until childCount).filterNot { it in markers }, moved)
+            assertEquals(moved.size, moved.distinct().size)
+        }
+    }
+
+    @Test
     fun `rejects incomplete or unordered marker layout`() {
         assertNull(AdvancedCategoryLayoutPolicy.resolve(emptyList(), childCount = 20))
+        assertNull(AdvancedCategoryLayoutPolicy.resolve(listOf(1, 5), childCount = 20))
+        assertNull(AdvancedCategoryLayoutPolicy.resolve(listOf(0, 0), childCount = 20))
         assertNull(
             AdvancedCategoryLayoutPolicy.resolve(
                 markerIndices = listOf(0, 10, 5, 15),
