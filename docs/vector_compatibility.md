@@ -1,5 +1,11 @@
 # Vector compatibility
 
+The subsequent [Irena adaptation](irena_compatibility.md) lowers the module minimum
+to Modern API 101 while keeping target 102 and Vector's native-ID behavior. Standard
+publication now uses explicit obsolete-key removal plus full puts, with pending
+cleanup retained across failures; it no longer depends on `clear`. The baseline
+and verification record below describe the original Vector adaptation.
+
 This is a module-side compatibility plan and acceptance record. Source inspection,
 JVM tests and APK validation do not establish that a framework/device combination
 works. Vector device acceptance remains pending until its matrix below is run.

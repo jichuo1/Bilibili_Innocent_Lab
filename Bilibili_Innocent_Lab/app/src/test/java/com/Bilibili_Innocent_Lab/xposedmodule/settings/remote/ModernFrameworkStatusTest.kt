@@ -6,6 +6,20 @@ import org.junit.Test
 
 class ModernFrameworkStatusTest {
     @Test
+    fun `Irena Modern API 101 is accepted with remote capability and older APIs stay closed`() {
+        val irena = readModernFrameworkStatus(
+            { 101 }, { XposedService.PROP_CAP_REMOTE or XposedService.PROP_CAP_SYSTEM },
+            { "LSPosed" }, { "2.0.0" }, { 7316L }
+        )
+        assertTrue(irena.capable)
+        assertEquals("LSPosed", irena.name)
+        assertEquals(101, irena.apiVersion)
+        assertFalse(readModernFrameworkStatus(
+            { 100 }, { XposedService.PROP_CAP_REMOTE }, { "LSPosed" }, { "old" }, { 1L }
+        ).capable)
+        assertFalse(readModernFrameworkStatus({ 101 }, { 0L }, { "Irena" }, { "2.0.0" }, { 1L }).capable)
+    }
+    @Test
     fun `Vector build and independent capabilities are retained`() {
         val flags = XposedService.PROP_CAP_REMOTE or XposedService.PROP_CAP_SYSTEM or
             XposedService.PROP_RT_API_PROTECTION

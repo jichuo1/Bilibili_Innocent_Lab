@@ -59,7 +59,7 @@ cross-process mirrors, constructing the settings hierarchy, or starting update
 checks. An undecided user sees the scrollable terms gate; a declined user sees
 only a locked page with exit and review actions. Accept first commits private,
 non-authorizing pending metadata while retaining the previous decision. The
-existing single-thread API 102 publisher then publishes `ACCEPTED`; the pending
+existing single-thread Modern publisher then publishes `ACCEPTED`; the pending
 page also offers an explicit NPatch path for environments without a framework
 service. Both paths promote the private decision and clear pending only after
 their publication verification succeeds. The standard Service 102 path requires
@@ -81,7 +81,7 @@ weaken the authorization gate.
 immediately when the decision is unauthorized, so an internal Activity launch
 or restored Activity stack cannot bypass the gate.
 
-API 102-capable frameworks use one authorization bootstrap. The standard path
+Supported Modern API 101/102 frameworks use one authorization bootstrap. The standard path
 publishes a strictly allowlisted `hook_config` Remote Preferences group through
 `XposedService`; the explicitly enabled NPatch path obtains `IXposedService`
 through `getRemoteService` with `modulePackageName` and publishes the same exact
@@ -104,7 +104,7 @@ Instrumentation bootstrap before this decision. Accepting terms does not
 retrofit hooks into an already-running unauthorized Bilibili process, so that
 process must be restarted.
 
-## Modern API 102 entry and host configuration
+## Modern API 101/102 entry and host configuration
 
 The only module entry is `HookEntry : XposedModule`. Package hooks are installed
 from `onPackageReady`, and the narrowly scoped system-server hooks are installed
@@ -112,6 +112,11 @@ from `onSystemServerStarting`. Packaging uses only
 `META-INF/xposed/java_init.list`, `module.prop`, and `scope.list`; the legacy
 `assets/xposed_init`, Yuki initializer resource, manifest `xposedminversion`,
 YukiHookAPI dependency and rovo89 API dependency are absent.
+
+The minimum API is 101 and the target remains 102. API 101 compatibility is based
+on Irena 2.0.0's pinned interface and lifecycle. It uses internal logical-point
+replacement without invoking the 102-only Hook ID API; 102+ retains native IDs.
+The newer call is isolated behind an R8-preserved version bridge.
 
 `module.prop` declares `staticScope=true` and `scope.list` contains only
 `tv.danmaku.bili` and `system`, so the scope cannot be extended in the framework
@@ -153,6 +158,11 @@ the group once, validates the exact document and converts it into an immutable
 `SnapshotHookConfigSource`; bind, scroll, draw and Hook callbacks perform no
 cross-process preference I/O.
 
+The editor explicitly removes obsolete keys and puts the full allowlisted document
+in one commit; it does not rely on a `clear` flag, which Irena ignores. Pending
+removals survive failed submissions even when the SDK cache has already removed
+those keys, and are scoped to the active service connection.
+
 NPatch publication keeps the same read-update-read-back rule and never asks the
 host to call the module Provider. A disabled NPatch intent is represented by a
 newer complete document with `deliveryEnabled=false`, not by a partial delete or
@@ -167,8 +177,9 @@ configuration before committing the private decision; a failed write does not
 claim the previous remote snapshot was revoked. Neither decision retrofits hooks
 into an already-running Bilibili process.
 
-Vector's pinned API baselines, manager routing, platform limits and device
-acceptance matrix are in [vector_compatibility.md](vector_compatibility.md).
+Pinned API baselines, manager routing, platform limits and device acceptance
+matrices are in [vector_compatibility.md](vector_compatibility.md) and
+[irena_compatibility.md](irena_compatibility.md).
 Host AndroidX classes are resolved through the host ClassLoader, including the
 RecyclerView hooks and type checks used by comment binding. Module-owned AndroidX
 classes are not used as substitutes for host types.
@@ -192,7 +203,7 @@ the module publisher wrote and fully read back, host structure adaptation, runti
 observation, actual rule application, and an explicit unavailable boundary. Framework
 API capability is not treated as proof that an individual host hook adapted or installed.
 The Bilibili main process therefore exposes a signature-permission-protected, ordered-
-broadcast receipt that is initialized before API 102 configuration authorization. The
+broadcast receipt that is initialized before Modern configuration authorization. The
 receipt reports only bounded bootstrap/config/install-chain states, Hook-point counts,
 and the 29 logical feature IDs from `DiagnosticFeatureRegistry`; it never reads the host
 private cache from the module process or exposes host class/member names. The query
