@@ -198,6 +198,8 @@
     <string name="hide_player_portrait_control_tip">When enabled, hides the player’s portrait-feed button while keeping fullscreen and other controls. Restart Bilibili to apply.</string>
     <string name="hide_player_interactive_overlays">Hide player interactive overlays</string>
     <string name="hide_player_interactive_overlays_tip">When enabled, hides in-player votes, follow prompts, triple-action contract cards, command danmaku, and the TV-app promotion banner in the top-left corner. Progress chapter markers and danmaku are untouched. Restart Bilibili to apply.</string>
+    <string name="hide_pgc_auto_activity_popup">Block automatic activity panels on series pages</string>
+    <string name="hide_pgc_auto_activity_popup_tip">Blocks activity panels that open automatically below the player on film, TV, and anime pages, including membership promotions. Manual activity links, purchases, and playback access remain available. Restart Bilibili to apply.</string>
     <string name="transparent_player_status_bar">Transparent player status bar</string>
     <string name="transparent_player_status_bar_tip">When enabled, the video details page uses a transparent status bar. Restart Bilibili to apply.</string>
     <string name="story_purify_settings">Portrait video feed</string>

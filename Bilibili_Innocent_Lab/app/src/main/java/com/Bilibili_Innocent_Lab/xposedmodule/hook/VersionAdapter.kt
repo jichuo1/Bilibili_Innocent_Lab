@@ -8,6 +8,7 @@ import android.view.MenuInflater
 import android.view.View
 import android.widget.TextView
 import android.widget.Toast
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PgcAutoActivityPopupLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.AtomicJsonCache
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistCandidateSelector
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery
@@ -149,8 +150,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 52
-    private const val ADAPTER_RULE_VERSION = 46
+    private const val SCHEMA_VERSION = 53
+    private const val ADAPTER_RULE_VERSION = 47
 
     /**
      * DEX 兜底诊断 id 前缀。每个兜底点各占一条诊断，便于在诊断中心直接读到"兜底是否被用到、
@@ -375,6 +376,45 @@ object VersionAdapter {
                     }
                 )
             }
+        }
+    }
+
+    /** Theseus 活动描述器的独立构造单元；槽位来自当前构造器类型，安装期再验属性语义。 */
+    data class PgcAutoActivityPopupPoints(
+        val construct: HookPoint,
+        val constructorParameters: List<String>,
+        val popupIndex: Int,
+        val propertiesField: String
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("construct", construct.toJson())
+            put("params", JSONArray(constructorParameters))
+            put("index", popupIndex)
+            put("properties", propertiesField)
+        }
+
+        internal fun isValid(): Boolean =
+            construct.className ==
+                "com.bilibili.ship.theseus.ogv.activity.OgvActivityVo_JsonDescriptor" &&
+                construct.methodName == "constructWith" &&
+                construct.paramClassNames == listOf("[Ljava.lang.Object;") &&
+                propertiesField.isNotBlank() && constructorParameters.all { it.isNotBlank() } &&
+                popupIndex in constructorParameters.indices &&
+                constructorParameters.count {
+                    it == "com.bilibili.ship.theseus.ogv.activity.OgvActivityHalfScreenPopup"
+                } == 1 && constructorParameters[popupIndex] ==
+                "com.bilibili.ship.theseus.ogv.activity.OgvActivityHalfScreenPopup"
+
+        companion object {
+            fun fromJson(o: JSONObject): PgcAutoActivityPopupPoints =
+                PgcAutoActivityPopupPoints(
+                    HookPoint.fromJson(o.getJSONObject("construct")),
+                    o.getJSONArray("params").let { values ->
+                        List(values.length()) { values.getString(it) }
+                    },
+                    o.getInt("index"),
+                    o.getString("properties")
+                )
         }
     }
 
@@ -1459,6 +1499,8 @@ object VersionAdapter {
         val playerPortrait: PlayerPortraitPoints?,
         /** 播放器投票/关注/契约卡/指令弹幕的 protobuf 读边界。 */
         val playerInteractiveOverlays: PlayerInteractiveOverlayPoints? = null,
+        /** 影视页活动响应的自动半屏构造边界。 */
+        val pgcAutoActivityPopup: PgcAutoActivityPopupPoints? = null,
         /** 视频详情页透明状态栏的精确 Activity 生命周期入口。 */
         val playerStatusBar: PlayerStatusBarPoints?,
         /** 首页推荐服务端响应及卡片公开读取边界。 */
@@ -1516,6 +1558,7 @@ object VersionAdapter {
             fullNumbers?.let { put("full_numbers", it.toJson()) }
             playerPortrait?.let { put("player_portrait", it.toJson()) }
             playerInteractiveOverlays?.let { put("player_interactive_overlays", it.toJson()) }
+            pgcAutoActivityPopup?.let { put("pgc_auto_activity_popup", it.toJson()) }
             playerStatusBar?.let { put("player_status_bar", it.toJson()) }
             homeRecommendFeed?.let { put("home_recommend_feed", it.toJson()) }
             videoRelate?.let { put("video_relate", it.toJson()) }
@@ -1598,6 +1641,7 @@ object VersionAdapter {
                 playerPortrait?.visibilityMethods?.let { methods ->
                     methods.isNotEmpty() && methods.all { it.isValid() }
                 } != false &&
+                pgcAutoActivityPopup?.isValid() != false &&
                 playerInteractiveOverlays?.let { value ->
                     value.families.all { family ->
                         family.replyClassName.isNotBlank() &&
@@ -1831,6 +1875,8 @@ object VersionAdapter {
                         ?.let(PlayerPortraitPoints::fromJson),
                     playerInteractiveOverlays = o.optJSONObject("player_interactive_overlays")
                         ?.let(PlayerInteractiveOverlayPoints::fromJson),
+                    pgcAutoActivityPopup = o.optJSONObject("pgc_auto_activity_popup")
+                        ?.let(PgcAutoActivityPopupPoints::fromJson),
                     playerStatusBar = o.optJSONObject("player_status_bar")
                         ?.let(PlayerStatusBarPoints::fromJson),
                     homeRecommendFeed = o.optJSONObject("home_recommend_feed")
@@ -2376,6 +2422,7 @@ object VersionAdapter {
             playerPortrait = runtime.playerPortrait ?: cached.playerPortrait,
             playerInteractiveOverlays = runtime.playerInteractiveOverlays
                 ?: cached.playerInteractiveOverlays,
+            pgcAutoActivityPopup = runtime.pgcAutoActivityPopup ?: cached.pgcAutoActivityPopup,
             playerStatusBar = runtime.playerStatusBar ?: cached.playerStatusBar,
             homeRecommendFeed = runtime.homeRecommendFeed ?: cached.homeRecommendFeed,
             videoRelate = runtime.videoRelate ?: cached.videoRelate,
@@ -2585,6 +2632,7 @@ object VersionAdapter {
         val fullNumbers = locateFullNumbers(loader)
         val playerPortrait = locatePlayerPortrait(loader)
         val playerInteractiveOverlays = locatePlayerInteractiveOverlays(loader)
+        val pgcAutoActivityPopup = locatePgcAutoActivityPopup(loader)
         val playerStatusBar = locatePlayerStatusBar(loader)
         val homeRecommendFeed = locateHomeRecommendFeed(loader)
         val videoRelate = locateVideoRelate(loader)
@@ -2607,7 +2655,7 @@ object VersionAdapter {
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
-            playerInteractiveOverlays == null &&
+            playerInteractiveOverlays == null && pgcAutoActivityPopup == null &&
             playerStatusBar == null && homeRecommendFeed == null && videoRelate == null &&
             homeTabs == null && homeComponents == null && mineComponents == null &&
             mineAccountMine == null && storyFeed == null && bottomBar == null &&
@@ -2633,6 +2681,7 @@ object VersionAdapter {
             fullNumbers = fullNumbers,
             playerPortrait = playerPortrait,
             playerInteractiveOverlays = playerInteractiveOverlays,
+            pgcAutoActivityPopup = pgcAutoActivityPopup,
             playerStatusBar = playerStatusBar,
             homeRecommendFeed = homeRecommendFeed,
             videoRelate = videoRelate,
@@ -2654,6 +2703,7 @@ object VersionAdapter {
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
                 dynamicTabs, fullNumbers, playerPortrait, playerInteractiveOverlays,
+                pgcAutoActivityPopup,
                 playerStatusBar, homeRecommendFeed,
                 videoRelate, homeTabs, homeComponents, mineComponents, storyFeed, bottomBar,
                 playerQuality,
@@ -2711,6 +2761,7 @@ object VersionAdapter {
         val fullNumbers = locateFullNumbers(loader)
         val playerPortrait = locatePlayerPortrait(loader)
         val playerInteractiveOverlays = locatePlayerInteractiveOverlays(loader)
+        val pgcAutoActivityPopup = locatePgcAutoActivityPopup(loader)
         val playerStatusBar = locatePlayerStatusBar(loader)
         val homeRecommendFeed = locateHomeRecommendFeed(loader)
         val videoRelate = locateVideoRelate(loader)
@@ -2788,7 +2839,7 @@ object VersionAdapter {
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
-            playerInteractiveOverlays == null &&
+            playerInteractiveOverlays == null && pgcAutoActivityPopup == null &&
             playerStatusBar == null && homeRecommendFeed == null && videoRelate == null &&
             homeTabs == null && homeComponents == null && mineComponents == null &&
             mineAccountMine == null && storyFeed == null && bottomBar == null &&
@@ -2815,6 +2866,7 @@ object VersionAdapter {
             fullNumbers = fullNumbers,
             playerPortrait = playerPortrait,
             playerInteractiveOverlays = playerInteractiveOverlays,
+            pgcAutoActivityPopup = pgcAutoActivityPopup,
             playerStatusBar = playerStatusBar,
             homeRecommendFeed = homeRecommendFeed,
             videoRelate = videoRelate,
@@ -2836,6 +2888,7 @@ object VersionAdapter {
             diagnostics = buildDiagnostics(
                 loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
                 dynamicTabs, fullNumbers, playerPortrait, playerInteractiveOverlays,
+                pgcAutoActivityPopup,
                 playerStatusBar, homeRecommendFeed,
                 videoRelate, homeTabs, homeComponents, mineComponents, storyFeed, bottomBar,
                 playerQuality,
@@ -3033,6 +3086,7 @@ object VersionAdapter {
         fullNumbers: FullNumberPoints?,
         playerPortrait: PlayerPortraitPoints?,
         playerInteractiveOverlays: PlayerInteractiveOverlayPoints?,
+        pgcAutoActivityPopup: PgcAutoActivityPopupPoints?,
         playerStatusBar: PlayerStatusBarPoints?,
         homeRecommendFeed: HomeRecommendFeedPoints?,
         videoRelate: VideoRelatePoints?,
@@ -3261,6 +3315,14 @@ object VersionAdapter {
                         "command=${points.commandClear != null}," +
                         "activity=${points.commandActivityMetaClear != null}"
                 }.orEmpty()
+            ),
+            AdaptDiagnostic(
+                "pgc.auto_activity_popup",
+                stateFor(
+                    pgcAutoActivityPopup != null,
+                    KavaMemberLookup.hasClass(loader, PgcAutoActivityPopupLocator.MODEL_CLASS)
+                ),
+                pgcAutoActivityPopup?.let { "construct:slot=${it.popupIndex}" }.orEmpty()
             ),
             AdaptDiagnostic(
                 "player.status_bar",
@@ -3840,6 +3902,9 @@ object VersionAdapter {
             .toList()
         methods.takeIf { it.isNotEmpty() }?.let(::FullNumberPoints)
     }.getOrNull()
+
+    fun locatePgcAutoActivityPopup(loader: ClassLoader): PgcAutoActivityPopupPoints? =
+        PgcAutoActivityPopupLocator.locate(loader)
 
     /**
      * 定位播放器“进入看一看”竖屏切换控件。8.90.2、9.1.0 与 9.9.0 的布局和 dex

@@ -15,6 +15,20 @@ class SettingsImportPlannerTest {
     )
 
     @Test
+    fun `every older catalog preserves an already enabled PGC popup setting`() {
+        val spec = requireNotNull(SettingsCatalog.byId["pgc.auto_activity_popup.hidden"])
+        val current = snapshot(spec to StoredSetting(true, SettingValue.Bool(true)))
+        for (version in 1..9) {
+            val plan = SettingsImportPlanner(listOf(spec), 10)
+                .plan(document(version, emptyList()), current)
+            assertEquals(ImportStatus.NEW_IN_CURRENT, plan.entries.single().status)
+            assertEquals(SettingValue.Bool(true), plan.entries.single().current?.value)
+            assertTrue(plan.writes.isEmpty())
+            assertTrue(plan.migrationWarnings.isEmpty())
+        }
+    }
+
+    @Test
     fun `explicit source value is restored and implicit source default never overwrites`() {
         val catalog = listOf(enabledSpec, manualSpec)
         val current = snapshot(
