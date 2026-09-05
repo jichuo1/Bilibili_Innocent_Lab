@@ -7,23 +7,23 @@ internal data class AdvancedCategoryChildRange(
 )
 
 /**
- * 根据四个分类标题的位置切分原始控件树。
+ * 根据各分类标题的位置切分原始控件树，不依赖分类数量或用途。
  *
- * 相邻分类标题前的最后一个 View 是旧版分隔线；重组为独立卡片后不再需要，因此范围会主动
- * 排除该 View。输入不完整或顺序异常时返回 null，让界面保留原始布局而不是冒险搬错控件。
+ * 标题是唯一分界；下一个标题前的最后一个 View 仍属于本组，不能再按旧布局假定它是分隔线。
+ * 输入不完整或顺序异常时返回 null，让界面保留原始布局而不是冒险搬错或丢弃控件。
  */
 internal object AdvancedCategoryLayoutPolicy {
     fun resolve(
         markerIndices: List<Int>,
         childCount: Int
     ): List<AdvancedCategoryChildRange>? {
-        if (markerIndices.isEmpty() || childCount <= 0) return null
+        if (markerIndices.firstOrNull() != 0 || childCount <= 0) return null
         if (markerIndices.any { it !in 0 until childCount }) return null
         if (markerIndices.zipWithNext().any { (current, next) -> current >= next }) return null
 
         return markerIndices.mapIndexed { index, markerIndex ->
             val startInclusive = markerIndex + 1
-            val endExclusive = markerIndices.getOrNull(index + 1)?.minus(1) ?: childCount
+            val endExclusive = markerIndices.getOrNull(index + 1) ?: childCount
             if (startInclusive > endExclusive) return null
             AdvancedCategoryChildRange(startInclusive, endExclusive)
         }
