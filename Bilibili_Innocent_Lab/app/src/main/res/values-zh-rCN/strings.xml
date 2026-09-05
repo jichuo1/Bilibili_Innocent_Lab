@@ -198,6 +198,8 @@
     <string name="hide_player_portrait_control_tip">开启后，隐藏播放器中的“进入看一看”按钮，全屏等其他控件不受影响。重启哔哩哔哩后生效。</string>
     <string name="hide_player_interactive_overlays">隐藏播放器互动组件</string>
     <string name="hide_player_interactive_overlays_tip">开启后，屏蔽播放器内的投票卡、关注引导、三连契约卡、指令弹幕，以及左上角的电视版推广横幅；进度章节点和弹幕不受影响。重启哔哩哔哩后生效。</string>
+    <string name="hide_pgc_auto_activity_popup">屏蔽影视页自动活动半屏</string>
+    <string name="hide_pgc_auto_activity_popup_tip">屏蔽电影、电视剧和番剧播放页在播放器下方自动展开的活动半屏，包含大会员促销及同类运营活动。保留主动打开的活动、购买入口与正常播放权限判断。重启哔哩哔哩后生效。</string>
     <string name="transparent_player_status_bar">播放器状态栏透明</string>
     <string name="transparent_player_status_bar_tip">开启后，视频详情页状态栏使用透明样式。重启哔哩哔哩后生效。</string>
     <string name="story_purify_settings">竖屏视频流</string>

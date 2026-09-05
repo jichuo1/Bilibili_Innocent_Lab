@@ -70,6 +70,11 @@ internal object DiagnosticFeatureRegistry {
             DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
             runtimeEvidenceExpected = true
         ),
+        DiagnosticFeatureDescriptor(
+            "pgc_auto_activity_popup",
+            DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
+            runtimeEvidenceExpected = true
+        ),
         DiagnosticFeatureDescriptor("player_status_bar", DiagnosticFeatureCategory.PLAYER_AND_DETAIL),
         DiagnosticFeatureDescriptor(
             "video_relate_filter",

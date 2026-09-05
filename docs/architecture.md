@@ -530,6 +530,32 @@ The QmDeve-derived shader portions retain their MIT attribution in the source,
 `third_party/AndroidLiquidGlassView-LICENSE.txt`; the pre-existing Kyant Apache-2.0
 attribution remains separate.
 
+## Theseus automatic activity half-panel
+
+`PgcAutoActivityPopupFeatureInstaller` owns one main-process descriptor construction
+hook, controlled by the opt-in `hide_pgc_auto_activity_popup` catalog setting.
+`PgcAutoActivityPopupLocator` inspects only member metadata during quick adaptation.
+Enabled installation revalidates the cached point with the current host ClassLoader,
+then reads the descriptor property table once. Constructor parameter erasures and
+property order must agree; the unique `play_half_container` property must have the
+unique half-popup type and a nullable flag. Missing or ambiguous evidence skips this
+feature without registering a broader constructor, WebView, payment, or network hook.
+
+The callback clones the inner argument array only for a non-null typed half popup.
+It replaces that one slot with null and proceeds with the original descriptor.
+Other activity fields retain their original references. OBSERVED is recorded only
+for a populated half; APPLIED additionally requires successful construction and a
+verified null half field in the actual returned model. Diagnostic failures are
+isolated from filtering; only the first evidence and each bounded failure reason are
+reported. No host instance is retained beyond the callback, and no disk, IPC,
+network, class scan, or DexKit work runs in it.
+
+Cache schema 53/rules 47 and catalog 10 carry this feature through the existing
+atomic adapter cache, immutable Remote settings, and Modern API 101/102 registration.
+Old settings backups leave an absent new key untouched. This path affects automatic
+activity panels; manual routes and playback/payment authorization remain owned by
+the host. Static host verification covers 8.90.2 and 9.10.0; UI acceptance is separate.
+
 ## Intentional boundaries
 
 - `hookinfo.pb` parsing and write semantics remain unchanged; its behavior is

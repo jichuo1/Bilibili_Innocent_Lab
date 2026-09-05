@@ -19,6 +19,7 @@ class RemoteHookConfigContractTest {
             mapOf(
                 HookEntry.PREF_FREE_COPY_ENABLED to false,
                 FeaturePreferences.COMMENT_MIN_LEVEL to 5,
+                FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP to true,
                 RemoteHookConfigContract.KEY_FREE_COPY_CONFIG_REVISION to 42L,
                 RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP to 84L
             )
@@ -42,6 +43,8 @@ class RemoteHookConfigContractTest {
         assertEquals(77L, snapshot.noRootRevision)
         assertTrue(snapshot.authorized)
         assertEquals(values, snapshot.values)
+        assertEquals(true, snapshot.values[FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP])
+        assertEquals(false, defaultValues()[FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP])
         assertEquals(SettingsCatalog.specs.size + 2, snapshot.values.size)
     }
 

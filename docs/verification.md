@@ -460,3 +460,28 @@ UI checks that can be run as soon as a secondary user exists:
    with no user id field in it.
 7. Scope a renamed host clone by any means available and confirm the module logs
    the observed package name once and installs nothing.
+
+## PGC automatic activity half-panel (2026-09-05)
+
+The three PGC suites cover descriptor/constructor alignment, shifted slots, renamed
+property-array fields, nullable flags, stale cache rejection, missing descriptors,
+copy-on-filter semantics, null/short/wrong-type inputs, disabled and secondary
+process behavior, registration failure, original construction failure, bounded
+diagnostics, and replay of the six minimized activity responses. Shared suites also
+cover full adapter cache serialization/merge, catalog 10, v1–v9 import preservation,
+the Remote allowlist and first-class diagnostic registration. Raw HAR data must
+remain in ignored Temp; only the stripped fixture is checked into test resources.
+
+Run the standard four gates, then verify the APK signature, freshness, all DEX
+entries, ZIP safety and Modern entry metadata. Actual framework/UI acceptance still
+requires enabling the setting, restarting Bilibili and entering film/TV/anime pages.
+Confirm APPLIED evidence with a real populated response, unchanged ordinary playback,
+episode switching, rotation, comments and manual activity/VIP purchase routes; turn
+the setting off and restart to verify rollback. A response with no half field must
+not count as a filter hit. This feature does not grant playback access or change
+trial/payment behavior.
+
+An isolated app_process probe against the connected Android 16 device was attempted
+without installing or launching the module/host. Both launches exited 137 before
+reporting results. It supplies no runtime pass evidence. Device/UI acceptance and
+Vector/Irena/NPatch framework-specific checks therefore remain pending.

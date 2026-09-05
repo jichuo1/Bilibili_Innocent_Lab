@@ -166,7 +166,11 @@ internal object SettingsCatalogMigrations {
             CatalogV2ToV3,
             CatalogV3ToV4,
             CatalogV4ToV5,
-            CatalogV5ToV6
+            CatalogV5ToV6,
+            CatalogV6ToV7,
+            CatalogV7ToV8,
+            CatalogV8ToV9,
+            CatalogV9ToV10
         )
     )
 
@@ -206,6 +210,31 @@ internal object SettingsCatalogMigrations {
         override val fromVersion = 5
         override val toVersion = 6
 
+        override fun migrate(records: List<BackupSetting>) = MigrationStepResult(records)
+    }
+
+    /** v7–v10 为新增项或既有协议补齐，缺失的记录保持缺失，不能补写 false。 */
+    private object CatalogV6ToV7 : CatalogMigration {
+        override val fromVersion = 6
+        override val toVersion = 7
+        override fun migrate(records: List<BackupSetting>) = MigrationStepResult(records)
+    }
+
+    private object CatalogV7ToV8 : CatalogMigration {
+        override val fromVersion = 7
+        override val toVersion = 8
+        override fun migrate(records: List<BackupSetting>) = MigrationStepResult(records)
+    }
+
+    private object CatalogV8ToV9 : CatalogMigration {
+        override val fromVersion = 8
+        override val toVersion = 9
+        override fun migrate(records: List<BackupSetting>) = MigrationStepResult(records)
+    }
+
+    private object CatalogV9ToV10 : CatalogMigration {
+        override val fromVersion = 9
+        override val toVersion = 10
         override fun migrate(records: List<BackupSetting>) = MigrationStepResult(records)
     }
 }
