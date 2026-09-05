@@ -1,5 +1,45 @@
 # Regression verification
 
+## Host APK intake and isolated Android contracts (2026-09-05)
+
+`HostApkCompatibilityInstrumentedTest` loads an explicitly supplied host APK with a
+separate `DexClassLoader`, then runs the production `VersionAdapter.quickLocate`.
+It does not install Hooks, open Bilibili, or write module preferences. The host APK
+must first pass signature/identity checks and be staged read-only directly under
+the module's private `cache/host-compat/` directory. Do not replace the user's
+installed host merely to run this test. Use the existing same-signer module/test
+APK installation procedure below; do not uninstall the module or clear its data.
+
+Select one method using the instrumentation `class` argument:
+
+- `com.Bilibili_Innocent_Lab.xposedmodule.hook.HostApkCompatibilityInstrumentedTest#verifyHostApkContracts`
+  validates the current host contracts, cache round-trip, exact member resolution,
+  interactive-overlay carriers/default-instance guards, AccountMine data path, and
+  the real PGC descriptor/model before and after half-screen filtering.
+- `com.Bilibili_Innocent_Lab.xposedmodule.hook.HostApkCompatibilityInstrumentedTest#verifyVersionAnchors`
+  checks update/default-quality owner selection on older APKs, including unrelated
+  classes that share the newest obfuscated names. It is not a full old-host audit.
+
+Both require `hostApk`, `hostSha256`, `hostVersionCode`, `updateOwner`, and
+`qualityOwner` instrumentation arguments; without `hostApk` they skip. Reports are
+written to `cache/host-compat/<versionCode>-contracts.json` or `-anchors.json`.
+Check the report's `evidence` scope and `passed`, and require `OK (1 test)` from
+the runner: the ADB command's exit code alone does not establish test success.
+
+The 9.11.0 (9110200) and 9.10.0 (9100200) runs each resolved 238 members and passed
+the PGC model filtering check. Their legacy `comment.low` diagnostic remains
+missing; the verified modern Handler supplies the independent high path, as in
+`HookEntry`. Raw diagnostics remain in the reports. The two DexKit diagnostics are
+not applicable during quick location. The 8.84.0 and 8.90.2 anchor-only runs passed.
+An offline scan of 27 local APKs rejected all older unrelated same-name classes
+using the production signature constraints. This is not 27-host full validation.
+
+Debug, all JVM tests (121 suites / 677 tests), Lint (0 errors / 170 warnings),
+Release R8, and the Android test APK build passed. The module was updated on the
+Android 16 device and its installed SHA-256 matched the local Debug APK. The user
+chose to keep Bilibili 8.90.2 installed: 9.11.0 evidence covers APK contracts and
+isolated model behavior, not LSPosed registration or live page/server responses.
+
 ## Settings purpose and region layout (2026-09-05)
 
 `AdvancedCategoryLayoutPolicyTest` verifies that every non-heading child is assigned
