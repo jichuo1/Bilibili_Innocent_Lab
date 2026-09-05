@@ -126,6 +126,10 @@ class HookEntry : XposedModule() {
         @Volatile
         private var moduleInstance: HookEntry? = null
 
+        /** 仅持有当前宿主加载器定义的类，不持有 RecyclerView 实例。 */
+        @Volatile
+        private var hostRecyclerViewClass: Class<*>? = null
+
         private fun frameworkLog(message: String, throwable: Throwable? = null) {
             if (throwable == null) ModernHookLog.info(message)
             else ModernHookLog.error(message, throwable)
@@ -2006,7 +2010,7 @@ class HookEntry : XposedModule() {
             var hasDate = false
             fun collect(v: View): Boolean {
                 val subtreeStart = views.size
-                val isRecyclerView = v is androidx.recyclerview.widget.RecyclerView
+                val isRecyclerView = hostRecyclerViewClass?.isInstance(v) == true
                 if (v is android.widget.TextView) {
                     val t = v.textToString()
                     // 「回复」文字按钮（旧判据）
@@ -2398,6 +2402,10 @@ class HookEntry : XposedModule() {
     }
 
     private fun installTargetHooks(biliClassLoader: ClassLoader, processName: String) {
+            // AndroidX 随模块与宿主各自加载，不能用模块 APK 中的同名 Class 识别或 Hook 宿主。
+            hostRecyclerViewClass = KavaMemberLookup.classOrNull(
+                biliClassLoader, "androidx.recyclerview.widget.RecyclerView"
+            )
             // 目标 app（B 站）的 ClassLoader，用于加载其私有类构造空 section。
             // 注意：不能用 replaceAny 回调里的 instance（static 工厂方法的 instance 为 null，会 NPE）。
             val hookPointRegistry = HookPointRegistry(biliClassLoader)
@@ -3219,7 +3227,7 @@ class HookEntry : XposedModule() {
                 // 避免滚动中逐条全树绑定的卡顿（滚动状态回调本身低频，开销可忽略）。
                 runCatching {
                     hookExactMethod(
-                        classOf<androidx.recyclerview.widget.RecyclerView>(),
+                        hostRecyclerViewClass ?: throw ClassNotFoundException("host RecyclerView"),
                         "onScrollStateChanged",
                         classOf<Int>()
                     ) {
@@ -3241,7 +3249,7 @@ class HookEntry : XposedModule() {
                         }
                     }
                     hookExactMethod(
-                        classOf<androidx.recyclerview.widget.RecyclerView>(),
+                        hostRecyclerViewClass ?: throw ClassNotFoundException("host RecyclerView"),
                         "onDetachedFromWindow"
                     ) {
                         after {

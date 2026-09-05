@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.diagnostics
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsCodec
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatus
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -17,12 +18,13 @@ internal data class DiagnosticReportMetadata(
 /** 只导出固定白名单字段的本地诊断报告；不接受设置值、日志正文和任意异常文本。 */
 internal object DiagnosticReportCodec {
     const val FORMAT_NAME = "bilab-diagnostics"
-    const val CURRENT_FORMAT_VERSION = 3
+    const val CURRENT_FORMAT_VERSION = 4
     const val PRODUCT_ID = "bilibili-innocent-lab"
     const val MAX_FILE_BYTES = 256 * 1024
 
     private val allowedRemoteFailureCodes = setOf(
         "service_not_connected",
+        "framework_metadata_unavailable",
         "remote_preferences_unsupported",
         "publish_failed"
     )
@@ -68,6 +70,15 @@ internal object DiagnosticReportCodec {
                     .put("capable", input.frameworkCapable)
                     .put("name", input.frameworkName.take(128))
                     .put("apiVersion", input.frameworkApiVersion)
+                    .put("version", input.frameworkVersion?.take(128) ?: JSONObject.NULL)
+                    .put("versionCode", input.frameworkVersionCode ?: JSONObject.NULL)
+                    .put("properties", input.frameworkProperties ?: JSONObject.NULL)
+                    .put("connectionId", input.frameworkConnectionId)
+                    .put(
+                        "failureCode",
+                        input.frameworkFailureCode.boundedCode(ModernFrameworkStatus.allowedFailureCodes)
+                            ?: JSONObject.NULL
+                    )
             )
             .put(
                 "remoteConfig",
@@ -82,6 +93,11 @@ internal object DiagnosticReportCodec {
                             ?: JSONObject.NULL
                     )
                     .put("publishPending", input.remotePublishPending)
+                    .put("connectionId", input.remoteConnectionId)
+                    .put("verification", if (hasCurrentRemoteCommit(input)) {
+                        "COMMIT_ACKNOWLEDGED_AND_CLIENT_CACHE_VALIDATED"
+                    } else "NOT_CONFIRMED")
+                    .put("hostDelivery", configDelivery(input).name)
             )
             .put(
                 "runtime",
@@ -195,6 +211,36 @@ internal object DiagnosticReportCodec {
             "Unsupported diagnostic format version"
         }
         require(root.getString("productId") == PRODUCT_ID) { "Wrong diagnostic product" }
+        val framework = root.getJSONObject("framework")
+        require(framework.length() == 9) { "Invalid framework assessment" }
+        require(framework.getString("name").length <= 128) { "Invalid framework name" }
+        if (!framework.isNull("version")) {
+            require(framework.get("version") is String && framework.getString("version").length <= 128) {
+                "Invalid framework version"
+            }
+        }
+        listOf("versionCode", "properties", "connectionId").forEach { key ->
+            if (key == "connectionId" || !framework.isNull(key)) {
+                val value = framework.get(key)
+                require(value is Long || value is Int) { "Invalid framework number" }
+                if (key != "properties") require(framework.getLong(key) >= 0L) {
+                    "Invalid framework number"
+                }
+            }
+        }
+        if (!framework.isNull("failureCode")) {
+            require(framework.getString("failureCode") in ModernFrameworkStatus.allowedFailureCodes + "unknown") {
+                "Invalid framework failure code"
+            }
+        }
+        val remote = root.getJSONObject("remoteConfig")
+        require(remote.length() == 9 && remote.getLong("connectionId") >= 0L) {
+            "Invalid remote publication assessment"
+        }
+        require(remote.getString("verification") in setOf(
+            "COMMIT_ACKNOWLEDGED_AND_CLIENT_CACHE_VALIDATED", "NOT_CONFIRMED"
+        )) { "Invalid remote verification evidence" }
+        DiagnosticConfigDelivery.valueOf(remote.getString("hostDelivery"))
         val assessment = root.getJSONObject("assessment")
         val severity = DiagnosticSeverity.valueOf(assessment.getString("overall"))
         val items = assessment.getJSONArray("items")
