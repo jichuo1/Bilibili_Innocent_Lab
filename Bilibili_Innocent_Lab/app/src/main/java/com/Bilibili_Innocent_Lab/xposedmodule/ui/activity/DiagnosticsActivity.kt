@@ -51,6 +51,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticActivationState
+import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticConfigDelivery
+import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.configDelivery
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticEvidence
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticFeatureInstallState
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticHostFeature
@@ -965,7 +967,7 @@ class DiagnosticsActivity : SkinnedActivity() {
                 val base = when {
                     input.frameworkCapable -> getString(
                         R.string.diagnostics_framework_ready,
-                        input.frameworkName.ifBlank { "LSPosed" },
+                        input.frameworkName.ifBlank { "Xposed" },
                         input.frameworkApiVersion
                     )
                     input.frameworkConnected -> getString(
@@ -975,25 +977,46 @@ class DiagnosticsActivity : SkinnedActivity() {
                     )
                     else -> getString(R.string.diagnostics_framework_waiting)
                 }
-                (listOf(base) + userSpaceHints(input)).joinToString(separator = "\n")
+                (listOf(base) + frameworkDiagnosticsDetails(
+                    this, input.frameworkName, input.frameworkVersion, input.frameworkVersionCode,
+                    input.frameworkProperties, input.frameworkConnectionId, input.frameworkFailureCode
+                ) + userSpaceHints(input)).joinToString(separator = "\n")
             }
-            DiagnosticItemId.REMOTE_CONFIG -> when {
-                input.remotePublishPending &&
-                    input.remotePublishState != DiagnosticRemotePublishState.FAILED ->
-                    getString(R.string.diagnostics_remote_publishing)
-                input.remotePublishState == DiagnosticRemotePublishState.READY -> getString(
-                    R.string.diagnostics_remote_ready,
-                    input.remoteGeneration
-                )
-                input.remotePublishState == DiagnosticRemotePublishState.PUBLISHING ->
-                    getString(R.string.diagnostics_remote_publishing)
-                input.remotePublishState == DiagnosticRemotePublishState.WAITING_FOR_SERVICE ->
-                    getString(R.string.diagnostics_remote_waiting)
-                input.remotePublishState == DiagnosticRemotePublishState.FAILED -> getString(
-                    R.string.diagnostics_remote_failed,
-                    input.remoteFailureCode ?: "publish_failed"
-                )
-                else -> getString(R.string.diagnostics_remote_not_initialized)
+            DiagnosticItemId.REMOTE_CONFIG -> {
+                val base = when {
+                    input.remotePublishPending &&
+                        input.remotePublishState != DiagnosticRemotePublishState.FAILED ->
+                        getString(R.string.diagnostics_remote_publishing)
+                    input.remotePublishState == DiagnosticRemotePublishState.READY -> getString(
+                        R.string.diagnostics_remote_ready,
+                        input.remoteGeneration
+                    )
+                    input.remotePublishState == DiagnosticRemotePublishState.PUBLISHING ->
+                        getString(R.string.diagnostics_remote_publishing)
+                    input.remotePublishState == DiagnosticRemotePublishState.WAITING_FOR_SERVICE ->
+                        getString(R.string.diagnostics_remote_waiting)
+                    input.remotePublishState == DiagnosticRemotePublishState.FAILED -> getString(
+                        R.string.diagnostics_remote_failed,
+                        input.remoteFailureCode ?: "publish_failed"
+                    )
+                    else -> getString(R.string.diagnostics_remote_not_initialized)
+                }
+                val delivery = when (configDelivery(input)) {
+                    DiagnosticConfigDelivery.MATCHED ->
+                        getString(R.string.diagnostics_delivery_matched, input.hostConfigGeneration)
+                    DiagnosticConfigDelivery.HOST_OLDER ->
+                        getString(R.string.diagnostics_delivery_older, input.hostConfigGeneration, input.remoteGeneration)
+                    DiagnosticConfigDelivery.HOST_NEWER ->
+                        getString(R.string.diagnostics_delivery_newer)
+                    DiagnosticConfigDelivery.HOST_REJECTED ->
+                        getString(R.string.diagnostics_delivery_rejected)
+                    DiagnosticConfigDelivery.HOST_NOT_CHECKED ->
+                        getString(R.string.diagnostics_delivery_not_checked)
+                    DiagnosticConfigDelivery.HOST_UNAVAILABLE ->
+                        getString(R.string.diagnostics_delivery_unavailable)
+                    else -> null
+                }
+                listOfNotNull(base, delivery).joinToString("\n")
             }
             DiagnosticItemId.ACTIVATION -> getString(
                 when (input.activationState) {

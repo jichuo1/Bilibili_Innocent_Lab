@@ -4,9 +4,54 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 
 class DiagnosticReportCodecTest {
+    @Test
+    fun `format four separates framework build commit acknowledgement and host receipt`() {
+        val state = inputs().copy(
+            frameworkName = "Vector", frameworkVersion = "2.2 (3110) c4a701aa",
+            frameworkVersionCode = 3110L, frameworkProperties = 7L,
+            frameworkConnectionId = 2L, remoteConnectionId = 2L,
+            hostRuntimeReceiptAvailable = true, hostQueryState = DiagnosticHostQueryState.READY,
+            hostConfigState = DiagnosticHostConfigState.ACCEPTED, hostConfigGeneration = 42L
+        )
+        val bytes = DiagnosticReportCodec.encode(ModuleHealthEvaluator.evaluate(state))
+        DiagnosticReportCodec.validate(bytes)
+        val json = JSONObject(bytes.toString(StandardCharsets.UTF_8))
+        assertEquals(4, json.getInt("formatVersion"))
+        assertEquals(3110L, json.getJSONObject("framework").getLong("versionCode"))
+        assertEquals(7L, json.getJSONObject("framework").getLong("properties"))
+        assertEquals("MATCHED", json.getJSONObject("remoteConfig").getString("hostDelivery"))
+        assertEquals(
+            "COMMIT_ACKNOWLEDGED_AND_CLIENT_CACHE_VALIDATED",
+            json.getJSONObject("remoteConfig").getString("verification")
+        )
+        assertFalse(json.getJSONObject("framework").has("moduleUserId"))
+    }
+
+    @Test
+    fun `unavailable metadata stays null and unbounded failures are not exported`() {
+        val bytes = DiagnosticReportCodec.encode(ModuleHealthEvaluator.evaluate(inputs().copy(
+            frameworkFailureCode = "exception with a private path"
+        )))
+        DiagnosticReportCodec.validate(bytes)
+        val framework = JSONObject(bytes.toString(StandardCharsets.UTF_8)).getJSONObject("framework")
+        assertTrue(framework.isNull("versionCode"))
+        assertTrue(framework.isNull("properties"))
+        assertEquals("unknown", framework.getString("failureCode"))
+        assertFalse(bytes.toString(StandardCharsets.UTF_8).contains("private path"))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `unknown verification claims are rejected`() {
+        val bytes = DiagnosticReportCodec.encode(ModuleHealthEvaluator.evaluate(inputs()))
+        val json = JSONObject(bytes.toString(StandardCharsets.UTF_8))
+        json.getJSONObject("remoteConfig").put("verification", "REMOTE_DATABASE_VERIFIED")
+        DiagnosticReportCodec.validate(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
     @Test
     fun `encoded report validates and declares its privacy exclusions`() {
         val snapshot = ModuleHealthEvaluator.evaluate(

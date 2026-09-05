@@ -29,7 +29,7 @@
     <string name="user_terms_need_framework_enable">尚未连接兼容的 Xposed 框架服务。请确认本模块已在当前 Android 用户或分身空间中启用并勾选作用域，然后返回重试。</string>
     <string name="user_terms_need_api102">当前框架不支持远程配置同步（需要 API 102 Remote Preferences），请升级兼容框架后重试。</string>
     <string name="user_terms_need_api102_named">已连接 %1$s（API %2$d），但其不支持所需的 API 102 Remote Preferences 能力。</string>
-    <string name="user_terms_publish_failed">框架已经连接，但配置发布或完整读回校验失败。模块功能仍保持关闭，请重试。</string>
+    <string name="user_terms_publish_failed">框架已经连接，但配置提交或校验失败。模块功能仍保持关闭，请重试。</string>
     <string name="user_terms_open_framework_manager">打开框架管理器</string>
     <string name="user_terms_pending_title">已记录您的同意</string>
     <string name="user_terms_pending_message">正在等待兼容的 Xposed 框架完成安全同步。同步完成前，模块设置与 Hook 功能均不会启用，您无需重新阅读或再次同意。</string>
@@ -539,7 +539,7 @@
     <string name="diagnostics_item_catalog">设置目录</string>
     <string name="diagnostics_item_logging">诊断日志</string>
     <string name="diagnostics_evidence_configured">已配置</string>
-    <string name="diagnostics_evidence_published">已发布并读回验证</string>
+    <string name="diagnostics_evidence_published">已确认发布</string>
     <string name="diagnostics_evidence_adapted">结构已适配</string>
     <string name="diagnostics_evidence_observed">已观测</string>
     <string name="diagnostics_evidence_applied">已实际应用</string>
@@ -556,13 +556,13 @@
     <string name="diagnostics_target_missing">未安装目标哔哩哔哩应用，或系统不允许查询。</string>
     <string name="diagnostics_framework_ready">%1$s · API %2$d · Remote Preferences 可用</string>
     <string name="diagnostics_framework_unsupported">已连接 %1$s · API %2$d，但缺少所需的 Remote Preferences 能力。</string>
-    <string name="diagnostics_framework_waiting">正在等待框架服务；NPatch 仍可通过独立 heartbeat 提供证据。</string>
+    <string name="diagnostics_framework_waiting">尚未收到框架服务。请核对模块启用状态和当前 Android 用户；框架投递或进程连接异常也可能导致此状态。NPatch 的 heartbeat 证据单独显示。</string>
     <string name="diagnostics_framework_secondary_user">模块设置 App 运行在非主用户 %1$d（可能是应用分身或工作资料）。libxposed 服务按用户投递，因此必须在框架管理器中同时为该用户启用本模块。</string>
     <string name="diagnostics_user_space_mismatch">模块设置 App（用户 %1$d）与哔哩哔哩（用户 %2$d）不在同一 Android 用户，配置无法送达宿主。请在同一个用户下安装并启用两者。</string>
-    <string name="diagnostics_remote_ready">快照已写入并成功读回验证 · 代次 %1$d</string>
+    <string name="diagnostics_remote_ready">框架已确认提交，客户端缓存校验通过 · 代次 %1$d；宿主接收状态另列。</string>
     <string name="diagnostics_remote_publishing">正在发布最新设置快照…</string>
     <string name="diagnostics_remote_waiting">正在等待兼容的框架服务后再发布。</string>
-    <string name="diagnostics_remote_failed">上次发布或读回验证失败（%1$s）。</string>
+    <string name="diagnostics_remote_failed">上次提交或客户端缓存校验失败（%1$s）。</string>
     <string name="diagnostics_remote_not_initialized">当前进程尚未记录发布尝试。</string>
     <string name="diagnostics_activation_lsposed">已检测到兼容的 Xposed 框架服务能力；宿主适配仍作为独立证据项目显示。</string>
     <string name="diagnostics_activation_npatch">已收到与当前模块及哔哩哔哩版本匹配的 heartbeat。</string>
@@ -608,4 +608,18 @@
     <string name="diagnostics_export_running">正在写入并验证报告…</string>
     <string name="diagnostics_export_success">诊断报告已保存并完成读回验证。</string>
     <string name="diagnostics_export_failed">无法保存或验证诊断报告。</string>
+    <string name="diagnostics_value_unknown">未知</string>
+    <string name="diagnostics_value_yes">是</string>
+    <string name="diagnostics_value_no">否</string>
+    <string name="diagnostics_framework_build">版本：%1$s · 构建：%2$s · 连接代次：%3$d</string>
+    <string name="diagnostics_framework_properties">能力：Remote %1$s · System %2$s · API 保护 %3$s</string>
+    <string name="diagnostics_framework_metadata_failure">框架状态尚不完整或连接已断开（%1$s）。请刷新诊断或重新打开模块。</string>
+    <string name="diagnostics_vector_api27">Vector 在 Android 8.1 上的现代包回调尚未验证；服务已连接不代表本模块能够运行。</string>
+    <string name="diagnostics_vector_3080">Vector 构建 3080 早于上游服务投递修复。反馈连接或进程重启异常时，请附带此构建号。</string>
+    <string name="diagnostics_delivery_matched">宿主已确认相同代次 %1$d；具体功能是否执行仍作为独立结果显示。</string>
+    <string name="diagnostics_delivery_older">宿主仍使用代次 %1$d，模块已提交代次 %2$d。请重启 B 站以使用新快照。</string>
+    <string name="diagnostics_delivery_newer">宿主回执代次晚于本次采集，请刷新诊断后重新比较。</string>
+    <string name="diagnostics_delivery_rejected">宿主拒绝了配置，请查看宿主启动结果中的具体原因。</string>
+    <string name="diagnostics_delivery_not_checked">宿主尚未确认配置快照。</string>
+    <string name="diagnostics_delivery_unavailable">尚无宿主配置回执。请启动或重启 B 站，然后刷新诊断。</string>
 </resources>

@@ -61,8 +61,10 @@ only a locked page with exit and review actions. Accept first commits private,
 non-authorizing pending metadata while retaining the previous decision. The
 existing single-thread API 102 publisher then publishes `ACCEPTED`; the pending
 page also offers an explicit NPatch path for environments without a framework
-service. Both paths promote the private decision and clear pending only after a
-full Remote Preferences read-back.
+service. Both paths promote the private decision and clear pending only after
+their publication verification succeeds. The standard Service 102 path requires
+an acknowledged commit and full client-cache validation; NPatch retains its
+independent protocol read-back. A cached value alone never acknowledges a write.
 If the service is absent, the pending gate remains locked and resumes on service
 bind without asking the user to accept again. Decline continues to invalidate a
 pending accept, confirm the remote closed decision, and only then commit the
@@ -124,8 +126,9 @@ would fail on both paths even if a framework injected it.
 
 The libxposed service binder is delivered per Android user: the framework calls
 `XposedProvider` with `SendBinder`, and `XposedServiceHelper` is purely passive —
-it never binds or retries on its own. A missing service therefore always means
-the framework does not treat this process, in this user, as an enabled module.
+it never binds or retries on its own. A missing service may mean the module is
+not enabled for this user, or that framework delivery or process reconnection
+failed. It cannot identify a single cause by itself.
 The module surfaces that distinction in the activation card and the diagnostics
 `FRAMEWORK_SERVICE` item; it never works around it.
 
@@ -140,9 +143,12 @@ preferences, credentials, update throttles, UI state, language, skin state and
 framework operational data cannot enter this group.
 
 Module startup registers one `XposedServiceHelper` listener. Relevant source
-changes are coalesced on one daemon publisher; a publication uses one editor
-transaction followed by a full protocol read-back. Semantically unchanged
-values retain their generation and avoid another write. Each host process reads
+changes are coalesced on one daemon publisher. Service 102 updates its local
+cache before IPC, even when commit subsequently fails. `RemoteHookConfigCommitter`
+therefore acknowledges only a successful commit followed by complete client-cache
+validation. It deduplicates only the exact acknowledged snapshot on the same
+service connection. Failure or a connection change forces another actual write;
+the SDK cache is not an independent framework-database read-back. Each host process reads
 the group once, validates the exact document and converts it into an immutable
 `SnapshotHookConfigSource`; bind, scroll, draw and Hook callbacks perform no
 cross-process preference I/O.
@@ -155,12 +161,17 @@ read-only storage, timeout, or read-back mismatch records a bounded failure and
 leaves the host fail-closed. The setting switch controls only this configuration
 delivery; it cannot disable native injection already embedded by NPatch.
 
-Accepting terms commits the private authoritative decision and then publishes
-an authorized configuration; publication failure rolls the private decision
-back. Declining publishes the denied configuration before committing the
-private decision, so a write failure cannot leave a previously authorized host
-snapshot active. Neither decision retrofits hooks into an already-running
-Bilibili process.
+Accepting terms retains a non-authorizing private pending decision until the
+publication succeeds, as described above. Declining publishes the denied
+configuration before committing the private decision; a failed write does not
+claim the previous remote snapshot was revoked. Neither decision retrofits hooks
+into an already-running Bilibili process.
+
+Vector's pinned API baselines, manager routing, platform limits and device
+acceptance matrix are in [vector_compatibility.md](vector_compatibility.md).
+Host AndroidX classes are resolved through the host ClassLoader, including the
+RecyclerView hooks and type checks used by comment binding. Module-owned AndroidX
+classes are not used as substitutes for host types.
 
 The private preference filename is deliberately unchanged, so settings already
 owned by the module UI remain available after the framework migration. Missing
@@ -199,7 +210,9 @@ interval; Hook callbacks perform no IPC and do not accumulate per-hit counters.
 `RemoteHookConfigStore` exposes an in-memory bounded publication diagnostic
 (`NOT_INITIALIZED`, `WAITING_FOR_SERVICE`, `PUBLISHING`, `READY`, or `FAILED`) with
 attempt/success timestamps, generation, pending state, and one of a small failure-code
-set. It never retains preference values or exports the original Throwable. MainActivity
+set and a service connection generation. The committer retains only an
+acknowledgement digest, not a second copy of settings. Diagnostics never retain
+preference values or export the original Throwable. MainActivity
 uses only already-resolved activation/NPatch state plus this in-memory summary, so the
 new overview entry adds no package query or `AtomicFile` read to its render path.
 
