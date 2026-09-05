@@ -556,6 +556,27 @@ Old settings backups leave an absent new key untouched. This path affects automa
 activity panels; manual routes and playback/payment authorization remain owned by
 the host. Static host verification covers 8.90.2 and 9.10.0; UI acceptance is separate.
 
+## Settings organization and navigation
+
+The main settings view separates Purification from Enhancements. Each primary card
+owns its advanced submenu as its last child at construction time. Free-copy actions
+and both bubble-appearance options live together in Enhancements. The former
+post-construction move below Experimental has been removed.
+
+Advanced categories carry a purpose and a localized region title. The six ordinary
+purification regions use independent collapsible cards; shared Home/detail duration
+filtering and the four small enhancement regions use plain section headings.
+`AdvancedCategoryLayoutPolicy` partitions by headings only and preserves every
+non-heading child, including the final description before the next heading. Invalid
+markers keep the original layout. Regrouping happens before the first draw, reuses
+the same control instances, and never rebinds preference listeners.
+
+Search traverses both collapsed submenu roots and their category containers. Results
+include purpose and region; revealing a result expands only the required menu and
+category, then scrolls and highlights after the existing bounded property animation.
+No per-frame height animation, extra hardware layer, configuration migration or
+host Hook change is introduced. See `settings_organization.md` for the full inventory.
+
 ## Intentional boundaries
 
 - `hookinfo.pb` parsing and write semantics remain unchanged; its behavior is

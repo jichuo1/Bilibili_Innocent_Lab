@@ -1,5 +1,25 @@
 # Regression verification
 
+## Settings purpose and region layout (2026-09-05)
+
+`AdvancedCategoryLayoutPolicyTest` verifies that every non-heading child is assigned
+exactly once across different category counts and that the last row before a heading
+is preserved. Static reordering checks compare preference references and all 62
+actual switch callback bodies, excluding indentation.
+
+`SettingsOrganizationInstrumentedTest` exercises primary-card ownership, last-child
+submenu placement, independent expansion, rapid toggling and search revelation across
+both purposes. It compares all 86 catalog settings before and after menu/search
+operations and never toggles feature switches or accepts terms. It requires an already
+authorized module installation. Screen-on is a temporary test-window flag only.
+Do not use an automatic uninstall/reinstall workflow on a user's existing module;
+verify the signer, use `adb install -r`, and install/run the test APK separately.
+
+The Android 16 device run passed both cases, and four Chinese dark-mode screenshots
+were reviewed. JVM tests passed 121 suites / 675 tests; Lint had 0 errors / 170 warnings,
+and Debug/R8 gates passed. Installation and UI behavior are verified here; this does
+not establish new host Hook, skin, or framework compatibility evidence.
+
 ## Build integrity
 
 1. Run `gradlew.bat assembleDebug --console=plain --no-daemon` from the Gradle

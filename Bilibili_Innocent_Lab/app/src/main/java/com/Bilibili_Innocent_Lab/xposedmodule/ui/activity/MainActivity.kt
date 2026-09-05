@@ -309,7 +309,7 @@ class MainActivity : SkinnedActivity() {
     /** 手动亮色开关引用（自由复制区） */
     private var manualLightSwitch: com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch? = null
 
-    /** 自动跟随开关引用（实验性功能区） */
+    /** 自动跟随开关引用（增强栏的复制气泡外观） */
     private var autoLightSwitch: com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch? = null
 
     /** 手动亮色开关下方 tip 引用（动态动画切换文本） */
@@ -339,23 +339,41 @@ class MainActivity : SkinnedActivity() {
     private var experimentalChevron: View? = null
     private var experimentalExpanded = false
 
-    /** "进阶设置"二级菜单：与实验性功能共用同一套展开/收起动效。 */
-    private var advancedContent: View? = null
-    private var advancedChevron: View? = null
-    private var advancedExpanded = false
+    /** 两个按用途拆分的进阶菜单，沿用同一属性动画。 */
+    private var purificationSettingsRoot: View? = null
+    private var enhancementSettingsRoot: View? = null
+    private var purificationAdvancedContent: View? = null
+    private var purificationAdvancedChevron: View? = null
+    private var purificationAdvancedExpanded = false
+    private var enhancementAdvancedContent: View? = null
+    private var enhancementAdvancedChevron: View? = null
+    private var enhancementAdvancedExpanded = false
 
-    /** 进阶设置内部的四个折叠分类；只重组 View 层级，不复制或重建业务控件。 */
-    private enum class AdvancedSettingsCategory {
-        HOME_NAVIGATION,
-        INTERFACE,
-        PLAYBACK,
-        COMMENT
+    /** 净化按区域折叠；增强条目较少，保留区域小标题。 */
+    private enum class AdvancedSettingsCategory(
+        val section: SettingsSearchSection,
+        @StringRes val titleRes: Int
+    ) {
+        PURIFY_HOME(SettingsSearchSection.PURIFICATION_ADVANCED, R.string.advanced_purify_home),
+        PURIFY_NAVIGATION(SettingsSearchSection.PURIFICATION_ADVANCED, R.string.advanced_purify_navigation),
+        PURIFY_MINE(SettingsSearchSection.PURIFICATION_ADVANCED, R.string.advanced_purify_mine),
+        PURIFY_PLAYBACK(SettingsSearchSection.PURIFICATION_ADVANCED, R.string.advanced_purify_playback),
+        PURIFY_COMMENTS(SettingsSearchSection.PURIFICATION_ADVANCED, R.string.advanced_purify_comments),
+        PURIFY_STARTUP(SettingsSearchSection.PURIFICATION_ADVANCED, R.string.advanced_purify_startup),
+        PURIFY_SHARED(SettingsSearchSection.PURIFICATION_ADVANCED, R.string.advanced_purify_shared),
+        ENHANCE_BROWSING(SettingsSearchSection.ENHANCEMENT_ADVANCED, R.string.advanced_enhance_browsing),
+        ENHANCE_PLAYBACK(SettingsSearchSection.ENHANCEMENT_ADVANCED, R.string.advanced_enhance_playback),
+        ENHANCE_COMMENTS(SettingsSearchSection.ENHANCEMENT_ADVANCED, R.string.advanced_enhance_comments),
+        ENHANCE_DISPLAY(SettingsSearchSection.ENHANCEMENT_ADVANCED, R.string.number_display_settings);
+
+        val collapsible: Boolean
+            get() = section == SettingsSearchSection.PURIFICATION_ADVANCED && this != PURIFY_SHARED
     }
 
     private data class AdvancedCategorySection(
         val header: View,
         val content: View,
-        val chevron: View,
+        val chevron: View?,
         var expanded: Boolean = false
     )
 
@@ -4925,20 +4943,53 @@ class MainActivity : SkinnedActivity() {
         animateSecondarySection(content, chevron, experimentalExpanded)
     }
 
-    /** 切换“进阶设置”二级菜单；与实验性功能共用完全相同的轻量动效。 */
-    private fun toggleAdvanced() {
-        val content = advancedContent ?: return
-        val chevron = advancedChevron ?: return
-        advancedExpanded = !advancedExpanded
-        animateSecondarySection(content, chevron, advancedExpanded)
+    private fun toggleAdvanced(section: SettingsSearchSection) {
+        val expanded = when (section) {
+            SettingsSearchSection.PURIFICATION_ADVANCED -> purificationAdvancedExpanded
+            SettingsSearchSection.ENHANCEMENT_ADVANCED -> enhancementAdvancedExpanded
+            else -> return
+        }
+        setAdvancedExpanded(section, !expanded)
     }
 
-    /** 把原有四段进阶设置在首帧前重组为默认折叠的协调式卡片。 */
+    /** 返回是否真的展开/收起，供设置搜索确定等待布局的时间。 */
+    private fun setAdvancedExpanded(section: SettingsSearchSection, expanded: Boolean): Boolean {
+        val content: View
+        val chevron: View
+        when (section) {
+            SettingsSearchSection.PURIFICATION_ADVANCED -> {
+                if (purificationAdvancedExpanded == expanded) return false
+                content = purificationAdvancedContent ?: return false
+                chevron = purificationAdvancedChevron ?: return false
+                purificationAdvancedExpanded = expanded
+            }
+            SettingsSearchSection.ENHANCEMENT_ADVANCED -> {
+                if (enhancementAdvancedExpanded == expanded) return false
+                content = enhancementAdvancedContent ?: return false
+                chevron = enhancementAdvancedChevron ?: return false
+                enhancementAdvancedExpanded = expanded
+            }
+            else -> return false
+        }
+        animateSecondarySection(content, chevron, expanded)
+        return true
+    }
+
+    /** 首帧前分组现有控件，净化使用折叠卡片，增强使用平铺小标题。 */
     private fun installAdvancedCategorySections() {
-        val root = advancedContent as? ViewGroup ?: return
-        if (advancedCategorySections.isNotEmpty()) return
-        val categories = AdvancedSettingsCategory.entries
-        if (advancedCategoryMarkers.keys.toList() != categories.toList()) return
+        installAdvancedCategorySections(
+            purificationAdvancedContent as? ViewGroup ?: return,
+            SettingsSearchSection.PURIFICATION_ADVANCED
+        )
+        installAdvancedCategorySections(
+            enhancementAdvancedContent as? ViewGroup ?: return,
+            SettingsSearchSection.ENHANCEMENT_ADVANCED
+        )
+    }
+
+    private fun installAdvancedCategorySections(root: ViewGroup, section: SettingsSearchSection) {
+        val categories = AdvancedSettingsCategory.entries.filter { it.section == section }
+        if (categories.any { it in advancedCategorySections }) return
 
         val originalChildren = List(root.childCount, root::getChildAt)
         val markers = categories.map { category ->
@@ -4961,6 +5012,28 @@ class MainActivity : SkinnedActivity() {
                 textColor = getColor(R.color.colorTextGray)
                 textSize = 14f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            if (!category.collapsible) {
+                title.textColor = monetColors.primary
+                title.textSize = 12f
+                root.addView(title, NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = ((if (index == 0) 4f else 18f) * density).toInt()
+                    bottomMargin = (6f * density).toInt()
+                })
+                val content = NativeLinearLayout(this).apply {
+                    orientation = NativeLinearLayout.VERTICAL
+                    val range = ranges[index]
+                    for (childIndex in range.startInclusive until range.endExclusive) {
+                        addView(originalChildren[childIndex])
+                    }
+                }
+                root.addView(content)
+                advancedCategorySections[category] = AdvancedCategorySection(
+                    title, content, chevron = null, expanded = true
+                )
+                return@forEachIndexed
             }
             val chevron = android.widget.ImageView(this).apply {
                 setImageResource(R.drawable.ic_chevron_down)
@@ -5075,9 +5148,10 @@ class MainActivity : SkinnedActivity() {
     ) {
         val section = advancedCategorySections[category] ?: return
         if (section.expanded == expanded) return
+        val chevron = section.chevron ?: return
         section.expanded = expanded
         section.header.isActivated = expanded
-        animateSecondarySection(section.content, section.chevron, expanded)
+        animateSecondarySection(section.content, chevron, expanded)
     }
 
     /** 设置搜索命中隐藏分类时，先展开其所属卡片再滚动和高亮。 */
@@ -5162,16 +5236,6 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
-    /** 首次绘制前把“进阶设置”卡片调整到“实验性功能”正下方，避免可见重排。 */
-    private fun placeAdvancedBelowExperimental() {
-        val advancedCard = advancedContent?.parent as? View ?: return
-        val experimentalCard = experimentalContent?.parent as? View ?: return
-        val parent = advancedCard.parentOrNull() ?: return
-        if (experimentalCard.parent !== parent) return
-        parent.removeView(advancedCard)
-        parent.addView(advancedCard, parent.indexOfChild(experimentalCard) + 1)
-    }
-
     override fun onStart() {
         super.onStart()
         UserTermsAuthorizationCoordinator.addListener(userTermsAuthorizationListener)
@@ -5222,8 +5286,14 @@ class MainActivity : SkinnedActivity() {
 
     private enum class SettingsSearchSection {
         GENERAL,
-        ADVANCED,
-        EXPERIMENTAL
+        PURIFICATION,
+        PURIFICATION_ADVANCED,
+        ENHANCEMENT,
+        ENHANCEMENT_ADVANCED,
+        EXPERIMENTAL;
+
+        val isAdvanced: Boolean
+            get() = this == PURIFICATION_ADVANCED || this == ENHANCEMENT_ADVANCED
     }
 
     private data class RuntimeSettingsSearchTarget(
@@ -6017,7 +6087,10 @@ class MainActivity : SkinnedActivity() {
         getString(
             when (section) {
                 SettingsSearchSection.GENERAL -> R.string.settings_search_section_general
-                SettingsSearchSection.ADVANCED -> R.string.advanced_settings
+                SettingsSearchSection.PURIFICATION -> R.string.purify_settings
+                SettingsSearchSection.PURIFICATION_ADVANCED -> R.string.purification_advanced_settings
+                SettingsSearchSection.ENHANCEMENT -> R.string.enhancement_settings
+                SettingsSearchSection.ENHANCEMENT_ADVANCED -> R.string.enhancement_advanced_settings
                 SettingsSearchSection.EXPERIMENTAL -> R.string.experimental_features
             }
         )
@@ -6080,7 +6153,11 @@ class MainActivity : SkinnedActivity() {
                     key = key,
                     title = title,
                     detail = texts.drop(1).joinToString(" "),
-                    section = settingsSearchSectionLabel(section)
+                    section = advancedCategorySections.entries.firstOrNull { (_, group) ->
+                        view === group.header || view.isSameOrDescendantOf(group.content)
+                    }?.let { (category, _) ->
+                        settingsSearchSectionLabel(section) + " · " + getString(category.titleRes)
+                    } ?: settingsSearchSectionLabel(section)
                 ),
                 view = view,
                 section = section
@@ -6089,11 +6166,15 @@ class MainActivity : SkinnedActivity() {
 
         fun visit(view: View, inheritedSection: SettingsSearchSection) {
             val section = when (view) {
-                advancedContent -> SettingsSearchSection.ADVANCED
+                purificationSettingsRoot -> SettingsSearchSection.PURIFICATION
+                enhancementSettingsRoot -> SettingsSearchSection.ENHANCEMENT
+                purificationAdvancedContent -> SettingsSearchSection.PURIFICATION_ADVANCED
+                enhancementAdvancedContent -> SettingsSearchSection.ENHANCEMENT_ADVANCED
                 experimentalContent -> SettingsSearchSection.EXPERIMENTAL
                 else -> inheritedSection
             }
-            val collapsedSectionRoot = view === advancedContent || view === experimentalContent
+            val collapsedSectionRoot = view === purificationAdvancedContent ||
+                view === enhancementAdvancedContent || view === experimentalContent
                 || advancedCategorySections.values.any { section ->
                     section.content === view
                 }
@@ -6371,16 +6452,9 @@ class MainActivity : SkinnedActivity() {
 
     private fun revealSettingsSearchTarget(target: RuntimeSettingsSearchTarget) {
         val primarySectionDelay = when (target.section) {
-            SettingsSearchSection.ADVANCED -> {
-                if (!advancedExpanded) {
-                    advancedExpanded = true
-                    val content = advancedContent
-                    val chevron = advancedChevron
-                    if (content != null && chevron != null) {
-                        animateSecondarySection(content, chevron, expanded = true)
-                    }
-                    300L
-                } else 0L
+            SettingsSearchSection.PURIFICATION_ADVANCED,
+            SettingsSearchSection.ENHANCEMENT_ADVANCED -> {
+                if (setAdvancedExpanded(target.section, expanded = true)) 300L else 0L
             }
             SettingsSearchSection.EXPERIMENTAL -> {
                 if (!experimentalExpanded) {
@@ -6393,10 +6467,12 @@ class MainActivity : SkinnedActivity() {
                     300L
                 } else 0L
             }
-            SettingsSearchSection.GENERAL -> 0L
+            SettingsSearchSection.GENERAL,
+            SettingsSearchSection.PURIFICATION,
+            SettingsSearchSection.ENHANCEMENT -> 0L
         }
         val categoryDelay = if (
-            target.section == SettingsSearchSection.ADVANCED &&
+            target.section.isAdvanced &&
             expandAdvancedCategoryContaining(target.view)
         ) {
             300L
@@ -6470,20 +6546,27 @@ class MainActivity : SkinnedActivity() {
         experimentalContent?.animate()?.setListener(null)
         experimentalContent?.animate()?.cancel()
         experimentalChevron?.animate()?.cancel()
-        advancedContent?.animate()?.setListener(null)
-        advancedContent?.animate()?.cancel()
-        advancedChevron?.animate()?.cancel()
+        purificationAdvancedContent?.animate()?.setListener(null)
+        purificationAdvancedContent?.animate()?.cancel()
+        purificationAdvancedChevron?.animate()?.cancel()
+        enhancementAdvancedContent?.animate()?.setListener(null)
+        enhancementAdvancedContent?.animate()?.cancel()
+        enhancementAdvancedChevron?.animate()?.cancel()
         advancedCategorySections.values.forEach { section ->
             section.content.animate().setListener(null)
             section.content.animate().cancel()
-            section.chevron.animate().cancel()
+            section.chevron?.animate()?.cancel()
         }
         advancedCategorySections.clear()
         advancedCategoryMarkers.clear()
         experimentalContent = null
         experimentalChevron = null
-        advancedContent = null
-        advancedChevron = null
+        purificationSettingsRoot = null
+        enhancementSettingsRoot = null
+        purificationAdvancedContent = null
+        purificationAdvancedChevron = null
+        enhancementAdvancedContent = null
+        enhancementAdvancedChevron = null
         noRootSwitch = null
         noRootStatusView = null
         noRootPrefsBridge = null
@@ -7482,6 +7565,7 @@ class MainActivity : SkinnedActivity() {
                                 updateMargins(horizontal = 15.dp)
                             },
                             init = {
+                                purificationSettingsRoot = this
                                 orientation = LinearLayout.VERTICAL
                                 gravity = Gravity.CENTER or Gravity.START
                                 background = skinCardBackground(monetColors.surfaceVariant)
@@ -7711,26 +7795,1785 @@ class MainActivity : SkinnedActivity() {
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                             }
+                            LinearLayout(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 14.dp
+                                },
+                                init = {
+                                    orientation = LinearLayout.VERTICAL
+                                    gravity = Gravity.CENTER or Gravity.START
+                                    background = skinCardBackground(monetColors.surface, 12f)
+                                    updatePadding(left = 8.dp, top = 5.dp, right = 8.dp, bottom = 5.dp)
+                                }
+                            ) {
+                                LinearLayout(
+                                    lparams = LayoutParams(widthMatchParent = true),
+                                    init = {
+                                        gravity = Gravity.CENTER or Gravity.START
+                                        updatePadding(vertical = 10.dp)
+                                        setOnClickListener { toggleAdvanced(SettingsSearchSection.PURIFICATION_ADVANCED) }
+                                    }
+                                ) {
+                                    ImageView(
+                                        lparams = LayoutParams(15.dp, 15.dp) {
+                                            marginEnd = 10.dp
+                                        }
+                                    ) {
+                                        setImageResource(R.drawable.ic_tune)
+                                        imageTintList = stateColorResource(R.color.colorTextGray)
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams { weight = 1f }
+                                    ) {
+                                        alpha = 0.85f
+                                        maxLines = 2
+                                        text = stringResource(R.string.purification_advanced_settings)
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 12f
+                                    }
+                                    ImageView(
+                                        lparams = LayoutParams(18.dp, 18.dp)
+                                    ) {
+                                        purificationAdvancedChevron = this
+                                        setImageResource(R.drawable.ic_chevron_down)
+                                        imageTintList = stateColorResource(R.color.colorTextGray)
+                                        alpha = 0.85f
+                                    }
+                                }
+                                LinearLayout(
+                                    lparams = LayoutParams(widthMatchParent = true),
+                                    init = {
+                                        orientation = LinearLayout.VERTICAL
+                                        visibility = View.GONE
+                                        purificationAdvancedContent = this
+                                        updatePadding(bottom = 10.dp)
+                                    }
+                                ) {
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_HOME] = this
+                                        alpha = 0.9f
+                                        text = stringResource(R.string.advanced_purify_home)
+                                        textColor = monetColors.primary
+                                        textSize = 12f
+                                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.hide_home_game_menu)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = hideHomeGameMenu
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            hideHomeGameMenu = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.HIDE_HOME_GAME_MENU,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write home game menu prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.hide_home_game_menu_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.hide_home_search_default_word)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = hideHomeSearchDefaultWord
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            hideHomeSearchDefaultWord = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write home search word prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.hide_home_search_default_word_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                        }
+                                    ) {
+                                        homeTabRulesSummaryView = this
+                                        text = stringResource(R.string.custom_home_tab_hide) + "\n" +
+                                            homeTabPickerSurface().summaryText()
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        maxLines = 3
+                                        ellipsize = TextUtils.TruncateAt.END
+                                        setLineSpacing(5f, 1f)
+                                        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                        background = selfRippleBackground(10f)
+                                        isClickable = true
+                                        isFocusable = true
+                                        setOnClickListener {
+                                            queryComponentSnapshotAndOpenPicker(homeTabPickerSurface())
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        text = stringResource(R.string.custom_home_tab_hide_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                        }
+                                    ) {
+                                        homeComponentRulesSummaryView = this
+                                        text = stringResource(R.string.custom_home_component_hide) + "\n" +
+                                            homeComponentPickerSurface().summaryText()
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        maxLines = 3
+                                        ellipsize = TextUtils.TruncateAt.END
+                                        setLineSpacing(5f, 1f)
+                                        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                        background = selfRippleBackground(10f)
+                                        isClickable = true
+                                        isFocusable = true
+                                        setOnClickListener {
+                                            queryComponentSnapshotAndOpenPicker(
+                                                homeComponentPickerSurface()
+                                            )
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        text = stringResource(R.string.custom_home_component_hide_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 14.dp
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        alpha = 0.7f
+                                        text = stringResource(R.string.home_recommend_purify_settings)
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 11f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_home_recommend_cm_v2)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeHomeRecommendCmV2
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            removeHomeRecommendCmV2 = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.REMOVE_HOME_RECOMMEND_CM_V2,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write home recommend cm_v2 prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 12.dp
+                                        }
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.remove_home_recommend_cm_v2_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_home_recommend_ads)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeHomeRecommendAds
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeHomeRecommendAds = checked
+                                            prefs().edit {
+                                                putBoolean(
+                                                    FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS,
+                                                    checked
+                                                )
+                                            }
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_home_recommend_pictures)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeHomeRecommendPictures
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeHomeRecommendPictures = checked
+                                            prefs().edit {
+                                                putBoolean(
+                                                    FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES,
+                                                    checked
+                                                )
+                                            }
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_home_recommend_game_promotions)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeHomeRecommendGamePromotions
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeHomeRecommendGamePromotions = checked
+                                            prefs().edit {
+                                                putBoolean(
+                                                    FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS,
+                                                    checked
+                                                )
+                                            }
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.home_recommend_title_filter)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = homeRecommendTitleFilterEnabled
+                                        setOnCheckedChangeListener { _, checked ->
+                                            homeRecommendTitleFilterEnabled = checked
+                                            prefs().edit {
+                                                putBoolean(
+                                                    FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_ENABLED,
+                                                    checked
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        homeRecommendTitleSummaryView = this
+                                        text = stringResource(R.string.home_recommend_title_rules) + "\n" +
+                                            if (homeRecommendTitleKeywords.isBlank()) {
+                                                stringResource(R.string.home_recommend_title_rules_empty)
+                                            } else {
+                                                stringResource(
+                                                    R.string.home_recommend_title_rules_current,
+                                                    homeRecommendTitleKeywords
+                                                )
+                                            }
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        maxLines = 3
+                                        ellipsize = TextUtils.TruncateAt.END
+                                        setLineSpacing(5f, 1f)
+                                        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                        background = selfRippleBackground(10f)
+                                        isClickable = true
+                                        isFocusable = true
+                                        setOnClickListener {
+                                            showRuleEditorDialog(
+                                                R.string.home_recommend_title_dialog_title,
+                                                R.string.home_recommend_title_dialog_hint,
+                                                homeRecommendTitleKeywords
+                                            ) { value ->
+                                                homeRecommendTitleKeywords = value
+                                                prefs().edit {
+                                                    putString(
+                                                        FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_KEYWORDS,
+                                                        value
+                                                    )
+                                                }
+                                                homeRecommendTitleSummaryView?.text =
+                                                    stringResource(R.string.home_recommend_title_rules) + "\n" +
+                                                        if (value.isBlank()) {
+                                                            stringResource(R.string.home_recommend_title_rules_empty)
+                                                        } else {
+                                                            stringResource(
+                                                                R.string.home_recommend_title_rules_current,
+                                                                value
+                                                            )
+                                                        }
+                                            }
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_home_recommend_live)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeHomeRecommendLive
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeHomeRecommendLive = checked
+                                            prefs().edit {
+                                                putBoolean(
+                                                    FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE,
+                                                    checked
+                                                )
+                                            }
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_home_recommend_courses)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeHomeRecommendCourses
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeHomeRecommendCourses = checked
+                                            prefs().edit {
+                                                putBoolean(
+                                                    FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES,
+                                                    checked
+                                                )
+                                            }
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_home_recommend_large)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeHomeRecommendLarge
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeHomeRecommendLarge = checked
+                                            prefs().edit {
+                                                putBoolean(
+                                                    FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE,
+                                                    checked
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.home_recommend_purify_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_NAVIGATION] = this
+                                        alpha = 0.9f
+                                        text = stringResource(R.string.advanced_purify_navigation)
+                                        textColor = monetColors.primary
+                                        textSize = 12f
+                                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                        }
+                                    ) {
+                                        bottomBarRulesSummaryView = this
+                                        text = stringResource(R.string.custom_bottom_bar_hide) + "\n" +
+                                            bottomBarPickerSurface().summaryText()
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        maxLines = 3
+                                        ellipsize = TextUtils.TruncateAt.END
+                                        setLineSpacing(5f, 1f)
+                                        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                        background = selfRippleBackground(10f)
+                                        isClickable = true
+                                        isFocusable = true
+                                        setOnClickListener {
+                                            queryComponentSnapshotAndOpenPicker(bottomBarPickerSurface())
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        text = stringResource(R.string.custom_bottom_bar_hide_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        alpha = 0.7f
+                                        isSingleLine = true
+                                        text = stringResource(R.string.dynamic_page_settings)
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 11f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.hide_dynamic_city_tab)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = hideDynamicCityTab
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            hideDynamicCityTab = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.HIDE_DYNAMIC_CITY_TAB,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write dynamic city tab prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.hide_dynamic_city_tab_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.hide_dynamic_school_tab)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = hideDynamicSchoolTab
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            hideDynamicSchoolTab = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.HIDE_DYNAMIC_SCHOOL_TAB,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write dynamic school tab prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.hide_dynamic_school_tab_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_MINE] = this
+                                        alpha = 0.9f
+                                        text = stringResource(R.string.advanced_purify_mine)
+                                        textColor = monetColors.primary
+                                        textSize = 12f
+                                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.hide_mine_vip)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = hideMineVip
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            hideMineVip = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.HIDE_MINE_VIP,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write mine vip prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.hide_mine_vip_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.keep_mine_vip_space)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = keepMineVipSpace
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            keepMineVipSpace = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.KEEP_MINE_VIP_SPACE,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write mine vip space prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.keep_mine_vip_space_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                        }
+                                    ) {
+                                        mineComponentRulesSummaryView = this
+                                        text = stringResource(R.string.custom_mine_component_hide) + "\n" +
+                                            mineComponentPickerSurface().summaryText()
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        maxLines = 3
+                                        ellipsize = TextUtils.TruncateAt.END
+                                        setLineSpacing(5f, 1f)
+                                        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                        background = selfRippleBackground(10f)
+                                        isClickable = true
+                                        isFocusable = true
+                                        setOnClickListener {
+                                            queryComponentSnapshotAndOpenPicker(
+                                                mineComponentPickerSurface()
+                                            )
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        text = stringResource(R.string.custom_mine_component_hide_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_PLAYBACK] = this
+                                        alpha = 0.9f
+                                        text = stringResource(R.string.advanced_purify_playback)
+                                        textColor = monetColors.primary
+                                        textSize = 12f
+                                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.hide_player_portrait_control)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = hidePlayerPortraitControl
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            hidePlayerPortraitControl = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.HIDE_PLAYER_PORTRAIT_CONTROL,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write player portrait prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.hide_player_portrait_control_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.hide_player_interactive_overlays)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = hidePlayerInteractiveOverlays
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            hidePlayerInteractiveOverlays = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.HIDE_PLAYER_INTERACTIVE_OVERLAYS,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write player interactive overlays prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.hide_player_interactive_overlays_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.hide_pgc_auto_activity_popup)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = hidePgcAutoActivityPopup
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            hidePgcAutoActivityPopup = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write PGC auto activity popup prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.hide_pgc_auto_activity_popup_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    LinearLayout(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 14.dp
+                                            bottomMargin = 8.dp
+                                        },
+                                        init = {
+                                            orientation = LinearLayout.HORIZONTAL
+                                            gravity = Gravity.CENTER_VERTICAL
+                                            background = selfRippleBackground(10f)
+                                            updatePadding(horizontal = 4.dp, vertical = 9.dp)
+                                            isClickable = true
+                                            isFocusable = true
+                                            contentDescription = stringResource(
+                                                R.string.portrait_content_filter_title
+                                            )
+                                            setOnClickListener { showPortraitContentFilterDialog() }
+                                        }
+                                    ) {
+                                        LinearLayout(
+                                            lparams = LayoutParams { weight = 1f },
+                                            init = { orientation = LinearLayout.VERTICAL }
+                                        ) {
+                                            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                                                text = stringResource(R.string.portrait_content_filter_title)
+                                                textColor = colorResource(R.color.colorTextGray)
+                                                textSize = 15f
+                                            }
+                                            TextView(
+                                                lparams = LayoutParams(widthMatchParent = true) {
+                                                    topMargin = 4.dp
+                                                }
+                                            ) {
+                                                portraitContentFilterSummaryView = this
+                                                alpha = 0.68f
+                                                text = portraitContentFilterSummary()
+                                                textColor = colorResource(R.color.colorTextDark)
+                                                textSize = 12f
+                                            }
+                                        }
+                                        ImageView(lparams = LayoutParams(18.dp, 18.dp)) {
+                                            setImageResource(R.drawable.ic_chevron_down)
+                                            rotation = -90f
+                                            alpha = 0.8f
+                                            imageTintList = stateColorResource(R.color.colorTextGray)
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        visibility = View.GONE
+                                        text = stringResource(R.string.remove_story_ads)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeStoryAds
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeStoryAds = checked
+                                            prefs().edit {
+                                                putBoolean(FeaturePreferences.REMOVE_STORY_ADS, checked)
+                                            }
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        visibility = View.GONE
+                                        text = stringResource(R.string.remove_story_live)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeStoryLive
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeStoryLive = checked
+                                            prefs().edit {
+                                                putBoolean(FeaturePreferences.REMOVE_STORY_LIVE, checked)
+                                            }
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        visibility = View.GONE
+                                        text = stringResource(R.string.remove_story_games)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeStoryGames
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeStoryGames = checked
+                                            prefs().edit {
+                                                putBoolean(FeaturePreferences.REMOVE_STORY_GAMES, checked)
+                                            }
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        visibility = View.GONE
+                                        text = stringResource(R.string.remove_story_bangumi)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeStoryBangumi
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeStoryBangumi = checked
+                                            prefs().edit {
+                                                putBoolean(FeaturePreferences.REMOVE_STORY_BANGUMI, checked)
+                                            }
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        visibility = View.GONE
+                                        text = stringResource(R.string.remove_story_courses)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeStoryCourses
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeStoryCourses = checked
+                                            prefs().edit {
+                                                putBoolean(FeaturePreferences.REMOVE_STORY_COURSES, checked)
+                                            }
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        visibility = View.GONE
+                                        text = stringResource(R.string.remove_story_short_drama)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeStoryShortDrama
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeStoryShortDrama = checked
+                                            prefs().edit {
+                                                putBoolean(
+                                                    FeaturePreferences.REMOVE_STORY_SHORT_DRAMA,
+                                                    checked
+                                                )
+                                            }
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        visibility = View.GONE
+                                        text = stringResource(R.string.remove_story_shopping)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeStoryShopping
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeStoryShopping = checked
+                                            prefs().edit {
+                                                putBoolean(
+                                                    FeaturePreferences.REMOVE_STORY_SHOPPING,
+                                                    checked
+                                                )
+                                            }
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        visibility = View.GONE
+                                        text = stringResource(R.string.remove_story_movies)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeStoryMovies
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeStoryMovies = checked
+                                            prefs().edit {
+                                                putBoolean(FeaturePreferences.REMOVE_STORY_MOVIES, checked)
+                                            }
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        visibility = View.GONE
+                                        text = stringResource(R.string.remove_story_documentaries)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeStoryDocumentaries
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeStoryDocumentaries = checked
+                                            prefs().edit {
+                                                putBoolean(
+                                                    FeaturePreferences.REMOVE_STORY_DOCUMENTARIES,
+                                                    checked
+                                                )
+                                            }
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        visibility = View.GONE
+                                        text = stringResource(R.string.remove_story_tv)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeStoryTv
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeStoryTv = checked
+                                            prefs().edit {
+                                                putBoolean(FeaturePreferences.REMOVE_STORY_TV, checked)
+                                            }
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        visibility = View.GONE
+                                        text = stringResource(R.string.remove_story_variety)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeStoryVariety
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeStoryVariety = checked
+                                            prefs().edit {
+                                                putBoolean(FeaturePreferences.REMOVE_STORY_VARIETY, checked)
+                                            }
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        visibility = View.GONE
+                                        text = stringResource(R.string.remove_story_music)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeStoryMusic
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeStoryMusic = checked
+                                            prefs().edit {
+                                                putBoolean(FeaturePreferences.REMOVE_STORY_MUSIC, checked)
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        visibility = View.GONE
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.story_purify_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    LinearLayout(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 14.dp
+                                            bottomMargin = 8.dp
+                                        },
+                                        init = {
+                                            orientation = LinearLayout.HORIZONTAL
+                                            gravity = Gravity.CENTER_VERTICAL
+                                            background = selfRippleBackground(10f)
+                                            updatePadding(horizontal = 4.dp, vertical = 9.dp)
+                                            isClickable = true
+                                            isFocusable = true
+                                            contentDescription = stringResource(
+                                                R.string.video_relate_filter_settings
+                                            )
+                                            setOnClickListener { showVideoRelateFilterDialog() }
+                                        }
+                                    ) {
+                                        LinearLayout(
+                                            lparams = LayoutParams { weight = 1f },
+                                            init = { orientation = LinearLayout.VERTICAL }
+                                        ) {
+                                            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                                                text = stringResource(R.string.video_relate_filter_settings)
+                                                textColor = colorResource(R.color.colorTextGray)
+                                                textSize = 15f
+                                            }
+                                            TextView(
+                                                lparams = LayoutParams(widthMatchParent = true) {
+                                                    topMargin = 4.dp
+                                                }
+                                            ) {
+                                                videoRelateFilterSummaryView = this
+                                                alpha = 0.68f
+                                                text = videoRelateFilterSummary()
+                                                textColor = colorResource(R.color.colorTextDark)
+                                                textSize = 12f
+                                            }
+                                            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                                                visibility = View.GONE
+                                                text = listOf(
+                                                    R.string.remove_relate_commercial,
+                                                    R.string.remove_relate_game,
+                                                    R.string.remove_relate_live,
+                                                    R.string.remove_relate_course,
+                                                    R.string.remove_relate_special,
+                                                    R.string.video_relate_matching_enhancement,
+                                                    R.string.video_relate_strong_mode,
+                                                    R.string.video_relate_reason_filter,
+                                                    R.string.video_relate_reason_filter_keywords
+                                                ).joinToString(" · ") { stringResource(it) }
+                                            }
+                                        }
+                                        ImageView(lparams = LayoutParams(18.dp, 18.dp)) {
+                                            setImageResource(R.drawable.ic_chevron_down)
+                                            rotation = -90f
+                                            alpha = 0.8f
+                                            imageTintList = stateColorResource(R.color.colorTextGray)
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_COMMENTS] = this
+                                        alpha = 0.9f
+                                        text = stringResource(R.string.advanced_purify_comments)
+                                        textColor = monetColors.primary
+                                        textSize = 12f
+                                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.hide_comment_section)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = hideCommentSection
+                                        setOnCheckedChangeListener { _, checked ->
+                                            hideCommentSection = checked
+                                            prefs().edit {
+                                                putBoolean(FeaturePreferences.HIDE_COMMENT_SECTION, checked)
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.hide_comment_section_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_comment_search_links)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeCommentSearchLinks
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            removeCommentSearchLinks = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write comment search prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.remove_comment_search_links_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_comment_empty_guide)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeCommentEmptyGuide
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            removeCommentEmptyGuide = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write comment empty guide prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.remove_comment_empty_guide_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_comment_vote_widgets)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeCommentVoteWidgets
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            removeCommentVoteWidgets = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.REMOVE_COMMENT_VOTE_WIDGETS,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write comment vote prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.remove_comment_vote_widgets_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_comment_follow_buttons)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeCommentFollowButtons
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            removeCommentFollowButtons = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.REMOVE_COMMENT_FOLLOW_BUTTONS,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write comment follow prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.remove_comment_follow_buttons_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_comment_qoe)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeCommentQoe
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            removeCommentQoe = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.REMOVE_COMMENT_QOE,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write comment qoe prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.remove_comment_qoe_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_comment_operations)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeCommentOperations
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            removeCommentOperations = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.REMOVE_COMMENT_OPERATIONS,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write comment operation prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.remove_comment_operations_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.comment_keyword_filter)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = commentKeywordFilterEnabled
+                                        setOnCheckedChangeListener { _, checked ->
+                                            commentKeywordFilterEnabled = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.COMMENT_KEYWORD_FILTER_ENABLED,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write comment keyword filter prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        commentKeywordSummaryView = this
+                                        text = stringResource(R.string.comment_keyword_rules) + "\n" +
+                                            if (commentFilterKeywords.isBlank()) {
+                                                stringResource(R.string.comment_keyword_rules_empty)
+                                            } else {
+                                                stringResource(
+                                                    R.string.comment_keyword_rules_current,
+                                                    commentFilterKeywords
+                                                )
+                                            }
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        maxLines = 3
+                                        ellipsize = TextUtils.TruncateAt.END
+                                        setLineSpacing(5f, 1f)
+                                        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                        background = selfRippleBackground(10f)
+                                        isClickable = true
+                                        isFocusable = true
+                                        setOnClickListener {
+                                            showRuleEditorDialog(
+                                                R.string.comment_keyword_dialog_title,
+                                                R.string.comment_keyword_dialog_hint,
+                                                commentFilterKeywords
+                                            ) { value ->
+                                                commentFilterKeywords = value
+                                                prefs().edit {
+                                                    putString(
+                                                        FeaturePreferences.COMMENT_FILTER_KEYWORDS,
+                                                        value
+                                                    )
+                                                }
+                                                commentKeywordSummaryView?.text =
+                                                    stringResource(R.string.comment_keyword_rules) + "\n" +
+                                                        if (value.isBlank()) {
+                                                            stringResource(R.string.comment_keyword_rules_empty)
+                                                        } else {
+                                                            stringResource(
+                                                                R.string.comment_keyword_rules_current,
+                                                                value
+                                                            )
+                                                        }
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.comment_keyword_filter_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.comment_min_level_filter)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = commentMinLevelFilterEnabled
+                                        setOnCheckedChangeListener { _, checked ->
+                                            commentMinLevelFilterEnabled = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.COMMENT_MIN_LEVEL_FILTER_ENABLED,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write comment minimum level filter prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        commentLevelSummaryView = this
+                                        text = stringResource(R.string.comment_min_level_current, commentMinLevel)
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                        background = selfRippleBackground(10f)
+                                        isClickable = true
+                                        isFocusable = true
+                                        setOnClickListener { showCommentMinLevelDialog() }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.comment_min_level_filter_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_STARTUP] = this
+                                        alpha = 0.9f
+                                        text = stringResource(R.string.advanced_purify_startup)
+                                        textColor = monetColors.primary
+                                        textSize = 12f
+                                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.purify_splash_ads)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = purifySplashAds
+                                        setOnCheckedChangeListener { _, checked ->
+                                            purifySplashAds = checked
+                                            prefs().edit {
+                                                putBoolean(FeaturePreferences.PURIFY_SPLASH_ADS, checked)
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.purify_splash_ads_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        alpha = 0.7f
+                                        isSingleLine = true
+                                        text = stringResource(R.string.prompt_purify_settings)
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 11f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.block_teenagers_mode_prompt)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = blockTeenagersModePrompt
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            blockTeenagersModePrompt = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.BLOCK_TEENAGERS_MODE_PROMPT,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write teenagers mode prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.block_teenagers_mode_prompt_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        alpha = 0.7f
+                                        isSingleLine = true
+                                        text = stringResource(R.string.client_update_settings)
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 11f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.block_app_update)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = blockAppUpdate
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            blockAppUpdate = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.BLOCK_APP_UPDATE,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write block app update prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.block_app_update_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_SHARED] = this
+                                        alpha = 0.9f
+                                        text = stringResource(R.string.advanced_purify_shared)
+                                        textColor = monetColors.primary
+                                        textSize = 12f
+                                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                        }
+                                    ) {
+                                        recommendVideoDurationSummaryView = this
+                                        text = stringResource(R.string.recommend_video_duration_range) +
+                                            "\n" + recommendVideoDurationSummary()
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        maxLines = 3
+                                        ellipsize = TextUtils.TruncateAt.END
+                                        setLineSpacing(5f, 1f)
+                                        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                        background = selfRippleBackground(10f)
+                                        isClickable = true
+                                        isFocusable = true
+                                        setOnClickListener {
+                                            showRecommendVideoDurationRangeDialog()
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.recommend_video_duration_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                }
+                            }
                         }
-                        // Advanced 分支新增功能统一收纳到默认折叠的“进阶设置”。
+                        Space(lparams = LayoutParams(height = 10.dp))
                         LinearLayout(
                             lparams = LayoutParams(widthMatchParent = true) {
                                 updateMargins(horizontal = 15.dp)
-                                topMargin = 10.dp
                             },
                             init = {
+                                enhancementSettingsRoot = this
                                 orientation = LinearLayout.VERTICAL
                                 gravity = Gravity.CENTER or Gravity.START
                                 background = skinCardBackground(monetColors.surfaceVariant)
-                                updatePadding(left = 15.dp, top = 5.dp, right = 15.dp, bottom = 5.dp)
+                                updatePadding(left = 15.dp, top = 15.dp, right = 15.dp, bottom = 15.dp)
                             }
                         ) {
                             LinearLayout(
-                                lparams = LayoutParams(widthMatchParent = true),
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 12.dp
+                                },
                                 init = {
                                     gravity = Gravity.CENTER or Gravity.START
-                                    updatePadding(vertical = 10.dp)
-                                    setOnClickListener { toggleAdvanced() }
                                 }
                             ) {
                                 ImageView(
@@ -7742,2089 +9585,16 @@ class MainActivity : SkinnedActivity() {
                                     imageTintList = stateColorResource(R.color.colorTextGray)
                                 }
                                 TextView(
-                                    lparams = LayoutParams { weight = 1f }
+                                    lparams = LayoutParams(widthMatchParent = true)
                                 ) {
                                     alpha = 0.85f
                                     isSingleLine = true
-                                    text = stringResource(R.string.advanced_settings)
+                                    text = stringResource(R.string.enhancement_settings)
                                     textColor = colorResource(R.color.colorTextGray)
                                     textSize = 12f
                                 }
-                                ImageView(
-                                    lparams = LayoutParams(18.dp, 18.dp)
-                                ) {
-                                    advancedChevron = this
-                                    setImageResource(R.drawable.ic_chevron_down)
-                                    imageTintList = stateColorResource(R.color.colorTextGray)
-                                    alpha = 0.85f
-                                }
                             }
-                            LinearLayout(
-                                lparams = LayoutParams(widthMatchParent = true),
-                                init = {
-                                    orientation = LinearLayout.VERTICAL
-                                    visibility = View.GONE
-                                    advancedContent = this
-                                    updatePadding(bottom = 10.dp)
-                                }
-                            ) {
-                            // 分类：首页与导航
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 4.dp
-                                }
-                            ) {
-                                advancedCategoryMarkers[
-                                    AdvancedSettingsCategory.HOME_NAVIGATION
-                                ] = this
-                                alpha = 0.9f
-                                isSingleLine = true
-                                text = stringResource(R.string.advanced_home_navigation_category)
-                                textColor = monetColors.primary
-                                textSize = 12f
-                                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.remove_home_recommend_cm_v2)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeHomeRecommendCmV2
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    removeHomeRecommendCmV2 = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.REMOVE_HOME_RECOMMEND_CM_V2,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write home recommend cm_v2 prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 12.dp
-                                }
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.remove_home_recommend_cm_v2_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.hide_home_game_menu)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = hideHomeGameMenu
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    hideHomeGameMenu = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.HIDE_HOME_GAME_MENU,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write home game menu prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.hide_home_game_menu_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.hide_home_search_default_word)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = hideHomeSearchDefaultWord
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    hideHomeSearchDefaultWord = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write home search word prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.hide_home_search_default_word_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.home_vertical_open_detail)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = homeVerticalOpenDetail
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    homeVerticalOpenDetail = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write home vertical detail prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.home_vertical_open_detail_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 14.dp
-                                    bottomMargin = 4.dp
-                                }
-                            ) {
-                                alpha = 0.7f
-                                text = stringResource(R.string.home_recommend_purify_settings)
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 11f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.remove_home_recommend_ads)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeHomeRecommendAds
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeHomeRecommendAds = checked
-                                    prefs().edit {
-                                        putBoolean(
-                                            FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS,
-                                            checked
-                                        )
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.remove_home_recommend_pictures)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeHomeRecommendPictures
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeHomeRecommendPictures = checked
-                                    prefs().edit {
-                                        putBoolean(
-                                            FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES,
-                                            checked
-                                        )
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.remove_home_recommend_game_promotions)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeHomeRecommendGamePromotions
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeHomeRecommendGamePromotions = checked
-                                    prefs().edit {
-                                        putBoolean(
-                                            FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS,
-                                            checked
-                                        )
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.home_recommend_title_filter)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = homeRecommendTitleFilterEnabled
-                                setOnCheckedChangeListener { _, checked ->
-                                    homeRecommendTitleFilterEnabled = checked
-                                    prefs().edit {
-                                        putBoolean(
-                                            FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_ENABLED,
-                                            checked
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                homeRecommendTitleSummaryView = this
-                                text = stringResource(R.string.home_recommend_title_rules) + "\n" +
-                                    if (homeRecommendTitleKeywords.isBlank()) {
-                                        stringResource(R.string.home_recommend_title_rules_empty)
-                                    } else {
-                                        stringResource(
-                                            R.string.home_recommend_title_rules_current,
-                                            homeRecommendTitleKeywords
-                                        )
-                                    }
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                maxLines = 3
-                                ellipsize = TextUtils.TruncateAt.END
-                                setLineSpacing(5f, 1f)
-                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-                                background = selfRippleBackground(10f)
-                                isClickable = true
-                                isFocusable = true
-                                setOnClickListener {
-                                    showRuleEditorDialog(
-                                        R.string.home_recommend_title_dialog_title,
-                                        R.string.home_recommend_title_dialog_hint,
-                                        homeRecommendTitleKeywords
-                                    ) { value ->
-                                        homeRecommendTitleKeywords = value
-                                        prefs().edit {
-                                            putString(
-                                                FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_KEYWORDS,
-                                                value
-                                            )
-                                        }
-                                        homeRecommendTitleSummaryView?.text =
-                                            stringResource(R.string.home_recommend_title_rules) + "\n" +
-                                                if (value.isBlank()) {
-                                                    stringResource(R.string.home_recommend_title_rules_empty)
-                                                } else {
-                                                    stringResource(
-                                                        R.string.home_recommend_title_rules_current,
-                                                        value
-                                                    )
-                                                }
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.remove_home_recommend_live)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeHomeRecommendLive
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeHomeRecommendLive = checked
-                                    prefs().edit {
-                                        putBoolean(
-                                            FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE,
-                                            checked
-                                        )
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.remove_home_recommend_courses)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeHomeRecommendCourses
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeHomeRecommendCourses = checked
-                                    prefs().edit {
-                                        putBoolean(
-                                            FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES,
-                                            checked
-                                        )
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.remove_home_recommend_large)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeHomeRecommendLarge
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeHomeRecommendLarge = checked
-                                    prefs().edit {
-                                        putBoolean(
-                                            FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE,
-                                            checked
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.home_recommend_purify_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                }
-                            ) {
-                                homeTabRulesSummaryView = this
-                                text = stringResource(R.string.custom_home_tab_hide) + "\n" +
-                                    homeTabPickerSurface().summaryText()
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                maxLines = 3
-                                ellipsize = TextUtils.TruncateAt.END
-                                setLineSpacing(5f, 1f)
-                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-                                background = selfRippleBackground(10f)
-                                isClickable = true
-                                isFocusable = true
-                                setOnClickListener {
-                                    queryComponentSnapshotAndOpenPicker(homeTabPickerSurface())
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                text = stringResource(R.string.custom_home_tab_hide_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                }
-                            ) {
-                                homeComponentRulesSummaryView = this
-                                text = stringResource(R.string.custom_home_component_hide) + "\n" +
-                                    homeComponentPickerSurface().summaryText()
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                maxLines = 3
-                                ellipsize = TextUtils.TruncateAt.END
-                                setLineSpacing(5f, 1f)
-                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-                                background = selfRippleBackground(10f)
-                                isClickable = true
-                                isFocusable = true
-                                setOnClickListener {
-                                    queryComponentSnapshotAndOpenPicker(
-                                        homeComponentPickerSurface()
-                                    )
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                text = stringResource(R.string.custom_home_component_hide_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                }
-                            ) {
-                                bottomBarRulesSummaryView = this
-                                text = stringResource(R.string.custom_bottom_bar_hide) + "\n" +
-                                    bottomBarPickerSurface().summaryText()
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                maxLines = 3
-                                ellipsize = TextUtils.TruncateAt.END
-                                setLineSpacing(5f, 1f)
-                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-                                background = selfRippleBackground(10f)
-                                isClickable = true
-                                isFocusable = true
-                                setOnClickListener {
-                                    queryComponentSnapshotAndOpenPicker(bottomBarPickerSurface())
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                text = stringResource(R.string.custom_bottom_bar_hide_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                }
-                            ) {
-                                recommendVideoDurationSummaryView = this
-                                text = stringResource(R.string.recommend_video_duration_range) +
-                                    "\n" + recommendVideoDurationSummary()
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                maxLines = 3
-                                ellipsize = TextUtils.TruncateAt.END
-                                setLineSpacing(5f, 1f)
-                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-                                background = selfRippleBackground(10f)
-                                isClickable = true
-                                isFocusable = true
-                                setOnClickListener {
-                                    showRecommendVideoDurationRangeDialog()
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.recommend_video_duration_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            FrameLayout(
-                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
-                                    topMargin = 14.dp
-                                    bottomMargin = 14.dp
-                                },
-                                init = {
-                                    setBackgroundColor(ColorUtils.setAlphaComponent(colorResource(R.color.colorTextGray), 0x40))
-                                }
-                            )
-                            // 分类：页面与显示
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 4.dp
-                                }
-                            ) {
-                                advancedCategoryMarkers[
-                                    AdvancedSettingsCategory.INTERFACE
-                                ] = this
-                                alpha = 0.9f
-                                isSingleLine = true
-                                text = stringResource(R.string.advanced_interface_category)
-                                textColor = monetColors.primary
-                                textSize = 12f
-                                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.hide_mine_vip)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = hideMineVip
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    hideMineVip = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.HIDE_MINE_VIP,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write mine vip prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.hide_mine_vip_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.keep_mine_vip_space)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = keepMineVipSpace
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    keepMineVipSpace = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.KEEP_MINE_VIP_SPACE,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write mine vip space prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.keep_mine_vip_space_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                }
-                            ) {
-                                mineComponentRulesSummaryView = this
-                                text = stringResource(R.string.custom_mine_component_hide) + "\n" +
-                                    mineComponentPickerSurface().summaryText()
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                maxLines = 3
-                                ellipsize = TextUtils.TruncateAt.END
-                                setLineSpacing(5f, 1f)
-                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-                                background = selfRippleBackground(10f)
-                                isClickable = true
-                                isFocusable = true
-                                setOnClickListener {
-                                    queryComponentSnapshotAndOpenPicker(
-                                        mineComponentPickerSurface()
-                                    )
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                text = stringResource(R.string.custom_mine_component_hide_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            FrameLayout(
-                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
-                                    topMargin = 14.dp
-                                    bottomMargin = 14.dp
-                                },
-                                init = {
-                                    setBackgroundColor(ColorUtils.setAlphaComponent(colorResource(R.color.colorTextGray), 0x40))
-                                }
-                            )
-                            // 子项 5：客户端更新（新功能默认关闭）
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 4.dp
-                                }
-                            ) {
-                                alpha = 0.7f
-                                isSingleLine = true
-                                text = stringResource(R.string.client_update_settings)
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 11f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.block_app_update)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = blockAppUpdate
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    blockAppUpdate = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.BLOCK_APP_UPDATE,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write block app update prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.block_app_update_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            FrameLayout(
-                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
-                                    topMargin = 14.dp
-                                    bottomMargin = 14.dp
-                                },
-                                init = {
-                                    setBackgroundColor(ColorUtils.setAlphaComponent(colorResource(R.color.colorTextGray), 0x40))
-                                }
-                            )
-                            // 子项 6：动态页标签净化（新功能默认关闭）
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 4.dp
-                                }
-                            ) {
-                                alpha = 0.7f
-                                isSingleLine = true
-                                text = stringResource(R.string.dynamic_page_settings)
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 11f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.hide_dynamic_city_tab)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = hideDynamicCityTab
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    hideDynamicCityTab = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.HIDE_DYNAMIC_CITY_TAB,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write dynamic city tab prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.hide_dynamic_city_tab_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.hide_dynamic_school_tab)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = hideDynamicSchoolTab
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    hideDynamicSchoolTab = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.HIDE_DYNAMIC_SCHOOL_TAB,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write dynamic school tab prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.hide_dynamic_school_tab_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.prefer_dynamic_video_tab)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = preferDynamicVideoTab
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    preferDynamicVideoTab = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write preferred dynamic video prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.prefer_dynamic_video_tab_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            FrameLayout(
-                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
-                                    topMargin = 14.dp
-                                    bottomMargin = 14.dp
-                                },
-                                init = {
-                                    setBackgroundColor(ColorUtils.setAlphaComponent(colorResource(R.color.colorTextGray), 0x40))
-                                }
-                            )
-                            // 子项 7：完整数字显示（新功能默认关闭）
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 4.dp
-                                }
-                            ) {
-                                alpha = 0.7f
-                                isSingleLine = true
-                                text = stringResource(R.string.number_display_settings)
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 11f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.show_full_numbers)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = showFullNumbers
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    showFullNumbers = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.SHOW_FULL_NUMBERS,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write full number prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.show_full_numbers_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            FrameLayout(
-                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
-                                    topMargin = 14.dp
-                                    bottomMargin = 14.dp
-                                },
-                                init = {
-                                    setBackgroundColor(
-                                        ColorUtils.setAlphaComponent(
-                                            colorResource(R.color.colorTextGray),
-                                            0x40
-                                        )
-                                    )
-                                }
-                            )
-                            // 子项 8：青少年模式提示页（新功能默认关闭）
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 4.dp
-                                }
-                            ) {
-                                alpha = 0.7f
-                                isSingleLine = true
-                                text = stringResource(R.string.prompt_purify_settings)
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 11f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.block_teenagers_mode_prompt)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = blockTeenagersModePrompt
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    blockTeenagersModePrompt = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.BLOCK_TEENAGERS_MODE_PROMPT,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write teenagers mode prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.block_teenagers_mode_prompt_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.purify_splash_ads)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = purifySplashAds
-                                setOnCheckedChangeListener { _, checked ->
-                                    purifySplashAds = checked
-                                    prefs().edit {
-                                        putBoolean(FeaturePreferences.PURIFY_SPLASH_ADS, checked)
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.purify_splash_ads_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            FrameLayout(
-                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
-                                    topMargin = 14.dp
-                                    bottomMargin = 14.dp
-                                },
-                                init = {
-                                    setBackgroundColor(
-                                        ColorUtils.setAlphaComponent(
-                                            colorResource(R.color.colorTextGray),
-                                            0x40
-                                        )
-                                    )
-                                }
-                            )
-                            // 分类：播放与视频
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 4.dp
-                                }
-                            ) {
-                                advancedCategoryMarkers[
-                                    AdvancedSettingsCategory.PLAYBACK
-                                ] = this
-                                alpha = 0.9f
-                                isSingleLine = true
-                                text = stringResource(R.string.advanced_playback_category)
-                                textColor = monetColors.primary
-                                textSize = 12f
-                                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.hide_player_portrait_control)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = hidePlayerPortraitControl
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    hidePlayerPortraitControl = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.HIDE_PLAYER_PORTRAIT_CONTROL,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write player portrait prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.hide_player_portrait_control_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.hide_player_interactive_overlays)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = hidePlayerInteractiveOverlays
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    hidePlayerInteractiveOverlays = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.HIDE_PLAYER_INTERACTIVE_OVERLAYS,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write player interactive overlays prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.hide_player_interactive_overlays_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.hide_pgc_auto_activity_popup)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = hidePgcAutoActivityPopup
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    hidePgcAutoActivityPopup = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write PGC auto activity popup prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.hide_pgc_auto_activity_popup_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.transparent_player_status_bar)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = transparentPlayerStatusBar
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    transparentPlayerStatusBar = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write player status bar prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.transparent_player_status_bar_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            LinearLayout(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 14.dp
-                                    bottomMargin = 8.dp
-                                },
-                                init = {
-                                    orientation = LinearLayout.HORIZONTAL
-                                    gravity = Gravity.CENTER_VERTICAL
-                                    background = selfRippleBackground(10f)
-                                    updatePadding(horizontal = 4.dp, vertical = 9.dp)
-                                    isClickable = true
-                                    isFocusable = true
-                                    contentDescription = stringResource(
-                                        R.string.portrait_content_filter_title
-                                    )
-                                    setOnClickListener { showPortraitContentFilterDialog() }
-                                }
-                            ) {
-                                LinearLayout(
-                                    lparams = LayoutParams { weight = 1f },
-                                    init = { orientation = LinearLayout.VERTICAL }
-                                ) {
-                                    TextView(lparams = LayoutParams(widthMatchParent = true)) {
-                                        text = stringResource(R.string.portrait_content_filter_title)
-                                        textColor = colorResource(R.color.colorTextGray)
-                                        textSize = 15f
-                                    }
-                                    TextView(
-                                        lparams = LayoutParams(widthMatchParent = true) {
-                                            topMargin = 4.dp
-                                        }
-                                    ) {
-                                        portraitContentFilterSummaryView = this
-                                        alpha = 0.68f
-                                        text = portraitContentFilterSummary()
-                                        textColor = colorResource(R.color.colorTextDark)
-                                        textSize = 12f
-                                    }
-                                }
-                                ImageView(lparams = LayoutParams(18.dp, 18.dp)) {
-                                    setImageResource(R.drawable.ic_chevron_down)
-                                    rotation = -90f
-                                    alpha = 0.8f
-                                    imageTintList = stateColorResource(R.color.colorTextGray)
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                visibility = View.GONE
-                                text = stringResource(R.string.remove_story_ads)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeStoryAds
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeStoryAds = checked
-                                    prefs().edit {
-                                        putBoolean(FeaturePreferences.REMOVE_STORY_ADS, checked)
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                visibility = View.GONE
-                                text = stringResource(R.string.remove_story_live)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeStoryLive
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeStoryLive = checked
-                                    prefs().edit {
-                                        putBoolean(FeaturePreferences.REMOVE_STORY_LIVE, checked)
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                visibility = View.GONE
-                                text = stringResource(R.string.remove_story_games)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeStoryGames
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeStoryGames = checked
-                                    prefs().edit {
-                                        putBoolean(FeaturePreferences.REMOVE_STORY_GAMES, checked)
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                visibility = View.GONE
-                                text = stringResource(R.string.remove_story_bangumi)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeStoryBangumi
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeStoryBangumi = checked
-                                    prefs().edit {
-                                        putBoolean(FeaturePreferences.REMOVE_STORY_BANGUMI, checked)
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                visibility = View.GONE
-                                text = stringResource(R.string.remove_story_courses)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeStoryCourses
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeStoryCourses = checked
-                                    prefs().edit {
-                                        putBoolean(FeaturePreferences.REMOVE_STORY_COURSES, checked)
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                visibility = View.GONE
-                                text = stringResource(R.string.remove_story_short_drama)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeStoryShortDrama
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeStoryShortDrama = checked
-                                    prefs().edit {
-                                        putBoolean(
-                                            FeaturePreferences.REMOVE_STORY_SHORT_DRAMA,
-                                            checked
-                                        )
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                visibility = View.GONE
-                                text = stringResource(R.string.remove_story_shopping)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeStoryShopping
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeStoryShopping = checked
-                                    prefs().edit {
-                                        putBoolean(
-                                            FeaturePreferences.REMOVE_STORY_SHOPPING,
-                                            checked
-                                        )
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                visibility = View.GONE
-                                text = stringResource(R.string.remove_story_movies)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeStoryMovies
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeStoryMovies = checked
-                                    prefs().edit {
-                                        putBoolean(FeaturePreferences.REMOVE_STORY_MOVIES, checked)
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                visibility = View.GONE
-                                text = stringResource(R.string.remove_story_documentaries)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeStoryDocumentaries
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeStoryDocumentaries = checked
-                                    prefs().edit {
-                                        putBoolean(
-                                            FeaturePreferences.REMOVE_STORY_DOCUMENTARIES,
-                                            checked
-                                        )
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                visibility = View.GONE
-                                text = stringResource(R.string.remove_story_tv)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeStoryTv
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeStoryTv = checked
-                                    prefs().edit {
-                                        putBoolean(FeaturePreferences.REMOVE_STORY_TV, checked)
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                visibility = View.GONE
-                                text = stringResource(R.string.remove_story_variety)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeStoryVariety
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeStoryVariety = checked
-                                    prefs().edit {
-                                        putBoolean(FeaturePreferences.REMOVE_STORY_VARIETY, checked)
-                                    }
-                                }
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                visibility = View.GONE
-                                text = stringResource(R.string.remove_story_music)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeStoryMusic
-                                setOnCheckedChangeListener { _, checked ->
-                                    removeStoryMusic = checked
-                                    prefs().edit {
-                                        putBoolean(FeaturePreferences.REMOVE_STORY_MUSIC, checked)
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                visibility = View.GONE
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.story_purify_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            LinearLayout(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 14.dp
-                                    bottomMargin = 8.dp
-                                },
-                                init = {
-                                    orientation = LinearLayout.HORIZONTAL
-                                    gravity = Gravity.CENTER_VERTICAL
-                                    background = selfRippleBackground(10f)
-                                    updatePadding(horizontal = 4.dp, vertical = 9.dp)
-                                    isClickable = true
-                                    isFocusable = true
-                                    contentDescription = stringResource(
-                                        R.string.video_relate_filter_settings
-                                    )
-                                    setOnClickListener { showVideoRelateFilterDialog() }
-                                }
-                            ) {
-                                LinearLayout(
-                                    lparams = LayoutParams { weight = 1f },
-                                    init = { orientation = LinearLayout.VERTICAL }
-                                ) {
-                                    TextView(lparams = LayoutParams(widthMatchParent = true)) {
-                                        text = stringResource(R.string.video_relate_filter_settings)
-                                        textColor = colorResource(R.color.colorTextGray)
-                                        textSize = 15f
-                                    }
-                                    TextView(
-                                        lparams = LayoutParams(widthMatchParent = true) {
-                                            topMargin = 4.dp
-                                        }
-                                    ) {
-                                        videoRelateFilterSummaryView = this
-                                        alpha = 0.68f
-                                        text = videoRelateFilterSummary()
-                                        textColor = colorResource(R.color.colorTextDark)
-                                        textSize = 12f
-                                    }
-                                    TextView(lparams = LayoutParams(widthMatchParent = true)) {
-                                        visibility = View.GONE
-                                        text = listOf(
-                                            R.string.remove_relate_commercial,
-                                            R.string.remove_relate_game,
-                                            R.string.remove_relate_live,
-                                            R.string.remove_relate_course,
-                                            R.string.remove_relate_special,
-                                            R.string.video_relate_matching_enhancement,
-                                            R.string.video_relate_strong_mode,
-                                            R.string.video_relate_reason_filter,
-                                            R.string.video_relate_reason_filter_keywords
-                                        ).joinToString(" · ") { stringResource(it) }
-                                    }
-                                }
-                                ImageView(lparams = LayoutParams(18.dp, 18.dp)) {
-                                    setImageResource(R.drawable.ic_chevron_down)
-                                    rotation = -90f
-                                    alpha = 0.8f
-                                    imageTintList = stateColorResource(R.color.colorTextGray)
-                                }
-                            }
-                            LinearLayout(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                },
-                                init = {
-                                    orientation = LinearLayout.VERTICAL
-                                    background = selfRippleBackground(10f)
-                                    updatePadding(horizontal = 4.dp, vertical = 9.dp)
-                                    isClickable = true
-                                    isFocusable = true
-                                    setOnClickListener { showPlayerQualityDialog() }
-                                }
-                            ) {
-                                TextView(
-                                    lparams = LayoutParams(widthMatchParent = true)
-                                ) {
-                                    text = stringResource(R.string.player_default_quality)
-                                    textColor = colorResource(R.color.colorTextGray)
-                                    textSize = 15f
-                                }
-                                TextView(
-                                    lparams = LayoutParams(widthMatchParent = true) {
-                                        topMargin = 5.dp
-                                    }
-                                ) {
-                                    alpha = 0.6f
-                                    setLineSpacing(6f, 1f)
-                                    text = stringResource(
-                                        R.string.player_default_quality_current,
-                                        playerQualityLabel(playerDefaultQualityQn)
-                                    )
-                                    textColor = colorResource(R.color.colorTextDark)
-                                    textSize = 12f
-                                    playerQualitySummaryView = this
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 4.dp
-                                }
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.player_default_quality_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            FrameLayout(
-                                lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
-                                    topMargin = 14.dp
-                                    bottomMargin = 14.dp
-                                },
-                                init = {
-                                    setBackgroundColor(
-                                        ColorUtils.setAlphaComponent(
-                                            colorResource(R.color.colorTextGray),
-                                            0x40
-                                        )
-                                    )
-                                }
-                            )
-                            // 分类：评论区
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 4.dp
-                                }
-                            ) {
-                                advancedCategoryMarkers[
-                                    AdvancedSettingsCategory.COMMENT
-                                ] = this
-                                alpha = 0.9f
-                                isSingleLine = true
-                                text = stringResource(R.string.advanced_comment_category)
-                                textColor = monetColors.primary
-                                textSize = 12f
-                                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.reply_topology_enabled)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = replyTopologyEnabled
-                                setOnCheckedChangeListener { _, checked ->
-                                    replyTopologyEnabled = checked
-                                    prefs().edit {
-                                        putBoolean(
-                                            FeaturePreferences.REPLY_TOPOLOGY_ENABLED,
-                                            checked
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.reply_topology_enabled_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.hide_comment_section)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = hideCommentSection
-                                setOnCheckedChangeListener { _, checked ->
-                                    hideCommentSection = checked
-                                    prefs().edit {
-                                        putBoolean(FeaturePreferences.HIDE_COMMENT_SECTION, checked)
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.hide_comment_section_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.remove_comment_search_links)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeCommentSearchLinks
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    removeCommentSearchLinks = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write comment search prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.remove_comment_search_links_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.remove_comment_empty_guide)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeCommentEmptyGuide
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    removeCommentEmptyGuide = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write comment empty guide prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.remove_comment_empty_guide_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.remove_comment_vote_widgets)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeCommentVoteWidgets
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    removeCommentVoteWidgets = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.REMOVE_COMMENT_VOTE_WIDGETS,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write comment vote prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.remove_comment_vote_widgets_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.remove_comment_follow_buttons)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeCommentFollowButtons
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    removeCommentFollowButtons = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.REMOVE_COMMENT_FOLLOW_BUTTONS,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write comment follow prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.remove_comment_follow_buttons_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.remove_comment_qoe)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeCommentQoe
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    removeCommentQoe = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.REMOVE_COMMENT_QOE,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write comment qoe prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.remove_comment_qoe_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.remove_comment_operations)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = removeCommentOperations
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    removeCommentOperations = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.REMOVE_COMMENT_OPERATIONS,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write comment operation prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.remove_comment_operations_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.block_comment_quick_reply)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = blockCommentQuickReply
-                                setOnCheckedChangeListener { _, isChecked ->
-                                    blockCommentQuickReply = isChecked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.BLOCK_COMMENT_QUICK_REPLY,
-                                                isChecked
-                                            )
-                                        }
-                                    }.onFailure { t ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write comment quick reply prefs failed",
-                                            t
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.block_comment_quick_reply_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.comment_keyword_filter)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = commentKeywordFilterEnabled
-                                setOnCheckedChangeListener { _, checked ->
-                                    commentKeywordFilterEnabled = checked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.COMMENT_KEYWORD_FILTER_ENABLED,
-                                                checked
-                                            )
-                                        }
-                                    }.onFailure { throwable ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write comment keyword filter prefs failed",
-                                            throwable
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                commentKeywordSummaryView = this
-                                text = stringResource(R.string.comment_keyword_rules) + "\n" +
-                                    if (commentFilterKeywords.isBlank()) {
-                                        stringResource(R.string.comment_keyword_rules_empty)
-                                    } else {
-                                        stringResource(
-                                            R.string.comment_keyword_rules_current,
-                                            commentFilterKeywords
-                                        )
-                                    }
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                maxLines = 3
-                                ellipsize = TextUtils.TruncateAt.END
-                                setLineSpacing(5f, 1f)
-                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-                                background = selfRippleBackground(10f)
-                                isClickable = true
-                                isFocusable = true
-                                setOnClickListener {
-                                    showRuleEditorDialog(
-                                        R.string.comment_keyword_dialog_title,
-                                        R.string.comment_keyword_dialog_hint,
-                                        commentFilterKeywords
-                                    ) { value ->
-                                        commentFilterKeywords = value
-                                        prefs().edit {
-                                            putString(
-                                                FeaturePreferences.COMMENT_FILTER_KEYWORDS,
-                                                value
-                                            )
-                                        }
-                                        commentKeywordSummaryView?.text =
-                                            stringResource(R.string.comment_keyword_rules) + "\n" +
-                                                if (value.isBlank()) {
-                                                    stringResource(R.string.comment_keyword_rules_empty)
-                                                } else {
-                                                    stringResource(
-                                                        R.string.comment_keyword_rules_current,
-                                                        value
-                                                    )
-                                                }
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.comment_keyword_filter_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 12.dp
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                text = stringResource(R.string.comment_min_level_filter)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = commentMinLevelFilterEnabled
-                                setOnCheckedChangeListener { _, checked ->
-                                    commentMinLevelFilterEnabled = checked
-                                    runCatching {
-                                        prefs().edit {
-                                            putBoolean(
-                                                FeaturePreferences.COMMENT_MIN_LEVEL_FILTER_ENABLED,
-                                                checked
-                                            )
-                                        }
-                                    }.onFailure { throwable ->
-                                        Log.e(
-                                            "BilibiliInnocentLab",
-                                            "write comment minimum level filter prefs failed",
-                                            throwable
-                                        )
-                                    }
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                commentLevelSummaryView = this
-                                text = stringResource(R.string.comment_min_level_current, commentMinLevel)
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-                                background = selfRippleBackground(10f)
-                                isClickable = true
-                                isFocusable = true
-                                setOnClickListener { showCommentMinLevelDialog() }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.comment_min_level_filter_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            }
-                        }
-                        Space(lparams = LayoutParams(height = 10.dp))
-                        // 分支前已有的自由复制功能保持独立，不归入进阶设置。
-                        LinearLayout(
-                            lparams = LayoutParams(widthMatchParent = true) {
-                                updateMargins(horizontal = 15.dp)
-                            },
-                            init = {
-                                orientation = LinearLayout.VERTICAL
-                                gravity = Gravity.CENTER or Gravity.START
-                                background = skinCardBackground(monetColors.surfaceVariant)
-                                updatePadding(left = 15.dp, top = 15.dp, right = 15.dp, bottom = 15.dp)
-                            }
-                        ) {
-                            // 子项 10：评论区长按自由复制
+                            // 自由复制：内容能力与气泡外观集中在增强主栏。
                             TextView(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     bottomMargin = 4.dp
@@ -9915,6 +9685,52 @@ class MainActivity : SkinnedActivity() {
                                 textSize = 12f
                             }
                             // 亮色模式开关（白底黑字气泡，适配亮色主题；同时控制评论与简介气泡）
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 14.dp
+                                    bottomMargin = 4.dp
+                                }
+                            ) {
+                                alpha = 0.7f
+                                text = stringResource(R.string.free_copy_appearance_settings)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 11f
+                            }
+                            MaterialSwitch(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 12.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                text = stringResource(R.string.free_copy_auto_light)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = freeCopyAutoLight
+                                setOnCheckedChangeListener { _, isChecked ->
+                                    if (programmaticSwitch) return@setOnCheckedChangeListener
+                                    freeCopyAutoLight = isChecked
+                                    runCatching {
+                                        prefs().edit { putBoolean(HookEntry.PREF_FREE_COPY_AUTO_LIGHT, isChecked) }
+                                    }.onFailure { t ->
+                                        Log.e("BilibiliInnocentLab", "write free copy auto light failed", t)
+                                    }
+                                    // tip 动画切换（不重建界面）：淡出 → 换文本 → 淡入
+                                    animateLightModeTip()
+                                }
+                                autoLightSwitch = this
+                            }
+                            TextView(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 0.dp
+                                }
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.free_copy_auto_light_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
                             MaterialSwitch(
                                 lparams = LayoutParams(widthMatchParent = true) {
                                     topMargin = 5.dp
@@ -9979,6 +9795,375 @@ class MainActivity : SkinnedActivity() {
                                 textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                                 lightModeTipView = this
+                            }
+                            LinearLayout(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 14.dp
+                                },
+                                init = {
+                                    orientation = LinearLayout.VERTICAL
+                                    gravity = Gravity.CENTER or Gravity.START
+                                    background = skinCardBackground(monetColors.surface, 12f)
+                                    updatePadding(left = 8.dp, top = 5.dp, right = 8.dp, bottom = 5.dp)
+                                }
+                            ) {
+                                LinearLayout(
+                                    lparams = LayoutParams(widthMatchParent = true),
+                                    init = {
+                                        gravity = Gravity.CENTER or Gravity.START
+                                        updatePadding(vertical = 10.dp)
+                                        setOnClickListener { toggleAdvanced(SettingsSearchSection.ENHANCEMENT_ADVANCED) }
+                                    }
+                                ) {
+                                    ImageView(
+                                        lparams = LayoutParams(15.dp, 15.dp) {
+                                            marginEnd = 10.dp
+                                        }
+                                    ) {
+                                        setImageResource(R.drawable.ic_tune)
+                                        imageTintList = stateColorResource(R.color.colorTextGray)
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams { weight = 1f }
+                                    ) {
+                                        alpha = 0.85f
+                                        maxLines = 2
+                                        text = stringResource(R.string.enhancement_advanced_settings)
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 12f
+                                    }
+                                    ImageView(
+                                        lparams = LayoutParams(18.dp, 18.dp)
+                                    ) {
+                                        enhancementAdvancedChevron = this
+                                        setImageResource(R.drawable.ic_chevron_down)
+                                        imageTintList = stateColorResource(R.color.colorTextGray)
+                                        alpha = 0.85f
+                                    }
+                                }
+                                LinearLayout(
+                                    lparams = LayoutParams(widthMatchParent = true),
+                                    init = {
+                                        orientation = LinearLayout.VERTICAL
+                                        visibility = View.GONE
+                                        enhancementAdvancedContent = this
+                                        updatePadding(bottom = 10.dp)
+                                    }
+                                ) {
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        advancedCategoryMarkers[AdvancedSettingsCategory.ENHANCE_BROWSING] = this
+                                        alpha = 0.9f
+                                        text = stringResource(R.string.advanced_enhance_browsing)
+                                        textColor = monetColors.primary
+                                        textSize = 12f
+                                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.home_vertical_open_detail)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = homeVerticalOpenDetail
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            homeVerticalOpenDetail = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write home vertical detail prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.home_vertical_open_detail_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.prefer_dynamic_video_tab)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = preferDynamicVideoTab
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            preferDynamicVideoTab = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write preferred dynamic video prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.prefer_dynamic_video_tab_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        advancedCategoryMarkers[AdvancedSettingsCategory.ENHANCE_PLAYBACK] = this
+                                        alpha = 0.9f
+                                        text = stringResource(R.string.advanced_enhance_playback)
+                                        textColor = monetColors.primary
+                                        textSize = 12f
+                                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                    }
+                                    LinearLayout(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                        },
+                                        init = {
+                                            orientation = LinearLayout.VERTICAL
+                                            background = selfRippleBackground(10f)
+                                            updatePadding(horizontal = 4.dp, vertical = 9.dp)
+                                            isClickable = true
+                                            isFocusable = true
+                                            setOnClickListener { showPlayerQualityDialog() }
+                                        }
+                                    ) {
+                                        TextView(
+                                            lparams = LayoutParams(widthMatchParent = true)
+                                        ) {
+                                            text = stringResource(R.string.player_default_quality)
+                                            textColor = colorResource(R.color.colorTextGray)
+                                            textSize = 15f
+                                        }
+                                        TextView(
+                                            lparams = LayoutParams(widthMatchParent = true) {
+                                                topMargin = 5.dp
+                                            }
+                                        ) {
+                                            alpha = 0.6f
+                                            setLineSpacing(6f, 1f)
+                                            text = stringResource(
+                                                R.string.player_default_quality_current,
+                                                playerQualityLabel(playerDefaultQualityQn)
+                                            )
+                                            textColor = colorResource(R.color.colorTextDark)
+                                            textSize = 12f
+                                            playerQualitySummaryView = this
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 4.dp
+                                        }
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.player_default_quality_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.transparent_player_status_bar)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = transparentPlayerStatusBar
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            transparentPlayerStatusBar = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write player status bar prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.transparent_player_status_bar_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        advancedCategoryMarkers[AdvancedSettingsCategory.ENHANCE_COMMENTS] = this
+                                        alpha = 0.9f
+                                        text = stringResource(R.string.advanced_enhance_comments)
+                                        textColor = monetColors.primary
+                                        textSize = 12f
+                                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.reply_topology_enabled)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = replyTopologyEnabled
+                                        setOnCheckedChangeListener { _, checked ->
+                                            replyTopologyEnabled = checked
+                                            prefs().edit {
+                                                putBoolean(
+                                                    FeaturePreferences.REPLY_TOPOLOGY_ENABLED,
+                                                    checked
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.reply_topology_enabled_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.block_comment_quick_reply)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = blockCommentQuickReply
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            blockCommentQuickReply = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.BLOCK_COMMENT_QUICK_REPLY,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write comment quick reply prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.block_comment_quick_reply_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        advancedCategoryMarkers[AdvancedSettingsCategory.ENHANCE_DISPLAY] = this
+                                        alpha = 0.9f
+                                        text = stringResource(R.string.number_display_settings)
+                                        textColor = monetColors.primary
+                                        textSize = 12f
+                                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.show_full_numbers)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = showFullNumbers
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            showFullNumbers = isChecked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.SHOW_FULL_NUMBERS,
+                                                        isChecked
+                                                    )
+                                                }
+                                            }.onFailure { t ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write full number prefs failed",
+                                                    t
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.show_full_numbers_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                }
                             }
                         }
                         Space(lparams = LayoutParams(height = 10.dp))
@@ -10281,44 +10466,6 @@ class MainActivity : SkinnedActivity() {
                                         textSize = 12f
                                     }
                                 }
-                                // 气泡亮暗色自动跟随（实验性功能）：开启后气泡颜色自动跟随
-                                // B 站亮暗主题（进入视频详情页时判定缓存，弹泡零反射）；
-                                // 手动「亮色模式气泡」开关被覆盖，切换时弹二级确认
-                                MaterialSwitch(
-                                    lparams = LayoutParams(widthMatchParent = true) {
-                                        topMargin = 12.dp
-                                        bottomMargin = 5.dp
-                                    }
-                                ) {
-                                    text = stringResource(R.string.free_copy_auto_light)
-                                    isAllCaps = false
-                                    textColor = colorResource(R.color.colorTextGray)
-                                    textSize = 15f
-                                    isChecked = freeCopyAutoLight
-                                    setOnCheckedChangeListener { _, isChecked ->
-                                        if (programmaticSwitch) return@setOnCheckedChangeListener
-                                        freeCopyAutoLight = isChecked
-                                        runCatching {
-                                            prefs().edit { putBoolean(HookEntry.PREF_FREE_COPY_AUTO_LIGHT, isChecked) }
-                                        }.onFailure { t ->
-                                            Log.e("BilibiliInnocentLab", "write free copy auto light failed", t)
-                                        }
-                                        // tip 动画切换（不重建界面）：淡出 → 换文本 → 淡入
-                                        animateLightModeTip()
-                                    }
-                                    autoLightSwitch = this
-                                }
-                                TextView(
-                                    lparams = LayoutParams(widthMatchParent = true) {
-                                        topMargin = 0.dp
-                                    }
-                                ) {
-                                    alpha = 0.6f
-                                    setLineSpacing(6f, 1f)
-                                    text = stringResource(R.string.free_copy_auto_light_tip)
-                                    textColor = colorResource(R.color.colorTextDark)
-                                    textSize = 12f
-                                }
                                 // 手动重新适配：清除版本适配缓存，重启哔哩哔哩后自动重新定位 hook 点。
                                 // 风格与「实验性功能」分区标题行统一：图标 + 文字 + 水波纹点击反馈；
                                 // 点击弹出二级确认菜单（与「重启哔哩哔哩」确认弹窗同规格）
@@ -10571,9 +10718,8 @@ class MainActivity : SkinnedActivity() {
                 if (!isFinishing && !isDestroyed) skinSummaryView?.text = currentSkinSummary()
             }
         }
-        // setContentView 返回后尚未进入首帧绘制，此时重组/重排不会产生界面跳动。
+        // 两个进阶菜单已在各自大类末尾；首帧前只整理区域分组，不移动顶层卡片。
         installAdvancedCategorySections()
-        placeAdvancedBelowExperimental()
         renderNoRootUi()
         // 布局完成后定位日志档位滑块（宽度收缩为一半 + 对齐当前档位）
         findViewById<View>(Android_R.id.content).post {
