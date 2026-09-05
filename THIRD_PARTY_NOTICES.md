@@ -1,5 +1,21 @@
 # Third-party notices
 
+## Material Design Icons
+
+The enhancement, appearance and compatibility section icons use Google's
+[Material Design Icons](https://github.com/google/material-design-icons), pinned
+to commit `0cbb08816df07faaae3dca060d4ebb10b66c214f`:
+
+- `src/image/auto_fix_high/materialicons/24px.svg`
+- `src/image/palette/materialicons/24px.svg`
+- `src/action/extension/materialicons/24px.svg`
+
+The SVG paths were converted to Android VectorDrawable resources with their
+original 24-by-24 geometry. Non-drawing SVG bounds were omitted, and the fill is
+white so the existing theme tint can be applied. No icon font or runtime library
+is included. Licensed under the Apache License, Version 2.0; the complete upstream
+license is provided in `third_party/MaterialDesignIcons-LICENSE.txt`.
+
 ## AndroidLiquidGlass
 
 The experimental Liquid skin contains an Android View/Drawable adaptation of the

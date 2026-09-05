@@ -328,6 +328,13 @@
     <string name="log_level_minimal_desc">Only significant errors and runtime issues</string>
     <string name="log_level_complete_desc">All hook hits and interception details</string>
     <string name="experimental_features">Experimental features</string>
+    <string name="experimental_appearance">Appearance</string>
+    <string name="experimental_appearance_summary">Style, colors, language and launcher icon</string>
+    <string name="experimental_compatibility">Compatibility</string>
+    <string name="experimental_compatibility_summary">Framework support and host adaptation</string>
+    <string name="appearance_style_and_color">Style and colors</string>
+    <string name="settings_search_section_appearance">Experimental features · Appearance</string>
+    <string name="settings_search_section_compatibility">Experimental features · Compatibility</string>
     <string name="skin_setting_title">Interface appearance</string>
     <string name="skin_current_material_you">Current: Material You</string>
     <string name="skin_current_liquid">Current: Liquid Glass (experimental) · %1$s</string>
@@ -499,7 +506,7 @@
     <string name="settings_backup_nothing_to_apply">There are no safe changes to apply.</string>
     <string name="settings_backup_choose_again">Choose another file</string>
     <string name="settings_backup_migration_warning">Some catalog migration steps are unavailable. Only self-describing settings that are still exactly compatible will be restored; all other items remain unchanged.</string>
-    <string name="no_root_support_enable">No-root support (NPatch, experimental)</string>
+    <string name="no_root_support_enable">No-root support</string>
     <string name="no_root_support_tip">This switch controls only this module\'s configuration delivery through NPatch; it cannot disable NPatch native injection in an already patched app. Some NPatch 1.0.7 builds have an upstream startup crash, so use only a build explicitly confirmed to contain that fix. NPatch is contacted only while this switch is on.</string>
     <string name="no_root_status_unsupported_os">Status: unavailable; Android 9 or later is required.</string>
     <string name="no_root_status_disabled">Status: off. No NPatch connection will be made.</string>

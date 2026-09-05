@@ -334,10 +334,14 @@ class MainActivity : SkinnedActivity() {
     private var logEnabled = true
     private var logVerbose = true
 
-    /** "实验性功能"二级菜单：内容容器、箭头指示器、展开状态 */
-    private var experimentalContent: View? = null
-    private var experimentalChevron: View? = null
-    private var experimentalExpanded = false
+    /** 实验性功能主栏下的两个独立二级菜单。 */
+    private var experimentalSettingsRoot: View? = null
+    private var appearanceContent: View? = null
+    private var appearanceChevron: View? = null
+    private var appearanceExpanded = false
+    private var compatibilityContent: View? = null
+    private var compatibilityChevron: View? = null
+    private var compatibilityExpanded = false
 
     /** 两个按用途拆分的进阶菜单，沿用同一属性动画。 */
     private var purificationSettingsRoot: View? = null
@@ -349,7 +353,7 @@ class MainActivity : SkinnedActivity() {
     private var enhancementAdvancedChevron: View? = null
     private var enhancementAdvancedExpanded = false
 
-    /** 净化按区域折叠；增强条目较少，保留区域小标题。 */
+    /** 净化和增强都按区域独立折叠；只有跨页面共享过滤保留直接入口。 */
     private enum class AdvancedSettingsCategory(
         val section: SettingsSearchSection,
         @StringRes val titleRes: Int
@@ -367,7 +371,7 @@ class MainActivity : SkinnedActivity() {
         ENHANCE_DISPLAY(SettingsSearchSection.ENHANCEMENT_ADVANCED, R.string.number_display_settings);
 
         val collapsible: Boolean
-            get() = section == SettingsSearchSection.PURIFICATION_ADVANCED && this != PURIFY_SHARED
+            get() = this != PURIFY_SHARED
     }
 
     private data class AdvancedCategorySection(
@@ -4935,25 +4939,19 @@ class MainActivity : SkinnedActivity() {
     private fun execShell(vararg cmd: String): Int =
         ShellCommandRunner.run(cmd.toList(), timeoutMs = 10_000L)
 
-    /** 切换“实验性功能”二级菜单；内容与箭头只做属性动画，不逐帧触发布局。 */
-    private fun toggleExperimental() {
-        val content = experimentalContent ?: return
-        val chevron = experimentalChevron ?: return
-        experimentalExpanded = !experimentalExpanded
-        animateSecondarySection(content, chevron, experimentalExpanded)
-    }
-
-    private fun toggleAdvanced(section: SettingsSearchSection) {
+    private fun toggleSecondaryMenu(section: SettingsSearchSection) {
         val expanded = when (section) {
             SettingsSearchSection.PURIFICATION_ADVANCED -> purificationAdvancedExpanded
             SettingsSearchSection.ENHANCEMENT_ADVANCED -> enhancementAdvancedExpanded
+            SettingsSearchSection.APPEARANCE -> appearanceExpanded
+            SettingsSearchSection.COMPATIBILITY -> compatibilityExpanded
             else -> return
         }
-        setAdvancedExpanded(section, !expanded)
+        setSecondaryMenuExpanded(section, !expanded)
     }
 
     /** 返回是否真的展开/收起，供设置搜索确定等待布局的时间。 */
-    private fun setAdvancedExpanded(section: SettingsSearchSection, expanded: Boolean): Boolean {
+    private fun setSecondaryMenuExpanded(section: SettingsSearchSection, expanded: Boolean): Boolean {
         val content: View
         val chevron: View
         when (section) {
@@ -4969,13 +4967,25 @@ class MainActivity : SkinnedActivity() {
                 chevron = enhancementAdvancedChevron ?: return false
                 enhancementAdvancedExpanded = expanded
             }
+            SettingsSearchSection.APPEARANCE -> {
+                if (appearanceExpanded == expanded) return false
+                content = appearanceContent ?: return false
+                chevron = appearanceChevron ?: return false
+                appearanceExpanded = expanded
+            }
+            SettingsSearchSection.COMPATIBILITY -> {
+                if (compatibilityExpanded == expanded) return false
+                content = compatibilityContent ?: return false
+                chevron = compatibilityChevron ?: return false
+                compatibilityExpanded = expanded
+            }
             else -> return false
         }
         animateSecondarySection(content, chevron, expanded)
         return true
     }
 
-    /** 首帧前分组现有控件，净化使用折叠卡片，增强使用平铺小标题。 */
+    /** 首帧前用同一套折叠卡片分组净化与增强控件，保留原监听器和独立展开状态。 */
     private fun installAdvancedCategorySections() {
         installAdvancedCategorySections(
             purificationAdvancedContent as? ViewGroup ?: return,
@@ -5002,7 +5012,7 @@ class MainActivity : SkinnedActivity() {
         ) ?: return
 
         val density = resources.displayMetrics.density
-        val horizontalPadding = (12f * density).toInt()
+        val horizontalPadding = SettingsMenuSpacing.referenceContentPaddingPx(density)
         val headerVerticalPadding = (11f * density).toInt()
         root.removeAllViews()
 
@@ -5290,7 +5300,9 @@ class MainActivity : SkinnedActivity() {
         PURIFICATION_ADVANCED,
         ENHANCEMENT,
         ENHANCEMENT_ADVANCED,
-        EXPERIMENTAL;
+        EXPERIMENTAL,
+        APPEARANCE,
+        COMPATIBILITY;
 
         val isAdvanced: Boolean
             get() = this == PURIFICATION_ADVANCED || this == ENHANCEMENT_ADVANCED
@@ -6092,6 +6104,8 @@ class MainActivity : SkinnedActivity() {
                 SettingsSearchSection.ENHANCEMENT -> R.string.enhancement_settings
                 SettingsSearchSection.ENHANCEMENT_ADVANCED -> R.string.enhancement_advanced_settings
                 SettingsSearchSection.EXPERIMENTAL -> R.string.experimental_features
+                SettingsSearchSection.APPEARANCE -> R.string.settings_search_section_appearance
+                SettingsSearchSection.COMPATIBILITY -> R.string.settings_search_section_compatibility
             }
         )
 
@@ -6143,6 +6157,13 @@ class MainActivity : SkinnedActivity() {
         }
 
         fun addTarget(view: View, section: SettingsSearchSection) {
+            val targetSection = when (view) {
+                purificationAdvancedChevron?.parent -> SettingsSearchSection.PURIFICATION_ADVANCED
+                enhancementAdvancedChevron?.parent -> SettingsSearchSection.ENHANCEMENT_ADVANCED
+                appearanceChevron?.parent -> SettingsSearchSection.APPEARANCE
+                compatibilityChevron?.parent -> SettingsSearchSection.COMPATIBILITY
+                else -> section
+            }
             val texts = mutableListOf<String>()
             collectText(view, texts)
             val title = texts.firstOrNull()?.lineSequence()?.firstOrNull()?.trim().orEmpty()
@@ -6156,11 +6177,11 @@ class MainActivity : SkinnedActivity() {
                     section = advancedCategorySections.entries.firstOrNull { (_, group) ->
                         view === group.header || view.isSameOrDescendantOf(group.content)
                     }?.let { (category, _) ->
-                        settingsSearchSectionLabel(section) + " · " + getString(category.titleRes)
-                    } ?: settingsSearchSectionLabel(section)
+                        settingsSearchSectionLabel(targetSection) + " · " + getString(category.titleRes)
+                    } ?: settingsSearchSectionLabel(targetSection)
                 ),
                 view = view,
-                section = section
+                section = targetSection
             )
         }
 
@@ -6170,11 +6191,14 @@ class MainActivity : SkinnedActivity() {
                 enhancementSettingsRoot -> SettingsSearchSection.ENHANCEMENT
                 purificationAdvancedContent -> SettingsSearchSection.PURIFICATION_ADVANCED
                 enhancementAdvancedContent -> SettingsSearchSection.ENHANCEMENT_ADVANCED
-                experimentalContent -> SettingsSearchSection.EXPERIMENTAL
+                experimentalSettingsRoot -> SettingsSearchSection.EXPERIMENTAL
+                appearanceContent -> SettingsSearchSection.APPEARANCE
+                compatibilityContent -> SettingsSearchSection.COMPATIBILITY
                 else -> inheritedSection
             }
             val collapsedSectionRoot = view === purificationAdvancedContent ||
-                view === enhancementAdvancedContent || view === experimentalContent
+                view === enhancementAdvancedContent || view === appearanceContent ||
+                view === compatibilityContent
                 || advancedCategorySections.values.any { section ->
                     section.content === view
                 }
@@ -6453,23 +6477,15 @@ class MainActivity : SkinnedActivity() {
     private fun revealSettingsSearchTarget(target: RuntimeSettingsSearchTarget) {
         val primarySectionDelay = when (target.section) {
             SettingsSearchSection.PURIFICATION_ADVANCED,
-            SettingsSearchSection.ENHANCEMENT_ADVANCED -> {
-                if (setAdvancedExpanded(target.section, expanded = true)) 300L else 0L
-            }
-            SettingsSearchSection.EXPERIMENTAL -> {
-                if (!experimentalExpanded) {
-                    experimentalExpanded = true
-                    val content = experimentalContent
-                    val chevron = experimentalChevron
-                    if (content != null && chevron != null) {
-                        animateSecondarySection(content, chevron, expanded = true)
-                    }
-                    300L
-                } else 0L
+            SettingsSearchSection.ENHANCEMENT_ADVANCED,
+            SettingsSearchSection.APPEARANCE,
+            SettingsSearchSection.COMPATIBILITY -> {
+                if (setSecondaryMenuExpanded(target.section, expanded = true)) 300L else 0L
             }
             SettingsSearchSection.GENERAL,
             SettingsSearchSection.PURIFICATION,
-            SettingsSearchSection.ENHANCEMENT -> 0L
+            SettingsSearchSection.ENHANCEMENT,
+            SettingsSearchSection.EXPERIMENTAL -> 0L
         }
         val categoryDelay = if (
             target.section.isAdvanced &&
@@ -6543,9 +6559,12 @@ class MainActivity : SkinnedActivity() {
         liquidBackgroundTask = null
         liquidBackgroundWorker.shutdownNow()
         // 清理 View 引用字段，彻底断开对 hierarchy 的持有
-        experimentalContent?.animate()?.setListener(null)
-        experimentalContent?.animate()?.cancel()
-        experimentalChevron?.animate()?.cancel()
+        appearanceContent?.animate()?.setListener(null)
+        appearanceContent?.animate()?.cancel()
+        appearanceChevron?.animate()?.cancel()
+        compatibilityContent?.animate()?.setListener(null)
+        compatibilityContent?.animate()?.cancel()
+        compatibilityChevron?.animate()?.cancel()
         purificationAdvancedContent?.animate()?.setListener(null)
         purificationAdvancedContent?.animate()?.cancel()
         purificationAdvancedChevron?.animate()?.cancel()
@@ -6559,8 +6578,11 @@ class MainActivity : SkinnedActivity() {
         }
         advancedCategorySections.clear()
         advancedCategoryMarkers.clear()
-        experimentalContent = null
-        experimentalChevron = null
+        experimentalSettingsRoot = null
+        appearanceContent = null
+        appearanceChevron = null
+        compatibilityContent = null
+        compatibilityChevron = null
         purificationSettingsRoot = null
         enhancementSettingsRoot = null
         purificationAdvancedContent = null
@@ -7373,119 +7395,6 @@ class MainActivity : SkinnedActivity() {
                                 updateMargins(horizontal = 15.dp)
                             },
                             init = {
-                                orientation = LinearLayout.VERTICAL
-                                gravity = Gravity.CENTER or Gravity.START
-                                background = skinCardBackground(monetColors.surfaceVariant)
-                                updatePadding(left = 15.dp, top = 15.dp, right = 15.dp)
-                            }
-                        ) {
-                            LinearLayout(
-                                lparams = LayoutParams(widthMatchParent = true),
-                                init = {
-                                    gravity = Gravity.CENTER or Gravity.START
-                                }
-                            ) {
-                                ImageView(
-                                    lparams = LayoutParams(15.dp, 15.dp) {
-                                        marginEnd = 10.dp
-                                    }
-                                ) {
-                                    setImageResource(R.drawable.ic_tune)
-                                    imageTintList = stateColorResource(R.color.colorTextGray)
-                                }
-                                TextView(
-                                    lparams = LayoutParams(widthMatchParent = true)
-                                ) {
-                                    alpha = 0.85f
-                                    isSingleLine = true
-                                    text = stringResource(R.string.display_settings)
-                                    textColor = colorResource(R.color.colorTextGray)
-                                    textSize = 12f
-                                }
-                            }
-                            LinearLayout(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 8.dp
-                                },
-                                init = {
-                                    orientation = LinearLayout.VERTICAL
-                                    background = selfRippleBackground(10f)
-                                    updatePadding(horizontal = 4.dp, vertical = 9.dp)
-                                    isClickable = true
-                                    isFocusable = true
-                                    setOnClickListener { showAppLanguageDialog() }
-                                }
-                            ) {
-                                TextView(
-                                    lparams = LayoutParams(widthMatchParent = true)
-                                ) {
-                                    text = stringResource(R.string.app_language)
-                                    textColor = colorResource(R.color.colorTextGray)
-                                    textSize = 15f
-                                }
-                                TextView(
-                                    lparams = LayoutParams(widthMatchParent = true) {
-                                        topMargin = 4.dp
-                                    }
-                                ) {
-                                    alpha = 0.72f
-                                    text = currentAppLanguageSummary()
-                                    textColor = colorResource(R.color.colorTextDark)
-                                    textSize = 12f
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.app_language_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            MaterialSwitch(
-                                lparams = LayoutParams(widthMatchParent = true)
-                            ) {
-                                text = stringResource(R.string.hide_app_icon_on_launcher)
-                                isAllCaps = false
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 15f
-                                isChecked = !isLauncherIconShowing
-                                setOnCheckedChangeListener { button, isChecked ->
-                                    if (button.isPressed) hideOrShowLauncherIcon(!isChecked)
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 10.dp
-                                }
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.hide_app_icon_on_launcher_tip)
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 12f
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    bottomMargin = 10.dp
-                                }
-                            ) {
-                                alpha = 0.6f
-                                setLineSpacing(6f, 1f)
-                                text = stringResource(R.string.hide_app_icon_on_launcher_notice)
-                                textColor = 0xFFFF5722.toInt()
-                                textSize = 12f
-                            }
-                        }
-                        Space(lparams = LayoutParams(height = 10.dp))
-                        LinearLayout(
-                            lparams = LayoutParams(widthMatchParent = true) {
-                                updateMargins(horizontal = 15.dp)
-                            },
-                            init = {
                                 orientation = LinearLayout.HORIZONTAL
                                 gravity = Gravity.CENTER_VERTICAL
                                 background = skinCardBackground(monetColors.surfaceVariant)
@@ -7803,7 +7712,12 @@ class MainActivity : SkinnedActivity() {
                                     orientation = LinearLayout.VERTICAL
                                     gravity = Gravity.CENTER or Gravity.START
                                     background = skinCardBackground(monetColors.surface, 12f)
-                                    updatePadding(left = 8.dp, top = 5.dp, right = 8.dp, bottom = 5.dp)
+                                    updatePadding(
+                                        left = SettingsMenuSpacing.ADVANCED_SHELL_DP.dp,
+                                        top = 5.dp,
+                                        right = SettingsMenuSpacing.ADVANCED_SHELL_DP.dp,
+                                        bottom = 5.dp
+                                    )
                                 }
                             ) {
                                 LinearLayout(
@@ -7811,7 +7725,7 @@ class MainActivity : SkinnedActivity() {
                                     init = {
                                         gravity = Gravity.CENTER or Gravity.START
                                         updatePadding(vertical = 10.dp)
-                                        setOnClickListener { toggleAdvanced(SettingsSearchSection.PURIFICATION_ADVANCED) }
+                                        setOnClickListener { toggleSecondaryMenu(SettingsSearchSection.PURIFICATION_ADVANCED) }
                                     }
                                 ) {
                                     ImageView(
@@ -7819,7 +7733,7 @@ class MainActivity : SkinnedActivity() {
                                             marginEnd = 10.dp
                                         }
                                     ) {
-                                        setImageResource(R.drawable.ic_tune)
+                                        setImageResource(R.drawable.ic_purify)
                                         imageTintList = stateColorResource(R.color.colorTextGray)
                                     }
                                     TextView(
@@ -9581,7 +9495,7 @@ class MainActivity : SkinnedActivity() {
                                         marginEnd = 10.dp
                                     }
                                 ) {
-                                    setImageResource(R.drawable.ic_tune)
+                                    setImageResource(R.drawable.ic_enhancement)
                                     imageTintList = stateColorResource(R.color.colorTextGray)
                                 }
                                 TextView(
@@ -9804,7 +9718,12 @@ class MainActivity : SkinnedActivity() {
                                     orientation = LinearLayout.VERTICAL
                                     gravity = Gravity.CENTER or Gravity.START
                                     background = skinCardBackground(monetColors.surface, 12f)
-                                    updatePadding(left = 8.dp, top = 5.dp, right = 8.dp, bottom = 5.dp)
+                                    updatePadding(
+                                        left = SettingsMenuSpacing.ADVANCED_SHELL_DP.dp,
+                                        top = 5.dp,
+                                        right = SettingsMenuSpacing.ADVANCED_SHELL_DP.dp,
+                                        bottom = 5.dp
+                                    )
                                 }
                             ) {
                                 LinearLayout(
@@ -9812,7 +9731,7 @@ class MainActivity : SkinnedActivity() {
                                     init = {
                                         gravity = Gravity.CENTER or Gravity.START
                                         updatePadding(vertical = 10.dp)
-                                        setOnClickListener { toggleAdvanced(SettingsSearchSection.ENHANCEMENT_ADVANCED) }
+                                        setOnClickListener { toggleSecondaryMenu(SettingsSearchSection.ENHANCEMENT_ADVANCED) }
                                     }
                                 ) {
                                     ImageView(
@@ -9820,7 +9739,7 @@ class MainActivity : SkinnedActivity() {
                                             marginEnd = 10.dp
                                         }
                                     ) {
-                                        setImageResource(R.drawable.ic_tune)
+                                        setImageResource(R.drawable.ic_enhancement)
                                         imageTintList = stateColorResource(R.color.colorTextGray)
                                     }
                                     TextView(
@@ -9847,6 +9766,7 @@ class MainActivity : SkinnedActivity() {
                                         orientation = LinearLayout.VERTICAL
                                         visibility = View.GONE
                                         enhancementAdvancedContent = this
+                                        // 12dp 留白由共享分组构建器提供，此处不得重复叠加。
                                         updatePadding(bottom = 10.dp)
                                     }
                                 ) {
@@ -9957,7 +9877,7 @@ class MainActivity : SkinnedActivity() {
                                         init = {
                                             orientation = LinearLayout.VERTICAL
                                             background = selfRippleBackground(10f)
-                                            updatePadding(horizontal = 4.dp, vertical = 9.dp)
+                                            updatePadding(horizontal = 0.dp, vertical = 9.dp)
                                             isClickable = true
                                             isFocusable = true
                                             setOnClickListener { showPlayerQualityDialog() }
@@ -10172,18 +10092,19 @@ class MainActivity : SkinnedActivity() {
                                 updateMargins(horizontal = 15.dp)
                             },
                             init = {
+                                experimentalSettingsRoot = this
                                 orientation = LinearLayout.VERTICAL
                                 gravity = Gravity.CENTER or Gravity.START
                                 background = skinCardBackground(monetColors.surfaceVariant)
-                                updatePadding(left = 15.dp, top = 5.dp, right = 15.dp, bottom = 5.dp)
+                                updatePadding(horizontal = 15.dp, vertical = 15.dp)
                             }
                         ) {
                             LinearLayout(
-                                lparams = LayoutParams(widthMatchParent = true),
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    bottomMargin = 12.dp
+                                },
                                 init = {
                                     gravity = Gravity.CENTER or Gravity.START
-                                    updatePadding(vertical = 10.dp)
-                                    setOnClickListener { toggleExperimental() }
                                 }
                             ) {
                                 ImageView(
@@ -10195,9 +10116,7 @@ class MainActivity : SkinnedActivity() {
                                     imageTintList = stateColorResource(R.color.colorTextGray)
                                 }
                                 TextView(
-                                    lparams = LayoutParams {
-                                        weight = 1f
-                                    }
+                                    lparams = LayoutParams(widthMatchParent = true)
                                 ) {
                                     alpha = 0.85f
                                     isSingleLine = true
@@ -10205,311 +10124,548 @@ class MainActivity : SkinnedActivity() {
                                     textColor = colorResource(R.color.colorTextGray)
                                     textSize = 12f
                                 }
-                                ImageView(
-                                    lparams = LayoutParams(18.dp, 18.dp)
-                                ) {
-                                    experimentalChevron = this
-                                    setImageResource(R.drawable.ic_chevron_down)
-                                    imageTintList = stateColorResource(R.color.colorTextGray)
-                                    alpha = 0.85f
-                                }
                             }
                             LinearLayout(
-                                lparams = LayoutParams(widthMatchParent = true),
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 10.dp
+                                },
                                 init = {
                                     orientation = LinearLayout.VERTICAL
-                                    visibility = View.GONE
-                                    experimentalContent = this
-                                    updatePadding(bottom = 10.dp)
+                                    background = skinCardBackground(monetColors.surface, 12f)
+                                    updatePadding(horizontal = SettingsMenuSpacing.EXPERIMENTAL_SHELL_DP.dp, vertical = 4.dp)
                                 }
                             ) {
                                 LinearLayout(
-                                    lparams = LayoutParams(widthMatchParent = true) {
-                                        bottomMargin = 5.dp
-                                    },
+                                    lparams = LayoutParams(widthMatchParent = true),
                                     init = {
-                                        orientation = LinearLayout.VERTICAL
+                                        gravity = Gravity.CENTER_VERTICAL
+                                        minimumHeight = 52.dp
+                                        updatePadding(vertical = 10.dp)
                                         background = selfRippleBackground(10f)
-                                        updatePadding(horizontal = 4.dp, vertical = 9.dp)
                                         isClickable = true
                                         isFocusable = true
-                                        setOnClickListener { showSkinSelectionDialog() }
+                                        setOnClickListener { toggleSecondaryMenu(SettingsSearchSection.APPEARANCE) }
                                     }
                                 ) {
-                                    TextView(
-                                        lparams = LayoutParams(widthMatchParent = true)
-                                    ) {
-                                        text = stringResource(R.string.skin_setting_title)
-                                        textColor = colorResource(R.color.colorTextGray)
-                                        textSize = 15f
-                                    }
-                                    TextView(
-                                        lparams = LayoutParams(widthMatchParent = true) {
-                                            topMargin = 4.dp
+                                    ImageView(
+                                        lparams = LayoutParams(20.dp, 20.dp) {
+                                            marginEnd = 10.dp
                                         }
                                     ) {
-                                        alpha = 0.72f
-                                        skinSummaryView = this
-                                        text = currentSkinSummary()
-                                        textColor = colorResource(R.color.colorTextDark)
-                                        textSize = 12f
+                                        setImageResource(R.drawable.ic_palette)
+                                        imageTintList = stateColorResource(R.color.colorTextGray)
+                                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                                     }
-                                }
-                                TextView(
-                                    lparams = LayoutParams(widthMatchParent = true) {
-                                        bottomMargin = 10.dp
+                                    LinearLayout(
+                                        lparams = LayoutParams { weight = 1f },
+                                        init = { orientation = LinearLayout.VERTICAL }
+                                    ) {
+                                        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                                            text = stringResource(R.string.experimental_appearance)
+                                            textColor = colorResource(R.color.colorTextGray)
+                                            textSize = 14f
+                                            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                        }
+                                        TextView(
+                                            lparams = LayoutParams(widthMatchParent = true) { topMargin = 4.dp }
+                                        ) {
+                                            text = stringResource(R.string.experimental_appearance_summary)
+                                            textColor = colorResource(R.color.colorTextDark)
+                                            textSize = 12f
+                                            alpha = 0.68f
+                                            maxLines = 2
+                                            ellipsize = TextUtils.TruncateAt.END
+                                        }
                                     }
-                                ) {
-                                    alpha = 0.6f
-                                    setLineSpacing(6f, 1f)
-                                    text = stringResource(R.string.skin_setting_tip)
-                                    textColor = colorResource(R.color.colorTextDark)
-                                    textSize = 12f
+                                    ImageView(
+                                        lparams = LayoutParams(18.dp, 18.dp) { marginStart = 8.dp }
+                                    ) {
+                                        appearanceChevron = this
+                                        setImageResource(R.drawable.ic_chevron_down)
+                                        imageTintList = stateColorResource(R.color.colorTextGray)
+                                        alpha = 0.85f
+                                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                                    }
                                 }
                                 LinearLayout(
-                                    lparams = LayoutParams(widthMatchParent = true) {
-                                        bottomMargin = 10.dp
-                                    },
+                                    lparams = LayoutParams(widthMatchParent = true),
                                     init = {
                                         orientation = LinearLayout.VERTICAL
-                                        background = selfRippleBackground(10f)
-                                        updatePadding(horizontal = 4.dp, vertical = 9.dp)
-                                        isClickable = true
-                                        isFocusable = true
-                                        setOnClickListener { showLiquidBackgroundDialog() }
+                                        visibility = View.GONE
+                                        appearanceContent = this
+                                        // 所有行共用内容边距，避免入口容器与 Switch 各自增加水平缩进。
+                                        updatePadding(left = 4.dp, right = 4.dp, bottom = 10.dp)
                                     }
                                 ) {
                                     TextView(
-                                        lparams = LayoutParams(widthMatchParent = true)
-                                    ) {
-                                        text = stringResource(R.string.liquid_background_setting_title)
-                                        textColor = colorResource(R.color.colorTextGray)
-                                        textSize = 15f
-                                    }
-                                    TextView(
                                         lparams = LayoutParams(widthMatchParent = true) {
-                                            topMargin = 4.dp
+                                            topMargin = 10.dp
+                                            bottomMargin = 6.dp
                                         }
                                     ) {
-                                        alpha = 0.72f
-                                        liquidBackgroundSummaryView = this
-                                        text = currentLiquidBackgroundSummary()
-                                        textColor = colorResource(R.color.colorTextDark)
+                                        text = stringResource(R.string.appearance_style_and_color)
+                                        textColor = monetColors.primary
                                         textSize = 12f
+                                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                                     }
-                                }
-                                MaterialSwitch(
-                                    lparams = LayoutParams(widthMatchParent = true) {
-                                        bottomMargin = 5.dp
-                                    }
-                                ) {
-                                    text = stringResource(R.string.material_color_spec_title)
-                                    isAllCaps = false
-                                    textColor = colorResource(R.color.colorTextGray)
-                                    textSize = 15f
-                                    isChecked = MaterialColorSpecStore.read(applicationContext) ==
-                                        MaterialColorSpec.SPEC_2025
-                                    setOnCheckedChangeListener { button, checked ->
-                                        if (materialColorSpecProgrammaticSwitch) {
-                                            return@setOnCheckedChangeListener
-                                        }
-                                        val target = if (checked) {
-                                            MaterialColorSpec.SPEC_2025
-                                        } else {
-                                            MaterialColorSpec.SPEC_2021
-                                        }
-                                        if (MaterialColorSpecStore.write(applicationContext, target)) {
-                                            button.post {
-                                                if (!isFinishing && !isDestroyed) recreate()
-                                            }
-                                        } else {
-                                            materialColorSpecProgrammaticSwitch = true
-                                            button.isChecked = !checked
-                                            materialColorSpecProgrammaticSwitch = false
-                                            toast(stringResource(R.string.material_color_spec_save_failed))
-                                        }
-                                    }
-                                }
-                                TextView(
-                                    lparams = LayoutParams(widthMatchParent = true) {
-                                        bottomMargin = 10.dp
-                                    }
-                                ) {
-                                    alpha = 0.6f
-                                    setLineSpacing(6f, 1f)
-                                    text = stringResource(R.string.material_color_spec_summary)
-                                    textColor = colorResource(R.color.colorTextDark)
-                                    textSize = 12f
-                                }
-                                MaterialSwitch(
-                                    lparams = LayoutParams(widthMatchParent = true) {
-                                        bottomMargin = 5.dp
-                                    }
-                                ) {
-                                    text = stringResource(R.string.no_root_support_enable)
-                                    isAllCaps = false
-                                    textColor = colorResource(R.color.colorTextGray)
-                                    textSize = 15f
-                                    isChecked = noRootDesiredEnabled
-                                    isEnabled = noRootDesiredEnabled ||
-                                        (
-                                            AndroidVersion.isAtLeast(AndroidVersion.P) &&
-                                                noRootPrefsBridge != null
-                                            )
-                                    setOnCheckedChangeListener { _, isChecked ->
-                                        if (noRootProgrammaticSwitch) return@setOnCheckedChangeListener
-                                        noRootDesiredEnabled = isChecked
-                                        if (isChecked) enableAndSynchronizeNoRootSupport()
-                                        else disableNoRootSupport()
-                                    }
-                                    noRootSwitch = this
-                                }
-                                TextView(
-                                    lparams = LayoutParams(widthMatchParent = true)
-                                ) {
-                                    alpha = 0.6f
-                                    setLineSpacing(6f, 1f)
-                                    text = stringResource(R.string.no_root_support_tip)
-                                    textColor = colorResource(R.color.colorTextDark)
-                                    textSize = 12f
-                                }
-                                TextView(
-                                    lparams = LayoutParams(widthMatchParent = true) {
-                                        topMargin = 4.dp
-                                        bottomMargin = 10.dp
-                                    }
-                                ) {
-                                    alpha = 0.8f
-                                    setLineSpacing(6f, 1f)
-                                    text = stringResource(noRootStatusText(currentNoRootDisplayState()))
-                                    textColor = colorResource(R.color.colorTextGray)
-                                    textSize = 12f
-                                    noRootStatusView = this
-                                }
-                                MaterialSwitch(
-                                    lparams = LayoutParams(widthMatchParent = true) {
-                                        bottomMargin = 5.dp
-                                    }
-                                ) {
-                                    text = stringResource(R.string.roaming_compat_enable)
-                                    isAllCaps = false
-                                    textColor = colorResource(R.color.colorTextGray)
-                                    textSize = 15f
-                                    isChecked = roamingCompatEnabled
-                                    setOnCheckedChangeListener { _, isChecked ->
-                                        roamingCompatEnabled = isChecked
-                                        runCatching {
-                                            prefs().edit { putBoolean(HookEntry.PREF_ROAMING_COMPAT_ENABLED, isChecked) }
-                                        }.onFailure { t ->
-                                            Log.e("BilibiliInnocentLab", "write roaming compat prefs failed", t)
-                                        }
-                                        // 同步给正在运行的 B 站进程（HookEntry 在 B 站进程内注册了接收器，
-                                        // 收到后写入其自身缓存，下次启动即生效）。
-                                        runCatching {
-                                            val intent = Intent(RoamingCompatHook.ACTION_SET_ROAMING_COMPAT)
-                                                .setPackage(HookEntry.TARGET_PACKAGE)
-                                                .putExtra(RoamingCompatHook.EXTRA_ENABLED, isChecked)
-                                            this@MainActivity.sendBroadcast(intent)
-                                        }.onFailure { t ->
-                                            Log.e("BilibiliInnocentLab", "send roaming compat broadcast failed", t)
-                                        }
-                                    }
-                                }
-                                TextView(
-                                    lparams = LayoutParams(widthMatchParent = true) {
-                                        topMargin = 5.dp
-                                    }
-                                ) {
-                                    alpha = 0.6f
-                                    setLineSpacing(6f, 1f)
-                                    text = stringResource(R.string.roaming_compat_tip)
-                                    textColor = colorResource(R.color.colorTextDark)
-                                    textSize = 12f
-                                }
-                                // 预见式返回动画（Android 14+）：实验性开关，运行时切换 window 的
-                                // OnBackInvokedCallback 体系，返回时显示系统缩放预览动画。
-                                // Android 16（API 36）+ 系统对 targetSdk 36+ 的应用强制启用
-                                // 预测性返回（隐藏 API 的关闭调用被忽略），开关失去实际效果，
-                                // 此时整组隐藏；偏好键与备份 catalog 条目保留以兼容旧备份。
-                                if (!PredictiveBack.isSystemEnforced) {
-                                    MaterialSwitch(
+                                    LinearLayout(
                                         lparams = LayoutParams(widthMatchParent = true) {
-                                            topMargin = 5.dp
                                             bottomMargin = 5.dp
+                                        },
+                                        init = {
+                                            orientation = LinearLayout.VERTICAL
+                                            background = selfRippleBackground(10f)
+                                            updatePadding(horizontal = 0.dp, vertical = 9.dp)
+                                            isClickable = true
+                                            isFocusable = true
+                                            setOnClickListener { showSkinSelectionDialog() }
                                         }
                                     ) {
-                                        text = stringResource(R.string.predictive_back_enable)
-                                        isAllCaps = false
-                                        textColor = colorResource(R.color.colorTextGray)
-                                        textSize = 15f
-                                        isChecked = predictiveBackEnabled
-                                        setOnCheckedChangeListener { _, isChecked ->
-                                            predictiveBackEnabled = isChecked
-                                            runCatching {
-                                                prefs().edit { putBoolean(HookEntry.PREF_PREDICTIVE_BACK_ENABLED, isChecked) }
-                                            }.onFailure { t ->
-                                                Log.e("BilibiliInnocentLab", "write predictive back prefs failed", t)
+                                        TextView(
+                                            lparams = LayoutParams(widthMatchParent = true)
+                                        ) {
+                                            updatePadding(horizontal = 0.dp)
+                                            text = stringResource(R.string.skin_setting_title)
+                                            textColor = colorResource(R.color.colorTextGray)
+                                            textSize = 15f
+                                        }
+                                        TextView(
+                                            lparams = LayoutParams(widthMatchParent = true) {
+                                                topMargin = 4.dp
                                             }
-                                            // 立即作用于当前 window（无需重启界面）
-                                            applyPredictiveBack()
+                                        ) {
+                                            alpha = 0.72f
+                                            skinSummaryView = this
+                                            text = currentSkinSummary()
+                                            textColor = colorResource(R.color.colorTextDark)
+                                            textSize = 12f
                                         }
                                     }
                                     TextView(
                                         lparams = LayoutParams(widthMatchParent = true) {
-                                            topMargin = 0.dp
+                                            bottomMargin = 10.dp
                                         }
                                     ) {
                                         alpha = 0.6f
                                         setLineSpacing(6f, 1f)
-                                        text = stringResource(R.string.predictive_back_tip)
+                                        text = stringResource(R.string.skin_setting_tip)
                                         textColor = colorResource(R.color.colorTextDark)
                                         textSize = 12f
                                     }
+                                    LinearLayout(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 10.dp
+                                        },
+                                        init = {
+                                            orientation = LinearLayout.VERTICAL
+                                            background = selfRippleBackground(10f)
+                                            updatePadding(horizontal = 0.dp, vertical = 9.dp)
+                                            isClickable = true
+                                            isFocusable = true
+                                            setOnClickListener { showLiquidBackgroundDialog() }
+                                        }
+                                    ) {
+                                        TextView(
+                                            lparams = LayoutParams(widthMatchParent = true)
+                                        ) {
+                                            updatePadding(horizontal = 0.dp)
+                                            text = stringResource(R.string.liquid_background_setting_title)
+                                            textColor = colorResource(R.color.colorTextGray)
+                                            textSize = 15f
+                                        }
+                                        TextView(
+                                            lparams = LayoutParams(widthMatchParent = true) {
+                                                topMargin = 4.dp
+                                            }
+                                        ) {
+                                            alpha = 0.72f
+                                            liquidBackgroundSummaryView = this
+                                            text = currentLiquidBackgroundSummary()
+                                            textColor = colorResource(R.color.colorTextDark)
+                                            textSize = 12f
+                                        }
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        updatePadding(horizontal = 0.dp)
+                                        text = stringResource(R.string.material_color_spec_title)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = MaterialColorSpecStore.read(applicationContext) ==
+                                            MaterialColorSpec.SPEC_2025
+                                        setOnCheckedChangeListener { button, checked ->
+                                            if (materialColorSpecProgrammaticSwitch) {
+                                                return@setOnCheckedChangeListener
+                                            }
+                                            val target = if (checked) {
+                                                MaterialColorSpec.SPEC_2025
+                                            } else {
+                                                MaterialColorSpec.SPEC_2021
+                                            }
+                                            if (MaterialColorSpecStore.write(applicationContext, target)) {
+                                                button.post {
+                                                    if (!isFinishing && !isDestroyed) recreate()
+                                                }
+                                            } else {
+                                                materialColorSpecProgrammaticSwitch = true
+                                                button.isChecked = !checked
+                                                materialColorSpecProgrammaticSwitch = false
+                                                toast(stringResource(R.string.material_color_spec_save_failed))
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 10.dp
+                                        }
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.material_color_spec_summary)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 10.dp
+                                            bottomMargin = 6.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.display_settings)
+                                        textColor = monetColors.primary
+                                        textSize = 12f
+                                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                    }
+                                    LinearLayout(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 8.dp
+                                        },
+                                        init = {
+                                            orientation = LinearLayout.VERTICAL
+                                            background = selfRippleBackground(10f)
+                                            updatePadding(horizontal = 0.dp, vertical = 9.dp)
+                                            isClickable = true
+                                            isFocusable = true
+                                            setOnClickListener { showAppLanguageDialog() }
+                                        }
+                                    ) {
+                                        TextView(
+                                            lparams = LayoutParams(widthMatchParent = true)
+                                        ) {
+                                            updatePadding(horizontal = 0.dp)
+                                            text = stringResource(R.string.app_language)
+                                            textColor = colorResource(R.color.colorTextGray)
+                                            textSize = 15f
+                                        }
+                                        TextView(
+                                            lparams = LayoutParams(widthMatchParent = true) {
+                                                topMargin = 4.dp
+                                            }
+                                        ) {
+                                            alpha = 0.72f
+                                            text = currentAppLanguageSummary()
+                                            textColor = colorResource(R.color.colorTextDark)
+                                            textSize = 12f
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.app_language_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        updatePadding(horizontal = 0.dp)
+                                        text = stringResource(R.string.hide_app_icon_on_launcher)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = !isLauncherIconShowing
+                                        setOnCheckedChangeListener { button, isChecked ->
+                                            if (button.isPressed) hideOrShowLauncherIcon(!isChecked)
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 10.dp
+                                        }
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.hide_app_icon_on_launcher_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 10.dp
+                                        }
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.hide_app_icon_on_launcher_notice)
+                                        textColor = 0xFFFF5722.toInt()
+                                        textSize = 12f
+                                    }
                                 }
-                                // 手动重新适配：清除版本适配缓存，重启哔哩哔哩后自动重新定位 hook 点。
-                                // 风格与「实验性功能」分区标题行统一：图标 + 文字 + 水波纹点击反馈；
-                                // 点击弹出二级确认菜单（与「重启哔哩哔哩」确认弹窗同规格）
+                            }
+                            LinearLayout(
+                                lparams = LayoutParams(widthMatchParent = true) {
+                                    topMargin = 10.dp
+                                },
+                                init = {
+                                    orientation = LinearLayout.VERTICAL
+                                    background = skinCardBackground(monetColors.surface, 12f)
+                                    updatePadding(horizontal = SettingsMenuSpacing.EXPERIMENTAL_SHELL_DP.dp, vertical = 4.dp)
+                                }
+                            ) {
                                 LinearLayout(
-                                    lparams = LayoutParams(widthMatchParent = true) {
-                                        topMargin = 12.dp
-                                        bottomMargin = 2.dp
-                                    },
+                                    lparams = LayoutParams(widthMatchParent = true),
                                     init = {
-                                        gravity = Gravity.CENTER or Gravity.START
-                                        // 自绘涟漪（不解析主题属性 selectableItemBackground）：
-                                        // 客户设备上的全局主题模块（Monet-All 等）可能把该主题属性
-                                        // 解析为不透明实心 drawable，整行盖住内容 →「只剩空位但可点击」
+                                        gravity = Gravity.CENTER_VERTICAL
+                                        minimumHeight = 52.dp
+                                        updatePadding(vertical = 10.dp)
                                         background = selfRippleBackground(10f)
-                                        updatePadding(horizontal = 4.dp, vertical = 9.dp)
-                                        setOnClickListener { showAdaptConfirmDialog() }
+                                        isClickable = true
+                                        isFocusable = true
+                                        setOnClickListener { toggleSecondaryMenu(SettingsSearchSection.COMPATIBILITY) }
                                     }
                                 ) {
                                     ImageView(
-                                        lparams = LayoutParams(17.dp, 17.dp) {
-                                            marginEnd = 9.dp
+                                        lparams = LayoutParams(20.dp, 20.dp) {
+                                            marginEnd = 10.dp
                                         }
                                     ) {
-                                        setImageResource(R.drawable.ic_restart)
+                                        setImageResource(R.drawable.ic_extension)
                                         imageTintList = stateColorResource(R.color.colorTextGray)
-                                        alpha = 0.8f
+                                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                                     }
-                                    TextView(
-                                        lparams = LayoutParams {
-                                            weight = 1f
-                                        }
+                                    LinearLayout(
+                                        lparams = LayoutParams { weight = 1f },
+                                        init = { orientation = LinearLayout.VERTICAL }
                                     ) {
-                                        isSingleLine = true
-                                        text = stringResource(R.string.adapt_manual)
-                                        textColor = colorResource(R.color.colorTextGray)
-                                        textSize = 14f
+                                        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                                            text = stringResource(R.string.experimental_compatibility)
+                                            textColor = colorResource(R.color.colorTextGray)
+                                            textSize = 14f
+                                            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                        }
+                                        TextView(
+                                            lparams = LayoutParams(widthMatchParent = true) { topMargin = 4.dp }
+                                        ) {
+                                            text = stringResource(R.string.experimental_compatibility_summary)
+                                            textColor = colorResource(R.color.colorTextDark)
+                                            textSize = 12f
+                                            alpha = 0.68f
+                                            maxLines = 2
+                                            ellipsize = TextUtils.TruncateAt.END
+                                        }
                                     }
                                     ImageView(
-                                        lparams = LayoutParams(16.dp, 16.dp)
+                                        lparams = LayoutParams(18.dp, 18.dp) { marginStart = 8.dp }
                                     ) {
-                                        alpha = 0.55f
+                                        compatibilityChevron = this
                                         setImageResource(R.drawable.ic_chevron_down)
                                         imageTintList = stateColorResource(R.color.colorTextGray)
-                                        rotation = -90f
+                                        alpha = 0.85f
+                                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                                    }
+                                }
+                                LinearLayout(
+                                    lparams = LayoutParams(widthMatchParent = true),
+                                    init = {
+                                        orientation = LinearLayout.VERTICAL
+                                        visibility = View.GONE
+                                        compatibilityContent = this
+                                        val contentPadding = SettingsMenuSpacing.matchingContentPaddingPx(
+                                            referenceShellPx = SettingsMenuSpacing.ADVANCED_SHELL_DP.dp,
+                                            ownShellPx = SettingsMenuSpacing.EXPERIMENTAL_SHELL_DP.dp,
+                                            density = resources.displayMetrics.density
+                                        )
+                                        updatePadding(left = contentPadding, right = contentPadding, bottom = 10.dp)
+                                    }
+                                ) {
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.no_root_support_enable)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = noRootDesiredEnabled
+                                        isEnabled = noRootDesiredEnabled ||
+                                            (
+                                                AndroidVersion.isAtLeast(AndroidVersion.P) &&
+                                                    noRootPrefsBridge != null
+                                                )
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            if (noRootProgrammaticSwitch) return@setOnCheckedChangeListener
+                                            noRootDesiredEnabled = isChecked
+                                            if (isChecked) enableAndSynchronizeNoRootSupport()
+                                            else disableNoRootSupport()
+                                        }
+                                        noRootSwitch = this
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.no_root_support_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 4.dp
+                                            bottomMargin = 10.dp
+                                        }
+                                    ) {
+                                        alpha = 0.8f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(noRootStatusText(currentNoRootDisplayState()))
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 12f
+                                        noRootStatusView = this
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.roaming_compat_enable)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = roamingCompatEnabled
+                                        setOnCheckedChangeListener { _, isChecked ->
+                                            roamingCompatEnabled = isChecked
+                                            runCatching {
+                                                prefs().edit { putBoolean(HookEntry.PREF_ROAMING_COMPAT_ENABLED, isChecked) }
+                                            }.onFailure { t ->
+                                                Log.e("BilibiliInnocentLab", "write roaming compat prefs failed", t)
+                                            }
+                                            // 同步给正在运行的 B 站进程（HookEntry 在 B 站进程内注册了接收器，
+                                            // 收到后写入其自身缓存，下次启动即生效）。
+                                            runCatching {
+                                                val intent = Intent(RoamingCompatHook.ACTION_SET_ROAMING_COMPAT)
+                                                    .setPackage(HookEntry.TARGET_PACKAGE)
+                                                    .putExtra(RoamingCompatHook.EXTRA_ENABLED, isChecked)
+                                                this@MainActivity.sendBroadcast(intent)
+                                            }.onFailure { t ->
+                                                Log.e("BilibiliInnocentLab", "send roaming compat broadcast failed", t)
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 5.dp
+                                        }
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.roaming_compat_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    // 预见式返回动画（Android 14+）：实验性开关，运行时切换 window 的
+                                    // OnBackInvokedCallback 体系，返回时显示系统缩放预览动画。
+                                    // Android 16（API 36）+ 系统对 targetSdk 36+ 的应用强制启用
+                                    // 预测性返回（隐藏 API 的关闭调用被忽略），开关失去实际效果，
+                                    // 此时整组隐藏；偏好键与备份 catalog 条目保留以兼容旧备份。
+                                    if (!PredictiveBack.isSystemEnforced) {
+                                        MaterialSwitch(
+                                            lparams = LayoutParams(widthMatchParent = true) {
+                                                topMargin = 5.dp
+                                                bottomMargin = 5.dp
+                                            }
+                                        ) {
+                                            text = stringResource(R.string.predictive_back_enable)
+                                            isAllCaps = false
+                                            textColor = colorResource(R.color.colorTextGray)
+                                            textSize = 15f
+                                            isChecked = predictiveBackEnabled
+                                            setOnCheckedChangeListener { _, isChecked ->
+                                                predictiveBackEnabled = isChecked
+                                                runCatching {
+                                                    prefs().edit { putBoolean(HookEntry.PREF_PREDICTIVE_BACK_ENABLED, isChecked) }
+                                                }.onFailure { t ->
+                                                    Log.e("BilibiliInnocentLab", "write predictive back prefs failed", t)
+                                                }
+                                                // 立即作用于当前 window（无需重启界面）
+                                                applyPredictiveBack()
+                                            }
+                                        }
+                                        TextView(
+                                            lparams = LayoutParams(widthMatchParent = true) {
+                                                topMargin = 0.dp
+                                            }
+                                        ) {
+                                            alpha = 0.6f
+                                            setLineSpacing(6f, 1f)
+                                            text = stringResource(R.string.predictive_back_tip)
+                                            textColor = colorResource(R.color.colorTextDark)
+                                            textSize = 12f
+                                        }
+                                    }
+                                    // 手动重新适配：清除版本适配缓存，重启哔哩哔哩后自动重新定位 hook 点。
+                                    // 风格与「实验性功能」分区标题行统一：图标 + 文字 + 水波纹点击反馈；
+                                    // 点击弹出二级确认菜单（与「重启哔哩哔哩」确认弹窗同规格）
+                                    LinearLayout(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 2.dp
+                                        },
+                                        init = {
+                                            gravity = Gravity.CENTER or Gravity.START
+                                            // 自绘涟漪（不解析主题属性 selectableItemBackground）：
+                                            // 客户设备上的全局主题模块（Monet-All 等）可能把该主题属性
+                                            // 解析为不透明实心 drawable，整行盖住内容 →「只剩空位但可点击」
+                                            background = selfRippleBackground(10f)
+                                            updatePadding(horizontal = 0.dp, vertical = 9.dp)
+                                            setOnClickListener { showAdaptConfirmDialog() }
+                                        }
+                                    ) {
+                                        ImageView(
+                                            lparams = LayoutParams(17.dp, 17.dp) {
+                                                marginEnd = 9.dp
+                                            }
+                                        ) {
+                                            setImageResource(R.drawable.ic_restart)
+                                            imageTintList = stateColorResource(R.color.colorTextGray)
+                                            alpha = 0.8f
+                                        }
+                                        TextView(
+                                            lparams = LayoutParams {
+                                                weight = 1f
+                                            }
+                                        ) {
+                                            isSingleLine = true
+                                            text = stringResource(R.string.adapt_manual)
+                                            textColor = colorResource(R.color.colorTextGray)
+                                            textSize = 14f
+                                        }
+                                        ImageView(
+                                            lparams = LayoutParams(16.dp, 16.dp)
+                                        ) {
+                                            alpha = 0.55f
+                                            setImageResource(R.drawable.ic_chevron_down)
+                                            imageTintList = stateColorResource(R.color.colorTextGray)
+                                            rotation = -90f
+                                        }
                                     }
                                 }
                             }
