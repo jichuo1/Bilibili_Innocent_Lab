@@ -97,6 +97,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AndroidUserSpace
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AndroidUserSpaceSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.GitHubReleaseChecker
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsQueryClient
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotQueryClient
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotStore
@@ -116,6 +117,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkSta
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatusListener
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigPublishState
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.isLspatch
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsAuthorizationCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsAuthorizationListener
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsAuthorizationSnapshot
@@ -452,6 +454,7 @@ class MainActivity : SkinnedActivity() {
     private val activationMainHandler = Handler(Looper.getMainLooper())
     private var frameworkStatusCheckPending = true
     private var frameworkServiceObserved = false
+    private val lspatchActivationReceiptTracker = LspatchActivationReceiptTracker()
 
     /**
      * 模块与宿主的 Android 用户空间关系。`renderActivationUi` 会被框架状态回调、皮肤刷新和
@@ -477,6 +480,11 @@ class MainActivity : SkinnedActivity() {
                 // 已连接服务死亡与首次等待不同：立即显示连接中断，不重新伪装成“确认中”。
                 frameworkStatusCheckPending = false
                 activationMainHandler.removeCallbacks(frameworkStatusTimeout)
+            }
+            if (status.isLspatch && status.capable) {
+                requestLspatchHostReceipt(status)
+            } else {
+                lspatchActivationReceiptTracker.clearConnectionEvidence()
             }
             if (userTermsDecision.isAuthorized &&
                 lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
@@ -747,12 +755,22 @@ class MainActivity : SkinnedActivity() {
         framework: ModernFrameworkStatus = RemoteHookConfigStore.status(),
         noRootState: NoRootDisplayState = currentNoRootDisplayState()
     ) {
+        val lspatchReceipt = lspatchActivationReceiptTracker.receiptFor(
+            framework.connectionId
+        )
+        val lspatchHostState = NoRootSupportState.lspatchHostReceiptState(
+            configState = lspatchReceipt?.bootstrap?.configState,
+            installChainState = lspatchReceipt?.bootstrap?.installChainState
+        )
         val displayState = NoRootSupportState.activationDisplayState(
             rootActive = framework.capable,
             frameworkCheckPending = frameworkStatusCheckPending && !framework.connected,
-            displayState = noRootState
+            displayState = noRootState,
+            lspatchFramework = framework.isLspatch,
+            lspatchHostState = lspatchHostState
         )
         val activated = displayState == ActivationDisplayState.ACTIVE_LSPOSED ||
+            displayState == ActivationDisplayState.ACTIVE_LSPATCH ||
             displayState == ActivationDisplayState.ACTIVE_NPATCH
         val liquidCard = isLiquidSkinEffective
         val darkTheme = (resources.configuration.uiMode and
@@ -791,7 +809,12 @@ class MainActivity : SkinnedActivity() {
             when (displayState) {
                 ActivationDisplayState.CHECKING -> R.string.module_activation_checking
                 ActivationDisplayState.ACTIVE_LSPOSED,
+                ActivationDisplayState.ACTIVE_LSPATCH,
                 ActivationDisplayState.ACTIVE_NPATCH -> R.string.module_is_activated
+                ActivationDisplayState.LSPATCH_WAITING_FOR_HOST ->
+                    R.string.module_activation_lspatch_waiting_host_title
+                ActivationDisplayState.LSPATCH_HOST_FAILED ->
+                    R.string.module_activation_lspatch_host_failed_title
                 ActivationDisplayState.UNAVAILABLE -> R.string.module_activation_not_detected
             }
         )
@@ -803,7 +826,8 @@ class MainActivity : SkinnedActivity() {
         val showsUserSpaceHint = showsSecondaryUserText || moduleUserSpace.sameUser == false
         activationSourceView?.apply {
             val baseText = when (displayState) {
-                ActivationDisplayState.ACTIVE_LSPOSED -> if (framework.apiVersion > 0) getString(
+                ActivationDisplayState.ACTIVE_LSPOSED,
+                ActivationDisplayState.ACTIVE_LSPATCH -> if (framework.apiVersion > 0) getString(
                     R.string.activated_by,
                     framework.name,
                     framework.apiVersion
@@ -813,6 +837,10 @@ class MainActivity : SkinnedActivity() {
                 )
                 ActivationDisplayState.ACTIVE_NPATCH ->
                     getString(R.string.no_root_activated_by_npatch)
+                ActivationDisplayState.LSPATCH_WAITING_FOR_HOST ->
+                    getString(R.string.module_activation_lspatch_waiting_host)
+                ActivationDisplayState.LSPATCH_HOST_FAILED ->
+                    getString(R.string.module_activation_lspatch_host_failed)
                 ActivationDisplayState.CHECKING ->
                     getString(R.string.module_activation_waiting_framework)
                 ActivationDisplayState.UNAVAILABLE -> when {
@@ -837,12 +865,15 @@ class MainActivity : SkinnedActivity() {
                     )
                 }
             text = listOfNotNull(baseText, mismatchText).joinToString(separator = "\n")
-            // 多用户提示需要换行才能读完；其余状态保持原来的单行省略，不改变正常观感。
-            if (showsUserSpaceHint) {
+            val showsLspatchAction = displayState == ActivationDisplayState.LSPATCH_WAITING_FOR_HOST ||
+                displayState == ActivationDisplayState.LSPATCH_HOST_FAILED
+            // 多用户和 LSPatch 操作提示都必须完整可见；正常状态仍保持单行省略。
+            if (showsUserSpaceHint || showsLspatchAction) {
                 isSingleLine = false
-                maxLines = 3
+                maxLines = Int.MAX_VALUE
             } else {
                 isSingleLine = true
+                maxLines = 1
             }
             isVisible = true
         }
@@ -859,16 +890,23 @@ class MainActivity : SkinnedActivity() {
                 NoRootDisplayState.ERROR -> true
                 else -> false
             }
-            val (statusRes, statusTone) = when {
-                displayState == ActivationDisplayState.CHECKING ->
-                    R.string.diagnostics_entry_checking to DiagnosticStatusTone.INFO
-                displayState == ActivationDisplayState.UNAVAILABLE ->
+            val (statusRes, statusTone) = when (
+                ActivationCardVisualSpec.diagnosticsSummaryState(
+                    displayState = displayState,
+                    publishFailed = publishState == RemoteHookConfigPublishState.FAILED,
+                    skinFallback = skinFallback,
+                    noRootNeedsAttention = noRootNeedsAttention
+                )
+            ) {
+                ActivationSummaryState.ACTION_REQUIRED ->
                     R.string.diagnostics_entry_action_required to
                         DiagnosticStatusTone.ACTION_REQUIRED
-                publishState == RemoteHookConfigPublishState.FAILED ||
-                    skinFallback || noRootNeedsAttention ->
+                ActivationSummaryState.ATTENTION ->
                     R.string.diagnostics_entry_attention to DiagnosticStatusTone.ATTENTION
-                else -> R.string.diagnostics_entry_ready to DiagnosticStatusTone.OK
+                ActivationSummaryState.INFO ->
+                    R.string.diagnostics_entry_checking to DiagnosticStatusTone.INFO
+                ActivationSummaryState.READY ->
+                    R.string.diagnostics_entry_ready to DiagnosticStatusTone.OK
             }
             setText(statusRes)
             alpha = 1f
@@ -886,6 +924,46 @@ class MainActivity : SkinnedActivity() {
                 append(". ")
                 append(getString(statusRes))
             }
+        }
+    }
+
+    /**
+     * LSPatch 服务到达只说明 companion 可以发布配置。主页每次进入前台或服务连接改变时最多
+     * 发起一次有界查询；有效回执按 connectionId 绑定，服务重连、页面离开和迟到回调都不能
+     * 复用旧的“已激活”证据。
+     */
+    private fun requestLspatchHostReceipt(framework: ModernFrameworkStatus) {
+        if (!userTermsDecision.isAuthorized ||
+            !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+        ) {
+            lspatchActivationReceiptTracker.endSession()
+            return
+        }
+        if (!framework.isLspatch || !framework.capable) {
+            lspatchActivationReceiptTracker.clearConnectionEvidence()
+            return
+        }
+        val request = lspatchActivationReceiptTracker.begin(framework.connectionId) ?: return
+        HostRuntimeDiagnosticsQueryClient.query(applicationContext) { result ->
+            if (isFinishing || isDestroyed ||
+                !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            ) return@query
+            val current = RemoteHookConfigStore.status()
+            if (!current.isLspatch || !current.capable) {
+                lspatchActivationReceiptTracker.clearConnectionEvidence()
+                renderActivationUi(current)
+                return@query
+            }
+            val receipt = result.snapshot.takeIf {
+                result.status == HostRuntimeDiagnosticsQueryClient.Status.READY
+            }
+            if (!lspatchActivationReceiptTracker.accept(
+                    request = request,
+                    currentConnectionId = current.connectionId,
+                    value = receipt
+                )
+            ) return@query
+            renderActivationUi(current)
         }
     }
 
@@ -5547,6 +5625,7 @@ class MainActivity : SkinnedActivity() {
         }
         // 用户空间在进程存活期间不会变，但宿主可能被装进/卸出当前用户，所以每次前台重采一次。
         moduleUserSpace = AndroidUserSpace.capture(applicationContext, HookEntry.TARGET_PACKAGE)
+        requestLspatchHostReceipt(framework)
         renderActivationUi(framework)
     }
 
@@ -5555,6 +5634,9 @@ class MainActivity : SkinnedActivity() {
         if (!userTermsDecision.isAuthorized) return
         val selectionTag = InjectedUiLocale.syncFromAppCompat(applicationContext)
         InjectedUiLocale.setMirrorAndBroadcast(applicationContext, selectionTag)
+        val framework = RemoteHookConfigStore.status()
+        lspatchActivationReceiptTracker.startSession()
+        requestLspatchHostReceipt(framework)
         renderNoRootUi()
         synchronizeNoRootSupportIfEnabled()
     }
@@ -5563,10 +5645,14 @@ class MainActivity : SkinnedActivity() {
         UserTermsAuthorizationCoordinator.removeListener(userTermsAuthorizationListener)
         RemoteHookConfigStore.removeStatusListener(frameworkStatusListener)
         activationMainHandler.removeCallbacks(frameworkStatusTimeout)
+        lspatchActivationReceiptTracker.endSession()
         super.onStop()
     }
 
     override fun onPause() {
+        // 诊断中心使用透明窗口，打开它不保证主页收到 onStop；暂停即结束回执会话，
+        // 返回时由 onResume 重新查询，避免把旧宿主状态当作当前证据。
+        lspatchActivationReceiptTracker.endSession()
         // 用户离开设置页前刷新一次完整快照；开关关闭时直接返回，不连接 NPatch。
         if (userTermsDecision.isAuthorized) synchronizeNoRootSupportIfEnabled()
         super.onPause()
@@ -7001,6 +7087,7 @@ class MainActivity : SkinnedActivity() {
         UserTermsAuthorizationCoordinator.removeListener(userTermsAuthorizationListener)
         RemoteHookConfigStore.removeStatusListener(frameworkStatusListener)
         activationMainHandler.removeCallbacks(frameworkStatusTimeout)
+        lspatchActivationReceiptTracker.endSession()
         finishPreparedLiquidStretch(liquidStretchViewport)
         liquidStretchViewport = null
         liquidStretchScrollTarget = null

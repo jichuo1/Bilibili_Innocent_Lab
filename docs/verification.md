@@ -565,6 +565,28 @@ without installing or launching the module/host. Both launches exited 137 before
 reporting results. It supplies no runtime pass evidence. Device/UI acceptance and
 Vector/Irena/NPatch framework-specific checks therefore remain pending.
 
+## JingMatrix/LSPatch Manager POC (2026-09-06)
+
+The detailed source baseline, module-side invariants, artifact hashes, and
+device matrix are in [lspatch_compatibility.md](lspatch_compatibility.md).
+
+- Local POC generation passed for the fixed LSPatch v1.2 / 487 release patcher
+  and a local Bilibili 9.11.0 single-APK sample. The generated Manager-mode APK
+  has `useManager=true`, API 102, v2 signing, and no unsafe ZIP paths.
+- This result does **not** certify official split-APK delivery, patched-host
+  installation, app launch, module lifecycle, Remote Preferences publication,
+  or feature behavior.
+- The connected device retains an official differently signed Bilibili package.
+  It was not replaced; installation and runtime rows remain pending an explicit
+  user-authorized test environment.
+- Static coverage now verifies exact LSPatch manager routing, package visibility,
+  API/Remote capability independence from the framework name, and the rule that
+  a Manager service alone waits for a host configuration/install receipt. It
+  also verifies stale-receipt rejection across pause/resume, late service
+  binding, foreground reconnect, LSPatch failure precedence, valid NPatch
+  heartbeat precedence, and bounded diagnostic report encoding; device timing
+  and layout remain pending.
+
 ## Experimental appearance, compatibility and alignment (2026-09-05)
 
 The third SettingsOrganizationInstrumentedTest case verifies the static Experimental

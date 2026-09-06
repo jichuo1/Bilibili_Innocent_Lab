@@ -6,6 +6,20 @@ import org.junit.Test
 
 class ModernFrameworkStatusTest {
     @Test
+    fun `LSPatch identity is exact presentation metadata and never a capability grant`() {
+        assertTrue(isLspatchFrameworkName("LSPatch"))
+        assertTrue(isLspatchFrameworkName(" lspatch "))
+        assertFalse(isLspatchFrameworkName("LSPosed-LSPatch"))
+        assertFalse(isLspatchFrameworkName("Vector"))
+
+        val status = readModernFrameworkStatus(
+            { 100 }, { 0L }, { "LSPatch" }, { "1.2" }, { 487L }
+        )
+        assertTrue(status.isLspatch)
+        assertFalse(status.capable)
+    }
+
+    @Test
     fun `Irena Modern API 101 is accepted with remote capability and older APIs stay closed`() {
         val irena = readModernFrameworkStatus(
             { 101 }, { XposedService.PROP_CAP_REMOTE or XposedService.PROP_CAP_SYSTEM },

@@ -10,6 +10,10 @@
     <string name="module_activation_checking">正在確認模組啟用狀態</string>
     <string name="module_activation_not_detected">未偵測到模組啟用</string>
     <string name="module_activation_waiting_framework">正在等待相容的 Xposed 框架服務</string>
+    <string name="module_activation_lspatch_waiting_host_title">等待已修補嗶哩嗶哩</string>
+    <string name="module_activation_lspatch_waiting_host">LSPatch 管理器服務已連線。請啟動已修補的嗶哩嗶哩，再在診斷中心確認設定回執。</string>
+    <string name="module_activation_lspatch_host_failed_title">LSPatch 宿主需要處理</string>
+    <string name="module_activation_lspatch_host_failed">已修補的嗶哩嗶哩拒絕了設定，或未完成 Hook 安裝。請先在診斷中心查看有界原因，再決定是否重試。</string>
     <string name="module_activation_service_unavailable">尚未連接相容的 Xposed 框架服務</string>
     <string name="module_activation_framework_unsupported">目前框架不支援所需的 Modern API 101+ 服務</string>
     <string name="module_activation_service_unavailable_secondary_user">目前 Android 使用者 %1$d 下沒有框架服務；請在框架管理器中為該使用者啟用本模組。</string>

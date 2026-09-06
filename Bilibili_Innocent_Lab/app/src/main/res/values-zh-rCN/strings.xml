@@ -10,6 +10,10 @@
     <string name="module_activation_checking">正在确认模块激活状态</string>
     <string name="module_activation_not_detected">未检测到模块激活</string>
     <string name="module_activation_waiting_framework">正在等待兼容的 Xposed 框架服务</string>
+    <string name="module_activation_lspatch_waiting_host_title">等待已修补哔哩哔哩</string>
+    <string name="module_activation_lspatch_waiting_host">LSPatch 管理器服务已连接。请启动已修补的哔哩哔哩，再在诊断中心确认配置回执。</string>
+    <string name="module_activation_lspatch_host_failed_title">LSPatch 宿主需要处理</string>
+    <string name="module_activation_lspatch_host_failed">已修补的哔哩哔哩拒绝了配置，或未完成 Hook 安装。请先在诊断中心查看有界原因，再决定是否重试。</string>
     <string name="module_activation_service_unavailable">未连接到兼容的 Xposed 框架服务</string>
     <string name="module_activation_framework_unsupported">当前框架不支持所需的 Modern API 101+ 服务</string>
     <string name="module_activation_service_unavailable_secondary_user">当前 Android 用户 %1$d 下没有框架服务；请在框架管理器中为该用户启用本模块。</string>

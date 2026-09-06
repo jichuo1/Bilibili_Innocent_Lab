@@ -19,6 +19,17 @@ internal data class ModernFrameworkStatus(
     }
 }
 
+/**
+ * 框架名称只用于管理器引导和展示语义，不能替代 API/Remote 能力校验或宿主运行回执。
+ * LSPatch 当前公开服务名固定为 "LSPatch"；保持精确匹配，避免把其他名字中恰好包含
+ * lspatch 的实现误归类。
+ */
+internal fun isLspatchFrameworkName(frameworkName: String): Boolean =
+    frameworkName.trim().equals("LSPatch", ignoreCase = true)
+
+internal val ModernFrameworkStatus.isLspatch: Boolean
+    get() = isLspatchFrameworkName(name)
+
 /** 可选版本信息读取失败不否决已确认的 API/Remote 能力；任何失败都不逸出服务回调。 */
 internal fun readModernFrameworkStatus(
     readApiVersion: () -> Int,

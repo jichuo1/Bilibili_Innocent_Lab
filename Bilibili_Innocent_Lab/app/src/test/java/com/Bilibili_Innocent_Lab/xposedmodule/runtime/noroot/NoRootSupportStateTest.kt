@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostConfigState
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostInstallChainState
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -226,6 +228,82 @@ class NoRootSupportStateTest {
                 rootActive = false,
                 frameworkCheckPending = false,
                 displayState = NoRootDisplayState.DISABLED
+            )
+        )
+    }
+
+    @Test
+    fun `LSPatch state requires a receipt and does not override a valid NPatch heartbeat`() {
+        assertEquals(
+            ActivationDisplayState.LSPATCH_WAITING_FOR_HOST,
+            NoRootSupportState.activationDisplayState(
+                rootActive = true,
+                frameworkCheckPending = false,
+                displayState = NoRootDisplayState.DISABLED,
+                lspatchFramework = true,
+                lspatchHostState = LspatchHostReceiptState.WAITING
+            )
+        )
+        assertEquals(
+            ActivationDisplayState.ACTIVE_LSPATCH,
+            NoRootSupportState.activationDisplayState(
+                rootActive = true,
+                frameworkCheckPending = false,
+                displayState = NoRootDisplayState.DISABLED,
+                lspatchFramework = true,
+                lspatchHostState = LspatchHostReceiptState.CONFIRMED
+            )
+        )
+        assertEquals(
+            ActivationDisplayState.LSPATCH_HOST_FAILED,
+            NoRootSupportState.activationDisplayState(
+                rootActive = true,
+                frameworkCheckPending = false,
+                displayState = NoRootDisplayState.DISABLED,
+                lspatchFramework = true,
+                lspatchHostState = LspatchHostReceiptState.FAILED
+            )
+        )
+        assertEquals(
+            ActivationDisplayState.ACTIVE_NPATCH,
+            NoRootSupportState.activationDisplayState(
+                rootActive = true,
+                frameworkCheckPending = false,
+                displayState = NoRootDisplayState.ACTIVE,
+                lspatchFramework = true,
+                lspatchHostState = LspatchHostReceiptState.WAITING
+            )
+        )
+    }
+
+    @Test
+    fun `LSPatch receipt state is bounded by config and install evidence`() {
+        assertEquals(
+            LspatchHostReceiptState.CONFIRMED,
+            NoRootSupportState.lspatchHostReceiptState(
+                HostConfigState.ACCEPTED,
+                HostInstallChainState.COMPLETED
+            )
+        )
+        assertEquals(
+            LspatchHostReceiptState.FAILED,
+            NoRootSupportState.lspatchHostReceiptState(
+                HostConfigState.REJECTED,
+                HostInstallChainState.STARTED
+            )
+        )
+        assertEquals(
+            LspatchHostReceiptState.FAILED,
+            NoRootSupportState.lspatchHostReceiptState(
+                HostConfigState.ACCEPTED,
+                HostInstallChainState.FAILED
+            )
+        )
+        assertEquals(
+            LspatchHostReceiptState.WAITING,
+            NoRootSupportState.lspatchHostReceiptState(
+                HostConfigState.ACCEPTED,
+                HostInstallChainState.STARTED
             )
         )
     }

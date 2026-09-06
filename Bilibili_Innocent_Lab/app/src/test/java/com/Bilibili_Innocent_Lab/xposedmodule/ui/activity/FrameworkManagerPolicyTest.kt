@@ -22,6 +22,15 @@ class FrameworkManagerPolicyTest {
     }
 
     @Test
+    fun `LSPatch uses only its independently installed manager`() {
+        val targets = frameworkManagerTargets("LSPatch")
+        assertEquals(listOf(FrameworkManagerTarget("org.lsposed.lspatch")), targets)
+        assertFalse(targets.any { it.packageName == "org.lsposed.manager" })
+        assertFalse(targets.any { it.packageName == "org.matrix.vector.manager" })
+        assertFalse(targets.any { it.packageName == "com.android.shell" })
+    }
+
+    @Test
     fun `LSPosed retains its existing entry and unidentified services do not guess a shell category`() {
         assertEquals("org.lsposed.manager.LAUNCH_MANAGER", frameworkManagerTargets("LSPosed").last().category)
         assertEquals(2, frameworkManagerTargets("").size)

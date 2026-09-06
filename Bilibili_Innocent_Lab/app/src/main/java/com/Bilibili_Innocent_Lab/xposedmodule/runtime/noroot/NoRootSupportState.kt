@@ -1,5 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostConfigState
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostInstallChainState
+
 internal enum class NoRootDisplayState {
     UNSUPPORTED_OS,
     DISABLED,
@@ -23,8 +26,17 @@ internal data class ActivationDecision(
 internal enum class ActivationDisplayState {
     CHECKING,
     ACTIVE_LSPOSED,
+    ACTIVE_LSPATCH,
     ACTIVE_NPATCH,
+    LSPATCH_WAITING_FOR_HOST,
+    LSPATCH_HOST_FAILED,
     UNAVAILABLE
+}
+
+internal enum class LspatchHostReceiptState {
+    WAITING,
+    CONFIRMED,
+    FAILED
 }
 
 /** 纯状态归并，避免把“开关已开”或“Manager 可连接”误显示成已激活。 */
@@ -100,13 +112,44 @@ internal object NoRootSupportState {
     fun activationDisplayState(
         rootActive: Boolean,
         frameworkCheckPending: Boolean,
-        displayState: NoRootDisplayState
+        displayState: NoRootDisplayState,
+        lspatchFramework: Boolean = false,
+        lspatchHostState: LspatchHostReceiptState = LspatchHostReceiptState.WAITING
     ): ActivationDisplayState = when {
+        rootActive && lspatchFramework &&
+            lspatchHostState == LspatchHostReceiptState.CONFIRMED ->
+            ActivationDisplayState.ACTIVE_LSPATCH
+        // 已验证的 NPatch heartbeat 比 LSPatch 的“尚待宿主回执”更强，不能被后者遮住；
+        // 标准框架仍保持原有的 rootActive 优先语义。
+        rootActive && lspatchFramework &&
+            (displayState == NoRootDisplayState.ACTIVE ||
+                displayState == NoRootDisplayState.DISABLE_RESTART_REQUIRED_ACTIVE) ->
+            ActivationDisplayState.ACTIVE_NPATCH
+        rootActive && lspatchFramework &&
+            lspatchHostState == LspatchHostReceiptState.FAILED ->
+            ActivationDisplayState.LSPATCH_HOST_FAILED
+        // LSPatch 管理器可在尚未启动已修补宿主时向 companion 交付可写服务。
+        // 服务可用只证明发布通道可用，不能证明 B 站已读取配置或已装上 Hook。
+        rootActive && lspatchFramework -> ActivationDisplayState.LSPATCH_WAITING_FOR_HOST
         rootActive -> ActivationDisplayState.ACTIVE_LSPOSED
         displayState == NoRootDisplayState.ACTIVE ||
             displayState == NoRootDisplayState.DISABLE_RESTART_REQUIRED_ACTIVE ->
             ActivationDisplayState.ACTIVE_NPATCH
         frameworkCheckPending -> ActivationDisplayState.CHECKING
         else -> ActivationDisplayState.UNAVAILABLE
+    }
+
+    fun lspatchHostReceiptState(
+        configState: HostConfigState?,
+        installChainState: HostInstallChainState?
+    ): LspatchHostReceiptState = when {
+        configState == HostConfigState.ACCEPTED &&
+            installChainState == HostInstallChainState.COMPLETED ->
+            LspatchHostReceiptState.CONFIRMED
+        configState == HostConfigState.REJECTED ||
+            configState == HostConfigState.NOT_AUTHORIZED ||
+            installChainState == HostInstallChainState.FAILED ->
+            LspatchHostReceiptState.FAILED
+        else -> LspatchHostReceiptState.WAITING
     }
 }
