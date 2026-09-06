@@ -5,8 +5,8 @@ import android.content.Context
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AndroidUserSpace
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.ActivationDisplayState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsSnapshot
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.ActivationDisplayState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootDisplayState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
@@ -15,6 +15,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.modulePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigPublishState
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.isLspatch
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinSessionDiagnostics
 import com.highcapable.betterandroid.system.extension.component.versionCodeCompat
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
@@ -45,10 +46,16 @@ internal object ModuleDiagnosticsCollector {
             currentTargetUpdateTime = targetUpdateTime
         )
         val framework = RemoteHookConfigStore.status()
+        val lspatchHostState = NoRootSupportState.lspatchHostReceiptState(
+            configState = hostRuntime?.bootstrap?.configState,
+            installChainState = hostRuntime?.bootstrap?.installChainState
+        )
         val activation = NoRootSupportState.activationDisplayState(
             rootActive = framework.capable,
             frameworkCheckPending = frameworkCheckPending && !framework.connected,
-            displayState = noRootState
+            displayState = noRootState,
+            lspatchFramework = framework.isLspatch,
+            lspatchHostState = lspatchHostState
         )
         val remote = RemoteHookConfigStore.diagnostics()
         val preferences = appContext.modulePreferences()
@@ -86,7 +93,7 @@ internal object ModuleDiagnosticsCollector {
                 remoteGeneration = remote.generation,
                 remoteFailureCode = remote.failureCode,
                 remotePublishPending = remote.publishPending,
-                activationState = activation.toDiagnosticState(),
+                activationState = activation.toDiagnosticActivationState(),
                 noRootDesiredEnabled = noRootStatus.desiredEnabled,
                 noRootState = noRootState.toDiagnosticState(),
                 requestedSkin = requestedSkin,
@@ -158,9 +165,17 @@ internal object ModuleDiagnosticsCollector {
     private fun RemoteHookConfigPublishState.toDiagnosticState() =
         DiagnosticRemotePublishState.valueOf(name)
 
-    private fun ActivationDisplayState.toDiagnosticState() =
-        DiagnosticActivationState.valueOf(name)
-
     private fun NoRootDisplayState.toDiagnosticState() =
         DiagnosticNoRootState.valueOf(name)
+}
+
+/**
+ * 导出协议沿用既有 activation 枚举；frameworkName 与 host bootstrap 项分别保留
+ * LSPatch 身份和真实回执，不能仅因新增展示状态扩大诊断格式兼容面。
+ */
+internal fun ActivationDisplayState.toDiagnosticActivationState() = when (this) {
+    ActivationDisplayState.ACTIVE_LSPATCH -> DiagnosticActivationState.ACTIVE_LSPOSED
+    ActivationDisplayState.LSPATCH_WAITING_FOR_HOST -> DiagnosticActivationState.CHECKING
+    ActivationDisplayState.LSPATCH_HOST_FAILED -> DiagnosticActivationState.UNAVAILABLE
+    else -> DiagnosticActivationState.valueOf(name)
 }

@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.diagnostics
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.ActivationDisplayState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -8,6 +9,25 @@ import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 
 class DiagnosticReportCodecTest {
+    @Test
+    fun `LSPatch display states retain compatible bounded activation wire values`() {
+        val expected = mapOf(
+            ActivationDisplayState.ACTIVE_LSPATCH to DiagnosticActivationState.ACTIVE_LSPOSED,
+            ActivationDisplayState.LSPATCH_WAITING_FOR_HOST to DiagnosticActivationState.CHECKING,
+            ActivationDisplayState.LSPATCH_HOST_FAILED to DiagnosticActivationState.UNAVAILABLE
+        )
+        expected.forEach { (displayState, diagnosticState) ->
+            assertEquals(diagnosticState, displayState.toDiagnosticActivationState())
+            val bytes = DiagnosticReportCodec.encode(
+                ModuleHealthEvaluator.evaluate(inputs(activationState = diagnosticState))
+            )
+            DiagnosticReportCodec.validate(bytes)
+            val runtime = JSONObject(bytes.toString(StandardCharsets.UTF_8))
+                .getJSONObject("runtime")
+            assertEquals(diagnosticState.name, runtime.getString("activation"))
+        }
+    }
+
     @Test
     fun `format four separates framework build commit acknowledgement and host receipt`() {
         val state = inputs().copy(

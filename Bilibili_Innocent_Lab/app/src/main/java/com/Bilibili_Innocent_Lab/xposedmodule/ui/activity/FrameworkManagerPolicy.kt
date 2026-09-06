@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.isLspatchFrameworkName
+
 internal data class FrameworkManagerTarget(
     val packageName: String,
     val activityName: String? = null,
@@ -10,6 +12,9 @@ internal data class FrameworkManagerTarget(
 internal fun frameworkManagerTargets(frameworkName: String): List<FrameworkManagerTarget> {
     val vector = FrameworkManagerTarget("org.matrix.vector.manager")
     val lsposed = FrameworkManagerTarget("org.lsposed.manager")
+    val lspatch = FrameworkManagerTarget("org.lsposed.lspatch")
+    // LSPatch 是独立管理器；不得回退到 LSPosed/Vector 或 shell 寄生入口。
+    if (isLspatchFrameworkName(frameworkName)) return listOf(lspatch)
     val manager = when {
         frameworkName.contains("vector", ignoreCase = true) -> vector
         frameworkName.contains("lsposed", ignoreCase = true) ||

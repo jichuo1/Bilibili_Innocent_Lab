@@ -20,10 +20,38 @@ internal object ActivationCardVisualSpec {
 
     fun tone(displayState: ActivationDisplayState): DiagnosticStatusTone = when (displayState) {
         ActivationDisplayState.ACTIVE_LSPOSED,
+        ActivationDisplayState.ACTIVE_LSPATCH,
         ActivationDisplayState.ACTIVE_NPATCH -> DiagnosticStatusTone.OK
-        ActivationDisplayState.CHECKING -> DiagnosticStatusTone.INFO
+        ActivationDisplayState.CHECKING,
+        ActivationDisplayState.LSPATCH_WAITING_FOR_HOST -> DiagnosticStatusTone.INFO
+        ActivationDisplayState.LSPATCH_HOST_FAILED,
         ActivationDisplayState.UNAVAILABLE -> DiagnosticStatusTone.ACTION_REQUIRED
     }
+
+    /** 首页诊断入口的纯优先级归并；高确定性的阻塞状态不能被普通提示降级。 */
+    fun diagnosticsSummaryState(
+        displayState: ActivationDisplayState,
+        publishFailed: Boolean,
+        skinFallback: Boolean,
+        noRootNeedsAttention: Boolean
+    ): ActivationSummaryState = when {
+        displayState == ActivationDisplayState.UNAVAILABLE ||
+            displayState == ActivationDisplayState.LSPATCH_HOST_FAILED ->
+            ActivationSummaryState.ACTION_REQUIRED
+        publishFailed -> ActivationSummaryState.ATTENTION
+        displayState == ActivationDisplayState.CHECKING ||
+            displayState == ActivationDisplayState.LSPATCH_WAITING_FOR_HOST ->
+            ActivationSummaryState.INFO
+        skinFallback || noRootNeedsAttention -> ActivationSummaryState.ATTENTION
+        else -> ActivationSummaryState.READY
+    }
+}
+
+internal enum class ActivationSummaryState {
+    READY,
+    INFO,
+    ATTENTION,
+    ACTION_REQUIRED
 }
 
 /**

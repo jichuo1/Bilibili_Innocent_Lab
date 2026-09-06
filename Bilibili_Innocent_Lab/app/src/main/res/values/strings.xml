@@ -9,6 +9,10 @@
     <string name="module_activation_checking">Checking module activation</string>
     <string name="module_activation_not_detected">Module activation not detected</string>
     <string name="module_activation_waiting_framework">Waiting for a compatible Xposed framework service</string>
+    <string name="module_activation_lspatch_waiting_host_title">Awaiting patched Bilibili</string>
+    <string name="module_activation_lspatch_waiting_host">LSPatch Manager is connected. Start the patched Bilibili app, then open Diagnostics to confirm its configuration receipt.</string>
+    <string name="module_activation_lspatch_host_failed_title">LSPatch host needs attention</string>
+    <string name="module_activation_lspatch_host_failed">The patched Bilibili app rejected configuration or did not finish installing hooks. Open Diagnostics for the bounded reason before retrying.</string>
     <string name="module_activation_service_unavailable">No compatible Xposed framework service is connected</string>
     <string name="module_activation_framework_unsupported">The connected framework does not support the required Modern API 101+ service</string>
     <!-- Multi-user hints: the framework pushes the libxposed service per Android user, so a cloned-app or work profile needs the module enabled for that user too. -->
