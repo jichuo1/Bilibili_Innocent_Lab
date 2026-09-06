@@ -577,3 +577,203 @@ expanding one enhancement group leaves others unchanged and parent-menu toggling
 preserves child-group states. Existing appearance and search checks continue to run,
 with all 86 stored catalog values unchanged. Final local gates passed 675 JVM tests,
 Lint (0 errors / 170 warnings), Debug, Release R8 and the instrumentation APK build.
+
+
+## Ported BiliRoaming feature batch (2026-09-06)
+
+Eight features were ported: danmaku weight/premium-gradient purification, the
+mention-only and author comment judgements, share-link purification with the
+mini-program downgrade, external-browser handoff, the system media notification,
+the splash dark-mode background, the two live-room widgets, and AV-number display.
+Every one of them defaults to off, so an upgrading install keeps its current
+behavior until the user opts in.
+
+Static evidence gathered before writing any hook (all from the 9.11.0 APK under
+`Temp/host-compat/apks/`, decoded with `Temp/host-compat/dex_reader.py`):
+
+- `DmSegMobileReply#getElemsList`, `getElems`, `getElemsCount` and
+  `getColorfulSrcList` are referenced only by the dex that defines them
+  (`classes29.dex`). A getter-boundary hook has no call site on that path, so the
+  danmaku installer works on the Moss response boundary instead. `dmSegMobile` is
+  referenced from `classes7`/`classes23` and `executeDmSegMobile` from
+  `classes23`.
+- `ShareClickResult` getters are referenced from `classes4.dex`, so the getter
+  boundary is genuine for the share feature.
+- `com.bilibili.droid.BVCompat.a(String, String)` is referenced from five other
+  dex files; its decompiled body is
+  `(TextUtils.isEmpty(bvid) || !enableBv) ? avid : bvid`.
+- `dd_enable_system_media_control` still exists as a literal in `classes6.dex`;
+  `ff_background_use_system_media_controls` no longer does. Both hooks stay
+  installed for older hosts.
+- The live room has no dedicated process in the manifest, so the existing
+  main-process-only installer guard is correct.
+
+Unit tests added: danmaku retain/weight-usability policy, share-link purification
+(tracking-parameter allowlist, millisecond-to-second conversion, look-alike
+domains, fragment preservation, idempotence), external-browser ownership policy
+(payment gateways stay in-app, look-alike domains do not), AV-number selection
+(order independent, self-validating), the Moss response-handler proxy (observer
+failure never breaks host delivery, host exceptions keep their type, mismatched
+delegates are refused), and the four comment judgements including the
+longest-mention-first rule and exact author matching.
+
+Catalog and adapter counters moved: `SettingsCatalog` 86 -> 100 entries with
+`CATALOG_VERSION` 10 -> 11 and a new `settings-backup/catalog-v11.txt` fixture,
+`DiagnosticFeatureRegistry` 31 -> 38 feature ids, and `VersionAdapter`
+schema/rule 53/48 -> 54/49. The schema bump forces one background re-adaptation
+on first launch after the update; that is expected and self-healing.
+
+Not verified in this round: no device run, so none of the eight features has
+runtime evidence yet. The live-room pager class is located structurally and has
+only been checked against 9.11.0 static structure. The splash background hook is
+installed but its visible effect depends on whether the Compose splash content
+draws its own opaque background.
+
+Local gates for this batch: `assembleDebug testDebugUnitTest lintDebug
+minifyReleaseWithR8 assembleDebugAndroidTest --no-daemon` succeeded in 4m57s with
+126 suites / 712 JVM tests and Lint 0 errors / 172 warnings (170 before this batch;
+the two added are a `DiscouragedApi` for the splash `getIdentifier` lookup, which
+matches the ten existing name-based lookups, and one `PluralsCandidate` on the new
+weight option label). Debug APK SHA-256
+`352a6219d234059a86a871499512fe2137997e353d46534002f4c64a11419399`, with no source
+file newer than the artifact. Evidence lives in
+`Temp/biliroaming-port-20260906/` (`gate-final.log`, the string-insertion script and
+the single-class BVCompat decompilation).
+
+
+## Dynamic feed and search filtering (2026-09-06, batch 2)
+
+Static evidence gathered from the 9.11.0 APK before writing hooks:
+
+- `DynamicMoss#dynAll` / `executeDynAll` are referenced only by `classes25.dex`,
+  but `DynAllReply#getDynamicList` has a `classes8.dex` consumer. Decompiling
+  `DynamicMossKtxKt.suspendDynAll` shows the real call site is the coroutine wrapper
+  in the same dex, calling `dynAll(req, anonymous MossResponseHandler)`. The
+  "no cross-dex reference means nobody calls it" shortcut from batch 1 therefore
+  only holds when the response type has no cross-dex consumer either.
+- `SearchAllResponse#getItemList` is referenced from `classes14.dex`, so the getter
+  boundary is genuine for search.
+- `SearchMoss#executeDefaultWords` is referenced from `classes12.dex` and has no
+  `SearchMossKtx` wrapper, so the synchronous call is the single boundary.
+- `AdditionalType` exposes `additional_type_goods_VALUE` and
+  `additional_type_up_rcmd_VALUE`; `DynamicList` and `CardVideoUpList` expose the
+  private `clearList`/`addAllList` pairs, `UpListItem` exposes `getLiveStateValue`
+  and the private `setPos(long)`.
+
+Unit tests added: `AuthorRuleSet` (uid/name split, exact name matching, unreadable
+signals, zero/negative uids, rule bound), `ProtobufListRetention` (null-means-no-
+rewrite, same-instance-when-unchanged, immutable copy), and `DynamicPurifyPolicy`
+(per-fragment keyword matching, no cross-fragment match, text not read when no
+keyword is set, independent author/promotion/charge judgements).
+
+Counters moved: `SettingsCatalog` 100 -> 113 entries with `CATALOG_VERSION` 11 -> 12
+and a new `settings-backup/catalog-v12.txt` fixture; `DiagnosticFeatureRegistry`
+38 -> 40. `VersionAdapter` schema/rule stay at 54/49 because both faces are
+unobfuscated bapis classes resolved structurally at install time.
+
+Local gates: `assembleDebug testDebugUnitTest lintDebug minifyReleaseWithR8
+assembleDebugAndroidTest --no-daemon` succeeded with 129 suites / 728 JVM tests and
+Lint 0 errors / 172 warnings (unchanged from batch 1 — the new files contribute no
+lint findings). Debug APK SHA-256
+`a9a8371d88c923b7260200643cd7638c960f53c11e850ac6cefe93e53b8b559c`, with no source
+file newer than the artifact.
+
+Not verified: no device run. The dynamic top-bar `pos` renumbering, the topic-strip
+clearing and the search-result filtering have no runtime evidence yet. Author
+filtering on search results covers video cards only, by design.
+
+
+## Ported-feature host coverage (2026-09-06, batch 3)
+
+Both ported batches were re-checked offline against every host APK available
+locally: 9.7.0, 9.8.0, 9.9.0, 9.10.0 and 9.11.0. Two probes live in
+`Temp/biliroaming-port-20260906/`:
+
+- `probe_compat.py` verifies 94 structural contracts (class plus method signature
+  or field type) and counts cross-dex callers for every getter boundary.
+- `probe_selectors.py` reports the candidate count and the drift trace for every
+  `singleOrNull` structural selector, because an ambiguous selector silently skips
+  the whole item.
+
+Result: all 94 contracts are present on all five versions, and every selector
+matches exactly one candidate on every version. The generated matrix is
+`COMPAT_MATRIX.md` in the same folder.
+
+Three code changes came directly out of that matrix:
+
+1. The dynamic video tab exposes its top author bar as `getVideoUpList`, not
+   `getUpList`, on all five versions, so "hide streaming authors" never resolved a
+   container there. The lookup now tries both names.
+2. The dynamic feed container is `DynamicList` on the combined tab and
+   `CardVideoDynList` on the video tab. Resolution by return type stays, but the
+   installer now also requires the container's `getList(int)` to return
+   `DynamicItem`, turning a possible future silent no-op into an observable skip.
+3. The search-suggestion protocol unit now distinguishes "host has no `SearchMoss`"
+   (not applicable) from "class present but unusable" (degraded, reported as
+   `partial:search-protocol`).
+
+Two robustness fixes came out of the review rather than the matrix: the top author
+bar is rewritten before `pos` is renumbered, so a failed write leaves positions
+untouched; and both author lists must be readable before either is written back,
+so an unreadable second list can no longer be cleared.
+
+Confirmed correct by the matrix: the live pager implementation class drifts
+`IM.h` → `KM.h` → `LM.g` → `LM.h` → `MM.g` (and its field name from `a` to `b`)
+while staying a single candidate; the live player bridge drifts `p5.b` → `q5.b`
+with all three control methods intact; `DmSegMobileReply#getElemsList` has no
+cross-dex caller on any of the five versions, so the Moss boundary choice holds
+across the whole range; `shareMode` is a boxed `Integer` everywhere; and all five
+hosts declare `QUERY_ALL_PACKAGES`, so the external-browser resolution check is not
+blocked by Android 11+ package visibility.
+
+Coverage boundary: no 8.x host APK remains on this machine, so nothing here may be
+extrapolated below 9.7.0. Every ported feature defaults to off and degrades to
+`partial` or "not installed" when a path is missing, so an older host does not
+crash — but there is no evidence that these switches work there.
+
+Local gates after the changes: 129 suites / 728 JVM tests, Lint 0 errors /
+172 warnings, Debug APK SHA-256
+`2216796a71f4d90c86f1ae6176ac07d3b5efe1cd3c6cf350d4ff35c38c117b56`. Still no device
+run: this round was offline static verification plus code hardening only.
+
+
+## Ported-feature host coverage extended to 26 versions (2026-09-06, batch 4)
+
+The user supplied 21 additional host APKs, so the verifiable range grew from
+9.7.0–9.11.0 to **8.84.0 – 9.11.0, 26 versions** (8.85.x and 8.90.2 are still
+missing locally, and nothing before 8.84.0 is covered).
+
+Tooling was consolidated. `host_identity.py` parses the `<manifest>` start tag of
+each APK with a minimal AXML reader and checks package, versionName and
+versionCode: all 26 report `tv.danmaku.bili` with internal versions matching their
+filenames. `probe_hosts.py` replaces the two earlier probes with a single pass that
+prefilters by dex type index, so it reads only a two-byte class index for most
+method ids; per-APK time dropped from about 40 seconds to 3.4, and the whole sweep
+takes roughly 100 seconds. Its 9.11.0 output matches the earlier probes item by
+item.
+
+Result: **93 structural contracts across 26 versions, zero missing**, every
+`singleOrNull` selector matches exactly one candidate on every version, and every
+getter-boundary verdict is identical across the whole range. Two findings are worth
+recording:
+
+- The live pager implementation class takes 23 distinct names across the 26
+  versions (`of1.e` … `MM.g`) and the field holding it renamed from `a` to `b` in
+  9.10.0, yet there is always exactly one candidate. Hardcoding any single name
+  would have failed silently on 25 of 26 versions.
+- The live player bridge interface renames 14 times and not monotonically: 9.6.0
+  and 9.9.0–9.11.0 are `q5.b` while 9.7.0/9.8.0 in between are `p5.b`. All three
+  control methods exist on all 26.
+
+One code change came out of the sweep. Scanning dex string constants shows
+`dd_enable_system_media_control` present on all 26 versions and
+`ff_background_use_system_media_controls` present on **none** of them. The
+`ConfigManager$Companion#isHitFF` hook copied from upstream therefore could never
+fire anywhere in the verifiable range, while sitting on a startup path called from
+20 dex files and inflating the coverage denominator. It was removed;
+`SystemMediaNotificationFeatureInstaller` now hooks only `DeviceDecision#getBoolean`.
+
+Local gates after the change: 129 suites / 728 JVM tests, Lint 0 errors /
+172 warnings, Debug APK SHA-256
+`86587942779d43d5ae3bd3a0af9b12af05c8980631cd201f4af0a156f209d20f`, no source newer
+than the artifact. Still no device run.

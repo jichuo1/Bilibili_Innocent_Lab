@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.settings.backup
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpec
@@ -17,13 +18,14 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorS
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 10
+    const val CATALOG_VERSION = 12
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
     const val ID_FREE_COPY_DESCRIPTION = "free_copy.description.enabled"
     const val ID_RECOMMEND_VIDEO_MIN_DURATION =
         "recommend.video_duration.minimum_seconds"
     const val ID_RECOMMEND_VIDEO_MAX_DURATION =
         "recommend.video_duration.maximum_seconds"
+    const val ID_DANMAKU_WEIGHT_MINIMUM = "player.danmaku.weight_filter.minimum"
     const val ID_MATERIAL_COLOR_SPEC = "module_ui.material_color_spec"
 
     private fun bool(
@@ -150,6 +152,84 @@ internal object SettingsCatalog {
         bool("dynamic.city_tab.hidden", FeaturePreferences.HIDE_DYNAMIC_CITY_TAB, R.string.hide_dynamic_city_tab),
         bool("dynamic.school_tab.hidden", FeaturePreferences.HIDE_DYNAMIC_SCHOOL_TAB, R.string.hide_dynamic_school_tab),
         bool("dynamic.video_tab.preferred", FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB, R.string.prefer_dynamic_video_tab),
+        bool(
+            "dynamic.keyword_filter.enabled",
+            FeaturePreferences.DYNAMIC_KEYWORD_FILTER_ENABLED,
+            R.string.dynamic_keyword_filter,
+            introducedCatalogVersion = 12
+        ),
+        text(
+            "dynamic.keyword_filter.keywords",
+            FeaturePreferences.DYNAMIC_FILTER_KEYWORDS,
+            R.string.dynamic_keyword_rules,
+            introducedCatalogVersion = 12
+        ),
+        bool(
+            "dynamic.author_filter.enabled",
+            FeaturePreferences.DYNAMIC_AUTHOR_FILTER_ENABLED,
+            R.string.dynamic_author_filter,
+            introducedCatalogVersion = 12
+        ),
+        text(
+            "dynamic.author_filter.rules",
+            FeaturePreferences.DYNAMIC_AUTHOR_FILTER_RULES,
+            R.string.dynamic_author_filter_rules,
+            introducedCatalogVersion = 12
+        ),
+        bool(
+            "dynamic.promotions.removed",
+            FeaturePreferences.REMOVE_DYNAMIC_PROMOTIONS,
+            R.string.remove_dynamic_promotions,
+            introducedCatalogVersion = 12
+        ),
+        bool(
+            "dynamic.charge_only.removed",
+            FeaturePreferences.REMOVE_DYNAMIC_CHARGE_ONLY,
+            R.string.remove_dynamic_charge_only,
+            introducedCatalogVersion = 12
+        ),
+        bool(
+            "dynamic.topic_list.hidden",
+            FeaturePreferences.HIDE_DYNAMIC_TOPIC_LIST,
+            R.string.hide_dynamic_topic_list,
+            introducedCatalogVersion = 12
+        ),
+        bool(
+            "dynamic.up_list.live.removed",
+            FeaturePreferences.REMOVE_DYNAMIC_LIVE_UP_ENTRIES,
+            R.string.remove_dynamic_live_up_entries,
+            introducedCatalogVersion = 12
+        ),
+        bool(
+            "search.commercial.removed",
+            FeaturePreferences.REMOVE_SEARCH_COMMERCIAL,
+            R.string.remove_search_commercial,
+            introducedCatalogVersion = 12
+        ),
+        bool(
+            "search.keyword_filter.enabled",
+            FeaturePreferences.SEARCH_KEYWORD_FILTER_ENABLED,
+            R.string.search_keyword_filter,
+            introducedCatalogVersion = 12
+        ),
+        text(
+            "search.keyword_filter.keywords",
+            FeaturePreferences.SEARCH_FILTER_KEYWORDS,
+            R.string.search_keyword_rules,
+            introducedCatalogVersion = 12
+        ),
+        bool(
+            "search.author_filter.enabled",
+            FeaturePreferences.SEARCH_AUTHOR_FILTER_ENABLED,
+            R.string.search_author_filter,
+            introducedCatalogVersion = 12
+        ),
+        text(
+            "search.author_filter.rules",
+            FeaturePreferences.SEARCH_AUTHOR_FILTER_RULES,
+            R.string.search_author_filter_rules,
+            introducedCatalogVersion = 12
+        ),
         bool("numbers.full.enabled", FeaturePreferences.SHOW_FULL_NUMBERS, R.string.show_full_numbers),
         bool("player.portrait_control.hidden", FeaturePreferences.HIDE_PLAYER_PORTRAIT_CONTROL, R.string.hide_player_portrait_control),
         bool(
@@ -165,6 +245,38 @@ internal object SettingsCatalog {
             introducedCatalogVersion = 10
         ),
         bool("player.status_bar.transparent", FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR, R.string.transparent_player_status_bar),
+        bool(
+            "player.danmaku.weight_filter.enabled",
+            FeaturePreferences.DANMAKU_WEIGHT_FILTER_ENABLED,
+            R.string.danmaku_weight_filter,
+            introducedCatalogVersion = 11
+        ),
+        integer(
+            ID_DANMAKU_WEIGHT_MINIMUM,
+            FeaturePreferences.DANMAKU_WEIGHT_FILTER_MINIMUM,
+            R.string.danmaku_weight_dialog_title,
+            default = DanmakuPurifyPolicy.DEFAULT_MINIMUM_WEIGHT,
+            range = DanmakuPurifyPolicy.MIN_WEIGHT..DanmakuPurifyPolicy.MAX_WEIGHT,
+            introducedCatalogVersion = 11
+        ),
+        bool(
+            "player.danmaku.vip_colorful.removed",
+            FeaturePreferences.REMOVE_VIP_COLORFUL_DANMAKU,
+            R.string.remove_vip_colorful_danmaku,
+            introducedCatalogVersion = 11
+        ),
+        bool(
+            "live.room_switch.blocked",
+            FeaturePreferences.BLOCK_LIVE_ROOM_SWITCH,
+            R.string.block_live_room_switch,
+            introducedCatalogVersion = 11
+        ),
+        bool(
+            "live.double_tap.pause",
+            FeaturePreferences.LIVE_ROOM_DOUBLE_TAP_PAUSE,
+            R.string.live_room_double_tap_pause,
+            introducedCatalogVersion = 11
+        ),
 
         bool("video.related.commercial.removed", FeaturePreferences.REMOVE_RELATE_COMMERCIAL, R.string.remove_relate_commercial),
         bool("video.related.game.removed", FeaturePreferences.REMOVE_RELATE_GAME, R.string.remove_relate_game),
@@ -261,7 +373,61 @@ internal object SettingsCatalog {
             default = CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL,
             range = 1..6
         ),
+        bool(
+            "comments.at_only.removed",
+            FeaturePreferences.REMOVE_AT_ONLY_COMMENTS,
+            R.string.remove_at_only_comments,
+            introducedCatalogVersion = 11
+        ),
+        bool(
+            "comments.user_filter.enabled",
+            FeaturePreferences.COMMENT_USER_FILTER_ENABLED,
+            R.string.comment_user_filter,
+            introducedCatalogVersion = 11
+        ),
+        text(
+            "comments.user_filter.rules",
+            FeaturePreferences.COMMENT_USER_FILTER_RULES,
+            R.string.comment_user_filter_rules,
+            introducedCatalogVersion = 11
+        ),
         bool("splash.ads.purified", FeaturePreferences.PURIFY_SPLASH_ADS, R.string.purify_splash_ads),
+        bool(
+            "splash.auto_night.enabled",
+            FeaturePreferences.SPLASH_AUTO_NIGHT,
+            R.string.splash_auto_night,
+            introducedCatalogVersion = 11
+        ),
+        bool(
+            "share.content.purified",
+            FeaturePreferences.PURIFY_SHARE_CONTENT,
+            R.string.purify_share_content,
+            introducedCatalogVersion = 11
+        ),
+        bool(
+            "share.mini_program.direct_link",
+            FeaturePreferences.SHARE_MINI_PROGRAM_DIRECT_LINK,
+            R.string.share_mini_program_direct_link,
+            introducedCatalogVersion = 11
+        ),
+        bool(
+            "links.external_browser.enabled",
+            FeaturePreferences.FORCE_EXTERNAL_BROWSER,
+            R.string.force_external_browser,
+            introducedCatalogVersion = 11
+        ),
+        bool(
+            "system.media_notification.enabled",
+            FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION,
+            R.string.system_media_notification,
+            introducedCatalogVersion = 11
+        ),
+        bool(
+            "numbers.bv_as_av.enabled",
+            FeaturePreferences.SHOW_BV_AS_AV,
+            R.string.show_bv_as_av,
+            introducedCatalogVersion = 11
+        ),
 
         bool(
             ID_FREE_COPY_COMMENT,
@@ -329,7 +495,7 @@ internal object SettingsCatalog {
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
 
     init {
-        check(specs.size == 86) { "Expected 86 catalog settings, found ${specs.size}" }
+        check(specs.size == 113) { "Expected 113 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

@@ -16,8 +16,8 @@ class VersionAdapterTest {
         val current = result().copy(pgcAutoActivityPopup = points)
         val restored = VersionAdapter.AdaptResult.fromJson(current.toJson())
         assertEquals(points, restored?.pgcAutoActivityPopup)
-        assertEquals(53, current.toJson().getInt("sv"))
-        assertNull(VersionAdapter.AdaptResult.fromJson(current.toJson().put("sv", 52)))
+        assertEquals(54, current.toJson().getInt("sv"))
+        assertNull(VersionAdapter.AdaptResult.fromJson(current.toJson().put("sv", 53)))
         assertNull(VersionAdapter.AdaptResult.fromJson(
             current.toJson().apply { getJSONObject("pgc_auto_activity_popup").put("index", -1) }
         ))
@@ -27,6 +27,37 @@ class VersionAdapterTest {
         assertEquals(points,
             VersionAdapter.mergeRuntimeWithCached(current.copy(pgcAutoActivityPopup = null), current)
                 ?.pgcAutoActivityPopup)
+    }
+
+    /**
+     * 评论过滤的四条判据共用一份缓存结构；@ 与发布者读取路径必须能原样往返，
+     * 否则升级后这两条判据会静默退化成"开了但读不到"。
+     */
+    @Test
+    fun `comment filter judgement points survive the cache round trip`() {
+        val current = result()
+        val restored = requireNotNull(VersionAdapter.AdaptResult.fromJson(current.toJson()))
+        assertEquals(current.commentFilter, restored.commentFilter)
+        val points = requireNotNull(restored.commentFilter)
+        assertEquals("getAtNameToMidCount", points.atNameCountGetter?.methodName)
+        assertEquals("getAtNameToMidMap", points.atNameMapGetter?.methodName)
+        assertEquals("getName", points.memberNameGetter?.methodName)
+        assertEquals("getMid", points.memberMidGetter?.methodName)
+
+        // 老缓存缺这些键时不能整份作废，只让对应判据缺席。
+        val legacy = current.toJson().apply {
+            getJSONObject("comment_filter").apply {
+                remove("at_count")
+                remove("at_map")
+                remove("member_name")
+                remove("member_mid")
+            }
+        }
+        val downgraded = requireNotNull(VersionAdapter.AdaptResult.fromJson(legacy)).commentFilter
+        assertNotNull(downgraded)
+        assertNull(downgraded?.atNameCountGetter)
+        assertNull(downgraded?.memberMidGetter)
+        assertEquals(current.commentFilter?.messageGetter, downgraded?.messageGetter)
     }
 
     @Test
@@ -656,6 +687,26 @@ class VersionAdapterTest {
             levelGetter = VersionAdapter.HookPoint(
                 "com.bapis.bilibili.main.community.reply.v1.Member",
                 "getLevel",
+                emptyList()
+            ),
+            atNameCountGetter = VersionAdapter.HookPoint(
+                "com.bapis.bilibili.main.community.reply.v1.Content",
+                "getAtNameToMidCount",
+                emptyList()
+            ),
+            atNameMapGetter = VersionAdapter.HookPoint(
+                "com.bapis.bilibili.main.community.reply.v1.Content",
+                "getAtNameToMidMap",
+                emptyList()
+            ),
+            memberNameGetter = VersionAdapter.HookPoint(
+                "com.bapis.bilibili.main.community.reply.v1.Member",
+                "getName",
+                emptyList()
+            ),
+            memberMidGetter = VersionAdapter.HookPoint(
+                "com.bapis.bilibili.main.community.reply.v1.Member",
+                "getMid",
                 emptyList()
             )
         ),

@@ -150,8 +150,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 53
-    private const val ADAPTER_RULE_VERSION = 48
+    private const val SCHEMA_VERSION = 54
+    private const val ADAPTER_RULE_VERSION = 49
 
     /**
      * DEX 兜底诊断 id 前缀。每个兜底点各占一条诊断，便于在诊断中心直接读到"兜底是否被用到、
@@ -1148,10 +1148,13 @@ object VersionAdapter {
     }
 
     /**
-     * 评论关键词/等级过滤的公开 protobuf 读取边界。
+     * 评论关键词/等级/@整条/发布者过滤的公开 protobuf 读取边界。
      *
-     * 列表 getter 只负责提供待筛选的 ReplyInfo；正文和等级 getter 只读取判定信号，
-     * 不写 protobuf 私有字段，也不接触评论富文本、emoji 或 View 绑定链路。
+     * 列表 getter 只负责提供待筛选的 ReplyInfo；正文、等级、@ 映射和发布者 getter 只读取
+     * 判定信号，不写 protobuf 私有字段，也不接触评论富文本、emoji 或 View 绑定链路。
+     *
+     * 四类判据各自可缺失：某一条判据的 getter 没定位到时，安装器只降级该判据并把它计入
+     * 覆盖分母，不影响其余判据，也绝不静默当作已生效。
      */
     data class CommentFilterPoints(
         val replyListGetters: List<HookPoint>,
@@ -1163,7 +1166,15 @@ object VersionAdapter {
         val memberV2BasicGetter: HookPoint? = null,
         val memberV2LevelGetter: HookPoint? = null,
         val topReplyGetters: List<HookPoint> = emptyList(),
-        val replyDefaultInstanceGetter: HookPoint? = null
+        val replyDefaultInstanceGetter: HookPoint? = null,
+        /** `Content.getAtNameToMidCount()`：先读计数再决定要不要取 Map，避免无谓分配。 */
+        val atNameCountGetter: HookPoint? = null,
+        /** `Content.getAtNameToMidMap()`：@ 名字集合，用于判断整条是否只有 @。 */
+        val atNameMapGetter: HookPoint? = null,
+        val memberNameGetter: HookPoint? = null,
+        val memberMidGetter: HookPoint? = null,
+        val memberV2NameGetter: HookPoint? = null,
+        val memberV2MidGetter: HookPoint? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("lists", JSONArray().apply { replyListGetters.forEach { put(it.toJson()) } })
@@ -1176,6 +1187,12 @@ object VersionAdapter {
             memberV2LevelGetter?.let { put("member_v2_level", it.toJson()) }
             put("top_replies", JSONArray().apply { topReplyGetters.forEach { put(it.toJson()) } })
             replyDefaultInstanceGetter?.let { put("reply_default", it.toJson()) }
+            atNameCountGetter?.let { put("at_count", it.toJson()) }
+            atNameMapGetter?.let { put("at_map", it.toJson()) }
+            memberNameGetter?.let { put("member_name", it.toJson()) }
+            memberMidGetter?.let { put("member_mid", it.toJson()) }
+            memberV2NameGetter?.let { put("member_v2_name", it.toJson()) }
+            memberV2MidGetter?.let { put("member_v2_mid", it.toJson()) }
         }
 
         companion object {
@@ -1196,7 +1213,13 @@ object VersionAdapter {
                     (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
                 }.orEmpty(),
                 replyDefaultInstanceGetter = o.optJSONObject("reply_default")
-                    ?.let(HookPoint::fromJson)
+                    ?.let(HookPoint::fromJson),
+                atNameCountGetter = o.optJSONObject("at_count")?.let(HookPoint::fromJson),
+                atNameMapGetter = o.optJSONObject("at_map")?.let(HookPoint::fromJson),
+                memberNameGetter = o.optJSONObject("member_name")?.let(HookPoint::fromJson),
+                memberMidGetter = o.optJSONObject("member_mid")?.let(HookPoint::fromJson),
+                memberV2NameGetter = o.optJSONObject("member_v2_name")?.let(HookPoint::fromJson),
+                memberV2MidGetter = o.optJSONObject("member_v2_mid")?.let(HookPoint::fromJson)
             )
         }
     }
@@ -1819,6 +1842,12 @@ object VersionAdapter {
                         value.memberV2Getter?.isValid() != false &&
                         value.memberV2BasicGetter?.isValid() != false &&
                         value.memberV2LevelGetter?.isValid() != false &&
+                        value.atNameCountGetter?.isValid() != false &&
+                        value.atNameMapGetter?.isValid() != false &&
+                        value.memberNameGetter?.isValid() != false &&
+                        value.memberMidGetter?.isValid() != false &&
+                        value.memberV2NameGetter?.isValid() != false &&
+                        value.memberV2MidGetter?.isValid() != false &&
                         ((value.memberGetter != null && value.levelGetter != null) ||
                             (value.memberV2Getter != null &&
                                 value.memberV2BasicGetter != null &&
@@ -3020,6 +3049,12 @@ object VersionAdapter {
             add("comment.member_v2", points.memberV2Getter)
             add("comment.member_v2_basic", points.memberV2BasicGetter)
             add("comment.member_v2_level", points.memberV2LevelGetter)
+            add("comment.at_count", points.atNameCountGetter)
+            add("comment.at_map", points.atNameMapGetter)
+            add("comment.member_name", points.memberNameGetter)
+            add("comment.member_mid", points.memberMidGetter)
+            add("comment.member_v2_name", points.memberV2NameGetter)
+            add("comment.member_v2_mid", points.memberV2MidGetter)
             points.topReplyGetters.forEachIndexed { index, point -> add("comment.top.$index", point) }
         }
         splash?.let { points ->
@@ -3481,7 +3516,16 @@ object VersionAdapter {
                 commentFilter?.let { points ->
                     "contract=reply-v1,lists=${points.replyListGetters.size}," +
                         "top=${points.topReplyGetters.size}," +
-                        "level_paths=${listOfNotNull(points.levelGetter, points.memberV2LevelGetter).size}"
+                        "level_paths=${listOfNotNull(points.levelGetter, points.memberV2LevelGetter).size}," +
+                        "at=${points.atNameMapGetter != null}," +
+                        "author_paths=${
+                            listOfNotNull(
+                                points.memberNameGetter,
+                                points.memberMidGetter,
+                                points.memberV2NameGetter,
+                                points.memberV2MidGetter
+                            ).size
+                        }"
                 }.orEmpty()
             ),
             AdaptDiagnostic(
@@ -5117,6 +5161,32 @@ object VersionAdapter {
         }
         if (levelGetter == null && memberV2LevelGetter == null) return@runCatching null
 
+        // @ 整条过滤：Content 上的 `atNameToMid` map。计数 getter 是热路径的前置判据，
+        // Map getter 只在计数 > 0 时才会被调用。
+        val atNameCountGetter = publicNoArg(contentGetter.returnType, "getAtNameToMidCount")
+            ?.takeIf { it.returnType == classOf<Int>() }
+        val atNameMapGetter = publicNoArg(contentGetter.returnType, "getAtNameToMidMap")
+            ?.takeIf { it.returnType isSubclassOf classOf<Map<*, *>>() }
+
+        fun nameGetter(owner: Class<*>?): Method? = owner?.let {
+            publicNoArg(it, "getName")?.takeIf { method -> method.returnType == classOf<String>() }
+        }
+
+        fun midGetter(owner: Class<*>?): Method? = owner?.let {
+            publicNoArg(it, "getMid")?.takeIf { method ->
+                method.returnType in setOf(
+                    classOf<Int>(), classOf<Long>(),
+                    classOf<Int>(primitiveType = false),
+                    classOf<Long>(primitiveType = false)
+                )
+            }
+        }
+
+        val memberNameGetter = nameGetter(memberGetter?.returnType)
+        val memberMidGetter = midGetter(memberGetter?.returnType)
+        val memberV2NameGetter = nameGetter(memberV2BasicGetter?.returnType)
+        val memberV2MidGetter = midGetter(memberV2BasicGetter?.returnType)
+
         fun Method.returnsReplyInfoList(): Boolean {
             if (!(returnType isSubclassOf classOf<List<*>>())) return false
             val generic = genericReturnType as? ParameterizedType ?: return false
@@ -5167,17 +5237,24 @@ object VersionAdapter {
             replyListGetters = listGetters,
             contentGetter = contentGetter.toHookPoint(),
             messageGetter = messageGetter.toHookPoint(),
-            memberGetter = memberGetter?.takeIf { levelGetter != null }?.toHookPoint(),
+            // 发布者过滤只需要 member 本身，等级链缺失时仍要保留它，否则按 UID/用户名过滤
+            // 会连"能不能读到作者"都判断不了。等级路径的完整性另由 hasLevelPath 判定。
+            memberGetter = memberGetter?.toHookPoint(),
             levelGetter = levelGetter?.toHookPoint(),
-            memberV2Getter = memberV2Getter?.takeIf { memberV2LevelGetter != null }?.toHookPoint(),
-            memberV2BasicGetter = memberV2BasicGetter?.takeIf {
-                memberV2LevelGetter != null
-            }?.toHookPoint(),
+            memberV2Getter = memberV2Getter?.toHookPoint(),
+            memberV2BasicGetter = memberV2BasicGetter?.toHookPoint(),
             memberV2LevelGetter = memberV2LevelGetter?.toHookPoint(),
             topReplyGetters = topReplyGetters.takeIf { replyDefaultInstance != null }.orEmpty(),
             replyDefaultInstanceGetter = replyDefaultInstance?.takeIf {
                 topReplyGetters.isNotEmpty()
-            }?.toHookPoint()
+            }?.toHookPoint(),
+            // 计数与 Map 必须成对出现：只有其中之一时无法既省开销又拿到 @ 名单。
+            atNameCountGetter = atNameCountGetter?.takeIf { atNameMapGetter != null }?.toHookPoint(),
+            atNameMapGetter = atNameMapGetter?.takeIf { atNameCountGetter != null }?.toHookPoint(),
+            memberNameGetter = memberNameGetter?.toHookPoint(),
+            memberMidGetter = memberMidGetter?.toHookPoint(),
+            memberV2NameGetter = memberV2NameGetter?.toHookPoint(),
+            memberV2MidGetter = memberV2MidGetter?.toHookPoint()
         )
     }.getOrNull()
 

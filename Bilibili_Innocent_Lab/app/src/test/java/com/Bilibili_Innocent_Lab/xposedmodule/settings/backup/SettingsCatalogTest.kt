@@ -9,11 +9,11 @@ import org.junit.Test
 class SettingsCatalogTest {
 
     @Test
-    fun `catalog is a unique allowlist with 86 settings`() {
-        assertEquals(86, SettingsCatalog.specs.size)
-        assertEquals(86, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(86, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(85, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 113 settings`() {
+        assertEquals(113, SettingsCatalog.specs.size)
+        assertEquals(113, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(113, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(112, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(1, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -131,7 +131,13 @@ class SettingsCatalogTest {
         val expected = requireNotNull(
             javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v10.txt")
         ).bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
-        assertEquals(expected, SettingsCatalog.specs.map { it.id }.sorted())
+        assertEquals(
+            expected,
+            SettingsCatalog.specs
+                .filter { it.introducedCatalogVersion <= 10 }
+                .map { it.id }
+                .sorted()
+        )
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 10 }.single()
         assertEquals("pgc.auto_activity_popup.hidden", added.id)
         assertEquals(SettingValue.Bool(false), added.defaultValue)
@@ -139,11 +145,105 @@ class SettingsCatalogTest {
         assertTrue(ImportEffect.RESTART_BILIBILI in added.effects)
     }
 
+    /** v11 = 哔哩漫游移植批次：弹幕 / 评论判据扩展 / 分享 / 站外链接 / 系统 / 开屏 / 直播间 / AV 号。 */
+    @Test
+    fun `catalog v11 adds the ported feature settings and stays fully restorable`() {
+        val expected = requireNotNull(
+            javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v11.txt")
+        ).bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(
+            expected,
+            SettingsCatalog.specs
+                .filter { it.introducedCatalogVersion <= 11 }
+                .map { it.id }
+                .sorted()
+        )
+
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 11 }
+        assertEquals(14, added.size)
+        assertEquals(
+            listOf(
+                "comments.at_only.removed",
+                "comments.user_filter.enabled",
+                "comments.user_filter.rules",
+                "links.external_browser.enabled",
+                "live.double_tap.pause",
+                "live.room_switch.blocked",
+                "numbers.bv_as_av.enabled",
+                "player.danmaku.vip_colorful.removed",
+                "player.danmaku.weight_filter.enabled",
+                "player.danmaku.weight_filter.minimum",
+                "share.content.purified",
+                "share.mini_program.direct_link",
+                "splash.auto_night.enabled",
+                "system.media_notification.enabled"
+            ),
+            added.map { it.id }.sorted()
+        )
+        // 全部默认关闭：移植功能不改变升级用户的既有行为。
+        assertTrue(
+            added.filter { it.type == SettingValueType.BOOLEAN }
+                .all { it.defaultValue == SettingValue.Bool(false) }
+        )
+        assertTrue(added.all { it.restorePolicy == RestorePolicy.AUTOMATIC })
+        assertTrue(added.all { ImportEffect.RESTART_BILIBILI in it.effects })
+
+        val weight = requireNotNull(SettingsCatalog.byId[SettingsCatalog.ID_DANMAKU_WEIGHT_MINIMUM])
+        assertEquals(SettingValue.IntValue(3), weight.defaultValue)
+        assertTrue(weight.accepts(SettingValue.IntValue(1)))
+        assertTrue(weight.accepts(SettingValue.IntValue(10)))
+        assertFalse(weight.accepts(SettingValue.IntValue(0)))
+        assertFalse(weight.accepts(SettingValue.IntValue(11)))
+        assertEquals(SettingValue.IntValue(1), weight.normalizeForBackup(SettingValue.IntValue(-3)))
+        assertEquals(SettingValue.IntValue(10), weight.normalizeForBackup(SettingValue.IntValue(99)))
+    }
+
+    /** v12 = 哔哩漫游移植批次二：动态页内容过滤 / 搜索结果过滤。 */
+    @Test
+    fun `catalog v12 adds the dynamic and search filters and stays fully restorable`() {
+        val expected = requireNotNull(
+            javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v12.txt")
+        ).bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.map { it.id }.sorted())
+
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 12 }
+        assertEquals(13, added.size)
+        assertEquals(
+            listOf(
+                "dynamic.author_filter.enabled",
+                "dynamic.author_filter.rules",
+                "dynamic.charge_only.removed",
+                "dynamic.keyword_filter.enabled",
+                "dynamic.keyword_filter.keywords",
+                "dynamic.promotions.removed",
+                "dynamic.topic_list.hidden",
+                "dynamic.up_list.live.removed",
+                "search.author_filter.enabled",
+                "search.author_filter.rules",
+                "search.commercial.removed",
+                "search.keyword_filter.enabled",
+                "search.keyword_filter.keywords"
+            ),
+            added.map { it.id }.sorted()
+        )
+        // 全部默认关闭 / 空规则：移植功能不改变升级用户的既有行为。
+        assertTrue(
+            added.filter { it.type == SettingValueType.BOOLEAN }
+                .all { it.defaultValue == SettingValue.Bool(false) }
+        )
+        assertTrue(
+            added.filter { it.type == SettingValueType.STRING }
+                .all { it.defaultValue == SettingValue.Text("") }
+        )
+        assertTrue(added.all { it.restorePolicy == RestorePolicy.AUTOMATIC })
+        assertTrue(added.all { ImportEffect.RESTART_BILIBILI in it.effects })
+    }
+
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(68, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
-        assertEquals(4, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
-        assertEquals(14, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
+        assertEquals(89, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(5, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
+        assertEquals(19, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 
         val roaming = requireNotNull(SettingsCatalog.byId["compat.roaming.enabled"])
         assertEquals(RestorePolicy.MANUAL, roaming.restorePolicy)

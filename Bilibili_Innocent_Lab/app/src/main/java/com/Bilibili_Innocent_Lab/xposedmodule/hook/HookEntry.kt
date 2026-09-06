@@ -37,12 +37,17 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMethodHook
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BlockUpdateFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BottomBarFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BvToAvFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentTopologyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentSectionFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DynamicPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DynamicTabsFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailAppPromotionFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ExternalBrowserFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallRecord
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallResult
@@ -58,6 +63,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeTabFilterFeatureI
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeComponentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.LiveRoomWidgetFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MerchandiseFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineVipFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentFilterFeatureInstaller
@@ -66,8 +72,12 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PgcAutoActivityPopupF
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPortraitFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerInteractiveOverlayFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerStatusBarFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SearchPurifyFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SharePurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.StoryPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SplashAdFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SplashAutoNightFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SystemMediaNotificationFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TeenagersModeFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoRelateFilterFeatureInstaller
@@ -2817,6 +2827,67 @@ class HookEntry : XposedModule() {
 
             featureInstallCoordinator.installAll(
                 listOf(
+                    DynamicPurifyFeatureInstaller(
+                        keywordFilterEnabled = prefs.getBoolean(
+                            FeaturePreferences.DYNAMIC_KEYWORD_FILTER_ENABLED,
+                            false
+                        ),
+                        rawKeywords = prefs.getString(
+                            FeaturePreferences.DYNAMIC_FILTER_KEYWORDS,
+                            ""
+                        ).orEmpty(),
+                        authorFilterEnabled = prefs.getBoolean(
+                            FeaturePreferences.DYNAMIC_AUTHOR_FILTER_ENABLED,
+                            false
+                        ),
+                        rawAuthorRules = prefs.getString(
+                            FeaturePreferences.DYNAMIC_AUTHOR_FILTER_RULES,
+                            ""
+                        ).orEmpty(),
+                        removePromotion = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_DYNAMIC_PROMOTIONS,
+                            false
+                        ),
+                        removeLockedChargeOnly = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_DYNAMIC_CHARGE_ONLY,
+                            false
+                        ),
+                        hideTopicList = prefs.getBoolean(
+                            FeaturePreferences.HIDE_DYNAMIC_TOPIC_LIST,
+                            false
+                        ),
+                        removeLiveUpEntries = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_DYNAMIC_LIVE_UP_ENTRIES,
+                            false
+                        )
+                    ),
+                    SearchPurifyFeatureInstaller(
+                        removeCommercial = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_SEARCH_COMMERCIAL,
+                            false
+                        ),
+                        keywordFilterEnabled = prefs.getBoolean(
+                            FeaturePreferences.SEARCH_KEYWORD_FILTER_ENABLED,
+                            false
+                        ),
+                        rawKeywords = prefs.getString(
+                            FeaturePreferences.SEARCH_FILTER_KEYWORDS,
+                            ""
+                        ).orEmpty(),
+                        authorFilterEnabled = prefs.getBoolean(
+                            FeaturePreferences.SEARCH_AUTHOR_FILTER_ENABLED,
+                            false
+                        ),
+                        rawAuthorRules = prefs.getString(
+                            FeaturePreferences.SEARCH_AUTHOR_FILTER_RULES,
+                            ""
+                        ).orEmpty()
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
                     FullNumberFeatureInstaller(
                         enabled = prefs.getBoolean(
                             FeaturePreferences.SHOW_FULL_NUMBERS,
@@ -3185,7 +3256,87 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.COMMENT_MIN_LEVEL,
                             CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL
                         ),
+                        removeAtOnlyComments = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_AT_ONLY_COMMENTS,
+                            false
+                        ),
+                        userFilterEnabled = prefs.getBoolean(
+                            FeaturePreferences.COMMENT_USER_FILTER_ENABLED,
+                            false
+                        ),
+                        rawUserRules = prefs.getString(
+                            FeaturePreferences.COMMENT_USER_FILTER_RULES,
+                            ""
+                        ).orEmpty(),
                         points = hostAdaptResult?.commentFilter
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    DanmakuPurifyFeatureInstaller(
+                        weightFilterEnabled = prefs.getBoolean(
+                            FeaturePreferences.DANMAKU_WEIGHT_FILTER_ENABLED,
+                            false
+                        ),
+                        minimumWeight = prefs.getInt(
+                            FeaturePreferences.DANMAKU_WEIGHT_FILTER_MINIMUM,
+                            DanmakuPurifyPolicy.DEFAULT_MINIMUM_WEIGHT
+                        ),
+                        removeVipColorful = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_VIP_COLORFUL_DANMAKU,
+                            false
+                        )
+                    ),
+                    LiveRoomWidgetFeatureInstaller(
+                        blockRoomSwitch = prefs.getBoolean(
+                            FeaturePreferences.BLOCK_LIVE_ROOM_SWITCH,
+                            false
+                        ),
+                        doubleTapPause = prefs.getBoolean(
+                            FeaturePreferences.LIVE_ROOM_DOUBLE_TAP_PAUSE,
+                            false
+                        )
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    SharePurifyFeatureInstaller(
+                        purifyContent = prefs.getBoolean(
+                            FeaturePreferences.PURIFY_SHARE_CONTENT,
+                            false
+                        ),
+                        miniProgramDirectLink = prefs.getBoolean(
+                            FeaturePreferences.SHARE_MINI_PROGRAM_DIRECT_LINK,
+                            false
+                        )
+                    ),
+                    ExternalBrowserFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.FORCE_EXTERNAL_BROWSER,
+                            false
+                        )
+                    ),
+                    SystemMediaNotificationFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION,
+                            false
+                        )
+                    ),
+                    SplashAutoNightFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.SPLASH_AUTO_NIGHT,
+                            false
+                        )
+                    ),
+                    BvToAvFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.SHOW_BV_AS_AV,
+                            false
+                        )
                     )
                 )
             )

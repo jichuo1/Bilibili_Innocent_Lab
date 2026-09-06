@@ -1223,12 +1223,21 @@ class DiagnosticsActivity : SkinnedActivity() {
             "bottom_bar" -> R.string.custom_bottom_bar_hide
             "story_purify" -> R.string.story_purify_settings
             "dynamic_tabs_purify" -> R.string.dynamic_page_settings
+            "dynamic_purify" -> R.string.diagnostics_host_feature_dynamic_feed
+            "search_purify" -> R.string.diagnostics_host_feature_search
             "mine_vip_purify" -> R.string.hide_mine_vip
             "video_relate_filter" -> R.string.diagnostics_host_feature_relate
             "player_portrait_control" -> R.string.hide_player_portrait_control
             "player_interactive_overlay" -> R.string.hide_player_interactive_overlays
             "pgc_auto_activity_popup" -> R.string.hide_pgc_auto_activity_popup
             "player_status_bar" -> R.string.transparent_player_status_bar
+            "danmaku_purify" -> R.string.diagnostics_host_feature_danmaku
+            "live_room_widgets" -> R.string.diagnostics_host_feature_live_room
+            "share_purify" -> R.string.diagnostics_host_feature_share
+            "external_browser" -> R.string.force_external_browser
+            "system_media_notification" -> R.string.system_media_notification
+            "splash_auto_night" -> R.string.splash_auto_night
+            "bv_to_av" -> R.string.show_bv_as_av
             "comment_filter" -> R.string.diagnostics_host_feature_comment_filter
             "comment_purify" -> R.string.diagnostics_host_feature_comment_purify
             "comment_section" -> R.string.hide_comment_section

@@ -146,7 +146,8 @@ class SettingsOrganizationInstrumentedTest {
                 menu(activity, R.string.enhancement_advanced_settings).performClick()
                 listOf(
                     R.string.advanced_enhance_browsing, R.string.advanced_enhance_playback,
-                    R.string.advanced_enhance_comments, R.string.number_display_settings
+                    R.string.advanced_enhance_live, R.string.advanced_enhance_comments,
+                    R.string.number_display_settings, R.string.advanced_enhance_system
                 ).forEach { menu(activity, it).performClick() }
                 menu(activity, R.string.experimental_compatibility).performClick()
             }
@@ -160,8 +161,11 @@ class SettingsOrganizationInstrumentedTest {
                 listOf(
                     R.string.home_vertical_open_detail, R.string.prefer_dynamic_video_tab,
                     R.string.player_default_quality, R.string.transparent_player_status_bar,
+                    R.string.block_live_room_switch, R.string.live_room_double_tap_pause,
                     R.string.reply_topology_enabled, R.string.block_comment_quick_reply,
-                    R.string.show_full_numbers
+                    R.string.show_full_numbers, R.string.show_bv_as_av,
+                    R.string.splash_auto_night, R.string.system_media_notification,
+                    R.string.force_external_browser
                 ).forEach { title ->
                     assertEquals(activity.getString(title), reference,
                         controlInsets(activity, R.string.enhancement_advanced_settings, title))
@@ -234,7 +238,8 @@ class SettingsOrganizationInstrumentedTest {
                 assertEquals(View.VISIBLE, menuContent(activity, R.string.purification_advanced_settings).visibility)
                 listOf(
                     R.string.advanced_enhance_browsing, R.string.advanced_enhance_playback,
-                    R.string.advanced_enhance_comments, R.string.number_display_settings
+                    R.string.advanced_enhance_live, R.string.advanced_enhance_comments,
+                    R.string.number_display_settings, R.string.advanced_enhance_system
                 ).forEach { assertEquals(View.GONE, menuContent(activity, it).visibility) }
                 scrollTo(activity, menu(activity, R.string.enhancement_advanced_settings))
             }

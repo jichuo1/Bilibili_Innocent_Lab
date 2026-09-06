@@ -58,6 +58,16 @@ internal object DiagnosticFeatureRegistry {
         DiagnosticFeatureDescriptor("bottom_bar", DiagnosticFeatureCategory.HOME_AND_DYNAMIC),
         DiagnosticFeatureDescriptor("story_purify", DiagnosticFeatureCategory.HOME_AND_DYNAMIC),
         DiagnosticFeatureDescriptor("dynamic_tabs_purify", DiagnosticFeatureCategory.HOME_AND_DYNAMIC),
+        DiagnosticFeatureDescriptor(
+            "dynamic_purify",
+            DiagnosticFeatureCategory.HOME_AND_DYNAMIC,
+            runtimeEvidenceExpected = true
+        ),
+        DiagnosticFeatureDescriptor(
+            "search_purify",
+            DiagnosticFeatureCategory.HOME_AND_DYNAMIC,
+            runtimeEvidenceExpected = true
+        ),
         DiagnosticFeatureDescriptor("mine_vip_purify", DiagnosticFeatureCategory.MINE),
         DiagnosticFeatureDescriptor(
             "mine_component_filter",
@@ -76,6 +86,16 @@ internal object DiagnosticFeatureRegistry {
             runtimeEvidenceExpected = true
         ),
         DiagnosticFeatureDescriptor("player_status_bar", DiagnosticFeatureCategory.PLAYER_AND_DETAIL),
+        DiagnosticFeatureDescriptor(
+            "danmaku_purify",
+            DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
+            runtimeEvidenceExpected = true
+        ),
+        DiagnosticFeatureDescriptor(
+            "live_room_widgets",
+            DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
+            runtimeEvidenceExpected = true
+        ),
         DiagnosticFeatureDescriptor(
             "video_relate_filter",
             DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
@@ -106,6 +126,31 @@ internal object DiagnosticFeatureRegistry {
         DiagnosticFeatureDescriptor("block_app_update", DiagnosticFeatureCategory.GENERAL),
         DiagnosticFeatureDescriptor("full_number_display", DiagnosticFeatureCategory.GENERAL),
         DiagnosticFeatureDescriptor("teenagers_mode_prompt", DiagnosticFeatureCategory.GENERAL),
+        DiagnosticFeatureDescriptor(
+            "share_purify",
+            DiagnosticFeatureCategory.GENERAL,
+            runtimeEvidenceExpected = true
+        ),
+        DiagnosticFeatureDescriptor(
+            "external_browser",
+            DiagnosticFeatureCategory.GENERAL,
+            runtimeEvidenceExpected = true
+        ),
+        DiagnosticFeatureDescriptor(
+            "system_media_notification",
+            DiagnosticFeatureCategory.GENERAL,
+            runtimeEvidenceExpected = true
+        ),
+        DiagnosticFeatureDescriptor(
+            "splash_auto_night",
+            DiagnosticFeatureCategory.GENERAL,
+            runtimeEvidenceExpected = true
+        ),
+        DiagnosticFeatureDescriptor(
+            "bv_to_av",
+            DiagnosticFeatureCategory.GENERAL,
+            runtimeEvidenceExpected = true
+        ),
         DiagnosticFeatureDescriptor("roaming_compat", DiagnosticFeatureCategory.COMPATIBILITY)
     ).also { values ->
         require(values.map(DiagnosticFeatureDescriptor::id).toSet().size == values.size) {

@@ -82,4 +82,73 @@ internal object FeaturePreferences {
     const val COMMENT_MIN_LEVEL_FILTER_ENABLED = "comment_min_level_filter_enabled"
     const val COMMENT_MIN_LEVEL = "comment_min_level"
     const val PURIFY_SPLASH_ADS = "purify_splash_ads"
+
+    /** 整条只有 @ 某人、没有正文的评论；与关键词/等级过滤共用同一条列表边界。 */
+    const val REMOVE_AT_ONLY_COMMENTS = "remove_at_only_comments"
+
+    /** 按发布者过滤评论：规则行既可写 UID 也可写用户名，两者取并集。 */
+    const val COMMENT_USER_FILTER_ENABLED = "comment_user_filter_enabled"
+    const val COMMENT_USER_FILTER_RULES = "comment_user_filter_rules"
+
+    /** 弹幕权重过滤：低于阈值的弹幕在 protobuf 边界删除。 */
+    const val DANMAKU_WEIGHT_FILTER_ENABLED = "danmaku_weight_filter_enabled"
+    const val DANMAKU_WEIGHT_FILTER_MINIMUM = "danmaku_weight_filter_minimum"
+
+    /** 大会员渐变彩色弹幕（DmColorfulType.VipGradualColor）。 */
+    const val REMOVE_VIP_COLORFUL_DANMAKU = "remove_vip_colorful_danmaku"
+
+    /** 分享链接与分享文案里的推广/追踪查询参数。 */
+    const val PURIFY_SHARE_CONTENT = "purify_share_content"
+
+    /** 微信/QQ 小程序卡片降级为普通链接分享。 */
+    const val SHARE_MINI_PROGRAM_DIRECT_LINK = "share_mini_program_direct_link"
+
+    /** 站外链接改由系统浏览器打开，不再进入宿主内置 WebView。 */
+    const val FORCE_EXTERNAL_BROWSER = "force_external_browser"
+
+    /** 后台播放使用系统媒体控制样式通知。 */
+    const val SYSTEM_MEDIA_NOTIFICATION = "system_media_notification"
+
+    /** 开屏页背景跟随系统深色模式。 */
+    const val SPLASH_AUTO_NIGHT = "splash_auto_night"
+
+    /** 直播间上下滑动切换房间。 */
+    const val BLOCK_LIVE_ROOM_SWITCH = "block_live_room_switch"
+
+    /** 直播间双击由点赞改为暂停/继续播放。 */
+    const val LIVE_ROOM_DOUBLE_TAP_PAUSE = "live_room_double_tap_pause"
+
+    /** 视频号显示为 AV 号。 */
+    const val SHOW_BV_AS_AV = "show_bv_as_av"
+
+    /** 动态正文关键词过滤；命中的动态整条不显示。 */
+    const val DYNAMIC_KEYWORD_FILTER_ENABLED = "dynamic_keyword_filter_enabled"
+    const val DYNAMIC_FILTER_KEYWORDS = "dynamic_filter_keywords"
+
+    /** 按发布者过滤动态：规则行既可写 UID 也可写用户名。 */
+    const val DYNAMIC_AUTHOR_FILTER_ENABLED = "dynamic_author_filter_enabled"
+    const val DYNAMIC_AUTHOR_FILTER_RULES = "dynamic_author_filter_rules"
+
+    /** 带货与「UP 主推荐」附加卡。 */
+    const val REMOVE_DYNAMIC_PROMOTIONS = "remove_dynamic_promotions"
+
+    /** 未解锁的充电专属动态。 */
+    const val REMOVE_DYNAMIC_CHARGE_ONLY = "remove_dynamic_charge_only"
+
+    /** 动态页顶部话题栏。 */
+    const val HIDE_DYNAMIC_TOPIC_LIST = "hide_dynamic_topic_list"
+
+    /** 动态页顶部 UP 栏中正在直播的条目。 */
+    const val REMOVE_DYNAMIC_LIVE_UP_ENTRIES = "remove_dynamic_live_up_entries"
+
+    /** 搜索结果中的商业广告卡与特殊运营卡。 */
+    const val REMOVE_SEARCH_COMMERCIAL = "remove_search_commercial"
+
+    /** 搜索结果标题关键词过滤（仅作用于视频卡）。 */
+    const val SEARCH_KEYWORD_FILTER_ENABLED = "search_keyword_filter_enabled"
+    const val SEARCH_FILTER_KEYWORDS = "search_filter_keywords"
+
+    /** 按发布者过滤搜索结果（仅作用于视频卡）。 */
+    const val SEARCH_AUTHOR_FILTER_ENABLED = "search_author_filter_enabled"
+    const val SEARCH_AUTHOR_FILTER_RULES = "search_author_filter_rules"
 }
