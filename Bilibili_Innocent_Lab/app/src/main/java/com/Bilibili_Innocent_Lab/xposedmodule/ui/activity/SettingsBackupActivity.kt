@@ -44,6 +44,7 @@ import androidx.lifecycle.ViewModelProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.BackupFormatError
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.BackupSource
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ImportEffect
@@ -1065,7 +1066,7 @@ class SettingsBackupActivity : SkinnedActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(4), dp(4), dp(16), dp(4))
-            background = skinCardBackground(monetColors.surfaceVariant, 0f)
+            // 与诊断页一致，透出动画宿主的页面背景，不再单独绘制标题栏色带。
         }
         toolbar.addView(TextView(this).apply {
             text = "←"
@@ -1075,7 +1076,7 @@ class SettingsBackupActivity : SkinnedActivity() {
             setTextColor(getColor(R.color.colorTextGray))
             isClickable = true
             isFocusable = true
-            background = ripple(monetColors.surfaceVariant, 24f)
+            background = ripple(Color.TRANSPARENT, 24f)
             setOnClickListener { handleBack() }
         }, LinearLayout.LayoutParams(dp(48), dp(48)))
         val toolbarTitle = TextView(this).apply {
@@ -1247,6 +1248,12 @@ class SettingsBackupActivity : SkinnedActivity() {
     }
 
     private fun valueSummary(spec: SettingSpec?, value: SettingValue?): String = when {
+        (spec?.id == SettingsCatalog.ID_PLAYER_DEFAULT_SPEED || spec?.id == SettingsCatalog.ID_PLAYER_LONG_PRESS_SPEED) &&
+            value is SettingValue.IntValue -> if (value.value == PlayerSpeedConfig.FOLLOW_HOST) {
+                getString(R.string.player_speed_follow_host)
+            } else {
+                getString(R.string.player_speed_multiplier, PlayerSpeedConfig.formatMultiplier(value.value))
+            }
         spec?.id == ID_PLAYER_DEFAULT_QUALITY && value is SettingValue.IntValue ->
             playerQualityLabel(value.value)
         spec?.id == ID_LOG_LEVEL && value is SettingValue.Text -> when (value.value) {

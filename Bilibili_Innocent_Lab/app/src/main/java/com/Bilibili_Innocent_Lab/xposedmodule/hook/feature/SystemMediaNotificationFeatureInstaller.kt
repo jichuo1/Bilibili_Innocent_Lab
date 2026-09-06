@@ -94,7 +94,7 @@ internal class SystemMediaNotificationFeatureInstaller(
             *method.parameterTypes
         ) {
             before {
-                if (args.getOrNull(0) != DEVICE_DECISION_KEY) return@before
+                if (argOrNull(0) != DEVICE_DECISION_KEY) return@before
                 result = true
                 environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                 environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)

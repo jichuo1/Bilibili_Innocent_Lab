@@ -58,6 +58,10 @@ internal object InjectedUiLocale {
     @Volatile
     private var receiverRegistered = false
 
+    private val systemLocaleCache = InjectedSystemLocaleCache()
+    @Volatile
+    private var systemLocaleReceiverRegistered = false
+
     /** 无模块状态可读时跟随设备系统；不跟随哔哩哔哩自身可能存在的应用语言覆盖。 */
     @Volatile
     private var hostSelectionTag = TAG_SYSTEM
@@ -93,6 +97,7 @@ internal object InjectedUiLocale {
     fun initializeHost(context: Context) {
         if (!TargetProcess.isMainProcess(context, TARGET_PACKAGE)) return
         ensureHostReceiverRegistered(context)
+        ensureSystemLocaleReceiverRegistered(context)
         if (!hostInitializationStarted.compareAndSet(false, true)) return
 
         hostSelectionTag = readHostCache(context) ?: TAG_SYSTEM
@@ -111,6 +116,15 @@ internal object InjectedUiLocale {
     fun resolveEffectiveTag(context: Context?, explicitSelectionTag: String? = null): String {
         val selection = explicitSelectionTag?.let(::normalizeSelectionTag) ?: hostSelectionTag
         if (selection != TAG_SYSTEM) return selection
+        if (systemLocaleReceiverRegistered && context != null) {
+            // 命中时只有 volatile 读取；Context 捕获的 loader 仅在缓存未命中时创建。
+            systemLocaleCache.current?.let { return it }
+            systemLocaleCache.getOrLoad {
+                platformSystemLocale(context)?.let(::supportedTagForLocale)
+            }?.let { return it }
+            // Binder 暂时失败时保留原本的 Resources 兜底，但不把兜底永久缓存。
+            return resourceSystemLocale()?.let(::supportedTagForLocale) ?: TAG_ENGLISH
+        }
         val locale = deviceSystemLocale(context) ?: return TAG_ENGLISH
         return supportedTagForLocale(locale)
     }
@@ -149,15 +163,46 @@ internal object InjectedUiLocale {
 
     /** 跟随设备系统语言，不受哔哩哔哩自身 per-app locale 覆盖影响。 */
     private fun deviceSystemLocale(context: Context?): Locale? {
-        if (AndroidVersion.isAtLeast(AndroidVersion.T) && context != null) {
+        if (context != null) platformSystemLocale(context)?.let { return it }
+        return resourceSystemLocale()
+    }
+
+    private fun platformSystemLocale(context: Context): Locale? {
+        if (!AndroidVersion.isAtLeast(AndroidVersion.T)) return null
+        return runCatching {
+            context.getSystemService(classOf<LocaleManager>())
+                ?.systemLocales
+                ?.takeUnless { it.isEmpty }
+                ?.get(0)
+        }.getOrNull()
+    }
+
+    private fun resourceSystemLocale(): Locale? =
+        runCatching { Resources.getSystem().configuration.locales[0] }.getOrNull()
+
+    private fun ensureSystemLocaleReceiverRegistered(context: Context) {
+        if (!AndroidVersion.isAtLeast(AndroidVersion.T) || systemLocaleReceiverRegistered) return
+        synchronized(receiverLock) {
+            if (systemLocaleReceiverRegistered) return
             runCatching {
-                context.getSystemService(classOf<LocaleManager>())
-                    ?.systemLocales
-                    ?.takeUnless { it.isEmpty }
-                    ?.get(0)
-            }.getOrNull()?.let { return it }
+                // ACTION_LOCALE_CHANGED 是系统保护广播。不能与模块签名权限的选择广播混用，
+                // 否则设备系统语言变化可能收不到，导致 system 文案一直停在旧语言。
+                ContextCompat.registerReceiver(
+                    context.applicationContext ?: context,
+                    object : BroadcastReceiver() {
+                        override fun onReceive(context: Context, intent: Intent) {
+                            if (intent.action == Intent.ACTION_LOCALE_CHANGED) {
+                                systemLocaleCache.invalidate()
+                            }
+                        }
+                    },
+                    IntentFilter(Intent.ACTION_LOCALE_CHANGED),
+                    ContextCompat.RECEIVER_EXPORTED
+                )
+            }.onSuccess {
+                systemLocaleReceiverRegistered = true
+            }
         }
-        return runCatching { Resources.getSystem().configuration.locales[0] }.getOrNull()
     }
 
     private fun ensureHostReceiverRegistered(context: Context) {
@@ -200,6 +245,7 @@ internal object InjectedUiLocale {
 
     private fun updateHostSelection(context: Context, rawTag: String?) {
         val normalized = normalizeSelectionTag(rawTag)
+        systemLocaleCache.invalidate()
         hostSelectionTag = normalized
         runCatching {
             context.getSharedPreferences(HOST_PREF_FILE, Context.MODE_PRIVATE).edit {

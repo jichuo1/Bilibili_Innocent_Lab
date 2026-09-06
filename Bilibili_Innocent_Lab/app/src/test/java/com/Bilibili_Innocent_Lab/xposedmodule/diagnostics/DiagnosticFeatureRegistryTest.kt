@@ -7,7 +7,7 @@ import org.junit.Test
 class DiagnosticFeatureRegistryTest {
     @Test
     fun `registry is unique bounded and covers specialized feature paths`() {
-        assertEquals(40, DiagnosticFeatureRegistry.descriptors.size)
+        assertEquals(42, DiagnosticFeatureRegistry.descriptors.size)
         assertEquals(
             DiagnosticFeatureRegistry.descriptors.size,
             DiagnosticFeatureRegistry.ids.size
@@ -25,7 +25,9 @@ class DiagnosticFeatureRegistryTest {
             "splash_auto_night",
             "bv_to_av",
             "dynamic_purify",
-            "search_purify"
+            "search_purify",
+            "player_capabilities",
+            "player_speed"
         ).forEach { id ->
             assertTrue(
                 "missing ported diagnostic feature $id",

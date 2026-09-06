@@ -4,12 +4,14 @@ import android.graphics.Bitmap
 import android.graphics.Rect
 import android.content.ComponentName
 import android.os.SystemClock
+import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.EditText
 import android.widget.TextView
 import androidx.core.widget.NestedScrollView
+import androidx.core.view.ViewCompat
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.test.core.app.ActivityScenario
 import androidx.test.espresso.Espresso.onView
@@ -131,6 +133,65 @@ class SettingsOrganizationInstrumentedTest {
         control.getLocationOnScreen(controlLocation)
         return (controlLocation[0] + control.compoundPaddingLeft - cardLocation[0]) to
             (cardLocation[0] + card.width - controlLocation[0] - control.width)
+    }
+
+    @Test
+    fun advancedSubsectionTitlesHaveDistinctTypographyAndKeepControlAlignment() {
+        val headingIds = listOf(
+            R.string.home_recommend_purify_settings, R.string.dynamic_page_settings,
+            R.string.dynamic_content_settings, R.string.prompt_purify_settings,
+            R.string.client_update_settings, R.string.player_capabilities_title,
+            R.string.player_speed_title
+        )
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            SystemClock.sleep(900L)
+            var before = emptyMap<String, Pair<Boolean, Any>>()
+            scenario.onActivity { activity ->
+                activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                before = preferences(activity)
+                menu(activity, R.string.purification_advanced_settings).performClick()
+                listOf(R.string.advanced_purify_home, R.string.advanced_purify_navigation,
+                    R.string.advanced_purify_startup).forEach { menu(activity, it).performClick() }
+                menu(activity, R.string.enhancement_advanced_settings).performClick()
+                menu(activity, R.string.advanced_enhance_playback).performClick()
+            }
+            SystemClock.sleep(400L)
+            scenario.onActivity { activity ->
+                val control = label(activity, R.string.hide_home_game_menu)
+                val description = label(activity, R.string.hide_home_game_menu_tip)
+                val metrics = activity.resources.displayMetrics
+                val expectedSize = TypedValue.applyDimension(
+                    TypedValue.COMPLEX_UNIT_SP, AdvancedSubsectionStyle.TITLE_SP, metrics
+                )
+                val controlLocation = IntArray(2).also(control::getLocationOnScreen)
+                val referenceColor = label(activity, headingIds.first()).currentTextColor
+                headingIds.forEach { id ->
+                    val heading = label(activity, id)
+                    val margins = heading.layoutParams as ViewGroup.MarginLayoutParams
+                    val location = IntArray(2).also(heading::getLocationOnScreen)
+                    assertTrue(heading.isShown)
+                    assertTrue(heading.width > 0 && heading.height > 0)
+                    assertEquals(expectedSize, heading.textSize, 0.5f)
+                    assertTrue(heading.textSize < control.textSize)
+                    assertTrue(heading.textSize > description.textSize)
+                    assertTrue(heading.typeface.isBold)
+                    assertEquals(referenceColor, heading.currentTextColor)
+                    assertEquals(1f, heading.alpha, 0f)
+                    assertTrue(ViewCompat.isAccessibilityHeading(heading))
+                    assertFalse(heading.isClickable)
+                    assertTrue(heading.maxLines > 1)
+                    assertEquals(0, heading.paddingLeft)
+                    assertEquals(0, heading.paddingRight)
+                    assertEquals(controlLocation[0] + control.compoundPaddingLeft,
+                        location[0] + heading.compoundPaddingLeft)
+                    assertEquals(AdvancedSubsectionStyle.TOP_MARGIN_DP * metrics.density,
+                        margins.topMargin.toFloat(), 1f)
+                    assertEquals(AdvancedSubsectionStyle.BOTTOM_MARGIN_DP * metrics.density,
+                        margins.bottomMargin.toFloat(), 1f)
+                }
+                assertEquals(before, preferences(activity))
+            }
+        }
     }
 
     @Test

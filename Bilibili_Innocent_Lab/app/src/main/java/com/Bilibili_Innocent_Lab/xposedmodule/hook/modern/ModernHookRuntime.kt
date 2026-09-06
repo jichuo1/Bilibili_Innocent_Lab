@@ -87,12 +87,34 @@ internal abstract class ModernMethodHook {
     open fun afterHookedMethod(param: ModernHookParam) = Unit
 }
 
-internal class ModernHookParam internal constructor(
+internal class ModernHookParam private constructor(
     val method: Executable,
     val instance: Any?,
-    val args: Array<Any?>
+    private val originalArgs: List<Any?>?,
+    initialArgs: Array<Any?>?
 ) {
-    private val extras = HashMap<String, Any?>()
+    internal constructor(method: Executable, instance: Any?, args: Array<Any?>) :
+        this(method, instance, null, args)
+
+    internal constructor(method: Executable, instance: Any?, args: List<Any?>) :
+        this(method, instance, args, null)
+
+    private var argumentCopy: Array<Any?>? = initialArgs
+    private var extras: HashMap<String, Any?>? = null
+
+    /** 兼容既有数组读写；第一次访问才取私有副本，同次 before/after 共享它。 */
+    val args: Array<Any?>
+        get() = argumentCopy ?: checkNotNull(originalArgs).toTypedArray().also {
+            argumentCopy = it
+        }
+
+    /** 只读热点不触发数组复制；若已通过 args 修改参数，则读取修改后的值（包括 null）。 */
+    fun argOrNull(index: Int): Any? {
+        val copy = argumentCopy
+        return if (copy != null) copy.getOrNull(index) else originalArgs?.getOrNull(index)
+    }
+
+    internal fun copiedArgsOrNull(): Array<Any?>? = argumentCopy
 
     val thisObject: Any?
         get() = instance
@@ -120,10 +142,11 @@ internal class ModernHookParam internal constructor(
         get() = throwableValue != null
 
     fun setObjectExtra(key: String, value: Any?) {
-        extras[key] = value
+        val values = extras ?: HashMap<String, Any?>().also { extras = it }
+        values[key] = value
     }
 
-    fun getObjectExtra(key: String): Any? = extras[key]
+    fun getObjectExtra(key: String): Any? = extras?.get(key)
 
     internal fun assignOriginal(value: Any?) {
         resultValue = value
@@ -177,14 +200,17 @@ internal class ModernMemberHookCreator(
         val param = ModernHookParam(
             method = chain.executable,
             instance = chain.thisObject,
-            args = chain.args.toTypedArray()
+            args = chain.args
         )
         replacement?.let { return it(param) }
 
         beforeCallback?.invoke(param)
         if (!param.wasResultAssignedByHook() && !param.hasThrowable) {
             try {
-                param.assignOriginal(chain.proceed(param.args))
+                val copiedArgs = param.copiedArgsOrNull()
+                param.assignOriginal(
+                    if (copiedArgs == null) chain.proceed() else chain.proceed(copiedArgs)
+                )
             } catch (throwable: Throwable) {
                 param.assignOriginalFailure(throwable)
             }

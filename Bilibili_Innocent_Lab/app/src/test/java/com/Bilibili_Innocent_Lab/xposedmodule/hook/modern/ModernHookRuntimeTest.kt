@@ -10,6 +10,104 @@ class ModernHookRuntimeTest {
     private val method = Fixture::class.java.getDeclaredMethod("sum", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
 
     @Test
+    fun `read only hook proceeds with original arguments without materializing a copy`() {
+        val incoming = arrayOf<Any?>(1, null)
+        val chain = TestChain(method, Fixture(), incoming) { _, args ->
+            assertSame(incoming, args)
+            3
+        }
+        val creator = ModernMemberHookCreator(method).apply {
+            before {
+                assertEquals(1, argOrNull(0))
+                assertNull(argOrNull(1))
+                assertNull(argOrNull(-1))
+                assertNull(argOrNull(2))
+                assertNull(copiedArgsOrNull())
+            }
+            after {
+                assertEquals(1, argOrNull(0))
+                assertNull(copiedArgsOrNull())
+            }
+        }
+        assertEquals(3, creator.invoke(chain))
+        assertEquals(1, chain.calls)
+        assertEquals(0, chain.argumentOverrideCalls)
+    }
+
+    @Test
+    fun `array access stays private and read only accessor observes null writes`() {
+        val incoming = arrayOf<Any?>(1, 2)
+        var snapshot: Array<Any?>? = null
+        val chain = TestChain(method, Fixture(), incoming) { _, args ->
+            assertSame(snapshot, args)
+            assertNull(args[0])
+            5
+        }
+        val creator = ModernMemberHookCreator(method).apply {
+            before {
+                assertEquals(1, argOrNull(0))
+                snapshot = args
+                args[0] = null
+                assertSame(snapshot, args)
+                assertNull(argOrNull(0))
+            }
+            after {
+                assertSame(snapshot, args)
+                assertNull(argOrNull(0))
+            }
+        }
+        assertEquals(5, creator.invoke(chain))
+        assertArrayEquals(arrayOf<Any?>(1, 2), incoming)
+        assertEquals(1, chain.argumentOverrideCalls)
+    }
+
+    @Test
+    fun `first array access in after cannot modify upstream arguments`() {
+        val incoming = arrayOf<Any?>(1, 2)
+        val chain = TestChain(method, Fixture(), incoming)
+        val creator = ModernMemberHookCreator(method).apply {
+            after { args[0] = 9; assertEquals(9, argOrNull(0)) }
+        }
+        assertEquals(3, creator.invoke(chain))
+        assertEquals(0, chain.argumentOverrideCalls)
+        assertArrayEquals(arrayOf<Any?>(1, 2), incoming)
+    }
+
+    @Test
+    fun `extras remain unallocated on reads and support overwrites including null`() {
+        val param = ModernHookParam(method, null, emptyList())
+        val extras = ModernHookParam::class.java.getDeclaredField("extras").apply { isAccessible = true }
+        assertNull(param.getObjectExtra("key"))
+        assertNull(extras.get(param))
+        param.setObjectExtra("key", 1)
+        val map = extras.get(param)
+        assertEquals(1, param.getObjectExtra("key"))
+        param.setObjectExtra("key", null)
+        assertSame(map, extras.get(param))
+        assertNull(param.getObjectExtra("key"))
+    }
+
+    @Test
+    fun `recursive invocations keep argument copies and extras isolated`() {
+        lateinit var creator: ModernMemberHookCreator
+        creator = ModernMemberHookCreator(method).apply {
+            before {
+                val value = argOrNull(0) as Int
+                assertNull(getObjectExtra("value"))
+                setObjectExtra("value", value)
+                args[0] = value + 10
+                if (value == 1) {
+                    assertEquals(12, creator.invoke(TestChain(method, arguments = arrayOf(2))))
+                    assertEquals(11, argOrNull(0))
+                    assertEquals(1, getObjectExtra("value"))
+                }
+            }
+            after { result = argOrNull(0) }
+        }
+        assertEquals(11, creator.invoke(TestChain(method, arguments = arrayOf(1))))
+    }
+
+    @Test
     fun `before edits a private argument copy and after transforms the downstream result`() {
         val incoming = arrayOf<Any?>(1, 2)
         val chain = TestChain(method, Fixture(), incoming) { _, args -> (args[0] as Int) + (args[1] as Int) }
@@ -248,13 +346,18 @@ class ModernHookRuntimeTest {
         private val original: (Any?, Array<Any?>) -> Any? = { _, _ -> 3 }
     ) : XposedInterface.Chain {
         var calls = 0
+        var argumentOverrideCalls = 0
         override fun getExecutable(): Executable = member
         override fun getThisObject(): Any? = receiver
         override fun getArgs(): List<Any?> = arguments.toList()
         override fun getArg(index: Int): Any? = arguments[index]
-        override fun proceed(): Any? = proceed(arguments)
+        override fun proceed(): Any? {
+            calls++
+            return original(receiver, arguments)
+        }
         override fun proceed(args: Array<Any?>): Any? {
             calls++
+            argumentOverrideCalls++
             return original(receiver, args)
         }
         override fun proceedWith(thisObject: Any): Any? = proceedWith(thisObject, arguments)

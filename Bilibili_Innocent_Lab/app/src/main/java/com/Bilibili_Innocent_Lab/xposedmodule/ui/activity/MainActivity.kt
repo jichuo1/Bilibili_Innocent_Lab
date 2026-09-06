@@ -48,6 +48,7 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.os.LocaleListCompat
 import androidx.core.net.toUri
+import androidx.core.view.ViewCompat
 import androidx.core.view.isVisible
 import androidx.core.view.setPadding
 import androidx.core.view.updateMargins
@@ -91,6 +92,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshotCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.RuleSetCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AndroidUserSpace
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AndroidUserSpaceSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.GitHubReleaseChecker
@@ -281,6 +283,9 @@ class MainActivity : SkinnedActivity() {
     private var videoRelateReasonFilterEnabled = false
     private var videoRelateReasonFilterKeywords = ""
     private var playerDefaultQualityQn = 0
+    private var playerDisableLongPress = false
+    private var playerLongPressSpeedPercent = 0
+    private var playerDefaultSpeedPercent = 0
     private var blockTeenagersModePrompt = false
     private var removeCommentSearchLinks = false
     private var removeCommentEmptyGuide = false
@@ -343,8 +348,12 @@ class MainActivity : SkinnedActivity() {
     /** 手动亮色开关下方 tip 引用（动态动画切换文本） */
     private var lightModeTipView: NativeTextView? = null
     private var playerQualitySummaryView: NativeTextView? = null
+    private var playerLongPressSpeedSummary: NativeTextView? = null
+    private var playerDefaultSpeedSummary: NativeTextView? = null
     private var homeTabRulesSummaryView: NativeTextView? = null
     private var homeRecommendTitleSummaryView: NativeTextView? = null
+    private var homeRecommendFilterEntryView: View? = null
+    private var homeRecommendFilterSummaryView: NativeTextView? = null
     private var homeComponentRulesSummaryView: NativeTextView? = null
     private var mineComponentRulesSummaryView: NativeTextView? = null
     private var bottomBarRulesSummaryView: NativeTextView? = null
@@ -3073,6 +3082,101 @@ class MainActivity : SkinnedActivity() {
         )
     }
 
+    private fun playerSpeedLabel(percent: Int): String = if (percent == PlayerSpeedConfig.FOLLOW_HOST) {
+        getString(R.string.player_speed_follow_host)
+    } else {
+        getString(R.string.player_speed_multiplier, PlayerSpeedConfig.formatMultiplier(percent))
+    }
+
+    private fun updatePlayerSpeedSummaries() {
+        playerLongPressSpeedSummary?.text = if (playerDisableLongPress) {
+            getString(R.string.player_long_press_speed_paused, playerSpeedLabel(playerLongPressSpeedPercent))
+        } else playerSpeedLabel(playerLongPressSpeedPercent)
+        playerDefaultSpeedSummary?.text = playerSpeedLabel(playerDefaultSpeedPercent)
+    }
+
+    /** 使用百分比整数发布配置；非法输入留在弹窗内，跟随宿主是独立、明确的操作。 */
+    private fun showPlayerSpeedDialog(longPress: Boolean) {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createModalContainer()
+        val current = if (longPress) playerLongPressSpeedPercent else playerDefaultSpeedPercent
+        container.addView(NativeTextView(this).apply {
+            text = getString(if (longPress) R.string.player_long_press_speed else R.string.player_default_speed)
+            textColor = getColor(R.color.colorTextDark)
+            textSize = 17f
+        })
+        container.addView(NativeTextView(this).apply {
+            text = getString(R.string.player_speed_input_tip)
+            textColor = getColor(R.color.colorTextGray)
+            textSize = 12f
+            setLineSpacing(4 * density, 1f)
+        }, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (12 * density).toInt() })
+        val editor = NativeEditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            isSingleLine = true
+            filters = arrayOf(android.text.InputFilter.LengthFilter(8))
+            hint = getString(R.string.player_speed_input_hint)
+            if (current != PlayerSpeedConfig.FOLLOW_HOST) setText(PlayerSpeedConfig.formatMultiplier(current))
+            setSelection(text.length)
+            textColor = getColor(R.color.colorTextDark)
+            setHintTextColor(getColor(R.color.colorTextGray))
+            textSize = 16f
+            setPadding((14 * density).toInt(), (12 * density).toInt(), (14 * density).toInt(), (12 * density).toInt())
+            background = GradientDrawable().apply {
+                cornerRadius = 14 * density
+                setColor(monetColors.surfaceVariant)
+            }
+        }
+        container.addView(editor, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (14 * density).toInt() })
+        fun save(percent: Int) {
+            val key = if (longPress) FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT
+                else FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT
+            runCatching { prefs().edit { putInt(key, percent) } }.onSuccess {
+                if (longPress) playerLongPressSpeedPercent = percent else playerDefaultSpeedPercent = percent
+                updatePlayerSpeedSummaries()
+                dismissWithAnimation(dialog, container) {}
+            }.onFailure {
+                Log.e("BilibiliInnocentLab", "write player speed prefs failed", it)
+                editor.error = getString(R.string.player_speed_save_failed)
+            }
+        }
+        container.addView(createGitHubMenuRow(
+            title = getString(R.string.player_speed_follow_host),
+            subtitle = getString(R.string.player_speed_follow_host_tip),
+            highlight = current == PlayerSpeedConfig.FOLLOW_HOST
+        ) { save(PlayerSpeedConfig.FOLLOW_HOST) },
+            NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (12 * density).toInt() })
+        val buttons = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        listOf(R.string.dialog_cancel, R.string.dialog_confirm).forEach { label ->
+            buttons.addView(NativeTextView(this).apply {
+                text = getString(label)
+                textColor = if (label == R.string.dialog_confirm) monetColors.primary else getColor(R.color.colorTextGray)
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding((20 * density).toInt(), (14 * density).toInt(), (20 * density).toInt(), (14 * density).toInt())
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    if (label == R.string.dialog_cancel) {
+                        dismissWithAnimation(dialog, container) {}
+                    } else {
+                        val percent = PlayerSpeedConfig.parseMultiplier(editor.textToString())
+                        if (percent == null || percent == PlayerSpeedConfig.FOLLOW_HOST) {
+                            editor.error = getString(R.string.player_speed_invalid)
+                        } else save(percent)
+                    }
+                }
+            })
+        }
+        container.addView(buttons, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (12 * density).toInt() })
+        presentModalDialog(dialog, container)
+    }
+
     /** 评论最低等级选择：沿用播放器画质选择器的模态菜单与进退场动画。 */
     private fun showCommentMinLevelDialog() {
         val density = resources.displayMetrics.density
@@ -5148,6 +5252,17 @@ class MainActivity : SkinnedActivity() {
         return true
     }
 
+    /** 只修饰组内标题；不改变分类 marker、点击入口或内容容器的水平留白。 */
+    private fun NativeTextView.applyAdvancedSubsectionStyle() {
+        textSize = AdvancedSubsectionStyle.TITLE_SP
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        textColor = monetColors.primary
+        alpha = 1f
+        isSingleLine = false
+        ellipsize = null
+        ViewCompat.setAccessibilityHeading(this, true)
+    }
+
     /** 首帧前用同一套折叠卡片分组净化与增强控件，保留原监听器和独立展开状态。 */
     private fun installAdvancedCategorySections() {
         installAdvancedCategorySections(
@@ -5476,6 +5591,180 @@ class MainActivity : SkinnedActivity() {
         val view: View,
         val section: SettingsSearchSection
     )
+
+    private fun homeRecommendFilterValues(): Map<String, Boolean> = mapOf(
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS to removeHomeRecommendAds,
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES to removeHomeRecommendPictures,
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS to removeHomeRecommendGamePromotions,
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE to removeHomeRecommendLive,
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES to removeHomeRecommendCourses,
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE to removeHomeRecommendLarge
+    )
+
+    private fun homeRecommendFilterSummary(): String {
+        val selected = homeRecommendFilterValues().values.count { it }
+        return if (selected == 0) getString(R.string.home_recommend_filter_summary_none) else {
+            getString(R.string.home_recommend_filter_summary_selected,
+                selected, HomeRecommendFilterCatalog.preferenceKeys.size)
+        }
+    }
+
+    @StringRes
+    private fun homeRecommendFilterLabel(preferenceKey: String): Int = when (preferenceKey) {
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS -> R.string.remove_home_recommend_ads
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES -> R.string.remove_home_recommend_pictures
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS ->
+            R.string.remove_home_recommend_game_promotions
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE -> R.string.remove_home_recommend_live
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES -> R.string.remove_home_recommend_courses
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE -> R.string.remove_home_recommend_large
+        else -> error("Unknown home recommendation filter key: $preferenceKey")
+    }
+
+    private fun applyHomeRecommendFilterValue(preferenceKey: String, enabled: Boolean) {
+        when (preferenceKey) {
+            FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS -> removeHomeRecommendAds = enabled
+            FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES -> removeHomeRecommendPictures = enabled
+            FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS ->
+                removeHomeRecommendGamePromotions = enabled
+            FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE -> removeHomeRecommendLive = enabled
+            FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES -> removeHomeRecommendCourses = enabled
+            FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE -> removeHomeRecommendLarge = enabled
+            else -> error("Unknown home recommendation filter key: $preferenceKey")
+        }
+    }
+
+    private fun showHomeRecommendFilterDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createModalContainer()
+        val draft = HomeRecommendFilterDraft(homeRecommendFilterValues())
+        container.addView(NativeTextView(this).apply {
+            text = getString(R.string.home_recommend_filter_title)
+            textColor = getColor(R.color.colorTextDark)
+            textSize = 19f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        })
+        container.addView(NativeTextView(this).apply {
+            text = getString(R.string.home_recommend_filter_dialog_description)
+            textColor = getColor(R.color.colorTextGray)
+            textSize = 12f
+            alpha = 0.72f
+            setLineSpacing(4 * density, 1f)
+        }, NativeLinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = (7 * density).toInt() })
+
+        val quickActions = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        val selectAllButton = createTermsActionButton(
+            getString(R.string.home_recommend_filter_select_all), filled = false
+        ) {}
+        val clearButton = createTermsActionButton(
+            getString(R.string.home_recommend_filter_clear), filled = false
+        ) {}
+        quickActions.addView(selectAllButton,
+            NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        quickActions.addView(clearButton,
+            NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = (8 * density).toInt()
+            })
+        container.addView(quickActions, NativeLinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = (12 * density).toInt() })
+
+        val rows = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.VERTICAL
+            setPadding(0, (4 * density).toInt(), 0, (4 * density).toInt())
+        }
+        val checkboxes = linkedMapOf<String, android.widget.CheckBox>()
+        HomeRecommendFilterCatalog.preferenceKeys.forEach { key ->
+            val box = android.widget.CheckBox(this).apply {
+                text = getString(homeRecommendFilterLabel(key))
+                textSize = 14f
+                textColor = getColor(R.color.colorTextDark)
+                minimumHeight = (48 * density).toInt()
+                isChecked = draft[key]
+                isFocusable = true
+            }
+            checkboxes[key] = box
+            rows.addView(box, NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+        }
+        val listBody = NativeScrollView(this).apply {
+            isFillViewport = true
+            addView(rows)
+        }
+        val listHeight = minOf(
+            (304 * density).toInt(), (resources.displayMetrics.heightPixels * 0.38f).toInt()
+        )
+        container.addView(listBody, NativeLinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, listHeight
+        ).apply {
+            topMargin = (7 * density).toInt()
+            bottomMargin = (8 * density).toInt()
+        })
+
+        val buttonRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        val cancelButton = createTermsActionButton(getString(R.string.dialog_cancel), filled = false) {
+            dismissWithAnimation(dialog, container) {}
+        }
+        val saveButton = createTermsActionButton("", filled = true) {
+            val changed = draft.changedValues()
+            if (changed.isEmpty()) {
+                dismissWithAnimation(dialog, container) {}
+                return@createTermsActionButton
+            }
+            val saved = runCatching {
+                prefs().edit {
+                    changed.forEach { (key, value) -> putBoolean(key, value) }
+                }
+            }.isSuccess
+            if (!saved) {
+                toast(getString(R.string.home_recommend_filter_save_failed))
+                return@createTermsActionButton
+            }
+            changed.forEach { (key, value) -> applyHomeRecommendFilterValue(key, value) }
+            homeRecommendFilterSummaryView?.text = homeRecommendFilterSummary()
+            toast(getString(R.string.home_recommend_filter_applied))
+            dismissWithAnimation(dialog, container) {}
+        }
+        var updating = false
+        fun refreshUi() {
+            updating = true
+            checkboxes.forEach { (key, box) -> box.isChecked = draft[key] }
+            saveButton.text = getString(R.string.home_recommend_filter_save,
+                draft.selectedCount(), HomeRecommendFilterCatalog.preferenceKeys.size)
+            updating = false
+        }
+        checkboxes.forEach { (key, box) ->
+            box.setOnCheckedChangeListener { _, checked ->
+                if (!updating) {
+                    draft[key] = checked
+                    refreshUi()
+                }
+            }
+        }
+        selectAllButton.setOnClickListener { draft.selectAll(); refreshUi() }
+        clearButton.setOnClickListener { draft.clear(); refreshUi() }
+        buttonRow.addView(cancelButton,
+            NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        buttonRow.addView(saveButton,
+            NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = (8 * density).toInt()
+            })
+        container.addView(buttonRow, NativeLinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+        refreshUi()
+        presentModalDialog(dialog, container)
+    }
 
     private fun portraitContentFilterValues(): Map<String, Boolean> = mapOf(
         FeaturePreferences.REMOVE_HOME_RECOMMEND_VERTICAL to removeHomeRecommendVertical,
@@ -6329,6 +6618,12 @@ class MainActivity : SkinnedActivity() {
             }
             val texts = mutableListOf<String>()
             collectText(view, texts)
+            if (view === homeRecommendFilterEntryView) {
+                // 原开关移入弹窗后，按六项原名搜索仍定位到这个入口及所属折叠区域。
+                HomeRecommendFilterCatalog.preferenceKeys.forEach {
+                    texts += getString(homeRecommendFilterLabel(it))
+                }
+            }
             val title = texts.firstOrNull()?.lineSequence()?.firstOrNull()?.trim().orEmpty()
             if (title.isBlank()) return
             val key = "setting-${nextKey++}"
@@ -6777,8 +7072,12 @@ class MainActivity : SkinnedActivity() {
         logLevelThumb = null
         logLevelDesc = null
         playerQualitySummaryView = null
+        playerLongPressSpeedSummary = null
+        playerDefaultSpeedSummary = null
         homeTabRulesSummaryView = null
         homeRecommendTitleSummaryView = null
+        homeRecommendFilterEntryView = null
+        homeRecommendFilterSummaryView = null
         homeComponentRulesSummaryView = null
         mineComponentRulesSummaryView = null
         bottomBarRulesSummaryView = null
@@ -7131,6 +7430,15 @@ class MainActivity : SkinnedActivity() {
             )
         }.onFailure { t ->
             Log.e("BilibiliInnocentLab", "read player default quality prefs failed", t)
+        }.getOrDefault(0)
+        playerDisableLongPress = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS, false) ?: false
+        }.getOrDefault(false)
+        playerLongPressSpeedPercent = runCatching {
+            PlayerSpeedConfig.normalize(modulePrefs?.getInt(FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT, 0) ?: 0)
+        }.getOrDefault(0)
+        playerDefaultSpeedPercent = runCatching {
+            PlayerSpeedConfig.normalize(modulePrefs?.getInt(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT, 0) ?: 0)
         }.getOrDefault(0)
         removeCommentSearchLinks = runCatching {
             modulePrefs?.getBoolean(
@@ -8188,14 +8496,12 @@ class MainActivity : SkinnedActivity() {
                                     }
                                     TextView(
                                         lparams = LayoutParams(widthMatchParent = true) {
-                                            topMargin = 14.dp
-                                            bottomMargin = 4.dp
+                                            topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
+                                            bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
                                         }
                                     ) {
-                                        alpha = 0.7f
                                         text = stringResource(R.string.home_recommend_purify_settings)
-                                        textColor = colorResource(R.color.colorTextGray)
-                                        textSize = 11f
+                                        applyAdvancedSubsectionStyle()
                                     }
                                     MaterialSwitch(
                                         lparams = LayoutParams(widthMatchParent = true) {
@@ -8236,66 +8542,50 @@ class MainActivity : SkinnedActivity() {
                                         textColor = colorResource(R.color.colorTextDark)
                                         textSize = 12f
                                     }
-                                    MaterialSwitch(
+                                    LinearLayout(
                                         lparams = LayoutParams(widthMatchParent = true) {
-                                            bottomMargin = 5.dp
+                                            bottomMargin = 8.dp
+                                        },
+                                        init = {
+                                            homeRecommendFilterEntryView = this
+                                            orientation = LinearLayout.HORIZONTAL
+                                            gravity = Gravity.CENTER_VERTICAL
+                                            background = selfRippleBackground(10f)
+                                            updatePadding(vertical = 9.dp)
+                                            isClickable = true
+                                            isFocusable = true
+                                            contentDescription = stringResource(
+                                                R.string.home_recommend_filter_title
+                                            )
+                                            setOnClickListener { showHomeRecommendFilterDialog() }
                                         }
                                     ) {
-                                        text = stringResource(R.string.remove_home_recommend_ads)
-                                        isAllCaps = false
-                                        textColor = colorResource(R.color.colorTextGray)
-                                        textSize = 15f
-                                        isChecked = removeHomeRecommendAds
-                                        setOnCheckedChangeListener { _, checked ->
-                                            removeHomeRecommendAds = checked
-                                            prefs().edit {
-                                                putBoolean(
-                                                    FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS,
-                                                    checked
-                                                )
+                                        LinearLayout(
+                                            lparams = LayoutParams { weight = 1f },
+                                            init = { orientation = LinearLayout.VERTICAL }
+                                        ) {
+                                            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                                                text = stringResource(R.string.home_recommend_filter_title)
+                                                textColor = colorResource(R.color.colorTextGray)
+                                                textSize = 15f
+                                            }
+                                            TextView(
+                                                lparams = LayoutParams(widthMatchParent = true) {
+                                                    topMargin = 4.dp
+                                                }
+                                            ) {
+                                                homeRecommendFilterSummaryView = this
+                                                alpha = 0.68f
+                                                text = homeRecommendFilterSummary()
+                                                textColor = colorResource(R.color.colorTextDark)
+                                                textSize = 12f
                                             }
                                         }
-                                    }
-                                    MaterialSwitch(
-                                        lparams = LayoutParams(widthMatchParent = true) {
-                                            topMargin = 8.dp
-                                            bottomMargin = 5.dp
-                                        }
-                                    ) {
-                                        text = stringResource(R.string.remove_home_recommend_pictures)
-                                        isAllCaps = false
-                                        textColor = colorResource(R.color.colorTextGray)
-                                        textSize = 15f
-                                        isChecked = removeHomeRecommendPictures
-                                        setOnCheckedChangeListener { _, checked ->
-                                            removeHomeRecommendPictures = checked
-                                            prefs().edit {
-                                                putBoolean(
-                                                    FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES,
-                                                    checked
-                                                )
-                                            }
-                                        }
-                                    }
-                                    MaterialSwitch(
-                                        lparams = LayoutParams(widthMatchParent = true) {
-                                            topMargin = 8.dp
-                                            bottomMargin = 5.dp
-                                        }
-                                    ) {
-                                        text = stringResource(R.string.remove_home_recommend_game_promotions)
-                                        isAllCaps = false
-                                        textColor = colorResource(R.color.colorTextGray)
-                                        textSize = 15f
-                                        isChecked = removeHomeRecommendGamePromotions
-                                        setOnCheckedChangeListener { _, checked ->
-                                            removeHomeRecommendGamePromotions = checked
-                                            prefs().edit {
-                                                putBoolean(
-                                                    FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS,
-                                                    checked
-                                                )
-                                            }
+                                        ImageView(lparams = LayoutParams(18.dp, 18.dp)) {
+                                            setImageResource(R.drawable.ic_chevron_down)
+                                            rotation = -90f
+                                            alpha = 0.8f
+                                            imageTintList = stateColorResource(R.color.colorTextGray)
                                         }
                                     }
                                     MaterialSwitch(
@@ -8367,69 +8657,6 @@ class MainActivity : SkinnedActivity() {
                                             }
                                         }
                                     }
-                                    MaterialSwitch(
-                                        lparams = LayoutParams(widthMatchParent = true) {
-                                            topMargin = 8.dp
-                                            bottomMargin = 5.dp
-                                        }
-                                    ) {
-                                        text = stringResource(R.string.remove_home_recommend_live)
-                                        isAllCaps = false
-                                        textColor = colorResource(R.color.colorTextGray)
-                                        textSize = 15f
-                                        isChecked = removeHomeRecommendLive
-                                        setOnCheckedChangeListener { _, checked ->
-                                            removeHomeRecommendLive = checked
-                                            prefs().edit {
-                                                putBoolean(
-                                                    FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE,
-                                                    checked
-                                                )
-                                            }
-                                        }
-                                    }
-                                    MaterialSwitch(
-                                        lparams = LayoutParams(widthMatchParent = true) {
-                                            topMargin = 8.dp
-                                            bottomMargin = 5.dp
-                                        }
-                                    ) {
-                                        text = stringResource(R.string.remove_home_recommend_courses)
-                                        isAllCaps = false
-                                        textColor = colorResource(R.color.colorTextGray)
-                                        textSize = 15f
-                                        isChecked = removeHomeRecommendCourses
-                                        setOnCheckedChangeListener { _, checked ->
-                                            removeHomeRecommendCourses = checked
-                                            prefs().edit {
-                                                putBoolean(
-                                                    FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES,
-                                                    checked
-                                                )
-                                            }
-                                        }
-                                    }
-                                    MaterialSwitch(
-                                        lparams = LayoutParams(widthMatchParent = true) {
-                                            topMargin = 8.dp
-                                            bottomMargin = 5.dp
-                                        }
-                                    ) {
-                                        text = stringResource(R.string.remove_home_recommend_large)
-                                        isAllCaps = false
-                                        textColor = colorResource(R.color.colorTextGray)
-                                        textSize = 15f
-                                        isChecked = removeHomeRecommendLarge
-                                        setOnCheckedChangeListener { _, checked ->
-                                            removeHomeRecommendLarge = checked
-                                            prefs().edit {
-                                                putBoolean(
-                                                    FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE,
-                                                    checked
-                                                )
-                                            }
-                                        }
-                                    }
                                     TextView(
                                         lparams = LayoutParams(widthMatchParent = true)
                                     ) {
@@ -8482,14 +8709,12 @@ class MainActivity : SkinnedActivity() {
                                     }
                                     TextView(
                                         lparams = LayoutParams(widthMatchParent = true) {
-                                            bottomMargin = 4.dp
+                                            topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
+                                            bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
                                         }
                                     ) {
-                                        alpha = 0.7f
-                                        isSingleLine = true
                                         text = stringResource(R.string.dynamic_page_settings)
-                                        textColor = colorResource(R.color.colorTextGray)
-                                        textSize = 11f
+                                        applyAdvancedSubsectionStyle()
                                     }
                                     MaterialSwitch(
                                         lparams = LayoutParams(widthMatchParent = true) {
@@ -8569,15 +8794,12 @@ class MainActivity : SkinnedActivity() {
                                     // 动态内容过滤与上面的页签净化同属动态页，放在同一区域。
                                     TextView(
                                         lparams = LayoutParams(widthMatchParent = true) {
-                                            topMargin = 12.dp
-                                            bottomMargin = 4.dp
+                                            topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
+                                            bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
                                         }
                                     ) {
-                                        alpha = 0.7f
-                                        isSingleLine = true
                                         text = stringResource(R.string.dynamic_content_settings)
-                                        textColor = colorResource(R.color.colorTextGray)
-                                        textSize = 11f
+                                        applyAdvancedSubsectionStyle()
                                     }
                                     MaterialSwitch(
                                         lparams = LayoutParams(widthMatchParent = true) {
@@ -10340,14 +10562,12 @@ class MainActivity : SkinnedActivity() {
                                     }
                                     TextView(
                                         lparams = LayoutParams(widthMatchParent = true) {
-                                            bottomMargin = 4.dp
+                                            topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
+                                            bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
                                         }
                                     ) {
-                                        alpha = 0.7f
-                                        isSingleLine = true
                                         text = stringResource(R.string.prompt_purify_settings)
-                                        textColor = colorResource(R.color.colorTextGray)
-                                        textSize = 11f
+                                        applyAdvancedSubsectionStyle()
                                     }
                                     MaterialSwitch(
                                         lparams = LayoutParams(widthMatchParent = true) {
@@ -10388,14 +10608,12 @@ class MainActivity : SkinnedActivity() {
                                     }
                                     TextView(
                                         lparams = LayoutParams(widthMatchParent = true) {
-                                            bottomMargin = 4.dp
+                                            topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
+                                            bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
                                         }
                                     ) {
-                                        alpha = 0.7f
-                                        isSingleLine = true
                                         text = stringResource(R.string.client_update_settings)
-                                        textColor = colorResource(R.color.colorTextGray)
-                                        textSize = 11f
+                                        applyAdvancedSubsectionStyle()
                                     }
                                     MaterialSwitch(
                                         lparams = LayoutParams(widthMatchParent = true) {
@@ -11050,6 +11268,109 @@ class MainActivity : SkinnedActivity() {
                                         alpha = 0.6f
                                         setLineSpacing(6f, 1f)
                                         text = stringResource(R.string.transparent_player_status_bar_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
+                                            bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.player_capabilities_title)
+                                        applyAdvancedSubsectionStyle()
+                                    }
+                                    listOf(
+                                        FeaturePreferences.PLAYER_UNLOCK_BACKGROUND to R.string.player_unlock_background,
+                                        FeaturePreferences.PLAYER_UNLOCK_SMALL_WINDOW to R.string.player_unlock_small_window,
+                                        FeaturePreferences.PLAYER_UNLOCK_CAST to R.string.player_unlock_cast
+                                    ).forEach { (key, label) ->
+                                        MaterialSwitch(
+                                            lparams = LayoutParams(widthMatchParent = true) {
+                                                topMargin = 12.dp
+                                                bottomMargin = 5.dp
+                                            }
+                                        ) {
+                                            text = stringResource(label)
+                                            isAllCaps = false
+                                            textColor = colorResource(R.color.colorTextGray)
+                                            textSize = 15f
+                                            isChecked = runCatching { prefs().getBoolean(key, false) }.getOrDefault(false)
+                                            setOnCheckedChangeListener { _, checked ->
+                                                runCatching { prefs().edit { putBoolean(key, checked) } }.onFailure {
+                                                    Log.e("BilibiliInnocentLab", "write player capability prefs failed", it)
+                                                }
+                                            }
+                                        }
+                                    }
+                                    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.player_capabilities_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
+                                            bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.player_speed_title)
+                                        applyAdvancedSubsectionStyle()
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.player_disable_long_press)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = playerDisableLongPress
+                                        setOnCheckedChangeListener { _, checked ->
+                                            playerDisableLongPress = checked
+                                            runCatching {
+                                                prefs().edit { putBoolean(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS, checked) }
+                                            }.onFailure {
+                                                Log.e("BilibiliInnocentLab", "write player long press prefs failed", it)
+                                            }
+                                            updatePlayerSpeedSummaries()
+                                        }
+                                    }
+                                    listOf(true, false).forEach { longPress ->
+                                        LinearLayout(
+                                            lparams = LayoutParams(widthMatchParent = true) { topMargin = 8.dp },
+                                            init = {
+                                                orientation = LinearLayout.VERTICAL
+                                                background = selfRippleBackground(10f)
+                                                updatePadding(horizontal = 0.dp, vertical = 9.dp)
+                                                isClickable = true
+                                                isFocusable = true
+                                                setOnClickListener { showPlayerSpeedDialog(longPress) }
+                                            }
+                                        ) {
+                                            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                                                text = stringResource(if (longPress) R.string.player_long_press_speed else R.string.player_default_speed)
+                                                textColor = colorResource(R.color.colorTextGray)
+                                                textSize = 15f
+                                            }
+                                            TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 5.dp }) {
+                                                alpha = 0.6f
+                                                textColor = colorResource(R.color.colorTextDark)
+                                                textSize = 12f
+                                                setLineSpacing(6f, 1f)
+                                                if (longPress) playerLongPressSpeedSummary = this else playerDefaultSpeedSummary = this
+                                                updatePlayerSpeedSummaries()
+                                            }
+                                        }
+                                    }
+                                    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.player_speed_tip)
                                         textColor = colorResource(R.color.colorTextDark)
                                         textSize = 12f
                                     }

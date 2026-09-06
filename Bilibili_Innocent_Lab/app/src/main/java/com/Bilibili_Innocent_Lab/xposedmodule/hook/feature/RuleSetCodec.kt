@@ -13,9 +13,14 @@ internal object RuleSetCodec {
 
     fun matches(tokens: Set<String>, vararg values: String?): Boolean {
         if (tokens.isEmpty()) return false
-        return values.asSequence()
-            .filterNotNull()
-            .map(String::lowercase)
-            .any { value -> tokens.any(value::contains) }
+        for (raw in values) {
+            if (raw == null) continue
+            // 保持 Unicode 整串小写映射语义；ignoreCase 子串比较不与它等价。
+            val value = raw.lowercase()
+            for (token in tokens) {
+                if (value.contains(token)) return true
+            }
+        }
+        return false
     }
 }

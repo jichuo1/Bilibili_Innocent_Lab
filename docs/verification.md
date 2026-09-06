@@ -496,13 +496,30 @@ Local builds cannot prove any of the following. All three need real hardware.
    (MIUI dual app uses userId 999), and open the module in that user if a copy
    exists there. Record whether the framework delivers the libxposed service to
    the cloned-user module process at all.
+   *Field report (2026-09-06, Vector stable 2.2/3080 + MIUI dual app):* a module
+   copy does exist in user 999 and the manager lists it under its own user tab,
+   but that copy never received the service — `service_not_connected`, with the
+   module and host both in user 999. Not reproduced on our own hardware, and 3080
+   predates two upstream delivery fixes, so this is one framework build's
+   behaviour rather than a general result. See the 2026-09-06 entry in
+   `development_experience.md`.
 2. Determine whether the framework stores Remote Preferences per Android user.
    Publish `hook_config` from the primary user, then read the host log in the
    cloned user. If the group is empty there, the host must reject with
    `remote_key_set_mismatch` and install no feature Hook — a partially applied
    configuration would be a defect.
+   *Answered for Vector at source level (canary-3110, 2026-09-06):* the store is
+   keyed by `(module package, user_id, group)` and an injected host reads with
+   `callingUid / 100000`, so a cloned host reads only what the module copy in its
+   own user published. Device confirmation of the host's rejection path is still
+   outstanding, and other frameworks must be checked separately.
 3. With `staticScope=true`, record how the framework manager applies the fixed
    scope to secondary users: automatically, per user, or not at all.
+   *Partially answered (Vector canary-3110 source):* scope rows are per
+   `(app, user)` and a row whose user does not hold the module is dropped;
+   a fixed scope is pruned to the claimed packages but is not auto-added, so the
+   secondary user's row still has to exist. Whether the 3080 manager offers it
+   the same way is unverified.
 
 UI checks that can be run as soon as a secondary user exists:
 
@@ -516,8 +533,10 @@ UI checks that can be run as soon as a secondary user exists:
    item must show the same mismatch line. `TARGET_APP` must report the target as
    missing rather than guessing an identity from another user.
 6. Confirm the multi-user hints never change item severity or the overall status,
-   and that an exported diagnostic report still validates at format version 3
-   with no user id field in it.
+   and that an exported diagnostic report still validates at the current format
+   version — `DiagnosticReportCodec.CURRENT_FORMAT_VERSION`, 4 as of 2026-09-06 —
+   with no user id field in it. The number moves when a report field is added, so
+   read it from the codec rather than from this line.
 7. Scope a renamed host clone by any means available and confirm the module logs
    the observed package name once and installs nothing.
 

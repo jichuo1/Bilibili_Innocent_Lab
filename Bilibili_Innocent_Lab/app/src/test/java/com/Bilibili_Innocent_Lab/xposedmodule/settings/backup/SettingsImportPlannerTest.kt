@@ -15,6 +15,21 @@ class SettingsImportPlannerTest {
     )
 
     @Test
+    fun `all older backups preserve the six new player settings`() {
+        val specs = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 13 }
+        val current = snapshot(*specs.map { spec ->
+            spec to StoredSetting(true, if (spec.type == SettingValueType.BOOLEAN) SettingValue.Bool(true)
+                else SettingValue.IntValue(275))
+        }.toTypedArray())
+        for (version in 1..12) {
+            val plan = SettingsImportPlanner(specs, 13).plan(document(version, emptyList()), current)
+            assertEquals(6, plan.entries.size)
+            assertTrue(plan.entries.all { it.status == ImportStatus.NEW_IN_CURRENT })
+            assertTrue(plan.writes.isEmpty())
+        }
+    }
+
+    @Test
     fun `every older catalog preserves an already enabled PGC popup setting`() {
         val spec = requireNotNull(SettingsCatalog.byId["pgc.auto_activity_popup.hidden"])
         val current = snapshot(spec to StoredSetting(true, SettingValue.Bool(true)))

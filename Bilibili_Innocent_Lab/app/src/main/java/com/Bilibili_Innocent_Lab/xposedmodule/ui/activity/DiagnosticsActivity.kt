@@ -1244,6 +1244,8 @@ class DiagnosticsActivity : SkinnedActivity() {
             "comment_topology" -> R.string.reply_topology_enabled
             "free_copy" -> R.string.free_copy_enable
             "player_default_quality" -> R.string.diagnostics_host_feature_quality
+            "player_capabilities" -> R.string.player_capabilities_title
+            "player_speed" -> R.string.player_speed_title
             "splash_ad_purify" -> R.string.diagnostics_host_feature_splash
             "mine_component_filter" -> R.string.diagnostics_host_feature_mine
             "block_app_update" -> R.string.block_app_update
