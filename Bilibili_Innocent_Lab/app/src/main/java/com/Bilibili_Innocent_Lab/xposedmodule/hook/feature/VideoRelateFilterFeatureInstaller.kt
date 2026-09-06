@@ -545,8 +545,8 @@ internal class VideoRelateFilterFeatureInstaller(
         val types = extractTypes(item, typeMethods)
         val relateCardTypes = extractTypes(item, relateTypeMethods)
         val fromSourceTypes = buildSet {
-            addAll(extractNumbers(item, sourceTypeMethods) { it.toLong() })
-            addAll(extractNumbersFromPaths(item, sourceTypePaths) { it.toLong() })
+            extractNumbersInto(item, sourceTypeMethods, this) { it.toLong() }
+            extractNumbersFromPathsInto(item, sourceTypePaths, this) { it.toLong() }
         }
         val relateCardTypeValues = extractNumbers(item, relateTypeValueMethods) { it.toInt() }
         return VideoRelateTypeEvidence(
@@ -557,13 +557,16 @@ internal class VideoRelateFilterFeatureInstaller(
         )
     }
 
-    private fun extractTypes(item: Any, methods: List<Method>): Set<String> = buildSet {
-        methods.forEach { method ->
-            if (!method.declaringClass.isInstance(item)) return@forEach
-            val raw = runCatching { method.invoke(item) }.getOrNull() ?: return@forEach
-            val value = (raw as? Enum<*>)?.name ?: raw.toString()
-            val normalized = normalizeType(value)
-            if (normalized.isNotBlank() && normalized !in UNKNOWN_TYPES) add(normalized)
+    private fun extractTypes(item: Any, methods: List<Method>): Set<String> {
+        if (methods.isEmpty()) return emptySet()
+        return buildSet {
+            methods.forEach { method ->
+                if (!method.declaringClass.isInstance(item)) return@forEach
+                val raw = runCatching { method.invoke(item) }.getOrNull() ?: return@forEach
+                val value = (raw as? Enum<*>)?.name ?: raw.toString()
+                val normalized = normalizeType(value)
+                if (normalized.isNotBlank() && normalized !in UNKNOWN_TYPES) add(normalized)
+            }
         }
     }
 
@@ -571,20 +574,31 @@ internal class VideoRelateFilterFeatureInstaller(
         item: Any,
         methods: List<Method>,
         convert: (Number) -> T
-    ): Set<T> = buildSet {
+    ): Set<T> {
+        if (methods.isEmpty()) return emptySet()
+        return buildSet { extractNumbersInto(item, methods, this, convert) }
+    }
+
+    private inline fun <T> extractNumbersInto(
+        item: Any,
+        methods: List<Method>,
+        destination: MutableSet<T>,
+        convert: (Number) -> T
+    ) {
         methods.forEach { method ->
             if (!method.declaringClass.isInstance(item)) return@forEach
             val raw = runCatching { method.invoke(item) }.getOrNull() as? Number
                 ?: return@forEach
-            add(convert(raw))
+            destination.add(convert(raw))
         }
     }
 
-    private fun <T> extractNumbersFromPaths(
+    private inline fun <T> extractNumbersFromPathsInto(
         item: Any,
         paths: List<Pair<Method, Method>>,
+        destination: MutableSet<T>,
         convert: (Number) -> T
-    ): Set<T> = buildSet {
+    ) {
         paths.forEach { (itemGetter, valueGetter) ->
             if (!itemGetter.declaringClass.isInstance(item)) return@forEach
             val raw = runCatching {
@@ -592,7 +606,7 @@ internal class VideoRelateFilterFeatureInstaller(
                 if (!valueGetter.declaringClass.isInstance(nested)) return@runCatching null
                 valueGetter.invoke(nested)
             }.getOrNull() as? Number ?: return@forEach
-            add(convert(raw))
+            destination.add(convert(raw))
         }
     }
 
@@ -679,36 +693,28 @@ internal class VideoRelateFilterFeatureInstaller(
             ) return true
             val kinds = buildSet {
                 types.forEach { type ->
-                    addAll(
-                        HostContentSemanticClassifier.classify(
-                            HostContentSignals(
-                                cardCase = type,
-                                cardType = type,
-                                goTo = type,
-                                relateCardType = type
-                            )
-                        )
+                    HostContentSemanticClassifier.classifyInto(
+                        HostContentSignals(
+                            cardCase = type,
+                            cardType = type,
+                            goTo = type,
+                            relateCardType = type
+                        ), this
                     )
                 }
                 relateCardTypes.forEach { type ->
-                    addAll(
-                        HostContentSemanticClassifier.classify(
-                            HostContentSignals(relateCardType = type)
-                        )
+                    HostContentSemanticClassifier.classifyInto(
+                        HostContentSignals(relateCardType = type), this
                     )
                 }
                 fromSourceTypes.forEach { sourceType ->
-                    addAll(
-                        HostContentSemanticClassifier.classify(
-                            HostContentSignals(fromSourceType = sourceType)
-                        )
+                    HostContentSemanticClassifier.classifyInto(
+                        HostContentSignals(fromSourceType = sourceType), this
                     )
                 }
                 relateCardTypeValues.forEach { typeValue ->
-                    addAll(
-                        HostContentSemanticClassifier.classify(
-                            HostContentSignals(relateCardTypeValue = typeValue)
-                        )
+                    HostContentSemanticClassifier.classifyInto(
+                        HostContentSignals(relateCardTypeValue = typeValue), this
                     )
                 }
             }

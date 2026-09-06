@@ -7,6 +7,36 @@ import org.junit.Test
 
 class HostContentSemanticClassifierTest {
     @Test
+    fun `accumulation preserves independent evidence order and existing destination kinds`() {
+        val kinds = linkedSetOf(HostContentKind.PICTURE)
+        HostContentSemanticClassifier.classifyInto(HostContentSignals(fromSourceType = 2L), kinds)
+        HostContentSemanticClassifier.classifyInto(HostContentSignals(relateCardTypeValue = 4), kinds)
+        HostContentSemanticClassifier.classifyInto(HostContentSignals(cardType = "LIVE"), kinds)
+        HostContentSemanticClassifier.classifyInto(HostContentSignals(cardType = "UNKNOWN"), kinds)
+        assertEquals(listOf(HostContentKind.PICTURE, HostContentKind.ADVERTISEMENT,
+            HostContentKind.SPECIAL, HostContentKind.GAME, HostContentKind.LIVE), kinds.toList())
+        // 后续调用不得污染之前返回的分类快照。
+        val snapshot = HostContentSemanticClassifier.classify(HostContentSignals(cardType = "LIVE"))
+        HostContentSemanticClassifier.classifyInto(HostContentSignals(cardType = "AD"), kinds)
+        assertEquals(setOf(HostContentKind.LIVE), snapshot)
+    }
+
+    @Test
+    fun `banner still checks all five allowed evidence slots with exact normalization`() {
+        val factories = listOf<(String?) -> HostContentSignals>(
+            { HostContentSignals(holderType = it) }, { HostContentSignals(bizType = it) },
+            { HostContentSignals(cardType = it) }, { HostContentSignals(cardGoto = it) },
+            { HostContentSignals(goTo = it) }
+        )
+        for (factory in factories) {
+            assertTrue(HostContentSemanticClassifier.isHomeBanner(factory(" card_type_banner_v8 ")))
+            assertFalse(HostContentSemanticClassifier.isHomeBanner(factory("BANNER_V8_EXTRA")))
+            assertFalse(HostContentSemanticClassifier.isHomeBanner(factory(null)))
+        }
+        assertFalse(HostContentSemanticClassifier.isHomeBanner(
+            HostContentSignals(cardCase = "BANNER_V8", relateCardType = "BANNER_V8")))
+    }
+    @Test
     fun `combines exact enum route and commercial evidence`() {
         val kinds = HostContentSemanticClassifier.classify(
             HostContentSignals(

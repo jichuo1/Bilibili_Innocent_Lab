@@ -11,6 +11,36 @@ import org.junit.Test
 class VersionAdapterTest {
 
     @Test
+    fun `startup snapshot preserves reset version fingerprint and structural cache rejection`() {
+        val cached = result()
+        val identity = VersionAdapter.HostIdentity(cached.biliVersionCode, cached.hostFingerprint)
+        val snapshot = VersionAdapter.StartupCacheSnapshot(identity, cached.ts, cached)
+        assertEquals(cached, snapshot.usableCache(highCandidateExists = true))
+        assertNull(snapshot.copy(resetTimestamp = cached.ts + 1).usableCache(true))
+        assertNull(snapshot.copy(identity = identity.copy(versionCode = identity.versionCode + 1))
+            .usableCache(true))
+        assertNull(snapshot.copy(identity = identity.copy(fingerprint = "different-host"))
+            .usableCache(true))
+        assertNull(snapshot.copy(cached = cached.copy(protocolFingerprint = "invalid"))
+            .usableCache(true))
+        assertNull(snapshot.copy(cached = null).usableCache(true))
+    }
+
+    @Test
+    fun `startup snapshot cannot turn a low only cache into a high capable hit`() {
+        val cached = result().copy(commentHigh = null)
+        val snapshot = VersionAdapter.StartupCacheSnapshot(
+            VersionAdapter.HostIdentity(cached.biliVersionCode, cached.hostFingerprint), 0L, cached
+        )
+        assertNull(snapshot.usableCache(highCandidateExists = true))
+        assertEquals(cached, snapshot.usableCache(highCandidateExists = false))
+        // 原始缓存与实时合并结果分别持有，不能把实时 high 点当成磁盘缓存已覆盖。
+        val merged = VersionAdapter.mergeRuntimeWithCached(result(), snapshot.cached)
+        assertNotNull(merged?.commentHigh)
+        assertNull(snapshot.usableCache(highCandidateExists = true))
+    }
+
+    @Test
     fun `PGC construction point participates in full cache validation and merge`() {
         val points = requireNotNull(VersionAdapter.locatePgcAutoActivityPopup(javaClass.classLoader!!))
         val current = result().copy(pgcAutoActivityPopup = points)

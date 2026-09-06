@@ -20,6 +20,12 @@ class RemoteHookConfigContractTest {
                 HookEntry.PREF_FREE_COPY_ENABLED to false,
                 FeaturePreferences.COMMENT_MIN_LEVEL to 5,
                 FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP to true,
+                FeaturePreferences.PLAYER_UNLOCK_BACKGROUND to true,
+                FeaturePreferences.PLAYER_UNLOCK_SMALL_WINDOW to true,
+                FeaturePreferences.PLAYER_UNLOCK_CAST to true,
+                FeaturePreferences.PLAYER_DISABLE_LONG_PRESS to true,
+                FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT to 275,
+                FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT to 125,
                 RemoteHookConfigContract.KEY_FREE_COPY_CONFIG_REVISION to 42L,
                 RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP to 84L
             )
@@ -45,6 +51,14 @@ class RemoteHookConfigContractTest {
         assertEquals(values, snapshot.values)
         assertEquals(true, snapshot.values[FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP])
         assertEquals(false, defaultValues()[FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP])
+        assertEquals(true, snapshot.values[FeaturePreferences.PLAYER_UNLOCK_BACKGROUND])
+        assertEquals(true, snapshot.values[FeaturePreferences.PLAYER_UNLOCK_SMALL_WINDOW])
+        assertEquals(true, snapshot.values[FeaturePreferences.PLAYER_UNLOCK_CAST])
+        assertEquals(true, snapshot.values[FeaturePreferences.PLAYER_DISABLE_LONG_PRESS])
+        assertEquals(275, snapshot.values[FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT])
+        assertEquals(125, snapshot.values[FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT])
+        assertTrue(RemoteHookConfigContract.decode(encoded - FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT)
+            is RemoteHookConfigDecodeResult.Invalid)
         assertEquals(SettingsCatalog.specs.size + 2, snapshot.values.size)
     }
 
@@ -55,6 +69,8 @@ class RemoteHookConfigContractTest {
                 "private_token" to "must-not-leak",
                 HookEntry.PREF_FREE_COPY_ENABLED to "wrong-type",
                 FeaturePreferences.COMMENT_MIN_LEVEL to 999,
+                FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT to 999,
+                FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT to Float.NaN,
                 RemoteHookConfigContract.KEY_FREE_COPY_CONFIG_REVISION to -1L
             )
         )
@@ -63,6 +79,8 @@ class RemoteHookConfigContractTest {
         assertFalse("private_token" in resolved)
         assertEquals(true, resolved[HookEntry.PREF_FREE_COPY_ENABLED])
         assertEquals(6, resolved[FeaturePreferences.COMMENT_MIN_LEVEL])
+        assertEquals(0, resolved[FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT])
+        assertEquals(0, resolved[FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT])
         assertEquals(0L, resolved[RemoteHookConfigContract.KEY_FREE_COPY_CONFIG_REVISION])
     }
 

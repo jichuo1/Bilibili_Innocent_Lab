@@ -6,6 +6,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureI
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpec
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpecStore
 
@@ -18,7 +19,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorS
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 12
+    const val CATALOG_VERSION = 13
+    const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
+    const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
     const val ID_FREE_COPY_DESCRIPTION = "free_copy.description.enabled"
     const val ID_RECOMMEND_VIDEO_MIN_DURATION =
@@ -353,6 +356,20 @@ internal object SettingsCatalog {
             allowed = PlayerQualityConfig.supportedQns.toSet()
         ),
         bool("prompt.teenagers_mode.blocked", FeaturePreferences.BLOCK_TEENAGERS_MODE_PROMPT, R.string.block_teenagers_mode_prompt),
+        bool("player.capability.background", FeaturePreferences.PLAYER_UNLOCK_BACKGROUND,
+            R.string.player_unlock_background, introducedCatalogVersion = 13),
+        bool("player.capability.small_window", FeaturePreferences.PLAYER_UNLOCK_SMALL_WINDOW,
+            R.string.player_unlock_small_window, introducedCatalogVersion = 13),
+        bool("player.capability.cast", FeaturePreferences.PLAYER_UNLOCK_CAST,
+            R.string.player_unlock_cast, introducedCatalogVersion = 13),
+        bool("player.long_press.disabled", FeaturePreferences.PLAYER_DISABLE_LONG_PRESS,
+            R.string.player_disable_long_press, introducedCatalogVersion = 13),
+        integer(ID_PLAYER_LONG_PRESS_SPEED, FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT,
+            R.string.player_long_press_speed, default = PlayerSpeedConfig.FOLLOW_HOST,
+            allowed = PlayerSpeedConfig.supportedPercents, introducedCatalogVersion = 13),
+        integer(ID_PLAYER_DEFAULT_SPEED, FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT,
+            R.string.player_default_speed, default = PlayerSpeedConfig.FOLLOW_HOST,
+            allowed = PlayerSpeedConfig.supportedPercents, introducedCatalogVersion = 13),
 
         bool("comments.search_links.removed", FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS, R.string.remove_comment_search_links),
         bool("comments.empty_guide.removed", FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE, R.string.remove_comment_empty_guide),
@@ -495,7 +512,7 @@ internal object SettingsCatalog {
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
 
     init {
-        check(specs.size == 113) { "Expected 113 catalog settings, found ${specs.size}" }
+        check(specs.size == 119) { "Expected 119 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

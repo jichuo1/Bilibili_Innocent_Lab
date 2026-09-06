@@ -43,13 +43,12 @@ internal data class HostContentSignals(
  */
 internal object HostContentSemanticClassifier {
     /** 首页大卡轮播只接受公开协议中的精确 BANNER_V8 类型，不按标题或模糊路由猜测。 */
-    fun isHomeBanner(signals: HostContentSignals): Boolean = listOf(
-        signals.holderType,
-        signals.bizType,
-        signals.cardType,
-        signals.cardGoto,
-        signals.goTo
-    ).any { normalizedToken(it) == HOME_BANNER_TOKEN }
+    fun isHomeBanner(signals: HostContentSignals): Boolean =
+        normalizedToken(signals.holderType) == HOME_BANNER_TOKEN ||
+            normalizedToken(signals.bizType) == HOME_BANNER_TOKEN ||
+            normalizedToken(signals.cardType) == HOME_BANNER_TOKEN ||
+            normalizedToken(signals.cardGoto) == HOME_BANNER_TOKEN ||
+            normalizedToken(signals.goTo) == HOME_BANNER_TOKEN
 
     /**
      * 首页推荐信息流标准广告（cm_v2）：HAR 实证 `card_type=cm_v2/card_goto=ad_web_s`，
@@ -60,16 +59,21 @@ internal object HostContentSemanticClassifier {
         normalizedToken(signals.cardType) == CM_V2_TOKEN
 
     fun classify(signals: HostContentSignals): Set<HostContentKind> = buildSet {
-        val tokens = listOf(
-            signals.holderType,
-            signals.bizType,
-            signals.cardType,
-            signals.cardCase,
-            signals.cardGoto,
-            signals.goTo,
-            signals.relateCardType
-        ).mapNotNull(::normalizedToken)
+        classifyInto(signals, this)
+    }
+
+    /** 向当前响应私有集合追加，不清空、不保存 destination，保持原分类及插入顺序。 */
+    internal fun classifyInto(signals: HostContentSignals, destination: MutableSet<HostContentKind>) {
         val relatedType = normalizedToken(signals.relateCardType)
+        val tokens = buildList {
+            normalizedToken(signals.holderType)?.let(::add)
+            normalizedToken(signals.bizType)?.let(::add)
+            normalizedToken(signals.cardType)?.let(::add)
+            normalizedToken(signals.cardCase)?.let(::add)
+            normalizedToken(signals.cardGoto)?.let(::add)
+            normalizedToken(signals.goTo)?.let(::add)
+            relatedType?.let(::add)
+        }
         val relatedTypeValue = signals.relateCardTypeValue
         val isRelatedPromotionSource =
             signals.fromSourceType == RELATED_PROMOTION_SOURCE_TYPE
@@ -83,40 +87,40 @@ internal object HostContentSemanticClassifier {
             relatedType in RELATED_COMMERCIAL_TOKENS ||
             relatedTypeValue in RELATED_COMMERCIAL_TYPE_VALUES ||
             tokens.any(::isAdvertisementToken) || isAdvertisementUri(uri)
-        ) add(HostContentKind.ADVERTISEMENT)
+        ) destination.add(HostContentKind.ADVERTISEMENT)
 
         if (tokens.any(::isPictureToken) ||
             uri.startsWith("bilibili://opus/") ||
             uri.startsWith("bilibili://article/")
-        ) add(HostContentKind.PICTURE)
+        ) destination.add(HostContentKind.PICTURE)
 
         if (relatedTypeValue == RELATED_GAME_TYPE_VALUE ||
             tokens.any(::isGameToken) || GAME_ROUTE_MARKERS.any(uri::contains) ||
             GAME_ROUTE_MARKERS.any(param::contains) ||
             ((signals.hasAdInfo || signals.hasCommercialPayload) &&
                 GAME_TEXT_MARKERS.any(combinedText(signals)::contains))
-        ) add(HostContentKind.GAME)
+        ) destination.add(HostContentKind.GAME)
 
         if (tokens.any(::isLiveToken) ||
             uri.startsWith("bilibili://live/") ||
             uri.contains("live.bilibili.com/")
-        ) add(HostContentKind.LIVE)
+        ) destination.add(HostContentKind.LIVE)
 
         if (tokens.any(::isCourseToken) ||
             uri.contains("/cheese/play/") || uri.startsWith("bilibili://cheese/")
-        ) add(HostContentKind.COURSE)
+        ) destination.add(HostContentKind.COURSE)
 
         if (tokens.any(::isVerticalToken) || uri.startsWith("bilibili://story/") ||
             uri.startsWith("bilibili://story_translucent/")
         ) {
-            add(HostContentKind.VERTICAL)
+            destination.add(HostContentKind.VERTICAL)
         }
 
-        if (tokens.any(::isLargeToken)) add(HostContentKind.LARGE)
-        if (tokens.any(::isBangumiToken)) add(HostContentKind.BANGUMI)
+        if (tokens.any(::isLargeToken)) destination.add(HostContentKind.LARGE)
+        if (tokens.any(::isBangumiToken)) destination.add(HostContentKind.BANGUMI)
         if (isRelatedPromotionSource || isRelatedPromotionType ||
             tokens.any(::isSpecialToken)
-        ) add(HostContentKind.SPECIAL)
+        ) destination.add(HostContentKind.SPECIAL)
     }
 
     fun normalizedToken(raw: String?): String? = raw

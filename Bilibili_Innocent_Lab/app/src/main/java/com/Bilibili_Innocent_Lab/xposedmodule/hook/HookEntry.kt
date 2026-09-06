@@ -79,6 +79,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SplashAdFeatureInstal
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SplashAutoNightFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SystemMediaNotificationFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCapabilityFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCapabilityOptions
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TeenagersModeFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoRelateFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
@@ -877,7 +880,7 @@ class HookEntry : XposedModule() {
             val controlStart = CommentTextIdentity.foldControlStart(text, decoratedRanges)
                 ?: return text
             logInfo(
-                "free_copy_fold_projection_${text.length}_$controlStart",
+                "free_copy_fold_projection",
                 "[BIL] 自由复制折叠投影: visible=${text.length} body=$controlStart"
             )
             return text.subSequence(0, controlStart)
@@ -1014,7 +1017,7 @@ class HookEntry : XposedModule() {
             }
             val fallbackTextCount = (emojiResolution.emotes.size - copyValues.size).coerceAtLeast(0)
             logInfo(
-                "emoji_map_${emojiResolution.emotes.size}_${spans.size}_${emojiResolution.urlMatchedCount}_${copyValues.size}",
+                "emoji_map",
                 "[BIL] 自由复制 Emoji 映射: model=${emojiResolution.emotes.size} " +
                     "spans=${spans.size} url=${emojiResolution.urlMatchedCount} " +
                     "structural=$structuralApplied urlFallback=$urlApplied applied=${copyValues.size} " +
@@ -2570,6 +2573,9 @@ class HookEntry : XposedModule() {
 
             // 每个宿主进程只做一次实时结构探测。实时结果始终优先；只有实时存在缺口时，
             // 才让同一宿主指纹且通过结构校验的缓存补位，使后台 DEX 适配结果在下次冷启动生效。
+            val startupCache by lazy(LazyThreadSafetyMode.NONE) {
+                VersionAdapter.readStartupCache(authorizationContext, versionAdapterResetTimestamp)
+            }
             val hostAdaptResult by lazy(LazyThreadSafetyMode.NONE) {
                 val runtime = biliClassLoader?.let { VersionAdapter.quickLocate(it) }
                 if (runtime?.blockUpdate != null) {
@@ -2577,10 +2583,7 @@ class HookEntry : XposedModule() {
                 } else {
                     VersionAdapter.mergeRuntimeWithCached(
                         runtime = runtime,
-                        cached = VersionAdapter.loadCached(
-                            authorizationContext,
-                            versionAdapterResetTimestamp
-                        )
+                        cached = startupCache.cached
                     )
                 }
             }
@@ -3320,6 +3323,16 @@ class HookEntry : XposedModule() {
                             false
                         )
                     ),
+                    PlayerCapabilityFeatureInstaller(PlayerCapabilityOptions(
+                        background = prefs.getBoolean(FeaturePreferences.PLAYER_UNLOCK_BACKGROUND, false),
+                        smallWindow = prefs.getBoolean(FeaturePreferences.PLAYER_UNLOCK_SMALL_WINDOW, false),
+                        cast = prefs.getBoolean(FeaturePreferences.PLAYER_UNLOCK_CAST, false)
+                    )),
+                    PlayerSpeedFeatureInstaller(
+                        disableLongPress = prefs.getBoolean(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS, false),
+                        longPressPercent = prefs.getInt(FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT, 0),
+                        defaultPercent = prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT, 0)
+                    ),
                     SystemMediaNotificationFeatureInstaller(
                         enabled = prefs.getBoolean(
                             FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION,
@@ -3860,7 +3873,7 @@ class HookEntry : XposedModule() {
                                         !runtimeCommentFreeCopyEnabled
                                     ) return@before
                                     val v = instance as? View ?: return@before
-                                    val ev = args.getOrNull(0) as? android.view.MotionEvent ?: return@before
+                                    val ev = argOrNull(0) as? android.view.MotionEvent ?: return@before
                                     val action = ev.actionMasked
                                     // more_button 属于宿主独立点击控件，不属于评论正文自由复制范围。
                                     // 父 View 的 dispatch 会先建立评论会话；按钮本身到达 beforeHook
@@ -4389,7 +4402,8 @@ class HookEntry : XposedModule() {
                                     )
                                 }
                             }
-                        }
+                        },
+                        startupCache = startupCache
                     )
                 }.onFailure { throwable ->
                     logError(
@@ -4578,7 +4592,7 @@ class HookEntry : XposedModule() {
                 modernRuntime.install("system:allow-module-background-start", method) {
                     before {
                         // 仅对本模块包放行（其接收器代开漫游设置界面时处于后台）
-                        if (args.getOrNull(2) == MODULE_PACKAGE) {
+                        if (argOrNull(2) == MODULE_PACKAGE) {
                             result = false
                         }
                     }
@@ -4604,7 +4618,7 @@ class HookEntry : XposedModule() {
                 ) ?: throw NoSuchMethodException("ActivityStarterImpl#isAllowedStartActivity")
                 modernRuntime.install("system:allow-module-background-start-miui", method) {
                     before {
-                        if (args.getOrNull(2) == MODULE_PACKAGE) {
+                        if (argOrNull(2) == MODULE_PACKAGE) {
                             result = true
                         }
                     }

@@ -90,6 +90,27 @@ callbacks, and the module owns handlers, receivers, listeners, adaptation state
 and native DexKit state that require an explicit retirement design. It is not a
 configuration synchronization mechanism.
 
+## Field evidence (2026-09-06)
+
+One user report, on **stable 2.2 (3080)** with a MIUI dual-app user (userId 999).
+The module copy in that user never received the libxposed service: the gate showed
+`service_not_connected` with module and host both in user 999, so the module kept
+every Hook closed, which is the intended fail-closed behaviour. The manager did
+list that user as its own tab with the module enabled, so user enumeration and
+module enablement were not the missing piece.
+
+This is a report, not acceptance. It is one build on hardware we do not have, no
+framework log was collected, and 3080 predates both delivery fixes cited above —
+so it says nothing about 3110 and does not move any row in the matrix below. What
+it did confirm at source level, reading canary-3110, is the per-user partitioning
+already stated under "Framework and platform limits": preferences are keyed by
+module package, Android user and group, so configuration published from user 0
+is not what a cloned host reads. Binder delivery itself is matched on the app id
+alone and is independent of the scope table, so a missing service and an unscoped
+host are two separate failures and have to be diagnosed separately. The reasoning,
+the log keys to grep, and a module-side UI defect found alongside it are recorded
+in the 2026-09-06 entry of `development_experience.md`.
+
 ## Acceptance matrix
 
 Record framework version/build/hash, Android/ROM, module APK hash, host version,

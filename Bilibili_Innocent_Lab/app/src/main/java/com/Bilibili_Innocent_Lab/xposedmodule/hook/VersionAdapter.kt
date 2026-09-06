@@ -2328,12 +2328,27 @@ object VersionAdapter {
         context.packageManager.getPackageInfo("tv.danmaku.bili", 0).versionCode
     }.getOrDefault(0)
 
+    internal data class HostIdentity(val versionCode: Int, val fingerprint: String)
+
+    /** 只在同一次 attach 安装栈内复用；不持有 Context，不作为进程级永久缓存。 */
+    internal data class StartupCacheSnapshot(
+        val identity: HostIdentity,
+        val resetTimestamp: Long,
+        val cached: AdaptResult?
+    ) {
+        fun usableCache(highCandidateExists: Boolean): AdaptResult? = cached?.takeIf {
+            it.ts >= resetTimestamp && it.biliVersionCode == identity.versionCode &&
+                it.isUsableWith(identity.fingerprint) &&
+                (it.commentHigh != null || !highCandidateExists)
+        }
+    }
+
     @Suppress("DEPRECATION")
-    private fun buildHostFingerprint(context: Context): String = runCatching {
+    private fun readHostIdentity(context: Context): HostIdentity = runCatching {
         val info = context.packageManager.getPackageInfo("tv.danmaku.bili", 0)
         val versionCode = info.versionCodeCompat
         val source = File(info.applicationInfo?.sourceDir.orEmpty())
-        listOf(
+        val fingerprint = listOf(
             "tv.danmaku.bili",
             versionCode.toString(),
             info.versionName.orEmpty(),
@@ -2341,8 +2356,18 @@ object VersionAdapter {
             source.lastModified().toString(),
             ADAPTER_RULE_VERSION.toString()
         ).joinToString("|")
+        HostIdentity(info.versionCode, fingerprint)
     }.getOrElse {
-        "tv.danmaku.bili|${biliVersionCode(context)}|rules=$ADAPTER_RULE_VERSION"
+        val versionCode = biliVersionCode(context)
+        HostIdentity(versionCode, "tv.danmaku.bili|$versionCode|rules=$ADAPTER_RULE_VERSION")
+    }
+
+    private fun buildHostFingerprint(context: Context): String = readHostIdentity(context).fingerprint
+
+    internal fun readStartupCache(context: Context, resetTimestamp: Long): StartupCacheSnapshot {
+        val identity = readHostIdentity(context)
+        val resetTs = resetTimestamp.coerceAtLeast(0L)
+        return StartupCacheSnapshot(identity, resetTs, loadCached(context, resetTs, identity))
     }
 
     fun cacheStatus(): String = lastCacheStatus
@@ -2352,9 +2377,16 @@ object VersionAdapter {
      * [resetTimestamp] 已由 API 82 或 NPatch 启动配置完成跨进程校验，适配器不再自行读取
      * Yuki prefs，以免不可读文件把明确的重置请求静默变成 0。
      */
-    fun loadCached(context: Context?, resetTimestamp: Long): AdaptResult? {
+    fun loadCached(context: Context?, resetTimestamp: Long): AdaptResult? =
+        loadCached(context, resetTimestamp, context?.let(::readHostIdentity))
+
+    private fun loadCached(
+        context: Context?,
+        resetTimestamp: Long,
+        identity: HostIdentity?
+    ): AdaptResult? {
         val resetTs = resetTimestamp.coerceAtLeast(0L)
-        val expectedFingerprint = context?.let(::buildHostFingerprint)
+        val expectedFingerprint = identity?.fingerprint
 
         fun accepted(result: AdaptResult, source: String): AdaptResult? {
             if (result.ts < resetTs) {
@@ -2365,7 +2397,7 @@ object VersionAdapter {
                 lastCacheStatus = "$source-fingerprint-mismatch"
                 return null
             }
-            val versionCode = context?.let(::biliVersionCode) ?: 0
+            val versionCode = identity?.versionCode ?: 0
             if (versionCode != 0 && result.biliVersionCode != versionCode) {
                 lastCacheStatus = "$source-version-mismatch"
                 return null
@@ -2559,19 +2591,32 @@ object VersionAdapter {
         classLoader: ClassLoader,
         resetTimestamp: Long,
         callback: AdaptCallback?
+    ) = ensureAdapted(
+        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp)
+    )
+
+    internal fun ensureAdapted(
+        context: Context,
+        classLoader: ClassLoader,
+        resetTimestamp: Long,
+        callback: AdaptCallback?,
+        startupCache: StartupCacheSnapshot
     ) {
-        val vc = biliVersionCode(context)
-        val expectedFingerprint = buildHostFingerprint(context)
-        val cached = loadCached(context, resetTimestamp)
+        // reset 不同意味着不是同一次安装快照，必须重新读取而不能复用已缓存的 null/旧结果。
+        val startup = if (startupCache.resetTimestamp == resetTimestamp.coerceAtLeast(0L)) {
+            startupCache
+        } else {
+            readStartupCache(context, resetTimestamp)
+        }
+        val vc = startup.identity.versionCode
         // 快路径有效性：版本匹配 且（high 已定位 或 当前版本无 high 候选类）。
         // 防止旧缓存（sv 同但 high 缺失——如 8.63.0 早期 low-only 结果）被快路径
         // 复用而跳过重定位（曾有 01:04 prefs 旧结果导致 9.8.0 一直 low-only 的回归）。
         val highCandidateExists = COMMENT_HIGH_CANDIDATES.any {
             KavaMemberLookup.hasClass(classLoader, it)
         }
-        if (cached != null && cached.biliVersionCode == vc &&
-            cached.isUsableWith(expectedFingerprint) &&
-            (cached.commentHigh != null || !highCandidateExists)) {
+        val cached = startup.usableCache(highCandidateExists)
+        if (cached != null) {
             // 快路径命中：确保文件缓存存在（loadApp 阶段无 context 只读文件缓存；
             // prefs 命中但文件缺失时补写，避免下次启动 loadApp 回退内置候选）
             runCatching {
@@ -2586,7 +2631,7 @@ object VersionAdapter {
             return
         }
         ModernHookLog.info(
-            "[BIL] 版本适配启动 vc=$vc cached=${cached != null} " +
+            "[BIL] 版本适配启动 vc=$vc cached=${startup.cached != null} " +
                 "cacheStatus=$lastCacheStatus"
         )
         // 后台执行（不阻塞启动；toast 提示用户等待）
