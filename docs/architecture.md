@@ -556,6 +556,114 @@ Old settings backups leave an absent new key untouched. This path affects automa
 activity panels; manual routes and playback/payment authorization remain owned by
 the host. Static host verification covers 8.90.2 and 9.10.0; UI acceptance is separate.
 
+## Danmaku stream purification and the Moss response proxy
+
+`DanmakuPurifyFeatureInstaller` owns the danmaku *content* stream, which is a
+different carrier from the player interactive overlays: overlays live on
+`ViewProgressReply`/`DmViewReply`, danmaku elements live on `DmSegMobileReply`.
+The two features stay independent, with separate settings and separate diagnostics.
+
+The boundary is the Moss response, not a getter. In the 9.11.0 host,
+`DmSegMobileReply#getElemsList` is referenced only by the dex that defines it, so a
+getter-boundary rewrite has no call site; the reply is handed to the parser whole.
+The installer therefore covers the synchronous `executeDmSegMobile` /
+`executeDmSegCache` return value and, for the asynchronous `dmSegMobile` /
+`dmSegCache` overloads, replaces the host callback with `MossResponseHandlerProxy`.
+
+`MossResponseHandlerProxy` is a `java.lang.reflect.Proxy` created on the host
+ClassLoader over the host's own `MossResponseHandler` interface. It observes
+`onNext` and forwards every method verbatim, including default methods with return
+values. An observer failure is swallowed so host delivery is never broken; an
+exception thrown by the host callback keeps its original type. It refuses to wrap a
+delegate that is not an instance of the interface rather than handing the host an
+object with different semantics. It retains no reply and no host callback beyond a
+single request.
+
+Purification uses the protobuf-lite private `clearElems`/`addAllElems` and
+`clearColorfulSrc`/`addAllColorfulSrc` pairs. The premium-gradient type value is read
+from the host's own `DmColorfulType.VipGradualColor_VALUE` constant, falling back to
+the documented value only when that read fails. Three guards apply: the process-wide
+`getDefaultInstance()` singleton is skipped, a segment whose weights are all zero is
+passed through untouched (a server that stops sending weights must not empty the
+danmaku track), and a rewrite that removes nothing neither writes back nor reports
+APPLIED.
+
+## Dynamic feed and search result filtering
+
+`DynamicPurifyFeatureInstaller` covers four Moss boundaries: the synchronous
+`executeDynAll`/`executeDynVideo` return values and the asynchronous
+`dynAll`/`dynVideo` callbacks through `MossResponseHandlerProxy`. The combined and
+video tabs share one judgement set, because a keyword or author list means the same
+thing on both.
+
+The reference heuristic used for danmaku needs one correction here. In 9.11.0 no dex
+outside `classes25.dex` references `DynamicMoss#dynAll`, yet the feature is alive:
+the business module calls `DynamicMossKtxKt.suspendDynAll`, a generated coroutine
+wrapper that lives in the same dex and calls `dynAll` with an anonymous handler.
+"No cross-dex reference" therefore only proves a getter is dead when the *response
+type* has no cross-dex consumer either — which is exactly the danmaku case.
+
+Per-item judgements read module captions and forwarded/original descriptions, the
+author name and uid, the additional-card type, and the charge-only privilege flag.
+Keyword matching runs per text fragment and stops at the first hit; it never joins
+fragments, so a keyword can never straddle a boundary. The promoted additional-card
+type values are read from the host's own `AdditionalType` constants and only fall
+back to documented numbers when both constants are unreadable.
+
+Response-level work clears the topic strip — always gated on `hasTopicList()`, since
+`clear*` succeeds silently on an unset field — and drops streaming entries from the
+top author bar, renumbering `pos` across both lists so the strip leaves no gap.
+
+`SearchPurifyFeatureInstaller` can use a getter boundary because
+`SearchAllResponse#getItemList` has a genuine cross-dex consumer. It removes ad and
+special campaign cards, and applies title/author judgements only to video cards,
+gated on `hasAv()` because the card slot is a protobuf oneof.
+
+The search box default word has no separate switch: the existing
+"hide home search suggestion" setting now also clears the text fields of
+`SearchMoss.executeDefaultWords`, so the suggestion disappears on the search page as
+well. Routing fields are deliberately left intact so the box stays tappable.
+
+`AuthorRuleSet` and `ProtobufListRetention` are the shared primitives behind the
+comment, dynamic and search faces: one uid/name rule semantics, one retain/filter
+implementation for in-place rewrites and getter rewrites respectively.
+
+## Share, external links, live room and video-id surfaces
+
+`SharePurifyFeatureInstaller` works on the host's public `ShareClickResult` getters,
+whose call sites are genuine in the host business dex. It performs pure string
+purification with a query-parameter allowlist and writes the result back to the same
+field so the copied link and the sent payload cannot diverge. It deliberately does
+not expand `b23.tv` short links: that needs a synchronous network request inside a
+callback that can run on the main thread.
+
+`ExternalBrowserFeatureInstaller` shares the `Instrumentation#execStartActivity`
+platform boundary with `HomeVerticalDetailFeatureInstaller` under a different logical
+hook id. Its predicate is ownership only — an `*MWebActivity` component, an http(s)
+scheme and a host outside the in-app allowlist, which includes Bilibili domains and
+the payment gateways. Before rewriting it asks the caller's PackageManager whether
+anything can handle the URL and keeps the original intent when nothing can. Only the
+link travels; host extras are not copied.
+
+`LiveRoomWidgetFeatureInstaller` locates the obfuscated pager implementation
+structurally, from the declared field of the stable `LiveVerticalPagerView` whose
+type is a *subclass* of the host RecyclerView; a field typed as RecyclerView itself
+is rejected so the platform base class is never hooked. Double-tap-to-pause resolves
+`isPlaying`/`pause`/`resume` from the return type of `getPlayerCommonBridge()` and is
+not installed at all when any of them is missing, so the gesture never becomes a
+no-op.
+
+`BvToAvFeatureInstaller` hooks the single static `(String, String) -> String` chooser
+on `com.bilibili.droid.BVCompat`, located structurally because the method name is
+obfuscated. Rewriting the return value leaves the host's text-matching patterns
+intact, unlike flipping the static feature flag. The rewrite is self-validating: it
+only applies when the returned value really is a BV id and the other argument is a
+non-blank non-BV id.
+
+`SystemMediaNotificationFeatureInstaller` overrides two configuration lookups for two
+specific keys. Those lookups run hundreds of times during startup, so the callback
+body is a single string comparison with no parsing, logging or allocation.
+
 ## Settings organization and navigation
 
 The main settings view separates Purification from Enhancements. Each primary card

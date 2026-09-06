@@ -84,6 +84,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.RoamingCompatHook
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentScanEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSelectionCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshot
@@ -294,6 +295,33 @@ class MainActivity : SkinnedActivity() {
     private var commentFilterKeywords = ""
     private var commentMinLevelFilterEnabled = false
     private var commentMinLevel = CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL
+    private var dynamicKeywordFilterEnabled = false
+    private var dynamicFilterKeywords = ""
+    private var dynamicAuthorFilterEnabled = false
+    private var dynamicAuthorFilterRules = ""
+    private var removeDynamicPromotions = false
+    private var removeDynamicChargeOnly = false
+    private var hideDynamicTopicList = false
+    private var removeDynamicLiveUpEntries = false
+    private var removeSearchCommercial = false
+    private var searchKeywordFilterEnabled = false
+    private var searchFilterKeywords = ""
+    private var searchAuthorFilterEnabled = false
+    private var searchAuthorFilterRules = ""
+    private var removeAtOnlyComments = false
+    private var commentUserFilterEnabled = false
+    private var commentUserFilterRules = ""
+    private var danmakuWeightFilterEnabled = false
+    private var danmakuWeightMinimum = DanmakuPurifyPolicy.DEFAULT_MINIMUM_WEIGHT
+    private var removeVipColorfulDanmaku = false
+    private var blockLiveRoomSwitch = false
+    private var liveRoomDoubleTapPause = false
+    private var purifyShareContent = false
+    private var shareMiniProgramDirectLink = false
+    private var forceExternalBrowser = false
+    private var systemMediaNotification = false
+    private var splashAutoNight = false
+    private var showBvAsAv = false
     private var purifySplashAds = false
     private var freeCopyEnabled = true
     private var freeCopyDescEnabled = true
@@ -323,6 +351,12 @@ class MainActivity : SkinnedActivity() {
     private var recommendVideoDurationSummaryView: NativeTextView? = null
     private var commentKeywordSummaryView: NativeTextView? = null
     private var commentLevelSummaryView: NativeTextView? = null
+    private var commentUserFilterSummaryView: NativeTextView? = null
+    private var dynamicKeywordSummaryView: NativeTextView? = null
+    private var dynamicAuthorSummaryView: NativeTextView? = null
+    private var searchKeywordSummaryView: NativeTextView? = null
+    private var searchAuthorSummaryView: NativeTextView? = null
+    private var danmakuWeightSummaryView: NativeTextView? = null
     private var portraitContentFilterSummaryView: NativeTextView? = null
     private var videoRelateFilterSummaryView: NativeTextView? = null
     /** 设置备份入口及标题：用于跨 Activity 容器形变的来源坐标。 */
@@ -360,15 +394,19 @@ class MainActivity : SkinnedActivity() {
     ) {
         PURIFY_HOME(SettingsSearchSection.PURIFICATION_ADVANCED, R.string.advanced_purify_home),
         PURIFY_NAVIGATION(SettingsSearchSection.PURIFICATION_ADVANCED, R.string.advanced_purify_navigation),
+        PURIFY_SEARCH(SettingsSearchSection.PURIFICATION_ADVANCED, R.string.advanced_purify_search),
         PURIFY_MINE(SettingsSearchSection.PURIFICATION_ADVANCED, R.string.advanced_purify_mine),
         PURIFY_PLAYBACK(SettingsSearchSection.PURIFICATION_ADVANCED, R.string.advanced_purify_playback),
         PURIFY_COMMENTS(SettingsSearchSection.PURIFICATION_ADVANCED, R.string.advanced_purify_comments),
         PURIFY_STARTUP(SettingsSearchSection.PURIFICATION_ADVANCED, R.string.advanced_purify_startup),
+        PURIFY_SHARE(SettingsSearchSection.PURIFICATION_ADVANCED, R.string.advanced_purify_share),
         PURIFY_SHARED(SettingsSearchSection.PURIFICATION_ADVANCED, R.string.advanced_purify_shared),
         ENHANCE_BROWSING(SettingsSearchSection.ENHANCEMENT_ADVANCED, R.string.advanced_enhance_browsing),
         ENHANCE_PLAYBACK(SettingsSearchSection.ENHANCEMENT_ADVANCED, R.string.advanced_enhance_playback),
+        ENHANCE_LIVE(SettingsSearchSection.ENHANCEMENT_ADVANCED, R.string.advanced_enhance_live),
         ENHANCE_COMMENTS(SettingsSearchSection.ENHANCEMENT_ADVANCED, R.string.advanced_enhance_comments),
-        ENHANCE_DISPLAY(SettingsSearchSection.ENHANCEMENT_ADVANCED, R.string.number_display_settings);
+        ENHANCE_DISPLAY(SettingsSearchSection.ENHANCEMENT_ADVANCED, R.string.number_display_settings),
+        ENHANCE_SYSTEM(SettingsSearchSection.ENHANCEMENT_ADVANCED, R.string.advanced_enhance_system);
 
         val collapsible: Boolean
             get() = this != PURIFY_SHARED
@@ -3137,6 +3175,131 @@ class MainActivity : SkinnedActivity() {
         )
         presentModalDialog(dialog, container)
     }
+
+    /** 弹幕权重阈值选择；与评论等级选择共用同一套弹窗结构与关闭动画。 */
+    private fun showDanmakuWeightDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createModalContainer()
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.danmaku_weight_dialog_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 17f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (12 * density).toInt() }
+        )
+
+        val options = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.VERTICAL
+        }
+        (DanmakuPurifyPolicy.MIN_WEIGHT..DanmakuPurifyPolicy.MAX_WEIGHT)
+            .forEachIndexed { index, weight ->
+                options.addView(
+                    createGitHubMenuRow(
+                        title = getString(R.string.danmaku_weight_value, weight),
+                        subtitle = getString(R.string.danmaku_weight_option_tip, weight),
+                        highlight = weight == danmakuWeightMinimum
+                    ) {
+                        danmakuWeightMinimum = weight
+                        runCatching {
+                            prefs().edit {
+                                putInt(
+                                    FeaturePreferences.DANMAKU_WEIGHT_FILTER_MINIMUM,
+                                    weight
+                                )
+                            }
+                        }.onFailure { throwable ->
+                            Log.e(
+                                "BilibiliInnocentLab",
+                                "write danmaku weight prefs failed",
+                                throwable
+                            )
+                        }
+                        danmakuWeightSummaryView?.text = getString(
+                            R.string.danmaku_weight_current,
+                            weight
+                        )
+                        dismissWithAnimation(dialog, container) {}
+                    },
+                    NativeLinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { if (index > 0) topMargin = (4 * density).toInt() }
+                )
+            }
+        container.addView(
+            android.widget.ScrollView(this).apply {
+                isFillViewport = false
+                overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+                addView(
+                    options,
+                    NativeFrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                )
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (380 * density).toInt()
+            )
+        )
+
+        val closeRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        closeRow.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.dialog_close)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(
+                    (20 * density).toInt(),
+                    (11 * density).toInt(),
+                    (20 * density).toInt(),
+                    (11 * density).toInt()
+                )
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { dismissWithAnimation(dialog, container) {} }
+            }
+        )
+        container.addView(
+            closeRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (18 * density).toInt() }
+        )
+        presentModalDialog(dialog, container)
+    }
+
+    /** 规则入口统一文案：标题在上、当前值在下；四个新过滤入口共用同一结构。 */
+    private fun ruleEntryText(
+        @StringRes titleRes: Int,
+        @StringRes emptyRes: Int,
+        @StringRes currentRes: Int,
+        value: String
+    ): String = getString(titleRes) + "\n" +
+        if (value.isBlank()) getString(emptyRes) else getString(currentRes, value)
+
+    /** 评论发布者规则入口文案；与评论关键词入口保持同一行结构。 */
+    private fun commentUserFilterSummaryText(value: String): String =
+        getString(R.string.comment_user_filter_rules) + "\n" +
+            if (value.isBlank()) {
+                getString(R.string.comment_user_filter_rules_empty)
+            } else {
+                getString(R.string.comment_user_filter_rules_current, value)
+            }
 
     /** 保存渠道选择并立即按新渠道检查一次；检查失败保留渠道，下次可继续。 */
     private fun applyUpdateChannel(channel: GitHubReleaseChecker.UpdateChannel) {
@@ -6622,6 +6785,12 @@ class MainActivity : SkinnedActivity() {
         recommendVideoDurationSummaryView = null
         commentKeywordSummaryView = null
         commentLevelSummaryView = null
+        commentUserFilterSummaryView = null
+        dynamicKeywordSummaryView = null
+        dynamicAuthorSummaryView = null
+        searchKeywordSummaryView = null
+        searchAuthorSummaryView = null
+        danmakuWeightSummaryView = null
         portraitContentFilterSummaryView = null
         videoRelateFilterSummaryView = null
         skinSummaryView = null
@@ -7046,6 +7215,113 @@ class MainActivity : SkinnedActivity() {
                 CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL
             ) ?: CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL).coerceIn(1, 6)
         }.getOrDefault(CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL)
+        dynamicKeywordFilterEnabled = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.DYNAMIC_KEYWORD_FILTER_ENABLED,
+                false
+            ) ?: false
+        }.getOrDefault(false)
+        dynamicFilterKeywords = runCatching {
+            modulePrefs?.getString(FeaturePreferences.DYNAMIC_FILTER_KEYWORDS, "").orEmpty()
+        }.getOrDefault("")
+        dynamicAuthorFilterEnabled = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.DYNAMIC_AUTHOR_FILTER_ENABLED,
+                false
+            ) ?: false
+        }.getOrDefault(false)
+        dynamicAuthorFilterRules = runCatching {
+            modulePrefs?.getString(FeaturePreferences.DYNAMIC_AUTHOR_FILTER_RULES, "").orEmpty()
+        }.getOrDefault("")
+        removeDynamicPromotions = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_DYNAMIC_PROMOTIONS, false) ?: false
+        }.getOrDefault(false)
+        removeDynamicChargeOnly = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_DYNAMIC_CHARGE_ONLY, false) ?: false
+        }.getOrDefault(false)
+        hideDynamicTopicList = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.HIDE_DYNAMIC_TOPIC_LIST, false) ?: false
+        }.getOrDefault(false)
+        removeDynamicLiveUpEntries = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.REMOVE_DYNAMIC_LIVE_UP_ENTRIES,
+                false
+            ) ?: false
+        }.getOrDefault(false)
+        removeSearchCommercial = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_SEARCH_COMMERCIAL, false) ?: false
+        }.getOrDefault(false)
+        searchKeywordFilterEnabled = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.SEARCH_KEYWORD_FILTER_ENABLED,
+                false
+            ) ?: false
+        }.getOrDefault(false)
+        searchFilterKeywords = runCatching {
+            modulePrefs?.getString(FeaturePreferences.SEARCH_FILTER_KEYWORDS, "").orEmpty()
+        }.getOrDefault("")
+        searchAuthorFilterEnabled = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.SEARCH_AUTHOR_FILTER_ENABLED,
+                false
+            ) ?: false
+        }.getOrDefault(false)
+        searchAuthorFilterRules = runCatching {
+            modulePrefs?.getString(FeaturePreferences.SEARCH_AUTHOR_FILTER_RULES, "").orEmpty()
+        }.getOrDefault("")
+        removeAtOnlyComments = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_AT_ONLY_COMMENTS, false) ?: false
+        }.getOrDefault(false)
+        commentUserFilterEnabled = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.COMMENT_USER_FILTER_ENABLED, false) ?: false
+        }.getOrDefault(false)
+        commentUserFilterRules = runCatching {
+            modulePrefs?.getString(FeaturePreferences.COMMENT_USER_FILTER_RULES, "").orEmpty()
+        }.getOrDefault("")
+        danmakuWeightFilterEnabled = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.DANMAKU_WEIGHT_FILTER_ENABLED,
+                false
+            ) ?: false
+        }.getOrDefault(false)
+        danmakuWeightMinimum = runCatching {
+            DanmakuPurifyPolicy.normalizeWeight(
+                modulePrefs?.getInt(
+                    FeaturePreferences.DANMAKU_WEIGHT_FILTER_MINIMUM,
+                    DanmakuPurifyPolicy.DEFAULT_MINIMUM_WEIGHT
+                ) ?: DanmakuPurifyPolicy.DEFAULT_MINIMUM_WEIGHT
+            )
+        }.getOrDefault(DanmakuPurifyPolicy.DEFAULT_MINIMUM_WEIGHT)
+        removeVipColorfulDanmaku = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_VIP_COLORFUL_DANMAKU, false) ?: false
+        }.getOrDefault(false)
+        blockLiveRoomSwitch = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.BLOCK_LIVE_ROOM_SWITCH, false) ?: false
+        }.getOrDefault(false)
+        liveRoomDoubleTapPause = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.LIVE_ROOM_DOUBLE_TAP_PAUSE, false) ?: false
+        }.getOrDefault(false)
+        purifyShareContent = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.PURIFY_SHARE_CONTENT, false) ?: false
+        }.getOrDefault(false)
+        shareMiniProgramDirectLink = runCatching {
+            modulePrefs?.getBoolean(
+                FeaturePreferences.SHARE_MINI_PROGRAM_DIRECT_LINK,
+                false
+            ) ?: false
+        }.getOrDefault(false)
+        forceExternalBrowser = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.FORCE_EXTERNAL_BROWSER, false) ?: false
+        }.getOrDefault(false)
+        systemMediaNotification = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION, false) ?: false
+        }.getOrDefault(false)
+        splashAutoNight = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.SPLASH_AUTO_NIGHT, false) ?: false
+        }.getOrDefault(false)
+        showBvAsAv = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.SHOW_BV_AS_AV, false) ?: false
+        }.getOrDefault(false)
         blockTeenagersModePrompt = runCatching {
             modulePrefs?.getBoolean(
                 FeaturePreferences.BLOCK_TEENAGERS_MODE_PROMPT,
@@ -8290,6 +8566,537 @@ class MainActivity : SkinnedActivity() {
                                         textColor = colorResource(R.color.colorTextDark)
                                         textSize = 12f
                                     }
+                                    // 动态内容过滤与上面的页签净化同属动态页，放在同一区域。
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        alpha = 0.7f
+                                        isSingleLine = true
+                                        text = stringResource(R.string.dynamic_content_settings)
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 11f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.dynamic_keyword_filter)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = dynamicKeywordFilterEnabled
+                                        setOnCheckedChangeListener { _, checked ->
+                                            dynamicKeywordFilterEnabled = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.DYNAMIC_KEYWORD_FILTER_ENABLED,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write dynamic keyword filter prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        dynamicKeywordSummaryView = this
+                                        text = ruleEntryText(
+                                            R.string.dynamic_keyword_rules,
+                                            R.string.dynamic_keyword_rules_empty,
+                                            R.string.dynamic_keyword_rules_current,
+                                            dynamicFilterKeywords
+                                        )
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        maxLines = 3
+                                        ellipsize = TextUtils.TruncateAt.END
+                                        setLineSpacing(5f, 1f)
+                                        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                        background = selfRippleBackground(10f)
+                                        isClickable = true
+                                        isFocusable = true
+                                        setOnClickListener {
+                                            showRuleEditorDialog(
+                                                R.string.dynamic_keyword_dialog_title,
+                                                R.string.dynamic_keyword_dialog_hint,
+                                                dynamicFilterKeywords
+                                            ) { value ->
+                                                dynamicFilterKeywords = value
+                                                prefs().edit {
+                                                    putString(
+                                                        FeaturePreferences.DYNAMIC_FILTER_KEYWORDS,
+                                                        value
+                                                    )
+                                                }
+                                                dynamicKeywordSummaryView?.text = ruleEntryText(
+                                                    R.string.dynamic_keyword_rules,
+                                                    R.string.dynamic_keyword_rules_empty,
+                                                    R.string.dynamic_keyword_rules_current,
+                                                    value
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.dynamic_keyword_filter_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.dynamic_author_filter)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = dynamicAuthorFilterEnabled
+                                        setOnCheckedChangeListener { _, checked ->
+                                            dynamicAuthorFilterEnabled = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.DYNAMIC_AUTHOR_FILTER_ENABLED,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write dynamic author filter prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        dynamicAuthorSummaryView = this
+                                        text = ruleEntryText(
+                                            R.string.dynamic_author_filter_rules,
+                                            R.string.dynamic_author_filter_rules_empty,
+                                            R.string.dynamic_author_filter_rules_current,
+                                            dynamicAuthorFilterRules
+                                        )
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        maxLines = 3
+                                        ellipsize = TextUtils.TruncateAt.END
+                                        setLineSpacing(5f, 1f)
+                                        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                        background = selfRippleBackground(10f)
+                                        isClickable = true
+                                        isFocusable = true
+                                        setOnClickListener {
+                                            showRuleEditorDialog(
+                                                R.string.dynamic_author_filter_dialog_title,
+                                                R.string.dynamic_author_filter_dialog_hint,
+                                                dynamicAuthorFilterRules
+                                            ) { value ->
+                                                dynamicAuthorFilterRules = value
+                                                prefs().edit {
+                                                    putString(
+                                                        FeaturePreferences.DYNAMIC_AUTHOR_FILTER_RULES,
+                                                        value
+                                                    )
+                                                }
+                                                dynamicAuthorSummaryView?.text = ruleEntryText(
+                                                    R.string.dynamic_author_filter_rules,
+                                                    R.string.dynamic_author_filter_rules_empty,
+                                                    R.string.dynamic_author_filter_rules_current,
+                                                    value
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.dynamic_author_filter_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_dynamic_promotions)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeDynamicPromotions
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeDynamicPromotions = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.REMOVE_DYNAMIC_PROMOTIONS,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write dynamic promotion filter prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.remove_dynamic_promotions_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_dynamic_charge_only)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeDynamicChargeOnly
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeDynamicChargeOnly = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.REMOVE_DYNAMIC_CHARGE_ONLY,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write dynamic charge only filter prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.remove_dynamic_charge_only_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.hide_dynamic_topic_list)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = hideDynamicTopicList
+                                        setOnCheckedChangeListener { _, checked ->
+                                            hideDynamicTopicList = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.HIDE_DYNAMIC_TOPIC_LIST,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write dynamic topic list prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.hide_dynamic_topic_list_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_dynamic_live_up_entries)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeDynamicLiveUpEntries
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeDynamicLiveUpEntries = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.REMOVE_DYNAMIC_LIVE_UP_ENTRIES,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write dynamic live up entries prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.remove_dynamic_live_up_entries_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_SEARCH] = this
+                                        alpha = 0.9f
+                                        text = stringResource(R.string.advanced_purify_search)
+                                        textColor = monetColors.primary
+                                        textSize = 12f
+                                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_search_commercial)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeSearchCommercial
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeSearchCommercial = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.REMOVE_SEARCH_COMMERCIAL,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write search commercial filter prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.remove_search_commercial_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.search_keyword_filter)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = searchKeywordFilterEnabled
+                                        setOnCheckedChangeListener { _, checked ->
+                                            searchKeywordFilterEnabled = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.SEARCH_KEYWORD_FILTER_ENABLED,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write search keyword filter prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        searchKeywordSummaryView = this
+                                        text = ruleEntryText(
+                                            R.string.search_keyword_rules,
+                                            R.string.search_keyword_rules_empty,
+                                            R.string.search_keyword_rules_current,
+                                            searchFilterKeywords
+                                        )
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        maxLines = 3
+                                        ellipsize = TextUtils.TruncateAt.END
+                                        setLineSpacing(5f, 1f)
+                                        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                        background = selfRippleBackground(10f)
+                                        isClickable = true
+                                        isFocusable = true
+                                        setOnClickListener {
+                                            showRuleEditorDialog(
+                                                R.string.search_keyword_dialog_title,
+                                                R.string.search_keyword_dialog_hint,
+                                                searchFilterKeywords
+                                            ) { value ->
+                                                searchFilterKeywords = value
+                                                prefs().edit {
+                                                    putString(
+                                                        FeaturePreferences.SEARCH_FILTER_KEYWORDS,
+                                                        value
+                                                    )
+                                                }
+                                                searchKeywordSummaryView?.text = ruleEntryText(
+                                                    R.string.search_keyword_rules,
+                                                    R.string.search_keyword_rules_empty,
+                                                    R.string.search_keyword_rules_current,
+                                                    value
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.search_keyword_filter_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.search_author_filter)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = searchAuthorFilterEnabled
+                                        setOnCheckedChangeListener { _, checked ->
+                                            searchAuthorFilterEnabled = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.SEARCH_AUTHOR_FILTER_ENABLED,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write search author filter prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        searchAuthorSummaryView = this
+                                        text = ruleEntryText(
+                                            R.string.search_author_filter_rules,
+                                            R.string.search_author_filter_rules_empty,
+                                            R.string.search_author_filter_rules_current,
+                                            searchAuthorFilterRules
+                                        )
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        maxLines = 3
+                                        ellipsize = TextUtils.TruncateAt.END
+                                        setLineSpacing(5f, 1f)
+                                        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                        background = selfRippleBackground(10f)
+                                        isClickable = true
+                                        isFocusable = true
+                                        setOnClickListener {
+                                            showRuleEditorDialog(
+                                                R.string.search_author_filter_dialog_title,
+                                                R.string.search_author_filter_dialog_hint,
+                                                searchAuthorFilterRules
+                                            ) { value ->
+                                                searchAuthorFilterRules = value
+                                                prefs().edit {
+                                                    putString(
+                                                        FeaturePreferences.SEARCH_AUTHOR_FILTER_RULES,
+                                                        value
+                                                    )
+                                                }
+                                                searchAuthorSummaryView?.text = ruleEntryText(
+                                                    R.string.search_author_filter_rules,
+                                                    R.string.search_author_filter_rules_empty,
+                                                    R.string.search_author_filter_rules_current,
+                                                    value
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.search_author_filter_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
                                     TextView(
                                         lparams = LayoutParams(widthMatchParent = true) {
                                             bottomMargin = 4.dp
@@ -8885,6 +9692,100 @@ class MainActivity : SkinnedActivity() {
                                             imageTintList = stateColorResource(R.color.colorTextGray)
                                         }
                                     }
+                                    // 弹幕净化：内容流（DmSegMobileReply）侧的权重与会员彩字，
+                                    // 与播放器互动组件（指令弹幕/角标）分属两条链路，各自独立开关。
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.danmaku_weight_filter)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = danmakuWeightFilterEnabled
+                                        setOnCheckedChangeListener { _, checked ->
+                                            danmakuWeightFilterEnabled = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.DANMAKU_WEIGHT_FILTER_ENABLED,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write danmaku weight filter prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        danmakuWeightSummaryView = this
+                                        text = stringResource(
+                                            R.string.danmaku_weight_current,
+                                            danmakuWeightMinimum
+                                        )
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                        background = selfRippleBackground(10f)
+                                        isClickable = true
+                                        isFocusable = true
+                                        setOnClickListener { showDanmakuWeightDialog() }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.danmaku_weight_filter_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_vip_colorful_danmaku)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeVipColorfulDanmaku
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeVipColorfulDanmaku = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.REMOVE_VIP_COLORFUL_DANMAKU,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write vip colorful danmaku prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.remove_vip_colorful_danmaku_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
                                     TextView(
                                         lparams = LayoutParams(widthMatchParent = true) {
                                             bottomMargin = 4.dp
@@ -9289,6 +10190,115 @@ class MainActivity : SkinnedActivity() {
                                         textColor = colorResource(R.color.colorTextDark)
                                         textSize = 12f
                                     }
+                                    // @ 整条与发布者过滤跟随关键词/等级过滤，共用同一批列表边界。
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.remove_at_only_comments)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = removeAtOnlyComments
+                                        setOnCheckedChangeListener { _, checked ->
+                                            removeAtOnlyComments = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.REMOVE_AT_ONLY_COMMENTS,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write at-only comment prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.remove_at_only_comments_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.comment_user_filter)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = commentUserFilterEnabled
+                                        setOnCheckedChangeListener { _, checked ->
+                                            commentUserFilterEnabled = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.COMMENT_USER_FILTER_ENABLED,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write comment author filter prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        commentUserFilterSummaryView = this
+                                        text = commentUserFilterSummaryText(commentUserFilterRules)
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        maxLines = 3
+                                        ellipsize = TextUtils.TruncateAt.END
+                                        setLineSpacing(5f, 1f)
+                                        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                                        background = selfRippleBackground(10f)
+                                        isClickable = true
+                                        isFocusable = true
+                                        setOnClickListener {
+                                            showRuleEditorDialog(
+                                                R.string.comment_user_filter_dialog_title,
+                                                R.string.comment_user_filter_dialog_hint,
+                                                commentUserFilterRules
+                                            ) { value ->
+                                                commentUserFilterRules = value
+                                                prefs().edit {
+                                                    putString(
+                                                        FeaturePreferences.COMMENT_USER_FILTER_RULES,
+                                                        value
+                                                    )
+                                                }
+                                                commentUserFilterSummaryView?.text =
+                                                    commentUserFilterSummaryText(value)
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.comment_user_filter_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
                                     TextView(
                                         lparams = LayoutParams(widthMatchParent = true) {
                                             bottomMargin = 4.dp
@@ -9421,6 +10431,94 @@ class MainActivity : SkinnedActivity() {
                                         alpha = 0.6f
                                         setLineSpacing(6f, 1f)
                                         text = stringResource(R.string.block_app_update_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_SHARE] = this
+                                        alpha = 0.9f
+                                        text = stringResource(R.string.advanced_purify_share)
+                                        textColor = monetColors.primary
+                                        textSize = 12f
+                                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.purify_share_content)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = purifyShareContent
+                                        setOnCheckedChangeListener { _, checked ->
+                                            purifyShareContent = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.PURIFY_SHARE_CONTENT,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write share purify prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.purify_share_content_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.share_mini_program_direct_link)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = shareMiniProgramDirectLink
+                                        setOnCheckedChangeListener { _, checked ->
+                                            shareMiniProgramDirectLink = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.SHARE_MINI_PROGRAM_DIRECT_LINK,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write mini program share prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.share_mini_program_direct_link_tip)
                                         textColor = colorResource(R.color.colorTextDark)
                                         textSize = 12f
                                     }
@@ -9960,6 +11058,94 @@ class MainActivity : SkinnedActivity() {
                                             bottomMargin = 4.dp
                                         }
                                     ) {
+                                        advancedCategoryMarkers[AdvancedSettingsCategory.ENHANCE_LIVE] = this
+                                        alpha = 0.9f
+                                        text = stringResource(R.string.advanced_enhance_live)
+                                        textColor = monetColors.primary
+                                        textSize = 12f
+                                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.block_live_room_switch)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = blockLiveRoomSwitch
+                                        setOnCheckedChangeListener { _, checked ->
+                                            blockLiveRoomSwitch = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.BLOCK_LIVE_ROOM_SWITCH,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write live room switch prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.block_live_room_switch_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.live_room_double_tap_pause)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = liveRoomDoubleTapPause
+                                        setOnCheckedChangeListener { _, checked ->
+                                            liveRoomDoubleTapPause = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.LIVE_ROOM_DOUBLE_TAP_PAUSE,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write live room double tap prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.live_room_double_tap_pause_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
                                         advancedCategoryMarkers[AdvancedSettingsCategory.ENHANCE_COMMENTS] = this
                                         alpha = 0.9f
                                         text = stringResource(R.string.advanced_enhance_comments)
@@ -10080,6 +11266,171 @@ class MainActivity : SkinnedActivity() {
                                         alpha = 0.6f
                                         setLineSpacing(6f, 1f)
                                         text = stringResource(R.string.show_full_numbers_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    // AV 号显示同样是"同一个数字换一种写法"，与完整播放量归在数字显示。
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.show_bv_as_av)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = showBvAsAv
+                                        setOnCheckedChangeListener { _, checked ->
+                                            showBvAsAv = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.SHOW_BV_AS_AV,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write bv to av prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.show_bv_as_av_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 4.dp
+                                        }
+                                    ) {
+                                        advancedCategoryMarkers[AdvancedSettingsCategory.ENHANCE_SYSTEM] = this
+                                        alpha = 0.9f
+                                        text = stringResource(R.string.advanced_enhance_system)
+                                        textColor = monetColors.primary
+                                        textSize = 12f
+                                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.splash_auto_night)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = splashAutoNight
+                                        setOnCheckedChangeListener { _, checked ->
+                                            splashAutoNight = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.SPLASH_AUTO_NIGHT,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write splash auto night prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.splash_auto_night_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.system_media_notification)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = systemMediaNotification
+                                        setOnCheckedChangeListener { _, checked ->
+                                            systemMediaNotification = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write system media notification prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.system_media_notification_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.force_external_browser)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = forceExternalBrowser
+                                        setOnCheckedChangeListener { _, checked ->
+                                            forceExternalBrowser = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.FORCE_EXTERNAL_BROWSER,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write external browser prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.force_external_browser_tip)
                                         textColor = colorResource(R.color.colorTextDark)
                                         textSize = 12f
                                     }
