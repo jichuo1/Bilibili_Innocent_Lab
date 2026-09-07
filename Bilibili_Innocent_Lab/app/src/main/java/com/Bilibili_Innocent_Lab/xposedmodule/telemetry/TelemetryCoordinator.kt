@@ -46,35 +46,54 @@ internal object TelemetryCoordinator {
         Thread(runnable, "module-telemetry").apply { isDaemon = true }
     }
     private val uploadInFlight = AtomicBoolean(false)
+    private val pendingVersionUpload = PendingVersionUpload()
     private val previewInFlight = AtomicBoolean(false)
     private val purgeInFlight = AtomicBoolean(false)
 
     fun maybeUpload(
         context: Context,
         manual: Boolean = false,
+        versionChange: Boolean = false,
         callback: ((TelemetryActionResult) -> Unit)? = null
     ) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post { maybeUpload(context, manual, callback) }
+            mainHandler.post { maybeUpload(context, manual, versionChange, callback) }
             return
         }
         val appContext = context.applicationContext ?: context
         val endpointKey = TelemetryEndpoint.endpointKey()
-        val decision = TelemetryStore.attemptDecision(appContext, endpointKey, manual)
+        val decision = if (versionChange) {
+            if (TelemetryStore.isEnabledForUpload(appContext)) TelemetryAttemptDecision.ALLOWED
+            else TelemetryAttemptDecision.DISABLED
+        } else TelemetryStore.attemptDecision(appContext, endpointKey, manual)
         if (decision != TelemetryAttemptDecision.ALLOWED) {
             deliver(callback, decision.toActionResult())
             return
         }
         if (!uploadInFlight.compareAndSet(false, true)) {
+            if (versionChange && pendingVersionUpload.offer {
+                    maybeUpload(appContext, versionChange = true, callback = callback)
+                }) return
             deliver(callback, TelemetryActionResult(TelemetryActionStatus.BUSY))
             return
         }
 
-        queryHostRuntime(appContext) { hostRuntime ->
+        HostRuntimeDiagnosticsQueryClient.query(appContext) query@{ receipt ->
+            val hostRuntime = receipt.snapshot.takeIf {
+                receipt.status == HostRuntimeDiagnosticsQueryClient.Status.READY
+            }
             if (hostRuntime == null) {
-                TelemetryStore.recordCollectionUnavailable(appContext, manual)
+                if (!versionChange) TelemetryStore.recordCollectionUnavailable(appContext, manual)
                 finishUpload(callback, TelemetryActionResult(TelemetryActionStatus.HOST_UNAVAILABLE))
-                return@queryHostRuntime
+                return@query
+            }
+            val versionKey = receipt.source?.let {
+                TelemetryVersionPolicy.key(it.moduleVersionCode, it.targetVersionCode)
+            }
+            if (versionChange && (versionKey == null || hostRuntime.bootstrap.installChainState !=
+                    com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostInstallChainState.COMPLETED)) {
+                finishUpload(callback, TelemetryActionResult(TelemetryActionStatus.HOST_UNAVAILABLE))
+                return@query
             }
             worker.execute {
                 var networkAttemptStarted = false
@@ -82,14 +101,27 @@ internal object TelemetryCoordinator {
                     if (!TelemetryStore.isEnabledForUpload(appContext)) {
                         return@runCatching TelemetryActionResult(TelemetryActionStatus.DISABLED)
                     }
-                    val payload = collectPayload(appContext, hostRuntime, manual)
+                    if (versionChange && !TelemetryStore.versionDecision(appContext, endpointKey, versionKey!!)) {
+                        return@runCatching TelemetryActionResult(TelemetryActionStatus.NOT_DUE)
+                    }
+                    val payload = collectPayload(appContext, hostRuntime, manual, versionChange)
                         ?: return@runCatching TelemetryActionResult(
                             TelemetryActionStatus.IDENTITY_UNAVAILABLE
                         )
                     if (!TelemetryStore.isEnabledForUpload(appContext)) {
                         return@runCatching TelemetryActionResult(TelemetryActionStatus.DISABLED)
                     }
-                    if (!TelemetryStore.beginNetworkAttempt(appContext, endpointKey, manual)) {
+                    if (versionChange) {
+                        val encoded = org.json.JSONObject(String(payload, Charsets.UTF_8))
+                        if (TelemetryVersionPolicy.key(encoded.getJSONObject("module").getLong("version_code"),
+                                encoded.getJSONObject("host").getLong("version_code")) != versionKey) {
+                            return@runCatching TelemetryActionResult(TelemetryActionStatus.HOST_UNAVAILABLE)
+                        }
+                    }
+                    val reserved = if (versionChange) {
+                        TelemetryStore.beginVersionAttempt(appContext, endpointKey, versionKey!!)
+                    } else TelemetryStore.beginNetworkAttempt(appContext, endpointKey, manual)
+                    if (!reserved) {
                         return@runCatching TelemetryActionResult(
                             TelemetryActionStatus.IDENTITY_UNAVAILABLE
                         )
@@ -99,10 +131,13 @@ internal object TelemetryCoordinator {
                         TelemetryEndpoint.baseUrl(),
                         payload
                     )
-                    TelemetryStore.recordTransportResult(appContext, endpointKey, transportResult, manual)
+                    if (versionChange) TelemetryStore.recordVersionResult(appContext, endpointKey, versionKey!!, transportResult)
+                    else TelemetryStore.recordTransportResult(appContext, endpointKey, transportResult, manual)
                     TelemetryActionResult(transportResult.outcome.toActionStatus())
                 }.getOrElse {
-                    if (networkAttemptStarted) {
+                    if (versionChange) {
+                        // Reservation already persisted a bounded retry delay and consumed one slot.
+                    } else if (networkAttemptStarted) {
                         TelemetryStore.recordTransportResult(
                             appContext,
                             endpointKey,
@@ -199,7 +234,8 @@ internal object TelemetryCoordinator {
     private fun collectPayload(
         context: Context,
         hostRuntime: HostRuntimeDiagnosticsSnapshot,
-        manual: Boolean
+        manual: Boolean,
+        versionChange: Boolean = false
     ): ByteArray? {
         val identity = TelemetryStore.getOrCreateIdentity(context) ?: return null
         val snapshot = ModuleDiagnosticsCollector.collect(
@@ -215,6 +251,7 @@ internal object TelemetryCoordinator {
             environment = TelemetryEncodingEnvironment(
                 reportId = UUID.randomUUID().toString(),
                 manual = manual,
+                versionChange = versionChange,
                 device = TelemetryDeviceCollector.collect(),
                 moduleChannel = if (updateChannel == GitHubReleaseChecker.UpdateChannel.PREVIEW) {
                     "alpha"
@@ -237,8 +274,13 @@ internal object TelemetryCoordinator {
         callback: ((TelemetryActionResult) -> Unit)?,
         result: TelemetryActionResult
     ) {
-        uploadInFlight.set(false)
-        deliver(callback, result)
+        // 入口及释放统一在主线程，避免刚清除单飞标记就被其他请求抢走待处理通知。
+        mainHandler.post {
+            uploadInFlight.set(false)
+            val pending = pendingVersionUpload.take()
+            deliver(callback, result)
+            pending?.invoke()
+        }
     }
 
     private fun finishPreview(

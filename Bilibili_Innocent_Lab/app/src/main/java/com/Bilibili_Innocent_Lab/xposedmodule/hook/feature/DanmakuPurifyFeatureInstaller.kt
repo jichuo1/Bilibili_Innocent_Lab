@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * **版本覆盖（2026-09-06 离线核对 9.7.0 / 9.8.0 / 9.9.0 / 9.10.0 / 9.11.0）**：四个 Moss
  * 方法各只有一个重载，`getElemsList` 在每一版都只被定义它的 dex 引用（业务侧从不调用），
  * 读写成员与 `DmColorfulType.VipGradualColor_VALUE` 常量五版齐全。
+ * 2026-09-07：由就地清空/写回升级为 builder 副本变换；仅完整成功后替换响应。
  *
  * 安全边界：
  * - `getDefaultInstance()` 是进程级单例，命中即跳过，既不改它也不当作生效。
@@ -74,6 +75,7 @@ internal class DanmakuPurifyFeatureInstaller(
         ) ?: return missing(environment, "missing-reply-class")
 
         val members = resolveMembers(loader, replyClass)
+            ?: return missing(environment, "missing-safe-reply-builder")
         // 两组判据各自独立：只开彩字净化时不该被权重字段缺失连累，反之亦然。
         // 只有"启用的判据一个都读不到"才整体不装；单组缺失走下面的降级计数。
         val usableWeight = minimumWeight != null && members.weight != null
@@ -89,7 +91,7 @@ internal class DanmakuPurifyFeatureInstaller(
         var installed = 0
         var expected = 0
 
-        // 同步链路：返回值就是 reply，after 里就地净化。
+        // 同步链路：仅在副本构建成功后替换返回值。
         SYNC_METHOD_NAMES.forEach { name ->
             val method = KavaMemberLookup.declaredMethods(mossClass, makeAccessible = true) {
                 !it.isStatic && it.name == name && it.parameterCount == 1 &&
@@ -106,7 +108,7 @@ internal class DanmakuPurifyFeatureInstaller(
                     after {
                         if (hasThrowable) return@after
                         val reply = result ?: return@after
-                        purify(environment, reply, members, defaultReply)
+                        result = purify(environment, reply, members, defaultReply)
                     }
                 }
                 installed += 1
@@ -136,7 +138,7 @@ internal class DanmakuPurifyFeatureInstaller(
                     ) {
                         before {
                             val delegate = args.getOrNull(1) ?: return@before
-                            val proxy = MossResponseHandlerProxy.wrap(handlerClass, delegate) {
+                            val proxy = MossResponseHandlerProxy.wrapTransform(handlerClass, delegate) {
                                 purify(environment, it, members, defaultReply)
                             } ?: return@before
                             args[1] = proxy
@@ -210,16 +212,31 @@ internal class DanmakuPurifyFeatureInstaller(
         reply: Any,
         members: ReplyMembers,
         defaultReply: Any?
-    ) {
-        if (!members.replyClass.isInstance(reply)) return
+    ): Any {
+        if (!members.replyClass.isInstance(reply)) return reply
         // 字段未设置时宿主拿到的是进程级单例，改它会污染整个进程。
-        if (defaultReply != null && reply === defaultReply) return
+        if (defaultReply != null && reply === defaultReply) return reply
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-        var removed = 0
-        removed += purifyElems(environment, reply, members)
-        removed += purifyColorfulSrc(reply, members)
-        if (removed > 0) {
-            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED, removed)
+        return runCatching {
+            val elems = purifyElems(environment, reply, members)
+            val colorful = purifyColorfulSrc(reply, members)
+            if (elems == null && colorful == null) return@runCatching reply
+            val updated = members.builder.edit(reply) { builder ->
+                if (elems != null) {
+                    members.weight!!.clearElems.invoke(builder)
+                    members.weight.addAllElems.invoke(builder, elems)
+                }
+                if (colorful != null) {
+                    members.colorful!!.clear.invoke(builder)
+                    members.colorful.addAll.invoke(builder, colorful)
+                }
+            }
+            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+            updated
+        }.getOrElse {
+            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ERROR)
+            environment.logError("danmaku_purify_writeback", "[BIL] 弹幕净化副本构建失败，保留原响应: $it")
+            reply
         }
     }
 
@@ -227,59 +244,40 @@ internal class DanmakuPurifyFeatureInstaller(
         environment: HookEnvironment,
         reply: Any,
         members: ReplyMembers
-    ): Int {
-        val threshold = minimumWeight ?: return 0
-        val weight = members.weight ?: return 0
-        val elems = invokeList(weight.elemsGetter, reply) ?: return 0
-        if (elems.isEmpty()) return 0
+    ): List<Any>? {
+        val threshold = minimumWeight ?: return null
+        val weight = members.weight ?: return null
+        val elems = invokeList(weight.elemsGetter, reply) ?: return null
+        if (elems.isEmpty()) return null
         val weightOf: (Any) -> Int? = { elem ->
             (runCatching { weight.weightGetter.invoke(elem) }.getOrNull() as? Number)?.toInt()
         }
         if (!DanmakuPurifyPolicy.hasUsableWeight(elems, weightOf)) {
             if (weightUnavailableLogged.compareAndSet(false, true)) {
-                environment.logError(
+                environment.logInfo(
                     "danmaku_purify_weight_unavailable",
-                    "[BIL] 弹幕权重字段整段为空，本次及后续分片按权重过滤全部放行"
+                    "[BIL] 本分片无可用权重，按设计保留；后续分片仍独立判断"
                 )
             }
-            return 0
+            return null
         }
-        val retained = DanmakuPurifyPolicy.retain(elems) { elem ->
+        return DanmakuPurifyPolicy.retain(elems) { elem ->
             // 单条读不出权重时按保留处理，只删明确低于阈值的。
             (weightOf(elem) ?: threshold) >= threshold
-        } ?: return 0
-        return rewrite(reply, weight.clearElems, weight.addAllElems, retained, elems.size)
+        }
     }
 
-    private fun purifyColorfulSrc(reply: Any, members: ReplyMembers): Int {
-        if (!removeVipColorful) return 0
-        val colorful = members.colorful ?: return 0
-        val sources = invokeList(colorful.srcGetter, reply) ?: return 0
-        if (sources.isEmpty()) return 0
-        val retained = DanmakuPurifyPolicy.retain(sources) { source ->
+    private fun purifyColorfulSrc(reply: Any, members: ReplyMembers): List<Any>? {
+        if (!removeVipColorful) return null
+        val colorful = members.colorful ?: return null
+        val sources = invokeList(colorful.srcGetter, reply) ?: return null
+        if (sources.isEmpty()) return null
+        return DanmakuPurifyPolicy.retain(sources) { source ->
             val type = (runCatching { colorful.typeGetter.invoke(source) }.getOrNull() as? Number)
                 ?.toInt()
             // 读不出类型时保留，只删明确是会员渐变彩字的那一条。
             type == null || type != colorful.vipGradualColorValue
-        } ?: return 0
-        return rewrite(reply, colorful.clear, colorful.addAll, retained, sources.size)
-    }
-
-    /** protobuf-lite 的 `clear*` + `addAll*` 是私有方法，必须成对调用才能保持列表可写。 */
-    private fun rewrite(
-        reply: Any,
-        clear: Method,
-        addAll: Method,
-        retained: List<Any>,
-        originalSize: Int
-    ): Int {
-        val removed = originalSize - retained.size
-        if (removed <= 0) return 0
-        return runCatching {
-            clear.invoke(reply)
-            addAll.invoke(reply, retained)
-            removed
-        }.getOrDefault(0)
+        }
     }
 
     private fun invokeList(getter: Method, target: Any): List<*>? =
@@ -291,7 +289,8 @@ internal class DanmakuPurifyFeatureInstaller(
      * 一组齐全才算可用；缺一件就整组为 null，由安装期决定是降级还是不装，绝不留半套成员在
      * 热路径上逐次判空。
      */
-    private fun resolveMembers(loader: ClassLoader, replyClass: Class<*>): ReplyMembers {
+    private fun resolveMembers(loader: ClassLoader, replyClass: Class<*>): ReplyMembers? {
+        val builder = ProtobufBuilderPlan.resolve(replyClass) ?: return null
         val elemClass = KavaMemberLookup.classOrNull(loader, DANMAKU_ELEM_CLASS)
         val weightGetter = elemClass?.let {
             KavaMemberLookup.methodOrNull(it, "getWeight")?.takeIf { method ->
@@ -301,8 +300,8 @@ internal class DanmakuPurifyFeatureInstaller(
         }
         val weight = weightGetter?.let { getter ->
             val elemsGetter = listGetter(replyClass, "getElemsList")
-            val clearElems = voidNoArg(replyClass, "clearElems")
-            val addAllElems = iterableSetter(replyClass, "addAllElems")
+            val clearElems = builder.method("clearElems")
+            val addAllElems = builder.method("addAllElems", classOf<Iterable<*>>())
             if (elemsGetter == null || clearElems == null || addAllElems == null) {
                 null
             } else {
@@ -319,8 +318,8 @@ internal class DanmakuPurifyFeatureInstaller(
         }
         val colorful = typeGetter?.let { getter ->
             val srcGetter = listGetter(replyClass, "getColorfulSrcList")
-            val clear = voidNoArg(replyClass, "clearColorfulSrc")
-            val addAll = iterableSetter(replyClass, "addAllColorfulSrc")
+            val clear = builder.method("clearColorfulSrc")
+            val addAll = builder.method("addAllColorfulSrc", classOf<Iterable<*>>())
             if (srcGetter == null || clear == null || addAll == null) {
                 null
             } else {
@@ -328,7 +327,7 @@ internal class DanmakuPurifyFeatureInstaller(
             }
         }
 
-        return ReplyMembers(replyClass = replyClass, weight = weight, colorful = colorful)
+        return ReplyMembers(replyClass = replyClass, builder = builder, weight = weight, colorful = colorful)
     }
 
     /** 优先读宿主自己的枚举常量，读不到再退回文档值，避免把数字写死当唯一来源。 */
@@ -348,16 +347,6 @@ internal class DanmakuPurifyFeatureInstaller(
                 method.returnType isSubclassOf classOf<List<*>>()
         }
 
-    private fun voidNoArg(owner: Class<*>, name: String): Method? =
-        KavaMemberLookup.methodOrNull(owner, name)?.takeIf { method ->
-            !method.isStatic && method.parameterCount == 0 && method.returnType == Void.TYPE
-        }
-
-    private fun iterableSetter(owner: Class<*>, name: String): Method? =
-        KavaMemberLookup.methodOrNull(owner, name, classOf<Iterable<*>>())?.takeIf { method ->
-            !method.isStatic && method.returnType == Void.TYPE
-        }
-
     private fun missing(
         environment: HookEnvironment,
         reason: String
@@ -373,6 +362,7 @@ internal class DanmakuPurifyFeatureInstaller(
     /** 安装期一次性解析的运行期成员；只持有 Class/Method，不持有任何宿主实例。 */
     private class ReplyMembers(
         val replyClass: Class<*>,
+        val builder: ProtobufBuilderPlan,
         val weight: WeightMembers?,
         val colorful: ColorfulMembers?
     )

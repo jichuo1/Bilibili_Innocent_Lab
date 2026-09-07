@@ -37,7 +37,7 @@ class TelemetryPayloadCodecTest {
         val root = JSONObject(String(TelemetryPayloadCodec.encode(
             ModuleHealthEvaluator.evaluate(input), identity, environment
         ), Charsets.UTF_8))
-        assertEquals(4, root.getInt("disclosure_version"))
+        assertEquals(5, root.getInt("disclosure_version"))
         assertEquals(setOf("manufacturer", "model", "rom"),
             root.getJSONObject("device").keys().asSequence().toSet())
         assertEquals("xiaomi", root.getJSONObject("device").getString("manufacturer"))

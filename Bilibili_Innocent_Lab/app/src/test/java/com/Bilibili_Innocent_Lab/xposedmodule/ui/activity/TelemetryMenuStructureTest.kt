@@ -21,9 +21,23 @@ class TelemetryMenuStructureTest {
         val entry = row.substringAfter("if (!showControl) {")
             .substringBefore("var programmaticChange")
         assertTrue(entry.contains("return NativeLinearLayout(this)"))
-        assertTrue(entry.contains("infoButton.performClick()"))
+        assertFalse(entry.contains("setOnClickListener"))
+        assertTrue(entry.contains("isClickable = false"))
         assertFalse(entry.contains("writeConsentChoice"))
         assertFalse(entry.contains("telemetrySwitch"))
+    }
+
+    @Test
+    fun `new bubble shifts without moving GitHub and retains an outside hit target`() {
+        val badge = source.substringAfter("// 只占原图标的空间")
+            .substringBefore("activationCardView = this")
+        assertTrue(badge.contains("LayoutParams(27.dp, 27.dp) { marginEnd = 5.dp }"))
+        assertTrue(badge.contains("LayoutParams(22.dp, 15.dp)"))
+        assertTrue(badge.contains("marginEnd = -5.dp"))
+        assertTrue(badge.contains("topMargin = -5.dp"))
+        assertTrue(badge.contains("GithubUpdateBadgeDrawable"))
+        assertTrue(badge.contains("toolbar.touchDelegate"))
+        assertTrue(badge.contains("badge.visibility == View.VISIBLE"))
     }
 
     @Test
@@ -36,6 +50,7 @@ class TelemetryMenuStructureTest {
         assertTrue(row.contains("enabled && !TelemetryStore.hasCurrentDisclosure(applicationContext)"))
         assertTrue(row.contains("if (!saved)"))
         assertTrue(row.contains("telemetry_choice_save_failed"))
-        assertTrue(row.contains("summary.text = getString("))
+        assertTrue(row.contains("animateTelemetrySummary(summary, getString("))
+        assertTrue(row.contains("android.text.StaticLayout.Builder.obtain"))
     }
 }

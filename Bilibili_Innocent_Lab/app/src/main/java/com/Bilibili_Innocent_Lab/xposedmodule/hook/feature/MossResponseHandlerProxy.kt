@@ -6,7 +6,7 @@ import java.lang.reflect.Method
 import java.lang.reflect.Proxy
 
 /**
- * Moss 异步响应回调的只读旁路。
+ * Moss 异步响应回调的观察/副本变换旁路。
  *
  * 宿主的 `MossResponseHandler` 实现全是匿名内部类，类名每版都漂，没法直接 Hook；而异步
  * 分片响应又只在回调里出现一次。这里用 [Proxy] 在**宿主 ClassLoader** 上包一层：`onNext`
@@ -27,27 +27,33 @@ internal object MossResponseHandlerProxy {
         handlerClass: Class<*>,
         delegate: Any,
         onNext: (Any) -> Unit
-    ): Any? {
+    ): Any? = wrapTransform(handlerClass, delegate) { reply -> onNext(reply); reply }
+
+    /** 变换器必须在副本上工作；抛异常时仍向宿主交付原响应。其他回调语义不变。 */
+    fun wrapTransform(handlerClass: Class<*>, delegate: Any, transform: (Any) -> Any): Any? {
         if (!handlerClass.isInterface || !handlerClass.isInstance(delegate)) return null
         val loader = handlerClass.classLoader ?: return null
         return runCatching {
             Proxy.newProxyInstance(
                 loader,
                 arrayOf(handlerClass),
-                ForwardingHandler(delegate, onNext)
+                ForwardingHandler(delegate, transform)
             )
         }.getOrNull()
     }
 
     private class ForwardingHandler(
         private val delegate: Any,
-        private val onNext: (Any) -> Unit
+        private val transform: (Any) -> Any
     ) : InvocationHandler {
 
         override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
-            val arguments = args ?: EMPTY_ARGS
+            var arguments = args ?: EMPTY_ARGS
             if (method.name == ON_NEXT && arguments.size == 1) {
-                arguments[0]?.let { reply -> runCatching { onNext(reply) } }
+                arguments[0]?.let { reply ->
+                    val updated = runCatching { transform(reply) }.getOrDefault(reply)
+                    if (updated !== reply) arguments = arrayOf(updated)
+                }
             }
             return try {
                 method.invoke(delegate, *arguments)

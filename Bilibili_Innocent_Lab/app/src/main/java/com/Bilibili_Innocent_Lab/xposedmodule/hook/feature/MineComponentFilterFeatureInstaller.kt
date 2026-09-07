@@ -529,7 +529,6 @@ internal class MineComponentFilterFeatureInstaller(
             newCapabilities: Set<String>,
             newEntries: Map<String, MineComponentScanEntry>
         ) {
-            if (entries == newEntries && capabilities == newCapabilities) return
             entries.clear()
             newEntries.entries.take(MineComponentSnapshotCodec.MAX_ENTRY_COUNT).forEach {
                 entries[it.key] = it.value
@@ -538,11 +537,10 @@ internal class MineComponentFilterFeatureInstaller(
             capabilities.addAll(newCapabilities)
             environment.writeScanSnapshot?.invoke(
                 MineComponentSnapshotCodec.SURFACE_MINE,
-                MineComponentSnapshotCodec.encode(
+                ScanSnapshotContent(
                     processName = environment.processName,
-                    capabilities = capabilities,
-                    surface = MineComponentSnapshotCodec.SURFACE_MINE,
-                    entries = entries.values
+                    capabilities = capabilities.toSet(),
+                    entries = entries.values.toList()
                 )
             )
         }

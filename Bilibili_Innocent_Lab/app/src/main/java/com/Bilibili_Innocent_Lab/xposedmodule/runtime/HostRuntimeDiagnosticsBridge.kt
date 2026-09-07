@@ -37,6 +37,13 @@ internal object HostRuntimeDiagnosticsBridge {
     private val evidence = linkedMapOf<String, HostRuntimeFeatureEvidence>()
     private val stageMasks = ConcurrentHashMap<String, AtomicInteger>()
     private val persistenceScheduled = AtomicBoolean(false)
+    private val versionSignalSent = AtomicBoolean(false)
+    private val launchObserverRegistered = AtomicBoolean(false)
+    @Volatile private var hostOpened = false
+    @Volatile private var installCompleted = false
+    private val versionSignalExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "bil-version-receipt").apply { isDaemon = true }
+    }
     private val persistenceExecutor = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "bil-host-diagnostics").apply { isDaemon = true }
     }
@@ -118,8 +125,54 @@ internal object HostRuntimeDiagnosticsBridge {
         updateBootstrap { copy(installChainState = HostInstallChainState.STARTED) }
     }
 
+    fun observeVersionLaunch(application: android.app.Application) {
+        if (!launchObserverRegistered.compareAndSet(false, true)) return
+        runCatching {
+            application.registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
+                override fun onActivityResumed(activity: android.app.Activity) {
+                    hostOpened = true
+                    application.unregisterActivityLifecycleCallbacks(this)
+                    notifyVersionReceiptReady()
+                }
+                override fun onActivityCreated(activity: android.app.Activity, state: android.os.Bundle?) = Unit
+                override fun onActivityStarted(activity: android.app.Activity) = Unit
+                override fun onActivityPaused(activity: android.app.Activity) = Unit
+                override fun onActivityStopped(activity: android.app.Activity) = Unit
+                override fun onActivitySaveInstanceState(activity: android.app.Activity, state: android.os.Bundle) = Unit
+                override fun onActivityDestroyed(activity: android.app.Activity) = Unit
+            })
+        }
+    }
+
     fun recordInstallChainCompleted() {
         updateBootstrap { copy(installChainState = HostInstallChainState.COMPLETED) }
+        installCompleted = true
+        notifyVersionReceiptReady()
+    }
+
+    private fun notifyVersionReceiptReady() {
+        if (!hostOpened || !installCompleted) return
+        val context = appContext ?: return
+        if (!versionSignalSent.compareAndSet(false, true)) return
+        // 每个宿主主进程至多通知一次；Provider/IPC 不进入 attach、Hook 或诊断持久化线程。
+        runCatching { versionSignalExecutor.execute {
+            val reached = runCatching {
+                context.contentResolver.acquireUnstableContentProviderClient(
+                    "${BuildConfig.APPLICATION_ID}.roaming"
+                )?.use { client -> client.call("telemetry_host_ready", null, null); true } ?: false
+            }.getOrDefault(false)
+            if (!reached) runCatching {
+                // 不授予任何操作能力，仅用系统签发的 creatorUid 证明来自宿主。
+                val proof = android.app.PendingIntent.getBroadcast(context, 0,
+                    Intent("${BuildConfig.APPLICATION_ID}.TELEMETRY_SENDER_PROOF").setPackage(context.packageName),
+                    android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+                CrossAppBroadcastCompat.sendBroadcast(context,
+                    Intent("${BuildConfig.APPLICATION_ID}.TELEMETRY_HOST_READY")
+                        .setComponent(android.content.ComponentName(BuildConfig.APPLICATION_ID,
+                            "${BuildConfig.APPLICATION_ID}.receiver.TelemetryHostReadyReceiver"))
+                        .putExtra("proof", proof))
+            }
+        } }
     }
 
     fun recordInstallChainFailed() {

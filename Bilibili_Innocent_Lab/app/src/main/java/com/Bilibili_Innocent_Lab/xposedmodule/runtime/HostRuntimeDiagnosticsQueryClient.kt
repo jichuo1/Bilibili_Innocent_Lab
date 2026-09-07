@@ -20,7 +20,8 @@ internal object HostRuntimeDiagnosticsQueryClient {
 
     data class Result(
         val status: Status,
-        val snapshot: HostRuntimeDiagnosticsSnapshot? = null
+        val snapshot: HostRuntimeDiagnosticsSnapshot? = null,
+        val source: HostRuntimeDiagnosticsSource? = null
     )
 
     private val validationExecutor = Executors.newSingleThreadExecutor { runnable ->
@@ -115,7 +116,7 @@ internal object HostRuntimeDiagnosticsQueryClient {
         if (source.targetVersionCode != current.targetVersionCode ||
             source.targetUpdateTime != current.targetUpdateTime
         ) return Result(Status.INVALID_RESPONSE)
-        return Result(Status.READY, snapshot)
+        return Result(Status.READY, snapshot, source)
     }
 
     private fun currentTargetSource(context: Context): HostRuntimeDiagnosticsSource? = runCatching {
