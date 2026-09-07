@@ -8,6 +8,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MossResponseHandlerProxyTest {
+    @Test fun `copy transformer forwards replacement and failures keep original`() {
+        val original = Any()
+        val replacement = Any()
+        val delegate = RecordingHandler()
+        val proxy = MossResponseHandlerProxy.wrapTransform(FakeHandler::class.java, delegate) { replacement } as FakeHandler
+        proxy.onNext(original)
+        assertTrue(delegate.delivered.single() === replacement)
+        val failing = MossResponseHandlerProxy.wrapTransform(FakeHandler::class.java, delegate) { error("copy failed") } as FakeHandler
+        failing.onNext(original)
+        assertTrue(delegate.delivered.last() === original)
+        assertEquals(42L, proxy.onNextForAck(original))
+    }
 
     /** 结构与宿主 `MossResponseHandler` 一致的最小替身：一个 onNext + 一个带返回值的方法。 */
     interface FakeHandler {

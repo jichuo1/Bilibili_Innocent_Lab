@@ -9,8 +9,8 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshotCodec
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ScanSnapshotContent
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicReference
 
 /**
  * 运行在 B 站主进程中的扫描快照桥。
@@ -36,6 +36,12 @@ internal object MineComponentSnapshotHostBridge {
     private val persistenceExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "bil-mine-host-cache").apply { isDaemon = true }
     }
+    private data class Publication(val context: Context, val content: ScanSnapshotContent)
+    @Volatile private var processSource: MineComponentSnapshotSource? = null
+    private val publications = LatestValuePublisher<String, Publication>(
+        schedule = { action -> persistenceExecutor.execute(action) },
+        publish = { surface, value -> persist(value.context, surface, value.content) }
+    )
 
     @Volatile
     private var cacheLoaded = false
@@ -52,17 +58,21 @@ internal object MineComponentSnapshotHostBridge {
         val appContext = context.applicationContext ?: context
         synchronized(receiverLock) {
             if (!cacheLoaded) {
-                // 逐面回填：任何一面缺失/过期都只是这一面没有，不影响其它面。
-                MineComponentSnapshotCodec.ALLOWED_SURFACES.forEach { surface ->
-                    readCachedSnapshot(appContext, surface)?.let { latest[surface] = it }
-                }
-                cacheLoaded = true
+                cacheLoaded = runCatching { persistenceExecutor.execute {
+                    val source = currentSource(appContext) ?: return@execute
+                    processSource = source
+                    // 旧磁盘快照不覆盖已经收到的新内容；所有磁盘读取留在后台。
+                    MineComponentSnapshotCodec.ALLOWED_SURFACES.forEach { surface ->
+                        runCatching { readCachedSnapshot(appContext, surface, source) }.getOrNull()
+                            ?.let { latest.putIfAbsent(surface, it) }
+                    }
+                } }.isSuccess
             }
             if (receiverRegistered) return true
             return runCatching {
                 ContextCompat.registerReceiver(
                     appContext,
-                    createQueryReceiver(appContext),
+                    createQueryReceiver(),
                     IntentFilter(MineComponentSnapshotQueryContract.ACTION_QUERY),
                     MineComponentSnapshotQueryContract.PERMISSION_QUERY,
                     null,
@@ -79,42 +89,45 @@ internal object MineComponentSnapshotHostBridge {
     fun update(
         context: Context,
         surface: String,
-        payload: String,
+        content: ScanSnapshotContent,
         logError: (String) -> Unit = {}
     ): Boolean {
         if (surface !in MineComponentSnapshotCodec.ALLOWED_SURFACES) return false
-        val snapshot = MineComponentSnapshotCodec.decodeOrNull(payload, allowLegacy = false)
-            ?: return false
-        // 载荷自述的面必须和调用方声明的一致，避免写串槽位。
-        if (snapshot.surface != surface) return false
-        if (snapshot.processName != MineComponentSnapshotQueryContract.TARGET_PACKAGE ||
-            snapshot.entries.isEmpty()
-        ) return false
-        val appContext = context.applicationContext ?: context
-        val source = currentSource(appContext) ?: return false
-        val updated = CachedSnapshot(payload, source)
-        if (latest[surface] == updated) return true
-        latest[surface] = updated
-        runCatching {
-            persistenceExecutor.execute {
-                val committed = runCatching {
-                    appContext.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE)
-                        .edit()
-                        .putString(payloadKey(surface), payload)
-                        .putLong("${KEY_TARGET_VERSION}_$surface", source.targetVersionCode)
-                        .putLong("${KEY_TARGET_UPDATE_TIME}_$surface", source.targetUpdateTime)
-                        .putLong("${KEY_MODULE_VERSION}_$surface", source.moduleVersionCode)
-                        .commit()
-                }.getOrDefault(false)
-                if (!committed) logError("“我的”页扫描结果宿主缓存写入失败")
-            }
-        }.onFailure { throwable ->
-            logError("“我的”页扫描结果宿主缓存调度失败: $throwable")
-        }
-        return true
+        if (content.processName != MineComponentSnapshotQueryContract.TARGET_PACKAGE ||
+            content.entries.isEmpty() || content.entries.size > MineComponentSnapshotCodec.MAX_ENTRY_COUNT) return false
+        val accepted = publications.submit(surface, Publication(context.applicationContext ?: context, content))
+        if (!accepted) logError("扫描快照后台调度失败，等待下次提交")
+        return accepted
     }
 
-    private fun createQueryReceiver(appContext: Context): BroadcastReceiver =
+    private fun persist(context: Context, surface: String, content: ScanSnapshotContent): Boolean = runCatching {
+        val payload = MineComponentSnapshotCodec.encode(content.processName, content.capabilities,
+            content.entries, surface = surface)
+        val snapshot = MineComponentSnapshotCodec.decodeOrNull(payload, allowLegacy = false)
+            ?: return@runCatching false
+        // 载荷自述的面必须和调用方声明的一致，避免写串槽位。
+        if (snapshot.surface != surface) return@runCatching false
+        if (snapshot.processName != MineComponentSnapshotQueryContract.TARGET_PACKAGE ||
+            snapshot.entries.isEmpty()
+        ) return@runCatching false
+        val appContext = context.applicationContext ?: context
+        val source = processSource ?: currentSource(appContext)?.also { processSource = it }
+            ?: return@runCatching false
+        val updated = CachedSnapshot(payload, source)
+        val committed = runCatching {
+            appContext.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(payloadKey(surface), payload)
+                .putLong("${KEY_TARGET_VERSION}_$surface", source.targetVersionCode)
+                .putLong("${KEY_TARGET_UPDATE_TIME}_$surface", source.targetUpdateTime)
+                .putLong("${KEY_MODULE_VERSION}_$surface", source.moduleVersionCode)
+                .commit()
+        }.getOrDefault(false)
+        if (committed) latest[surface] = updated
+        committed
+    }.getOrDefault(false)
+
+    private fun createQueryReceiver(): BroadcastReceiver =
         object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 if (intent.action != MineComponentSnapshotQueryContract.ACTION_QUERY ||
@@ -149,7 +162,7 @@ internal object MineComponentSnapshotHostBridge {
                 )?.takeIf { it in MineComponentSnapshotCodec.ALLOWED_SURFACES }
                     ?: MineComponentSnapshotCodec.SURFACE_MINE
                 val cached = latest[requestedSurface]
-                    ?.takeIf { it.source == currentSource(appContext) }
+                    ?.takeIf { it.source == processSource }
                 if (cached == null) {
                     extras.putString(
                         MineComponentSnapshotQueryContract.EXTRA_STATUS,
@@ -183,8 +196,7 @@ internal object MineComponentSnapshotHostBridge {
             }
         }
 
-    private fun readCachedSnapshot(context: Context, surface: String): CachedSnapshot? {
-        val source = currentSource(context) ?: return null
+    private fun readCachedSnapshot(context: Context, surface: String, source: MineComponentSnapshotSource): CachedSnapshot? {
         val prefs = context.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE)
         // 旧全局版本无法证明某一面的载荷来源；等待该面重新采集，不拿旧缓存清理勾选。
         val cachedSource = MineComponentSnapshotSource(

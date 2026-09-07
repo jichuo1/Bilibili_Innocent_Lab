@@ -147,6 +147,13 @@ class RoamingCompatProvider : ContentProvider() {
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
         return when (method) {
+            com.Bilibili_Innocent_Lab.xposedmodule.telemetry.TelemetryVersionTrigger.METHOD -> {
+                enforceTrustedCaller()
+                val accepted = context?.let {
+                    com.Bilibili_Innocent_Lab.xposedmodule.telemetry.TelemetryVersionTrigger.handle(it)
+                } ?: false
+                Bundle().apply { putBoolean("handled", accepted) }
+            }
             METHOD_REPORT_NO_ROOT_HEARTBEAT -> {
                 enforceTrustedCaller()
                 val accepted = isHookAuthorized() && recordNoRootHeartbeat(extras)

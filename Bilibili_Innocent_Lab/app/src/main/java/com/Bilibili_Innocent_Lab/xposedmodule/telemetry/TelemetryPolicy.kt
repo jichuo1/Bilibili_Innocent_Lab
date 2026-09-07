@@ -18,7 +18,7 @@ internal enum class TelemetryHttpOutcome {
 
 /** 不依赖 Android 的遥测授权、节流与退避规则，供存储层和 JVM 测试共用。 */
 internal object TelemetryPolicy {
-    const val CURRENT_DISCLOSURE_VERSION = 4
+    const val CURRENT_DISCLOSURE_VERSION = 5
 
     fun disclosureAuthorizesUpload(storedVersion: Int): Boolean =
         storedVersion == CURRENT_DISCLOSURE_VERSION

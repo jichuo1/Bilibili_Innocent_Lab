@@ -2679,11 +2679,11 @@ class HookEntry : XposedModule() {
                     mainHandlerOrNull()?.post(action)
                 },
                 // 扫描热路径只更新宿主内存/私有缓存；模块设置页再主动拉取并校验落盘。
-                writeScanSnapshot = { surface, json ->
+                writeScanSnapshot = { surface, content ->
                     MineComponentSnapshotHostBridge.update(
                         context = authorizationContext,
                         surface = surface,
-                        payload = json,
+                        content = content,
                         logError = { message ->
                             logError("mine_snapshot_host_cache_$surface", "[BIL] $message")
                         }
@@ -4580,6 +4580,11 @@ class HookEntry : XposedModule() {
                     classOf<android.app.Application>()
                 ) {
                     before {
+                        if (processName == TARGET_PACKAGE) {
+                            (args.firstOrNull() as? android.app.Application)?.let {
+                                HostRuntimeDiagnosticsBridge.observeVersionLaunch(it)
+                            }
+                        }
                         authorizeAndInstall(args.firstOrNull() as? Context)
                     }
                     after {

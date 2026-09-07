@@ -187,7 +187,7 @@ internal class DynamicPurifyFeatureInstaller(
             after {
                 if (hasThrowable) return@after
                 val reply = result ?: return@after
-                purify(environment, reply, feed, itemMembers, plan)
+                result = purify(environment, reply, feed, itemMembers, plan)
             }
         }
         true
@@ -215,7 +215,7 @@ internal class DynamicPurifyFeatureInstaller(
         ) {
             before {
                 val delegate = args.getOrNull(1) ?: return@before
-                val proxy = MossResponseHandlerProxy.wrap(handlerClass, delegate) {
+                val proxy = MossResponseHandlerProxy.wrapTransform(handlerClass, delegate) {
                     purify(environment, it, feed, itemMembers, plan)
                 } ?: return@before
                 args[1] = proxy
@@ -230,24 +230,35 @@ internal class DynamicPurifyFeatureInstaller(
         false
     }
 
-    /** 同一份响应两条链路共用；对同一个 reply 重复调用是幂等的。 */
+    /** 两条链路共用；未改原响应，成功时返回副本；处理已净化副本时保持幂等。 */
     private fun purify(
         environment: HookEnvironment,
         reply: Any,
         feed: FeedMembers,
         itemMembers: ItemMembers?,
         plan: DynamicPurifyPolicy.Plan
-    ) {
-        if (!feed.replyClass.isInstance(reply)) return
+    ): Any {
+        if (!feed.replyClass.isInstance(reply)) return reply
         // 字段未设置时宿主拿到的是进程级单例，改它会污染整个进程。
-        if (feed.defaultReply != null && reply === feed.defaultReply) return
+        if (feed.defaultReply != null && reply === feed.defaultReply) return reply
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-        var applied = 0
-        applied += purifyItems(reply, feed, itemMembers, plan)
-        applied += purifyTopicList(reply, feed)
-        applied += purifyUpList(reply, feed)
-        if (applied > 0) {
-            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED, applied)
+        return runCatching {
+            val items = purifyItems(reply, feed, itemMembers, plan)
+            val clearTopic = hideTopicList && feed.clearTopicList != null &&
+                feed.hasTopicList?.let { invoke(it, reply) as? Boolean } == true
+            val upList = purifyUpList(reply, feed)
+            if (items == null && !clearTopic && upList == null) return@runCatching reply
+            val updated = feed.builder.edit(reply) { builder ->
+                if (items != null) feed.setDynamicList.invoke(builder, items)
+                if (clearTopic) feed.clearTopicList.invoke(builder)
+                if (upList != null) feed.upList!!.setter.invoke(builder, upList)
+            }
+            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+            updated
+        }.getOrElse {
+            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ERROR)
+            environment.logError("dynamic_purify_writeback", "[BIL] 动态净化副本构建失败，保留原响应: $it")
+            reply
         }
     }
 
@@ -256,46 +267,30 @@ internal class DynamicPurifyFeatureInstaller(
         feed: FeedMembers,
         itemMembers: ItemMembers?,
         plan: DynamicPurifyPolicy.Plan
-    ): Int {
-        if (itemMembers == null || !plan.hasAnyItemJudgement) return 0
-        val dynamicList = invoke(feed.dynamicListGetter, reply) ?: return 0
-        val items = invoke(feed.listGetter, dynamicList) as? List<*> ?: return 0
-        if (items.isEmpty()) return 0
+    ): Any? {
+        if (itemMembers == null || !plan.hasAnyItemJudgement) return null
+        val dynamicList = invoke(feed.dynamicListGetter, reply) ?: return null
+        val items = invoke(feed.listGetter, dynamicList) as? List<*> ?: return null
+        if (items.isEmpty()) return null
         val retained = ProtobufListRetention.retainOrNull(items) { item ->
             !DynamicPurifyPolicy.shouldRemove(readSignals(item, itemMembers, plan), plan)
-        } ?: return 0
+        } ?: return null
         val removed = items.size - retained.size
-        if (removed <= 0) return 0
-        return runCatching {
-            feed.clearList.invoke(dynamicList)
-            feed.addAllList.invoke(dynamicList, retained)
-            removed
-        }.getOrDefault(0)
+        if (removed <= 0) return null
+        return feed.listBuilder.edit(dynamicList) { builder ->
+            feed.clearList.invoke(builder)
+            feed.addAllList.invoke(builder, retained)
+        }
     }
 
-    /**
-     * `clearTopicList()` 对空字段同样静默成功，所以先用 `hasTopicList()` 确认真的有话题栏，
-     * 否则会把"本来就没有"报成生效。
-     */
-    private fun purifyTopicList(reply: Any, feed: FeedMembers): Int {
-        if (!hideTopicList) return 0
-        val clear = feed.clearTopicList ?: return 0
-        val present = feed.hasTopicList?.let { invoke(it, reply) as? Boolean } ?: return 0
-        if (!present) return 0
-        return runCatching {
-            clear.invoke(reply)
-            1
-        }.getOrDefault(0)
-    }
-
-    private fun purifyUpList(reply: Any, feed: FeedMembers): Int {
-        if (!removeLiveUpEntries) return 0
-        val up = feed.upList ?: return 0
-        val container = invoke(up.getter, reply) ?: return 0
+    private fun purifyUpList(reply: Any, feed: FeedMembers): Any? {
+        if (!removeLiveUpEntries) return null
+        val up = feed.upList ?: return null
+        val container = invoke(up.getter, reply) ?: return null
         // 两个列表必须都读到才动手：只读到一个就写回，会把读不到的那个直接清空。
-        val first = invoke(up.listGetter, container) as? List<*> ?: return 0
-        val second = invoke(up.listSecondGetter, container) as? List<*> ?: return 0
-        if (first.isEmpty() && second.isEmpty()) return 0
+        val first = invoke(up.listGetter, container) as? List<*> ?: return null
+        val second = invoke(up.listSecondGetter, container) as? List<*> ?: return null
+        if (first.isEmpty() && second.isEmpty()) return null
 
         val keep: (Any) -> Boolean = { item ->
             // 读不出直播状态时保留：只删明确在直播的条目。
@@ -304,26 +299,25 @@ internal class DynamicPurifyFeatureInstaller(
         }
         val retainedFirst = ProtobufListRetention.retainOrNull(first, keep)
         val retainedSecond = ProtobufListRetention.retainOrNull(second, keep)
-        if (retainedFirst == null && retainedSecond == null) return 0
+        if (retainedFirst == null && retainedSecond == null) return null
 
         val newFirst = retainedFirst ?: first.filterNotNull()
         val newSecond = retainedSecond ?: second.filterNotNull()
         val removed = (first.size - newFirst.size) + (second.size - newSecond.size)
-        if (removed <= 0) return 0
-        return runCatching {
-            up.clearList.invoke(container)
-            up.addAllList.invoke(container, newFirst)
-            up.clearListSecond.invoke(container)
-            up.addAllListSecond.invoke(container, newSecond)
-            // pos 是宿主的排序依据，删完必须连续重排，否则头像栏会留下空位。
-            // 放在写回之后：写回失败时条目的 pos 保持原值，不会留下"顺序已改、内容没改"的中间态。
-            var position = 1L
-            (newFirst + newSecond).forEach { item ->
-                up.setPos.invoke(item, position)
-                position += 1L
-            }
-            removed
-        }.getOrDefault(0)
+        if (removed <= 0) return null
+        // 子项也复制：容器 builder 的列表可能共享原始元素，不能直接改原元素的 pos。
+        var position = 1L
+        fun positioned(items: List<Any>): List<Any> = items.map { item ->
+            up.itemBuilder.edit(item) { builder -> up.setPos.invoke(builder, position++) }
+        }
+        val positionedFirst = positioned(newFirst)
+        val positionedSecond = positioned(newSecond)
+        return up.builder.edit(container) { builder ->
+            up.clearList.invoke(builder)
+            up.addAllList.invoke(builder, positionedFirst)
+            up.clearListSecond.invoke(builder)
+            up.addAllListSecond.invoke(builder, positionedSecond)
+        }
     }
 
     private fun readSignals(
@@ -429,17 +423,20 @@ internal class DynamicPurifyFeatureInstaller(
         spec: FeedSpec
     ): FeedMembers? {
         val replyClass = KavaMemberLookup.classOrNull(loader, spec.replyClassName) ?: return null
+        val builder = ProtobufBuilderPlan.resolve(replyClass) ?: return null
         val dynamicListGetter = objectGetter(replyClass, "getDynamicList") ?: return null
         // 容器类名两个页签不同（综合 DynamicList / 视频 CardVideoDynList），所以按返回类型取，
         // 不写死类名。但**必须验证元素类型确实是 DynamicItem**：否则条目判据会因为
         // declaringClass 不匹配而全部读成 null，表现为"装上了却一条都不删"的静默无效。
         val listClass = dynamicListGetter.returnType
+        val listBuilder = ProtobufBuilderPlan.resolve(listClass) ?: return null
+        val setDynamicList = builder.method("setDynamicList", listClass) ?: return null
         val itemClass = KavaMemberLookup.classOrNull(loader, DYNAMIC_ITEM_CLASS) ?: return null
         val indexedGetter = KavaMemberLookup.methodOrNull(listClass, "getList", classOf<Int>())
         if (indexedGetter == null || indexedGetter.returnType != itemClass) return null
         val listGetter = listGetter(listClass, "getListList") ?: return null
-        val clearList = voidNoArg(listClass, "clearList") ?: return null
-        val addAllList = iterableSetter(listClass, "addAllList") ?: return null
+        val clearList = listBuilder.method("clearList") ?: return null
+        val addAllList = listBuilder.method("addAllList", classOf<Iterable<*>>()) ?: return null
 
         val syncMethod = KavaMemberLookup.declaredMethods(mossClass, makeAccessible = true) {
             !it.isStatic && it.name == spec.syncName && it.parameterCount == 1 &&
@@ -453,11 +450,14 @@ internal class DynamicPurifyFeatureInstaller(
         if (syncMethod == null && asyncMethod == null) return null
 
         val hasTopic = booleanNoArg(replyClass, "hasTopicList")
-        val clearTopic = voidNoArg(replyClass, "clearTopicList")
-        val upList = if (removeLiveUpEntries) resolveUpList(loader, replyClass) else null
+        val clearTopic = builder.method("clearTopicList")
+        val upList = if (removeLiveUpEntries) resolveUpList(loader, replyClass, builder) else null
 
         return FeedMembers(
             replyClass = replyClass,
+            builder = builder,
+            listBuilder = listBuilder,
+            setDynamicList = setDynamicList,
             dynamicListGetter = dynamicListGetter,
             listGetter = listGetter,
             clearList = clearList,
@@ -471,25 +471,30 @@ internal class DynamicPurifyFeatureInstaller(
         )
     }
 
-    private fun resolveUpList(loader: ClassLoader, replyClass: Class<*>): UpListMembers? {
+    private fun resolveUpList(loader: ClassLoader, replyClass: Class<*>, replyBuilder: ProtobufBuilderPlan): UpListMembers? {
         // 综合页叫 getUpList、视频页叫 getVideoUpList，但返回的都是同一个 CardVideoUpList。
         // 9.7.0–9.11.0 五个版本都是这两个名字之一，按顺序取第一个能解析到的。
         val containerGetter = UP_LIST_GETTERS.firstNotNullOfOrNull { name ->
             objectGetter(replyClass, name)
         } ?: return null
         val container = containerGetter.returnType
+        val builder = ProtobufBuilderPlan.resolve(container) ?: return null
+        val setter = replyBuilder.method("set" + containerGetter.name.removePrefix("get"), container) ?: return null
         val primaryList = listGetter(container, "getListList") ?: return null
         val secondaryList = listGetter(container, "getListSecondList") ?: return null
-        val clearPrimary = voidNoArg(container, "clearList") ?: return null
-        val clearSecondary = voidNoArg(container, "clearListSecond") ?: return null
-        val addAllPrimary = iterableSetter(container, "addAllList") ?: return null
-        val addAllSecondary = iterableSetter(container, "addAllListSecond") ?: return null
+        val clearPrimary = builder.method("clearList") ?: return null
+        val clearSecondary = builder.method("clearListSecond") ?: return null
+        val addAllPrimary = builder.method("addAllList", classOf<Iterable<*>>()) ?: return null
+        val addAllSecondary = builder.method("addAllListSecond", classOf<Iterable<*>>()) ?: return null
         val itemClass = KavaMemberLookup.classOrNull(loader, UP_LIST_ITEM_CLASS) ?: return null
+        val itemBuilder = ProtobufBuilderPlan.resolve(itemClass) ?: return null
         val liveState = intNoArg(itemClass, "getLiveStateValue") ?: return null
-        val positionSetter = KavaMemberLookup.methodOrNull(itemClass, "setPos", classOf<Long>())
-            ?.takeIf { !it.isStatic && it.returnType == Void.TYPE } ?: return null
+        val positionSetter = itemBuilder.method("setPos", classOf<Long>()) ?: return null
         return UpListMembers(
             getter = containerGetter,
+            setter = setter,
+            builder = builder,
+            itemBuilder = itemBuilder,
             listGetter = primaryList,
             listSecondGetter = secondaryList,
             clearList = clearPrimary,
@@ -627,16 +632,6 @@ internal class DynamicPurifyFeatureInstaller(
             !it.isStatic && it.parameterCount == 0 && it.returnType == classOf<Long>()
         }
 
-    private fun voidNoArg(owner: Class<*>, name: String): Method? =
-        KavaMemberLookup.methodOrNull(owner, name)?.takeIf {
-            !it.isStatic && it.parameterCount == 0 && it.returnType == Void.TYPE
-        }
-
-    private fun iterableSetter(owner: Class<*>, name: String): Method? =
-        KavaMemberLookup.methodOrNull(owner, name, classOf<Iterable<*>>())?.takeIf {
-            !it.isStatic && it.returnType == Void.TYPE
-        }
-
     private fun missing(
         environment: HookEnvironment,
         reason: String
@@ -659,6 +654,9 @@ internal class DynamicPurifyFeatureInstaller(
 
     private class FeedMembers(
         val replyClass: Class<*>,
+        val builder: ProtobufBuilderPlan,
+        val listBuilder: ProtobufBuilderPlan,
+        val setDynamicList: Method,
         val dynamicListGetter: Method,
         val listGetter: Method,
         val clearList: Method,
@@ -673,6 +671,9 @@ internal class DynamicPurifyFeatureInstaller(
 
     private class UpListMembers(
         val getter: Method,
+        val setter: Method,
+        val builder: ProtobufBuilderPlan,
+        val itemBuilder: ProtobufBuilderPlan,
         val listGetter: Method,
         val listSecondGetter: Method,
         val clearList: Method,

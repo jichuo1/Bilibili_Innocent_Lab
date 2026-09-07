@@ -927,3 +927,29 @@ Debug APK SHA-256:
 acceptance was performed. Cloudflare staging and production synthetic requests
 verified all 116 query rows, old-disclosure rejection, manual quota and cleanup.
 Detailed implementation scope and deployment IDs: capability_diagnostics.md.
+
+## Copy-on-write and snapshot stability repair (2026-09-07)
+
+- Full local gates passed with --no-daemon: assembleDebug, testDebugUnitTest,
+  lintDebug and minifyReleaseWithR8 (6m08s). 151 suites / 849 tests, no failures,
+  errors or skipped tests. Lint: 0 errors / 183 warnings (same count as baseline).
+- Fault-injection tests exercise the actual installer transformation methods using
+  host-shaped fixtures: first/second-list additions, final build, UP position writes,
+  original-object preservation, unrelated fields, empty/default/no-match replies.
+  Proxy replacement/fallback and host exception propagation remain tested.
+- Latest-value queue tests cover coalescing, updates arriving during a write,
+  bounded failure retries, identical resubmission and scheduler rejection. Snapshot
+  publisher tests verify immutable submission copies and no premature success cache.
+  Pending-version tests and source contracts cover one retained request and draining
+  through normal receipt/consent/quota validation; these are not Android IPC tests.
+- Read-only probe Temp/biliroaming-port-20260906/check_safe_builders.py verified the
+  new required builder/factory/setter methods on all 26 retained 8.84.0–9.11.0 APK
+  samples. Missing required methods: 0. The video feed's absent topic-list method
+  remains optional; the probe must not require a carrier the original code did not.
+- Debug APK SHA-256:
+  468C3B5202742B63C80D134D3B97DEECD396CD7FB5FD3FE11587CB177011CEC2.
+  13,416,866 bytes; 19 DEX; new repair classes present; no absolute/parent ZIP paths;
+  artifact is newer than all main source inputs. Debug continues to use Staging.
+- No device installation, host restart, setting change, cloud deployment, commit or
+  push. The observed splash-screen restart is not yet causally diagnosed or verified
+  fixed on Android/LSPosed; system exit records and controlled runtime testing remain.

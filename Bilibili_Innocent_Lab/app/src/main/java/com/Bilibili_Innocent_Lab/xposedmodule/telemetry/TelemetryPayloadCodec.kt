@@ -20,6 +20,7 @@ internal data class TelemetryEncodingEnvironment(
     val adapterSchemaVersion: Int,
     val adapterRuleVersion: Int,
     val manual: Boolean = false,
+    val versionChange: Boolean = false,
     val device: TelemetryDeviceProfile = TelemetryDeviceProfile("unknown", "unknown", "unknown")
 )
 
@@ -36,6 +37,10 @@ internal object TelemetryPayloadCodec {
     ): ByteArray {
         val input = snapshot.inputs
         require(input.hostRuntimeReceiptAvailable) { "host_runtime_unavailable" }
+        require(!environment.versionChange || (!environment.manual && input.hostInstallChainState ==
+            com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticHostInstallChainState.COMPLETED)) {
+            "version_change_receipt_required"
+        }
         require(input.moduleVersionCode in 1..Int.MAX_VALUE.toLong()) { "module_version_invalid" }
         require(input.targetVersionCode in 1..Int.MAX_VALUE.toLong()) { "target_version_invalid" }
         require(environment.androidSdk in 27..100) { "android_sdk_invalid" }
@@ -95,7 +100,11 @@ internal object TelemetryPayloadCodec {
                 .put("manufacturer", TelemetryDevicePolicy.productLabel(environment.device.manufacturer, lowercase = true))
                 .put("model", TelemetryDevicePolicy.productLabel(environment.device.model))
                 .put("rom", environment.device.rom.takeIf { it in TelemetryDevicePolicy.romCodes } ?: "unknown"))
-            .put("upload_kind", if (environment.manual) "manual" else "automatic")
+            .put("upload_kind", when {
+                environment.versionChange -> "version_change"
+                environment.manual -> "manual"
+                else -> "automatic"
+            })
             .put("client_report_id", environment.reportId)
             .put("install_id", identity.installId)
             .put("purge_token", identity.purgeToken)

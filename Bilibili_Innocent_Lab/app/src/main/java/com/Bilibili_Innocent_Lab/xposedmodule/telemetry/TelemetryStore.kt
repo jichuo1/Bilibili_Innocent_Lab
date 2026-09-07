@@ -42,6 +42,9 @@ internal object TelemetryStore {
     internal const val KEY_MANUAL_ATTEMPTS = "manual_attempts"
     internal const val KEY_MANUAL_RETRY_AT = "manual_retry_at"
     internal const val KEY_RETIRED_ENDPOINT = "retired_endpoint"
+    private const val KEY_VERSION_SUCCESS = "version_success"
+    private const val KEY_VERSION_ATTEMPTS = "version_attempts"
+    private const val KEY_VERSION_RETRY_AT = "version_retry_at"
 
     private val lock = Any()
     @Volatile private var consentWriteHealthy = true
@@ -270,6 +273,52 @@ internal object TelemetryStore {
                     .apply()
             }
         }
+    }
+
+    fun versionDecision(context: Context, endpointKey: String, versionKey: String,
+        now: Long = System.currentTimeMillis()): Boolean = synchronized(lock) {
+        val prefs = preferences(context) ?: return@synchronized false
+        runCatching {
+            isEnabledForUpload(context) && prefs.getString(KEY_RETIRED_ENDPOINT, null) != endpointKey &&
+                TelemetryVersionPolicy.allowed(versionKey,
+                    prefs.getString(KEY_VERSION_SUCCESS, null),
+                    prefs.getString(KEY_VERSION_ATTEMPTS, "") ?: "invalid",
+                    prefs.getLong(KEY_VERSION_RETRY_AT, 0L), now)
+        }.getOrDefault(false)
+    }
+
+    @SuppressLint("UseKtx")
+    fun beginVersionAttempt(context: Context, endpointKey: String, versionKey: String,
+        now: Long = System.currentTimeMillis()): Boolean = synchronized(lock) {
+        if (!versionDecision(context, endpointKey, versionKey, now)) return@synchronized false
+        val prefs = preferences(context) ?: return@synchronized false
+        runCatching {
+            val attempts = TelemetryPolicy.activeManualAttempts(
+                prefs.getString(KEY_VERSION_ATTEMPTS, "") ?: "invalid", now
+            ) ?: return@runCatching false
+            prefs.edit().putString(KEY_VERSION_ATTEMPTS, (attempts + now.coerceAtLeast(1L)).joinToString(","))
+                .putLong(KEY_VERSION_RETRY_AT, now + TelemetryVersionPolicy.RETRY_MS)
+                .commit()
+        }.getOrDefault(false)
+    }
+
+    @SuppressLint("UseKtx")
+    fun recordVersionResult(context: Context, endpointKey: String, versionKey: String,
+        result: TelemetryTransportResult, now: Long = System.currentTimeMillis()) = synchronized(lock) {
+        val prefs = preferences(context) ?: return@synchronized
+        runCatching {
+            val editor = prefs.edit()
+            when (result.outcome) {
+                TelemetryHttpOutcome.SUCCESS -> editor.putString(KEY_VERSION_SUCCESS, versionKey)
+                    .putLong(KEY_VERSION_RETRY_AT, 0L)
+                TelemetryHttpOutcome.RETIRED -> editor.putString(KEY_RETIRED_ENDPOINT, endpointKey)
+                TelemetryHttpOutcome.RATE_LIMITED -> editor.putLong(KEY_VERSION_RETRY_AT,
+                    now + maxOf(result.retryAfterMs, TelemetryVersionPolicy.RETRY_MS))
+                else -> Unit
+            }
+            editor.commit()
+        }
+        Unit
     }
 
     fun getOrCreateIdentity(

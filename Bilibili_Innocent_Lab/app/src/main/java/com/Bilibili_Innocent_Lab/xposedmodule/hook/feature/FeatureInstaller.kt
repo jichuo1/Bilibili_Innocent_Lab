@@ -62,10 +62,10 @@ internal data class HookEnvironment(
     val postToMain: ((() -> Unit) -> Unit)? = null,
     /** 写“我的”页可屏蔽项快照（宿主剪枝时产出，供模块 UI 勾选列表读取）。null = 不启用快照。 */
     /**
-     * 面判别位（`MineComponentSnapshotCodec.SURFACE_*`）+ 编码后的 JSON。
+     * 面判别位（`MineComponentSnapshotCodec.SURFACE_*`）+ 不可变纯数据；编码和写盘由后台桥承担。
      * 2026-09-04 起由单面扩展为多面：我的页 / 底栏 / 首页 Tab / 首页组件共用这一条通道。
      */
-    val writeScanSnapshot: ((String, String) -> Unit)? = null,
+    val writeScanSnapshot: ((String, ScanSnapshotContent) -> Boolean)? = null,
     /**
      * 仅上报功能阶段；宿主桥对每项阶段只保留首次证据，null 时不影响 Hook。禁止传递设置值、
      * 卡片/评论正文、宿主成员名或异常文本。

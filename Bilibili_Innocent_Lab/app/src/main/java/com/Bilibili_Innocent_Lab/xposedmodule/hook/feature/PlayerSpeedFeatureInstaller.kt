@@ -91,7 +91,10 @@ internal class PlayerSpeedFeatureInstaller(
                     val outcome = applyDefaultSpeed(target, point, requested)
                     if (outcome == DefaultSpeedResult.APPLIED) {
                         environment.reportRuntimeEvidence("player_default_speed_percent", FeatureRuntimeStage.APPLIED)
-                    } else if (outcome != DefaultSpeedResult.UNCHANGED) {
+                    } else if (outcome == DefaultSpeedResult.UNEXPECTED_STATE) {
+                        environment.logInfo("player_speed_default_unexpected_state",
+                            "[BIL] 默认倍速不满足初始状态，保留宿主当前速度")
+                    } else if (outcome == DefaultSpeedResult.FAILED) {
                         environment.logError("player_speed_default_${outcome.name}",
                             "[BIL] 默认倍速保持宿主行为: ${outcome.name}")
                     }

@@ -3136,6 +3136,20 @@ class MainActivity : SkinnedActivity() {
             textSize = 12f
             alpha = 0.72f
             setLineSpacing(3 * density, 1f)
+            // 为两种状态预留同一文本高度，换行差异不再改变弹窗整体高度。
+            addOnLayoutChangeListener { view, left, _, right, _, oldLeft, _, oldRight, _ ->
+                if (right - left == oldRight - oldLeft && minimumHeight > 0) return@addOnLayoutChangeListener
+                val availableWidth = view.width - compoundPaddingLeft - compoundPaddingRight
+                if (availableWidth > 0) {
+                    minimumHeight = listOf(R.string.telemetry_enabled_summary, R.string.telemetry_disabled_summary)
+                        .maxOf { res ->
+                            val label = getString(res)
+                            android.text.StaticLayout.Builder.obtain(label, 0, label.length, paint, availableWidth)
+                                .setIncludePad(includeFontPadding)
+                                .setLineSpacing(lineSpacingExtra, lineSpacingMultiplier).build().height
+                        } + compoundPaddingTop + compoundPaddingBottom
+                }
+            }
         }
         val textColumn = NativeLinearLayout(this).apply {
             orientation = NativeLinearLayout.VERTICAL
@@ -3182,10 +3196,8 @@ class MainActivity : SkinnedActivity() {
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding((16 * density).toInt(), (11 * density).toInt(),
                     (10 * density).toInt(), (11 * density).toInt())
-                background = selfRippleBackground(14f)
-                isClickable = true
-                isFocusable = true
-                setOnClickListener { infoButton.performClick() }
+                isClickable = false
+                isFocusable = false
                 addView(textColumn, NativeLinearLayout.LayoutParams(
                     0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 addView(infoButton, NativeLinearLayout.LayoutParams(
@@ -3216,10 +3228,10 @@ class MainActivity : SkinnedActivity() {
                         toast(getString(R.string.telemetry_choice_save_failed))
                         return@setOnCheckedChangeListener
                     }
-                    summary.text = getString(
+                    animateTelemetrySummary(summary, getString(
                         if (enabled) R.string.telemetry_enabled_summary
                         else R.string.telemetry_disabled_summary
-                    )
+                    ))
                     if (enabled) TelemetryCoordinator.maybeUpload(applicationContext)
                 }
             }
@@ -3253,6 +3265,22 @@ class MainActivity : SkinnedActivity() {
                 ).apply { marginStart = (6 * density).toInt() }
             )
         }
+    }
+
+    /** 复用气泡亮暗说明的 120ms 淡出 / 180ms 淡入节奏，快速切换只保留最新文案。 */
+    private fun animateTelemetrySummary(view: NativeTextView, text: String) {
+        view.animate().withEndAction(null).cancel()
+        if (!view.isAttachedToWindow) { view.text = text; view.alpha = 0.72f; return }
+        if (view.text.toString() == text) {
+            view.animate().alpha(0.72f).setDuration(180L).setInterpolator(emphasizedDecelerate).start()
+            return
+        }
+        view.animate().alpha(0f).setDuration(120L).setInterpolator(emphasizedAccelerate)
+            .withEndAction {
+                view.text = text
+                view.animate().alpha(0.72f).setDuration(180L)
+                    .setInterpolator(emphasizedDecelerate).start()
+            }.start()
     }
 
     private fun showTelemetryInfoDialog() {
@@ -8430,6 +8458,8 @@ class MainActivity : SkinnedActivity() {
                         gravity = Gravity.CENTER or Gravity.START
                         updatePadding(horizontal = 15.dp)
                         updatePadding(top = 13.dp, bottom = 5.dp)
+                        clipChildren = false
+                        clipToPadding = false
                     }
                 ) {
                     ImageView(
@@ -8461,7 +8491,11 @@ class MainActivity : SkinnedActivity() {
                     }
                     // 只占原图标的空间，角标叠放，不改变工具栏高度或相邻按钮位置。
                     FrameLayout(
-                        lparams = LayoutParams(27.dp, 27.dp) { marginEnd = 5.dp }
+                        lparams = LayoutParams(27.dp, 27.dp) { marginEnd = 5.dp },
+                        init = {
+                            clipChildren = false
+                            clipToPadding = false
+                        }
                     ) {
                         ImageView(
                             lparams = LayoutParams(27.dp, 27.dp)
@@ -8474,8 +8508,10 @@ class MainActivity : SkinnedActivity() {
                             setOnClickListener { showGitHubMenuDialog() }
                         }
                         TextView(
-                            lparams = LayoutParams(22.dp, 12.dp) {
+                            lparams = LayoutParams(22.dp, 15.dp) {
                                 gravity = Gravity.END or Gravity.TOP
+                                marginEnd = -5.dp
+                                topMargin = -5.dp
                             }
                         ) {
                             githubUpdateBadge?.animate()?.setListener(null)?.cancel()
@@ -8486,10 +8522,9 @@ class MainActivity : SkinnedActivity() {
                             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                             textColor = monetColors.onPrimary
                             gravity = Gravity.CENTER
-                            background = GradientDrawable().apply {
-                                cornerRadius = 6.dp.toFloat()
-                                setColor(monetColors.primary)
-                            }
+                            setPadding(0, 0, 0, 3.dp)
+                            background = com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.GithubUpdateBadgeDrawable(
+                                monetColors.primary, resources.displayMetrics.density)
                             visibility = View.INVISIBLE
                             isClickable = true
                             isFocusable = true
@@ -8498,7 +8533,20 @@ class MainActivity : SkinnedActivity() {
                                     showUpdateDialogWhenIdle(it.channel, it.release)
                                 }
                             }
-                            post { renderUpdateBadge() }
+                            val badge = this
+                            fun updateHitTarget() {
+                                val frame = badge.parent as? ViewGroup ?: return
+                                val toolbar = frame.parent as? ViewGroup ?: return
+                                val hit = android.graphics.Rect(frame.left + badge.left, frame.top + badge.top,
+                                    frame.left + badge.right, frame.top + badge.bottom)
+                                hit.inset(-2.dp, -2.dp)
+                                toolbar.touchDelegate = object : android.view.TouchDelegate(hit, badge) {
+                                    override fun onTouchEvent(event: android.view.MotionEvent): Boolean =
+                                        badge.visibility == View.VISIBLE && super.onTouchEvent(event)
+                                }
+                            }
+                            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateHitTarget() }
+                            post { updateHitTarget(); renderUpdateBadge() }
                         }
                     }
                 }

@@ -1,5 +1,29 @@
 # Runtime architecture
 
+## Stability repair update (2026-09-07)
+
+This update supersedes the older in-place danmaku/dynamic rewrite and synchronous
+scan-cache descriptions below. Danmaku and dynamic filters now stage changes in
+host protobuf builders, retaining unknown/unrelated fields; dynamic UP entries are
+copied before position changes. A complete replacement reply is published at the
+sync return or asynchronous onNext boundary only after every selected edit builds.
+Failure returns the original reply and records a bounded error; no match returns
+the original instance without building a copy. The proxy's observer-only entry
+remains compatible, and host callback exceptions retain their original type.
+
+Scan hooks submit immutable data, not JSON. The host bridge encodes, validates,
+reads source metadata and persists on its existing background executor. A bounded
+per-surface latest-value publisher serializes writes, confirms only successes and
+retries a failure at most once per drain; a later equal submission can retry again.
+Disk restore cannot overwrite a newer snapshot. The receiver reads memory only;
+the module still independently verifies the receipt's source version.
+
+Version-change uploads arriving during another upload retain one pending action.
+The main-thread completion path drains it through the normal receipt/consent/quota
+checks; it does not reuse a stale receipt or consume manual/regular automatic quota.
+This is not a durable background job or a guarantee against OS process reclamation.
+Host-to-module notification and existing consent boundaries remain unchanged.
+
 ## Process boundaries
 
 `MainActivity` writes module preferences. `HookEntry` runs only in Bilibili and

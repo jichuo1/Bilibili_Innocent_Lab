@@ -31,8 +31,8 @@ class TelemetryDevicePolicyTest {
     }
 
     @Test fun oldTelemetryConsentDoesNotAuthorizeExpandedDataAndCoreTermsStayIndependent() {
-        listOf(-1, 0, 1, 2, 3, 5).forEach { assertFalse(TelemetryPolicy.disclosureAuthorizesUpload(it)) }
-        assertTrue(TelemetryPolicy.disclosureAuthorizesUpload(4))
+        listOf(-1, 0, 1, 2, 3, 4, 6).forEach { assertFalse(TelemetryPolicy.disclosureAuthorizesUpload(it)) }
+        assertTrue(TelemetryPolicy.disclosureAuthorizesUpload(5))
         assertEquals(2, com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore.CURRENT_TERMS_VERSION)
         assertFalse(TelemetryPolicy.termsChoice(true, false))
     }
