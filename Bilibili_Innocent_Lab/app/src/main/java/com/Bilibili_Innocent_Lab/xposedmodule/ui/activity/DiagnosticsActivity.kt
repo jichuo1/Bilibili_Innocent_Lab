@@ -1041,6 +1041,7 @@ class DiagnosticsActivity : SkinnedActivity() {
                     input.hostAppliedFeatureCount
                 )
                 val features = input.hostFeatures
+                    .filterNot { com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticFeatureRegistry.isAggregate(it.featureId) }
                     .filter {
                         it.evidence != DiagnosticEvidence.NOT_AVAILABLE ||
                             it.runtimeEvidenceExpected &&
@@ -1139,9 +1140,10 @@ class DiagnosticsActivity : SkinnedActivity() {
             R.string.diagnostics_feature_coverage_summary,
             input.hostInstalledFeatureCount,
             input.hostFailedFeatureCount,
-            input.hostFeatures.size
+            input.hostFeatures.count { !com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticFeatureRegistry.isAggregate(it.featureId) }
         )
         val lines = input.hostFeatures
+            .filterNot { com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticFeatureRegistry.isAggregate(it.featureId) }
             .sortedWith(
                 compareBy<DiagnosticHostFeature> {
                     featureInstallPriority(it.installState)
@@ -1155,15 +1157,18 @@ class DiagnosticsActivity : SkinnedActivity() {
                 } else {
                     ""
                 }
-                "${hostFeatureTitle(feature.featureId)}：${featureInstallText(feature)}$runtime"
+                "${hostFeatureTitle(feature.featureId)}：${featureInstallText(feature)}$runtime" +
+                    if (feature.runtimeError) " · " + getString(R.string.diagnostics_capability_runtime_error) else ""
             }
         return if (lines.isBlank()) summary else "$summary\n$lines"
     }
 
     private fun featureInstallPriority(state: DiagnosticFeatureInstallState): Int = when (state) {
         DiagnosticFeatureInstallState.FAILED,
+        DiagnosticFeatureInstallState.PARTIAL,
         DiagnosticFeatureInstallState.SKIPPED -> 0
-        DiagnosticFeatureInstallState.NOT_REPORTED -> 1
+        DiagnosticFeatureInstallState.NOT_REPORTED,
+        DiagnosticFeatureInstallState.UNKNOWN -> 1
         DiagnosticFeatureInstallState.INSTALLED -> 2
         DiagnosticFeatureInstallState.DISABLED,
         DiagnosticFeatureInstallState.NOT_APPLICABLE -> 3
@@ -1172,6 +1177,8 @@ class DiagnosticsActivity : SkinnedActivity() {
     private fun featureInstallText(
         feature: DiagnosticHostFeature
     ): String = when (feature.installState) {
+        DiagnosticFeatureInstallState.PARTIAL -> getString(R.string.diagnostics_feature_install_partial)
+        DiagnosticFeatureInstallState.UNKNOWN -> getString(R.string.diagnostics_feature_install_unknown)
         DiagnosticFeatureInstallState.INSTALLED -> getString(
             R.string.diagnostics_feature_install_installed,
             feature.installedHookCount
@@ -1209,7 +1216,7 @@ class DiagnosticsActivity : SkinnedActivity() {
     }
 
     private fun hostFeatureTitle(featureId: String): String = getString(
-        when (featureId) {
+        com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticCapabilityCatalog.byId[featureId]?.labelRes ?: when (featureId) {
             "paused_ad" -> R.string.paused_page_ad_enable
             "game_mentioned_promotion" -> R.string.gamecard_ad_enable
             "detail_app_promotion" -> R.string.hide_video_detail_app_promotion

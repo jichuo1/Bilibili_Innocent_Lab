@@ -60,7 +60,7 @@ internal class PlayerPortraitFeatureInstaller(
                 "[BIL] 播放器竖屏切换控件隐藏已安装，hooks=$installedCount"
             )
         }
-        return FeatureInstallResult.Installed(installedCount)
+        return FeatureInstallResult.Installed(installedCount, complete = installedCount == adapted.size)
     }
 
     private fun missing(

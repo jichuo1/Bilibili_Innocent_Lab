@@ -14,6 +14,7 @@ internal class HomeBannerFeatureInstaller(
 ) : FeatureInstaller {
 
     override val id: String = ID
+    override val capabilityIds: List<String> get() = if (enabled) listOf("home_banner_view") else emptyList()
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!enabled) {
@@ -21,6 +22,7 @@ internal class HomeBannerFeatureInstaller(
             return FeatureInstallResult.Skipped("disabled")
         }
 
+        val viewEnvironment = environment.forCapabilityRuntime("home_banner_view")
         val results = LinkedHashMap<String, Boolean>()
         val bannerPoint = point
         if (bannerPoint != null) {
@@ -39,9 +41,9 @@ internal class HomeBannerFeatureInstaller(
                                 lifecyclePoint.methodName == "onVisibilityChanged" &&
                                 (args.getOrNull(1) as? Int) != View.VISIBLE
                             ) return@after
-                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                            viewEnvironment.reportRuntimeEvidence("home_banner_view", FeatureRuntimeStage.OBSERVED)
                             if (collapseBanner(banner)) {
-                                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                                viewEnvironment.reportRuntimeEvidence("home_banner_view", FeatureRuntimeStage.APPLIED)
                             } else {
                                 environment.logInfo(
                                     "banner_parent_unsafe",
@@ -75,6 +77,11 @@ internal class HomeBannerFeatureInstaller(
         val ready = results.any { (key, registered) ->
             registered && (key.endsWith("#onAttachedToWindow") || key == "legacyContainer")
         }
+        val successfulPaths = results.count { it.value }
+        environment.reportCapability("home_banner_view",
+            if (successfulPaths > 0) FeatureInstallResult.Installed(successfulPaths,
+                complete = ready && results.values.all { it })
+            else FeatureInstallResult.Skipped("no_required_hook_point"))
         environment.reportStatus(CHANNEL_STATUS, if (ready) "success" else "failed")
         if (ready) {
             environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)

@@ -1,12 +1,14 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.pm.PackageInfo
 import android.os.Build
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshotCodec
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSelectionCodec
 
 /** 仅在模块 uid 内落盘经查询协议校验过的有界快照。 */
 internal object MineComponentSnapshotStore {
@@ -27,21 +29,53 @@ internal object MineComponentSnapshotStore {
         context: Context,
         payload: String,
         source: MineComponentSnapshotSource
+    ): Boolean = runCatching {
+        val prefsName = "${context.packageName}_preferences"
+        write(context.getSharedPreferences(prefsName, Context.MODE_PRIVATE), payload, source)
+    }.getOrDefault(false)
+
+    /** 只由用户发起的、已验真查询调用；来源与勾选一起保存，手填键不参与清理。 */
+    internal fun write(
+        prefs: SharedPreferences,
+        payload: String,
+        source: MineComponentSnapshotSource
     ): Boolean {
         val decoded = MineComponentSnapshotCodec.decodeOrNull(payload, allowLegacy = false)
             ?: return false
-        if (!source.isComplete) return false
-        val prefsName = "${context.packageName}_preferences"
+        if (!source.isComplete || decoded.entries.isEmpty()) return false
         return runCatching {
-            context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-                .edit()
+            val previous = storedSource(prefs, decoded.surface)
+            val selectorsKey = ComponentSelectionReconciler.selectorsKey(decoded.surface)
+            val raw = prefs.getString(selectorsKey, "").orEmpty()
+            val selected = MineComponentSelectionCodec.decode(raw)
+            val retained = ComponentSelectionReconciler.retain(
+                selected, previous?.targetVersionCode, source.targetVersionCode, decoded
+            )
+            val editor = prefs.edit()
                 .putString(snapshotKey(decoded.surface), payload)
-                .putBoolean(KEY_SOURCE_PRESENT, true)
-                .putLong(KEY_TARGET_VERSION, source.targetVersionCode)
-                .putLong(KEY_TARGET_UPDATE_TIME, source.targetUpdateTime)
-                .putLong(KEY_MODULE_VERSION, source.moduleVersionCode)
-                .commit()
+                .putBoolean(sourceKey(KEY_SOURCE_PRESENT, decoded.surface), true)
+                .putLong(sourceKey(KEY_TARGET_VERSION, decoded.surface), source.targetVersionCode)
+                .putLong(sourceKey(KEY_TARGET_UPDATE_TIME, decoded.surface), source.targetUpdateTime)
+                .putLong(sourceKey(KEY_MODULE_VERSION, decoded.surface), source.moduleVersionCode)
+            if (retained != selected) {
+                editor.putString(selectorsKey, MineComponentSelectionCodec.encode(retained))
+            }
+            editor.commit()
         }.getOrDefault(false)
+    }
+
+    private fun sourceKey(key: String, surface: String) = "${key}_$surface"
+
+    private fun storedSource(prefs: SharedPreferences, surface: String): MineComponentSnapshotSource? {
+        // 不再改写旧的全局来源：未迁移的其他面仍需要它判定自身版本变化。
+        val perSurface = prefs.getBoolean(sourceKey(KEY_SOURCE_PRESENT, surface), false)
+        if (!perSurface && !prefs.getBoolean(KEY_SOURCE_PRESENT, false)) return null
+        fun key(value: String) = if (perSurface) sourceKey(value, surface) else value
+        return MineComponentSnapshotSource(
+            prefs.getLong(key(KEY_TARGET_VERSION), 0L),
+            prefs.getLong(key(KEY_TARGET_UPDATE_TIME), 0L),
+            prefs.getLong(key(KEY_MODULE_VERSION), 0L)
+        )
     }
 
     fun read(
@@ -54,13 +88,7 @@ internal object MineComponentSnapshotStore {
         val snapshot = MineComponentSnapshotCodec.decodeOrNull(payload)
             ?.takeIf { it.surface == surface }
             ?: return@runCatching null
-        if (!prefs.getBoolean(KEY_SOURCE_PRESENT, false)) return@runCatching snapshot
-
-        val storedSource = MineComponentSnapshotSource(
-            targetVersionCode = prefs.getLong(KEY_TARGET_VERSION, 0L),
-            targetUpdateTime = prefs.getLong(KEY_TARGET_UPDATE_TIME, 0L),
-            moduleVersionCode = prefs.getLong(KEY_MODULE_VERSION, 0L)
-        )
+        val storedSource = storedSource(prefs, surface) ?: return@runCatching snapshot
         val currentSource = currentSource(context) ?: return@runCatching null
         snapshot.takeIf { storedSource == currentSource }
     }.getOrNull()

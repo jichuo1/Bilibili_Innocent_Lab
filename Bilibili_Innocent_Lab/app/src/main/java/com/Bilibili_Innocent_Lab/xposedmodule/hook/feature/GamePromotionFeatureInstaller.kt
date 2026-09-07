@@ -196,7 +196,9 @@ internal class GamePromotionFeatureInstaller(
             return FeatureInstallResult.Installed(results.count { it.value })
         }
         environment.logError("gamecard_partial", "[BIL] gamecard 部分 hook 未命中: $summary")
-        return FeatureInstallResult.Skipped(summary)
+        val available = results.count { it.value }
+        return if (available > 0) FeatureInstallResult.Installed(available, complete = false)
+        else FeatureInstallResult.Skipped(summary)
     }
 
     private fun mentionedSectionConstructor(environment: HookEnvironment): Constructor<*> =

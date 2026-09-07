@@ -78,7 +78,7 @@ internal object MineComponentSnapshotQueryClient {
                         deliver(Result(Status.WAITING_PAGE))
 
                     MineComponentSnapshotQueryContract.STATUS_READY -> validationExecutor.execute {
-                        deliver(validateAndStore(appContext, extras))
+                        deliver(validateAndStore(appContext, extras, surface))
                     }
 
                     else -> deliver(Result(Status.INVALID_RESPONSE))
@@ -110,7 +110,11 @@ internal object MineComponentSnapshotQueryClient {
         }
     }
 
-    private fun validateAndStore(context: Context, extras: android.os.Bundle): Result {
+    private fun validateAndStore(
+        context: Context,
+        extras: android.os.Bundle,
+        requestedSurface: String
+    ): Result {
         val payload = extras.getString(MineComponentSnapshotQueryContract.EXTRA_PAYLOAD).orEmpty()
         val digest = extras.getString(
             MineComponentSnapshotQueryContract.EXTRA_PAYLOAD_SHA256
@@ -120,7 +124,8 @@ internal object MineComponentSnapshotQueryClient {
         }
         val snapshot = MineComponentSnapshotCodec.decodeOrNull(payload, allowLegacy = false)
             ?: return Result(Status.INVALID_RESPONSE)
-        if (snapshot.processName != MineComponentSnapshotQueryContract.TARGET_PACKAGE ||
+        if (snapshot.surface != requestedSurface ||
+            snapshot.processName != MineComponentSnapshotQueryContract.TARGET_PACKAGE ||
             snapshot.entries.isEmpty()
         ) return Result(Status.INVALID_RESPONSE)
 

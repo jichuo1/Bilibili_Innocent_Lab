@@ -1,0 +1,27 @@
+{
+  "name": "innocent-lab-telemetry-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/validation.test.ts test/http.test.ts test/maintenance.test.ts test/analytics.test.ts test/quota.test.ts",
+    "check": "npm run typecheck && npm test",
+    "dev": "wrangler dev --env staging",
+    "deploy:staging": "wrangler deploy --env staging",
+    "deploy:production": "wrangler deploy --env production",
+    "deploy:analytics": "wrangler deploy --config wrangler.analytics.jsonc"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260906.1",
+    "@types/node": "^26.4.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.129.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "esbuild@0.28.1": true,
+    "workerd@1.20260903.1": true
+  }
+}

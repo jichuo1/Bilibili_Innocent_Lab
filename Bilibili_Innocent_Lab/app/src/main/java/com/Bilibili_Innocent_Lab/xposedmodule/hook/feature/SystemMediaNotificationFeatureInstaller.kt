@@ -79,7 +79,7 @@ internal class SystemMediaNotificationFeatureInstaller(
                 "[BIL] 系统媒体控制通知部分安装，status=$status"
             )
         }
-        return FeatureInstallResult.Installed(installed)
+        return FeatureInstallResult.Installed(installed, complete = installed == methods.size)
     }
 
     private fun installKeyOverride(

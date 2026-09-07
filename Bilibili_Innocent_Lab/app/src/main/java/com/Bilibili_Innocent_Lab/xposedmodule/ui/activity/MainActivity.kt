@@ -103,6 +103,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotQuery
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ShellCommandRunner
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateCheckCoordinator
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ColdStartUpdateSession
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateChannelStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.ActivationDisplayState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootDisplayState
@@ -127,6 +128,10 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsGateDiagnostics
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsSyncState
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.didUserTermsAuthorizationComplete
+import com.Bilibili_Innocent_Lab.xposedmodule.telemetry.TelemetryActionResult
+import com.Bilibili_Innocent_Lab.xposedmodule.telemetry.TelemetryActionStatus
+import com.Bilibili_Innocent_Lab.xposedmodule.telemetry.TelemetryCoordinator
+import com.Bilibili_Innocent_Lab.xposedmodule.telemetry.TelemetryStore
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseNotesMarkdownRenderer
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseNotesScrollView
@@ -169,7 +174,6 @@ class MainActivity : SkinnedActivity() {
         /** 各渠道独立的成功检查时间，避免切换渠道后 24 小时节流误跳过新渠道检查。 */
         const val PREF_LAST_CHECK_STABLE = "last_successful_check_ms_stable"
         const val PREF_LAST_CHECK_PREVIEW = "last_successful_check_ms_preview"
-        const val AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1_000L
         const val FRAMEWORK_STATUS_SETTLE_MS = 1_500L
         const val MINE_COMPONENT_SNAPSHOT_STALE_MS = 7L * 24L * 60L * 60L * 1_000L
         const val SETTINGS_SEARCH_HIGHLIGHT_DELAY_MS = 240L
@@ -567,6 +571,62 @@ class MainActivity : SkinnedActivity() {
 
     /** GitHub 请求只允许单飞；切换渠道时保留最后一次手动请求并抑制过期结果。 */
     private val updateCheckCoordinator = UpdateCheckCoordinator()
+    private val updateUiHandler = Handler(Looper.getMainLooper())
+    private val updateUiOwner = ColdStartUpdateSession.newOwner()
+    private var updateUiResumed = false
+    private var githubUpdateBadge: NativeTextView? = null
+    private val updateNoticeObserver: () -> Unit = { renderUpdateBadge() }
+    private val coldStartUpdateCheck = Runnable {
+        if (updateUiResumed && userTermsDecision.isAuthorized &&
+            ColdStartUpdateSession.state.claimAutomatic(updateUiOwner, android.os.SystemClock.elapsedRealtime())) {
+            checkForUpdates(manual = false)
+        }
+    }
+
+    private fun scheduleColdStartUpdate() {
+        if (!updateUiResumed || !userTermsDecision.isAuthorized || githubUpdateBadge == null) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        ColdStartUpdateSession.state.resume(updateUiOwner, now)
+        updateUiHandler.removeCallbacks(coldStartUpdateCheck)
+        ColdStartUpdateSession.state.remainingMs(updateUiOwner, now)?.let {
+            updateUiHandler.postDelayed(coldStartUpdateCheck, it)
+        }
+    }
+
+    private fun renderUpdateBadge() {
+        val badge = githubUpdateBadge ?: return
+        val notice = ColdStartUpdateSession.state.noticeFor(UpdateChannelStore.read(applicationContext))
+        badge.animate().setListener(null).cancel()
+        if (notice == null) {
+            if (!updateUiResumed || badge.visibility != View.VISIBLE) {
+                badge.visibility = View.INVISIBLE
+                return
+            }
+            badge.animate().alpha(0f).scaleX(0.55f).scaleY(0.7f)
+                .setDuration(180L).setInterpolator(emphasizedDecelerate)
+                .setListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        badge.visibility = View.INVISIBLE
+                        badge.animate().setListener(null)
+                    }
+                }).start()
+            return
+        }
+        badge.contentDescription = getString(R.string.github_new_update_description, notice.release.tagName)
+        if (!updateUiResumed) return
+        if (badge.visibility != View.VISIBLE) {
+            badge.alpha = 0f
+            badge.scaleX = 0.55f
+            badge.scaleY = 0.7f
+            badge.translationX = 4f * resources.displayMetrics.density
+            badge.translationY = 3f * resources.displayMetrics.density
+            badge.visibility = View.VISIBLE
+        }
+        badge.pivotX = 0f
+        badge.pivotY = badge.height.toFloat()
+        badge.animate().alpha(1f).scaleX(1f).scaleY(1f).translationX(0f).translationY(0f)
+            .setDuration(320L).setInterpolator(emphasizedDecelerate).start()
+    }
 
     /** 日志详细度档位选择器的两个 pill 控件引用 + 滑动滑块 + 描述 TextView */
     private var logLevelMinimalPill: android.widget.TextView? = null
@@ -1834,6 +1894,52 @@ class MainActivity : SkinnedActivity() {
             }
         )
 
+        // 遥测是独立的可选处理场景：固定显示在操作按钮上方，接受条款前即可关闭。
+        val telemetryConsentSwitch =
+            com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch(this, null).apply {
+                text = getString(R.string.telemetry_terms_choice)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 14f
+                isChecked = TelemetryStore.termsChoice(applicationContext)
+            }
+        val telemetryChoiceContainer = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.VERTICAL
+            setPadding(
+                (12 * density).toInt(),
+                (8 * density).toInt(),
+                (12 * density).toInt(),
+                (8 * density).toInt()
+            )
+            background = selfRippleBackground(14f)
+            addView(
+                telemetryConsentSwitch,
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
+                NativeTextView(this@MainActivity).apply {
+                    text = getString(R.string.telemetry_terms_choice_summary)
+                    textColor = getColor(R.color.colorTextDark)
+                    textSize = 12f
+                    alpha = 0.72f
+                    setLineSpacing(3 * density, 1f)
+                },
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = (3 * density).toInt() }
+            )
+        }
+        container.addView(
+            telemetryChoiceContainer,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (12 * density).toInt() }
+        )
+
         // 保存失败的原因提示与可解析的框架管理器入口：默认隐藏，仅在失败时展示。
         val hintView = NativeTextView(this).apply {
             visibility = View.GONE
@@ -1871,7 +1977,8 @@ class MainActivity : SkinnedActivity() {
                 commitUserTermsDecision(
                     dialog = dialog,
                     container = container,
-                    accepted = false
+                    accepted = false,
+                    telemetryEnabled = false
                 )
             },
             NativeLinearLayout.LayoutParams(
@@ -1888,7 +1995,8 @@ class MainActivity : SkinnedActivity() {
                 commitUserTermsDecision(
                     dialog = dialog,
                     container = container,
-                    accepted = true
+                    accepted = true,
+                    telemetryEnabled = telemetryConsentSwitch.isChecked
                 )
             },
             NativeLinearLayout.LayoutParams(
@@ -1997,7 +2105,8 @@ class MainActivity : SkinnedActivity() {
     private fun commitUserTermsDecision(
         dialog: Dialog,
         container: View,
-        accepted: Boolean
+        accepted: Boolean,
+        telemetryEnabled: Boolean
     ) {
         if (termsDecisionActionInProgress) return
         termsDecisionActionInProgress = true
@@ -2010,6 +2119,14 @@ class MainActivity : SkinnedActivity() {
             termsDecisionActionInProgress = false
             showUserTermsSaveFailureHint(result.failureCode)
             return
+        }
+
+        val telemetryChoiceSaved = TelemetryStore.writeConsentChoice(
+            applicationContext,
+            enabled = accepted && telemetryEnabled
+        )
+        if (accepted && !telemetryChoiceSaved) {
+            toast(getString(R.string.telemetry_choice_save_failed))
         }
 
         termsConsentState = result.state
@@ -2856,6 +2973,13 @@ class MainActivity : SkinnedActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = (6 * density).toInt() }
         )
+        container.addView(
+            createTelemetryMenuRow(dialog, container),
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (10 * density).toInt() }
+        )
 
         // 与“重新启动哔哩哔哩”确认弹窗一致的右下角文本按钮。
         val buttonRow = NativeLinearLayout(this).apply {
@@ -2949,6 +3073,472 @@ class MainActivity : SkinnedActivity() {
                 ).apply { topMargin = (4 * density).toInt() }
             )
         }
+    }
+
+    /** 遥测范围变更需用户单独确认，不随详情页入口点击自动授权。 */
+    private var telemetryDisclosurePrompted = false
+
+    private fun showTelemetryDisclosureDialog() {
+        if (isFinishing || isDestroyed) return
+        telemetryDisclosurePrompted = true
+        val dialog = Dialog(this)
+        val container = createModalContainer()
+        val density = resources.displayMetrics.density
+        container.addView(NativeTextView(this).apply {
+            text = getString(R.string.telemetry_disclosure_title)
+            textColor = getColor(R.color.colorTextDark)
+            textSize = 18f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        })
+        container.addView(NativeScrollView(this).apply {
+            addView(NativeTextView(this@MainActivity).apply {
+                text = getString(R.string.telemetry_disclosure_message) + "\n\n" +
+                    getString(R.string.telemetry_info_body)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 14f
+                setLineSpacing(4 * density, 1f)
+            })
+        }, NativeLinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            minOf((380 * density).toInt(), (resources.displayMetrics.heightPixels * 0.5f).toInt())
+        ).apply { topMargin = (12 * density).toInt() })
+        fun decide(enabled: Boolean) {
+            if (!TelemetryStore.writeConsentChoice(applicationContext, enabled)) {
+                toast(getString(R.string.telemetry_choice_save_failed))
+                return
+            }
+            dismissWithAnimation(dialog, container) {
+                if (enabled) TelemetryCoordinator.maybeUpload(applicationContext)
+            }
+        }
+        container.addView(createTermsActionButton(getString(R.string.telemetry_disclosure_decline), filled = false) {
+            decide(false)
+        })
+        container.addView(createTermsActionButton(getString(R.string.telemetry_disclosure_accept), filled = true) {
+            decide(true)
+        })
+        presentModalDialog(dialog, container)
+    }
+
+    private fun createTelemetryMenuRow(
+        dialog: Dialog,
+        dialogContainer: NativeLinearLayout,
+        showControl: Boolean = false
+    ): NativeLinearLayout {
+        val density = resources.displayMetrics.density
+        val initialEnabled = TelemetryStore.displayState(applicationContext).enabled
+        val summary = NativeTextView(this).apply {
+            text = getString(
+                if (initialEnabled) R.string.telemetry_enabled_summary
+                else R.string.telemetry_disabled_summary
+            )
+            textColor = getColor(R.color.colorTextDark)
+            textSize = 12f
+            alpha = 0.72f
+            setLineSpacing(3 * density, 1f)
+        }
+        val textColumn = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.VERTICAL
+            addView(
+                NativeTextView(this@MainActivity).apply {
+                    text = getString(R.string.telemetry_title)
+                    textColor = getColor(R.color.colorTextGray)
+                    textSize = 16f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                },
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
+                summary,
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = (4 * density).toInt() }
+            )
+        }
+        val infoButton = NativeTextView(this).apply {
+            text = "ⓘ"
+            contentDescription = getString(R.string.telemetry_info_button)
+            textColor = monetColors.primary
+            textSize = 20f
+            gravity = Gravity.CENTER
+            setPadding((10 * density).toInt())
+            background = selfRippleBackground(20f)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                dismissWithAnimation(dialog, dialogContainer) {
+                    showTelemetryInfoDialog()
+                }
+            }
+        }
+        // GitHub 二级页只导航，不创建开关，也不因整行点击改变遥测选择。
+        if (!showControl) {
+            return NativeLinearLayout(this).apply {
+                orientation = NativeLinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding((16 * density).toInt(), (11 * density).toInt(),
+                    (10 * density).toInt(), (11 * density).toInt())
+                background = selfRippleBackground(14f)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { infoButton.performClick() }
+                addView(textColumn, NativeLinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(infoButton, NativeLinearLayout.LayoutParams(
+                    (44 * density).toInt(), (44 * density).toInt()
+                ).apply { marginStart = (6 * density).toInt() })
+            }
+        }
+        var programmaticChange = false
+        val telemetrySwitch =
+            com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch(this, null).apply {
+                text = ""
+                contentDescription = getString(R.string.telemetry_title)
+                isChecked = initialEnabled
+                setOnCheckedChangeListener { _, enabled ->
+                    if (programmaticChange) return@setOnCheckedChangeListener
+                    if (enabled && !TelemetryStore.hasCurrentDisclosure(applicationContext)) {
+                        programmaticChange = true
+                        isChecked = false
+                        programmaticChange = false
+                        dismissWithAnimation(dialog, dialogContainer) { showTelemetryDisclosureDialog() }
+                        return@setOnCheckedChangeListener
+                    }
+                    val saved = TelemetryStore.writeConsentChoice(applicationContext, enabled)
+                    if (!saved) {
+                        programmaticChange = true
+                        isChecked = !enabled
+                        programmaticChange = false
+                        toast(getString(R.string.telemetry_choice_save_failed))
+                        return@setOnCheckedChangeListener
+                    }
+                    summary.text = getString(
+                        if (enabled) R.string.telemetry_enabled_summary
+                        else R.string.telemetry_disabled_summary
+                    )
+                    if (enabled) TelemetryCoordinator.maybeUpload(applicationContext)
+                }
+            }
+
+        return NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(
+                (16 * density).toInt(),
+                (11 * density).toInt(),
+                (10 * density).toInt(),
+                (11 * density).toInt()
+            )
+            background = selfRippleBackground(14f)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { telemetrySwitch.toggle() }
+            addView(
+                textColumn,
+                NativeLinearLayout.LayoutParams(
+                    0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    1f
+                )
+            )
+            addView(
+                telemetrySwitch,
+                NativeLinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { marginStart = (6 * density).toInt() }
+            )
+        }
+    }
+
+    private fun showTelemetryInfoDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createModalContainer()
+
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.telemetry_info_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 18f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        container.addView(createTelemetryMenuRow(dialog, container, showControl = true))
+        container.addView(
+            createGitHubMenuRow(
+                title = getString(R.string.telemetry_explanation_action),
+                subtitle = getString(R.string.telemetry_explanation_summary),
+                highlight = false
+            ) {
+                dismissWithAnimation(dialog, container) { showTelemetryExplanationDialog() }
+            }
+        )
+        container.addView(
+            createGitHubMenuRow(
+                title = getString(R.string.telemetry_preview_action),
+                subtitle = getString(R.string.telemetry_preview_note),
+                highlight = false
+            ) {
+                dismissWithAnimation(dialog, container) {
+                    toast(getString(R.string.telemetry_collecting))
+                    TelemetryCoordinator.preview(applicationContext) { result ->
+                        if (isFinishing || isDestroyed) return@preview
+                        val payload = result.preview
+                        if (result.status == TelemetryActionStatus.SUCCESS && payload != null) {
+                            showTelemetryPayloadPreview(payload)
+                        } else {
+                            toast(getString(telemetryActionMessage(result)))
+                        }
+                    }
+                }
+            }
+        )
+        container.addView(
+            createGitHubMenuRow(
+                title = getString(R.string.telemetry_upload_action),
+                // 开关状态由上方控制行实时展示，避免切换后保留过期的状态文案。
+                subtitle = getString(R.string.telemetry_manual_summary),
+                highlight = false
+            ) {
+                dismissWithAnimation(dialog, container) {
+                    TelemetryCoordinator.maybeUpload(
+                        applicationContext,
+                        manual = true
+                    ) { result ->
+                        if (!isFinishing && !isDestroyed) {
+                            toast(getString(telemetryActionMessage(result)))
+                        }
+                    }
+                }
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (6 * density).toInt() }
+        )
+        container.addView(
+            createGitHubMenuRow(
+                title = getString(R.string.telemetry_purge_action),
+                subtitle = getString(R.string.telemetry_purge_summary),
+                highlight = false
+            ) {
+                dismissWithAnimation(dialog, container) {
+                    showTelemetryPurgeConfirmDialog()
+                }
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (6 * density).toInt() }
+        )
+
+        val closeRow = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            addView(
+                createTermsActionButton(getString(R.string.dialog_close), filled = false) {
+                    dismissWithAnimation(dialog, container) {}
+                }
+            )
+        }
+        container.addView(
+            closeRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (14 * density).toInt() }
+        )
+        presentModalDialog(dialog, container)
+    }
+
+    private fun showTelemetryExplanationDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createModalContainer()
+        container.addView(NativeTextView(this).apply {
+            text = getString(R.string.telemetry_explanation_action)
+            textColor = getColor(R.color.colorTextDark)
+            textSize = 18f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        })
+        val bodyScroll = NativeScrollView(this).apply {
+            isVerticalScrollBarEnabled = true
+            addView(
+                NativeTextView(this@MainActivity).apply {
+                    text = getString(R.string.telemetry_info_body)
+                    textColor = getColor(R.color.colorTextDark)
+                    textSize = 13f
+                    setLineSpacing(4 * density, 1f)
+                },
+                NativeFrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+        container.addView(
+            bodyScroll,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                minOf((300 * density).toInt(), (resources.displayMetrics.heightPixels * 0.42f).toInt())
+            ).apply {
+                topMargin = (12 * density).toInt()
+                bottomMargin = (10 * density).toInt()
+            }
+        )
+        container.addView(createTermsActionButton(getString(R.string.dialog_close), filled = false) {
+            dismissWithAnimation(dialog, container) { showTelemetryInfoDialog() }
+        })
+        presentModalDialog(dialog, container)
+    }
+
+    private fun showTelemetryPayloadPreview(payload: String) {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createModalContainer()
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.telemetry_preview_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 18f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+        )
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.telemetry_preview_note)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 12f
+                alpha = 0.72f
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (6 * density).toInt() }
+        )
+        val scroll = NativeScrollView(this).apply {
+            isVerticalScrollBarEnabled = true
+            addView(
+                NativeTextView(this@MainActivity).apply {
+                    text = payload
+                    textColor = getColor(R.color.colorTextDark)
+                    textSize = 11f
+                    typeface = Typeface.MONOSPACE
+                    setTextIsSelectable(true)
+                }
+            )
+        }
+        container.addView(
+            scroll,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                minOf((430 * density).toInt(), (resources.displayMetrics.heightPixels * 0.58f).toInt())
+            ).apply { topMargin = (12 * density).toInt() }
+        )
+        val closeRow = NativeLinearLayout(this).apply {
+            gravity = Gravity.END
+            addView(
+                createTermsActionButton(getString(R.string.dialog_close), filled = false) {
+                    dismissWithAnimation(dialog, container) {}
+                }
+            )
+        }
+        container.addView(
+            closeRow,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (12 * density).toInt() }
+        )
+        presentModalDialog(dialog, container)
+    }
+
+    private fun showTelemetryPurgeConfirmDialog() {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createModalContainer()
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.telemetry_purge_confirm_title)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 18f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            }
+        )
+        container.addView(
+            NativeTextView(this).apply {
+                text = getString(R.string.telemetry_purge_confirm_message)
+                textColor = getColor(R.color.colorTextDark)
+                textSize = 13f
+                setLineSpacing(4 * density, 1f)
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (10 * density).toInt() }
+        )
+        val buttons = NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END
+            addView(
+                createTermsActionButton(getString(R.string.dialog_cancel), filled = false) {
+                    dismissWithAnimation(dialog, container) {}
+                },
+                NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            )
+            addView(
+                createTermsActionButton(getString(R.string.dialog_confirm), filled = true) {
+                    dismissWithAnimation(dialog, container) {
+                        TelemetryCoordinator.purge(applicationContext) { result ->
+                            if (!isFinishing && !isDestroyed) {
+                                toast(getString(telemetryActionMessage(result, purge = true)))
+                            }
+                        }
+                    }
+                },
+                NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    .apply { marginStart = (8 * density).toInt() }
+            )
+        }
+        container.addView(
+            buttons,
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (18 * density).toInt() }
+        )
+        presentModalDialog(dialog, container)
+    }
+
+    private fun telemetryActionMessage(
+        result: TelemetryActionResult,
+        purge: Boolean = false
+    ): Int = when (result.status) {
+        TelemetryActionStatus.SUCCESS -> if (purge) {
+            R.string.telemetry_purge_success
+        } else {
+            R.string.telemetry_upload_success
+        }
+        TelemetryActionStatus.DISABLED -> R.string.telemetry_upload_disabled
+        TelemetryActionStatus.NOT_DUE -> R.string.telemetry_upload_not_due
+        TelemetryActionStatus.MANUAL_LIMIT_REACHED -> R.string.telemetry_manual_limit_reached
+        TelemetryActionStatus.BUSY -> R.string.telemetry_action_busy
+        TelemetryActionStatus.HOST_UNAVAILABLE -> R.string.telemetry_host_unavailable
+        TelemetryActionStatus.IDENTITY_UNAVAILABLE -> R.string.telemetry_identity_unavailable
+        TelemetryActionStatus.RETIRED -> R.string.telemetry_service_retired
+        TelemetryActionStatus.RATE_LIMITED -> R.string.telemetry_rate_limited
+        TelemetryActionStatus.REJECTED -> R.string.telemetry_request_rejected
+        TelemetryActionStatus.FAILED -> R.string.telemetry_request_failed
+        TelemetryActionStatus.NOTHING_TO_DELETE -> R.string.telemetry_nothing_to_delete
     }
 
     /** 「更新渠道」选择弹窗：稳定版 / 预览版（含 Alpha），风格与 GitHub 二级界面统一。 */
@@ -3488,6 +4078,8 @@ class MainActivity : SkinnedActivity() {
         val updatePrefs = applicationContext.getSharedPreferences(UpdateChannelStore.PREF_FILE, MODE_PRIVATE)
         if (readUpdateChannel(updatePrefs) == channel) return
         UpdateChannelStore.write(applicationContext, channel)
+        ColdStartUpdateSession.state.channelChanged()
+        renderUpdateBadge()
         checkForUpdates(manual = true)
     }
 
@@ -3535,18 +4127,13 @@ class MainActivity : SkinnedActivity() {
     }
 
     /**
-     * 按当前渠道检查更新。自动检查按渠道各自节流（24 小时窗口，仅成功后计时）；
+     * 按当前渠道检查更新。自动检查由进程级首次前台停留门禁触发；
      * 手动检查始终执行并反馈结果。切换渠道后会自动发起一次新渠道检查。
      */
     private fun checkForUpdates(manual: Boolean) {
         val updatePrefs = applicationContext.getSharedPreferences(UpdateChannelStore.PREF_FILE, MODE_PRIVATE)
         val channel = readUpdateChannel(updatePrefs)
-        if (!manual) {
-            val now = System.currentTimeMillis()
-            val lastCheck = updatePrefs.getLong(lastCheckKey(updatePrefs, channel), 0L)
-            val elapsed = now - lastCheck
-            if (elapsed in 0 until AUTOMATIC_UPDATE_CHECK_INTERVAL_MS) return
-        }
+        if (!updateUiResumed) return
         val request = UpdateCheckCoordinator.Request(channel, manual)
         val requestToStart = updateCheckCoordinator.submit(request)
         if (requestToStart == null) {
@@ -3562,6 +4149,7 @@ class MainActivity : SkinnedActivity() {
         updatePrefs: android.content.SharedPreferences
     ) {
         val channel = request.channel
+        val sequence = ColdStartUpdateSession.state.beginRequest()
         if (request.manual) {
             toast(getString(checkingToastRes(channel)))
         }
@@ -3569,6 +4157,14 @@ class MainActivity : SkinnedActivity() {
         Thread({
             val result = runCatching { GitHubReleaseChecker.fetchLatestRelease(channel) }
             Handler(Looper.getMainLooper()).post {
+                val selected = GitHubReleaseChecker.UpdateChannel.fromStorageValue(
+                    updatePrefs.getString(UpdateChannelStore.KEY_CHANNEL, null)
+                )
+                result.onSuccess { release ->
+                    if (ColdStartUpdateSession.state.accept(sequence, channel, selected, release, BuildConfig.VERSION_NAME)) {
+                        ColdStartUpdateSession.notifyChanged()
+                    }
+                }
                 val activity = activityRef.get() ?: return@post
                 if (activity.isFinishing || activity.isDestroyed) return@post
                 val selectedChannel = activity.readUpdateChannel(updatePrefs)
@@ -3577,8 +4173,10 @@ class MainActivity : SkinnedActivity() {
                     updatePrefs.edit()
                         .putLong(activity.lastCheckKey(updatePrefs, channel), System.currentTimeMillis())
                         .apply()
+                    // 网络已确认可用；遥测仍独立执行授权、单飞和 24 小时节流。
+                    if (activity.updateUiResumed) TelemetryCoordinator.maybeUpload(activity.applicationContext)
                 }
-                if (completion.shouldDeliverResult) {
+                if (completion.shouldDeliverResult && ColdStartUpdateSession.state.isCurrentRequest(sequence) && activity.updateUiResumed) {
                     result.fold(
                         onSuccess = { release ->
                             activity.handleReleaseCheckResult(channel, release, request.manual)
@@ -3600,7 +4198,8 @@ class MainActivity : SkinnedActivity() {
                     }
                 }
                 completion.nextRequest?.let { next ->
-                    activity.startUpdateCheck(next, updatePrefs)
+                    if (activity.updateUiResumed) activity.startUpdateCheck(next, updatePrefs)
+                    else activity.updateCheckCoordinator.complete(next.channel, selectedChannel)
                 }
             }
         }, "github-release-check").apply {
@@ -3611,7 +4210,7 @@ class MainActivity : SkinnedActivity() {
 
     /**
      * 按渠道处理检查结果的三态比较：
-     * - 远端更高 → 弹更新窗（Alpha 带预发布标识）；
+     * - 远端更高 → 自动检查展示气泡；手动检查弹更新窗（Alpha 带预发布标识）；
      * - 本地更高：稳定版渠道明确提示"本地高于最新稳定版"，避免误报"已是最新"
      *   或提示降级；预览渠道远端已是最高可选版本，按"无更新"处理；
      * - 相等 → 手动检查时提示该渠道已是最新。
@@ -3622,8 +4221,10 @@ class MainActivity : SkinnedActivity() {
         manual: Boolean
     ) {
         when (GitHubReleaseChecker.compareVersions(release.tagName, BuildConfig.VERSION_NAME)) {
-            GitHubReleaseChecker.VersionRelation.REMOTE_NEWER ->
-                showUpdateDialogWhenIdle(channel, release)
+            GitHubReleaseChecker.VersionRelation.REMOTE_NEWER -> {
+                renderUpdateBadge()
+                if (manual) showUpdateDialogWhenIdle(channel, release)
+            }
             GitHubReleaseChecker.VersionRelation.LOCAL_NEWER -> {
                 if (manual) {
                     val resId = if (channel == GitHubReleaseChecker.UpdateChannel.STABLE) {
@@ -3650,12 +4251,12 @@ class MainActivity : SkinnedActivity() {
         release: GitHubReleaseChecker.ReleaseInfo,
         retryCount: Int = 0
     ) {
-        if (isFinishing || isDestroyed) return
+        if (isFinishing || isDestroyed || !updateUiResumed) return
         val updatePrefs = applicationContext.getSharedPreferences(UpdateChannelStore.PREF_FILE, MODE_PRIVATE)
         if (readUpdateChannel(updatePrefs) != channel) return
         if (activeConfirmDialog?.isShowing == true) {
             if (retryCount < 20) {
-                findViewById<View>(Android_R.id.content).postDelayed(
+                updateUiHandler.postDelayed(
                     { showUpdateDialogWhenIdle(channel, release, retryCount + 1) },
                     500L
                 )
@@ -4246,6 +4847,7 @@ class MainActivity : SkinnedActivity() {
                 MineComponentSnapshotQueryClient.Status.READY -> {
                     val snapshot = result.snapshot
                     if (snapshot != null && snapshot.entries.isNotEmpty()) {
+                        spec.refreshSummary()
                         showComponentPickerDialog(spec, snapshot)
                     } else {
                         showComponentSnapshotFallback(spec, spec.status.invalid)
@@ -5627,10 +6229,19 @@ class MainActivity : SkinnedActivity() {
         moduleUserSpace = AndroidUserSpace.capture(applicationContext, HookEntry.TARGET_PACKAGE)
         requestLspatchHostReceipt(framework)
         renderActivationUi(framework)
+        // 只在模块 App 前台、当前遥测授权有效且本地节流到期时查询有界宿主回执。
+        if (!telemetryDisclosurePrompted && TelemetryStore.needsDisclosureReview(applicationContext)) {
+            showTelemetryDisclosureDialog()
+        }
+        TelemetryCoordinator.maybeUpload(applicationContext)
     }
 
     override fun onResume() {
         super.onResume()
+        updateUiResumed = true
+        ColdStartUpdateSession.observe(updateUiOwner, updateNoticeObserver)
+        scheduleColdStartUpdate()
+        renderUpdateBadge()
         if (!userTermsDecision.isAuthorized) return
         val selectionTag = InjectedUiLocale.syncFromAppCompat(applicationContext)
         InjectedUiLocale.setMirrorAndBroadcast(applicationContext, selectionTag)
@@ -5650,6 +6261,11 @@ class MainActivity : SkinnedActivity() {
     }
 
     override fun onPause() {
+        updateUiResumed = false
+        updateUiHandler.removeCallbacksAndMessages(null)
+        ColdStartUpdateSession.state.pause(updateUiOwner)
+        ColdStartUpdateSession.stopObserving(updateUiOwner)
+        githubUpdateBadge?.animate()?.setListener(null)?.cancel()
         // 诊断中心使用透明窗口，打开它不保证主页收到 onStop；暂停即结束回执会话，
         // 返回时由 onResume 重新查询，避免把旧宿主状态当作当前证据。
         lspatchActivationReceiptTracker.endSession()
@@ -7084,6 +7700,11 @@ class MainActivity : SkinnedActivity() {
     }
 
     override fun onDestroy() {
+        updateUiHandler.removeCallbacksAndMessages(null)
+        ColdStartUpdateSession.state.pause(updateUiOwner)
+        ColdStartUpdateSession.stopObserving(updateUiOwner)
+        githubUpdateBadge?.animate()?.setListener(null)?.cancel()
+        githubUpdateBadge = null
         UserTermsAuthorizationCoordinator.removeListener(userTermsAuthorizationListener)
         RemoteHookConfigStore.removeStatusListener(frameworkStatusListener)
         activationMainHandler.removeCallbacks(frameworkStatusTimeout)
@@ -7838,17 +8459,47 @@ class MainActivity : SkinnedActivity() {
                             showRestartConfirmDialog()
                         }
                     }
-                    ImageView(
-                        lparams = LayoutParams(27.dp, 27.dp) {
-                            marginEnd = 5.dp
-                        }
+                    // 只占原图标的空间，角标叠放，不改变工具栏高度或相邻按钮位置。
+                    FrameLayout(
+                        lparams = LayoutParams(27.dp, 27.dp) { marginEnd = 5.dp }
                     ) {
-                        background = selfRippleBackground(14f)
-                        alpha = 0.85f
-                        setImageResource(R.mipmap.ic_github)
-                        imageTintList = stateColorResource(R.color.colorTextGray)
-                        contentDescription = stringResource(R.string.github_menu_description)
-                        setOnClickListener { showGitHubMenuDialog() }
+                        ImageView(
+                            lparams = LayoutParams(27.dp, 27.dp)
+                        ) {
+                            background = selfRippleBackground(14f)
+                            alpha = 0.85f
+                            setImageResource(R.mipmap.ic_github)
+                            imageTintList = stateColorResource(R.color.colorTextGray)
+                            contentDescription = stringResource(R.string.github_menu_description)
+                            setOnClickListener { showGitHubMenuDialog() }
+                        }
+                        TextView(
+                            lparams = LayoutParams(22.dp, 12.dp) {
+                                gravity = Gravity.END or Gravity.TOP
+                            }
+                        ) {
+                            githubUpdateBadge?.animate()?.setListener(null)?.cancel()
+                            githubUpdateBadge = this
+                            text = stringResource(R.string.github_new_update_badge)
+                            textSize = 8f
+                            includeFontPadding = false
+                            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                            textColor = monetColors.onPrimary
+                            gravity = Gravity.CENTER
+                            background = GradientDrawable().apply {
+                                cornerRadius = 6.dp.toFloat()
+                                setColor(monetColors.primary)
+                            }
+                            visibility = View.INVISIBLE
+                            isClickable = true
+                            isFocusable = true
+                            setOnClickListener {
+                                ColdStartUpdateSession.state.noticeFor(UpdateChannelStore.read(applicationContext))?.let {
+                                    showUpdateDialogWhenIdle(it.channel, it.release)
+                                }
+                            }
+                            post { renderUpdateBadge() }
+                        }
                     }
                 }
                 LinearLayout(
@@ -12640,11 +13291,8 @@ class MainActivity : SkinnedActivity() {
         findViewById<View>(Android_R.id.content).post {
             positionLogLevelThumb()
         }
-        // 进入模块界面后低频检查稳定 Release；失败静默，避免网络异常打扰用户。
-        findViewById<View>(Android_R.id.content).postDelayed(
-            { checkForUpdates(manual = false) },
-            800L
-        )
+        // 首次连续前台停留十秒后，每进程至多一次自动检查；不在布局重建时重复启动。
+        scheduleColdStartUpdate()
     }
 
     private fun createPromotionItem(

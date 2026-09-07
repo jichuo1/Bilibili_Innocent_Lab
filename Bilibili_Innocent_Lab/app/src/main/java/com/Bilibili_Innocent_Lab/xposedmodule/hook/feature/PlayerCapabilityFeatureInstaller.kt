@@ -8,6 +8,11 @@ import com.highcapable.kavaref.extension.isStatic
 /** 同步/异步播放响应只调整已选客户端能力；不创建播放地址、不更改服务器权限。 */
 internal class PlayerCapabilityFeatureInstaller(private val options: PlayerCapabilityOptions) : FeatureInstaller {
     override val id = ID
+    override val capabilityIds: List<String> get() = buildList {
+        if (options.background) add("player_capability_background")
+        if (options.smallWindow) add("player_capability_small_window")
+        if (options.cast) add("player_capability_cast")
+    }
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (options.enabled.isEmpty()) {
@@ -21,6 +26,13 @@ internal class PlayerCapabilityFeatureInstaller(private val options: PlayerCapab
         val expected = options.enabled.size * FAMILIES.size * 2 + if (options.smallWindow) 2 else 0
         var covered = 0
         var hooks = 0
+        val coverage = options.enabled.associateWith { 0 }.toMutableMap()
+        val observed: (PlayerCapability) -> Unit = {
+            environment.reportRuntimeEvidence(capabilityId(it), FeatureRuntimeStage.OBSERVED)
+        }
+        val applied: (PlayerCapability) -> Unit = {
+            environment.reportRuntimeEvidence(capabilityId(it), FeatureRuntimeStage.APPLIED)
+        }
         for (family in FAMILIES) {
             val access = PlayerCapabilityAccess.resolve(loader, family.reply, family.shared, options.enabled)
             val owner = KavaMemberLookup.classOrNull(loader, family.moss)
@@ -33,7 +45,7 @@ internal class PlayerCapabilityFeatureInstaller(private val options: PlayerCapab
             fun apply(reply: Any) {
                 if (!access.replyClass.isInstance(reply)) return
                 environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                runCatching { access.apply(reply) }.onSuccess { changed ->
+                runCatching { access.apply(reply, observed, applied) }.onSuccess { changed ->
                     if (changed > 0) environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED, changed)
                 }.onFailure {
                     environment.logError("player_capability_runtime_${family.id}",
@@ -54,6 +66,7 @@ internal class PlayerCapabilityFeatureInstaller(private val options: PlayerCapab
                 }.isSuccess) {
                 hooks++
                 covered += access.capabilityCount
+                access.capabilities.forEach { coverage[it] = coverage.getValue(it) + 1 }
             }
             val async = handler?.let {
                 KavaMemberLookup.methodOrNull(owner, family.method, request, it)?.takeIf { method ->
@@ -72,6 +85,7 @@ internal class PlayerCapabilityFeatureInstaller(private val options: PlayerCapab
                 }.isSuccess) {
                 hooks++
                 covered += access.capabilityCount
+                access.capabilities.forEach { coverage[it] = coverage.getValue(it) + 1 }
             }
         }
         if (options.smallWindow) {
@@ -99,9 +113,14 @@ internal class PlayerCapabilityFeatureInstaller(private val options: PlayerCapab
                         }.isSuccess) {
                         hooks++
                         covered++
+                        coverage[PlayerCapability.SMALL_WINDOW] = coverage.getValue(PlayerCapability.SMALL_WINDOW) + 1
                     }
                 }
             }
+        }
+        for (capability in options.enabled) {
+            environment.reportCapabilityCoverage(capabilityId(capability), true, coverage.getValue(capability),
+                FAMILIES.size * 2 + if (capability == PlayerCapability.SMALL_WINDOW) 2 else 0)
         }
         val status = if (covered == expected) "success" else "partial:$covered/$expected"
         environment.reportStatus(CHANNEL, status)
@@ -109,13 +128,18 @@ internal class PlayerCapabilityFeatureInstaller(private val options: PlayerCapab
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.logInfo("player_capability_installed",
             "[BIL] 播放器客户端能力已安装($status, hooks=$hooks)，仅含 ${options.enabled.joinToString { it.name }}")
-        return FeatureInstallResult.Installed(hooks)
+        return FeatureInstallResult.Installed(hooks, complete = covered == expected)
     }
 
     private data class Family(val id: String, val moss: String, val request: String,
         val reply: String, val method: String, val shared: Boolean)
 
     companion object {
+        private fun capabilityId(capability: PlayerCapability): String = when (capability) {
+            PlayerCapability.BACKGROUND -> "player_capability_background"
+            PlayerCapability.SMALL_WINDOW -> "player_capability_small_window"
+            PlayerCapability.CAST -> "player_capability_cast"
+        }
         const val ID = "player_capabilities"
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val CHANNEL = "player_capabilities_status"

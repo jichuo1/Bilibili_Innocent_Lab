@@ -12,17 +12,17 @@ class HostRuntimeDiagnosticsCodecTest {
     fun `round trip keeps only bounded allowlisted evidence`() {
         var evidence: HostRuntimeFeatureEvidence? = null
         evidence = HostRuntimeDiagnosticsCodec.increment(
-            evidence, "home_recommend_purify", FeatureRuntimeStage.ADAPTED, 1
+            evidence, "home_recommend_ads_removed", FeatureRuntimeStage.ADAPTED, 1
         )
         evidence = HostRuntimeDiagnosticsCodec.increment(
-            evidence, "home_recommend_purify", FeatureRuntimeStage.OBSERVED, 2
+            evidence, "home_recommend_ads_removed", FeatureRuntimeStage.OBSERVED, 2
         )
         evidence = HostRuntimeDiagnosticsCodec.increment(
-            evidence, "home_recommend_purify", FeatureRuntimeStage.APPLIED, 3
+            evidence, "home_recommend_ads_removed", FeatureRuntimeStage.APPLIED, 3
         )
         evidence = HostRuntimeDiagnosticsCodec.withInstallOutcome(
             evidence,
-            "home_recommend_purify",
+            "home_recommend_ads_removed",
             HostFeatureInstallState.INSTALLED,
             hookCount = 3,
             reasonCode = null

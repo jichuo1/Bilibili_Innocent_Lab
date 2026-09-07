@@ -1,6 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticCapabilityCatalog
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.reflect.Method
 
 /**
@@ -35,11 +37,21 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
 ) : FeatureInstaller {
 
     override val id: String = ID
+    override val capabilityIds: List<String> get() =
+        if (enabled) DiagnosticCapabilityCatalog.childrenOf(ID).map { it.id } else emptyList()
+
+    private fun capability(family: String, carrier: String, member: String): String? =
+        DiagnosticCapabilityCatalog.byLocatorKey["$family/$carrier/$member"]?.id
+
+    private fun familyId(reply: String): String =
+        VersionAdapter.PLAYER_INTERACTIVE_MOSS_FAMILIES.firstOrNull { it.replyClassName == reply }
+            ?.diagnosticFamilyId ?: "unknown"
 
     /** 一个家族在安装期解析出来的运行期成员（供 Moss 双保险路径使用）。 */
     private class GuideFamilyMembers(
         val clears: List<Method>,
-        val getter: Method?
+        val getter: Method?,
+        val capabilityIds: List<String>
     )
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
@@ -61,6 +73,10 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
         // 每个已适配家族都是一个覆盖单位，解析失败也要计入 expected。
         expected += adapted.families.size
         val hookedGuideGetters = HashSet<String>(adapted.families.size)
+        val guideClearsByReply = mutableMapOf<String, Set<String>>()
+        val dmClearsByReply = mutableMapOf<String, Set<String>>()
+        val hookedDmReplies = hashSetOf<String>()
+        val installedMossClasses = hashSetOf<String>()
         // Guide 的默认实例只解析一次，getter 主路径与 Moss 双保险共用。
         val defaultGuides: Map<String, Any?> = adapted.families.associate { family ->
             family.replyClassName to resolveDefaultInstance(
@@ -79,6 +95,8 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                     point.paramClassNames
                 )
             }
+            guideClearsByReply[family.replyClassName] = clears.mapTo(hashSetOf()) { it.name }
+            val leafIds = clears.mapNotNull { capability(familyId(family.replyClassName), "guide", it.name) }
             if (clears.isEmpty()) {
                 environment.logError(
                     "player_interactive_family_$familyIndex",
@@ -98,6 +116,7 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         // 字段未设置时 getter 返回进程级单例：既不该动它，也不能算生效。
                         if (defaultGuide != null && guide === defaultGuide) return@after
+                        leafIds.forEach { environment.reportRuntimeEvidence(it, FeatureRuntimeStage.OBSERVED) }
                         val applied = PlayerInteractiveOverlayPolicy.applyClears(guide, clears)
                         if (applied > 0) {
                             environment.reportRuntimeEvidence(
@@ -134,6 +153,8 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                         point.paramClassNames
                     )
                 }
+                dmClearsByReply[family.replyClassName] = dmClears.mapTo(hashSetOf()) { it.name }
+                val dmLeafIds = dmClears.mapNotNull { capability(familyId(family.replyClassName), "dm", it.name) }
                 val defaultDm = resolveDefaultInstance(
                     environment,
                     "player.interactive.dm_default.$familyIndex",
@@ -155,6 +176,7 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                                 val resource = result ?: return@after
                                 environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                                 if (defaultDm != null && resource === defaultDm) return@after
+                                dmLeafIds.forEach { environment.reportRuntimeEvidence(it, FeatureRuntimeStage.OBSERVED) }
                                 val applied = PlayerInteractiveOverlayPolicy.applyClears(
                                     resource,
                                     dmClears
@@ -169,6 +191,7 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                             }
                         }
                         installed += 1
+                        hookedDmReplies += family.replyClassName
                     }.onFailure { throwable ->
                         environment.logError(
                             "player_interactive_dm_reg_$familyIndex",
@@ -212,9 +235,11 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                     after {
                         if (hasThrowable) return@after
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                        environment.reportRuntimeEvidence("player_interactive_dm_commands", FeatureRuntimeStage.OBSERVED)
                         // instance 就是 DmViewReply，顺手清掉运营活动横幅（TV 版推广那块图）。
                         instance?.let { reply ->
                             activityMetaClear?.let {
+                                environment.reportRuntimeEvidence("player_interactive_activity_banner", FeatureRuntimeStage.OBSERVED)
                                 PlayerInteractiveOverlayPolicy.applyClears(reply, listOf(it))
                             }
                         }
@@ -248,8 +273,7 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                 emptyMap()
             } else {
                 adapted.families.associate { family ->
-                    family.replyClassName to GuideFamilyMembers(
-                        clears = family.guideClears.mapNotNull { point ->
+                    val resolvedClears = family.guideClears.mapNotNull { point ->
                             environment.hookPoints.resolveAdapted(
                                 "player.interactive.execute.clear." +
                                     "${family.replyClassName}.${point.methodName}",
@@ -257,13 +281,18 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                                 point.methodName,
                                 point.paramClassNames
                             )
-                        },
+                        }
+                    family.replyClassName to GuideFamilyMembers(
+                        clears = resolvedClears,
                         getter = environment.hookPoints.resolveAdapted(
                             "player.interactive.execute.getter.${family.replyClassName}",
                             family.guideGetter.className,
                             family.guideGetter.methodName,
                             family.guideGetter.paramClassNames
-                        )
+                        ),
+                        capabilityIds = resolvedClears.mapNotNull {
+                            capability(familyId(family.replyClassName), "guide", it.name)
+                        }
                     )
                 }
             }
@@ -288,6 +317,9 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                             if (guide != null && replyName !in hookedGuideGetters &&
                                 (defaultGuide == null || guide !== defaultGuide)
                             ) {
+                                members.capabilityIds.forEach {
+                                    environment.reportRuntimeEvidence(it, FeatureRuntimeStage.OBSERVED)
+                                }
                                 applied += PlayerInteractiveOverlayPolicy.applyClears(
                                     guide,
                                     members.clears
@@ -297,6 +329,12 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                         val dmClearsForReply = listOfNotNull(commandClear, activityMetaClear)
                             .filter { it.declaringClass.isInstance(reply) }
                         if (dmClearsForReply.isNotEmpty()) {
+                            if (commandClear in dmClearsForReply) environment.reportRuntimeEvidence(
+                                "player_interactive_dm_commands", FeatureRuntimeStage.OBSERVED
+                            )
+                            if (activityMetaClear in dmClearsForReply) environment.reportRuntimeEvidence(
+                                "player_interactive_activity_banner", FeatureRuntimeStage.OBSERVED
+                            )
                             val cleared = PlayerInteractiveOverlayPolicy.applyClears(
                                 reply,
                                 dmClearsForReply
@@ -314,6 +352,7 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                     }
                 }
                 installed += 1
+                installedMossClasses += point.className
                 if (point.className == VersionAdapter.PLAYER_INTERACTIVE_DM_MOSS_CLASS) {
                     dmMossInstalled = true
                 }
@@ -352,6 +391,37 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
             }
         }
 
+        for (spec in VersionAdapter.PLAYER_INTERACTIVE_MOSS_FAMILIES) {
+            val present = adapted.families.any { it.replyClassName == spec.replyClassName }
+            val absentFamily = !present && environment.classLoader?.let {
+                KavaMemberLookup.classOrNull(it, spec.replyClassName) == null &&
+                    KavaMemberLookup.classOrNull(it, spec.guideClassName) == null
+            } == true
+            for (name in spec.clearNames) {
+                val id = capability(spec.diagnosticFamilyId, "guide", name) ?: continue
+                if (absentFamily) {
+                    environment.reportCapability(id, FeatureInstallResult.Skipped("not-applicable-host"))
+                    continue
+                }
+                val direct = spec.replyClassName in hookedGuideGetters &&
+                    name in guideClearsByReply[spec.replyClassName].orEmpty()
+                val fallbackMembers = guideMembersByReply[spec.replyClassName]
+                val fallback = spec.mossClassName in installedMossClasses && fallbackMembers?.getter != null &&
+                    fallbackMembers.clears.any { it.name == name }
+                environment.reportCapabilityCoverage(id, present, if (direct || fallback) 1 else 0,
+                    if (defaultGuides[spec.replyClassName] != null) 1 else 2)
+            }
+            for (name in spec.dmClearNames) {
+                val id = capability(spec.diagnosticFamilyId, "dm", name) ?: continue
+                if (absentFamily) environment.reportCapability(id, FeatureInstallResult.Skipped("not-applicable-host"))
+                else environment.reportCapabilityCoverage(id, present,
+                    if (spec.replyClassName in hookedDmReplies && name in dmClearsByReply[spec.replyClassName].orEmpty()) 1 else 0, 1)
+            }
+        }
+        environment.reportCapabilityCoverage("player_interactive_dm_commands", true,
+            if (commandGetterHooked || (commandClear != null && dmMossInstalled)) 1 else 0, 1)
+        environment.reportCapabilityCoverage("player_interactive_activity_banner", activityMetaClear != null,
+            if (activityMetaClear != null && (commandGetterHooked || dmMossInstalled)) 1 else 0, 1)
         if (installed == 0) return missing(environment, "registration-failed")
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         val status = if (installed >= expected && expected > 0) {
@@ -371,7 +441,7 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                 "[BIL] 播放器互动层部分安装，hooks=$installed/$expected"
             )
         }
-        return FeatureInstallResult.Installed(installed)
+        return FeatureInstallResult.Installed(installed, complete = installed >= expected && expected > 0)
     }
 
     /** 解析并调用静态 `getDefaultInstance()`；任何一步失败都降级为 null，不影响安装。 */

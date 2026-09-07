@@ -25,6 +25,8 @@ internal enum class HostFeatureInstallState {
     DISABLED,
     NOT_APPLICABLE,
     INSTALLED,
+    PARTIAL,
+    UNKNOWN,
     SKIPPED,
     FAILED
 }
@@ -48,7 +50,8 @@ internal data class HostRuntimeFeatureEvidence(
     val appliedCount: Long,
     val installState: HostFeatureInstallState = HostFeatureInstallState.NOT_REPORTED,
     val installedHookCount: Int = 0,
-    val installReasonCode: String? = null
+    val installReasonCode: String? = null,
+    val runtimeError: Boolean = false
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", featureId)
@@ -58,6 +61,7 @@ internal data class HostRuntimeFeatureEvidence(
         .put("install", installState.name)
         .put("hooks", installedHookCount)
         .put("reason", installReasonCode ?: JSONObject.NULL)
+        .put("runtime_error", runtimeError)
 }
 
 internal data class HostRuntimeDiagnosticsSnapshot(
@@ -67,34 +71,36 @@ internal data class HostRuntimeDiagnosticsSnapshot(
     val bootstrap: HostRuntimeBootstrapEvidence = HostRuntimeBootstrapEvidence()
 ) {
     val adaptedFeatureCount: Int
-        get() = features.count { it.adaptedCount > 0L }
+        get() = features.count { !DiagnosticFeatureRegistry.isAggregate(it.featureId) && it.adaptedCount > 0L }
     val observedFeatureCount: Int
-        get() = features.count { it.observedCount > 0L }
+        get() = features.count { !DiagnosticFeatureRegistry.isAggregate(it.featureId) && it.observedCount > 0L }
     val appliedFeatureCount: Int
-        get() = features.count { it.appliedCount > 0L }
+        get() = features.count { !DiagnosticFeatureRegistry.isAggregate(it.featureId) && it.appliedCount > 0L }
     val installedFeatureCount: Int
-        get() = features.count { it.installState == HostFeatureInstallState.INSTALLED }
+        get() = features.count { !DiagnosticFeatureRegistry.isAggregate(it.featureId) && it.installState == HostFeatureInstallState.INSTALLED }
     val failedFeatureCount: Int
         get() = features.count {
-            it.installState == HostFeatureInstallState.FAILED ||
+            !DiagnosticFeatureRegistry.isAggregate(it.featureId) && (it.installState == HostFeatureInstallState.FAILED ||
+                it.installState == HostFeatureInstallState.PARTIAL ||
                 it.installState == HostFeatureInstallState.SKIPPED &&
-                it.installReasonCode !in NON_ACTIONABLE_SKIP_CODES
+                it.installReasonCode !in NON_ACTIONABLE_SKIP_CODES)
         }
 
     private companion object {
         val NON_ACTIONABLE_SKIP_CODES = setOf(
             FeatureSkipReason.DISABLED.name,
-            FeatureSkipReason.NOT_APPLICABLE_PROCESS.name
+            FeatureSkipReason.NOT_APPLICABLE_PROCESS.name,
+            FeatureSkipReason.NOT_APPLICABLE_HOST.name
         )
     }
 }
 
 /** 固定白名单诊断协议；拒绝任意键、文本、成员名和宿主业务数据。 */
 internal object HostRuntimeDiagnosticsCodec {
-    const val CURRENT_SCHEMA_VERSION = 2
+    const val CURRENT_SCHEMA_VERSION = 3
     const val TARGET_PACKAGE = "tv.danmaku.bili"
     const val MAX_PAYLOAD_CHARS = 64 * 1024
-    const val MAX_FEATURE_COUNT = 64
+    const val MAX_FEATURE_COUNT = 256
     const val MAX_COUNTER = 1L
     const val MAX_HOOK_COUNT = 256
 
@@ -121,7 +127,7 @@ internal object HostRuntimeDiagnosticsCodec {
 
     val allowedInstallReasonCodes: Set<String> =
         FeatureSkipReason.entries.mapTo(linkedSetOf()) { it.name } +
-            "INSTALLER_EXCEPTION"
+            setOf("INSTALLER_EXCEPTION", "PARTIAL_COVERAGE", "CAPABILITY_UNVERIFIED")
 
     fun encode(snapshot: HostRuntimeDiagnosticsSnapshot): String = JSONObject()
         .put("schema", CURRENT_SCHEMA_VERSION)
@@ -129,11 +135,11 @@ internal object HostRuntimeDiagnosticsCodec {
         .put("process", TARGET_PACKAGE)
         .put("bootstrap", snapshot.bootstrap.sanitized().toJson())
         .put("features", JSONArray().apply {
+            require(snapshot.features.size <= MAX_FEATURE_COUNT) { "Diagnostic capability overflow" }
             snapshot.features
                 .asSequence()
                 .filter { it.featureId in allowedFeatureIds }
                 .distinctBy(HostRuntimeFeatureEvidence::featureId)
-                .take(MAX_FEATURE_COUNT)
                 .forEach { put(it.sanitized().toJson()) }
         })
         .toString()
@@ -156,6 +162,7 @@ internal object HostRuntimeDiagnosticsCodec {
             val value = array.getJSONObject(index)
             val id = value.optString("id")
             if (id !in allowedFeatureIds || !ids.add(id)) return@runCatching null
+            if (value.opt("runtime_error") !is Boolean) return@runCatching null
             val evidence = HostRuntimeFeatureEvidence(
                 featureId = id,
                 adaptedCount = value.optLong("adapted", -1L),
@@ -166,7 +173,8 @@ internal object HostRuntimeDiagnosticsCodec {
                 }.getOrNull() ?: return@runCatching null,
                 installedHookCount = value.optInt("hooks", -1),
                 installReasonCode = value.optString("reason")
-                    .takeIf { it.isNotBlank() && it != "null" }
+                    .takeIf { it.isNotBlank() && it != "null" },
+                runtimeError = value.getBoolean("runtime_error")
             )
             if (!evidence.isValid()) return@runCatching null
             features += evidence
@@ -186,6 +194,7 @@ internal object HostRuntimeDiagnosticsCodec {
             FeatureRuntimeStage.ADAPTED -> base.copy(adaptedCount = 1L)
             FeatureRuntimeStage.OBSERVED -> base.copy(observedCount = 1L)
             FeatureRuntimeStage.APPLIED -> base.copy(appliedCount = 1L)
+            FeatureRuntimeStage.ERROR -> base.copy(runtimeError = true)
         }
     }
 
@@ -273,6 +282,10 @@ internal object HostRuntimeDiagnosticsCodec {
                     installedHookCount == 0 && installReasonCode == null
                 HostFeatureInstallState.INSTALLED ->
                     installedHookCount > 0 && installReasonCode == null
+                HostFeatureInstallState.PARTIAL ->
+                    installedHookCount > 0 && installReasonCode == "PARTIAL_COVERAGE"
+                HostFeatureInstallState.UNKNOWN ->
+                    installedHookCount == 0 && installReasonCode == "CAPABILITY_UNVERIFIED"
                 HostFeatureInstallState.DISABLED,
                 HostFeatureInstallState.NOT_APPLICABLE,
                 HostFeatureInstallState.SKIPPED,
@@ -281,10 +294,12 @@ internal object HostRuntimeDiagnosticsCodec {
             }
 
     private fun HostRuntimeFeatureEvidence.sanitized(): HostRuntimeFeatureEvidence {
-        val hooks = if (installState == HostFeatureInstallState.INSTALLED) {
+        val hooks = if (installState == HostFeatureInstallState.INSTALLED || installState == HostFeatureInstallState.PARTIAL) {
             installedHookCount.coerceIn(1, MAX_HOOK_COUNT)
         } else 0
         val reason = when (installState) {
+            HostFeatureInstallState.PARTIAL -> "PARTIAL_COVERAGE"
+            HostFeatureInstallState.UNKNOWN -> "CAPABILITY_UNVERIFIED"
             HostFeatureInstallState.NOT_REPORTED,
             HostFeatureInstallState.INSTALLED -> null
             else -> installReasonCode?.takeIf { it in allowedInstallReasonCodes } ?: "OTHER"

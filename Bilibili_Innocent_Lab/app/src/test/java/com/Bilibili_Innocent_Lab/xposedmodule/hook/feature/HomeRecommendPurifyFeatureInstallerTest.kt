@@ -8,6 +8,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HomeRecommendPurifyFeatureInstallerTest {
+    @Test
+    fun missingDurationHasItsOwnFailureWithoutDowngradingTheWorkingAdFilter() {
+        val points = requireNotNull(VersionAdapter.locateHomeRecommendFeed(requireNotNull(javaClass.classLoader)))
+            .copy(playerArgsGetter = null, playerArgsDurationField = null)
+        val records = mutableListOf<FeatureInstallRecord>()
+        val env = environment(mutableListOf()).copy(installationEvidence = { records += it })
+        FeatureInstallCoordinator(env).installAll(listOf(installer(
+            minSeconds = 30, maxSeconds = 0, removeAds = true, points = points
+        )))
+        assertEquals(true, (records.last { it.id == "home_recommend_ads_removed" }.result as FeatureInstallResult.Installed).complete)
+        assertEquals(FeatureSkipReason.MISSING_HOST_STRUCTURE,
+            (records.last { it.id == "home_recommend_duration_filter" }.result as FeatureInstallResult.Skipped).reasonCode)
+    }
+
 
     private fun environment(statuses: MutableList<Pair<String, String>>) = HookEnvironment(
         processName = "tv.danmaku.bili",
@@ -219,7 +233,7 @@ class HomeRecommendPurifyFeatureInstallerTest {
         ).copy(playerArgsGetter = null, playerArgsDurationField = null)
 
         assertEquals(
-            FeatureInstallResult.Installed(points.responseItemGetters.size),
+            FeatureInstallResult.Installed(points.responseItemGetters.size, complete = false),
             installer(
                 minSeconds = 30,
                 maxSeconds = 0,

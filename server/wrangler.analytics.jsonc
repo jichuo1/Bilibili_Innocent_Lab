@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "innocent-lab-analytics",
+  "main": "src/analytics/index.ts",
+  "compatibility_date": "2026-09-06",
+  "account_id": "eafff1bf0a3452723fa337be9611e653",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "stats.bilibili.date", "custom_domain": true }],
+  "d1_databases": [
+    { "binding": "PROD_DB", "database_name": "innocent-lab-telemetry-prod", "database_id": "0597057e-8326-4445-8d09-98f14bd2bd01" },
+    { "binding": "STAGING_DB", "database_name": "innocent-lab-telemetry-staging", "database_id": "be3667f6-25b2-4fc6-9d88-a6c96652fad2" }
+  ],
+  "ratelimits": [{ "name": "ANALYTICS_LIMITER", "namespace_id": "3301", "simple": { "limit": 10, "period": 60 } }],
+  "observability": { "enabled": false }
+}

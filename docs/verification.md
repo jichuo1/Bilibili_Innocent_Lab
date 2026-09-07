@@ -181,6 +181,34 @@ trajectory, and the wider predictive-back content profile. A passing JVM test do
 not prove LSPosed binding, an NPatch heartbeat, host adaptation, SAF provider behavior,
 Liquid rendering, RenderThread timing, or device accessibility.
 
+### Telemetry service and client (2026-09-07)
+
+Server validation consists of TypeScript checking plus 21 Node tests for strict
+schema handling, unknown/forbidden fields, byte limits, encoding rejection, hashing,
+idempotency, rate limiting, purge and retention aggregation. Staging accepts the
+synthetic schema-v1 fixture with HTTP 204 and token-only purge returns 204. Both D1
+databases were queried after cleanup and contained zero raw and aggregate rows.
+Production was initially retired with HTTP 410. After the maintainer explicitly
+authorized the stated telemetry fields to be processed by overseas Cloudflare
+Workers/D1, ingestion was enabled in deployment
+`7b8777e0-38f1-4ab8-b327-77b728656332`. Two synthetic submissions returned 204 and
+produced one row; hash lengths were 64 and the canonical payload contained neither
+the raw installation ID nor the deletion token. Purge returned 204, and a subsequent
+query found zero raw and aggregate rows. Android and carrier acceptance remain pending.
+
+Android JVM coverage pins terms version 2, old-version re-consent, default-selected
+but separately recorded telemetry choice, fail-closed consent composition, endpoint
+selection, the 24-hour network-attempt window, identity rotation, HTTP outcome
+classification, settings-backup/Remote-config exclusion, bounded payload keys and
+filtering of disabled/not-reported features. Locale tests lock all English,
+Simplified Chinese and Traditional Chinese disclosure keys and the maintainer text.
+
+Static gates for the implementation: 139 suites / 796 tests, Lint 0 errors / 172
+warnings, Debug APK, Release R8 and Debug AndroidTest APK. These checks do not prove
+the dynamic GitHub-dialog geometry, terms toggle visibility on small screens,
+framework receipt delivery, real Android HTTPS behavior, carrier reachability or
+that a Release payload reaches Production.
+
 ## Device checks
 
 1. In Bilibili's main process, toggle roaming compatibility on and off while
@@ -818,3 +846,84 @@ Local gates after the change: 129 suites / 728 JVM tests, Lint 0 errors /
 172 warnings, Debug APK SHA-256
 `86587942779d43d5ae3bd3a0af9b12af05c8980631cd201f4af0a156f209d20f`, no source newer
 than the artifact. Still no device run.
+
+## Independent manual telemetry quota (2026-09-07)
+
+- Manual network attempts use a persistent rolling 24-hour allowance of three,
+  separate from automatic cooldown and retry timestamps. Previews and unavailable
+  host receipts do not consume attempts; transport failures do. Local clock
+  rollback retains future attempts, and malformed quota state fails closed.
+- GitHub telemetry controls now link to a nested explanation rather than expanding
+  the full text. Simplified Chinese, Traditional Chinese and English descriptions
+  were updated together; telemetry endpoint URLs are absent from those resources.
+- Server checks: TypeScript and 37 tests pass, including real SQLite transaction
+  rollback, rolling-boundary refill, quota-preserving purge, daily deduplication,
+  source rejection before body parsing, 5-second stalled-body cancellation, and
+  indexed purge lookup. The simultaneous-request test uses a serialized local
+  SQLite transaction adapter; it is not a distributed load test.
+- Android gates: 139 suites / 798 JVM tests, zero failures or errors; Lint 0 errors /
+  172 warnings; assembleDebug and minifyReleaseWithR8 both pass.
+- Debug APK SHA-256:
+  `10cff2e06ace6a3aa7acf22d318fbedfdc3cecae68cfbeec6f0cecad63332804`
+  (13,391,562 bytes). This Debug APK targets Staging; it was not installed this turn.
+- Staging Worker version: `7929a291-fe64-4563-b21f-d960e1dd2978`.
+  Production Worker version: `18fea01f-2045-4641-bbb3-2ec75140ec38`.
+  Both databases have migrations 0002 and 0003 applied.
+- Both live endpoints returned health 200, automatic 204, manual 204/204/204/429
+  with UPLOAD_QUOTA_REACHED, then automatic 204 and token-scoped synthetic purge 204.
+  Quota records intentionally remain for scheduled expiry. No unrelated rows were
+  removed. These are desktop-to-service synthetic checks, not device UI acceptance
+  or proof of module-originated network requests. No flood test was performed.
+- Source/location limiters are approximate; D1 enforces the exact manual allowance
+  and a 2,000 validated-request daily/environment budget. This protects write growth,
+  not guaranteed availability or an account billing cap. Fabricated identities and
+  distributed sources remain an abuse boundary, not authenticated physical devices.
+
+## Device/ROM and framework-service version telemetry (2026-09-07)
+
+- Added bounded manufacturer/model labels, ROM family, connected-service framework
+  version name and versionCode. API level remains a separate field. Disconnected
+  cached service versions are encoded as unknown. No manager package inventory,
+  serial, IMEI, Android ID, raw properties or full build fingerprint is sent.
+- Telemetry disclosure version 3 gates the expanded fields; core terms/Hook protocol
+  remains version 2. The notice is updated in all three locales. Legacy opt-outs
+  remain off; existing enabled users must review the new disclosure before sending.
+  Manual/automatic timing, identity rotation and purge rules are unchanged.
+- Final Android gates: 140 suites / 803 tests, zero failures/errors; Debug assembly,
+  Lint and Release R8 pass. Lint: 0 errors, 172 warnings.
+- Debug APK: 13,395,074 bytes; SHA-256
+  `e1ddca7d27ebd732d764074ef2b55abd9f48648f351cb0748e8c276676ca8f77`.
+  Main source mtimes are not newer than the artifact. No device installation or
+  live ROM-classification/consent-dialog acceptance was performed this turn.
+- Server: typecheck and 50 tests pass. Includes disclosure-marker rejection,
+  bounded labels/ROM enum, independent service version/API fields, legacy missing
+  buckets, device/version filtering and matched-cohort regression separation.
+- Both live environments: expanded fields plus old disclosure marker return 400;
+  accepted report returns 204; manual 204/204/204/429; automatic after manual quota
+  exhaustion returns 204; token-scoped synthetic raw-report cleanup returns 204.
+  Six read-only analytics queries pass on both databases. Private dashboard still
+  redirects anonymous requests to login (302).
+- Dashboard adds four distributions and filters using the existing chart primitives.
+  Synthetic loopback preview returned 200. No browser screenshot or logged-in
+  interaction QA was performed. Version IDs are recorded in server/ANALYTICS.md.
+
+## Cold-start update badge and capability diagnostics (2026-09-07)
+
+The update gate waits for a continuous 10-second resumed interval and allows one
+automatic request per module process. It uses monotonic time, cancels on pause,
+preserves a current-channel notice through Activity recreation and suppresses stale
+results. Automatic discovery displays NEW instead of opening a dialog.
+
+Capability telemetry uses schema 2 / catalog 1 / disclosure 4, host receipt schema 3
+and diagnostic export format 5. Core terms remain 2. There are 116 leaf capability/
+technical-path entries; runtime support is explicitly graded, not claimed universal.
+The full catalog plus aggregate groups fits one 32 KiB packet without truncation.
+
+Final local gates: 143 suites / 823 JVM tests; Debug assembly, Lint and Release R8
+passed. Lint: 0 errors / 174 warnings. Server typecheck and 58 tests passed.
+Debug APK SHA-256:
+`d9a981b094389bb452c59c141a8ecf9f97ff69ea9b77fb01cd57c503fcfd1f1b`
+(13,411,306 bytes, Staging endpoint). No device install or live animation/Hook
+acceptance was performed. Cloudflare staging and production synthetic requests
+verified all 116 query rows, old-disclosure rejection, manual quota and cleanup.
+Detailed implementation scope and deployment IDs: capability_diagnostics.md.

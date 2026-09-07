@@ -67,7 +67,7 @@ internal class TeenagersModeFeatureInstaller(
                 "[BIL] 青少年模式提示页关闭功能部分安装，hooks=$installedCount/${adapted.size}"
             )
         }
-        return FeatureInstallResult.Installed(installedCount)
+        return FeatureInstallResult.Installed(installedCount, complete = installedCount == adapted.size)
     }
 
     private fun missing(

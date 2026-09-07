@@ -235,6 +235,67 @@ Preference values, custom rules, file paths, log text, exception details, and ho
 class/member names are structurally absent. No storage permission or network operation
 is used.
 
+## Privacy-preserving adaptation telemetry
+
+Telemetry is a module-App-only consumer of the existing bounded host diagnostics
+receipt. The Bilibili process registers no telemetry thread, scheduler or network
+request. `MainActivity.onStart` and a successful update check may ask
+`TelemetryCoordinator` to run, but the coordinator first requires the current
+versioned terms decision and a separate telemetry choice, then enforces one network
+attempt per 24 hours. A missing host receipt schedules only a local 15-minute retry.
+Explicit manual requests have a separate persistent rolling 24-hour allowance of 3
+network attempts. Manual collection/results never modify automatic cooldown state;
+network failures consume a manual attempt, while previews and unavailable receipts do not.
+The allowance is synchronously reserved under the storage lock immediately before sending.
+
+Device/ROM and framework-service-version metadata use independent telemetry disclosure
+version 3, without changing the core terms/Hook protocol version 2. Both the core terms
+and current telemetry disclosure must authorize sending. Existing enabled users are
+asked to review the expanded notice; existing opt-outs remain off. The new notice
+does not reset identities, manual allowances or automatic cooldowns.
+
+The module's existing background telemetry worker reads bounded product manufacturer/
+model labels and classifies a ROM family from fixed system-property indicators.
+Only the family enum is serialized; property values, full build fingerprints and
+unique hardware identifiers are not. Version metadata reuses the diagnostics input
+from the connected framework service; disconnected cached versions become unknown.
+No package inventory, new Hook callback, scheduler, root operation or production
+dependency is introduced. The server accepts the optional schema-v1 extension only
+with disclosure marker 3 and strict field validation. This marker is not attestation.
+
+Terms protocol 2 adds a fixed, visible telemetry choice above the accept/decline
+buttons. It is selected on by default, but can be switched off before acceptance;
+refusal does not affect terms authorization or any module feature. Old terms records
+do not authorize the new processing purpose. The same choice is exposed as the last
+row of the GitHub secondary dialog, with a separate information button, exact JSON
+preview, manual upload and confirmation-gated raw-report purge. Long explanatory text
+is reached through a dedicated nested entry, rather than expanded in the control dialog.
+
+`TelemetryStore` uses its own private `telemetry_preferences` file. Consent, rotating
+IDs, deletion tokens, timestamps and transport state are excluded from
+`SettingsCatalog`, settings backup and Remote `hook_config`. Missing/corrupt storage
+fails closed. An installation UUID and 256-bit deletion token rotate after 90 days;
+the previous deletion token remains locally usable for 31 days so the server's
+30-day raw-retention window can still be purged. The raw UUID is HMACed by the server
+and the deletion token is stored only as SHA-256.
+
+`TelemetryPayloadCodec` is an explicit schema-v2 capability allowlist (the server
+also accepts legacy schema v1). It sends numeric module
+and host versions, Android SDK, a bounded ABI/framework/delivery category, adapter
+rule generations, bootstrap counts, and non-disabled feature installation evidence.
+It excludes setting values, disabled/not-reported feature choices, account data,
+content, device hardware identifiers, precise time, raw logs, exception text and
+host member names. Unavailable adapter cache/duration/DexKit evidence is encoded as
+`unknown`, never guessed as success or false. Debug uses the Staging host; Release
+uses the fixed HTTPS Production host. Redirects, compression and remote endpoint
+configuration are absent.
+
+The Cloudflare Worker independently repeats strict schema/size/forbidden-field
+validation, stores only a canonical projection, limits one installation to one row
+per UTC day, keeps raw rows for 30 days and persists long-term feature cells only at
+10 or more installation keys. A `410` endpoint retirement can only stop collection;
+purge stays available while ingestion is retired.
+
 ## Host version adaptation and DEX assist
 
 `hook/VersionAdapter` locates every hook point by structure — field shapes,

@@ -28,6 +28,17 @@ internal class VideoRelateFilterFeatureInstaller(
     }
 
     override val id: String = ID
+    override val capabilityIds: List<String> get() = buildList {
+        if (hiddenTypes.any { normalizeType(it) == "CM" }) add("video_related_commercial_removed")
+        if (hiddenTypes.any { normalizeType(it) == "GAME" }) add("video_related_game_removed")
+        if (hiddenTypes.any { normalizeType(it) == "LIVE" }) add("video_related_live_removed")
+        if (hiddenTypes.any { normalizeType(it) == "COURSE" }) add("video_related_course_removed")
+        if (hiddenTypes.any { normalizeType(it) == "SPECIAL" }) add("video_related_special_removed")
+        if (matchingEnhancementEnabled && (hiddenTypes.isNotEmpty() || strongModeEnabled || customReasonKeywords.isNotEmpty())) add("video_related_matching_enhancement_enabled")
+        if (matchingEnhancementEnabled && strongModeEnabled) add("video_related_strong_mode_enabled")
+        if (customReasonKeywords.isNotEmpty()) add("video_related_reason_filter_enabled")
+        if (durationRange.isEnabled) add("video_related_duration_filter")
+    }
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         val normalizedHidden = hiddenTypes.mapTo(linkedSetOf(), ::normalizeType)
@@ -326,6 +337,24 @@ internal class VideoRelateFilterFeatureInstaller(
             }
         }
         if (installed == 0) return missing(environment, "registration-failed")
+        val sharedExpected = adapted.responseItemGetters.size.coerceAtLeast(1) + 1 +
+            if (responseListFields.any { it == null }) 1 else 0
+        for (capability in capabilityIds) {
+            val usable = when (capability) {
+                "video_related_duration_filter" -> durationPaths.isNotEmpty()
+                "video_related_reason_filter_enabled" -> reasonPaths.isNotEmpty()
+                "video_related_matching_enhancement_enabled" ->
+                    (promotionReasonEnhancementActive && reasonPaths.isNotEmpty()) ||
+                        (customReasonKeywords.isNotEmpty() && reasonPaths.isNotEmpty()) || strongModeActive
+                "video_related_strong_mode_enabled" -> strongModeActive
+                else -> hasTypeEvidence
+            }
+            // Strong mode's fallbacks are intentional, but missing readable inputs are still partial coverage.
+            val incompleteStrongInputs = capability == "video_related_strong_mode_enabled" &&
+                (!hasTypeEvidence || reasonPaths.isEmpty())
+            environment.reportCapabilityCoverage(capability, usable, installed,
+                sharedExpected + if (incompleteStrongInputs) 1 else 0)
+        }
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.reportStatus(
             CHANNEL_STATUS,
@@ -344,7 +373,7 @@ internal class VideoRelateFilterFeatureInstaller(
                 "commercialEvidence=${commercialEvidencePaths.size}," +
                 "customReasonKeywords=${customReasonKeywords.size}"
         )
-        return FeatureInstallResult.Installed(installed)
+        return FeatureInstallResult.Installed(installed, complete = partialReasons.isEmpty())
     }
 
     private fun resolveResponseListField(

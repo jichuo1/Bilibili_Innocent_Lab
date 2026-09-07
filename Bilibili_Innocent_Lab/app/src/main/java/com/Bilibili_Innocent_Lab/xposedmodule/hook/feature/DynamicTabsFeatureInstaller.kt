@@ -19,6 +19,11 @@ internal class DynamicTabsFeatureInstaller(
 ) : FeatureInstaller {
 
     override val id: String = ID
+    override val capabilityIds: List<String> get() = buildList {
+        if (hideCity) add("dynamic_city_tab_hidden")
+        if (hideSchool) add("dynamic_school_tab_hidden")
+        if (preferVideo) add("dynamic_video_tab_preferred")
+    }
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!hideCity && !hideSchool && !preferVideo) {
@@ -126,6 +131,8 @@ internal class DynamicTabsFeatureInstaller(
             installedCount += 1
         }.isSuccess
 
+        // Each selected policy requires both list mapping and tab attachment; do not inherit the parent verdict.
+        capabilityIds.forEach { environment.reportCapabilityCoverage(it, true, installedCount, 2) }
         if (!listInstalled || !addInstalled) {
             val reason = buildString {
                 append("partial:")
@@ -138,14 +145,15 @@ internal class DynamicTabsFeatureInstaller(
                 "dynamic_tabs_partial",
                 "[BIL] 动态页标签净化 Hook 未完整命中: $reason"
             )
-            return FeatureInstallResult.Skipped(reason)
+            return if (installedCount > 0) FeatureInstallResult.Installed(installedCount, complete = false)
+            else FeatureInstallResult.Skipped(reason)
         }
         environment.reportStatus(CHANNEL_STATUS, "success")
         environment.logInfo(
             "dynamic_tabs_ok",
             "[BIL] 动态页标签净化已安装，hooks=$installedCount"
         )
-        return FeatureInstallResult.Installed(installedCount)
+        return FeatureInstallResult.Installed(installedCount, complete = listInstalled && addInstalled)
     }
 
     private fun missing(

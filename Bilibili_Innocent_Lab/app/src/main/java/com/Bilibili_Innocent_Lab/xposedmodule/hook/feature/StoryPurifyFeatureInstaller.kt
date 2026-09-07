@@ -21,6 +21,20 @@ internal class StoryPurifyFeatureInstaller(
 ) : FeatureInstaller {
 
     override val id: String = ID
+    override val capabilityIds: List<String> get() = buildList {
+        if (removeAds) add("story_ads_removed")
+        if (removeLive) add("story_live_removed")
+        if (removeGames) add("story_games_removed")
+        if (removeBangumi) add("story_bangumi_removed")
+        if (removeCourses) add("story_courses_removed")
+        if (removeShortDrama) add("story_short_drama_removed")
+        if (removeShopping) add("story_shopping_removed")
+        if (removeMovies) add("story_movies_removed")
+        if (removeDocumentaries) add("story_documentaries_removed")
+        if (removeTv) add("story_tv_removed")
+        if (removeVariety) add("story_variety_removed")
+        if (removeMusic) add("story_music_removed")
+    }
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!removeAds && !removeLive && !removeGames && !removeBangumi && !removeCourses &&
@@ -93,9 +107,12 @@ internal class StoryPurifyFeatureInstaller(
             }
         }
         if (installed == 0) return missing(environment, "registration-failed")
+        // Every selected type's own accessor was required above; the two response families are shared dependencies.
+        val expected = adapted.responseItemGetters.size + adapted.pagerListMethods.size
+        capabilityIds.forEach { environment.reportCapabilityCoverage(it, true, installed, expected) }
         environment.reportStatus(CHANNEL_STATUS, "success")
         environment.logInfo("story_purify_ok", "[BIL] Story 竖屏视频净化已安装")
-        return FeatureInstallResult.Installed(installed)
+        return FeatureInstallResult.Installed(installed, complete = installed == expected)
     }
 
     private fun filter(source: List<*>, accessors: Accessors): List<*>? {

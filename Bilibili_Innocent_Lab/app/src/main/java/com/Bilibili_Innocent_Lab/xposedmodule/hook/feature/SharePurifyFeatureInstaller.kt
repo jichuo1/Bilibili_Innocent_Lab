@@ -29,6 +29,10 @@ internal class SharePurifyFeatureInstaller(
 ) : FeatureInstaller {
 
     override val id: String = ID
+    override val capabilityIds: List<String> get() = buildList {
+        if (purifyContent) add("share_content_purified")
+        if (miniProgramDirectLink) add("share_mini_program_direct_link")
+    }
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!purifyContent && !miniProgramDirectLink) {
@@ -47,6 +51,8 @@ internal class SharePurifyFeatureInstaller(
         var expected = 0
 
         if (purifyContent) {
+            val beforeInstalled = installed
+            val beforeExpected = expected
             val setLink = stringSetter(resultClass, "setLink")
             val getLink = stringGetter(resultClass, "getLink")
             expected += 1
@@ -56,7 +62,7 @@ internal class SharePurifyFeatureInstaller(
                     "[BIL] 分享链接净化缺少 getLink 读取路径"
                 )
             } else if (installStringPurifier(
-                    environment,
+                    environment.forCapabilityRuntime("share_content_purified"),
                     "share.purify.link",
                     getLink,
                     setLink
@@ -74,7 +80,7 @@ internal class SharePurifyFeatureInstaller(
                     "[BIL] 分享文案净化缺少 getContent 读取路径"
                 )
             } else if (installStringPurifier(
-                    environment,
+                    environment.forCapabilityRuntime("share_content_purified"),
                     "share.purify.content",
                     getContent,
                     setContent
@@ -82,11 +88,17 @@ internal class SharePurifyFeatureInstaller(
             ) {
                 installed += 1
             }
+            environment.reportCapabilityCoverage("share_content_purified", true,
+                installed - beforeInstalled, expected - beforeExpected)
         }
 
         if (miniProgramDirectLink) {
+            val beforeInstalled = installed
+            val beforeExpected = expected
             expected += 1
-            if (installMiniProgramDowngrade(environment, resultClass)) installed += 1
+            if (installMiniProgramDowngrade(environment.forCapabilityRuntime("share_mini_program_direct_link"), resultClass)) installed += 1
+            environment.reportCapabilityCoverage("share_mini_program_direct_link", true,
+                installed - beforeInstalled, expected - beforeExpected)
         }
 
         if (installed == 0) return missing(environment, "registration-failed")
@@ -105,7 +117,7 @@ internal class SharePurifyFeatureInstaller(
                 "[BIL] 分享净化部分安装，status=$status"
             )
         }
-        return FeatureInstallResult.Installed(installed)
+        return FeatureInstallResult.Installed(installed, complete = installed == expected)
     }
 
     private fun installStringPurifier(

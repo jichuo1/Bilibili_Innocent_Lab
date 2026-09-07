@@ -9,6 +9,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VideoRelateFilterFeatureInstallerTest {
+    @Test
+    fun normalizedTypeAndMissingDurationPublishSeparateCapabilityOutcomes() {
+        val points = requireNotNull(VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader)))
+            .copy(directDurationGetters = emptyList(), durationChains = emptyList())
+        val records = mutableListOf<FeatureInstallRecord>()
+        val env = environment(mutableListOf()).copy(installationEvidence = { records += it })
+        FeatureInstallCoordinator(env).installAll(listOf(VideoRelateFilterFeatureInstaller(
+            hiddenTypes = setOf("game"), minDurationSeconds = 30, maxDurationSeconds = 0, points = points
+        )))
+        assertTrue(records.last { it.id == "video_related_game_removed" }.result is FeatureInstallResult.Installed)
+        assertEquals(FeatureSkipReason.MISSING_HOST_STRUCTURE,
+            (records.last { it.id == "video_related_duration_filter" }.result as FeatureInstallResult.Skipped).reasonCode)
+    }
+
 
     private fun hookCount(points: VersionAdapter.VideoRelatePoints): Int =
         points.responseItemGetters.size + if (points.detailRelateService != null) 1 else 0
@@ -227,7 +241,7 @@ class VideoRelateFilterFeatureInstallerTest {
         ).copy(directDurationGetters = emptyList(), durationChains = emptyList())
 
         assertEquals(
-            FeatureInstallResult.Installed(hookCount(points)),
+            FeatureInstallResult.Installed(hookCount(points), complete = false),
             VideoRelateFilterFeatureInstaller(
                 hiddenTypes = setOf("game"),
                 minDurationSeconds = 30,
@@ -257,7 +271,7 @@ class VideoRelateFilterFeatureInstallerTest {
         )
 
         assertEquals(
-            FeatureInstallResult.Installed(hookCount(points)),
+            FeatureInstallResult.Installed(hookCount(points), complete = false),
             VideoRelateFilterFeatureInstaller(
                 hiddenTypes = setOf("game"),
                 minDurationSeconds = 30,
@@ -315,7 +329,7 @@ class VideoRelateFilterFeatureInstallerTest {
         ).copy(reasonChains = emptyList())
 
         assertEquals(
-            FeatureInstallResult.Installed(hookCount(points)),
+            FeatureInstallResult.Installed(hookCount(points), complete = false),
             VideoRelateFilterFeatureInstaller(
                 hiddenTypes = setOf("CM"),
                 minDurationSeconds = 0,
@@ -340,7 +354,7 @@ class VideoRelateFilterFeatureInstallerTest {
         ).copy(reasonChains = emptyList())
 
         assertEquals(
-            FeatureInstallResult.Installed(hookCount(points)),
+            FeatureInstallResult.Installed(hookCount(points), complete = false),
             VideoRelateFilterFeatureInstaller(
                 hiddenTypes = emptySet(),
                 minDurationSeconds = 0,

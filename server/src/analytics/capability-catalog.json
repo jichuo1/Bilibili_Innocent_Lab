@@ -1,0 +1,701 @@
+{
+  "version": 1,
+  "capabilities": [
+    {
+      "id": "paused_ad",
+      "parent": "paused_ad",
+      "label": "隐藏视频暂停页广告",
+      "runtime": 0
+    },
+    {
+      "id": "game_mentioned_promotion",
+      "parent": "game_mentioned_promotion",
+      "label": "隐藏视频提及区域中的游戏广告",
+      "runtime": 0
+    },
+    {
+      "id": "merchandise",
+      "parent": "merchandise",
+      "label": "隐藏UP主分享好物推广",
+      "runtime": 0
+    },
+    {
+      "id": "home_top_bar_game_menu_hidden",
+      "parent": "home_top_bar_purify",
+      "label": "隐藏首页游戏中心",
+      "runtime": 0
+    },
+    {
+      "id": "home_top_bar_search_word_hidden",
+      "parent": "home_top_bar_purify",
+      "label": "隐藏搜索推荐词",
+      "runtime": 0
+    },
+    {
+      "id": "home_vertical_detail",
+      "parent": "home_vertical_detail",
+      "label": "竖屏视频进入详情页",
+      "runtime": 2
+    },
+    {
+      "id": "home_recommend_ads_removed",
+      "parent": "home_recommend_purify",
+      "label": "过滤推荐广告",
+      "runtime": 0
+    },
+    {
+      "id": "home_recommend_cm_v2_removed",
+      "parent": "home_recommend_purify",
+      "label": "过滤主页信息流伪装广告",
+      "runtime": 0
+    },
+    {
+      "id": "home_recommend_pictures_removed",
+      "parent": "home_recommend_purify",
+      "label": "过滤推荐图文",
+      "runtime": 0
+    },
+    {
+      "id": "home_recommend_game_promotions_removed",
+      "parent": "home_recommend_purify",
+      "label": "过滤游戏推广",
+      "runtime": 0
+    },
+    {
+      "id": "home_recommend_title_filter_enabled",
+      "parent": "home_recommend_purify",
+      "label": "按标题关键词过滤",
+      "runtime": 0
+    },
+    {
+      "id": "home_recommend_live_removed",
+      "parent": "home_recommend_purify",
+      "label": "过滤直播推荐",
+      "runtime": 0
+    },
+    {
+      "id": "home_recommend_courses_removed",
+      "parent": "home_recommend_purify",
+      "label": "过滤课堂推荐",
+      "runtime": 0
+    },
+    {
+      "id": "home_recommend_vertical_removed",
+      "parent": "home_recommend_purify",
+      "label": "过滤竖屏推荐",
+      "runtime": 0
+    },
+    {
+      "id": "home_recommend_large_removed",
+      "parent": "home_recommend_purify",
+      "label": "过滤大屏推荐",
+      "runtime": 0
+    },
+    {
+      "id": "home_tab_filter",
+      "parent": "home_tab_filter",
+      "label": "自定义首页标签",
+      "runtime": 0
+    },
+    {
+      "id": "home_component_filter",
+      "parent": "home_component_filter",
+      "label": "自定义首页组件",
+      "runtime": 0
+    },
+    {
+      "id": "mine_vip_hidden",
+      "parent": "mine_vip_purify",
+      "label": "隐藏大会员卡片",
+      "runtime": 0
+    },
+    {
+      "id": "mine_vip_space_kept",
+      "parent": "mine_vip_purify",
+      "label": "保留大会员卡片位置",
+      "runtime": 0
+    },
+    {
+      "id": "mine_component_filter",
+      "parent": "mine_component_filter",
+      "label": "自定义“我的”页组件",
+      "runtime": 2
+    },
+    {
+      "id": "block_app_update",
+      "parent": "block_app_update",
+      "label": "关闭客户端更新提醒",
+      "runtime": 0
+    },
+    {
+      "id": "dynamic_city_tab_hidden",
+      "parent": "dynamic_tabs_purify",
+      "label": "隐藏“同城”标签",
+      "runtime": 0
+    },
+    {
+      "id": "dynamic_school_tab_hidden",
+      "parent": "dynamic_tabs_purify",
+      "label": "隐藏“校园”标签",
+      "runtime": 0
+    },
+    {
+      "id": "dynamic_video_tab_preferred",
+      "parent": "dynamic_tabs_purify",
+      "label": "默认显示“视频”标签",
+      "runtime": 0
+    },
+    {
+      "id": "dynamic_keyword_filter_enabled",
+      "parent": "dynamic_purify",
+      "label": "按关键词过滤动态",
+      "runtime": 0
+    },
+    {
+      "id": "dynamic_author_filter_enabled",
+      "parent": "dynamic_purify",
+      "label": "按发布者过滤动态",
+      "runtime": 0
+    },
+    {
+      "id": "dynamic_promotions_removed",
+      "parent": "dynamic_purify",
+      "label": "隐藏带货与推荐附加卡",
+      "runtime": 0
+    },
+    {
+      "id": "dynamic_charge_only_removed",
+      "parent": "dynamic_purify",
+      "label": "隐藏未解锁的充电专属动态",
+      "runtime": 0
+    },
+    {
+      "id": "dynamic_topic_list_hidden",
+      "parent": "dynamic_purify",
+      "label": "隐藏动态页话题栏",
+      "runtime": 0
+    },
+    {
+      "id": "dynamic_up_list_live_removed",
+      "parent": "dynamic_purify",
+      "label": "隐藏顶部 UP 栏的直播条目",
+      "runtime": 0
+    },
+    {
+      "id": "search_commercial_removed",
+      "parent": "search_purify",
+      "label": "隐藏搜索结果推广卡",
+      "runtime": 0
+    },
+    {
+      "id": "search_keyword_filter_enabled",
+      "parent": "search_purify",
+      "label": "按关键词过滤搜索结果",
+      "runtime": 0
+    },
+    {
+      "id": "search_author_filter_enabled",
+      "parent": "search_purify",
+      "label": "按发布者过滤搜索结果",
+      "runtime": 0
+    },
+    {
+      "id": "full_number_display",
+      "parent": "full_number_display",
+      "label": "显示完整数字",
+      "runtime": 0
+    },
+    {
+      "id": "player_portrait_control",
+      "parent": "player_portrait_control",
+      "label": "隐藏竖屏切换按钮",
+      "runtime": 0
+    },
+    {
+      "id": "pgc_auto_activity_popup",
+      "parent": "pgc_auto_activity_popup",
+      "label": "屏蔽影视页自动活动半屏",
+      "runtime": 2
+    },
+    {
+      "id": "player_status_bar",
+      "parent": "player_status_bar",
+      "label": "播放器状态栏透明",
+      "runtime": 0
+    },
+    {
+      "id": "player_danmaku_weight_filter_enabled",
+      "parent": "danmaku_purify",
+      "label": "按权重过滤弹幕",
+      "runtime": 0
+    },
+    {
+      "id": "player_danmaku_vip_colorful_removed",
+      "parent": "danmaku_purify",
+      "label": "屏蔽大会员渐变彩色弹幕",
+      "runtime": 0
+    },
+    {
+      "id": "live_room_switch_blocked",
+      "parent": "live_room_widgets",
+      "label": "禁止上下滑动切换直播间",
+      "runtime": 2
+    },
+    {
+      "id": "live_double_tap_pause",
+      "parent": "live_room_widgets",
+      "label": "双击暂停而不是点赞",
+      "runtime": 2
+    },
+    {
+      "id": "video_related_commercial_removed",
+      "parent": "video_relate_filter",
+      "label": "过滤商业推广",
+      "runtime": 0
+    },
+    {
+      "id": "video_related_game_removed",
+      "parent": "video_relate_filter",
+      "label": "过滤游戏推荐",
+      "runtime": 0
+    },
+    {
+      "id": "video_related_live_removed",
+      "parent": "video_relate_filter",
+      "label": "过滤直播推荐",
+      "runtime": 0
+    },
+    {
+      "id": "video_related_course_removed",
+      "parent": "video_relate_filter",
+      "label": "过滤课程推荐",
+      "runtime": 0
+    },
+    {
+      "id": "video_related_special_removed",
+      "parent": "video_relate_filter",
+      "label": "过滤特殊推荐",
+      "runtime": 0
+    },
+    {
+      "id": "video_related_matching_enhancement_enabled",
+      "parent": "video_relate_filter",
+      "label": "过滤匹配增强",
+      "runtime": 0
+    },
+    {
+      "id": "video_related_strong_mode_enabled",
+      "parent": "video_relate_filter",
+      "label": "强力模式",
+      "runtime": 0
+    },
+    {
+      "id": "video_related_reason_filter_enabled",
+      "parent": "video_relate_filter",
+      "label": "按推荐理由过滤视频",
+      "runtime": 0
+    },
+    {
+      "id": "story_ads_removed",
+      "parent": "story_purify",
+      "label": "过滤竖屏流广告",
+      "runtime": 0
+    },
+    {
+      "id": "story_live_removed",
+      "parent": "story_purify",
+      "label": "过滤竖屏流直播",
+      "runtime": 0
+    },
+    {
+      "id": "story_games_removed",
+      "parent": "story_purify",
+      "label": "过滤竖屏流游戏推广",
+      "runtime": 0
+    },
+    {
+      "id": "story_bangumi_removed",
+      "parent": "story_purify",
+      "label": "过滤全部竖屏流番剧影视",
+      "runtime": 0
+    },
+    {
+      "id": "story_courses_removed",
+      "parent": "story_purify",
+      "label": "过滤竖屏流课堂",
+      "runtime": 0
+    },
+    {
+      "id": "story_short_drama_removed",
+      "parent": "story_purify",
+      "label": "过滤竖屏流短剧",
+      "runtime": 0
+    },
+    {
+      "id": "story_shopping_removed",
+      "parent": "story_purify",
+      "label": "过滤竖屏流购物内容",
+      "runtime": 0
+    },
+    {
+      "id": "story_movies_removed",
+      "parent": "story_purify",
+      "label": "过滤竖屏流电影",
+      "runtime": 0
+    },
+    {
+      "id": "story_documentaries_removed",
+      "parent": "story_purify",
+      "label": "过滤竖屏流纪录片",
+      "runtime": 0
+    },
+    {
+      "id": "story_tv_removed",
+      "parent": "story_purify",
+      "label": "过滤竖屏流电视剧",
+      "runtime": 0
+    },
+    {
+      "id": "story_variety_removed",
+      "parent": "story_purify",
+      "label": "过滤竖屏流综艺娱乐",
+      "runtime": 0
+    },
+    {
+      "id": "story_music_removed",
+      "parent": "story_purify",
+      "label": "过滤竖屏流音乐内容",
+      "runtime": 0
+    },
+    {
+      "id": "bottom_bar",
+      "parent": "bottom_bar",
+      "label": "自定义底栏",
+      "runtime": 0
+    },
+    {
+      "id": "player_default_quality",
+      "parent": "player_default_quality",
+      "label": "默认播放画质",
+      "runtime": 2
+    },
+    {
+      "id": "teenagers_mode_prompt",
+      "parent": "teenagers_mode_prompt",
+      "label": "关闭青少年模式提醒",
+      "runtime": 0
+    },
+    {
+      "id": "player_capability_background",
+      "parent": "player_capabilities",
+      "label": "解锁后台播放",
+      "runtime": 2
+    },
+    {
+      "id": "player_capability_small_window",
+      "parent": "player_capabilities",
+      "label": "解锁小窗播放",
+      "runtime": 2
+    },
+    {
+      "id": "player_capability_cast",
+      "parent": "player_capabilities",
+      "label": "解锁投屏",
+      "runtime": 2
+    },
+    {
+      "id": "player_long_press_disabled",
+      "parent": "player_speed",
+      "label": "禁用长按加速",
+      "runtime": 2
+    },
+    {
+      "id": "player_long_press_speed_percent",
+      "parent": "player_speed",
+      "label": "长按倍速自定义",
+      "runtime": 2
+    },
+    {
+      "id": "player_default_speed_percent",
+      "parent": "player_speed",
+      "label": "默认播放倍速",
+      "runtime": 2
+    },
+    {
+      "id": "comments_search_links_removed",
+      "parent": "comment_purify",
+      "label": "关闭评论关键词搜索链接",
+      "runtime": 2
+    },
+    {
+      "id": "comments_empty_guide_removed",
+      "parent": "comment_purify",
+      "label": "隐藏空评论区引导",
+      "runtime": 2
+    },
+    {
+      "id": "comments_vote_widgets_removed",
+      "parent": "comment_purify",
+      "label": "隐藏评论投票组件",
+      "runtime": 2
+    },
+    {
+      "id": "comments_follow_buttons_removed",
+      "parent": "comment_purify",
+      "label": "隐藏评论关注按钮",
+      "runtime": 2
+    },
+    {
+      "id": "comments_qoe_removed",
+      "parent": "comment_purify",
+      "label": "关闭评论体验反馈",
+      "runtime": 2
+    },
+    {
+      "id": "comments_operations_removed",
+      "parent": "comment_purify",
+      "label": "隐藏评论区运营推广",
+      "runtime": 2
+    },
+    {
+      "id": "comments_quick_reply_blocked",
+      "parent": "comment_purify",
+      "label": "关闭评论点击快速回复",
+      "runtime": 2
+    },
+    {
+      "id": "comment_section",
+      "parent": "comment_section",
+      "label": "完全隐藏评论区",
+      "runtime": 0
+    },
+    {
+      "id": "comment_topology",
+      "parent": "comment_topology",
+      "label": "回复脉络图",
+      "runtime": 0
+    },
+    {
+      "id": "comments_keyword_filter_enabled",
+      "parent": "comment_filter",
+      "label": "按关键词过滤评论",
+      "runtime": 0
+    },
+    {
+      "id": "comments_minimum_level_filter_enabled",
+      "parent": "comment_filter",
+      "label": "按用户等级过滤评论",
+      "runtime": 0
+    },
+    {
+      "id": "comments_at_only_removed",
+      "parent": "comment_filter",
+      "label": "隐藏只有 @ 的评论",
+      "runtime": 0
+    },
+    {
+      "id": "comments_user_filter_enabled",
+      "parent": "comment_filter",
+      "label": "按发布者过滤评论",
+      "runtime": 0
+    },
+    {
+      "id": "splash_ad_purify",
+      "parent": "splash_ad_purify",
+      "label": "净化开屏广告",
+      "runtime": 2
+    },
+    {
+      "id": "splash_auto_night",
+      "parent": "splash_auto_night",
+      "label": "开屏页跟随深色模式",
+      "runtime": 2
+    },
+    {
+      "id": "share_content_purified",
+      "parent": "share_purify",
+      "label": "净化分享链接",
+      "runtime": 2
+    },
+    {
+      "id": "share_mini_program_direct_link",
+      "parent": "share_purify",
+      "label": "小程序卡片转为普通链接",
+      "runtime": 2
+    },
+    {
+      "id": "external_browser",
+      "parent": "external_browser",
+      "label": "站外链接用系统浏览器打开",
+      "runtime": 2
+    },
+    {
+      "id": "system_media_notification",
+      "parent": "system_media_notification",
+      "label": "使用系统媒体控制通知",
+      "runtime": 2
+    },
+    {
+      "id": "bv_to_av",
+      "parent": "bv_to_av",
+      "label": "视频号显示为 AV 号",
+      "runtime": 2
+    },
+    {
+      "id": "free_copy_comment_enabled",
+      "parent": "free_copy",
+      "label": "长按评论以自由复制文本",
+      "runtime": 2
+    },
+    {
+      "id": "free_copy_description_enabled",
+      "parent": "free_copy",
+      "label": "长按简介以自由复制文本",
+      "runtime": 2
+    },
+    {
+      "id": "roaming_compat",
+      "parent": "roaming_compat",
+      "label": "漫游版本支持扩展",
+      "runtime": 0
+    },
+    {
+      "id": "home_recommend_duration_filter",
+      "parent": "home_recommend_purify",
+      "label": "视频时长筛选",
+      "runtime": 0
+    },
+    {
+      "id": "video_related_duration_filter",
+      "parent": "video_relate_filter",
+      "label": "视频时长筛选",
+      "runtime": 0
+    },
+    {
+      "id": "player_interactive_legacy_follow",
+      "parent": "player_interactive_overlay",
+      "label": "旧版播放器关注引导",
+      "runtime": 1
+    },
+    {
+      "id": "player_interactive_legacy_commands",
+      "parent": "player_interactive_overlay",
+      "label": "旧版播放器指令弹幕",
+      "runtime": 1
+    },
+    {
+      "id": "player_interactive_legacy_contract",
+      "parent": "player_interactive_overlay",
+      "label": "旧版播放器契约卡",
+      "runtime": 1
+    },
+    {
+      "id": "player_interactive_legacy_operations",
+      "parent": "player_interactive_overlay",
+      "label": "旧版播放器运营卡",
+      "runtime": 1
+    },
+    {
+      "id": "player_interactive_legacy_operations_new",
+      "parent": "player_interactive_overlay",
+      "label": "旧版播放器新版运营卡",
+      "runtime": 1
+    },
+    {
+      "id": "player_interactive_legacy_secondary_cards",
+      "parent": "player_interactive_overlay",
+      "label": "旧版播放器次级卡片",
+      "runtime": 1
+    },
+    {
+      "id": "player_interactive_unified_contract",
+      "parent": "player_interactive_overlay",
+      "label": "统一播放器契约卡",
+      "runtime": 1
+    },
+    {
+      "id": "player_interactive_unified_material",
+      "parent": "player_interactive_overlay",
+      "label": "统一播放器互动素材",
+      "runtime": 1
+    },
+    {
+      "id": "player_interactive_unified_right_material",
+      "parent": "player_interactive_overlay",
+      "label": "统一播放器右侧素材",
+      "runtime": 1
+    },
+    {
+      "id": "player_interactive_resource_follow",
+      "parent": "player_interactive_overlay",
+      "label": "弹幕资源关注引导",
+      "runtime": 1
+    },
+    {
+      "id": "player_interactive_resource_cards",
+      "parent": "player_interactive_overlay",
+      "label": "弹幕资源互动卡片",
+      "runtime": 1
+    },
+    {
+      "id": "player_interactive_resource_commands",
+      "parent": "player_interactive_overlay",
+      "label": "弹幕资源指令卡片",
+      "runtime": 1
+    },
+    {
+      "id": "player_interactive_dm_commands",
+      "parent": "player_interactive_overlay",
+      "label": "播放器指令弹幕",
+      "runtime": 1
+    },
+    {
+      "id": "player_interactive_activity_banner",
+      "parent": "player_interactive_overlay",
+      "label": "播放器运营活动横幅",
+      "runtime": 1
+    },
+    {
+      "id": "detail_promotion_nest",
+      "parent": "detail_app_promotion",
+      "label": "播放器下方推广·嵌套视图",
+      "runtime": 2
+    },
+    {
+      "id": "detail_promotion_list",
+      "parent": "detail_app_promotion",
+      "label": "播放器下方推广·列表视图",
+      "runtime": 2
+    },
+    {
+      "id": "detail_promotion_hd",
+      "parent": "detail_app_promotion",
+      "label": "播放器下方推广·高清视图",
+      "runtime": 2
+    },
+    {
+      "id": "detail_promotion_related_ad",
+      "parent": "detail_app_promotion",
+      "label": "详情推广·广告推荐视图",
+      "runtime": 2
+    },
+    {
+      "id": "detail_promotion_related_game",
+      "parent": "detail_app_promotion",
+      "label": "详情推广·游戏推荐组件",
+      "runtime": 2
+    },
+    {
+      "id": "home_banner_view",
+      "parent": "home_banner",
+      "label": "首页轮播·视图收起",
+      "runtime": 2
+    },
+    {
+      "id": "home_banner_feed",
+      "parent": "home_banner",
+      "label": "首页轮播·推荐流过滤",
+      "runtime": 2
+    }
+  ]
+}

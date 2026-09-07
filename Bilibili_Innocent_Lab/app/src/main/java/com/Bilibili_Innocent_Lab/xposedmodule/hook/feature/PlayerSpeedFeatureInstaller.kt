@@ -9,6 +9,11 @@ internal class PlayerSpeedFeatureInstaller(
     defaultPercent: Int
 ) : FeatureInstaller {
     override val id = ID
+    override val capabilityIds: List<String> get() = buildList {
+        if (disableLongPress) add("player_long_press_disabled")
+        if (pressSpeed != null) add("player_long_press_speed_percent")
+        if (defaultSpeed != null) add("player_default_speed_percent")
+    }
     private val pressSpeed = PlayerSpeedConfig.multiplier(
         PlayerSpeedConfig.effectiveLongPressPercent(disableLongPress, longPressPercent)
     )
@@ -24,6 +29,12 @@ internal class PlayerSpeedFeatureInstaller(
         var expected = 0
         var installed = 0
         fun attempt(unit: String, block: () -> Boolean) {
+            val capability = when (unit) {
+                "disable-long-press" -> "player_long_press_disabled"
+                "long-press-speed" -> "player_long_press_speed_percent"
+                else -> "player_default_speed_percent"
+            }
+            val beforeInstalled = installed
             expected++
             if (runCatching(block).getOrElse {
                     environment.logError("player_speed_register_$unit", "[BIL] 播放速度注册失败($unit): $it")
@@ -33,6 +44,7 @@ internal class PlayerSpeedFeatureInstaller(
             } else {
                 environment.logError("player_speed_missing_$unit", "[BIL] 播放速度缺少唯一可用结构($unit)")
             }
+            environment.reportCapabilityCoverage(capability, true, installed - beforeInstalled, 1)
         }
         if (disableLongPress) attempt("disable-long-press") {
             val method = PlayerSpeedLocator.longPress(loader) ?: return@attempt false
@@ -40,10 +52,10 @@ internal class PlayerSpeedFeatureInstaller(
                 method.name, *method.parameterTypes) {
                 before {
                     if (argOrNull(0) == null) return@before
-                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                    environment.reportRuntimeEvidence("player_long_press_disabled", FeatureRuntimeStage.OBSERVED)
                     // 仅消费 TripleSpeed 的加速开始；松手清理仍交给宿主，其他手势处理器不变。
                     result = true
-                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                    environment.reportRuntimeEvidence("player_long_press_disabled", FeatureRuntimeStage.APPLIED)
                 }
             }
             true
@@ -53,7 +65,7 @@ internal class PlayerSpeedFeatureInstaller(
             environment.registrar.constructor("player.speed.long_press_value", point.constructor) {
                 before {
                     val original = argOrNull(point.speedIndex) as? Float ?: return@before
-                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                    environment.reportRuntimeEvidence("player_long_press_speed_percent", FeatureRuntimeStage.OBSERVED)
                     if (original == requested) return@before
                     args[point.speedIndex] = requested
                     setObjectExtra(PRESS_CHANGED, true)
@@ -62,7 +74,7 @@ internal class PlayerSpeedFeatureInstaller(
                     if (hasThrowable || getObjectExtra(PRESS_CHANGED) != true) return@after
                     val target = instance ?: return@after
                     if (runCatching { point.speedField.getFloat(target) == requested }.getOrDefault(false)) {
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                        environment.reportRuntimeEvidence("player_long_press_speed_percent", FeatureRuntimeStage.APPLIED)
                     }
                 }
             }
@@ -75,10 +87,10 @@ internal class PlayerSpeedFeatureInstaller(
                 after {
                     if (hasThrowable) return@after
                     val target = instance ?: return@after
-                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                    environment.reportRuntimeEvidence("player_default_speed_percent", FeatureRuntimeStage.OBSERVED)
                     val outcome = applyDefaultSpeed(target, point, requested)
                     if (outcome == DefaultSpeedResult.APPLIED) {
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                        environment.reportRuntimeEvidence("player_default_speed_percent", FeatureRuntimeStage.APPLIED)
                     } else if (outcome != DefaultSpeedResult.UNCHANGED) {
                         environment.logError("player_speed_default_${outcome.name}",
                             "[BIL] 默认倍速保持宿主行为: ${outcome.name}")
@@ -92,7 +104,7 @@ internal class PlayerSpeedFeatureInstaller(
         if (installed == 0) return FeatureInstallResult.Skipped("missing-player-speed-points")
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.logInfo("player_speed_installed", "[BIL] 播放速度已安装($status)")
-        return FeatureInstallResult.Installed(installed)
+        return FeatureInstallResult.Installed(installed, complete = installed == expected)
     }
 
     internal enum class DefaultSpeedResult { APPLIED, UNCHANGED, UNEXPECTED_STATE, FAILED }

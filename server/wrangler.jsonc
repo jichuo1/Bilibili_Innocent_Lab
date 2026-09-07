@@ -1,0 +1,114 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "innocent-lab-telemetry",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-06",
+  "account_id": "eafff1bf0a3452723fa337be9611e653",
+
+  "env": {
+    "staging": {
+      "name": "innocent-lab-telemetry-staging",
+      "routes": [
+        {
+          "pattern": "telemetry-staging.bilibili.date",
+          "custom_domain": true
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "innocent-lab-telemetry-staging",
+          "database_id": "be3667f6-25b2-4fc6-9d88-a6c96652fad2"
+        }
+      ],
+      "ratelimits": [
+        {
+          "name": "EDGE_LIMITER",
+          "namespace_id": "3101",
+          "simple": {
+            "limit": 300,
+            "period": 60
+          }
+        },
+        {
+          "name": "SOURCE_LIMITER",
+          "namespace_id": "3103",
+          "simple": { "limit": 60, "period": 60 }
+        },
+        {
+          "name": "INSTALL_LIMITER",
+          "namespace_id": "3102",
+          "simple": {
+            "limit": 4,
+            "period": 60
+          }
+        }
+      ],
+      "triggers": {
+        "crons": ["17 3 * * *"]
+      },
+      "observability": {
+        "enabled": true,
+        "head_sampling_rate": 1
+      },
+      "vars": {
+        "INGEST_RETIRED": "0",
+        "RAW_RETENTION_DAYS": "30",
+        "AGGREGATION_MIN_DEVICES": "10",
+        "MAX_REPORT_ATTEMPTS_PER_DAY": "2000"
+      }
+    },
+
+    "production": {
+      "name": "innocent-lab-telemetry-prod",
+      "routes": [
+        {
+          "pattern": "telemetry.bilibili.date",
+          "custom_domain": true
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "innocent-lab-telemetry-prod",
+          "database_id": "0597057e-8326-4445-8d09-98f14bd2bd01"
+        }
+      ],
+      "ratelimits": [
+        {
+          "name": "EDGE_LIMITER",
+          "namespace_id": "3201",
+          "simple": {
+            "limit": 300,
+            "period": 60
+          }
+        },
+        {
+          "name": "SOURCE_LIMITER",
+          "namespace_id": "3203",
+          "simple": { "limit": 60, "period": 60 }
+        },
+        {
+          "name": "INSTALL_LIMITER",
+          "namespace_id": "3202",
+          "simple": {
+            "limit": 4,
+            "period": 60
+          }
+        }
+      ],
+      "triggers": {
+        "crons": ["17 3 * * *"]
+      },
+      "observability": {
+        "enabled": false
+      },
+      "vars": {
+        "INGEST_RETIRED": "0",
+        "RAW_RETENTION_DAYS": "30",
+        "AGGREGATION_MIN_DEVICES": "10",
+        "MAX_REPORT_ATTEMPTS_PER_DAY": "2000"
+      }
+    }
+  }
+}

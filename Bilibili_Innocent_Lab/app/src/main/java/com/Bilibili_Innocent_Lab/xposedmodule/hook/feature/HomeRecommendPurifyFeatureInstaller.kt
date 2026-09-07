@@ -30,6 +30,19 @@ internal class HomeRecommendPurifyFeatureInstaller(
     private val durationRange = VideoDurationRange(minDurationSeconds, maxDurationSeconds)
 
     override val id: String = ID
+    override val capabilityIds: List<String> get() = buildList {
+        if (removeBanner) add("home_banner_feed")
+        if (removeAds) add("home_recommend_ads_removed")
+        if (removeCmV2) add("home_recommend_cm_v2_removed")
+        if (removePictures) add("home_recommend_pictures_removed")
+        if (removeGamePromotions) add("home_recommend_game_promotions_removed")
+        if (titleKeywords.isNotEmpty()) add("home_recommend_title_filter_enabled")
+        if (removeLive) add("home_recommend_live_removed")
+        if (removeCourses) add("home_recommend_courses_removed")
+        if (removeVertical) add("home_recommend_vertical_removed")
+        if (removeLarge) add("home_recommend_large_removed")
+        if (durationRange.isEnabled) add("home_recommend_duration_filter")
+    }
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         val hasContentFilter = removeAds || removeCmV2 || removeBanner || removePictures || removeGamePromotions ||
@@ -108,11 +121,11 @@ internal class HomeRecommendPurifyFeatureInstaller(
                         }
                         if (removedBanners > 0) {
                             environment.reportRuntimeEvidence(
-                                HomeBannerFeatureInstaller.ID,
+                                "home_banner_feed",
                                 FeatureRuntimeStage.OBSERVED
                             )
                             environment.reportRuntimeEvidence(
-                                HomeBannerFeatureInstaller.ID,
+                                "home_banner_feed",
                                 FeatureRuntimeStage.APPLIED,
                                 removedBanners
                             )
@@ -129,6 +142,20 @@ internal class HomeRecommendPurifyFeatureInstaller(
             }
         }
         if (installed == 0) return missing(environment, "registration-failed")
+        val routeReadable = accessors.cardType != null || accessors.cardGoto != null ||
+            accessors.goTo != null || accessors.uri != null
+        for (capability in capabilityIds) {
+            val readable = when (capability) {
+                "home_recommend_duration_filter" -> accessors.duration != null
+                "home_recommend_title_filter_enabled" -> accessors.title != null
+                "home_recommend_ads_removed" -> true // required holderType is a valid advertisement-token source
+                "home_recommend_cm_v2_removed" -> accessors.cardType != null // this predicate reads cardType only
+                "home_banner_feed" -> true
+                "home_recommend_large_removed" -> true // required holderType is resolved above
+                else -> routeReadable
+            }
+            environment.reportCapabilityCoverage(capability, readable, installed, adapted.responseItemGetters.size)
+        }
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.reportStatus(
             CHANNEL_STATUS,
@@ -139,7 +166,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
             "[BIL] 首页推荐服务端过滤已安装，hooks=$installed," +
                 "duration=${durationRange.isEnabled}"
         )
-        return FeatureInstallResult.Installed(installed)
+        return FeatureInstallResult.Installed(installed, complete = partialReason == null && installed == adapted.responseItemGetters.size)
     }
 
     private fun shouldRemove(signals: Signals): Boolean {

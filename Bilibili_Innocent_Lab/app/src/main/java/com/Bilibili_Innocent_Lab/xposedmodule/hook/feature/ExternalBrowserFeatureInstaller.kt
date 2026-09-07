@@ -124,7 +124,7 @@ internal class ExternalBrowserFeatureInstaller(
                 "[BIL] 站外链接外部浏览器打开部分安装，status=$status"
             )
         }
-        return FeatureInstallResult.Installed(installed)
+        return FeatureInstallResult.Installed(installed, complete = installed == candidates.size)
     }
 
     /**
