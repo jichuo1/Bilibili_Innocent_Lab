@@ -31,6 +31,10 @@ internal class LiveRoomWidgetFeatureInstaller(
 ) : FeatureInstaller {
 
     override val id: String = ID
+    override val capabilityIds: List<String> get() = buildList {
+        if (blockRoomSwitch) add("live_room_switch_blocked")
+        if (doubleTapPause) add("live_double_tap_pause")
+    }
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!blockRoomSwitch && !doubleTapPause) {
@@ -47,11 +51,15 @@ internal class LiveRoomWidgetFeatureInstaller(
 
         if (blockRoomSwitch) {
             expected += 1
-            if (installRoomSwitchBlock(environment, loader)) installed += 1
+            val success = installRoomSwitchBlock(environment.forCapabilityRuntime("live_room_switch_blocked"), loader)
+            if (success) installed += 1
+            environment.reportCapabilityCoverage("live_room_switch_blocked", true, if (success) 1 else 0, 1)
         }
         if (doubleTapPause) {
             expected += 1
-            if (installDoubleTapPause(environment, loader)) installed += 1
+            val success = installDoubleTapPause(environment.forCapabilityRuntime("live_double_tap_pause"), loader)
+            if (success) installed += 1
+            environment.reportCapabilityCoverage("live_double_tap_pause", true, if (success) 1 else 0, 1)
         }
 
         if (installed == 0) return missing(environment, "no-live-room-hook-point")
@@ -69,7 +77,7 @@ internal class LiveRoomWidgetFeatureInstaller(
                 "[BIL] 直播间小件部分安装，status=$status"
             )
         }
-        return FeatureInstallResult.Installed(installed)
+        return FeatureInstallResult.Installed(installed, complete = installed == expected)
     }
 
     /** 翻页器拦不到触摸就换不了房；直接让 `onInterceptTouchEvent` 恒返回 false。 */

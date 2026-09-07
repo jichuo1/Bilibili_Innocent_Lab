@@ -10,7 +10,7 @@ class UserTermsConsentStoreTest {
 
     @Test
     fun `current terms version is a positive locked protocol value`() {
-        assertEquals(1, UserTermsConsentStore.CURRENT_TERMS_VERSION)
+        assertEquals(2, UserTermsConsentStore.CURRENT_TERMS_VERSION)
         assertTrue(UserTermsConsentStore.CURRENT_TERMS_VERSION > 0)
         assertEquals(1_787_909_100_000L, UserTermsConsentStore.LEGACY_ROLLOUT_CUTOFF_EPOCH_MS)
     }
@@ -62,7 +62,12 @@ class UserTermsConsentStoreTest {
 
     @Test
     fun `records from another terms version require a new decision`() {
-        val otherVersions = listOf(-1, 0, UserTermsConsentStore.CURRENT_TERMS_VERSION + 1)
+        val otherVersions = listOf(
+            -1,
+            0,
+            UserTermsConsentStore.CURRENT_TERMS_VERSION - 1,
+            UserTermsConsentStore.CURRENT_TERMS_VERSION + 1
+        ).distinct()
         otherVersions.forEach { version ->
             UserTermsDecision.entries.forEach { decision ->
                 assertEquals(

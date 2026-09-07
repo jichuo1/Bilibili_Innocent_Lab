@@ -57,7 +57,7 @@ internal class FullNumberFeatureInstaller(
                 "[BIL] 完整数字显示已安装，hooks=$installedCount"
             )
         }
-        return FeatureInstallResult.Installed(installedCount)
+        return FeatureInstallResult.Installed(installedCount, complete = installedCount == adapted.size)
     }
 
     private fun missing(

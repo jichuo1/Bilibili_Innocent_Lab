@@ -42,6 +42,10 @@ internal class DanmakuPurifyFeatureInstaller(
 ) : FeatureInstaller {
 
     override val id: String = ID
+    override val capabilityIds: List<String> get() = buildList {
+        if (minimumWeight != null) add("player_danmaku_weight_filter_enabled")
+        if (removeVipColorful) add("player_danmaku_vip_colorful_removed")
+    }
 
     private val minimumWeight = if (weightFilterEnabled) {
         DanmakuPurifyPolicy.normalizeWeight(minimumWeight)
@@ -149,6 +153,14 @@ internal class DanmakuPurifyFeatureInstaller(
         }
 
         if (installed == 0) return missing(environment, "no-danmaku-hook-point")
+        val sharedExpected = SYNC_METHOD_NAMES.size + ASYNC_METHOD_NAMES.size
+        if (minimumWeight != null) environment.reportCapabilityCoverage(
+            "player_danmaku_weight_filter_enabled", usableWeight, installed, sharedExpected
+        )
+        if (removeVipColorful) environment.reportCapabilityCoverage(
+            "player_danmaku_vip_colorful_removed", usableColorful, installed, sharedExpected
+        )
+        expected = sharedExpected
 
         // 用户开了但字段读不到的判据必须留在分母里，否则"开了却没生效"会被算成 success。
         if (minimumWeight != null) {
@@ -189,7 +201,7 @@ internal class DanmakuPurifyFeatureInstaller(
                 "[BIL] 弹幕净化部分安装，status=$status"
             )
         }
-        return FeatureInstallResult.Installed(installed)
+        return FeatureInstallResult.Installed(installed, complete = installed == expected)
     }
 
     /** 一次响应只做一次净化；两条链路共用，重复调用对同一 reply 是幂等的。 */

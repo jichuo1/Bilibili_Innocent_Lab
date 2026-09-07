@@ -18,7 +18,7 @@ internal data class DiagnosticReportMetadata(
 /** 只导出固定白名单字段的本地诊断报告；不接受设置值、日志正文和任意异常文本。 */
 internal object DiagnosticReportCodec {
     const val FORMAT_NAME = "bilab-diagnostics"
-    const val CURRENT_FORMAT_VERSION = 4
+    const val CURRENT_FORMAT_VERSION = 5
     const val PRODUCT_ID = "bilibili-innocent-lab"
     const val MAX_FILE_BYTES = 256 * 1024
 
@@ -139,6 +139,7 @@ internal object DiagnosticReportCodec {
                                     .put("evidence", feature.evidence.name)
                                     .put("installState", feature.installState.name)
                                     .put("installedHookCount", feature.installedHookCount)
+                                    .put("runtimeError", feature.runtimeError)
                                     .put(
                                         "installReasonCode",
                                         feature.installReasonCode.boundedCode(
@@ -279,7 +280,8 @@ internal object DiagnosticReportCodec {
         val hostFeatureIds = HashSet<String>()
         for (index in 0 until hostFeatures.length()) {
             val feature = hostFeatures.getJSONObject(index)
-            require(feature.length() == 6) { "Invalid host feature assessment" }
+            require(feature.length() == 7) { "Invalid host feature assessment" }
+            require(feature.get("runtimeError") is Boolean) { "Invalid runtime error evidence" }
             val id = feature.getString("id")
             require(id in HostRuntimeDiagnosticsCodec.allowedFeatureIds && hostFeatureIds.add(id)) {
                 "Invalid host feature assessment"
@@ -308,6 +310,7 @@ internal object DiagnosticReportCodec {
             require(
                 when (installState) {
                     DiagnosticFeatureInstallState.INSTALLED -> hookCount > 0 && reasonCode == null
+                    DiagnosticFeatureInstallState.PARTIAL -> hookCount > 0 && reasonCode == "PARTIAL_COVERAGE"
                     DiagnosticFeatureInstallState.NOT_REPORTED -> hookCount == 0 && reasonCode == null
                     else -> hookCount == 0 && reasonCode != null
                 }

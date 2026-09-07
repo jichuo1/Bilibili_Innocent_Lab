@@ -7,6 +7,59 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class FeatureInstallCoordinatorTest {
+    @Test
+    fun independentLeafResultsDoNotInheritParentSuccessAndLateEvidenceCanReplaceUnknown() {
+        val events = mutableListOf<FeatureInstallRecord>()
+        var late: (() -> Unit)? = null
+        val environment = HookEnvironment("test", javaClass.classLoader,
+            HookPointRegistry(javaClass.classLoader), TestHookRegistrar, { _, _ -> }, { _, _ -> }, { _, _ -> },
+            installationEvidence = { events += it })
+        val installer = object : FeatureInstaller {
+            override val id = "parent"
+            override val capabilityIds = listOf("first", "missing", "deferred")
+            override fun install(environment: HookEnvironment): FeatureInstallResult {
+                environment.reportCapabilityCoverage("first", true, 2, 2)
+                environment.reportCapabilityCoverage("missing", false, 2, 2)
+                late = { environment.reportCapabilityCoverage("deferred", true, 1, 1) }
+                return FeatureInstallResult.Installed(2)
+            }
+        }
+        FeatureInstallCoordinator(environment).installAll(listOf(installer))
+        assertEquals(FeatureInstallResult.Installed(2), events.last { it.id == "first" }.result)
+        assertEquals(FeatureSkipReason.MISSING_HOST_STRUCTURE,
+            (events.last { it.id == "missing" }.result as FeatureInstallResult.Skipped).reasonCode)
+        assertEquals(FeatureInstallResult.Unverified, events.last { it.id == "deferred" }.result)
+        late!!()
+        assertEquals(FeatureInstallResult.Installed(1), events.last { it.id == "deferred" }.result)
+    }
+
+    @Test
+    fun abortedInstallerKeepsProvenLeavesAndMarksRemainingLeavesFailed() {
+        val events = mutableListOf<FeatureInstallRecord>()
+        val environment = HookEnvironment("test", javaClass.classLoader,
+            HookPointRegistry(javaClass.classLoader), TestHookRegistrar, { _, _ -> }, { _, _ -> }, { _, _ -> },
+            installationEvidence = { events += it })
+        FeatureInstallCoordinator(environment).installAll(listOf(object : FeatureInstaller {
+            override val id = "parent"
+            override val capabilityIds = listOf("proven", "unfinished")
+            override fun install(environment: HookEnvironment): FeatureInstallResult {
+                environment.reportCapabilityCoverage("proven", true, 1, 1)
+                error("synthetic installer failure")
+            }
+        }))
+        assertEquals(FeatureInstallResult.Installed(1), events.last { it.id == "proven" }.result)
+        assertNotNull(events.last { it.id == "unfinished" }.failure)
+    }
+
+    @Test
+    fun runtimeDiagnosticsFailureDoesNotEscapeIntoBusinessCallback() {
+        val environment = HookEnvironment("test", javaClass.classLoader,
+            HookPointRegistry(javaClass.classLoader), TestHookRegistrar, { _, _ -> }, { _, _ -> }, { _, _ -> },
+            runtimeEvidence = { _, _, _ -> error("diagnostic sink failure") })
+        environment.reportRuntimeEvidence("example", FeatureRuntimeStage.OBSERVED)
+        environment.forCapabilityRuntime("child").reportRuntimeEvidence("parent", FeatureRuntimeStage.APPLIED)
+    }
+
 
     @Test
     fun `keeps order and isolates installer failure`() {

@@ -26,6 +26,7 @@ internal class PlayerCapabilityAccess private constructor(
     private val slots: List<Slot>
 ) {
     val capabilityCount: Int get() = slots.size
+    val capabilities: List<PlayerCapability> = slots.map { it.capability }
     private data class Slot(val capability: PlayerCapability, val getter: Method?, val setter: Method?)
     private data class BuilderCopy(val newBuilder: Method, val build: Method) {
         fun copy(value: Any): Any = checkNotNull(newBuilder.invoke(null, value))
@@ -33,7 +34,11 @@ internal class PlayerCapabilityAccess private constructor(
     }
 
     /** 返回确实改写且读回正确的能力数；0 包括默认回复、无视频信息和本就开放的回复。 */
-    fun apply(reply: Any): Int {
+    fun apply(
+        reply: Any,
+        onObserved: ((PlayerCapability) -> Unit)? = null,
+        onApplied: ((PlayerCapability) -> Unit)? = null
+    ): Int {
         if (!replyClass.isInstance(reply) || reply === defaultReply || hasVideo.invoke(reply) != true) return 0
         val originalContainer = readContainer.invoke(reply) ?: return 0
         val originalMap = readMap?.invoke(originalContainer) as? Map<*, *>
@@ -41,6 +46,7 @@ internal class PlayerCapabilityAccess private constructor(
         var builder: Any? = null
         val changed = ArrayList<Slot>(slots.size)
         for (slot in slots) {
+            runCatching { onObserved?.invoke(slot.capability) }
             val originalArc = if (readMap != null) {
                 originalMap?.get(slot.capability.wireId) ?: defaultArc
             } else {
@@ -67,7 +73,9 @@ internal class PlayerCapabilityAccess private constructor(
         return changed.count { slot ->
             val arc = if (readMap != null) actualMap?.get(slot.capability.wireId)
                 else slot.getter?.invoke(actual)
-            arc != null && disabled.invoke(arc) == false && supported.invoke(arc) == true
+            val applied = arc != null && disabled.invoke(arc) == false && supported.invoke(arc) == true
+            if (applied) runCatching { onApplied?.invoke(slot.capability) }
+            applied
         }
     }
 

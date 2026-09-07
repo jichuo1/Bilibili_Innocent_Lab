@@ -87,6 +87,8 @@ internal enum class DiagnosticFeatureInstallState {
     DISABLED,
     NOT_APPLICABLE,
     INSTALLED,
+    PARTIAL,
+    UNKNOWN,
     SKIPPED,
     FAILED
 }
@@ -181,7 +183,8 @@ internal data class DiagnosticHostFeature(
     val installState: DiagnosticFeatureInstallState = DiagnosticFeatureInstallState.NOT_REPORTED,
     val installedHookCount: Int = 0,
     val installReasonCode: String? = null,
-    val runtimeEvidenceExpected: Boolean = false
+    val runtimeEvidenceExpected: Boolean = false,
+    val runtimeError: Boolean = false
 )
 
 internal data class ModuleDiagnosticSnapshot(

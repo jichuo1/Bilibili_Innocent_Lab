@@ -40,7 +40,7 @@ class DiagnosticReportCodecTest {
         val bytes = DiagnosticReportCodec.encode(ModuleHealthEvaluator.evaluate(state))
         DiagnosticReportCodec.validate(bytes)
         val json = JSONObject(bytes.toString(StandardCharsets.UTF_8))
-        assertEquals(4, json.getInt("formatVersion"))
+        assertEquals(5, json.getInt("formatVersion"))
         assertEquals(3110L, json.getJSONObject("framework").getLong("versionCode"))
         assertEquals(7L, json.getJSONObject("framework").getLong("properties"))
         assertEquals("MATCHED", json.getJSONObject("remoteConfig").getString("hostDelivery"))

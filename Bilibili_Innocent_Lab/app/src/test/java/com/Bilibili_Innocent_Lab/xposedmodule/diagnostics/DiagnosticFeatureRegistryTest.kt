@@ -7,7 +7,10 @@ import org.junit.Test
 class DiagnosticFeatureRegistryTest {
     @Test
     fun `registry is unique bounded and covers specialized feature paths`() {
-        assertEquals(42, DiagnosticFeatureRegistry.descriptors.size)
+        assertEquals(DiagnosticCapabilityCatalog.leafIds.size + DiagnosticCapabilityCatalog.splitParents.size,
+            DiagnosticFeatureRegistry.descriptors.size)
+        assertTrue(DiagnosticFeatureRegistry.descriptors.size <=
+            com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsCodec.MAX_FEATURE_COUNT)
         assertEquals(
             DiagnosticFeatureRegistry.descriptors.size,
             DiagnosticFeatureRegistry.ids.size

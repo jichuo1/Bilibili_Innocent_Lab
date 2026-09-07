@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicReference
  */
 internal object MineComponentSnapshotHostBridge {
     private const val CACHE_PREFS = "innocent_lab_mine_component_snapshot"
-    /** 每个宿主 UI 面一个槽位；目标/模块版本三元组是共享元数据，仍只存一份。 */
+    /** 载荷和版本均按面隔离，防止先更新的面给其他面的旧载荷标上新版本。 */
     private fun payloadKey(surface: String) = "payload_" + surface
     private const val KEY_TARGET_VERSION = "target_version"
     private const val KEY_TARGET_UPDATE_TIME = "target_update_time"
@@ -101,9 +101,9 @@ internal object MineComponentSnapshotHostBridge {
                     appContext.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE)
                         .edit()
                         .putString(payloadKey(surface), payload)
-                        .putLong(KEY_TARGET_VERSION, source.targetVersionCode)
-                        .putLong(KEY_TARGET_UPDATE_TIME, source.targetUpdateTime)
-                        .putLong(KEY_MODULE_VERSION, source.moduleVersionCode)
+                        .putLong("${KEY_TARGET_VERSION}_$surface", source.targetVersionCode)
+                        .putLong("${KEY_TARGET_UPDATE_TIME}_$surface", source.targetUpdateTime)
+                        .putLong("${KEY_MODULE_VERSION}_$surface", source.moduleVersionCode)
                         .commit()
                 }.getOrDefault(false)
                 if (!committed) logError("“我的”页扫描结果宿主缓存写入失败")
@@ -186,10 +186,11 @@ internal object MineComponentSnapshotHostBridge {
     private fun readCachedSnapshot(context: Context, surface: String): CachedSnapshot? {
         val source = currentSource(context) ?: return null
         val prefs = context.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE)
+        // 旧全局版本无法证明某一面的载荷来源；等待该面重新采集，不拿旧缓存清理勾选。
         val cachedSource = MineComponentSnapshotSource(
-            targetVersionCode = prefs.getLong(KEY_TARGET_VERSION, 0L),
-            targetUpdateTime = prefs.getLong(KEY_TARGET_UPDATE_TIME, 0L),
-            moduleVersionCode = prefs.getLong(KEY_MODULE_VERSION, 0L)
+            targetVersionCode = prefs.getLong("${KEY_TARGET_VERSION}_$surface", 0L),
+            targetUpdateTime = prefs.getLong("${KEY_TARGET_UPDATE_TIME}_$surface", 0L),
+            moduleVersionCode = prefs.getLong("${KEY_MODULE_VERSION}_$surface", 0L)
         )
         if (cachedSource != source) return null
         val payload = prefs.getString(payloadKey(surface), null).orEmpty()

@@ -494,6 +494,10 @@ class HookEntry : XposedModule() {
             } ?: return@OnLongClickListener false
             if (!isValidFreeCopyText(resolved.displayText)) return@OnLongClickListener false
             HostRuntimeDiagnosticsBridge.record("free_copy", FeatureRuntimeStage.OBSERVED)
+            HostRuntimeDiagnosticsBridge.record(
+                if (isDesc) "free_copy_description_enabled" else "free_copy_comment_enabled",
+                FeatureRuntimeStage.OBSERVED
+            )
             // 文本与身份均已确认后才武装 handled；无效复用节点不能污染下一次手势。
             if (isDesc) descLongPressHandled = true else commentLongPressHandled = true
             runCatching {
@@ -1605,6 +1609,13 @@ class HookEntry : XposedModule() {
         }
 
         private fun showFreeCopyPopup(anchor: View, rawContent: FreeCopyContent) {
+            val copyCapability = when {
+                runtimeDescriptionFreeCopyEnabled && descViewId != View.NO_ID && anchor.id == descViewId ->
+                    "free_copy_description_enabled"
+                runtimeCommentFreeCopyEnabled && isRegisteredCommentTreeMember(anchor) ->
+                    "free_copy_comment_enabled"
+                else -> null
+            }
             // 清理控制字符：B 站简介数据源换行为 \r\n（或含孤立 \r），官方渲染时 CR
             // 不可见，但气泡 TextView 会把 \r 显示成可见的 "r" 字形（实测每个视频简介
             // 都多出一个 "r"）。统一归一为 \n。
@@ -1907,6 +1918,7 @@ class HookEntry : XposedModule() {
                     throw t
                 }
                 HostRuntimeDiagnosticsBridge.record("free_copy", FeatureRuntimeStage.APPLIED)
+                copyCapability?.let { HostRuntimeDiagnosticsBridge.record(it, FeatureRuntimeStage.APPLIED) }
                 // show 后再次确认（部分 ROM 的 PhoneWindow 会在 show 流程里重置部分属性）
                 dialog.window?.apply {
                     clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
@@ -3384,6 +3396,7 @@ class HookEntry : XposedModule() {
             // 长按 → 弹模块自由复制界面 + return true 消费（官方菜单不弹）。
             // 三点按钮是 OnClickListener（非长按），头像/昵称等非 TextView 不受影响。
             val commentFreeCopyHooksInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
+            val commentFreeCopyBindingVerified = java.util.concurrent.atomic.AtomicBoolean(false)
             val installCommentFreeCopyHooks: () -> Unit = installCommentHooks@{
                 if (!commentFreeCopyHooksInstalled.compareAndSet(false, true)) return@installCommentHooks
                 try {
@@ -3469,6 +3482,7 @@ class HookEntry : XposedModule() {
                         }
                     }.onSuccess {
                         freeCopyOk = true
+                        commentFreeCopyBindingVerified.set(true)
                     }.onFailure { t ->
                         // 高版本常保留旧 t0 类但删除旧绑定方法；这是残留结构，不应阻断
                         // 后续 CommentNextExperiment3 Handler 的独立注册。
@@ -3604,6 +3618,7 @@ class HookEntry : XposedModule() {
                             ) ?: throw NoSuchMethodException("${handlerClass.name}#$highMethod")
                             modernRuntime.install("free-copy:comment-high:${method.toGenericString()}", method, bindHook)
                             registered.add("$highMethod${cacheParams.joinToString(",") { it.name }}")
+                            commentFreeCopyBindingVerified.set(true)
                         }.onFailure { t ->
                             logError("free_copy_v2_err", "[BIL] 9.x 评论 hook 注册失败(缓存签名): $t")
                         }
@@ -3628,6 +3643,7 @@ class HookEntry : XposedModule() {
                             runCatching {
                                 modernRuntime.install("free-copy:comment-high:${m.toGenericString()}", m, bindHook)
                                 registered.add(sig)
+                                commentFreeCopyBindingVerified.set(true)
                             }
                         }
                         logInfo("free_copy_ok_v2", "[BIL] 自由复制 hook 已注册（9.x ${registered.joinToString(", ") { it }}）")
@@ -4325,11 +4341,32 @@ class HookEntry : XposedModule() {
             // 评论触摸兜底、三点按钮豁免和官方面板抑制与简介共用这一组低频基础 hook；
             // 任一自由复制功能开启时安装，具体行为仍由各自 runtime flag 独立控制。
             descriptionFreeCopyInstallerRef.set(installDescriptionFreeCopyHooks)
+            fun publishFreeCopyCapabilities() {
+                if (processName != TARGET_PACKAGE) return
+                val common = descriptionFreeCopyHooksInstalled.get()
+                val comment = commentFreeCopyBindingVerified.get()
+                if (runtimeCommentFreeCopyEnabled) {
+                    val paths = (if (comment) 1 else 0) + (if (common) 1 else 0)
+                    HostRuntimeDiagnosticsBridge.recordInstallation(FeatureInstallRecord(
+                        "free_copy_comment_enabled",
+                        if (paths > 0) FeatureInstallResult.Installed(paths, complete = paths == 2)
+                        else FeatureInstallResult.Skipped("registration-failed"), null
+                    ))
+                }
+                if (runtimeDescriptionFreeCopyEnabled) {
+                    HostRuntimeDiagnosticsBridge.recordInstallation(FeatureInstallRecord(
+                        "free_copy_description_enabled",
+                        if (common) FeatureInstallResult.Installed(1)
+                        else FeatureInstallResult.Skipped("registration-failed"), null
+                    ))
+                }
+            }
             freeCopyHookRetryOnAdapt.set {
                 if (runtimeCommentFreeCopyEnabled) installCommentFreeCopyHooks()
                 if (runtimeCommentFreeCopyEnabled || runtimeDescriptionFreeCopyEnabled) {
                     installDescriptionFreeCopyHooks()
                 }
+                publishFreeCopyCapabilities()
             }
             if (runtimeCommentFreeCopyEnabled || runtimeDescriptionFreeCopyEnabled) {
                 installDescriptionFreeCopyHooks()
@@ -4347,6 +4384,7 @@ class HookEntry : XposedModule() {
                 HostRuntimeDiagnosticsBridge.recordInstallation(
                     FeatureInstallRecord("free_copy", result, failure = null)
                 )
+                publishFreeCopyCapabilities()
             }
             // 保持原有已授权相对时序：先安装功能 Hook，attach 再同步
             // 自由复制派生状态并触发版本适配，避免 quickLocate 与后台适配并发。
@@ -4364,7 +4402,8 @@ class HookEntry : XposedModule() {
                 HostRuntimeDiagnosticsBridge.recordInstallation(
                     FeatureInstallRecord(
                         "roaming_compat",
-                        if (roamingCompatEnabled) FeatureInstallResult.Installed(1)
+                        // Dispatching cache/compatibility work is not an independent installation receipt.
+                        if (roamingCompatEnabled) FeatureInstallResult.Unverified
                         else FeatureInstallResult.Skipped("disabled"),
                         failure = null
                     )

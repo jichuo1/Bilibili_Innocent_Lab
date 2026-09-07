@@ -29,6 +29,17 @@ internal class DetailAppPromotionFeatureInstaller(
 ) : FeatureInstaller {
 
     override val id: String = ID
+    override val capabilityIds: List<String> get() = buildList {
+        if (enabled) {
+            add("detail_promotion_nest")
+            add("detail_promotion_list")
+            add("detail_promotion_hd")
+        }
+        if (relateAdEnabled) {
+            add("detail_promotion_related_ad")
+            add("detail_promotion_related_game")
+        }
+    }
 
     private val attemptedVideoDetailClasses = ConcurrentHashMap.newKeySet<Class<*>>()
     private val attemptedUnderPlayerClasses = ConcurrentHashMap.newKeySet<Class<*>>()
@@ -66,6 +77,14 @@ internal class DetailAppPromotionFeatureInstaller(
         }
         val underPlayerAvailable = enabled && types != null && sceneAccess != null
         val relateAvailable = relateAdEnabled && relateClass != null
+        if (enabled && !underPlayerAvailable) {
+            listOf("detail_promotion_nest","detail_promotion_list","detail_promotion_hd").forEach {
+                environment.reportCapability(it, FeatureInstallResult.Skipped("missing-under-player-dependency"))
+            }
+        }
+        if (relateAdEnabled && !relateAvailable) {
+            environment.reportCapability("detail_promotion_related_ad", FeatureInstallResult.Skipped("missing-related-ad-dependency"))
+        }
         if (!underPlayerAvailable && !relateAvailable) {
             return missing(environment, "missing-enabled-route")
         }
@@ -170,7 +189,9 @@ internal class DetailAppPromotionFeatureInstaller(
                     "(underPlayer=$underPlayerAvailable,relate=$relateAvailable)"
             )
             val componentHooks = if (relateAdEnabled) {
-                installRelateGameComponentBlock(environment)
+                installRelateGameComponentBlock(environment.forCapabilityRuntime("detail_promotion_related_game")).also {
+                    environment.reportCapabilityCoverage("detail_promotion_related_game", true, it, 2)
+                }
             } else {
                 0
             }
@@ -338,6 +359,9 @@ internal class DetailAppPromotionFeatureInstaller(
         )?.also { underPlayerGetters[owner] = it }
         if (getter == null) {
             if (!attemptedVideoDetailClasses.add(owner)) return
+            listOf("detail_promotion_nest","detail_promotion_list","detail_promotion_hd").forEach {
+                environment.reportCapability(it, FeatureInstallResult.Skipped("missing-under-player-getter"))
+            }
             environment.reportStatus(CHANNEL_STATUS, "partial:under-player-getter")
             environment.logError(
                 "detail_app_promotion_under_player_missing",
@@ -419,6 +443,7 @@ internal class DetailAppPromotionFeatureInstaller(
             ?.also { relateGetters[owner] = it }
         if (getter == null) {
             if (!attemptedRelateVideoDetailClasses.add(owner)) return
+            environment.reportCapability("detail_promotion_related_ad", FeatureInstallResult.Skipped("missing-related-ad-getter"))
             environment.reportStatus(CHANNEL_STATUS, "partial:relate-getter")
             environment.logError(
                 "detail_app_promotion_relate_getter_missing",
@@ -491,6 +516,7 @@ internal class DetailAppPromotionFeatureInstaller(
         }
         if (methods.isEmpty()) {
             environment.reportStatus(CHANNEL_STATUS, "partial:ad-relate-method")
+            environment.reportCapability("detail_promotion_related_ad", FeatureInstallResult.Skipped("missing-related-ad-method"))
             environment.logError(
                 "detail_app_promotion_relate_render_missing",
                 "[BIL] ${owner.name} 未找到 getAdRelateView，已放行该实现"
@@ -498,6 +524,7 @@ internal class DetailAppPromotionFeatureInstaller(
             return
         }
         var installed = 0
+        val leafEnvironment = environment.forCapabilityRuntime("detail_promotion_related_ad")
         methods.forEachIndexed { index, method ->
             runCatching {
                 environment.registrar.exact(
@@ -507,9 +534,9 @@ internal class DetailAppPromotionFeatureInstaller(
                     *method.parameterTypes
                 ) {
                     before {
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                        leafEnvironment.reportRuntimeEvidence("detail_promotion_related_ad", FeatureRuntimeStage.OBSERVED)
                         result = null
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                        leafEnvironment.reportRuntimeEvidence("detail_promotion_related_ad", FeatureRuntimeStage.APPLIED)
                         if (relateHitLogged.compareAndSet(false, true)) {
                             environment.logInfo(
                                 "detail_app_promotion_relate_hit",
@@ -526,6 +553,7 @@ internal class DetailAppPromotionFeatureInstaller(
                 )
             }
         }
+        environment.reportCapabilityCoverage("detail_promotion_related_ad", true, installed, methods.size)
         if (installed == 0) {
             environment.reportStatus(CHANNEL_STATUS, "failed:ad-relate-registration")
             return
@@ -566,6 +594,9 @@ internal class DetailAppPromotionFeatureInstaller(
             )
         }
         if (methods.isEmpty()) {
+            listOf("detail_promotion_nest","detail_promotion_list","detail_promotion_hd").forEach {
+                environment.reportCapability(it, FeatureInstallResult.Skipped("missing-under-player-render-method"))
+            }
             environment.reportStatus(CHANNEL_STATUS, "partial:render-methods")
             environment.logError(
                 "detail_app_promotion_render_missing",
@@ -575,7 +606,15 @@ internal class DetailAppPromotionFeatureInstaller(
         }
 
         val installedRoutes = linkedSetOf<String>()
+        val registeredByRoute = mutableMapOf<String, Int>()
+        fun routeId(name: String): String = when (name) {
+            GET_UPPER_NEST_VIEW -> "detail_promotion_nest"
+            GET_UPPER_AD_VIEW -> "detail_promotion_list"
+            else -> "detail_promotion_hd"
+        }
         methods.forEachIndexed { index, method ->
+            val capability = routeId(method.name)
+            val leafEnvironment = environment.forCapabilityRuntime(capability)
             runCatching {
                 environment.registrar.exact(
                     "detail_app_promotion.render.${method.declaringClass.name}.${method.name}.$index",
@@ -587,9 +626,9 @@ internal class DetailAppPromotionFeatureInstaller(
                         val config = detailPromotionConfigOrNull(args, types.configClass)
                             ?: return@before
                         if (!sceneAccess.isUniteDetail(config)) return@before
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                        leafEnvironment.reportRuntimeEvidence(capability, FeatureRuntimeStage.OBSERVED)
                         result = null
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                        leafEnvironment.reportRuntimeEvidence(capability, FeatureRuntimeStage.APPLIED)
                         if (hitLogged.compareAndSet(false, true)) {
                             environment.logInfo(
                                 "detail_app_promotion_hit",
@@ -598,6 +637,7 @@ internal class DetailAppPromotionFeatureInstaller(
                         }
                     }
                 }
+                registeredByRoute[method.name] = (registeredByRoute[method.name] ?: 0) + 1
                 installedRoutes += when (method.name) {
                     GET_UPPER_NEST_VIEW -> "nest"
                     GET_UPPER_AD_VIEW -> "list"
@@ -612,6 +652,15 @@ internal class DetailAppPromotionFeatureInstaller(
             }
         }
 
+        for (name in listOf(GET_UPPER_NEST_VIEW, GET_UPPER_AD_VIEW, GET_UPPER_HD_VIEW)) {
+            val required = methods.count { it.name == name }
+            if (required == 0) {
+                val named = mostSpecificMethods(owner) { it.name == name }.isNotEmpty()
+                environment.reportCapability(routeId(name), FeatureInstallResult.Skipped(
+                    if (named) "missing-render-signature" else "not-applicable-host"
+                ))
+            } else environment.reportCapabilityCoverage(routeId(name), true, registeredByRoute[name] ?: 0, required)
+        }
         if (installedRoutes.isEmpty()) {
             environment.reportStatus(CHANNEL_STATUS, "failed:render-registration")
             return

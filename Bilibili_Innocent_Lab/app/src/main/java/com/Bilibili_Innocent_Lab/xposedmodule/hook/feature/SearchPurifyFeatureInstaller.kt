@@ -34,6 +34,11 @@ internal class SearchPurifyFeatureInstaller(
 ) : FeatureInstaller {
 
     override val id: String = ID
+    override val capabilityIds: List<String> get() = buildList {
+        if (removeCommercial) add("search_commercial_removed")
+        if (keywords.isNotEmpty()) add("search_keyword_filter_enabled")
+        if (authorRules.isNotEmpty()) add("search_author_filter_enabled")
+    }
 
     private val keywords = if (keywordFilterEnabled) {
         RuleSetCodec.parse(rawKeywords).take(MAX_KEYWORDS).toCollection(linkedSetOf())
@@ -108,6 +113,9 @@ internal class SearchPurifyFeatureInstaller(
             0
         }
         if (installed == 0) return missing(environment, "registration-failed")
+        if (removeCommercial) environment.reportCapabilityCoverage("search_commercial_removed", plan.removeCommercial, installed, 1)
+        if (keywords.isNotEmpty()) environment.reportCapabilityCoverage("search_keyword_filter_enabled", plan.keywords.isNotEmpty(), installed, 1)
+        if (authorRules.isNotEmpty()) environment.reportCapabilityCoverage("search_author_filter_enabled", plan.authorRules.isNotEmpty(), installed, 1)
 
         var total = installed
         var expected = 1
@@ -141,7 +149,7 @@ internal class SearchPurifyFeatureInstaller(
                 "[BIL] 搜索结果过滤部分安装，status=$status"
             )
         }
-        return FeatureInstallResult.Installed(total)
+        return FeatureInstallResult.Installed(total, complete = total == expected)
     }
 
     private fun shouldRemove(item: Any, members: Members, plan: Plan): Boolean {

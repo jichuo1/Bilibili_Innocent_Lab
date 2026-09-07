@@ -135,7 +135,8 @@ internal object ModuleDiagnosticsCollector {
                             } ?: DiagnosticFeatureInstallState.NOT_REPORTED,
                             installedHookCount = feature?.installedHookCount ?: 0,
                             installReasonCode = feature?.installReasonCode,
-                            runtimeEvidenceExpected = descriptor.runtimeEvidenceExpected
+                            runtimeEvidenceExpected = descriptor.runtimeEvidenceExpected,
+                            runtimeError = feature?.runtimeError == true
                         )
                     }
                 }.orEmpty(),

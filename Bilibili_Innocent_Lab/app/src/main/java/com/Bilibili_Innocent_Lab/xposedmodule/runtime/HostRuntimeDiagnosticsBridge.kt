@@ -62,7 +62,10 @@ internal object HostRuntimeDiagnosticsBridge {
             }
             appContext = application
             source = currentSource
-            restoreLocked(application, currentSource)
+            // A new host process must not inherit OBSERVED/APPLIED/error bits from a previous session.
+            evidence.clear()
+            stageMasks.clear()
+            lastPersistAtEpochMs = 0L
             bootstrap = HostRuntimeBootstrapEvidence(bootstrapReached = true)
             capturedAtEpochMs = System.currentTimeMillis().coerceAtLeast(1L)
             if (receiverRegistered) return true
@@ -164,15 +167,19 @@ internal object HostRuntimeDiagnosticsBridge {
         if (record.id !in HostRuntimeDiagnosticsCodec.allowedFeatureIds) return
         val outcome = when (val result = record.result) {
             is FeatureInstallResult.Installed -> InstallOutcome(
-                HostFeatureInstallState.INSTALLED,
+                if (result.complete) HostFeatureInstallState.INSTALLED else HostFeatureInstallState.PARTIAL,
                 result.hookCount.coerceAtLeast(1),
-                null
+                if (result.complete) null else "PARTIAL_COVERAGE"
+            )
+            FeatureInstallResult.Unverified -> InstallOutcome(
+                HostFeatureInstallState.UNKNOWN, 0, "CAPABILITY_UNVERIFIED"
             )
             is FeatureInstallResult.Skipped -> when (result.reasonCode) {
                 FeatureSkipReason.DISABLED -> InstallOutcome(
                     HostFeatureInstallState.DISABLED, 0, result.reasonCode.name
                 )
-                FeatureSkipReason.NOT_APPLICABLE_PROCESS -> InstallOutcome(
+                FeatureSkipReason.NOT_APPLICABLE_PROCESS,
+                FeatureSkipReason.NOT_APPLICABLE_HOST -> InstallOutcome(
                     HostFeatureInstallState.NOT_APPLICABLE, 0, result.reasonCode.name
                 )
                 else -> InstallOutcome(

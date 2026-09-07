@@ -11,6 +11,10 @@ internal class MineVipFeatureInstaller(
 ) : FeatureInstaller {
 
     override val id: String = ID
+    override val capabilityIds: List<String> get() = buildList {
+        if (enabled) add("mine_vip_hidden")
+        if (enabled && keepSpace) add("mine_vip_space_kept")
+    }
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!enabled) {
@@ -64,6 +68,8 @@ internal class MineVipFeatureInstaller(
                 "mine_vip_ok",
                 "[BIL] “我的”页会员卡片净化已安装，keepSpace=$keepSpace"
             )
+            // Both selected visibility modes use this fully resolved root chain and the registered callback.
+            capabilityIds.forEach { environment.reportCapabilityCoverage(it, true, 1, 1) }
             FeatureInstallResult.Installed()
         }.getOrElse { throwable ->
             environment.reportStatus(CHANNEL_STATUS, "failed:${throwable.javaClass.simpleName}")

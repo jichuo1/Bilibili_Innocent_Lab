@@ -94,8 +94,24 @@ class LocalizationResourcesTest {
         val strings = readStrings(File(resRoot, "values-zh-rCN/strings.xml"))
         val body = strings.getValue(USER_TERMS_BODY).replace("\\n", "\n")
         assertEquals(SIMPLIFIED_TERMS_BODY, body)
+        assertTrue(body.contains("拒绝或关闭遥测不会限制任何模块功能"))
+        assertTrue(body.contains("Cloudflare Workers/D1 服务"))
+        assertFalse(body.contains("境外"))
         assertEquals("不同意并退出", strings.getValue("user_terms_decline"))
         assertEquals("我已阅读完毕并知情同意", strings.getValue("user_terms_accept"))
+    }
+
+    @Test
+    fun `telemetry benefit copy preserves voluntary choice and the current control path`() {
+        val strings = readStrings(File(resRoot, "values-zh-rCN/strings.xml"))
+        listOf(USER_TERMS_BODY, "telemetry_info_body").forEach { key ->
+            val body = strings.getValue(key)
+            assertTrue(body.contains("更快了解各项功能的适配情况、定位并修复问题"))
+            assertTrue(body.contains("缩短修复与更新周期"))
+            assertTrue(body.contains("是否开启由您决定，关闭不会影响任何模块功能"))
+        }
+        assertTrue(strings.getValue(USER_TERMS_BODY).contains(
+            "项目与更新 → 匿名适配遥测 → 遥测说明与用户控制"))
     }
 
     private fun readStrings(file: File): Map<String, String> {
@@ -144,6 +160,8 @@ class LocalizationResourcesTest {
         val USER_TERMS_KEYS = setOf(
             "user_terms_dialog_title",
             USER_TERMS_BODY,
+            "telemetry_terms_choice",
+            "telemetry_terms_choice_summary",
             "user_terms_accept",
             "user_terms_decline",
             "user_terms_declined_title",
@@ -187,6 +205,7 @@ class LocalizationResourcesTest {
             "使用 Xposed/LSPosed 模块可能改变目标应用运行行为，并可能受到客户端更新、系统安全策略、厂商 ROM、账号实验分组或其他模块的影响。使用者应自行评估风险，并对安装、启用、数据备份和设备环境负责。",
             "本项目不提供任何内容资源，不参与账号交易，不提供访问凭证，也不保证第三方扩展服务的可用性。请在遵守所在地法律法规、目标平台规则和开源项目许可的前提下使用。",
             "为保证项目稳定维护，请勿将本项目相关内容以包括但不限于以文件，文本，图标，链接，图片，视频，代码等形式在公开的社交媒体进行不定向传播。本项目为非盈利性项目，不会以任何方式收取软件服务费用，不会以任何方式在未经同意的前提下主动获取并传输您的个人信息，若您怀疑从其他渠道获取的文件与以上宗旨相违背，请务必对照对应版本Release HASH，若您发现文件HASH不一致，则该文件可能经过第三方篡改，本项目无法保证其安全性，若您已知并继续使用，由此带来的一切风险与后果请自行承担。",
+            "为尽早发现哔哩哔哩版本更新造成的适配失效，本项目提供可选的隐私保护遥测。匿名适配遥测有助于开发者更快了解各项功能的适配情况、定位并修复问题，缩短修复与更新周期。是否开启由您决定，关闭不会影响任何模块功能。它只由模块 App 在前台低频发送，自动上传每 24 小时至多一次；手动上传独立计次，每滚动 24 小时最多尝试 3 次；内容限于模块与宿主数值版本、Android SDK 与受支持 ABI 类别、厂商、机型与 ROM 类别（无法识别时记为未知）、框架类别及框架服务自报版本、适配规则代次，以及实际参与安装的细分能力 ID、有界安装结果和运行异常标志。细分能力状态可能间接反映已启用的功能，但不发送具体规则或设置值。它不会收集哔哩哔哩账号、UID、昵称、Cookie、访问令牌、硬件设备标识、内容、评论、弹幕、搜索词、位置、日志原文、异常消息或具体设置值。轮换随机标识在服务端只保存为不可直接还原的 HMAC；原始报告最多保留 30 天，少于 10 个安装样本的单元不会进入长期聚合。数据由 Cloudflare Workers/D1 服务处理。为防滥用，服务端短期使用每日变化的来源摘要限流，并保留最多 48 小时的去标识化额度记录；删除报告不会重置额度。接受本版须知时，下方遥测选择默认开启；您可在接受前关闭，也可随时在“项目与更新 → 匿名适配遥测 → 遥测说明与用户控制”中关闭、查看实际 JSON 或请求删除原始报告。拒绝或关闭遥测不会限制任何模块功能；已混入至少 10 个安装样本且不含个体标识的聚合计数无法按个体回滚。",
             "附加免责声明与风险提示详见：$PROJECT_URL",
             "请确保阅读完毕摘要内容和完整附加内容，而后决定。"
         ).joinToString("\n\n")

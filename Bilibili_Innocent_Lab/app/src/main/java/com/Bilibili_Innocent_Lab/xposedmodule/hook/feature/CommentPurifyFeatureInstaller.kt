@@ -25,6 +25,15 @@ internal class CommentPurifyFeatureInstaller(
 ) : FeatureInstaller {
 
     override val id: String = ID
+    override val capabilityIds: List<String> get() = buildList {
+        if (removeSearchLinks) add("comments_search_links_removed")
+        if (removeEmptyGuide) add("comments_empty_guide_removed")
+        if (removeVoteWidgets) add("comments_vote_widgets_removed")
+        if (removeFollowButtons) add("comments_follow_buttons_removed")
+        if (removeQoe) add("comments_qoe_removed")
+        if (removeOperations) add("comments_operations_removed")
+        if (blockQuickReply) add("comments_quick_reply_blocked")
+    }
 
     private val textFields = ConcurrentHashMap<Class<*>, List<Field>>()
     private val quickReplyFields = ConcurrentHashMap<Class<*>, QuickReplyIntentFields>()
@@ -44,6 +53,9 @@ internal class CommentPurifyFeatureInstaller(
         var expectedCount = 0
         val missingGroups = mutableListOf<String>()
         if (removeSearchLinks) {
+            val beforeInstalled = installedCount
+            val beforeExpected = expectedCount
+            val beforeMissing = missingGroups.size
             val urlPoints = adapted.urlMapGetters
             if (urlPoints.isEmpty()) missingGroups += "search"
             expectedCount += urlPoints.size
@@ -52,14 +64,13 @@ internal class CommentPurifyFeatureInstaller(
                     environment.registrar.adapted("comment.purify.urls.$index", point) {
                         after {
                             val source = result as? Map<*, *> ?: return@after
-                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                            environment.reportRuntimeEvidence("comments_search_links_removed", FeatureRuntimeStage.OBSERVED)
                             val filtered = withoutSearchUrls(source) { value ->
                                 isSearchUrlValue(value)
                             }
                             if (filtered !== source) {
                                 result = filtered
-                                environment.reportRuntimeEvidence(
-                                    ID,
+                                environment.reportRuntimeEvidence("comments_search_links_removed",
                                     FeatureRuntimeStage.APPLIED,
                                     source.size - filtered.size
                                 )
@@ -75,8 +86,19 @@ internal class CommentPurifyFeatureInstaller(
                     )
                 }
             }
+            val installedPaths = installedCount - beforeInstalled
+            val expectedPaths = (expectedCount - beforeExpected).coerceAtLeast(1)
+            val missingUncounted = missingGroups.size > beforeMissing && installedPaths == expectedPaths
+            environment.reportCapabilityCoverage(
+                "comments_search_links_removed",
+                installedPaths > 0 || missingGroups.size == beforeMissing,
+                installedPaths, expectedPaths + if (missingUncounted) 1 else 0
+            )
         }
         if (removeEmptyGuide) {
+            val beforeInstalled = installedCount
+            val beforeExpected = expectedCount
+            val beforeMissing = missingGroups.size
             val emptyPoints = adapted.emptyPageGetters
             if (emptyPoints.isEmpty()) missingGroups += "empty-page"
             expectedCount += emptyPoints.size
@@ -95,10 +117,10 @@ internal class CommentPurifyFeatureInstaller(
                         point.contentGetter
                     ) {
                         after {
-                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                            environment.reportRuntimeEvidence("comments_empty_guide_removed", FeatureRuntimeStage.OBSERVED)
                             if (result !== defaultInstance) {
                                 result = defaultInstance
-                                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                                environment.reportRuntimeEvidence("comments_empty_guide_removed", FeatureRuntimeStage.APPLIED)
                             }
                         }
                     }
@@ -112,8 +134,19 @@ internal class CommentPurifyFeatureInstaller(
                     )
                 }
             }
+            val installedPaths = installedCount - beforeInstalled
+            val expectedPaths = (expectedCount - beforeExpected).coerceAtLeast(1)
+            val missingUncounted = missingGroups.size > beforeMissing && installedPaths == expectedPaths
+            environment.reportCapabilityCoverage(
+                "comments_empty_guide_removed",
+                installedPaths > 0 || missingGroups.size == beforeMissing,
+                installedPaths, expectedPaths + if (missingUncounted) 1 else 0
+            )
         }
         if (removeVoteWidgets) {
+            val beforeInstalled = installedCount
+            val beforeExpected = expectedCount
+            val beforeMissing = missingGroups.size
             val votePoints = adapted.voteWidgetMethods
             if (votePoints.isEmpty()) missingGroups += "vote"
             expectedCount += votePoints.size
@@ -122,10 +155,10 @@ internal class CommentPurifyFeatureInstaller(
                     environment.registrar.adapted("comment.purify.vote.$index", point) {
                         after {
                             val target = instance as? View ?: return@after
-                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                            environment.reportRuntimeEvidence("comments_vote_widgets_removed", FeatureRuntimeStage.OBSERVED)
                             if (target.visibility != View.GONE) {
                                 target.visibility = View.GONE
-                                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                                environment.reportRuntimeEvidence("comments_vote_widgets_removed", FeatureRuntimeStage.APPLIED)
                             }
                         }
                     }
@@ -138,8 +171,19 @@ internal class CommentPurifyFeatureInstaller(
                     )
                 }
             }
+            val installedPaths = installedCount - beforeInstalled
+            val expectedPaths = (expectedCount - beforeExpected).coerceAtLeast(1)
+            val missingUncounted = missingGroups.size > beforeMissing && installedPaths == expectedPaths
+            environment.reportCapabilityCoverage(
+                "comments_vote_widgets_removed",
+                installedPaths > 0 || missingGroups.size == beforeMissing,
+                installedPaths, expectedPaths + if (missingUncounted) 1 else 0
+            )
         }
         if (removeFollowButtons) {
+            val beforeInstalled = installedCount
+            val beforeExpected = expectedCount
+            val beforeMissing = missingGroups.size
             val followPoints = adapted.follow
             if (followPoints == null) {
                 missingGroups += "follow"
@@ -167,11 +211,10 @@ internal class CommentPurifyFeatureInstaller(
                                     runCatching { outerField.get(instance) }.getOrNull()
                                 }
                                 val view = target as? View ?: return@after
-                                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                                environment.reportRuntimeEvidence("comments_follow_buttons_removed", FeatureRuntimeStage.OBSERVED)
                                 if (view.visibility != View.GONE) {
                                     view.visibility = View.GONE
-                                    environment.reportRuntimeEvidence(
-                                        ID,
+                                    environment.reportRuntimeEvidence("comments_follow_buttons_removed",
                                         FeatureRuntimeStage.APPLIED
                                     )
                                 }
@@ -208,13 +251,11 @@ internal class CommentPurifyFeatureInstaller(
                                 ) {
                                     after {
                                         val root = instance as? ViewGroup ?: return@after
-                                        environment.reportRuntimeEvidence(
-                                            ID,
+                                        environment.reportRuntimeEvidence("comments_follow_buttons_removed",
                                             FeatureRuntimeStage.OBSERVED
                                         )
                                         val hidden = hideTypedChildren(root, followButtonClass)
-                                        environment.reportRuntimeEvidence(
-                                            ID,
+                                        environment.reportRuntimeEvidence("comments_follow_buttons_removed",
                                             FeatureRuntimeStage.APPLIED,
                                             hidden
                                         )
@@ -232,15 +273,26 @@ internal class CommentPurifyFeatureInstaller(
                     }
                 }
             }
+            val installedPaths = installedCount - beforeInstalled
+            val expectedPaths = (expectedCount - beforeExpected).coerceAtLeast(1)
+            val missingUncounted = missingGroups.size > beforeMissing && installedPaths == expectedPaths
+            environment.reportCapabilityCoverage(
+                "comments_follow_buttons_removed",
+                installedPaths > 0 || missingGroups.size == beforeMissing,
+                installedPaths, expectedPaths + if (missingUncounted) 1 else 0
+            )
         }
         if (removeQoe) {
+            val beforeInstalled = installedCount
+            val beforeExpected = expectedCount
+            val beforeMissing = missingGroups.size
             val qoePoint = adapted.qoe
             if (qoePoint == null) {
                 missingGroups += "qoe"
             } else {
                 expectedCount += 2
                 val installed = installAbsentPayload(
-                    environment,
+                    environment.forCapabilityRuntime("comments_qoe_removed"),
                     "qoe",
                     "评论反馈",
                     qoePoint
@@ -248,14 +300,25 @@ internal class CommentPurifyFeatureInstaller(
                 installedCount += installed
                 if (installed != 2) missingGroups += "qoe-read-boundary"
             }
+            val installedPaths = installedCount - beforeInstalled
+            val expectedPaths = (expectedCount - beforeExpected).coerceAtLeast(1)
+            val missingUncounted = missingGroups.size > beforeMissing && installedPaths == expectedPaths
+            environment.reportCapabilityCoverage(
+                "comments_qoe_removed",
+                installedPaths > 0 || missingGroups.size == beforeMissing,
+                installedPaths, expectedPaths + if (missingUncounted) 1 else 0
+            )
         }
         if (removeOperations) {
+            val beforeInstalled = installedCount
+            val beforeExpected = expectedCount
+            val beforeMissing = missingGroups.size
             val operationPoints = adapted.operations
             expectedCount += 4
             var operationInstalled = 0
             operationPoints.forEachIndexed { index, point ->
                 operationInstalled += installAbsentPayload(
-                    environment,
+                    environment.forCapabilityRuntime("comments_operations_removed"),
                     "operation.$index",
                     "评论运营推广",
                     point
@@ -265,8 +328,19 @@ internal class CommentPurifyFeatureInstaller(
             if (operationPoints.size != 2 || operationInstalled != 4) {
                 missingGroups += "operation-read-boundary"
             }
+            val installedPaths = installedCount - beforeInstalled
+            val expectedPaths = (expectedCount - beforeExpected).coerceAtLeast(1)
+            val missingUncounted = missingGroups.size > beforeMissing && installedPaths == expectedPaths
+            environment.reportCapabilityCoverage(
+                "comments_operations_removed",
+                installedPaths > 0 || missingGroups.size == beforeMissing,
+                installedPaths, expectedPaths + if (missingUncounted) 1 else 0
+            )
         }
         if (blockQuickReply) {
+            val beforeInstalled = installedCount
+            val beforeExpected = expectedCount
+            val beforeMissing = missingGroups.size
             val quickReplyPoints = adapted.quickReplyDialogMethods
             if (quickReplyPoints.isEmpty()) missingGroups += "quick-reply"
             expectedCount += quickReplyPoints.size
@@ -275,10 +349,10 @@ internal class CommentPurifyFeatureInstaller(
                     environment.registrar.adapted("comment.purify.quick_reply.$index", point) {
                         before {
                             val intent = args.firstOrNull() ?: return@before
-                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                            environment.reportRuntimeEvidence("comments_quick_reply_blocked", FeatureRuntimeStage.OBSERVED)
                             if (shouldBlockQuickReply(intent)) {
                                 result = Unit
-                                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                                environment.reportRuntimeEvidence("comments_quick_reply_blocked", FeatureRuntimeStage.APPLIED)
                             }
                         }
                     }
@@ -291,6 +365,14 @@ internal class CommentPurifyFeatureInstaller(
                     )
                 }
             }
+            val installedPaths = installedCount - beforeInstalled
+            val expectedPaths = (expectedCount - beforeExpected).coerceAtLeast(1)
+            val missingUncounted = missingGroups.size > beforeMissing && installedPaths == expectedPaths
+            environment.reportCapabilityCoverage(
+                "comments_quick_reply_blocked",
+                installedPaths > 0 || missingGroups.size == beforeMissing,
+                installedPaths, expectedPaths + if (missingUncounted) 1 else 0
+            )
         }
 
         if (installedCount == 0) return missing(environment, "registration-failed")
@@ -315,7 +397,7 @@ internal class CommentPurifyFeatureInstaller(
                 "[BIL] 评论净化已安装，hooks=$installedCount"
             )
         }
-        return FeatureInstallResult.Installed(installedCount)
+        return FeatureInstallResult.Installed(installedCount, complete = missingGroups.isEmpty() && installedCount == expectedCount)
     }
 
     internal fun isSearchUrlValue(value: Any?): Boolean {

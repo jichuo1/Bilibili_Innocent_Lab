@@ -27,6 +27,12 @@ internal class CommentFilterFeatureInstaller(
 ) : FeatureInstaller {
 
     override val id: String = ID
+    override val capabilityIds: List<String> get() = buildList {
+        if (keywords.isNotEmpty()) add("comments_keyword_filter_enabled")
+        if (minimumLevel != null) add("comments_minimum_level_filter_enabled")
+        if (removeAtOnly) add("comments_at_only_removed")
+        if (!userRules.isEmpty()) add("comments_user_filter_enabled")
+    }
 
     private val keywords = if (keywordFilterEnabled) {
         RuleSetCodec.parse(rawKeywords).take(MAX_KEYWORDS).toCollection(linkedSetOf())
@@ -161,10 +167,20 @@ internal class CommentFilterFeatureInstaller(
             }
         }
         if (installed == 0) return missing(environment, "registration-failed")
+        val sharedInstalled = installed
+        val sharedExpected = adapted.replyListGetters.size + adapted.topReplyGetters.size
+        for (capability in capabilityIds) {
+            val usable = when (capability) {
+                "comments_minimum_level_filter_enabled" -> accessors.hasLevelPath
+                "comments_at_only_removed" -> plan.removeAtOnly
+                "comments_user_filter_enabled" -> !plan.userRules.isEmpty()
+                else -> true // content/message are mandatory resolved dependencies above
+            }
+            environment.reportCapabilityCoverage(capability, usable, sharedInstalled, sharedExpected)
+        }
 
         // 判据覆盖：用户开了但适配读不到的判据，要在分母里留下痕迹。
-        var expected = adapted.replyListGetters.size +
-            if (defaultReply == null) 0 else adapted.topReplyGetters.size
+        var expected = sharedExpected
         val degraded = ArrayList<String>(2)
         if (removeAtOnly) {
             expected += 1
@@ -199,7 +215,7 @@ internal class CommentFilterFeatureInstaller(
                 "[BIL] 评论过滤部分安装，status=$status"
             )
         }
-        return FeatureInstallResult.Installed(installed)
+        return FeatureInstallResult.Installed(installed, complete = installed == expected)
     }
 
     /** 只读当前启用判据真正需要的字段；未启用的判据一次反射都不做。 */

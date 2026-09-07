@@ -44,6 +44,8 @@ internal interface HookRegistrar {
 /** 每个功能安装器的最小边界；安装失败不影响后续功能。 */
 internal interface FeatureInstaller {
     val id: String
+    /** Enabled leaf capabilities expected to produce independent installation evidence. */
+    val capabilityIds: List<String> get() = emptyList()
 
     fun install(environment: HookEnvironment): FeatureInstallResult
 }
@@ -70,11 +72,14 @@ internal data class HookEnvironment(
      */
     val runtimeEvidence: ((String, FeatureRuntimeStage, Int) -> Unit)? = null,
     /** 安装器结束后上报一次结构化结果；诊断异常不能反向影响 Hook 安装链。 */
-    val installationEvidence: ((FeatureInstallRecord) -> Unit)? = null
+    val installationEvidence: ((FeatureInstallRecord) -> Unit)? = null,
+    val capabilityEvidence: ((String, FeatureInstallResult) -> Unit)? = null,
+    val runtimePhase: (() -> Boolean)? = null
 )
 
 internal sealed interface FeatureInstallResult {
-    data class Installed(val hookCount: Int = 1) : FeatureInstallResult
+    data class Installed(val hookCount: Int = 1, val complete: Boolean = true) : FeatureInstallResult
+    data object Unverified : FeatureInstallResult
     data class Skipped(val reason: String) : FeatureInstallResult {
         val reasonCode: FeatureSkipReason = FeatureSkipReason.fromRaw(reason)
     }
@@ -84,6 +89,7 @@ internal sealed interface FeatureInstallResult {
 internal enum class FeatureSkipReason {
     DISABLED,
     NOT_APPLICABLE_PROCESS,
+    NOT_APPLICABLE_HOST,
     MISSING_ADAPTER_POINT,
     MISSING_HOST_STRUCTURE,
     AMBIGUOUS_HOST_STRUCTURE,
@@ -98,6 +104,7 @@ internal enum class FeatureSkipReason {
                 reason == "disabled" || reason.startsWith("no-types-enabled") ||
                     reason.startsWith("no-rules") -> DISABLED
                 reason == "non-main-process" -> NOT_APPLICABLE_PROCESS
+                reason == "not-applicable-host" -> NOT_APPLICABLE_HOST
                 reason.contains("ambiguous") -> AMBIGUOUS_HOST_STRUCTURE
                 reason.contains("registration-failed") ||
                     reason.contains("register-failed") -> REGISTRATION_FAILED
@@ -125,7 +132,23 @@ internal class FeatureInstallCoordinator(
 ) {
     fun installAll(installers: Iterable<FeatureInstaller>): List<FeatureInstallRecord> =
         installers.map { installer ->
-            val record = runCatching { installer.install(environment) }
+            val capabilityLock = Any()
+            val reported = hashSetOf<String>()
+            val installedPhase = java.util.concurrent.atomic.AtomicBoolean(false)
+            val planned = runCatching { installer.capabilityIds.toSet() }.getOrDefault(emptySet())
+            val scoped = environment.copy(
+                runtimePhase = { installedPhase.get() },
+                logError = { key, message ->
+                    if (installedPhase.get()) environment.reportRuntimeEvidence(installer.id, FeatureRuntimeStage.ERROR)
+                    environment.logError(key, message)
+                },
+                capabilityEvidence = { id, result ->
+                if (id in planned) synchronized(capabilityLock) {
+                    environment.installationEvidence?.invoke(FeatureInstallRecord(id, result, null))
+                    reported += id
+                }
+            })
+            val record = runCatching { installer.install(scoped) }
                 .fold(
                     onSuccess = { result ->
                         FeatureInstallRecord(installer.id, result, failure = null)
@@ -145,8 +168,58 @@ internal class FeatureInstallCoordinator(
                         "[BIL] 功能安装诊断上报失败，业务 Hook 状态不受影响: $throwable"
                     )
                 }
+            for (id in planned) {
+                // A group-wide failure before completion blocks its remaining declared paths.
+                // A successful parent NEVER supplies success for an unverified leaf.
+                synchronized(capabilityLock) {
+                    if (id !in reported) {
+                        val outcome = when (val result = record.result) {
+                            is FeatureInstallResult.Skipped -> result
+                            else -> FeatureInstallResult.Unverified
+                        }
+                        runCatching {
+                            environment.installationEvidence?.invoke(
+                                if (record.failure != null) FeatureInstallRecord(id, null, record.failure)
+                                else FeatureInstallRecord(id, outcome, null)
+                            )
+                        }
+                    }
+                }
+            }
+            installedPhase.set(true)
             record
         }
+}
+
+/** Installation-time only; evidence collection failures must not affect business hooks. */
+internal fun HookEnvironment.reportCapability(id: String, result: FeatureInstallResult) {
+    runCatching { capabilityEvidence?.invoke(id, result) }
+}
+
+/** Call with the leaf's own prerequisites, not the overall parent's success flag. */
+internal fun HookEnvironment.reportCapabilityCoverage(
+    id: String,
+    ready: Boolean,
+    installedPaths: Int,
+    expectedPaths: Int
+) {
+    reportCapability(id, when {
+        !ready -> FeatureInstallResult.Skipped("missing-capability-dependency")
+        installedPaths <= 0 -> FeatureInstallResult.Skipped("registration-failed")
+        else -> FeatureInstallResult.Installed(installedPaths, installedPaths >= expectedPaths && expectedPaths > 0)
+    })
+}
+
+/** Bound once during installation; maps shared helper evidence to its actual leaf. */
+internal fun HookEnvironment.forCapabilityRuntime(id: String): HookEnvironment {
+    val sink = runtimeEvidence ?: return this
+    return copy(
+        runtimeEvidence = { _, stage, count -> sink(id, stage, count) },
+        logError = { key, message ->
+            if (runtimePhase?.invoke() == true) reportRuntimeEvidence(id, FeatureRuntimeStage.ERROR)
+            logError(key, message)
+        }
+    )
 }
 
 internal class FunctionalFeatureInstaller(

@@ -52,7 +52,7 @@ internal class PlayerStatusBarFeatureInstaller(
             "player_status_bar_ok",
             "[BIL] 播放器透明状态栏已安装，hooks=$installed/${methods.size}"
         )
-        return FeatureInstallResult.Installed(installed)
+        return FeatureInstallResult.Installed(installed, complete = installed == methods.size)
     }
 
     @Suppress("DEPRECATION")

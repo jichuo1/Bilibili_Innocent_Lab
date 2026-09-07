@@ -25,7 +25,7 @@ internal data class DiagnosticFeatureDescriptor(
 
 /** 宿主协议、诊断页面和报告共同使用的唯一功能 ID 白名单。 */
 internal object DiagnosticFeatureRegistry {
-    val descriptors: List<DiagnosticFeatureDescriptor> = listOf(
+    private val groups: List<DiagnosticFeatureDescriptor> = listOf(
         DiagnosticFeatureDescriptor("paused_ad", DiagnosticFeatureCategory.ADVERTISING),
         DiagnosticFeatureDescriptor("game_mentioned_promotion", DiagnosticFeatureCategory.ADVERTISING),
         DiagnosticFeatureDescriptor(
@@ -162,7 +162,16 @@ internal object DiagnosticFeatureRegistry {
         }
     }
 
+    val descriptors: List<DiagnosticFeatureDescriptor> = groups + DiagnosticCapabilityCatalog.definitions
+        .filter { it.id != it.parentId }
+        .map { capability ->
+            val parent = groups.single { it.id == capability.parentId }
+            DiagnosticFeatureDescriptor(capability.id, parent.category,
+                runtimeEvidenceExpected = DiagnosticCapabilityCatalog.explicitRuntimeSupport(capability.id) > 0)
+        }
+
     val ids: Set<String> = descriptors.mapTo(linkedSetOf(), DiagnosticFeatureDescriptor::id)
+    fun isAggregate(id: String): Boolean = id in DiagnosticCapabilityCatalog.splitParents
 
     private val byId = descriptors.associateBy(DiagnosticFeatureDescriptor::id)
 

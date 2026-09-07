@@ -150,8 +150,8 @@ object VersionAdapter {
     }
 
     /** 适配结果 JSON 结构版本（结构变化时强制重新适配，防止旧结构缓存误用） */
-    private const val SCHEMA_VERSION = 54
-    private const val ADAPTER_RULE_VERSION = 49
+    private const val SCHEMA_VERSION = VersionAdapterContract.SCHEMA_VERSION
+    private const val ADAPTER_RULE_VERSION = VersionAdapterContract.RULE_VERSION
 
     /**
      * DEX 兜底诊断 id 前缀。每个兜底点各占一条诊断，便于在诊断中心直接读到"兜底是否被用到、
@@ -2032,11 +2032,13 @@ object VersionAdapter {
          * 2026-09-04 对照哔哩漫游 `remove_video_cmd_dms` 时发现我们整族漏了这一路。
          */
         val dmClassName: String? = null,
-        val dmClearNames: List<String> = emptyList()
+        val dmClearNames: List<String> = emptyList(),
+        val diagnosticFamilyId: String = "unknown"
     )
 
     internal val PLAYER_INTERACTIVE_MOSS_FAMILIES = listOf(
         PlayerInteractiveFamilySpec(
+            diagnosticFamilyId = "legacy",
             mossClassName = "com.bapis.bilibili.app.view.v1.ViewMoss",
             replyClassName = "com.bapis.bilibili.app.view.v1.ViewProgressReply",
             guideClassName = "com.bapis.bilibili.app.view.v1.VideoGuide",
@@ -2050,6 +2052,7 @@ object VersionAdapter {
             )
         ),
         PlayerInteractiveFamilySpec(
+            diagnosticFamilyId = "unified",
             mossClassName = "com.bapis.bilibili.app.viewunite.v1.ViewMoss",
             replyClassName = "com.bapis.bilibili.app.viewunite.v1.ViewProgressReply",
             guideClassName = "com.bapis.bilibili.app.viewunite.v1.VideoGuide",

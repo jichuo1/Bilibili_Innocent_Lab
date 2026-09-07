@@ -57,7 +57,7 @@ internal enum class UserTermsPendingCompletion {
  */
 internal object UserTermsConsentStore {
 
-    const val CURRENT_TERMS_VERSION = 1
+    const val CURRENT_TERMS_VERSION = 2
 
     /**
      * 首次引入条款门禁时的固定迁移截止点（2026-08-28 17:25:00 +08:00）。

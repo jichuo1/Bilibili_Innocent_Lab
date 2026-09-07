@@ -4,7 +4,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 internal enum class FeatureRuntimeStage {
     ADAPTED,
     OBSERVED,
-    APPLIED
+    APPLIED,
+    ERROR
 }
 
 internal fun HookEnvironment.reportRuntimeEvidence(
@@ -13,5 +14,6 @@ internal fun HookEnvironment.reportRuntimeEvidence(
     delta: Int = 1
 ) {
     if (delta <= 0) return
-    runtimeEvidence?.invoke(featureId, stage, delta)
+    // Diagnostic failures must never escape into a business Hook callback.
+    runCatching { runtimeEvidence?.invoke(featureId, stage, delta) }
 }

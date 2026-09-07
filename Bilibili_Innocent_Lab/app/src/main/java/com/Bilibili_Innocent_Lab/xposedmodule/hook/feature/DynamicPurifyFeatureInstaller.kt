@@ -47,6 +47,14 @@ internal class DynamicPurifyFeatureInstaller(
 ) : FeatureInstaller {
 
     override val id: String = ID
+    override val capabilityIds: List<String> get() = buildList {
+        if (keywords.isNotEmpty()) add("dynamic_keyword_filter_enabled")
+        if (authorRules.isNotEmpty()) add("dynamic_author_filter_enabled")
+        if (removePromotion) add("dynamic_promotions_removed")
+        if (removeLockedChargeOnly) add("dynamic_charge_only_removed")
+        if (hideTopicList) add("dynamic_topic_list_hidden")
+        if (removeLiveUpEntries) add("dynamic_up_list_live_removed")
+    }
 
     private val keywords = if (keywordFilterEnabled) {
         RuleSetCodec.parse(rawKeywords).take(MAX_KEYWORDS).toCollection(linkedSetOf())
@@ -104,6 +112,27 @@ internal class DynamicPurifyFeatureInstaller(
             }
         }
         if (installed == 0) return missing(environment, "registration-failed")
+        val sharedInstalled = installed
+        val sharedExpected = FEED_METHODS.size * 2
+        for (capability in capabilityIds) {
+            val usable = when (capability) {
+                "dynamic_keyword_filter_enabled" -> plan.keywords.isNotEmpty()
+                "dynamic_author_filter_enabled" -> plan.authorRules.isNotEmpty()
+                "dynamic_promotions_removed" -> plan.removePromotion
+                "dynamic_charge_only_removed" -> plan.removeLockedChargeOnly
+                "dynamic_topic_list_hidden" -> feeds.any { it.clearTopicList != null }
+                "dynamic_up_list_live_removed" -> feeds.any { it.upList != null }
+                else -> false
+            }
+            val completeData = when (capability) {
+                "dynamic_topic_list_hidden" -> feeds.size == FEED_METHODS.size && feeds.all { it.clearTopicList != null }
+                "dynamic_up_list_live_removed" -> feeds.size == FEED_METHODS.size && feeds.all { it.upList != null }
+                else -> true
+            }
+            environment.reportCapabilityCoverage(capability, usable, sharedInstalled,
+                sharedExpected + if (completeData) 0 else 1)
+        }
+        expected = sharedExpected
 
         // 用户开了但读不到的判据必须留在分母里。
         val degraded = ArrayList<String>(4)
@@ -139,7 +168,7 @@ internal class DynamicPurifyFeatureInstaller(
                 "[BIL] 动态页净化部分安装，status=$status"
             )
         }
-        return FeatureInstallResult.Installed(installed)
+        return FeatureInstallResult.Installed(installed, complete = installed == expected)
     }
 
     private fun installSync(

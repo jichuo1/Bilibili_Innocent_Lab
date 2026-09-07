@@ -15,6 +15,10 @@ internal class HomeTopBarFeatureInstaller(
 ) : FeatureInstaller {
 
     override val id: String = ID
+    override val capabilityIds: List<String> get() = buildList {
+        if (hideGameMenu) add("home_top_bar_game_menu_hidden")
+        if (hideSearchDefaultWord) add("home_top_bar_search_word_hidden")
+    }
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!hideGameMenu && !hideSearchDefaultWord) {
@@ -125,6 +129,14 @@ internal class HomeTopBarFeatureInstaller(
         }
 
         val ready = gameReady && searchViewReady && searchWordReady && searchProtocolReady
+        if (hideGameMenu) environment.reportCapabilityCoverage(
+            "home_top_bar_game_menu_hidden", points?.gameMenu != null, if (gameReady) 1 else 0, 1
+        )
+        if (hideSearchDefaultWord) environment.reportCapabilityCoverage(
+            "home_top_bar_search_word_hidden", true,
+            installedCount - if (hideGameMenu && gameReady) 1 else 0,
+            1 + points?.defaultWordMethods.orEmpty().size.coerceAtLeast(1) + if (searchMoss != null) 1 else 0
+        )
         val summary = if (ready) {
             "success"
         } else {
@@ -144,7 +156,8 @@ internal class HomeTopBarFeatureInstaller(
                 "home_top_bar_partial",
                 "[BIL] 首页顶部栏净化 Hook 未完整命中: $summary"
             )
-            return FeatureInstallResult.Skipped(summary)
+            return if (installedCount > 0) FeatureInstallResult.Installed(installedCount, complete = false)
+            else FeatureInstallResult.Skipped(summary)
         }
         environment.logInfo(
             "home_top_bar_ok",
