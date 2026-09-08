@@ -7,10 +7,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsCatalogTest {
+    @Test fun `catalog v16 adds one default off search home setting`() {
+        val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v16.txt"))
+            .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.map { it.id }.sorted())
+        val spec = SettingsCatalog.specs.single { it.introducedCatalogVersion == 16 }
+        assertEquals("search.home_recommend.hidden",spec.id)
+        assertEquals(SettingValue.Bool(false),spec.defaultValue)
+        assertEquals(RestorePolicy.AUTOMATIC,spec.restorePolicy)
+        assertTrue(ImportEffect.RESTART_BILIBILI in spec.effects)
+    }
     @Test fun `catalog v15 adds one default off frequent visits setting`() {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v15.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
-        assertEquals(expected, SettingsCatalog.specs.map { it.id }.sorted())
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 15 }.map { it.id }.sorted())
         val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 15 }
         assertEquals("dynamic.frequent_visits.hidden", added.id)
         assertEquals(SettingValue.Bool(false), added.defaultValue)
@@ -19,11 +29,11 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog is a unique allowlist with 122 settings`() {
-        assertEquals(122, SettingsCatalog.specs.size)
-        assertEquals(122, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(122, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(121, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 123 settings`() {
+        assertEquals(123, SettingsCatalog.specs.size)
+        assertEquals(123, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(123, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(122, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(1, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -254,7 +264,7 @@ class SettingsCatalogTest {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v13.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 13 }.map { it.id }.sorted())
-        assertEquals(15, SettingsCatalog.CATALOG_VERSION)
+        assertEquals(16, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 13 }
         assertEquals(6, added.size)
         assertTrue(added.all { it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects })
@@ -268,7 +278,7 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(96, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(97, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(7, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(19, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 

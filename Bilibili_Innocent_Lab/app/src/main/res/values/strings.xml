@@ -825,4 +825,6 @@
     <string name="diag_cap_detail_promotion_related_game">Detail promotion: related game component</string>
     <string name="diag_cap_home_banner_view">Home banner: view collapse</string>
     <string name="diag_cap_home_banner_feed">Home banner: feed filtering</string>
+    <string name="hide_search_home_recommend">Hide search-page trending and recommendations</string>
+    <string name="hide_search_home_recommend_tip">Hides trending searches, discovery recommendations and their related controls on the search landing page, without placeholders. Search history is preserved. Restart Bilibili to apply.</string>
 </resources>

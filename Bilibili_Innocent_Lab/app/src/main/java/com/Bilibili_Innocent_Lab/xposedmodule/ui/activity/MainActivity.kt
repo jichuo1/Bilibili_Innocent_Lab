@@ -318,6 +318,7 @@ class MainActivity : SkinnedActivity() {
     private var hideDynamicFrequentVisits = false
     private var removeDynamicLiveUpEntries = false
     private var removeSearchCommercial = false
+    private var hideSearchHomeRecommend = false
     private var searchKeywordFilterEnabled = false
     private var searchFilterKeywords = ""
     private var searchAuthorFilterEnabled = false
@@ -8313,6 +8314,9 @@ class MainActivity : SkinnedActivity() {
         removeSearchCommercial = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.REMOVE_SEARCH_COMMERCIAL, false) ?: false
         }.getOrDefault(false)
+        hideSearchHomeRecommend = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.HIDE_SEARCH_HOME_RECOMMEND, false) ?: false
+        }.getOrDefault(false)
         searchKeywordFilterEnabled = runCatching {
             modulePrefs?.getBoolean(
                 FeaturePreferences.SEARCH_KEYWORD_FILTER_ENABLED,
@@ -9964,6 +9968,44 @@ class MainActivity : SkinnedActivity() {
                                         textColor = monetColors.primary
                                         textSize = 12f
                                         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.hide_search_home_recommend)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = hideSearchHomeRecommend
+                                        setOnCheckedChangeListener { _, checked ->
+                                            hideSearchHomeRecommend = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.HIDE_SEARCH_HOME_RECOMMEND,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write search home recommend prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.hide_search_home_recommend_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
                                     }
                                     MaterialSwitch(
                                         lparams = LayoutParams(widthMatchParent = true) {

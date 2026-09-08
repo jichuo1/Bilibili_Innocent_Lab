@@ -1,5 +1,38 @@
 # Runtime architecture
 
+## Hide search-home recommendations (2026-09-08)
+
+The default-off search.home_recommend.hidden setting filters only exact
+SearchSquareType types trending/recommend at typed search-page delivery and, when
+present, shared square-state construction. History objects, unknown types and
+ordering are retained; filtering never reads keywords, history storage or titles.
+An anomalous response containing only removable sections fails open with a bounded
+reason rather than publishing an empty list that may strand local history.
+
+The discovery-only refresh method is isolated from history update and network
+completion/error callbacks. After verified page-list publication, stale discovery
+words/feedback are replaced with a fresh empty discovery payload through its own
+observable; original payloads and history remain untouched. Only verified three-
+or five-argument payload constructors are accepted. No global LiveData, JSON,
+adapter, View or network hook is installed. This prevents feedback-only remnants
+as well as recommendation repopulation, without reserving hidden view space.
+
+Stable model types plus a bounded package search and direct nested classes resolve
+obfuscated members. Older hosts without MainSearchViewModel have three coverage
+units; modern hosts add shared-state publication. Ambiguity/missing dependencies
+remain in the denominator. Settings catalog v16 adds one Boolean (123 settings);
+diagnostic catalog v4 adds standalone search_home_recommend_hidden. No search terms,
+history or new personal-data category is added to telemetry.
+
+Generic wildcard matching uses Class.name rather than Type.getTypeName, retaining
+API 27 support. Read-only androidx.lifecycle.LiveData fields are excluded by their
+declared type even when host R8 widens setValue to public; access flags alone cannot
+distinguish the mutable field from its read-only alias. The mutable discovery
+carrier remains independently validated before clearing stale recommendation data.
+
+Static anchors and payload semantics were checked against retained 8.84.0–9.11.0
+samples; native layout/cache-first-frame and framework acceptance remain separate.
+
 ## Hide frequently visited on Dynamics (2026-09-08)
 
 The default-off dynamic.frequent_visits.hidden setting removes the whole

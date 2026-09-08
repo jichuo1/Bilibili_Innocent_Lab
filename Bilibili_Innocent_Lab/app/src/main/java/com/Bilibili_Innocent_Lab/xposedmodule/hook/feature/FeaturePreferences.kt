@@ -154,6 +154,8 @@ internal object FeaturePreferences {
 
     /** 搜索结果中的商业广告卡与特殊运营卡。 */
     const val REMOVE_SEARCH_COMMERCIAL = "remove_search_commercial"
+    /** 搜索首页热搜与搜索发现整区隐藏，保留本地历史。 */
+    const val HIDE_SEARCH_HOME_RECOMMEND = "hide_search_home_recommend"
 
     /** 搜索结果标题关键词过滤（仅作用于视频卡）。 */
     const val SEARCH_KEYWORD_FILTER_ENABLED = "search_keyword_filter_enabled"

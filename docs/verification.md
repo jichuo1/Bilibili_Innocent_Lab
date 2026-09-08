@@ -1,5 +1,35 @@
 # Regression verification
 
+## Hide search-page trending and discovery (2026-09-08)
+
+- Final four gates passed with --no-daemon --rerun-tasks (7m57s; all 89 tasks
+  executed): assembleDebug, testDebugUnitTest, lintDebug, minifyReleaseWithR8.
+  160 suites / 932 tests, zero failures/errors/skips. Lint: 0 errors / 183 warnings.
+- Sixteen new search-home tests cover typed locator selection, complete section
+  removal, history/unknown/order preservation, no-match identity, shared-state
+  publication, recommendation refresh suppression, stale feedback replacement,
+  non-mutating old payloads, ignored writes, original exceptions, partial coverage,
+  legacy nested callbacks/five-argument payloads and read-only LiveData aliases.
+  Settings v16 golden, old-backup preservation and Remote round trip also pass.
+- The 27 retained 8.84.0–9.11.0 APK samples (including 8.90.2) pass the typed
+  delivery/refresh/discovery-cache/state signatures in probe_signatures.py.
+  Older hosts legitimately lack MainSearchViewModel. The compiler's widened
+  LiveData.setValue access in 9.10/9.11 was separately checked; the read-only alias
+  is excluded semantically, not merely by public/protected flags.
+- The first full Lint run caught Type.getTypeName requiring API 28; wildcard
+  matching now uses a Class bound's name and retains minSdk 27, with no suppression.
+  Initial constructor-fixture reflective access was corrected in the test only.
+- Final Debug APK: 1.1.5 / 16, 11,771,076 bytes, 19 DEX, no invalid ZIP paths.
+  New setting/installer/locator markers are present. Built 23:36:02, later than
+  final main-source edit at 23:32:52. SHA-256:
+  55F96D9D9052365F0571295B11899C3AB38739E137C26F7AD95CF24D3F50954B.
+- Server strict typecheck and 78 tests passed. Authorized Staging, Production
+  and private analytics deployments completed. Online non-writing probes verify
+  catalogs 1–4, rejection of 5 and an Access login redirect for anonymous requests.
+  No new search/history data collection, quota/schema/retention/access-policy change.
+- No device installation, native-page acceptance, commit or push. Native spacing,
+  first cached frame and actual framework execution remain device-validation items.
+
 ## Hide dynamic frequently visited (2026-09-08)
 
 - Final four gates passed with --no-daemon --rerun-tasks (8m33s; all 89 tasks

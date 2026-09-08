@@ -825,4 +825,6 @@
     <string name="diag_cap_detail_promotion_related_game">詳情推廣·遊戲推薦元件</string>
     <string name="diag_cap_home_banner_view">首頁輪播·檢視收起</string>
     <string name="diag_cap_home_banner_feed">首頁輪播·推薦流過濾</string>
+    <string name="hide_search_home_recommend">隱藏搜尋頁熱搜推薦</string>
+    <string name="hide_search_home_recommend_tip">開啟後，隱藏搜尋首頁的熱搜、搜尋發現及其附屬控制項，保留搜尋記錄，不留元件佔位。重新啟動 Bilibili 後生效。</string>
 </resources>
