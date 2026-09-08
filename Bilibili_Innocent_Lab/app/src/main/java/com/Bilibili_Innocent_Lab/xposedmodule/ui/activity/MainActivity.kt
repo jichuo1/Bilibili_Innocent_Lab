@@ -179,6 +179,9 @@ class MainActivity : SkinnedActivity() {
         const val SETTINGS_SEARCH_HIGHLIGHT_DELAY_MS = 240L
         const val SETTINGS_SEARCH_HIGHLIGHT_DURATION_MS = 560L
 
+        /** 赞助页；与仓库地址一样经 [openExternalUrl] 的 https 白名单跳转。 */
+        const val SPONSOR_URL = "https://ifdian.net/a/jichuo1"
+
         /** 仅允许仍处于前台的设置 Activity 完成用户已确认的系统页跳转。 */
         fun openBilibiliAppDetails(activity: MainActivity): Boolean {
             val intent = Intent(
@@ -2970,6 +2973,21 @@ class MainActivity : SkinnedActivity() {
             ) {
                 dismissWithAnimation(dialog, container) {
                     checkForUpdates(manual = true)
+                }
+            },
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (6 * density).toInt() }
+        )
+        // 与仓库/更新同属“项目链接”一组，用 6dp 行距；遥测行保留 10dp 分组间距。
+        container.addView(
+            createGitHubMenuRow(
+                titleRes = R.string.sponsor_author,
+                subtitleRes = R.string.sponsor_author_tip
+            ) {
+                dismissWithAnimation(dialog, container) {
+                    openExternalUrl(SPONSOR_URL)
                 }
             },
             NativeLinearLayout.LayoutParams(
