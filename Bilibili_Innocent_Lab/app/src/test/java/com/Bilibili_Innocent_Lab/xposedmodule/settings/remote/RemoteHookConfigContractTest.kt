@@ -20,6 +20,8 @@ class RemoteHookConfigContractTest {
                 HookEntry.PREF_FREE_COPY_ENABLED to false,
                 FeaturePreferences.COMMENT_MIN_LEVEL to 5,
                 FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP to true,
+                FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC to true,
+                FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS to false,
                 FeaturePreferences.PLAYER_UNLOCK_BACKGROUND to true,
                 FeaturePreferences.PLAYER_UNLOCK_SMALL_WINDOW to true,
                 FeaturePreferences.PLAYER_UNLOCK_CAST to true,
@@ -50,6 +52,10 @@ class RemoteHookConfigContractTest {
         assertTrue(snapshot.authorized)
         assertEquals(values, snapshot.values)
         assertEquals(true, snapshot.values[FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP])
+        assertEquals(true, snapshot.values[FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC])
+        assertEquals(false, snapshot.values[FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS])
+        assertEquals(false, defaultValues()[FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC])
+        assertEquals(false, defaultValues()[FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS])
         assertEquals(false, defaultValues()[FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP])
         assertEquals(true, snapshot.values[FeaturePreferences.PLAYER_UNLOCK_BACKGROUND])
         assertEquals(true, snapshot.values[FeaturePreferences.PLAYER_UNLOCK_SMALL_WINDOW])

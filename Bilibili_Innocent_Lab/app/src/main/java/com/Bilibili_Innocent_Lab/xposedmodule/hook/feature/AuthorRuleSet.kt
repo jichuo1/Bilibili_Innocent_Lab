@@ -17,6 +17,11 @@ internal data class AuthorRuleSet(
 
     fun isNotEmpty(): Boolean = !isEmpty()
 
+    /** 安装期按独立读取路径裁剪可执行规则；不能因 UID 缺失丢掉仍可用的用户名规则。 */
+    fun available(nameAvailable: Boolean, midAvailable: Boolean): AuthorRuleSet =
+        if ((nameAvailable || names.isEmpty()) && (midAvailable || mids.isEmpty())) this
+        else AuthorRuleSet(if (midAvailable) mids else emptySet(), if (nameAvailable) names else emptySet())
+
     /** 两项都读不到时返回 false：读取失败一律保守放行，绝不按"疑似"删除。 */
     fun matches(name: String?, mid: Long?): Boolean =
         (mid != null && mid in mids) ||

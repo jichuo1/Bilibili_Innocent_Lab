@@ -8,11 +8,12 @@ internal data class DiagnosticCapabilityDefinition(
     val parentId: String,
     val labelRes: Int,
     val settingIds: Set<String>,
-    val locatorKey: String? = null
+    val locatorKey: String? = null,
+    val introducedCatalogVersion: Int = 1
 )
 
 internal object DiagnosticCapabilityCatalog {
-    const val VERSION = 1
+    const val VERSION = 2
     val definitions = listOf(
         DiagnosticCapabilityDefinition("player_interactive_legacy_follow", "player_interactive_overlay", R.string.diag_cap_player_interactive_legacy_follow, setOf("player.interactive_overlays.hidden"), "legacy/guide/clearAttention"),
         DiagnosticCapabilityDefinition("player_interactive_legacy_commands", "player_interactive_overlay", R.string.diag_cap_player_interactive_legacy_commands, setOf("player.interactive_overlays.hidden"), "legacy/guide/clearCommandDms"),
@@ -47,6 +48,8 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("home_recommend_game_promotions_removed", "home_recommend_purify", R.string.remove_home_recommend_game_promotions, setOf("home.recommend.game_promotions.removed")),
         DiagnosticCapabilityDefinition("home_recommend_title_filter_enabled", "home_recommend_purify", R.string.home_recommend_title_filter, setOf("home.recommend.title_filter.enabled", "home.recommend.title_filter.keywords")),
         DiagnosticCapabilityDefinition("home_recommend_live_removed", "home_recommend_purify", R.string.remove_home_recommend_live, setOf("home.recommend.live.removed")),
+        DiagnosticCapabilityDefinition("home_recommend_pgc_removed", "home_recommend_purify", R.string.remove_home_recommend_pgc, setOf("home.recommend.pgc.removed"), introducedCatalogVersion = 2),
+        DiagnosticCapabilityDefinition("home_recommend_special_cards_removed", "home_recommend_purify", R.string.remove_home_recommend_special_cards, setOf("home.recommend.special_cards.removed"), introducedCatalogVersion = 2),
         DiagnosticCapabilityDefinition("home_recommend_courses_removed", "home_recommend_purify", R.string.remove_home_recommend_courses, setOf("home.recommend.courses.removed")),
         DiagnosticCapabilityDefinition("home_recommend_vertical_removed", "home_recommend_purify", R.string.remove_home_recommend_vertical, setOf("home.recommend.vertical.removed")),
         DiagnosticCapabilityDefinition("home_recommend_large_removed", "home_recommend_purify", R.string.remove_home_recommend_large, setOf("home.recommend.large.removed")),
@@ -144,6 +147,8 @@ internal object DiagnosticCapabilityCatalog {
     val splitParents = definitions.filter { it.id != it.parentId }.mapTo(linkedSetOf()) { it.parentId }
     val leafIds = byId.keys
     private val verifiedRuntimeIds = setOf(
+        "home_recommend_pgc_removed",
+        "home_recommend_special_cards_removed",
         "home_banner_view",
         "home_banner_feed",
         "detail_promotion_nest",

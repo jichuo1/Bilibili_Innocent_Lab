@@ -59,17 +59,18 @@ internal class StoryPurifyFeatureInstaller(
             seasonInfo = resolveOptional(environment, "season_info", adapted.seasonInfoGetter),
             seasonType = resolveOptional(environment, "season_type", adapted.seasonTypeGetter)
         )
-        val removeSpecificSeason = removeMovies || removeDocumentaries || removeTv || removeVariety
-        if ((removeAds && accessors.ad == null) ||
-            (removeLive && accessors.live == null) ||
-            (removeGames && accessors.game == null) ||
-            (removeBangumi && accessors.bangumi == null) ||
-            (removeCourses && accessors.course == null) ||
-            (removeShortDrama && accessors.dramaPrompt == null) ||
-            (removeShopping && accessors.cartInfo == null) ||
-            (removeMusic && accessors.music == null) ||
-            (removeSpecificSeason &&
-                (accessors.seasonInfo == null || accessors.seasonType == null))) {
+        val readable = capabilityIds.associateWith { capability -> when (capability) {
+            "story_ads_removed" -> accessors.ad != null
+            "story_live_removed" -> accessors.live != null
+            "story_games_removed" -> accessors.game != null
+            "story_bangumi_removed" -> accessors.bangumi != null
+            "story_courses_removed" -> accessors.course != null
+            "story_short_drama_removed" -> accessors.dramaPrompt != null
+            "story_shopping_removed" -> accessors.cartInfo != null
+            "story_music_removed" -> accessors.music != null
+            else -> accessors.seasonInfo != null && accessors.seasonType != null
+        } }
+        if (readable.values.none { it }) {
             return missing(environment, "missing-enabled-type-getter")
         }
 
@@ -78,6 +79,7 @@ internal class StoryPurifyFeatureInstaller(
             runCatching {
                 environment.registrar.adapted("story.response.$index", point) {
                     after {
+                        if (hasThrowable) return@after
                         val source = result as? List<*> ?: return@after
                         filter(source, accessors)?.let { filtered -> result = filtered }
                     }
@@ -107,12 +109,13 @@ internal class StoryPurifyFeatureInstaller(
             }
         }
         if (installed == 0) return missing(environment, "registration-failed")
-        // Every selected type's own accessor was required above; the two response families are shared dependencies.
+        // 缺失一个类型时只降级该类型；其他已选判据继续在原有响应/播放器边界工作。
         val expected = adapted.responseItemGetters.size + adapted.pagerListMethods.size
-        capabilityIds.forEach { environment.reportCapabilityCoverage(it, true, installed, expected) }
-        environment.reportStatus(CHANNEL_STATUS, "success")
+        capabilityIds.forEach { environment.reportCapabilityCoverage(it, readable.getValue(it), installed, expected) }
+        val complete = installed == expected && readable.values.all { it }
+        environment.reportStatus(CHANNEL_STATUS, if (complete) "success" else "partial:$installed/$expected;unreadable=${readable.count { !it.value }}")
         environment.logInfo("story_purify_ok", "[BIL] Story 竖屏视频净化已安装")
-        return FeatureInstallResult.Installed(installed, complete = installed == expected)
+        return FeatureInstallResult.Installed(installed, complete)
     }
 
     private fun filter(source: List<*>, accessors: Accessors): List<*>? {

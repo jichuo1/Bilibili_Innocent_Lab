@@ -248,6 +248,8 @@ class MainActivity : SkinnedActivity() {
     private var removeHomeRecommendCourses = false
     private var removeHomeRecommendVertical = false
     private var removeHomeRecommendLarge = false
+    private var removeHomeRecommendPgc = false
+    private var removeHomeRecommendSpecialCards = false
     private var homeTabHiddenRules = ""
     private var homeComponentHiddenRules = ""
     private var bottomBarHiddenRules = ""
@@ -6327,6 +6329,8 @@ class MainActivity : SkinnedActivity() {
         FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES to removeHomeRecommendPictures,
         FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS to removeHomeRecommendGamePromotions,
         FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE to removeHomeRecommendLive,
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC to removeHomeRecommendPgc,
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS to removeHomeRecommendSpecialCards,
         FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES to removeHomeRecommendCourses,
         FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE to removeHomeRecommendLarge
     )
@@ -6346,6 +6350,8 @@ class MainActivity : SkinnedActivity() {
         FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS ->
             R.string.remove_home_recommend_game_promotions
         FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE -> R.string.remove_home_recommend_live
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC -> R.string.remove_home_recommend_pgc
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS -> R.string.remove_home_recommend_special_cards
         FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES -> R.string.remove_home_recommend_courses
         FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE -> R.string.remove_home_recommend_large
         else -> error("Unknown home recommendation filter key: $preferenceKey")
@@ -6358,6 +6364,8 @@ class MainActivity : SkinnedActivity() {
             FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS ->
                 removeHomeRecommendGamePromotions = enabled
             FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE -> removeHomeRecommendLive = enabled
+            FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC -> removeHomeRecommendPgc = enabled
+            FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS -> removeHomeRecommendSpecialCards = enabled
             FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES -> removeHomeRecommendCourses = enabled
             FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE -> removeHomeRecommendLarge = enabled
             else -> error("Unknown home recommendation filter key: $preferenceKey")
@@ -7981,6 +7989,12 @@ class MainActivity : SkinnedActivity() {
         }.getOrDefault(false)
         removeHomeRecommendLarge = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE, false) ?: false
+        }.getOrDefault(false)
+        removeHomeRecommendPgc = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC, false) ?: false
+        }.getOrDefault(false)
+        removeHomeRecommendSpecialCards = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS, false) ?: false
         }.getOrDefault(false)
         homeTabHiddenRules = runCatching {
             modulePrefs?.getString(FeaturePreferences.HOME_TAB_HIDDEN_RULES, "").orEmpty()

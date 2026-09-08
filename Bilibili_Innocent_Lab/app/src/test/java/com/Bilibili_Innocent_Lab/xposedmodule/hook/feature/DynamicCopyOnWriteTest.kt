@@ -7,7 +7,7 @@ import org.junit.Test
 
 class DynamicCopyOnWriteTest {
     private val stages = mutableListOf<FeatureRuntimeStage>()
-    private fun purify(reply: DynAllReply): DynAllReply {
+    private fun purify(reply: DynAllReply, loader: ClassLoader = javaClass.classLoader!!): DynAllReply {
         val installer = DynamicPurifyFeatureInstaller(false, "", false, "", false, false, true, true)
         val environment = HookEnvironment("tv.danmaku.bili", javaClass.classLoader,
             HookPointRegistry(javaClass.classLoader), TestHookRegistrar,
@@ -16,11 +16,25 @@ class DynamicCopyOnWriteTest {
         val spec = specType.declaredConstructors.single().apply { isAccessible = true }
             .newInstance(DynAllReply::class.java.name, "executeDynAll", "dynAll")
         val feed = installer.javaClass.declaredMethods.single { it.name == "resolveFeed" }.apply { isAccessible = true }
-            .invoke(installer, javaClass.classLoader, DynamicMoss::class.java, spec)
+            .invoke(installer, loader, DynamicMoss::class.java, spec)
         assertNotNull(feed)
         val plan = DynamicPurifyPolicy.Plan(emptySet(), AuthorRuleSet.EMPTY, false, false)
         return installer.javaClass.declaredMethods.single { it.name == "purify" }.apply { isAccessible = true }
             .invoke(installer, environment, reply, feed, null, plan) as DynAllReply
+    }
+
+    @Test fun `missing dynamic item carrier does not disable topic and UP list filtering`() {
+        val loader = object : ClassLoader(javaClass.classLoader) {
+            override fun loadClass(name: String): Class<*> {
+                if (name == DynamicItem::class.java.name) throw ClassNotFoundException(name)
+                return super.loadClass(name)
+            }
+        }
+        val original = DynAllReply(ups = CardVideoUpList(listOf(UpListItem(1, 1), UpListItem(0, 2))))
+        val updated = purify(original, loader)
+        assertFalse(updated.topic); assertEquals(1, updated.ups.first.size)
+        assertSame(original.items, updated.items)
+        assertEquals(2, original.ups.first.size)
     }
 
     @Test fun `UP list failure cannot clear either original list change positions or remove topic`() {

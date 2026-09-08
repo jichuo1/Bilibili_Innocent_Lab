@@ -1,5 +1,94 @@
 # Regression verification
 
+## Video-session default speed (2026-09-08)
+
+- Final four gates passed with --no-daemon (6m15s): assembleDebug,
+  testDebugUnitTest, lintDebug and minifyReleaseWithR8. 156 suites / 891 tests,
+  zero failures/errors/skips. Lint 0 errors / 183 existing warnings.
+- Fourteen new session tests cover base/temporary separation, same-media manual
+  retention, new-video reset, explicit 1x, independent players, shared contexts,
+  early sharing writes, nested callback isolation, host exceptions, invalid media
+  identity, unknown/non-VOD sources, and rejecting a failed initial capture.
+  Actual Modern callback chains are exercised, not just registration stubs.
+- Read-only probe_sessions.py verified all 27 retained host APKs from 8.84.0
+  through 9.11.0, including the separate 8.90.2 sample. Every host has the
+  required modern session shape and a concrete prepared-listener/core pair.
+  Neither obfuscated owner nor callback names are embedded in production code.
+  Simple-mode JADX CLI checks on 8.90.2 and 9.11.0 confirm active-playable
+  publication precedes coroutine suspension and cleanup clears that slot.
+- Final Debug APK: version 1.1.4 / 15, 13,418,238 bytes, 19 DEX, no invalid ZIP
+  paths. Both new helpers and final discardCapture protection are present.
+  Built at 12:01:17, newer than final main source at 11:58:16.
+  SHA-256: 823D1A4A4B75C4A26D7A122684721C213D51BA247DD077C1F5F1AE6016776D78.
+- No new settings keys, dependency, telemetry schema/catalog or server change.
+  Debug still uses Staging telemetry. No installation, host operation, cloud
+  deployment, commit or push. Native-page/framework acceptance remains pending;
+  static/JVM success does not establish global live coverage. Scope and remaining
+  device scenarios are described in player_controls_port.md.
+
+## Homepage PGC and selected-special filters (2026-09-08)
+
+- Four final gates passed with --no-daemon (8m05s): assembleDebug,
+  testDebugUnitTest, lintDebug, minifyReleaseWithR8. 155 suites / 877 tests,
+  zero failures/errors/skips; Lint 0 errors / 183 existing warnings.
+- New tests cover exact card types and official playback routes, PGC precedence,
+  UGC and unknown-type preservation, hostile/malformed/oversized URL fallback,
+  all four toggle combinations through actual Modern callbacks, no-match identity,
+  host exception propagation and independent missing-reader diagnostics.
+  Settings v14 golden, Remote round trip and old-backup preservation are verified.
+- The read-only check_home_extra_cards.py verified holder, card type/goto/URI
+  getters, response List boundary and external consumers on all 26 retained
+  8.84.0–9.11.0 host APKs. No missing contracts. This is not live-page evidence;
+  8.85.x / 8.90.2 and pre-8.84.0 remain outside the retained sample matrix.
+- Debug APK: version 1.1.4 / 15, 13,418,054 bytes, 19 DEX, no invalid ZIP paths,
+  HomeExtraCardPolicy present. Built at 11:06:51, later than main-source edits.
+  SHA-256: 98FEF302309A61F65CA4718A5211A6EF85F994870AF89C8A08878925C8C6DD7B.
+  Debug telemetry continues to use Staging. No device installation or host operation.
+- Local server typecheck and 76 tests passed. User-approved Staging, Production
+  and private analytics deployment completed. Online negative probes confirm
+  catalogs 1/2 pass version validation, 3 is rejected, and anonymous analytics
+  requests still redirect to Access login. No telemetry samples were written by
+  the probes. No D1 migration, quota change, commit or push.
+
+## Cross-feature coverage follow-up (2026-09-08)
+
+- Final four gates passed with --no-daemon (6m18s): assembleDebug,
+  testDebugUnitTest, lintDebug and minifyReleaseWithR8. 153 suites / 868 tests,
+  zero failures/errors/skips. Lint: 0 errors / 183 warnings, no new warnings.
+- Ten added regression tests exercise partial dependencies without disabling other
+  judgements, default-word sync/async delivery and copy failure, dynamic carrier
+  independence, and consistent partial registration reporting. See
+  coverage_review_20260908.md for the audited scope and the unchanged surfaces.
+- 26 retained APKs pass 98 relevant member contracts plus default-word builder
+  checks. This does not establish all-page/all-framework runtime compatibility.
+- Adapter schema 56 / rule 51. Final Debug APK SHA-256:
+  E885CB167452CED39A21920D8D9802C461088290E217D0DEE020F7551FC4E400.
+  19 DEX; new cleaner present; no invalid ZIP paths; artifact newer than main
+  sources. No install, host operation, cloud deploy, commit or push.
+
+## Player interactive response repair (2026-09-08)
+
+- Final assembleDebug, testDebugUnitTest, lintDebug and minifyReleaseWithR8 passed
+  with --no-daemon (final run 5m31s). 152 suites / 858 tests; zero failures,
+  errors or skipped tests. Lint: 0 errors / 183 warnings, no new warnings.
+  Nine new tests include actual Modern installer callback invocation, not just
+  the previous no-op registration fake.
+- Read-only check_interactive_copy.py verified whitelist presence probes, host
+  builders/setters and both response signatures on 26 retained 8.84.0–9.11.0 APK
+  samples, with no missing required members. This is structural evidence only.
+- Tests cover sync/async/getter delivery, original host exception propagation,
+  callback null/error/completion, nested or parent builder failure, no-match identity,
+  unknown/chapter data preservation, Guide class absence with independent DmResource,
+  cache round trips and incomplete async coverage remaining partial.
+- Adapter schema 55 / rule 50 invalidates the old cache. No consent, telemetry
+  schema/catalog, cloud data or runtime scope expansion was included.
+- Final Debug APK SHA-256:
+  2D6C3081C5A210BCC59D44ED45CC9808A20A3523A57519864DC0729F4F44B185.
+  19 DEX; repair class and moss_async present; no invalid ZIP entry paths. Debug
+  continues to target Staging. No installation, host restart, cloud deployment,
+  commit or push was performed. The original reported video still needs device
+  checks for first play, seek, replay, orientation changes and cached playback.
+
 ## Host APK intake and isolated Android contracts (2026-09-05)
 
 `HostApkCompatibilityInstrumentedTest` loads an explicitly supplied host APK with a

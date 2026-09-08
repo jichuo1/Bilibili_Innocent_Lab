@@ -6,16 +6,18 @@ import org.junit.Test
 
 class HomeRecommendFilterSelectionTest {
     @Test
-    fun `catalog preserves the six existing independent preference keys in display order`() {
+    fun `catalog preserves the eight independent preference keys in display order`() {
         assertEquals(listOf(
             FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS,
             FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES,
             FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS,
             FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE,
+            FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC,
+            FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS,
             FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES,
             FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE
         ), HomeRecommendFilterCatalog.preferenceKeys)
-        assertEquals(6, HomeRecommendFilterCatalog.preferenceKeys.distinct().size)
+        assertEquals(8, HomeRecommendFilterCatalog.preferenceKeys.distinct().size)
     }
 
     @Test
@@ -41,7 +43,7 @@ class HomeRecommendFilterSelectionTest {
         val initial = mapOf(ads to true, FeaturePreferences.REMOVE_HOME_RECOMMEND_VERTICAL to true)
         val draft = HomeRecommendFilterDraft(initial)
         draft.selectAll()
-        assertEquals(6, draft.selectedCount())
+        assertEquals(8, draft.selectedCount())
         assertEquals(HomeRecommendFilterCatalog.preferenceKeys.filterNot { it == ads }
             .associateWith { true }, draft.changedValues())
         draft.clear()

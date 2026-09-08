@@ -73,8 +73,8 @@ internal class SearchPurifyFeatureInstaller(
         val resolved = resolveMembers(loader)
         val plan = Plan(
             removeCommercial = removeCommercial && resolved?.commercial != null,
-            keywords = if (resolved?.videoCard != null) keywords else emptySet(),
-            authorRules = if (resolved?.videoCard != null) authorRules else AuthorRuleSet.EMPTY
+            keywords = if (resolved?.videoCard?.title != null) keywords else emptySet(),
+            authorRules = authorRules.available(resolved?.videoCard?.author != null, resolved?.videoCard?.mid != null)
         )
         // 判据全部不可用时不注册：留一个永远不删东西的 Hook 只会让状态好看。
         val members = resolved.takeIf { plan.hasAnyJudgement }
@@ -113,9 +113,10 @@ internal class SearchPurifyFeatureInstaller(
             0
         }
         if (installed == 0) return missing(environment, "registration-failed")
-        if (removeCommercial) environment.reportCapabilityCoverage("search_commercial_removed", plan.removeCommercial, installed, 1)
+        val commercialComplete = resolved?.commercial?.hasCm != null && resolved.commercial.hasSpecial != null
+        if (removeCommercial) environment.reportCapabilityCoverage("search_commercial_removed", plan.removeCommercial, installed, if (commercialComplete) 1 else 2)
         if (keywords.isNotEmpty()) environment.reportCapabilityCoverage("search_keyword_filter_enabled", plan.keywords.isNotEmpty(), installed, 1)
-        if (authorRules.isNotEmpty()) environment.reportCapabilityCoverage("search_author_filter_enabled", plan.authorRules.isNotEmpty(), installed, 1)
+        if (authorRules.isNotEmpty()) environment.reportCapabilityCoverage("search_author_filter_enabled", plan.authorRules.isNotEmpty(), installed, if (plan.authorRules == authorRules) 1 else 2)
 
         var total = installed
         var expected = 1
@@ -125,9 +126,9 @@ internal class SearchPurifyFeatureInstaller(
             expected += 1
             if (usable) total += 1 else degraded += label
         }
-        account(removeCommercial, plan.removeCommercial, "commercial")
+        account(removeCommercial, plan.removeCommercial && commercialComplete, "commercial")
         account(keywords.isNotEmpty(), plan.keywords.isNotEmpty(), "keyword")
-        account(authorRules.isNotEmpty(), plan.authorRules.isNotEmpty(), "author")
+        account(authorRules.isNotEmpty(), plan.authorRules == authorRules, "author")
         if (degraded.isNotEmpty()) {
             environment.logError(
                 "search_purify_degraded",
@@ -180,7 +181,7 @@ internal class SearchPurifyFeatureInstaller(
         val commercial = run {
             val hasCm = booleanNoArg(itemClass, "hasCm")
             val hasSpecial = booleanNoArg(itemClass, "hasSpecial")
-            if (hasCm == null || hasSpecial == null) null else CommercialMembers(hasCm, hasSpecial)
+            if (hasCm == null && hasSpecial == null) null else CommercialMembers(hasCm, hasSpecial)
         }
         val videoCard = run {
             val hasAv = booleanNoArg(itemClass, "hasAv")
@@ -194,7 +195,7 @@ internal class SearchPurifyFeatureInstaller(
             val mid = KavaMemberLookup.methodOrNull(cardClass, "getMid")?.takeIf {
                 !it.isStatic && it.parameterCount == 0 && it.returnType == classOf<Long>()
             }
-            if (title == null || author == null || mid == null) {
+            if (title == null && author == null && mid == null) {
                 null
             } else {
                 VideoCardMembers(hasAv, avGetter, title, author, mid)
@@ -256,14 +257,14 @@ internal class SearchPurifyFeatureInstaller(
         val videoCard: VideoCardMembers?
     )
 
-    private class CommercialMembers(val hasCm: Method, val hasSpecial: Method)
+    private class CommercialMembers(val hasCm: Method?, val hasSpecial: Method?)
 
     private class VideoCardMembers(
         val hasAv: Method,
         val avGetter: Method,
-        val title: Method,
-        val author: Method,
-        val mid: Method
+        val title: Method?,
+        val author: Method?,
+        val mid: Method?
     )
 
     companion object {

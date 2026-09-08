@@ -78,15 +78,16 @@ internal class HomeBannerFeatureInstaller(
             registered && (key.endsWith("#onAttachedToWindow") || key == "legacyContainer")
         }
         val successfulPaths = results.count { it.value }
+        val complete = ready && results.values.all { it }
         environment.reportCapability("home_banner_view",
             if (successfulPaths > 0) FeatureInstallResult.Installed(successfulPaths,
-                complete = ready && results.values.all { it })
+                complete = complete)
             else FeatureInstallResult.Skipped("no_required_hook_point"))
-        environment.reportStatus(CHANNEL_STATUS, if (ready) "success" else "failed")
+        environment.reportStatus(CHANNEL_STATUS, if (complete) "success" else if (ready) "partial:$successfulPaths/${results.size}" else "failed")
         if (ready) {
             environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
             environment.logInfo("banner_ok", "[BIL] Banner Adapter 已注册 V8Banner 收起入口")
-            return FeatureInstallResult.Installed(results.count { it.value })
+            return FeatureInstallResult.Installed(successfulPaths, complete)
         }
         environment.logError("banner_failed", "[BIL] Banner Adapter 未找到可用入口")
         return FeatureInstallResult.Skipped("no_required_hook_point")

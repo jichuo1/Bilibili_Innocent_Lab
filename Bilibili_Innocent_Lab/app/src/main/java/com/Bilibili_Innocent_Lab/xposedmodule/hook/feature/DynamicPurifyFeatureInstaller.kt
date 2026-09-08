@@ -86,19 +86,25 @@ internal class DynamicPurifyFeatureInstaller(
         val itemMembers = resolveItemMembers(loader)
         val plan = DynamicPurifyPolicy.Plan(
             keywords = if (itemMembers?.hasTextSource == true) keywords else emptySet(),
-            authorRules = if (itemMembers?.hasAuthorSource == true) authorRules else AuthorRuleSet.EMPTY,
+            authorRules = authorRules.available(itemMembers?.hasAuthorSource == true && itemMembers.author?.origName != null,
+                itemMembers?.hasAuthorSource == true && itemMembers.author?.uid != null),
             removePromotion = removePromotion && itemMembers?.promotion != null,
             removeLockedChargeOnly = removeLockedChargeOnly && itemMembers?.chargeOnly != null
         )
 
-        val feeds = FEED_METHODS.mapNotNull { spec -> resolveFeed(loader, mossClass, spec) }
+        val feeds = FEED_METHODS.mapNotNull { spec -> resolveFeed(loader, mossClass, spec) }.filter { feed ->
+            (plan.hasAnyItemJudgement && feed.listBuilder != null) ||
+                (hideTopicList && feed.clearTopicList != null) || (removeLiveUpEntries && feed.upList != null)
+        }
         if (feeds.isEmpty()) return missing(environment, "no-dynamic-hook-point")
 
         val handlerClass = KavaMemberLookup.classOrNull(loader, MOSS_HANDLER_CLASS)
         var installed = 0
         var expected = 0
+        val pathsByFeed = hashMapOf<FeedMembers, Int>()
 
         feeds.forEach { feed ->
+            val before = installed
             feed.syncMethod?.let { method ->
                 expected += 1
                 if (installSync(environment, method, feed, itemMembers, plan)) installed += 1
@@ -110,11 +116,16 @@ internal class DynamicPurifyFeatureInstaller(
                     installed += 1
                 }
             }
+            pathsByFeed[feed] = installed - before
         }
         if (installed == 0) return missing(environment, "registration-failed")
-        val sharedInstalled = installed
         val sharedExpected = FEED_METHODS.size * 2
         for (capability in capabilityIds) {
+            val compatibleFeeds = feeds.filter { feed -> when (capability) {
+                "dynamic_topic_list_hidden" -> feed.clearTopicList != null
+                "dynamic_up_list_live_removed" -> feed.upList != null
+                else -> feed.listBuilder != null
+            } }
             val usable = when (capability) {
                 "dynamic_keyword_filter_enabled" -> plan.keywords.isNotEmpty()
                 "dynamic_author_filter_enabled" -> plan.authorRules.isNotEmpty()
@@ -127,22 +138,26 @@ internal class DynamicPurifyFeatureInstaller(
             val completeData = when (capability) {
                 "dynamic_topic_list_hidden" -> feeds.size == FEED_METHODS.size && feeds.all { it.clearTopicList != null }
                 "dynamic_up_list_live_removed" -> feeds.size == FEED_METHODS.size && feeds.all { it.upList != null }
-                else -> true
+                else -> feeds.size == FEED_METHODS.size && feeds.all { it.listBuilder != null } &&
+                    (capability != "dynamic_author_filter_enabled" || plan.authorRules == authorRules)
             }
-            environment.reportCapabilityCoverage(capability, usable, sharedInstalled,
+            environment.reportCapabilityCoverage(capability, usable && compatibleFeeds.isNotEmpty(), compatibleFeeds.sumOf { pathsByFeed[it] ?: 0 },
                 sharedExpected + if (completeData) 0 else 1)
         }
         expected = sharedExpected
 
         // 用户开了但读不到的判据必须留在分母里。
         val degraded = ArrayList<String>(4)
+        if (plan.hasAnyItemJudgement && feeds.any { it.listBuilder == null }) {
+            expected++; degraded += "item-carrier"
+        }
         fun account(requested: Boolean, usable: Boolean, label: String) {
             if (!requested) return
             expected += 1
             if (usable) installed += 1 else degraded += label
         }
         account(keywords.isNotEmpty(), plan.keywords.isNotEmpty(), "keyword")
-        account(authorRules.isNotEmpty(), plan.authorRules.isNotEmpty(), "author")
+        account(authorRules.isNotEmpty(), plan.authorRules == authorRules, "author")
         account(removePromotion, plan.removePromotion, "promotion")
         account(removeLockedChargeOnly, plan.removeLockedChargeOnly, "charge-only")
         account(hideTopicList, feeds.any { it.clearTopicList != null }, "topic-list")
@@ -249,7 +264,7 @@ internal class DynamicPurifyFeatureInstaller(
             val upList = purifyUpList(reply, feed)
             if (items == null && !clearTopic && upList == null) return@runCatching reply
             val updated = feed.builder.edit(reply) { builder ->
-                if (items != null) feed.setDynamicList.invoke(builder, items)
+                if (items != null) feed.setDynamicList!!.invoke(builder, items)
                 if (clearTopic) feed.clearTopicList.invoke(builder)
                 if (upList != null) feed.upList!!.setter.invoke(builder, upList)
             }
@@ -269,6 +284,9 @@ internal class DynamicPurifyFeatureInstaller(
         plan: DynamicPurifyPolicy.Plan
     ): Any? {
         if (itemMembers == null || !plan.hasAnyItemJudgement) return null
+        val listBuilder = feed.listBuilder ?: return null
+        val clearList = feed.clearList ?: return null
+        val addAllList = feed.addAllList ?: return null
         val dynamicList = invoke(feed.dynamicListGetter, reply) ?: return null
         val items = invoke(feed.listGetter, dynamicList) as? List<*> ?: return null
         if (items.isEmpty()) return null
@@ -277,9 +295,9 @@ internal class DynamicPurifyFeatureInstaller(
         } ?: return null
         val removed = items.size - retained.size
         if (removed <= 0) return null
-        return feed.listBuilder.edit(dynamicList) { builder ->
-            feed.clearList.invoke(builder)
-            feed.addAllList.invoke(builder, retained)
+        return listBuilder.edit(dynamicList) { builder ->
+            clearList.invoke(builder)
+            addAllList.invoke(builder, retained)
         }
     }
 
@@ -424,19 +442,20 @@ internal class DynamicPurifyFeatureInstaller(
     ): FeedMembers? {
         val replyClass = KavaMemberLookup.classOrNull(loader, spec.replyClassName) ?: return null
         val builder = ProtobufBuilderPlan.resolve(replyClass) ?: return null
-        val dynamicListGetter = objectGetter(replyClass, "getDynamicList") ?: return null
+        val dynamicListGetter = objectGetter(replyClass, "getDynamicList")
         // 容器类名两个页签不同（综合 DynamicList / 视频 CardVideoDynList），所以按返回类型取，
         // 不写死类名。但**必须验证元素类型确实是 DynamicItem**：否则条目判据会因为
         // declaringClass 不匹配而全部读成 null，表现为"装上了却一条都不删"的静默无效。
-        val listClass = dynamicListGetter.returnType
-        val listBuilder = ProtobufBuilderPlan.resolve(listClass) ?: return null
-        val setDynamicList = builder.method("setDynamicList", listClass) ?: return null
-        val itemClass = KavaMemberLookup.classOrNull(loader, DYNAMIC_ITEM_CLASS) ?: return null
-        val indexedGetter = KavaMemberLookup.methodOrNull(listClass, "getList", classOf<Int>())
-        if (indexedGetter == null || indexedGetter.returnType != itemClass) return null
-        val listGetter = listGetter(listClass, "getListList") ?: return null
-        val clearList = listBuilder.method("clearList") ?: return null
-        val addAllList = listBuilder.method("addAllList", classOf<Iterable<*>>()) ?: return null
+        val listClass = dynamicListGetter?.returnType
+        val listBuilder = listClass?.let(ProtobufBuilderPlan::resolve)
+        val setDynamicList = listClass?.let { builder.method("setDynamicList", it) }
+        val itemClass = KavaMemberLookup.classOrNull(loader, DYNAMIC_ITEM_CLASS)
+        val indexedGetter = listClass?.let { KavaMemberLookup.methodOrNull(it, "getList", classOf<Int>()) }
+        val listGetter = listClass?.let { listGetter(it, "getListList") }
+        val clearList = listBuilder?.method("clearList")
+        val addAllList = listBuilder?.method("addAllList", classOf<Iterable<*>>())
+        val itemCarrierReady = itemClass != null && indexedGetter?.returnType == itemClass &&
+            setDynamicList != null && listGetter != null && clearList != null && addAllList != null
 
         val syncMethod = KavaMemberLookup.declaredMethods(mossClass, makeAccessible = true) {
             !it.isStatic && it.name == spec.syncName && it.parameterCount == 1 &&
@@ -456,7 +475,7 @@ internal class DynamicPurifyFeatureInstaller(
         return FeedMembers(
             replyClass = replyClass,
             builder = builder,
-            listBuilder = listBuilder,
+            listBuilder = listBuilder?.takeIf { itemCarrierReady },
             setDynamicList = setDynamicList,
             dynamicListGetter = dynamicListGetter,
             listGetter = listGetter,
@@ -655,12 +674,12 @@ internal class DynamicPurifyFeatureInstaller(
     private class FeedMembers(
         val replyClass: Class<*>,
         val builder: ProtobufBuilderPlan,
-        val listBuilder: ProtobufBuilderPlan,
-        val setDynamicList: Method,
-        val dynamicListGetter: Method,
-        val listGetter: Method,
-        val clearList: Method,
-        val addAllList: Method,
+        val listBuilder: ProtobufBuilderPlan?,
+        val setDynamicList: Method?,
+        val dynamicListGetter: Method?,
+        val listGetter: Method?,
+        val clearList: Method?,
+        val addAllList: Method?,
         val defaultReply: Any?,
         val hasTopicList: Method?,
         val clearTopicList: Method?,

@@ -441,14 +441,14 @@ object VersionAdapter {
     /**
      * 播放器互动层（投票/关注引导/契约卡/指令弹幕）的 protobuf 读边界。
      *
-     * Guide 只缓存白名单 `clear*`，不含 `clearVideoPoint`。Moss execute 是双保险，
-     * getter 才是主路径。
+     * Guide 只缓存白名单 `clear*`，不含 `clearVideoPoint`。同步/异步响应是主路径，
+     * getter 补充缓存读取；Guide 与 DmResource 独立定位。
      */
     data class PlayerInteractiveGuideFamily(
         val replyClassName: String,
-        val guideGetter: HookPoint,
+        val guideGetter: HookPoint?,
         val guideClears: List<HookPoint>,
-        /** Guide 的静态 `getDefaultInstance()`；用于识别空 Guide，缺失时安装器降级为无条件清。 */
+        /** 保留默认实例定位信息；实际清理通过字段 has/count 判断，不再无条件清空。 */
         val guideDefault: HookPoint? = null,
         /** `ViewProgressReply.getDm()`：互动层的第二个载体，只有 viewunite 有。 */
         val dmGetter: HookPoint? = null,
@@ -457,7 +457,7 @@ object VersionAdapter {
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("reply", replyClassName)
-            put("getter", guideGetter.toJson())
+            guideGetter?.let { put("getter", it.toJson()) }
             put("clears", JSONArray().apply { guideClears.forEach { put(it.toJson()) } })
             guideDefault?.let { put("default", it.toJson()) }
             dmGetter?.let { put("dm_getter", it.toJson()) }
@@ -471,7 +471,7 @@ object VersionAdapter {
             fun fromJson(o: JSONObject): PlayerInteractiveGuideFamily =
                 PlayerInteractiveGuideFamily(
                     replyClassName = o.getString("reply"),
-                    guideGetter = HookPoint.fromJson(o.getJSONObject("getter")),
+                    guideGetter = o.optJSONObject("getter")?.let(HookPoint::fromJson),
                     guideClears = o.getJSONArray("clears").let { values ->
                         (0 until values.length()).map {
                             HookPoint.fromJson(values.getJSONObject(it))
@@ -496,11 +496,13 @@ object VersionAdapter {
         val commandClear: HookPoint?,
         val commandDefault: HookPoint?,
         /** `DmViewReply.clearActivityMeta()`：清运营活动横幅（TV 版推广那块图）。 */
-        val commandActivityMetaClear: HookPoint? = null
+        val commandActivityMetaClear: HookPoint? = null,
+        val mossAsync: List<HookPoint> = emptyList()
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("families", JSONArray().apply { families.forEach { put(it.toJson()) } })
             put("moss", JSONArray().apply { mossExecutes.forEach { put(it.toJson()) } })
+            put("moss_async", JSONArray().apply { mossAsync.forEach { put(it.toJson()) } })
             commandGetter?.let { put("command_getter", it.toJson()) }
             commandClear?.let { put("command_clear", it.toJson()) }
             commandDefault?.let { put("command_default", it.toJson()) }
@@ -524,7 +526,10 @@ object VersionAdapter {
                     commandClear = o.optJSONObject("command_clear")?.let(HookPoint::fromJson),
                     commandDefault = o.optJSONObject("command_default")?.let(HookPoint::fromJson),
                     commandActivityMetaClear = o.optJSONObject("activity_meta_clear")
-                        ?.let(HookPoint::fromJson)
+                        ?.let(HookPoint::fromJson),
+                    mossAsync = o.optJSONArray("moss_async")?.let { values ->
+                        (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
+                    }.orEmpty()
                 )
         }
     }
@@ -1158,8 +1163,8 @@ object VersionAdapter {
      */
     data class CommentFilterPoints(
         val replyListGetters: List<HookPoint>,
-        val contentGetter: HookPoint,
-        val messageGetter: HookPoint,
+        val contentGetter: HookPoint?,
+        val messageGetter: HookPoint?,
         val memberGetter: HookPoint?,
         val levelGetter: HookPoint?,
         val memberV2Getter: HookPoint? = null,
@@ -1178,8 +1183,8 @@ object VersionAdapter {
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("lists", JSONArray().apply { replyListGetters.forEach { put(it.toJson()) } })
-            put("content", contentGetter.toJson())
-            put("message", messageGetter.toJson())
+            contentGetter?.let { put("content", it.toJson()) }
+            messageGetter?.let { put("message", it.toJson()) }
             memberGetter?.let { put("member", it.toJson()) }
             levelGetter?.let { put("level", it.toJson()) }
             memberV2Getter?.let { put("member_v2", it.toJson()) }
@@ -1200,8 +1205,8 @@ object VersionAdapter {
                 replyListGetters = o.getJSONArray("lists").let { values ->
                     (0 until values.length()).map { HookPoint.fromJson(values.getJSONObject(it)) }
                 },
-                contentGetter = HookPoint.fromJson(o.getJSONObject("content")),
-                messageGetter = HookPoint.fromJson(o.getJSONObject("message")),
+                contentGetter = o.optJSONObject("content")?.let(HookPoint::fromJson),
+                messageGetter = o.optJSONObject("message")?.let(HookPoint::fromJson),
                 memberGetter = o.optJSONObject("member")?.let(HookPoint::fromJson),
                 levelGetter = o.optJSONObject("level")?.let(HookPoint::fromJson),
                 memberV2Getter = o.optJSONObject("member_v2")?.let(HookPoint::fromJson),
@@ -1668,8 +1673,7 @@ object VersionAdapter {
                 playerInteractiveOverlays?.let { value ->
                     value.families.all { family ->
                         family.replyClassName.isNotBlank() &&
-                            family.guideGetter.isValid() &&
-                            family.guideClears.isNotEmpty() &&
+                            (family.guideGetter?.isValid() != false) &&
                             family.guideClears.all { it.isValid() } &&
                             family.guideClears.none {
                                 it.methodName == PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR
@@ -1680,7 +1684,7 @@ object VersionAdapter {
                             family.dmDefault?.isValid() != false &&
                             (family.dmGetter != null || family.dmClears.isEmpty())
                     } &&
-                        value.mossExecutes.all { it.isValid() } &&
+                        value.mossExecutes.all { it.isValid() } && value.mossAsync.all { it.isValid() } &&
                         value.commandGetter?.isValid() != false &&
                         value.commandClear?.isValid() != false &&
                         value.commandDefault?.isValid() != false &&
@@ -1836,7 +1840,7 @@ object VersionAdapter {
                 commentFilter?.let { value ->
                     value.replyListGetters.isNotEmpty() &&
                         value.replyListGetters.all { it.isValid() } &&
-                        value.contentGetter.isValid() && value.messageGetter.isValid() &&
+                        value.contentGetter?.isValid() != false && value.messageGetter?.isValid() != false &&
                         value.memberGetter?.isValid() != false &&
                         value.levelGetter?.isValid() != false &&
                         value.memberV2Getter?.isValid() != false &&
@@ -1848,13 +1852,8 @@ object VersionAdapter {
                         value.memberMidGetter?.isValid() != false &&
                         value.memberV2NameGetter?.isValid() != false &&
                         value.memberV2MidGetter?.isValid() != false &&
-                        ((value.memberGetter != null && value.levelGetter != null) ||
-                            (value.memberV2Getter != null &&
-                                value.memberV2BasicGetter != null &&
-                                value.memberV2LevelGetter != null)) &&
                         value.topReplyGetters.all { it.isValid() } &&
-                        (value.topReplyGetters.isEmpty() ||
-                            value.replyDefaultInstanceGetter?.isValid() == true)
+                        value.replyDefaultInstanceGetter?.isValid() != false
                 } != false &&
                 commentTopology?.let { value ->
                     value.mapperMethods.isNotEmpty() &&
@@ -4045,24 +4044,33 @@ object VersionAdapter {
     ): PlayerInteractiveOverlayPoints? = runCatching {
         val families = ArrayList<PlayerInteractiveGuideFamily>(PLAYER_INTERACTIVE_MOSS_FAMILIES.size)
         val mossExecutes = ArrayList<HookPoint>(PLAYER_INTERACTIVE_MOSS_FAMILIES.size)
+        val mossAsync = ArrayList<HookPoint>(PLAYER_INTERACTIVE_MOSS_FAMILIES.size)
+        fun locateMoss(moss: Class<*>?, reply: Class<*>, sync: String, async: String) {
+            moss ?: return
+            val methods = KavaMemberLookup.declaredMethods(moss, makeAccessible = true)
+            methods.filter { !it.isStatic && it.name == sync && it.parameterCount == 1 && it.returnType == reply }
+                .singleOrNull()?.let { mossExecutes += it.toHookPoint() }
+            methods.filter { !it.isStatic && it.name == async && it.parameterCount == 2 &&
+                it.returnType == Void.TYPE && it.parameterTypes[1].name == "com.bilibili.lib.moss.api.MossResponseHandler" }
+                .singleOrNull()?.let { mossAsync += it.toHookPoint() }
+        }
         PLAYER_INTERACTIVE_MOSS_FAMILIES.forEach { spec ->
             val moss = KavaMemberLookup.classOrNull(loader, spec.mossClassName)
             val reply = KavaMemberLookup.classOrNull(loader, spec.replyClassName)
             val guide = KavaMemberLookup.classOrNull(loader, spec.guideClassName)
-            if (reply == null || guide == null) return@forEach
+            if (reply == null) return@forEach
             val getter = KavaMemberLookup.methodOrNull(reply, "getVideoGuide")
                 ?.takeIf { method ->
                     !method.isStatic && method.parameterCount == 0 &&
                         method.returnType == guide
-                } ?: return@forEach
+                }
             val clears = spec.clearNames.mapNotNull { name ->
-                KavaMemberLookup.methodOrNull(guide, name)?.takeIf { method ->
+                guide?.let { KavaMemberLookup.methodOrNull(it, name) }?.takeIf { method ->
                     !method.isStatic && method.parameterCount == 0 &&
                         method.returnType == Void.TYPE &&
                         method.name != PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR
                 }
             }
-            if (clears.isEmpty()) return@forEach
             // 第二载体 DmResource：缺任何一环就整条降级为不装，绝不半路留个空 getter。
             val dmClass = spec.dmClassName?.let { KavaMemberLookup.classOrNull(loader, it) }
             val dmGetter = dmClass?.let {
@@ -4083,20 +4091,15 @@ object VersionAdapter {
             }
             families += PlayerInteractiveGuideFamily(
                 replyClassName = spec.replyClassName,
-                guideGetter = getter.toHookPoint(),
+                guideGetter = getter?.toHookPoint(),
                 guideClears = clears.map { it.toHookPoint() },
-                guideDefault = locateDefaultInstanceGetter(guide)?.toHookPoint(),
+                guideDefault = guide?.let(::locateDefaultInstanceGetter)?.toHookPoint(),
                 // dmClears 只在 dmGetter 存在时才可能非空，两者要么同时有要么同时无。
                 dmGetter = if (dmClears.isEmpty()) null else dmGetter?.toHookPoint(),
                 dmClears = dmClears.map { it.toHookPoint() },
                 dmDefault = dmClass?.let(::locateDefaultInstanceGetter)?.toHookPoint()
             )
-            if (moss != null) {
-                KavaMemberLookup.declaredMethods(moss, makeAccessible = true) { method ->
-                    !method.isStatic && method.name == "executeViewProgress" &&
-                        method.parameterCount == 1 && method.returnType == reply
-                }.firstOrNull()?.let { mossExecutes += it.toHookPoint() }
-            }
+            locateMoss(moss, reply, "executeViewProgress", "viewProgress")
         }
 
         val dmReply = KavaMemberLookup.classOrNull(loader, PLAYER_INTERACTIVE_DM_REPLY_CLASS)
@@ -4124,10 +4127,7 @@ object VersionAdapter {
         }
         val dmMoss = KavaMemberLookup.classOrNull(loader, PLAYER_INTERACTIVE_DM_MOSS_CLASS)
         if (dmMoss != null && dmReply != null) {
-            KavaMemberLookup.declaredMethods(dmMoss, makeAccessible = true) { method ->
-                !method.isStatic && method.name == "executeDmView" &&
-                    method.parameterCount == 1 && method.returnType == dmReply
-            }.firstOrNull()?.let { mossExecutes += it.toHookPoint() }
+            locateMoss(dmMoss, dmReply, "executeDmView", "dmView")
         }
 
         if (families.isEmpty() && commandClear == null) return@runCatching null
@@ -4137,7 +4137,8 @@ object VersionAdapter {
             commandGetter = commandGetter?.toHookPoint(),
             commandClear = commandClear?.toHookPoint(),
             commandDefault = commandDefault?.toHookPoint(),
-            commandActivityMetaClear = activityMetaClear?.toHookPoint()
+            commandActivityMetaClear = activityMetaClear?.toHookPoint(),
+            mossAsync = mossAsync.distinctBy { it.label() }
         )
     }.getOrNull()
 
@@ -5173,15 +5174,15 @@ object VersionAdapter {
             .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
             .firstOrNull() ?: return@runCatching null
 
-        fun publicNoArg(owner: Class<*>, name: String): Method? =
-            KavaMemberLookup.methodOrNull(owner, name)?.takeIf { method ->
+        fun publicNoArg(owner: Class<*>?, name: String): Method? =
+            owner?.let { KavaMemberLookup.methodOrNull(it, name) }?.takeIf { method ->
                 !method.isStatic && method.parameterCount == 0 && method.isPublic
             }
 
         val contentGetter = publicNoArg(replyInfo, "getContent")
-            ?.takeIf { !it.returnType.isPrimitive } ?: return@runCatching null
-        val messageGetter = publicNoArg(contentGetter.returnType, "getMessage")
-            ?.takeIf { it.returnType == classOf<String>() } ?: return@runCatching null
+            ?.takeIf { !it.returnType.isPrimitive }
+        val messageGetter = publicNoArg(contentGetter?.returnType, "getMessage")
+            ?.takeIf { it.returnType == classOf<String>() }
         val memberGetter = publicNoArg(replyInfo, "getMember")
             ?.takeIf { !it.returnType.isPrimitive }
         val levelGetter = memberGetter?.let { getter -> publicNoArg(getter.returnType, "getLevel") }
@@ -5207,13 +5208,12 @@ object VersionAdapter {
                 )
             }
         }
-        if (levelGetter == null && memberV2LevelGetter == null) return@runCatching null
 
         // @ 整条过滤：Content 上的 `atNameToMid` map。计数 getter 是热路径的前置判据，
         // Map getter 只在计数 > 0 时才会被调用。
-        val atNameCountGetter = publicNoArg(contentGetter.returnType, "getAtNameToMidCount")
+        val atNameCountGetter = publicNoArg(contentGetter?.returnType, "getAtNameToMidCount")
             ?.takeIf { it.returnType == classOf<Int>() }
-        val atNameMapGetter = publicNoArg(contentGetter.returnType, "getAtNameToMidMap")
+        val atNameMapGetter = publicNoArg(contentGetter?.returnType, "getAtNameToMidMap")
             ?.takeIf { it.returnType isSubclassOf classOf<Map<*, *>>() }
 
         fun nameGetter(owner: Class<*>?): Method? = owner?.let {
@@ -5283,8 +5283,8 @@ object VersionAdapter {
 
         CommentFilterPoints(
             replyListGetters = listGetters,
-            contentGetter = contentGetter.toHookPoint(),
-            messageGetter = messageGetter.toHookPoint(),
+            contentGetter = contentGetter?.toHookPoint(),
+            messageGetter = messageGetter?.toHookPoint(),
             // 发布者过滤只需要 member 本身，等级链缺失时仍要保留它，否则按 UID/用户名过滤
             // 会连"能不能读到作者"都判断不了。等级路径的完整性另由 hasLevelPath 判定。
             memberGetter = memberGetter?.toHookPoint(),
@@ -5292,7 +5292,7 @@ object VersionAdapter {
             memberV2Getter = memberV2Getter?.toHookPoint(),
             memberV2BasicGetter = memberV2BasicGetter?.toHookPoint(),
             memberV2LevelGetter = memberV2LevelGetter?.toHookPoint(),
-            topReplyGetters = topReplyGetters.takeIf { replyDefaultInstance != null }.orEmpty(),
+            topReplyGetters = topReplyGetters,
             replyDefaultInstanceGetter = replyDefaultInstance?.takeIf {
                 topReplyGetters.isNotEmpty()
             }?.toHookPoint(),

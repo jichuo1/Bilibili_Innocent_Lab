@@ -2969,6 +2969,8 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE,
                             false
                         ),
+                        removePgc = prefs.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC, false),
+                        removeSpecialCards = prefs.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS, false),
                         removeCourses = prefs.getBoolean(
                             FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES,
                             false

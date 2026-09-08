@@ -1,5 +1,77 @@
 # Runtime architecture
 
+## Video-session default speed (2026-09-08)
+
+PlayerSpeedSessions extends the existing default-speed setting with two paths:
+bound Theseus playable transitions and a narrowly scoped prepared-callback bridge
+for the shared player core. Stable business anchors derive obfuscated members;
+no global speed replacement, touch hook, polling, DEX scan or persistent media ID
+is introduced. The original long-press policy and temporary speed slot remain
+independent. Same-media rebinds and explicit first-binding sharing changes preserve
+the current base; a changed media identity reinitializes the base.
+
+Prepared-callback discovery is deferred until the host registers its listener.
+Installation evidence stays partial until the concrete callback and setter are
+registered. Thread-local scopes are restored after exceptions and nested callbacks;
+only matching core/media initialization calls may change an argument. Weak-key
+state maps never hold their own player key strongly. Unknown/non-VOD sources fail
+open. See player_controls_port.md for the exact current behavior and device limits.
+
+## Homepage PGC and selected-special filtering (2026-09-08)
+
+Two default-off settings reuse the existing homepage response-list boundary:
+home.recommend.pgc.removed and home.recommend.special_cards.removed. The existing
+selection dialog, backup pipeline and authorized Remote config publish both keys;
+settings catalog v14 adds exactly these two entries. Older backups preserve their
+current values. No new dependency, host thread, network request or page-wide hook
+is introduced.
+
+HomeExtraCardPolicy is homepage-only. Exact known PGC types and bounded official
+playback routes establish film/series identity; explicit bangumi_ugc is not a
+token-only PGC match. Known special templates are considered only after PGC,
+so a special-looking film card belongs to PGC, not both switches. Unknown types,
+unrecognized URLs and unavailable optional fields fail open. Titles never identify
+these categories. CopyOnFilter preserves order, element identity and the original
+list on no match; it does not mutate the host response.
+
+Diagnostic catalog v2 adds two independently measured leaves. APPLIED requires
+publishing a filtered list containing an actual matching removal. The local-only
+server projection accepts catalog v1 and v2, retains the received version, and
+rejects v2-only IDs declared as v1. Existing payload privacy fields, consent,
+retention and independent upload quotas remain unchanged.
+
+## Independent capability coverage follow-up (2026-09-08)
+
+Adapter schema 56 / rule 51 allows missing comment content/message chains without
+discarding member-based rules, and retains discovered top-reply paths when the
+default replacement is unavailable so the coverage denominator cannot silently
+shrink. Installation enables only the usable requested judgements and preserves
+partial coverage. Dynamic item-list, topic and UP-list carriers are independently
+resolved; search title/name/uid and Story types also degrade independently.
+
+Home search suggestions use both synchronous and asynchronous DefaultWords replies
+with builder-based text-only copies. Routing fields remain untouched. Banner and
+home recommendation status strings now agree with structured partial results.
+See coverage_review_20260908.md for scope and device-validation limits.
+
+## Player interactive response coverage (2026-09-08)
+
+Adapter schema 55 / rule 50 records independent nullable Guide and DmResource
+carriers plus synchronous and asynchronous Moss paths. Guide failure no longer
+suppresses DmResource or response discovery. Each existing whitelist field is
+cleared in a host protobuf builder copy; a has/count probe must show content before
+editing and verify its absence afterward. Parent copies publish only after all
+child changes succeed. Ordinary danmaku, chapter points, Chronos and unknown fields
+are retained. No-match responses preserve identity.
+
+Both response modes use PlayerInteractiveReplyCleaner. Getter fallbacks return
+cleaned child copies, with a scoped ThreadLocal guard preventing recursive/double
+cleanup during internal reads. Command and activity-list getters have independent
+fallbacks; no callback mutates its parent reply in place. Registration completeness
+requires both response modes per leaf, not merely a registered getter. Local
+APPLIED evidence now requires actual content removal; the existing telemetry wire
+catalog remains unchanged (interactive leaves still export OBSERVED only).
+
 ## Stability repair update (2026-09-07)
 
 This update supersedes the older in-place danmaku/dynamic rewrite and synchronous

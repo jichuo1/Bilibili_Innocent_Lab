@@ -119,7 +119,9 @@
     <string name="home_recommend_filter_title">Home recommendation filters</string>
     <string name="home_recommend_filter_summary_none">No filters selected · Tap to choose</string>
     <string name="home_recommend_filter_summary_selected">Selected: %1$d / %2$d</string>
-    <string name="home_recommend_filter_dialog_description">Choose what to hide from Home recommendations. Changes are saved together only when you tap Save. Restart Bilibili to apply.</string>
+    <string name="home_recommend_filter_dialog_description">Choose what to hide, then save and restart Bilibili. Anime &amp; films covers recognized film and series cards; special cards excludes recognized film and series cards. Titles are not used to identify these categories.</string>
+    <string name="remove_home_recommend_pgc">Anime &amp; films</string>
+    <string name="remove_home_recommend_special_cards">Selected special cards</string>
     <string name="home_recommend_filter_select_all">Select all</string>
     <string name="home_recommend_filter_clear">Clear</string>
     <string name="home_recommend_filter_save">Save · %1$d / %2$d</string>
@@ -789,7 +791,7 @@
     <string name="player_speed_follow_host_tip">Do not override this playback behavior.</string>
     <string name="player_speed_multiplier">%1$s×</string>
     <string name="player_long_press_speed_paused">Saved: %1$s · inactive while acceleration is disabled</string>
-    <string name="player_speed_tip">Disabling acceleration takes priority without clearing the saved long-press speed. Default speed is applied only when a player initializes; later manual changes remain available. Restart Bilibili to apply.</string>
+    <string name="player_speed_tip">Default speed applies to new videos; manual changes remain available during playback. Long-press speed is temporary and releasing restores the base speed. Disabling long-press acceleration does not disable default speed. Follow Bilibili leaves its defaults unchanged. Restart Bilibili to apply.</string>
     <string name="player_speed_input_tip">Enter a speed from 0.25× to 4×, with up to two decimal places. Follow Bilibili restores the original behavior.</string>
     <string name="player_speed_input_hint">For example, 1.25</string>
     <string name="player_speed_invalid">Enter a value from 0.25 to 4, with up to two decimal places.</string>
