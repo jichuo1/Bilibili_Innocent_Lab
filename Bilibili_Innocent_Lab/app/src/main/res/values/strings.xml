@@ -120,8 +120,8 @@
     <string name="home_recommend_filter_summary_none">No filters selected · Tap to choose</string>
     <string name="home_recommend_filter_summary_selected">Selected: %1$d / %2$d</string>
     <string name="home_recommend_filter_dialog_description">Choose what to hide, then save and restart Bilibili. Anime &amp; films covers recognized film and series cards; special cards excludes recognized film and series cards. Titles are not used to identify these categories.</string>
-    <string name="remove_home_recommend_pgc">Anime &amp; films</string>
-    <string name="remove_home_recommend_special_cards">Selected special cards</string>
+    <string name="remove_home_recommend_pgc">Filter anime &amp; films</string>
+    <string name="remove_home_recommend_special_cards">Filter special cards</string>
     <string name="home_recommend_filter_select_all">Select all</string>
     <string name="home_recommend_filter_clear">Clear</string>
     <string name="home_recommend_filter_save">Save · %1$d / %2$d</string>
@@ -425,6 +425,8 @@
     <string name="github_menu_title">Project and updates</string>
     <string name="github_repository">Open the project GitHub repository</string>
     <string name="github_repository_tip">View source code, releases, and documentation</string>
+    <string name="sponsor_author">Sponsor the author</string>
+    <string name="sponsor_author_tip">Support long-term maintenance and development</string>
     <string name="telemetry_title">Anonymous adaptation telemetry</string>
     <string name="telemetry_enabled_summary">Enabled · Automatic upload (Per 24h)</string>
     <string name="telemetry_disabled_summary">Off · no reports are uploaded</string>

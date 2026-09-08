@@ -120,8 +120,8 @@
     <string name="home_recommend_filter_summary_none">未选择过滤内容 · 点按设置</string>
     <string name="home_recommend_filter_summary_selected">已选择 %1$d / %2$d 项</string>
     <string name="home_recommend_filter_dialog_description">勾选后保存，重启哔哩哔哩生效。番剧与影视仅过滤已识别的影视推荐；特殊卡片不包含已识别的影视卡片。这两项不按标题判断。</string>
-    <string name="remove_home_recommend_pgc">番剧与影视</string>
-    <string name="remove_home_recommend_special_cards">部分特殊卡片</string>
+    <string name="remove_home_recommend_pgc">过滤番剧与影视</string>
+    <string name="remove_home_recommend_special_cards">过滤特殊卡片</string>
     <string name="home_recommend_filter_select_all">全选</string>
     <string name="home_recommend_filter_clear">清空</string>
     <string name="home_recommend_filter_save">保存 · %1$d / %2$d</string>
@@ -425,6 +425,8 @@
     <string name="github_menu_title">项目与更新</string>
     <string name="github_repository">前往项目 GitHub 仓库</string>
     <string name="github_repository_tip">查看源码、Release 与使用说明</string>
+    <string name="sponsor_author">赞助作者</string>
+    <string name="sponsor_author_tip">支持长期维护与开发</string>
     <string name="telemetry_title">匿名适配遥测</string>
     <string name="telemetry_enabled_summary">已开启 · 自动上传（Per 24h）</string>
     <string name="telemetry_disabled_summary">已关闭 · 不会上传</string>

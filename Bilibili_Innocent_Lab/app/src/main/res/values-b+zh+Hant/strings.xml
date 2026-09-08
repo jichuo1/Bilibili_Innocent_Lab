@@ -120,8 +120,8 @@
     <string name="home_recommend_filter_summary_none">尚未選擇過濾內容 · 點按設定</string>
     <string name="home_recommend_filter_summary_selected">已選擇 %1$d / %2$d 項</string>
     <string name="home_recommend_filter_dialog_description">勾選後儲存，重新啟動 Bilibili 生效。番劇與影視僅過濾已識別的影視推薦；特殊卡片不包含已識別的影視卡片。這兩項不依標題判斷。</string>
-    <string name="remove_home_recommend_pgc">番劇與影視</string>
-    <string name="remove_home_recommend_special_cards">部分特殊卡片</string>
+    <string name="remove_home_recommend_pgc">過濾番劇與影視</string>
+    <string name="remove_home_recommend_special_cards">過濾特殊卡片</string>
     <string name="home_recommend_filter_select_all">全選</string>
     <string name="home_recommend_filter_clear">清空</string>
     <string name="home_recommend_filter_save">儲存 · %1$d / %2$d</string>
@@ -425,6 +425,8 @@
     <string name="github_menu_title">專案與更新</string>
     <string name="github_repository">前往專案的 GitHub 儲存庫</string>
     <string name="github_repository_tip">檢視原始碼、Release 與使用說明</string>
+    <string name="sponsor_author">贊助作者</string>
+    <string name="sponsor_author_tip">支援長期維護與開發</string>
     <string name="telemetry_title">匿名適配遙測</string>
     <string name="telemetry_enabled_summary">已開啟 · 自動上傳（Per 24h）</string>
     <string name="telemetry_disabled_summary">已關閉 · 不會上傳</string>
