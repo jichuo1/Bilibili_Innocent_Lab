@@ -11,8 +11,7 @@ import java.lang.reflect.Method
  *
  * 覆盖单位口径：
  * - 列表 / 置顶 getter 各算一个单位。
- * - 关键词与等级是硬依赖：正文或等级读取路径缺失时整个功能不安装（`missing`），不进分母。
- * - @ 整条与发布者是可降级判据：**用户开了就各算一个单位**，读取路径缺失时计入分母、不计入
+ * - 关键词、等级、@ 整条与发布者分别校验依赖：**用户开了就各算一个单位**，读取路径缺失时计入分母、不计入
  *   分子，让"开了却读不到"表现为 `partial` 而不是悄悄失效。
  */
 internal class CommentFilterFeatureInstaller(
@@ -61,10 +60,8 @@ internal class CommentFilterFeatureInstaller(
         }
         val adapted = points ?: return missing(environment, "missing-adapter-point")
         val accessors = Accessors(
-            content = resolve(environment, "content", adapted.contentGetter)
-                ?: return missing(environment, "missing-content-getter"),
-            message = resolve(environment, "message", adapted.messageGetter)
-                ?: return missing(environment, "missing-message-getter"),
+            content = adapted.contentGetter?.let { resolve(environment, "content", it) },
+            message = adapted.messageGetter?.let { resolve(environment, "message", it) },
             member = adapted.memberGetter?.let { resolve(environment, "member", it) },
             level = adapted.levelGetter?.let { resolve(environment, "level", it) },
             memberV2 = adapted.memberV2Getter?.let {
@@ -91,16 +88,13 @@ internal class CommentFilterFeatureInstaller(
                 resolve(environment, "member_v2_mid", it)
             }
         )
-        if (minimumLevel != null && !accessors.hasLevelPath) {
-            return missing(environment, "missing-level-getter")
-        }
 
         // 判据可用性只算一次：热路径只做布尔判断，不再重复检查 Method 是否为 null。
         val plan = JudgementPlan(
-            keywords = keywords,
+            keywords = if (accessors.hasMessagePath) keywords else emptySet(),
             minimumLevel = minimumLevel?.takeIf { accessors.hasLevelPath },
             removeAtOnly = removeAtOnly && accessors.hasAtPath,
-            userRules = if (accessors.hasAuthorPath) userRules else AuthorRuleSet.EMPTY
+            userRules = userRules.available(accessors.hasAuthorNamePath, accessors.hasAuthorMidPath)
         )
         if (!plan.hasAnyJudgement) return missing(environment, "missing-judgement-getter")
 
@@ -174,21 +168,30 @@ internal class CommentFilterFeatureInstaller(
                 "comments_minimum_level_filter_enabled" -> accessors.hasLevelPath
                 "comments_at_only_removed" -> plan.removeAtOnly
                 "comments_user_filter_enabled" -> !plan.userRules.isEmpty()
-                else -> true // content/message are mandatory resolved dependencies above
+                else -> plan.keywords.isNotEmpty()
             }
-            environment.reportCapabilityCoverage(capability, usable, sharedInstalled, sharedExpected)
+            environment.reportCapabilityCoverage(capability, usable, sharedInstalled,
+                sharedExpected + if (capability == "comments_user_filter_enabled" && plan.userRules != userRules) 1 else 0)
         }
 
         // 判据覆盖：用户开了但适配读不到的判据，要在分母里留下痕迹。
         var expected = sharedExpected
-        val degraded = ArrayList<String>(2)
+        val degraded = ArrayList<String>(4)
+        if (keywords.isNotEmpty()) {
+            expected += 1
+            if (plan.keywords.isNotEmpty()) installed += 1 else degraded += "keyword"
+        }
+        if (minimumLevel != null) {
+            expected += 1
+            if (plan.minimumLevel != null) installed += 1 else degraded += "level"
+        }
         if (removeAtOnly) {
             expected += 1
             if (plan.removeAtOnly) installed += 1 else degraded += "at-only"
         }
         if (!userRules.isEmpty()) {
             expected += 1
-            if (!plan.userRules.isEmpty()) installed += 1 else degraded += "author"
+            if (plan.userRules == userRules) installed += 1 else degraded += "author"
         }
         if (degraded.isNotEmpty()) {
             environment.logError(
@@ -343,8 +346,8 @@ internal class CommentFilterFeatureInstaller(
     }
 
     private data class Accessors(
-        val content: Method,
-        val message: Method,
+        val content: Method?,
+        val message: Method?,
         val member: Method?,
         val level: Method?,
         val memberV2: Method?,
@@ -357,17 +360,18 @@ internal class CommentFilterFeatureInstaller(
         val memberV2Name: Method?,
         val memberV2Mid: Method?
     ) {
+        val hasMessagePath: Boolean get() = content != null && message != null
         val hasLevelPath: Boolean
             get() = (member != null && level != null) ||
                 (memberV2 != null && memberV2Basic != null && memberV2Level != null)
 
         val hasAtPath: Boolean
-            get() = atNameCount != null && atNameMap != null
+            get() = hasMessagePath && atNameCount != null && atNameMap != null
 
-        val hasAuthorPath: Boolean
-            get() = (member != null && (memberName != null || memberMid != null)) ||
-                (memberV2 != null && memberV2Basic != null &&
-                    (memberV2Name != null || memberV2Mid != null))
+        val hasAuthorNamePath: Boolean get() = (member != null && memberName != null) ||
+            (memberV2 != null && memberV2Basic != null && memberV2Name != null)
+        val hasAuthorMidPath: Boolean get() = (member != null && memberMid != null) ||
+            (memberV2 != null && memberV2Basic != null && memberV2Mid != null)
     }
 
     companion object {

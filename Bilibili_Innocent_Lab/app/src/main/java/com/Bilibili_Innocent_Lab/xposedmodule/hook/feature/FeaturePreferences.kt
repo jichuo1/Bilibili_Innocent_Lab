@@ -7,6 +7,8 @@ internal object FeaturePreferences {
     const val HIDE_HOME_SEARCH_DEFAULT_WORD = "hide_home_search_default_word"
     const val HOME_VERTICAL_OPEN_DETAIL = "home_vertical_open_detail"
     const val REMOVE_HOME_RECOMMEND_ADS = "remove_home_recommend_ads"
+    const val REMOVE_HOME_RECOMMEND_PGC = "remove_home_recommend_pgc"
+    const val REMOVE_HOME_RECOMMEND_SPECIAL_CARDS = "remove_home_recommend_special_cards"
     const val REMOVE_HOME_RECOMMEND_CM_V2 = "remove_home_recommend_cm_v2"
     const val REMOVE_HOME_RECOMMEND_PICTURES = "remove_home_recommend_pictures"
     const val REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS = "remove_home_recommend_game_promotions"

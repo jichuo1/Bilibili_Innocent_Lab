@@ -119,7 +119,9 @@
     <string name="home_recommend_filter_title">首頁推薦過濾</string>
     <string name="home_recommend_filter_summary_none">尚未選擇過濾內容 · 點按設定</string>
     <string name="home_recommend_filter_summary_selected">已選擇 %1$d / %2$d 項</string>
-    <string name="home_recommend_filter_dialog_description">勾選要從首頁推薦中隱藏的內容，點選儲存後統一寫入。重新啟動 Bilibili 後生效。</string>
+    <string name="home_recommend_filter_dialog_description">勾選後儲存，重新啟動 Bilibili 生效。番劇與影視僅過濾已識別的影視推薦；特殊卡片不包含已識別的影視卡片。這兩項不依標題判斷。</string>
+    <string name="remove_home_recommend_pgc">番劇與影視</string>
+    <string name="remove_home_recommend_special_cards">部分特殊卡片</string>
     <string name="home_recommend_filter_select_all">全選</string>
     <string name="home_recommend_filter_clear">清空</string>
     <string name="home_recommend_filter_save">儲存 · %1$d / %2$d</string>
@@ -789,7 +791,7 @@
     <string name="player_speed_follow_host_tip">不覆寫此項播放行為。</string>
     <string name="player_speed_multiplier">%1$s×</string>
     <string name="player_long_press_speed_paused">已儲存：%1$s · 停用長按加速期間不生效</string>
-    <string name="player_speed_tip">停用長按加速優先，已儲存的長按倍速不會被清除。預設倍速僅在播放器初始化時設定，不持續覆寫手動選擇。重新啟動 Bilibili 後生效。</string>
+    <string name="player_speed_tip">預設倍速用於新影片，播放中手動調速仍有效。長按只暫時改變速度，放開恢復基礎速度；停用長按加速不影響預設倍速。跟隨 Bilibili 時不干預。重新啟動 Bilibili 後生效。</string>
     <string name="player_speed_input_tip">輸入 0.25～4 倍，最多兩位小數；選擇「跟隨 Bilibili」恢復原有行為。</string>
     <string name="player_speed_input_hint">例如 1.25</string>
     <string name="player_speed_invalid">請輸入 0.25～4 之間的數值，最多兩位小數。</string>

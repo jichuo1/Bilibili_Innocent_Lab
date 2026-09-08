@@ -19,7 +19,9 @@ internal class HomeRecommendPurifyFeatureInstaller(
     private val removeLarge: Boolean,
     minDurationSeconds: Int,
     maxDurationSeconds: Int,
-    private val points: VersionAdapter.HomeRecommendFeedPoints?
+    private val points: VersionAdapter.HomeRecommendFeedPoints?,
+    private val removePgc: Boolean = false,
+    private val removeSpecialCards: Boolean = false
 ) : FeatureInstaller {
 
     private val titleKeywords = if (titleFilterEnabled) {
@@ -41,13 +43,15 @@ internal class HomeRecommendPurifyFeatureInstaller(
         if (removeCourses) add("home_recommend_courses_removed")
         if (removeVertical) add("home_recommend_vertical_removed")
         if (removeLarge) add("home_recommend_large_removed")
+        if (removePgc) add("home_recommend_pgc_removed")
+        if (removeSpecialCards) add("home_recommend_special_cards_removed")
         if (durationRange.isEnabled) add("home_recommend_duration_filter")
     }
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         val hasContentFilter = removeAds || removeCmV2 || removeBanner || removePictures || removeGamePromotions ||
             titleKeywords.isNotEmpty() || removeLive || removeCourses || removeVertical ||
-            removeLarge
+            removeLarge || removePgc || removeSpecialCards
         if (durationRange.isConfigured && !durationRange.isValid) {
             environment.logError(
                 "home_recommend_duration_invalid",
@@ -84,6 +88,9 @@ internal class HomeRecommendPurifyFeatureInstaller(
             duration = resolveDuration(environment, adapted)
         )
         var partialReason: String? = null
+        val extraTypesReadable = accessors.cardType != null || accessors.cardGoto != null || accessors.goTo != null
+        if (removePgc && !extraTypesReadable && accessors.uri == null) partialReason = "missing-pgc-readers"
+        if (removeSpecialCards && !extraTypesReadable) partialReason = "missing-special-card-readers"
         if (durationRange.isEnabled && accessors.duration == null) {
             if (!hasContentFilter) return missing(environment, "missing-duration-accessor")
             partialReason = "missing-duration-accessor"
@@ -98,17 +105,29 @@ internal class HomeRecommendPurifyFeatureInstaller(
             runCatching {
                 environment.registrar.adapted("home.recommend.purify.$index", point) {
                     after {
+                        if (hasThrowable) return@after
                         val source = result as? List<*> ?: return@after
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         var removedBanners = 0
+                        var removedPgc = 0
+                        var removedSpecial = 0
                         val filtered = CopyOnFilter.list(source) { item ->
                             val signals = signals(item, accessors)
                             val isBanner = removeBanner && isHomeBanner(signals)
                             if (isBanner) removedBanners += 1
-                            isBanner || shouldRemove(signals)
+                            val kind = if (removePgc || removeSpecialCards) HomeExtraCardPolicy.classify(
+                                signals.cardType, signals.cardGoto, signals.goTo, signals.uri
+                            ) else HomeExtraCardPolicy.Kind.UNKNOWN
+                            val pgc = removePgc && kind == HomeExtraCardPolicy.Kind.PGC
+                            val special = removeSpecialCards && kind == HomeExtraCardPolicy.Kind.SPECIAL
+                            if (pgc) { removedPgc++; environment.reportRuntimeEvidence("home_recommend_pgc_removed", FeatureRuntimeStage.OBSERVED) }
+                            if (special) { removedSpecial++; environment.reportRuntimeEvidence("home_recommend_special_cards_removed", FeatureRuntimeStage.OBSERVED) }
+                            pgc || special || isBanner || shouldRemove(signals)
                         }
                         if (filtered !== source) {
                             result = filtered
+                            if (removedPgc > 0) environment.reportRuntimeEvidence("home_recommend_pgc_removed", FeatureRuntimeStage.APPLIED)
+                            if (removedSpecial > 0) environment.reportRuntimeEvidence("home_recommend_special_cards_removed", FeatureRuntimeStage.APPLIED)
                             environment.reportRuntimeEvidence(
                                 ID,
                                 FeatureRuntimeStage.APPLIED,
@@ -152,6 +171,8 @@ internal class HomeRecommendPurifyFeatureInstaller(
                 "home_recommend_cm_v2_removed" -> accessors.cardType != null // this predicate reads cardType only
                 "home_banner_feed" -> true
                 "home_recommend_large_removed" -> true // required holderType is resolved above
+                "home_recommend_pgc_removed" -> extraTypesReadable || accessors.uri != null
+                "home_recommend_special_cards_removed" -> extraTypesReadable
                 else -> routeReadable
             }
             environment.reportCapabilityCoverage(capability, readable, installed, adapted.responseItemGetters.size)
@@ -159,7 +180,8 @@ internal class HomeRecommendPurifyFeatureInstaller(
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.reportStatus(
             CHANNEL_STATUS,
-            partialReason?.let { "partial:$it" } ?: "success"
+            partialReason?.let { "partial:$it" } ?:
+                if (installed == adapted.responseItemGetters.size) "success" else "partial:$installed/${adapted.responseItemGetters.size}"
         )
         environment.logInfo(
             "home_recommend_purify_ok",
@@ -186,7 +208,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
 
     private fun signals(item: Any, accessors: Accessors): Signals {
         val needsRoute = removePictures || removeGamePromotions || removeLive ||
-            removeCourses || removeVertical || removeLarge
+            removeCourses || removeVertical || removeLarge || removePgc || removeSpecialCards
         val needsClassification = removeAds || removeCmV2 || needsRoute
         return Signals(
             holderType = if (removeAds || removeBanner || removeLarge) {

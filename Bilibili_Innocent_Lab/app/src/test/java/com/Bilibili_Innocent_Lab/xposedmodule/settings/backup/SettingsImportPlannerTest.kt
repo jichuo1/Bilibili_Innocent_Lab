@@ -7,6 +7,18 @@ import org.junit.Test
 
 class SettingsImportPlannerTest {
 
+    @Test
+    fun `old backups preserve both new homepage filter choices`() {
+        val specs = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 14 }
+        assertEquals(2, specs.size)
+        val current = snapshot(*specs.map { it to StoredSetting(true, SettingValue.Bool(true)) }.toTypedArray())
+        for (version in 1..13) {
+            val plan = SettingsImportPlanner(specs, 14).plan(document(version, emptyList()), current)
+            assertTrue(plan.entries.all { it.status == ImportStatus.NEW_IN_CURRENT })
+            assertTrue(plan.writes.isEmpty())
+        }
+    }
+
     private val enabledSpec = boolSpec("feature.enabled", default = false)
     private val manualSpec = boolSpec(
         "feature.manual",

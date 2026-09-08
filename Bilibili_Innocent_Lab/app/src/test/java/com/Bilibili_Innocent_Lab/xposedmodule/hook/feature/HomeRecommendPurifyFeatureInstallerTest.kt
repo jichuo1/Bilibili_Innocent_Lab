@@ -2,12 +2,26 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HomeRecommendPurifyFeatureInstallerTest {
+    @Test fun `partial response registration cannot report complete success`() {
+        val base = requireNotNull(VersionAdapter.locateHomeRecommendFeed(javaClass.classLoader!!))
+        val points = base.copy(responseItemGetters = listOf(base.responseItemGetters.first(), base.responseItemGetters.first()))
+        val statuses = mutableListOf<Pair<String, String>>()
+        val env = environment(statuses).copy(registrar = object : HookRegistrar by TestHookRegistrar {
+            override fun adapted(id: String, point: VersionAdapter.HookPoint, block: ModernMemberHookCreator.() -> Unit) {
+                if (id.endsWith(".0")) error("registration failed")
+            }
+        })
+        val result = installer(0, 0, removeAds = true, points = points).install(env)
+        assertTrue(result is FeatureInstallResult.Installed && !result.complete)
+        assertEquals("partial:1/2", statuses.single().second)
+    }
     @Test
     fun missingDurationHasItsOwnFailureWithoutDowngradingTheWorkingAdFilter() {
         val points = requireNotNull(VersionAdapter.locateHomeRecommendFeed(requireNotNull(javaClass.classLoader)))

@@ -24,12 +24,13 @@ class PlayerInteractiveOverlayFeatureInstallerTest {
             VersionAdapter.locatePlayerInteractiveOverlays(requireNotNull(javaClass.classLoader))
         )
 
-    /** 覆盖单位 = Guide 家族 + DmResource 第二载体 + Moss 双保险 + 指令弹幕 + 运营活动横幅。 */
-    private fun expectedUnits(
+    /** 实际注册点：同步/异步响应加 getter 后备，不把注册数量当作叶子完整性。 */
+    private fun expectedHooks(
         points: VersionAdapter.PlayerInteractiveOverlayPoints
-    ): Int = points.families.size +
+    ): Int = points.families.count { it.guideGetter != null } +
         points.families.count { it.dmGetter != null && it.dmClears.isNotEmpty() } +
         points.mossExecutes.size +
+        points.mossAsync.size +
         1 +
         (if (points.commandActivityMetaClear != null) 1 else 0)
 
@@ -77,7 +78,7 @@ class PlayerInteractiveOverlayFeatureInstallerTest {
             points = points
         ).install(environment)
 
-        val expected = expectedUnits(points)
+        val expected = expectedHooks(points)
         assertEquals(FeatureInstallResult.Installed(expected), result)
         assertEquals("success", status())
     }
@@ -107,8 +108,8 @@ class PlayerInteractiveOverlayFeatureInstallerTest {
             .install(environment)
 
         // 家族被跳过也必须计入分母，否则整组白名单失效会被算成 success。
-        val expected = expectedUnits(broken)
-        assertEquals("partial:${expected - 1}/$expected", status())
+        // 统一 Guide 的三个白名单叶子各缺少同步/异步两条路径，其他载体不受影响。
+        assertEquals("partial:22/28", status())
     }
 
     @Test
@@ -120,15 +121,15 @@ class PlayerInteractiveOverlayFeatureInstallerTest {
             // 同时去掉 DM 的 Moss 兜底，指令弹幕就真的没有清除路径了。
             mossExecutes = points.mossExecutes.filterNot {
                 it.className == VersionAdapter.PLAYER_INTERACTIVE_DM_MOSS_CLASS
-            }
+            },
+            mossAsync = points.mossAsync.filterNot { it.className == VersionAdapter.PLAYER_INTERACTIVE_DM_MOSS_CLASS }
         )
 
         PlayerInteractiveOverlayFeatureInstaller(enabled = true, points = stranded)
             .install(environment)
 
-        // 指令弹幕与运营活动横幅共用这两条通路，两条都断就是两个单位一起丢。
-        val expected = expectedUnits(stranded)
-        assertEquals("partial:${expected - 2}/$expected", status())
+        // 指令和横幅各缺同步/异步两条路径，getter 后备不能把主路径缺口抹掉。
+        assertEquals("partial:24/28", status())
     }
 
     @Test

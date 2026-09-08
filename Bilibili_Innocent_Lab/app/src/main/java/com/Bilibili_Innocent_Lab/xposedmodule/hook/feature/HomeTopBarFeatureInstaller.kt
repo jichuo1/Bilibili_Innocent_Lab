@@ -58,6 +58,7 @@ internal class HomeTopBarFeatureInstaller(
             searchViewReady = viewPoint != null && runCatching {
                 environment.registrar.adapted("home.top_bar.search_view", viewPoint) {
                     after {
+                        if (hasThrowable) return@after
                         clearSearchText(instance, viewPoint.viewField, environment)
                     }
                 }
@@ -90,42 +91,36 @@ internal class HomeTopBarFeatureInstaller(
             searchWordReady = wordPoints.isNotEmpty() && installedWordMethods == wordPoints.size
         }
 
-        // 协议层补一刀：View 层只能清掉首页搜索框里那一行字，推荐词的来源在
-        // SearchMoss.executeDefaultWords，搜索页自己也会读它。宿主没有这个类时属于
-        // "不适用"，不计入完整性判定。
+        // View 和协议层相互独立；同步/异步响应都清理文案，任一缺失必须报告 partial。
         var searchProtocolReady = true
-        val searchMoss = environment.classLoader?.let {
+        val searchMoss = if (hideSearchDefaultWord) environment.classLoader?.let {
             KavaMemberLookup.classOrNull(it, SEARCH_MOSS_CLASS)
-        }
-        if (hideSearchDefaultWord && searchMoss != null) {
-            // 类存在就必须装上：解析失败要算 partial，不能和"宿主根本没这个类"混为一谈。
+        } else null
+        if (searchMoss != null) {
             val protocol = resolveDefaultWordsBoundary(environment, searchMoss)
-            searchProtocolReady = protocol != null && run {
-                runCatching {
-                    environment.registrar.exact(
-                        "home.top_bar.search_default_words",
-                        protocol.method.declaringClass,
-                        protocol.method.name,
-                        *protocol.method.parameterTypes
-                    ) {
-                        after {
-                            if (hasThrowable) return@after
-                            val reply = result ?: return@after
-                            // 字段未设置时拿到的是进程级单例，改它会污染整个进程。
-                            if (protocol.defaultInstance != null &&
-                                reply === protocol.defaultInstance
-                            ) {
-                                return@after
-                            }
-                            protocol.clears.forEach { clear ->
-                                runCatching { clear.invoke(reply) }
+            var registered = 0
+            if (protocol != null) {
+                listOfNotNull(protocol.sync?.let { it to false }, protocol.async?.let { it to true }).forEach { (method, async) ->
+                    if (runCatching {
+                        environment.registrar.exact("home.top_bar.search_default_words.$async",
+                            method.declaringClass, method.name, *method.parameterTypes) {
+                            if (async) before {
+                                val delegate = argOrNull(1) ?: return@before
+                                val proxy = MossResponseHandlerProxy.wrapTransform(protocol.handler!!, delegate) {
+                                    protocol.cleaner.clean(it, environment)
+                                } ?: return@before
+                                args[1] = proxy
+                            } else after {
+                                if (hasThrowable) return@after
+                                val original = result ?: return@after
+                                val updated = protocol.cleaner.clean(original, environment)
+                                if (updated !== original) result = updated
                             }
                         }
-                    }
-                    installedCount += 1
-                    true
-                }.isSuccess
+                    }.isSuccess) { registered++; installedCount++ }
+                }
             }
+            searchProtocolReady = registered == 2 && protocol?.cleaner?.complete == true
         }
 
         val ready = gameReady && searchViewReady && searchWordReady && searchProtocolReady
@@ -135,7 +130,7 @@ internal class HomeTopBarFeatureInstaller(
         if (hideSearchDefaultWord) environment.reportCapabilityCoverage(
             "home_top_bar_search_word_hidden", true,
             installedCount - if (hideGameMenu && gameReady) 1 else 0,
-            1 + points?.defaultWordMethods.orEmpty().size.coerceAtLeast(1) + if (searchMoss != null) 1 else 0
+            1 + points?.defaultWordMethods.orEmpty().size.coerceAtLeast(1) + if (searchMoss != null) 2 else 0
         )
         val summary = if (ready) {
             "success"
@@ -173,37 +168,23 @@ internal class HomeTopBarFeatureInstaller(
      * 均只有一个重载、且都有跨 dex 调用方）。一个可清的文案字段都找不到时返回 null，
      * 由调用方计为 `search-protocol` 降级。
      */
-    private fun resolveDefaultWordsBoundary(
-        environment: HookEnvironment,
-        moss: Class<*>
-    ): DefaultWordsBoundary? {
-        val method = KavaMemberLookup.declaredMethods(moss, makeAccessible = true) { candidate ->
-            !candidate.isStatic && candidate.name == DEFAULT_WORDS_METHOD &&
-                candidate.parameterCount == 1 && !candidate.returnType.isPrimitive
-        }.singleOrNull() ?: return null
-        val replyClass = method.returnType
-        val clears = DEFAULT_WORDS_TEXT_CLEARS.mapNotNull { name ->
-            KavaMemberLookup.methodOrNull(replyClass, name)?.takeIf {
-                !it.isStatic && it.parameterCount == 0 && it.returnType == Void.TYPE
-            }
-        }
-        if (clears.isEmpty()) {
-            environment.logError(
-                "home_search_default_words_missing",
-                "[BIL] 搜索默认词协议边界缺少可清空的文案字段"
-            )
-            return null
-        }
-        val defaultInstance = KavaMemberLookup.methodOrNull(replyClass, "getDefaultInstance")
-            ?.takeIf { it.isStatic && it.parameterCount == 0 && it.returnType == replyClass }
-            ?.let { runCatching { it.invoke(null) }.getOrNull() }
-        return DefaultWordsBoundary(method, clears, defaultInstance)
+    private fun resolveDefaultWordsBoundary(environment: HookEnvironment, moss: Class<*>): DefaultWordsBoundary? {
+        val loader = environment.classLoader ?: return null
+        val reply = KavaMemberLookup.classOrNull(loader, "com.bapis.bilibili.app.interfaces.v1.DefaultWordsReply") ?: return null
+        val cleaner = SearchDefaultWordsCleaner.resolve(reply) ?: return null
+        val methods = KavaMemberLookup.declaredMethods(moss, makeAccessible = true)
+        val sync = methods.filter { !it.isStatic && it.name == DEFAULT_WORDS_METHOD &&
+            it.parameterCount == 1 && it.returnType == reply }.singleOrNull()
+        val handler = KavaMemberLookup.classOrNull(loader, "com.bilibili.lib.moss.api.MossResponseHandler")
+            ?.takeIf { it.isInterface }
+        val async = methods.filter { !it.isStatic && it.name == "defaultWords" && it.parameterCount == 2 &&
+            it.returnType == Void.TYPE && it.parameterTypes[1] == handler }.singleOrNull()
+        return DefaultWordsBoundary(sync, async, handler, cleaner)
     }
 
     private class DefaultWordsBoundary(
-        val method: Method,
-        val clears: List<Method>,
-        val defaultInstance: Any?
+        val sync: Method?, val async: Method?, val handler: Class<*>?,
+        val cleaner: SearchDefaultWordsCleaner
     )
 
     private fun clearSearchText(
@@ -236,14 +217,6 @@ internal class HomeTopBarFeatureInstaller(
         private const val GAME_MENU_ACTION = "action://game_center/home/menu"
         private const val SEARCH_MOSS_CLASS = "com.bapis.bilibili.app.interfaces.v1.SearchMoss"
         private const val DEFAULT_WORDS_METHOD = "executeDefaultWords"
-
-        /**
-         * 搜索默认词里承载文案的三个字段。
-         *
-         * 刻意不动 `goto`/`uri`/`param` 这些跳转字段：清掉它们会让搜索框的点击目标一起消失，
-         * 而用户要的只是"别给我塞推荐词"。
-         */
-        private val DEFAULT_WORDS_TEXT_CLEARS = listOf("clearShow", "clearWord", "clearValue")
 
         /** 顶部菜单基类共用同一构建方法，只对配置对象中含游戏 action 的实例放行拦截。 */
         internal fun hasGameMenuAction(target: Any, configFieldName: String?): Boolean {

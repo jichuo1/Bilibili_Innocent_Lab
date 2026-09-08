@@ -52,6 +52,7 @@ class DiagnosticCapabilityCatalogTest {
             assertTrue(ids.add(id))
             val local = DiagnosticCapabilityCatalog.byId.getValue(id)
             assertEquals(local.parentId, row.getString("parent"))
+            assertEquals(local.introducedCatalogVersion, row.optInt("since", 1))
             assertEquals(DiagnosticCapabilityCatalog.runtimeSupport(id), row.getInt("runtime"))
             assertTrue(row.getString("label").isNotBlank())
         }

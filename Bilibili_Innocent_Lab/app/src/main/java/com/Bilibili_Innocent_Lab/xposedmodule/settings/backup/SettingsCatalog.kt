@@ -19,7 +19,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorS
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 13
+    const val CATALOG_VERSION = 14
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
@@ -123,6 +123,10 @@ internal object SettingsCatalog {
         bool("home.recommend.title_filter.enabled", FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_ENABLED, R.string.home_recommend_title_filter),
         text("home.recommend.title_filter.keywords", FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_KEYWORDS, R.string.home_recommend_title_rules),
         bool("home.recommend.live.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE, R.string.remove_home_recommend_live),
+        bool("home.recommend.pgc.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC,
+            R.string.remove_home_recommend_pgc, introducedCatalogVersion = 14),
+        bool("home.recommend.special_cards.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS,
+            R.string.remove_home_recommend_special_cards, introducedCatalogVersion = 14),
         bool("home.recommend.courses.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES, R.string.remove_home_recommend_courses),
         bool("home.recommend.vertical.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_VERTICAL, R.string.remove_home_recommend_vertical),
         bool("home.recommend.large.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE, R.string.remove_home_recommend_large),
@@ -512,7 +516,7 @@ internal object SettingsCatalog {
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
 
     init {
-        check(specs.size == 119) { "Expected 119 catalog settings, found ${specs.size}" }
+        check(specs.size == 121) { "Expected 121 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

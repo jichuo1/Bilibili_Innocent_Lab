@@ -119,7 +119,9 @@
     <string name="home_recommend_filter_title">首页推荐过滤</string>
     <string name="home_recommend_filter_summary_none">未选择过滤内容 · 点按设置</string>
     <string name="home_recommend_filter_summary_selected">已选择 %1$d / %2$d 项</string>
-    <string name="home_recommend_filter_dialog_description">勾选要从首页推荐中隐藏的内容，点击保存后统一写入。重启哔哩哔哩后生效。</string>
+    <string name="home_recommend_filter_dialog_description">勾选后保存，重启哔哩哔哩生效。番剧与影视仅过滤已识别的影视推荐；特殊卡片不包含已识别的影视卡片。这两项不按标题判断。</string>
+    <string name="remove_home_recommend_pgc">番剧与影视</string>
+    <string name="remove_home_recommend_special_cards">部分特殊卡片</string>
     <string name="home_recommend_filter_select_all">全选</string>
     <string name="home_recommend_filter_clear">清空</string>
     <string name="home_recommend_filter_save">保存 · %1$d / %2$d</string>
@@ -789,7 +791,7 @@
     <string name="player_speed_follow_host_tip">不覆盖此项播放行为。</string>
     <string name="player_speed_multiplier">%1$s×</string>
     <string name="player_long_press_speed_paused">已保存：%1$s · 禁用长按加速期间不生效</string>
-    <string name="player_speed_tip">禁用长按加速优先，已保存的长按倍速不会被清空。默认倍速仅在播放器初始化时设置，不持续覆盖手动选择。重启哔哩哔哩后生效。</string>
+    <string name="player_speed_tip">默认倍速用于新视频，播放中手动调速仍有效。长按只临时改变速度，松手恢复基础速度；禁用长按加速不影响默认倍速。跟随哔哩哔哩时不干预。重启哔哩哔哩后生效。</string>
     <string name="player_speed_input_tip">输入 0.25～4 倍，最多两位小数；选择“跟随哔哩哔哩”恢复原有行为。</string>
     <string name="player_speed_input_hint">例如 1.25</string>
     <string name="player_speed_invalid">请输入 0.25～4 之间的数值，最多两位小数。</string>
