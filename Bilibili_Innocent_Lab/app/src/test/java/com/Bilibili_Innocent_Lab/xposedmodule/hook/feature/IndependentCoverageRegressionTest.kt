@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import com.bapis.bilibili.app.interfaces.v1.*
 import com.bapis.bilibili.main.community.reply.v1.ReplyInfo
@@ -16,7 +17,12 @@ class IndependentCoverageRegressionTest {
             VersionAdapter.HookPoint("android.view.View", "onAttachedToWindow", emptyList()),
             VersionAdapter.HookPoint("android.view.View", "onVisibilityChanged", emptyList())))
         val failures = object : HookRegistrar by TestHookRegistrar {
-            override fun adapted(id: String, point: VersionAdapter.HookPoint, block: ModernMemberHookCreator.() -> Unit) {
+            override fun adapted(
+                id: String,
+                point: VersionAdapter.HookPoint,
+                exceptionPolicy: HookExceptionPolicy,
+                block: ModernMemberHookCreator.() -> Unit
+            ) {
                 if (id.endsWith(".1")) error("registration failed")
             }
         }
@@ -27,7 +33,12 @@ class IndependentCoverageRegressionTest {
     private val recorded = PlayerPortTestRegistrar()
     private var status = ""
     private val registrar = object : HookRegistrar by recorded {
-        override fun adapted(id: String, point: VersionAdapter.HookPoint, block: ModernMemberHookCreator.() -> Unit) {
+        override fun adapted(
+                id: String,
+                point: VersionAdapter.HookPoint,
+                exceptionPolicy: HookExceptionPolicy,
+                block: ModernMemberHookCreator.() -> Unit
+            ) {
             recorded.exact(id, Class.forName(point.className), point.methodName,
                 *point.paramClassNames.orEmpty().map { Class.forName(it) }.toTypedArray(), block = block)
         }

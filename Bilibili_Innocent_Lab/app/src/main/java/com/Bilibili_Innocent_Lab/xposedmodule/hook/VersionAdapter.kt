@@ -16,6 +16,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistRequest
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexKitAssistEngine
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexSourceFingerprint
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetAppStorage
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
@@ -2559,18 +2560,22 @@ object VersionAdapter {
         if (!dexAuditRunning.compareAndSet(false, true)) return
         val worker = Thread({
             try {
-                val actual = runCatching {
-                    context.packageManager.getPackageInfo("tv.danmaku.bili", 0).applicationInfo
-                }.getOrNull()?.let(DexSourceFingerprint::inspect)?.value
-                when (actual) {
-                    null -> ModernHookLog.info("[BIL] DEX 指纹不可读，保留现有适配缓存")
-                    expected -> Unit
-                    else -> {
-                        ModernHookLog.info(
-                            "[BIL] 宿主 DEX 内容已变化，作废适配缓存 " +
-                                "expected=$expected actual=$actual"
-                        )
-                        clearCache(context, modulePrefs = null)
+                // 线程体必须过防波堤：这是宿主进程内的线程，Android 对**任何**线程的
+                // 逃逸异常都按杀进程处理，原先 try/finally 无 catch 会直接带走宿主。
+                HostThreadGuard.run("adapter.dex_audit") {
+                    val actual = runCatching {
+                        context.packageManager.getPackageInfo("tv.danmaku.bili", 0).applicationInfo
+                    }.getOrNull()?.let(DexSourceFingerprint::inspect)?.value
+                    when (actual) {
+                        null -> ModernHookLog.info("[BIL] DEX 指纹不可读，保留现有适配缓存")
+                        expected -> Unit
+                        else -> {
+                            ModernHookLog.info(
+                                "[BIL] 宿主 DEX 内容已变化，作废适配缓存 " +
+                                    "expected=$expected actual=$actual"
+                            )
+                            clearCache(context, modulePrefs = null)
+                        }
                     }
                 }
             } finally {
@@ -2641,18 +2646,22 @@ object VersionAdapter {
         val worker = Thread({
             var result: AdaptResult? = null
             try {
-                result = runCatching { adapt(context, classLoader) }.getOrNull()
-                if (result != null) {
-                    // 写文件缓存（loadApp 快路径载体）；校验后原子替换，旧缓存不会被半截 JSON 覆盖。
-                    if (!writeCache(result)) {
-                        ModernHookLog.error("[BIL] 版本适配文件缓存写入失败")
-                    }
-                    // 写 prefs 缓存（模块 App 侧可读，供 UI 展示适配状态）
-                    runCatching {
-                        prefs(context).edit()
-                            .putInt(KEY_ADAPTED_VERSION, result.biliVersionCode)
-                            .putString(KEY_ADAPT_RESULT, result.toJson().toString())
-                            .apply()
+                // `adapt` 已自带 runCatching，但 writeCache 与日志不在其中；宿主进程内
+                // 线程的逃逸异常一律杀进程，整段必须过防波堤。
+                HostThreadGuard.run("adapter.adapt_worker") {
+                    result = runCatching { adapt(context, classLoader) }.getOrNull()
+                    result?.let { adapted ->
+                        // 写文件缓存（loadApp 快路径载体）；校验后原子替换，旧缓存不会被半截 JSON 覆盖。
+                        if (!writeCache(adapted)) {
+                            ModernHookLog.error("[BIL] 版本适配文件缓存写入失败")
+                        }
+                        // 写 prefs 缓存（模块 App 侧可读，供 UI 展示适配状态）
+                        runCatching {
+                            prefs(context).edit()
+                                .putInt(KEY_ADAPTED_VERSION, adapted.biliVersionCode)
+                                .putString(KEY_ADAPT_RESULT, adapted.toJson().toString())
+                                .apply()
+                        }
                     }
                 }
             } finally {
@@ -5934,8 +5943,14 @@ object VersionAdapter {
                     Toast.makeText(context, text, Toast.LENGTH_LONG).show()
                 } else {
                     // 保留 Handler 切换主线程的既有行为，不交由扩展创建后台 Looper。
+                    // 外层 runCatching 只覆盖 post 本身；Runnable 稍后跑在宿主主线程上，
+                    // 必须自带防波堤。
                     //noinspection ReplaceWithToastExtension
-                    android.os.Handler(looper).post { Toast.makeText(context, text, Toast.LENGTH_LONG).show() }
+                    android.os.Handler(looper).post(
+                        HostThreadGuard.runnable("adapter.toast") {
+                            Toast.makeText(context, text, Toast.LENGTH_LONG).show()
+                        }
+                    )
                 }
             }
         }

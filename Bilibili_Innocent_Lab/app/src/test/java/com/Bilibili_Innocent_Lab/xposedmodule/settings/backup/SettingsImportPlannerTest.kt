@@ -6,6 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsImportPlannerTest {
+    @Test fun `older backups preserve frequent visits choice`() {
+        val spec = SettingsCatalog.byId.getValue("dynamic.frequent_visits.hidden")
+        val current = snapshot(spec to StoredSetting(true, SettingValue.Bool(true)))
+        for (version in 1..14) {
+            val plan = SettingsImportPlanner(listOf(spec), 15).plan(document(version, emptyList()), current)
+            assertEquals(ImportStatus.NEW_IN_CURRENT, plan.entries.single().status)
+            assertTrue(plan.writes.isEmpty())
+        }
+    }
 
     @Test
     fun `old backups preserve both new homepage filter choices`() {

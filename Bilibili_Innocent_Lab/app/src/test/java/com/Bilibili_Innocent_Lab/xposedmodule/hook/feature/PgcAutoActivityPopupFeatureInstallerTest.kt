@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import com.bilibili.ship.theseus.ogv.activity.OgvActivityHalfScreenPopup
 import com.bilibili.ship.theseus.ogv.activity.OgvActivityVo
@@ -26,7 +27,10 @@ class PgcAutoActivityPopupFeatureInstallerTest {
     private var registrations = 0
     private val registrar = object : HookRegistrar by TestHookRegistrar {
         override fun adapted(
-            id: String, point: VersionAdapter.HookPoint, block: ModernMemberHookCreator.() -> Unit
+            id: String,
+            point: VersionAdapter.HookPoint,
+            exceptionPolicy: HookExceptionPolicy,
+            block: ModernMemberHookCreator.() -> Unit
         ) {
             registrations++
             assertEquals(points.construct, point)
@@ -115,7 +119,10 @@ class PgcAutoActivityPopupFeatureInstallerTest {
         assertEquals(0, registrations)
         val broken = object : HookRegistrar by TestHookRegistrar {
             override fun adapted(
-                id: String, point: VersionAdapter.HookPoint, block: ModernMemberHookCreator.() -> Unit
+                id: String,
+                point: VersionAdapter.HookPoint,
+                exceptionPolicy: HookExceptionPolicy,
+                block: ModernMemberHookCreator.() -> Unit
             ) = throw IllegalStateException("fixture registration failure")
         }
         assertEquals(FeatureInstallResult.Skipped("registration-failed"), install(environment.copy(registrar = broken)))

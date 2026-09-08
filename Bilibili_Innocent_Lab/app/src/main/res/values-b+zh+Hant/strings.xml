@@ -757,6 +757,8 @@
     <string name="remove_dynamic_charge_only">隱藏未解鎖的充電專屬動態</string>
     <string name="remove_dynamic_charge_only_tip">開啟後，隱藏未解鎖的充電專屬動態；已解鎖或權限不明的動態保留。重新啟動嗶哩嗶哩後生效。</string>
     <string name="hide_dynamic_topic_list">隱藏動態頁話題欄</string>
+    <string name="hide_dynamic_frequent_visits">隱藏動態頁最常訪問</string>
+    <string name="hide_dynamic_frequent_visits_tip">開啟後，整塊隱藏動態頁頂部的最常訪問區域，不留佔位，不影響動態內容。整欄隱藏時不再單獨過濾其中的直播項目。重新啟動 Bilibili 後生效。</string>
     <string name="hide_dynamic_topic_list_tip">開啟後，隱藏動態列表上方的話題欄，不影響動態內容。重新啟動嗶哩嗶哩後生效。</string>
     <string name="remove_dynamic_live_up_entries">隱藏頂部 UP 欄的直播項目</string>
     <string name="remove_dynamic_live_up_entries_tip">開啟後，隱藏動態頁頂部 UP 欄的直播項目，不留空位。重新啟動嗶哩嗶哩後生效。</string>

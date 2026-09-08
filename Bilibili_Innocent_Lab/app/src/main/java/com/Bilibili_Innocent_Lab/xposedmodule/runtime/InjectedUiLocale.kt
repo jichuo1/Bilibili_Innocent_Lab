@@ -104,7 +104,10 @@ internal object InjectedUiLocale {
         val appContext = context.applicationContext ?: context
         runCatching {
             Thread({
-                queryModuleSelection(appContext)?.let { updateHostSelection(appContext, it) }
+                // 宿主进程内线程；Provider 查询与缓存回写都可能抛，逃逸即杀宿主。
+                HostThreadGuard.run("locale.host_query") {
+                    queryModuleSelection(appContext)?.let { updateHostSelection(appContext, it) }
+                }
             }, "BIL-InjectedUiLocale").apply {
                 isDaemon = true
                 start()

@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.highcapable.kavaref.extension.classOf
@@ -33,19 +34,34 @@ internal class BlockUpdateFeatureInstaller(
         }
 
         return runCatching {
-            environment.registrar.adapted("update.block.check", adapted) {
+            // 唯一使用 DELIVER_TO_HOST 的 Hook：本功能的全部作用就是让宿主的更新检查以
+            // 它自己的 LatestVersionException 结束。默认的 PROTECT_HOST
+            // （framework `ExceptionMode.PROTECTIVE`）契约是“捕获并按没装 Hook 继续”，
+            // 在那个模式下 `throwable` 永远到不了宿主，屏蔽会静默失效。
+            //
+            // 代价是这里没有框架兜底，所以回调体必须保证**只有**这条刻意的异常会逃逸：
+            // 消息解析、构造和失败日志全部收在 runCatching 内，构造失败即放行官方检查。
+            environment.registrar.adapted(
+                "update.block.check",
+                adapted,
+                HookExceptionPolicy.DELIVER_TO_HOST
+            ) {
                 before {
                     val exception = runCatching {
                         val message = InjectedUiLocale.messages(
                             ReflectAccess.currentApplication()
                         ).latestVersionMessage
                         exceptionConstructor.newInstance(message) as Throwable
-                    }.onFailure { throwable ->
-                        environment.logError(
-                            "block_update_exception_err",
-                            "[BIL] 构造宿主最新版状态失败，已放行官方更新检查: $throwable"
-                        )
-                    }.getOrNull()
+                    }.getOrElse { failure ->
+                        // 日志本身也不能逃逸——它和上面的构造同处 PASSTHROUGH 回调内。
+                        runCatching {
+                            environment.logError(
+                                "block_update_exception_err",
+                                "[BIL] 构造宿主最新版状态失败，已放行官方更新检查: $failure"
+                            )
+                        }
+                        null
+                    }
                     if (exception != null) throwable = exception
                 }
             }

@@ -43,7 +43,8 @@ internal class DynamicPurifyFeatureInstaller(
     private val removePromotion: Boolean,
     private val removeLockedChargeOnly: Boolean,
     private val hideTopicList: Boolean,
-    private val removeLiveUpEntries: Boolean
+    private val removeLiveUpEntries: Boolean,
+    private val hideFrequentVisits: Boolean = false
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -53,7 +54,8 @@ internal class DynamicPurifyFeatureInstaller(
         if (removePromotion) add("dynamic_promotions_removed")
         if (removeLockedChargeOnly) add("dynamic_charge_only_removed")
         if (hideTopicList) add("dynamic_topic_list_hidden")
-        if (removeLiveUpEntries) add("dynamic_up_list_live_removed")
+        if (removeLiveUpEntries && !hideFrequentVisits) add("dynamic_up_list_live_removed")
+        if (hideFrequentVisits) add("dynamic_frequent_visits_hidden")
     }
 
     private val keywords = if (keywordFilterEnabled) {
@@ -69,7 +71,7 @@ internal class DynamicPurifyFeatureInstaller(
 
     private val anyRequested: Boolean
         get() = keywords.isNotEmpty() || authorRules.isNotEmpty() || removePromotion ||
-            removeLockedChargeOnly || hideTopicList || removeLiveUpEntries
+            removeLockedChargeOnly || hideTopicList || removeLiveUpEntries || hideFrequentVisits
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!anyRequested) {
@@ -83,7 +85,8 @@ internal class DynamicPurifyFeatureInstaller(
         val mossClass = environment.hookPoints.resolveClass("dynamic.purify.moss", DYNAMIC_MOSS_CLASS)
             ?: return missing(environment, "missing-moss-class")
 
-        val itemMembers = resolveItemMembers(loader)
+        val itemMembers = if (hideFrequentVisits && keywords.isEmpty() && authorRules.isEmpty() &&
+            !removePromotion && !removeLockedChargeOnly) null else resolveItemMembers(loader)
         val plan = DynamicPurifyPolicy.Plan(
             keywords = if (itemMembers?.hasTextSource == true) keywords else emptySet(),
             authorRules = authorRules.available(itemMembers?.hasAuthorSource == true && itemMembers.author?.origName != null,
@@ -94,7 +97,8 @@ internal class DynamicPurifyFeatureInstaller(
 
         val feeds = FEED_METHODS.mapNotNull { spec -> resolveFeed(loader, mossClass, spec) }.filter { feed ->
             (plan.hasAnyItemJudgement && feed.listBuilder != null) ||
-                (hideTopicList && feed.clearTopicList != null) || (removeLiveUpEntries && feed.upList != null)
+                (hideTopicList && feed.clearTopicList != null) || (removeLiveUpEntries && feed.upList != null) ||
+                (hideFrequentVisits && feed.wholeUpList != null)
         }
         if (feeds.isEmpty()) return missing(environment, "no-dynamic-hook-point")
 
@@ -122,6 +126,7 @@ internal class DynamicPurifyFeatureInstaller(
         val sharedExpected = FEED_METHODS.size * 2
         for (capability in capabilityIds) {
             val compatibleFeeds = feeds.filter { feed -> when (capability) {
+                "dynamic_frequent_visits_hidden" -> feed.wholeUpList != null
                 "dynamic_topic_list_hidden" -> feed.clearTopicList != null
                 "dynamic_up_list_live_removed" -> feed.upList != null
                 else -> feed.listBuilder != null
@@ -131,11 +136,13 @@ internal class DynamicPurifyFeatureInstaller(
                 "dynamic_author_filter_enabled" -> plan.authorRules.isNotEmpty()
                 "dynamic_promotions_removed" -> plan.removePromotion
                 "dynamic_charge_only_removed" -> plan.removeLockedChargeOnly
+                "dynamic_frequent_visits_hidden" -> feeds.any { it.wholeUpList != null }
                 "dynamic_topic_list_hidden" -> feeds.any { it.clearTopicList != null }
                 "dynamic_up_list_live_removed" -> feeds.any { it.upList != null }
                 else -> false
             }
             val completeData = when (capability) {
+                "dynamic_frequent_visits_hidden" -> feeds.size == FEED_METHODS.size && feeds.all { it.wholeUpList != null }
                 "dynamic_topic_list_hidden" -> feeds.size == FEED_METHODS.size && feeds.all { it.clearTopicList != null }
                 "dynamic_up_list_live_removed" -> feeds.size == FEED_METHODS.size && feeds.all { it.upList != null }
                 else -> feeds.size == FEED_METHODS.size && feeds.all { it.listBuilder != null } &&
@@ -161,7 +168,8 @@ internal class DynamicPurifyFeatureInstaller(
         account(removePromotion, plan.removePromotion, "promotion")
         account(removeLockedChargeOnly, plan.removeLockedChargeOnly, "charge-only")
         account(hideTopicList, feeds.any { it.clearTopicList != null }, "topic-list")
-        account(removeLiveUpEntries, feeds.any { it.upList != null }, "up-live")
+        account(removeLiveUpEntries && !hideFrequentVisits, feeds.any { it.upList != null }, "up-live")
+        account(hideFrequentVisits, feeds.size == FEED_METHODS.size && feeds.all { it.wholeUpList != null }, "frequent-visits")
         if (degraded.isNotEmpty()) {
             environment.logError(
                 "dynamic_purify_degraded",
@@ -257,20 +265,31 @@ internal class DynamicPurifyFeatureInstaller(
         // 字段未设置时宿主拿到的是进程级单例，改它会污染整个进程。
         if (feed.defaultReply != null && reply === feed.defaultReply) return reply
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+        var removingWhole = false
         return runCatching {
             val items = purifyItems(reply, feed, itemMembers, plan)
             val clearTopic = hideTopicList && feed.clearTopicList != null &&
                 feed.hasTopicList?.let { invoke(it, reply) as? Boolean } == true
+            val whole = feed.wholeUpList
+            val clearWhole = hideFrequentVisits && whole != null && invoke(whole.has, reply) == true
+            removingWhole = clearWhole
+            if (clearWhole) environment.reportRuntimeEvidence("dynamic_frequent_visits_hidden", FeatureRuntimeStage.OBSERVED)
             val upList = purifyUpList(reply, feed)
-            if (items == null && !clearTopic && upList == null) return@runCatching reply
+            if (items == null && !clearTopic && !clearWhole && upList == null) return@runCatching reply
             val updated = feed.builder.edit(reply) { builder ->
                 if (items != null) feed.setDynamicList!!.invoke(builder, items)
                 if (clearTopic) feed.clearTopicList.invoke(builder)
+                if (clearWhole) whole!!.clear.invoke(builder)
                 if (upList != null) feed.upList!!.setter.invoke(builder, upList)
+            }
+            if (clearWhole) {
+                check(invoke(whole!!.has, updated) == false) { "UP container clear verification failed" }
+                environment.reportRuntimeEvidence("dynamic_frequent_visits_hidden", FeatureRuntimeStage.APPLIED)
             }
             environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
             updated
         }.getOrElse {
+            if (removingWhole) environment.reportRuntimeEvidence("dynamic_frequent_visits_hidden", FeatureRuntimeStage.ERROR)
             environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ERROR)
             environment.logError("dynamic_purify_writeback", "[BIL] 动态净化副本构建失败，保留原响应: $it")
             reply
@@ -302,7 +321,7 @@ internal class DynamicPurifyFeatureInstaller(
     }
 
     private fun purifyUpList(reply: Any, feed: FeedMembers): Any? {
-        if (!removeLiveUpEntries) return null
+        if (!removeLiveUpEntries || hideFrequentVisits) return null
         val up = feed.upList ?: return null
         val container = invoke(up.getter, reply) ?: return null
         // 两个列表必须都读到才动手：只读到一个就写回，会把读不到的那个直接清空。
@@ -470,7 +489,8 @@ internal class DynamicPurifyFeatureInstaller(
 
         val hasTopic = booleanNoArg(replyClass, "hasTopicList")
         val clearTopic = builder.method("clearTopicList")
-        val upList = if (removeLiveUpEntries) resolveUpList(loader, replyClass, builder) else null
+        val upList = if (removeLiveUpEntries && !hideFrequentVisits) resolveUpList(loader, replyClass, builder) else null
+        val wholeUpList = if (hideFrequentVisits) resolveWholeUpList(replyClass, builder) else null
 
         return FeedMembers(
             replyClass = replyClass,
@@ -485,10 +505,24 @@ internal class DynamicPurifyFeatureInstaller(
             hasTopicList = hasTopic?.takeIf { clearTopic != null },
             clearTopicList = clearTopic?.takeIf { hasTopic != null },
             upList = upList,
+            wholeUpList = wholeUpList,
             syncMethod = syncMethod,
             asyncMethod = asyncMethod
         )
     }
+
+    /** Resolve only the whole carrier; avatar/live/position fields are deliberately not dependencies. */
+    private fun resolveWholeUpList(reply: Class<*>, builder: ProtobufBuilderPlan): WholeUpListMembers? =
+        UP_LIST_GETTERS.mapNotNull { getterName ->
+            val getter = objectGetter(reply, getterName) ?: return@mapNotNull null
+            if (getter.returnType.name != "$DYNAMIC_PACKAGE.CardVideoUpList") return@mapNotNull null
+            val suffix = getterName.removePrefix("get")
+            val has = booleanNoArg(reply, "has$suffix") ?: return@mapNotNull null
+            val clear = builder.method("clear$suffix") ?: return@mapNotNull null
+            WholeUpListMembers(has, clear)
+        }.singleOrNull()
+
+    private class WholeUpListMembers(val has: Method, val clear: Method)
 
     private fun resolveUpList(loader: ClassLoader, replyClass: Class<*>, replyBuilder: ProtobufBuilderPlan): UpListMembers? {
         // 综合页叫 getUpList、视频页叫 getVideoUpList，但返回的都是同一个 CardVideoUpList。
@@ -684,6 +718,7 @@ internal class DynamicPurifyFeatureInstaller(
         val hasTopicList: Method?,
         val clearTopicList: Method?,
         val upList: UpListMembers?,
+        val wholeUpList: WholeUpListMembers?,
         val syncMethod: Method?,
         val asyncMethod: Method?
     )

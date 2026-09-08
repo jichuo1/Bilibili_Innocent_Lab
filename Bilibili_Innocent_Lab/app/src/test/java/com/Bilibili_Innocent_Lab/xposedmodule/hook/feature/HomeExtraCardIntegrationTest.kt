@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import com.bilibili.pegasus.PegasusHolderData
 import org.junit.Assert.*
@@ -23,7 +24,12 @@ class HomeExtraCardIntegrationTest {
     private fun environment(recorded: PlayerPortTestRegistrar, evidence: MutableList<Pair<String, FeatureRuntimeStage>>) =
         HookEnvironment("tv.danmaku.bili", javaClass.classLoader, HookPointRegistry(javaClass.classLoader),
             registrar = object : HookRegistrar by recorded {
-                override fun adapted(id: String, point: VersionAdapter.HookPoint, block: ModernMemberHookCreator.() -> Unit) {
+                override fun adapted(
+                id: String,
+                point: VersionAdapter.HookPoint,
+                exceptionPolicy: HookExceptionPolicy,
+                block: ModernMemberHookCreator.() -> Unit
+            ) {
                     recorded.exact(id, Class.forName(point.className), point.methodName,
                         *point.paramClassNames.orEmpty().map { Class.forName(it) }.toTypedArray(), block = block)
                 }

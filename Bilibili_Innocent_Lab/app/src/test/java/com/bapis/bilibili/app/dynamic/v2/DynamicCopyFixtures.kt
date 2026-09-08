@@ -42,27 +42,54 @@ class CardVideoUpList(
 }
 class DynAllReply(
     val items: DynamicList = DynamicList(), val ups: CardVideoUpList = CardVideoUpList(),
-    val topic: Boolean = true, val unrelated: Any = Any(), val failBuild: Boolean = false
+    val topic: Boolean = true, val unrelated: Any = Any(), val failBuild: Boolean = false,
+    val upPresent: Boolean = true, val failClear: Boolean = false
 ) {
     fun getDynamicList() = items
     fun getUpList() = ups
+    fun hasUpList() = upPresent
     fun hasTopicList() = topic
     class Builder(private val original: DynAllReply) {
         private var items = original.items
         private var ups = original.ups
         private var topic = original.topic
+        private var upPresent = original.upPresent
+        fun clearUpList() = apply { if (!original.failClear) { ups = CardVideoUpList(); upPresent = false } }
         fun setDynamicList(value: DynamicList) = apply { items = value }
         fun setUpList(value: CardVideoUpList) = apply { ups = value }
         fun clearTopicList() = apply { topic = false }
         fun build(): DynAllReply {
             check(!original.failBuild)
-            return DynAllReply(items, ups, topic, original.unrelated)
+            return DynAllReply(items, ups, topic, original.unrelated, upPresent = upPresent)
         }
     }
     companion object {
-        private val DEFAULT = DynAllReply(topic = false)
+        private val DEFAULT = DynAllReply(topic = false, upPresent = false)
         @JvmStatic fun getDefaultInstance() = DEFAULT
         @JvmStatic fun newBuilder(original: DynAllReply) = Builder(original)
     }
 }
-class DynamicMoss { fun executeDynAll(request: Any): DynAllReply = DynAllReply(unrelated = request) }
+class DynVideoReply(val ups: CardVideoUpList = CardVideoUpList(), val upPresent: Boolean = true,
+    val items: DynamicList = DynamicList(), val unrelated: Any = Any()) {
+    fun getVideoUpList() = ups
+    fun hasVideoUpList() = upPresent
+    fun getDynamicList() = items
+    class Builder(private val original: DynVideoReply) {
+        private var present = original.upPresent
+        private var ups = original.ups
+        fun clearVideoUpList() = apply { present = false; ups = CardVideoUpList() }
+        fun build() = DynVideoReply(ups, present, original.items, original.unrelated)
+    }
+    companion object {
+        private val DEFAULT = DynVideoReply(upPresent = false)
+        @JvmStatic fun getDefaultInstance() = DEFAULT
+        @JvmStatic fun newBuilder(original: DynVideoReply) = Builder(original)
+    }
+}
+@Suppress("UNUSED_PARAMETER")
+class DynamicMoss {
+    fun executeDynAll(request: Any): DynAllReply = DynAllReply(unrelated = request)
+    fun executeDynVideo(request: Any): DynVideoReply = DynVideoReply(unrelated = request)
+    fun dynAll(request: Any, handler: com.bilibili.lib.moss.api.MossResponseHandler) = Unit
+    fun dynVideo(request: Any, handler: com.bilibili.lib.moss.api.MossResponseHandler) = Unit
+}

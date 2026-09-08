@@ -242,6 +242,56 @@ class ModernHookRuntimeTest {
         assertEquals(2, registered!!.intercept(TestChain(method)))
     }
 
+    /**
+     * `PROTECTIVE` 的框架契约是“捕获 hooker 异常并按没装 Hook 继续”，所以想让宿主方法以
+     * 指定异常结束的 Hook 必须显式选 `PASSTHROUGH`；默认值不许漂移。
+     */
+    @Test
+    fun `exception policy maps to the framework mode and defaults to protective`() {
+        assertEquals(
+            XposedInterface.ExceptionMode.PROTECTIVE,
+            HookExceptionPolicy.PROTECT_HOST.frameworkMode
+        )
+        assertEquals(
+            XposedInterface.ExceptionMode.PASSTHROUGH,
+            HookExceptionPolicy.DELIVER_TO_HOST.frameworkMode
+        )
+
+        val modes = mutableListOf<XposedInterface.ExceptionMode>()
+        val handle = proxy<XposedInterface.HookHandle> { _, _ -> null }
+        lateinit var builder: XposedInterface.HookBuilder
+        builder = proxy { name, args -> when (name) {
+            "setId" -> builder
+            "setExceptionMode" -> builder.also {
+                modes += args[0] as XposedInterface.ExceptionMode
+            }
+            "intercept" -> handle
+            else -> error(name)
+        } }
+        val api = proxy<XposedInterface> { name, _ ->
+            if (name == "getApiVersion") 102 else builder
+        }
+        val runtime = ModernHookRuntime(api)
+        runtime.install("default", method) { replaceTo(1) }
+        runtime.install("deliver", method, HookExceptionPolicy.DELIVER_TO_HOST) { replaceTo(1) }
+        assertEquals(
+            listOf(
+                XposedInterface.ExceptionMode.PROTECTIVE,
+                XposedInterface.ExceptionMode.PASSTHROUGH
+            ),
+            modes
+        )
+    }
+
+    /** API 101 走兼容分支，异常语义必须与 102 一致，不能悄悄退回默认值。 */
+    @Test
+    fun `API 101 honours the requested exception policy`() {
+        val backend = Api101Backend()
+        ModernHookRuntime(backend.api)
+            .install("deliver", method, HookExceptionPolicy.DELIVER_TO_HOST) { replaceTo(1) }
+        assertEquals(XposedInterface.ExceptionMode.PASSTHROUGH, backend.mode)
+    }
+
     private inline fun <reified T> proxy(crossinline invoke: (String, Array<out Any?>) -> Any?): T =
         Proxy.newProxyInstance(T::class.java.classLoader, arrayOf(T::class.java)) { _, member, args ->
             invoke(member.name, args ?: emptyArray())

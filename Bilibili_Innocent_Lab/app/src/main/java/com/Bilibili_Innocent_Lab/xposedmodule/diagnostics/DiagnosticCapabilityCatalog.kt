@@ -13,7 +13,7 @@ internal data class DiagnosticCapabilityDefinition(
 )
 
 internal object DiagnosticCapabilityCatalog {
-    const val VERSION = 2
+    const val VERSION = 3
     val definitions = listOf(
         DiagnosticCapabilityDefinition("player_interactive_legacy_follow", "player_interactive_overlay", R.string.diag_cap_player_interactive_legacy_follow, setOf("player.interactive_overlays.hidden"), "legacy/guide/clearAttention"),
         DiagnosticCapabilityDefinition("player_interactive_legacy_commands", "player_interactive_overlay", R.string.diag_cap_player_interactive_legacy_commands, setOf("player.interactive_overlays.hidden"), "legacy/guide/clearCommandDms"),
@@ -66,6 +66,7 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("dynamic_author_filter_enabled", "dynamic_purify", R.string.dynamic_author_filter, setOf("dynamic.author_filter.enabled", "dynamic.author_filter.rules")),
         DiagnosticCapabilityDefinition("dynamic_promotions_removed", "dynamic_purify", R.string.remove_dynamic_promotions, setOf("dynamic.promotions.removed")),
         DiagnosticCapabilityDefinition("dynamic_charge_only_removed", "dynamic_purify", R.string.remove_dynamic_charge_only, setOf("dynamic.charge_only.removed")),
+        DiagnosticCapabilityDefinition("dynamic_frequent_visits_hidden", "dynamic_purify", R.string.hide_dynamic_frequent_visits, setOf("dynamic.frequent_visits.hidden"), introducedCatalogVersion = 3),
         DiagnosticCapabilityDefinition("dynamic_topic_list_hidden", "dynamic_purify", R.string.hide_dynamic_topic_list, setOf("dynamic.topic_list.hidden")),
         DiagnosticCapabilityDefinition("dynamic_up_list_live_removed", "dynamic_purify", R.string.remove_dynamic_live_up_entries, setOf("dynamic.up_list.live.removed")),
         DiagnosticCapabilityDefinition("search_commercial_removed", "search_purify", R.string.remove_search_commercial, setOf("search.commercial.removed")),
@@ -147,6 +148,7 @@ internal object DiagnosticCapabilityCatalog {
     val splitParents = definitions.filter { it.id != it.parentId }.mapTo(linkedSetOf()) { it.parentId }
     val leafIds = byId.keys
     private val verifiedRuntimeIds = setOf(
+        "dynamic_frequent_visits_hidden",
         "home_recommend_pgc_removed",
         "home_recommend_special_cards_removed",
         "home_banner_view",

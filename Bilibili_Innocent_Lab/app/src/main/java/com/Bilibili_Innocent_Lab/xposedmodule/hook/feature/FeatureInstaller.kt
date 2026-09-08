@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import java.lang.reflect.Constructor
 
@@ -28,9 +29,14 @@ internal interface HookRegistrar {
         block: ModernMemberHookCreator.() -> Unit
     )
 
+    /**
+     * [exceptionPolicy] 保持默认即可；只有“必须让宿主方法以指定异常结束”的 Hook 才改成
+     * [HookExceptionPolicy.DELIVER_TO_HOST]，且回调体要自行保证不逃逸其他异常。
+     */
     fun adapted(
         id: String,
         point: VersionAdapter.HookPoint,
+        exceptionPolicy: HookExceptionPolicy = HookExceptionPolicy.PROTECT_HOST,
         block: ModernMemberHookCreator.() -> Unit
     )
 

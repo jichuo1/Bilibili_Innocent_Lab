@@ -58,13 +58,18 @@ internal object MineComponentSnapshotHostBridge {
         val appContext = context.applicationContext ?: context
         synchronized(receiverLock) {
             if (!cacheLoaded) {
+                // 外层 runCatching 只覆盖 execute 提交；任务体跑在宿主进程的后台线程上，
+                // 逃逸异常按 Android 默认 handler 直接杀宿主，必须自带防波堤。
                 cacheLoaded = runCatching { persistenceExecutor.execute {
-                    val source = currentSource(appContext) ?: return@execute
-                    processSource = source
-                    // 旧磁盘快照不覆盖已经收到的新内容；所有磁盘读取留在后台。
-                    MineComponentSnapshotCodec.ALLOWED_SURFACES.forEach { surface ->
-                        runCatching { readCachedSnapshot(appContext, surface, source) }.getOrNull()
-                            ?.let { latest.putIfAbsent(surface, it) }
+                    HostThreadGuard.run("mine_snapshot.cache_load") {
+                        val source = currentSource(appContext) ?: return@run
+                        processSource = source
+                        // 旧磁盘快照不覆盖已经收到的新内容；所有磁盘读取留在后台。
+                        MineComponentSnapshotCodec.ALLOWED_SURFACES.forEach { surface ->
+                            runCatching { readCachedSnapshot(appContext, surface, source) }
+                                .getOrNull()
+                                ?.let { latest.putIfAbsent(surface, it) }
+                        }
                     }
                 } }.isSuccess
             }
