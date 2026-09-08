@@ -564,8 +564,8 @@
     <string name="no_root_status_unsupported_os">状态：不可用，需要 Android 9 或更高版本。</string>
     <string name="no_root_status_disabled">状态：已关闭，不会连接 NPatch。</string>
     <string name="no_root_status_checking">状态：正在检查本地配置…</string>
-    <string name="no_root_status_manager_missing">状态：未找到 NPatch Manager，或 Remote API 不可用。</string>
-    <string name="no_root_status_module_not_registered">状态：NPatch Manager 尚未识别当前模块，请先在管理器中添加并启用模块。</string>
+    <string name="no_root_status_manager_missing">状态：未找到 NPatch Manager，或 Remote API 不可用。集成模式修补的配置存放在被修补应用内部，无法在此同步，请改用管理器模式重新修补。</string>
+    <string name="no_root_status_module_not_registered">状态：NPatch Manager 未接受当前模块。请在管理器中添加并启用模块、确认哔哩哔哩在其作用域内，并将 NPatch 升级到 1.0.7 或更新版本。</string>
     <string name="no_root_status_syncing">状态：正在向 NPatch 同步设置…</string>
     <string name="no_root_status_restart_required">状态：设置已同步，请重新启动已修补的哔哩哔哩以完成激活。</string>
     <string name="no_root_status_disable_restart_required">状态：免 Root 支持已关闭，但当前哔哩哔哩进程中的 Hook 可能仍在运行；请强制停止并重新打开以完成关闭。</string>

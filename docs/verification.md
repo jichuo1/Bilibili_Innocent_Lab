@@ -1,5 +1,34 @@
 # Regression verification
 
+## NPatch Remote API cross-check and no-root mode boundary (2026-09-08)
+
+- Four gates passed with `--no-daemon`. The run that executed `testDebugUnitTest`
+  reported 156 suites / 892 tests, zero failures/errors/skips, including the new
+  transaction-code pin (4/4 in that suite). The final run after a wording fix
+  re-executed `assembleDebug`, `lintDebug` and `minifyReleaseWithR8` and left the
+  unit-test task up to date. Lint: 0 errors / 183 warnings, back to the existing
+  baseline. Debug APK 13,418,834 bytes, produced after the last source edit.
+- The hand-written NPatch Binder path was verified field by field against
+  `io.github.libxposed:interface:102.0.0` bytecode: service descriptor,
+  transaction codes 21/22, and the wire format of both remote-preference calls.
+  That AIDL numbers its methods explicitly, so upstream additions cannot shift
+  these codes; a renumber still would, which is why the codes are now pinned by a
+  unit test with the re-verification command recorded in the gateway KDoc.
+- Both no-root deliveries are limited to their manager modes. NPatch integration
+  mode and an LSPatch embedded host share one structural boundary, now stated once
+  in architecture.md, and the two no-root status strings name it instead of reading
+  as a missing manager. The module-not-registered string also names scope and the
+  documented NPatch 1.0.7 floor.
+- No manager version probe was added. The failure shape of an older manager has not
+  been observed on a device, and a new terminal state would reach the persisted sync
+  state, the display state and the exported diagnostic report.
+- An interim wording that used the `--embed` / `--manager` CLI flags raised three
+  new `TypographyDashes` warnings; the shipped wording uses the mode names from the
+  official documentation instead, which is also what a Manager-mode user sees.
+- Static and JVM evidence only: no device, no NPatch manager installed, no
+  integration-mode patch, and the official AAR was never executed. No installation,
+  commit or push.
+
 ## Video-session default speed (2026-09-08)
 
 - Final four gates passed with --no-daemon (6m15s): assembleDebug,

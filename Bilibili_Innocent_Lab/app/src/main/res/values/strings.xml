@@ -564,8 +564,8 @@
     <string name="no_root_status_unsupported_os">Status: unavailable; Android 9 or later is required.</string>
     <string name="no_root_status_disabled">Status: off. No NPatch connection will be made.</string>
     <string name="no_root_status_checking">Status: checking the local configuration…</string>
-    <string name="no_root_status_manager_missing">Status: NPatch Manager or its Remote API is unavailable.</string>
-    <string name="no_root_status_module_not_registered">Status: NPatch Manager does not recognize this module. Add and enable it in Manager first.</string>
+    <string name="no_root_status_manager_missing">Status: NPatch Manager or its Remote API is unavailable. Integration-mode patches keep their store inside the patched app and cannot be configured from here; re-patch in Manager mode.</string>
+    <string name="no_root_status_module_not_registered">Status: NPatch Manager did not accept this module. Add and enable it in Manager, keep Bilibili inside its scope, and update NPatch to 1.0.7 or newer.</string>
     <string name="no_root_status_syncing">Status: synchronizing settings with NPatch…</string>
     <string name="no_root_status_restart_required">Status: settings synchronized. Restart the patched Bilibili app to activate them.</string>
     <string name="no_root_status_disable_restart_required">Status: no-root support is off, but hooks may remain in the running Bilibili process. Force stop and reopen it to finish disabling.</string>

@@ -26,10 +26,20 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * NPatch Remote Provider 的最小模块侧网关。
  *
- * 官方 v1.0.1 AAR 声明 minCompileSdk 37，会破坏本项目 compileSdk 35 的 CI；其连接
- * 字节码还在 API 28-32 直接调用 API 33 的 String.isBlank。这里依照官方公开的
- * Provider + IXposedService 102 AIDL 合约，只保留本项目需要的 Preferences
- * 原子写入与完整读回，避免引入高 compileSdk 依赖。
+ * **为什么不用官方 AAR**：其连接字节码在 API 28-32 上直接调用 API 33 才有的
+ * `String.isBlank`，而本模块 minSdk 27 且未开启 core library desugaring，装不得。
+ * （最初还有一条"AAR 声明 minCompileSdk 37、本项目当时是 compileSdk 35"的理由，
+ * 2026-09-03 抬到 compileSdk 37 后已失效，2026-09-08 复核时删除。）
+ * 这里依照官方公开的 Provider + IXposedService 102 AIDL 合约，只保留本项目需要的
+ * Preferences 原子写入与完整读回。
+ *
+ * **适用边界**：只支持 NPatch 的**管理器模式**（`--manager`）。集成模式（`--embed`）
+ * 把 Remote Store 放在被修补应用自己的数据目录里，注入侧只读，模块设置 App 无法写入，
+ * 结构上不可能从这里同步——与 LSPatch 嵌入模式是同一条边界，见
+ * `docs/lspatch_compatibility.md` 的 Explicit non-goals。
+ *
+ * **官方声明的下限**：NPatch ≥ 1.0.7、Android 9（API 28）。模块不做版本探测，
+ * 缺失/被拒的两条状态文案已把这个下限写进去（见 `no_root_status_*` 字符串）。
  */
 internal object NPatchRemoteGateway {
     const val AUTHORITY = "top.nkbe.npatch.remote"
@@ -40,8 +50,23 @@ internal object NPatchRemoteGateway {
     private const val CONNECT_TIMEOUT_SECONDS = 3L
     private const val CONNECTION_RETRY_COOLDOWN_SECONDS = 15L
     private const val SERVICE_DESCRIPTOR = "io.github.libxposed.service.IXposedService"
-    private const val TRANSACTION_REQUEST_REMOTE_PREFERENCES = 21
-    private const val TRANSACTION_UPDATE_REMOTE_PREFERENCES = 22
+    /**
+     * `IXposedService` 的两个交易码，抄自 libxposed AIDL。
+     *
+     * 这份 AIDL **显式编号**（2-6 / 11-15 / 21-23 / 31-33 之间有明显空档），所以上游新增
+     * 方法不会顶掉这两个号；但重排或改号会让本网关静默打到别的方法上，失败表现只是
+     * `remote_service_error`，极难反查。因此由 `NPatchRemoteGatewayPolicyTest` 钉住取值。
+     *
+     * 升级 `io.github.libxposed:interface` 后按以下步骤复核，对不上就同时改常量与测试：
+     * ```
+     * unzip -o interface-<ver>.aar classes.jar && unzip -o classes.jar
+     * javap -p -constants -classpath . 'io.github.libxposed.service.IXposedService$Stub' | grep TRANSACTION
+     * ```
+     * 2026-09-08 依 `interface-102.0.0` 复核：21 / 22 与 wire format（token → group
+     * 字符串 → `writeTypedObject` → flags=0 → `readException`）逐字段一致。
+     */
+    internal const val TRANSACTION_REQUEST_REMOTE_PREFERENCES = 21
+    internal const val TRANSACTION_UPDATE_REMOTE_PREFERENCES = 22
 
     sealed interface SyncResult {
         data object Success : SyncResult

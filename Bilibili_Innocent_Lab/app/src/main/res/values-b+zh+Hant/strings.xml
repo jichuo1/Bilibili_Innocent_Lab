@@ -564,8 +564,8 @@
     <string name="no_root_status_unsupported_os">狀態：無法使用，需要 Android 9 或更新版本。</string>
     <string name="no_root_status_disabled">狀態：已關閉，不會連線 NPatch。</string>
     <string name="no_root_status_checking">狀態：正在檢查本機設定…</string>
-    <string name="no_root_status_manager_missing">狀態：找不到 NPatch Manager，或 Remote API 無法使用。</string>
-    <string name="no_root_status_module_not_registered">狀態：NPatch Manager 尚未識別目前模組，請先在管理器中加入並啟用模組。</string>
+    <string name="no_root_status_manager_missing">狀態：找不到 NPatch Manager，或 Remote API 無法使用。整合模式修補的設定存放在被修補應用內部，無法在此同步，請改用管理器模式重新修補。</string>
+    <string name="no_root_status_module_not_registered">狀態：NPatch Manager 未接受目前模組。請在管理器中加入並啟用模組、確認嗶哩嗶哩在其作用域內，並將 NPatch 升級至 1.0.7 或更新版本。</string>
     <string name="no_root_status_syncing">狀態：正在向 NPatch 同步設定…</string>
     <string name="no_root_status_restart_required">狀態：設定已同步，請重新啟動已修補的嗶哩嗶哩以完成啟用。</string>
     <string name="no_root_status_disable_restart_required">狀態：免 Root 支援已關閉，但目前嗶哩嗶哩程序中的 Hook 可能仍在執行；請強制停止並重新開啟以完成關閉。</string>
