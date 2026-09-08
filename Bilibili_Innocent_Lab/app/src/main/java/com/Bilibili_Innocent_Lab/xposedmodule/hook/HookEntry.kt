@@ -75,6 +75,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPortraitFeature
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerInteractiveOverlayFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerStatusBarFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SearchPurifyFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SearchHomeRecommendFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SharePurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.StoryPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SplashAdFeatureInstaller
@@ -2908,6 +2909,7 @@ class HookEntry : XposedModule() {
                             false
                         )
                     ),
+                    SearchHomeRecommendFeatureInstaller(prefs.getBoolean(FeaturePreferences.HIDE_SEARCH_HOME_RECOMMEND, false)),
                     SearchPurifyFeatureInstaller(
                         removeCommercial = prefs.getBoolean(
                             FeaturePreferences.REMOVE_SEARCH_COMMERCIAL,

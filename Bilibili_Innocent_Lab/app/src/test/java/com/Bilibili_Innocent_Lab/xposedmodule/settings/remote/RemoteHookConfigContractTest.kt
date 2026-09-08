@@ -21,6 +21,7 @@ class RemoteHookConfigContractTest {
                 FeaturePreferences.COMMENT_MIN_LEVEL to 5,
                 FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP to true,
                 FeaturePreferences.HIDE_DYNAMIC_FREQUENT_VISITS to true,
+                FeaturePreferences.HIDE_SEARCH_HOME_RECOMMEND to true,
                 FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC to true,
                 FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS to false,
                 FeaturePreferences.PLAYER_UNLOCK_BACKGROUND to true,
@@ -54,6 +55,8 @@ class RemoteHookConfigContractTest {
         assertEquals(values, snapshot.values)
         assertEquals(true, snapshot.values[FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP])
         assertEquals(true, snapshot.values[FeaturePreferences.HIDE_DYNAMIC_FREQUENT_VISITS])
+        assertEquals(true, snapshot.values[FeaturePreferences.HIDE_SEARCH_HOME_RECOMMEND])
+        assertEquals(false, defaultValues()[FeaturePreferences.HIDE_SEARCH_HOME_RECOMMEND])
         assertEquals(false, defaultValues()[FeaturePreferences.HIDE_DYNAMIC_FREQUENT_VISITS])
         assertEquals(true, snapshot.values[FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC])
         assertEquals(false, snapshot.values[FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS])

@@ -13,8 +13,9 @@ internal data class DiagnosticCapabilityDefinition(
 )
 
 internal object DiagnosticCapabilityCatalog {
-    const val VERSION = 3
+    const val VERSION = 4
     val definitions = listOf(
+        DiagnosticCapabilityDefinition("search_home_recommend_hidden", "search_home_recommend_hidden", R.string.hide_search_home_recommend, setOf("search.home_recommend.hidden"), introducedCatalogVersion = 4),
         DiagnosticCapabilityDefinition("player_interactive_legacy_follow", "player_interactive_overlay", R.string.diag_cap_player_interactive_legacy_follow, setOf("player.interactive_overlays.hidden"), "legacy/guide/clearAttention"),
         DiagnosticCapabilityDefinition("player_interactive_legacy_commands", "player_interactive_overlay", R.string.diag_cap_player_interactive_legacy_commands, setOf("player.interactive_overlays.hidden"), "legacy/guide/clearCommandDms"),
         DiagnosticCapabilityDefinition("player_interactive_legacy_contract", "player_interactive_overlay", R.string.diag_cap_player_interactive_legacy_contract, setOf("player.interactive_overlays.hidden"), "legacy/guide/clearContractCard"),
@@ -148,6 +149,7 @@ internal object DiagnosticCapabilityCatalog {
     val splitParents = definitions.filter { it.id != it.parentId }.mapTo(linkedSetOf()) { it.parentId }
     val leafIds = byId.keys
     private val verifiedRuntimeIds = setOf(
+        "search_home_recommend_hidden",
         "dynamic_frequent_visits_hidden",
         "home_recommend_pgc_removed",
         "home_recommend_special_cards_removed",

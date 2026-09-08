@@ -825,4 +825,6 @@
     <string name="diag_cap_detail_promotion_related_game">详情推广·游戏推荐组件</string>
     <string name="diag_cap_home_banner_view">首页轮播·视图收起</string>
     <string name="diag_cap_home_banner_feed">首页轮播·推荐流过滤</string>
+    <string name="hide_search_home_recommend">隐藏搜索页热搜推荐</string>
+    <string name="hide_search_home_recommend_tip">开启后，隐藏搜索首页的热搜、搜索发现及其附属控件，保留搜索历史，不留组件占位。重启哔哩哔哩后生效。</string>
 </resources>
