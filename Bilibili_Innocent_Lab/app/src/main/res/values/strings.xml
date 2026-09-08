@@ -757,6 +757,8 @@
     <string name="remove_dynamic_charge_only">Hide locked charge-only dynamics</string>
     <string name="remove_dynamic_charge_only_tip">Hides charge-only dynamics you have no access to. Dynamics you already unlocked stay, and so do any whose access state cannot be read. Restart Bilibili to apply.</string>
     <string name="hide_dynamic_topic_list">Hide the topic bar</string>
+    <string name="hide_dynamic_frequent_visits">Hide frequently visited on Dynamics</string>
+    <string name="hide_dynamic_frequent_visits_tip">Removes the entire frequently visited area above the feed without a placeholder. Dynamics are unaffected. Live-entry filtering is skipped while the whole area is hidden. Restart Bilibili to apply.</string>
     <string name="hide_dynamic_topic_list_tip">Removes the topic strip above the dynamic feed. Dynamics themselves are unaffected. Restart Bilibili to apply.</string>
     <string name="remove_dynamic_live_up_entries">Hide live authors from the top bar</string>
     <string name="remove_dynamic_live_up_entries_tip">Removes authors who are currently streaming from the avatar strip at the top of the dynamic page, and renumbers the rest so no gap is left. Restart Bilibili to apply.</string>

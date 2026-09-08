@@ -10,6 +10,7 @@ import android.view.View
 import androidx.core.content.ContextCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.CrossAppBroadcastCompat
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetAppStorage
@@ -1051,25 +1052,29 @@ object RoamingCompatHook {
      */
     private fun appendAccessKeyAsync(cacheFile: File) {
         Thread({
-            var done = false
-            for (attempt in 1..15) {
-                if (done) return@Thread
-                runCatching {
-                    if (!cacheFile.exists()) return@runCatching
-                    val data = cacheFile.readBytes()
-                    if (endsWith(data, ACCESS_KEY_SUFFIX)) {
+            // 轮询循环整体过防波堤：Thread.sleep 的 InterruptedException 原先在
+            // runCatching 之外，逃逸后按 Android 默认 handler 会杀掉宿主进程。
+            HostThreadGuard.run("roaming.append_access_key") {
+                var done = false
+                for (attempt in 1..15) {
+                    if (done) return@run
+                    runCatching {
+                        if (!cacheFile.exists()) return@runCatching
+                        val data = cacheFile.readBytes()
+                        if (endsWith(data, ACCESS_KEY_SUFFIX)) {
+                            done = true
+                            return@runCatching
+                        }
+                        writeFileAtomic(cacheFile, data + ACCESS_KEY_APPEND)
                         done = true
-                        return@runCatching
+                        logInfo(
+                            "br_ak_appended",
+                            "$LOG_PREFIX 已补齐 hookinfo.pb 的 biliAccounts.getAccessKey" +
+                                "（漫游自身校验所需，避免每次启动重复全量分析）"
+                        )
                     }
-                    writeFileAtomic(cacheFile, data + ACCESS_KEY_APPEND)
-                    done = true
-                    logInfo(
-                        "br_ak_appended",
-                        "$LOG_PREFIX 已补齐 hookinfo.pb 的 biliAccounts.getAccessKey" +
-                            "（漫游自身校验所需，避免每次启动重复全量分析）"
-                    )
+                    Thread.sleep(2000)
                 }
-                Thread.sleep(2000)
             }
         }, "BIL-RoamingCompat-AccessKey").apply {
             isDaemon = true

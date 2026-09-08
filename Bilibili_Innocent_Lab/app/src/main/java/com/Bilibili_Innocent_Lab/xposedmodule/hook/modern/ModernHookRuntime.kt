@@ -9,6 +9,38 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicReference
 
 /**
+ * 模块侧的 Hook 异常语义；由 [ModernHookRuntime] 映射到框架 `ExceptionMode`，
+ * 业务安装器因此不直接持有框架类型。
+ */
+internal enum class HookExceptionPolicy {
+    /**
+     * 默认。回调抛出的任何异常由框架捕获并记录，调用**按“没装 Hook”继续**
+     * （`ExceptionMode.PROTECTIVE`）。这是宿主稳定性的主要保障：模块回调里的反射失败、
+     * 结构漂移、NPE 都不会传到宿主栈上。
+     */
+    PROTECT_HOST,
+
+    /**
+     * 回调异常原样传给宿主调用方（`ExceptionMode.PASSTHROUGH`）。
+     *
+     * **只用于“让被 Hook 方法以指定异常结束”这一种诉求**（当前唯一使用者是屏蔽官方更新，
+     * 它必须把宿主自己的 `LatestVersionException` 交回调用方）。选它的 Hook 有义务保证
+     * 回调体内除了这条**刻意**的异常之外不会逃逸任何东西——因为这里没有框架兜底。
+     *
+     * 背景：`PROTECTIVE` 的契约是“捕获并按没装 Hook 继续”，所以在该模式下
+     * `ModernHookParam.throwable` 永远到不了宿主。这与 2026-08-30 记录的
+     * “模块回调异常 vs 传递给宿主的 throwable”是同一个坑在 Modern API 下的新形态。
+     */
+    DELIVER_TO_HOST;
+
+    val frameworkMode: XposedInterface.ExceptionMode
+        get() = when (this) {
+            PROTECT_HOST -> XposedInterface.ExceptionMode.PROTECTIVE
+            DELIVER_TO_HOST -> XposedInterface.ExceptionMode.PASSTHROUGH
+        }
+}
+
+/**
  * 把项目既有 before/after/replace 语义映射到 Modern API 101/102 interceptor chain。
  *
  * 该层只兼容项目实际使用的最小 DSL，不模拟 Legacy XposedBridge，也不允许回调保存 Chain。
@@ -29,6 +61,7 @@ internal class ModernHookRuntime(
     fun install(
         id: String,
         executable: Executable,
+        exceptionPolicy: HookExceptionPolicy = HookExceptionPolicy.PROTECT_HOST,
         block: ModernMemberHookCreator.() -> Unit
     ): XposedInterface.HookHandle {
         check(apiVersion >= ModernApiSupport.MIN_API) { "Modern API 101 or newer is required" }
@@ -45,7 +78,7 @@ internal class ModernHookRuntime(
                 }
                 val reference = AtomicReference(callback)
                 val handle = module.hook(executable)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                    .setExceptionMode(exceptionPolicy.frameworkMode)
                     .intercept { chain -> reference.get().intercept(chain) }
                 compatibilityHooks[key] = CompatibilityHook(reference, handle)
                 handles += handle
@@ -53,7 +86,7 @@ internal class ModernHookRuntime(
             }
         }
         val handle = ModernHookIdsApi102.assign(module, module.hook(executable), id)
-            .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+            .setExceptionMode(exceptionPolicy.frameworkMode)
             .intercept(callback)
         handles += handle
         return handle

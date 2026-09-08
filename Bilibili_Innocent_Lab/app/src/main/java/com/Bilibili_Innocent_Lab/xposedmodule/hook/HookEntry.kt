@@ -25,10 +25,12 @@ import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsBridge
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotHostBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.HookConfigSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.SnapshotHookConfigSource
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookParam
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookRuntime
@@ -271,9 +273,24 @@ class HookEntry : XposedModule() {
             mainHandlerRef?.let { return it }
             val looper = android.os.Looper.getMainLooper() ?: return null
             return synchronized(mainHandlerLock) {
-                mainHandlerRef ?: android.os.Handler(looper).also { mainHandlerRef = it }
+                mainHandlerRef ?: guardedMainHandler(looper).also { mainHandlerRef = it }
             }
         }
+
+        /**
+         * 结构性防波堤：`Handler.post/postDelayed` 的 Runnable 最终只经过 `dispatchMessage`，
+         * 覆盖它就等于覆盖本 Handler 的全部投递，新增调用点自动纳入，不依赖“记得包”。
+         *
+         * 各调用点仍单独包一层（[HostThreadGuard.runnable]）以获得可定位的 key；本层只是
+         * 兜底。框架的 `ExceptionMode.PROTECTIVE` 只覆盖 Hook 回调，宿主主线程消息里的
+         * 逃逸异常会直接终止宿主进程。
+         */
+        private fun guardedMainHandler(looper: android.os.Looper): android.os.Handler =
+            object : android.os.Handler(looper) {
+                override fun dispatchMessage(msg: android.os.Message) {
+                    HostThreadGuard.run("host_main_message") { super.dispatchMessage(msg) }
+                }
+            }
 
         private const val MODULE_PACKAGE = "com.Bilibili_Innocent_Lab.xposedmodule"
 
@@ -353,16 +370,16 @@ class HookEntry : XposedModule() {
         }
 
         /** 简介长按判定（DOWN 后 500ms 触发，长按状态下弹气泡；MOVE/UP 时移除） */
-        private val descLongPressRunnable = Runnable {
-            if (descLongPressHandled) return@Runnable
+        private val descLongPressRunnable = HostThreadGuard.runnable("free_copy.desc_long_press") {
+            if (descLongPressHandled) return@runnable
             val v = descTouchedView ?: run {
                 clearDescTouchSession(resetHandled = true)
-                return@Runnable
+                return@runnable
             }
             // 页面已销毁（触摸中断无 UP 事件）时不弹
             if (!v.isAttachedToWindow || !v.isShown || v.windowVisibility != View.VISIBLE) {
                 clearDescTouchSession(resetHandled = true)
-                return@Runnable
+                return@runnable
             }
             descLongPressHandled = true
             runCatching {
@@ -721,12 +738,13 @@ class HookEntry : XposedModule() {
             return true
         }
 
-        private val commentLongPressRunnable = Runnable {
-            val sessionId = activeCommentTouchSessionId
-            if (!tryHandleActiveCommentLongPress(sessionId)) {
-                clearCommentTouchSession(resetHandled = true)
+        private val commentLongPressRunnable =
+            HostThreadGuard.runnable("free_copy.comment_long_press") {
+                val sessionId = activeCommentTouchSessionId
+                if (!tryHandleActiveCommentLongPress(sessionId)) {
+                    clearCommentTouchSession(resetHandled = true)
+                }
             }
-        }
 
         /** 当前气泡的显示文本，以及每个绘制 Span 已确认的剪贴板语义文本。 */
         private data class EmojiCopyValue(
@@ -1118,7 +1136,8 @@ class HookEntry : XposedModule() {
         private var bindDrainScheduled = false
 
         /** 所有延迟重试都投递到单例 Handler，不再让任意 itemView 的 RunQueue 保活页面。 */
-        private val commentBindRetryRunnable = Runnable { drainCommentBinds() }
+        private val commentBindRetryRunnable =
+            HostThreadGuard.runnable("free_copy.bind_drain_retry") { drainCommentBinds() }
 
         private fun scheduleCommentBindRetry(delayMs: Long) {
             val hasPending = synchronized(pendingBindLock) { pendingCommentBinds.isNotEmpty() }
@@ -1148,8 +1167,9 @@ class HookEntry : XposedModule() {
             bindDrainScheduled = true
             handler.looper.queue.addIdleHandler(
                 object : android.os.MessageQueue.IdleHandler {
+                    // IdleHandler 直接跑在宿主主 Looper 上，框架的 PROTECTIVE 不覆盖这里。
                     override fun queueIdle(): Boolean {
-                        drainCommentBinds()
+                        HostThreadGuard.run("free_copy.bind_drain_idle") { drainCommentBinds() }
                         return false
                     }
                 }
@@ -2439,12 +2459,13 @@ class HookEntry : XposedModule() {
             fun installResolvedHook(
                 id: String,
                 method: Method,
+                exceptionPolicy: HookExceptionPolicy = HookExceptionPolicy.PROTECT_HOST,
                 block: ModernMemberHookCreator.() -> Unit
             ) {
                 try {
                     // 存量 Hook 暂不启用去重：保持评论自由复制的多层兜底语义不变。
                     // 新功能安装器会在调用此边界前显式 claim 逻辑 Hook 点。
-                    modernRuntime.install(id, method, block)
+                    modernRuntime.install(id, method, exceptionPolicy, block)
                     hookPointRegistry.markInstalled(id, method)
                 } catch (throwable: Throwable) {
                     hookPointRegistry.markFailed(id, method, throwable)
@@ -2455,10 +2476,11 @@ class HookEntry : XposedModule() {
             fun installClaimedHook(
                 id: String,
                 method: Method,
+                exceptionPolicy: HookExceptionPolicy = HookExceptionPolicy.PROTECT_HOST,
                 block: ModernMemberHookCreator.() -> Unit
             ) {
                 if (!hookPointRegistry.claim(id, method)) return
-                installResolvedHook(id, method, block)
+                installResolvedHook(id, method, exceptionPolicy, block)
             }
 
             fun installClaimedConstructor(
@@ -2468,7 +2490,7 @@ class HookEntry : XposedModule() {
             ) {
                 if (!hookPointRegistry.claim(id, constructor)) return
                 try {
-                    modernRuntime.install(id, constructor, block)
+                    modernRuntime.install(id, constructor, block = block)
                     hookPointRegistry.markInstalled(id, constructor)
                 } catch (throwable: Throwable) {
                     hookPointRegistry.markFailed(id, constructor, throwable)
@@ -2488,7 +2510,7 @@ class HookEntry : XposedModule() {
                 val id = "legacy:$className#$methodName:first"
                 val method = hookPointRegistry.resolveFirst(id, className, methodName)
                     ?: throw NoSuchMethodException("$className#$methodName")
-                installResolvedHook(id, method, block)
+                installResolvedHook(id, method, block = block)
             }
 
             fun hookExactMethod(
@@ -2500,7 +2522,7 @@ class HookEntry : XposedModule() {
                 val id = "legacy:${owner.name}#$methodName:exact"
                 val method = hookPointRegistry.resolveExact(id, owner, methodName, *parameterTypes)
                     ?: throw NoSuchMethodException("${owner.name}#$methodName")
-                installResolvedHook(id, method, block)
+                installResolvedHook(id, method, block = block)
             }
 
             val featureHookRegistrar = object : HookRegistrar {
@@ -2512,7 +2534,7 @@ class HookEntry : XposedModule() {
                 ) {
                     val method = hookPointRegistry.resolveFirst(id, className, methodName)
                         ?: throw NoSuchMethodException("$className#$methodName")
-                    installClaimedHook(id, method, block)
+                    installClaimedHook(id, method, block = block)
                 }
 
                 override fun all(
@@ -2523,7 +2545,7 @@ class HookEntry : XposedModule() {
                 ) {
                     val methods = hookPointRegistry.resolveAll(id, className, methodName)
                     if (methods.isEmpty()) throw NoSuchMethodException("$className#$methodName")
-                    methods.forEach { installClaimedHook(id, it, block) }
+                    methods.forEach { installClaimedHook(id, it, block = block) }
                 }
 
                 override fun exact(
@@ -2535,12 +2557,13 @@ class HookEntry : XposedModule() {
                 ) {
                     val method = hookPointRegistry.resolveExact(id, owner, methodName, *parameterTypes)
                         ?: throw NoSuchMethodException("${owner.name}#$methodName")
-                    installClaimedHook(id, method, block)
+                    installClaimedHook(id, method, block = block)
                 }
 
                 override fun adapted(
                     id: String,
                     point: VersionAdapter.HookPoint,
+                    exceptionPolicy: HookExceptionPolicy,
                     block: ModernMemberHookCreator.() -> Unit
                 ) {
                     val method = hookPointRegistry.resolveAdapted(
@@ -2549,7 +2572,7 @@ class HookEntry : XposedModule() {
                         point.methodName,
                         point.paramClassNames
                     ) ?: throw NoSuchMethodException("${point.className}#${point.methodName}")
-                    installClaimedHook(id, method, block)
+                    installClaimedHook(id, method, exceptionPolicy, block)
                 }
 
                 override fun constructor(
@@ -2627,8 +2650,11 @@ class HookEntry : XposedModule() {
 
             fun retryFreeCopyHooksAfterAdapt() {
                 val retry = freeCopyHookRetryOnAdapt.getAndSet(null) ?: return
+                // 适配完成回调来自后台适配线程，重注册本身也可能落在宿主主线程上；
+                // 两条路径都不在框架 PROTECTIVE 覆盖内，统一过防波堤。
+                val guarded = HostThreadGuard.runnable("free_copy.retry_after_adapt", retry)
                 val handler = mainHandlerOrNull()
-                if (handler != null) handler.post(retry) else retry()
+                if (handler != null) handler.post(guarded) else guarded.run()
             }
 
             // Modern API 不再提供旧 DataChannel。状态只写模块日志；它不参与功能判定，
@@ -2675,8 +2701,13 @@ class HookEntry : XposedModule() {
                 logInfo = { key, message -> logInfo(key, message) },
                 logError = { key, message -> logError(key, message) },
                 reportStatus = { channel, status -> reportChannelStatus(channel, status) },
+                // 功能安装器投递到宿主主线程的任务不在框架 PROTECTIVE 覆盖内（那只管 Hook
+                // 回调），逃逸异常会直接杀宿主。统一在这个唯一投递口过防波堤；日志带堆栈，
+                // 由栈顶定位是哪个安装器。
                 postToMain = { action ->
-                    mainHandlerOrNull()?.post(action)
+                    mainHandlerOrNull()?.post(
+                        HostThreadGuard.runnable("feature.post_to_main", action)
+                    )
                 },
                 // 扫描热路径只更新宿主内存/私有缓存；模块设置页再主动拉取并校验落盘。
                 writeScanSnapshot = { surface, content ->
@@ -2867,6 +2898,7 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.REMOVE_DYNAMIC_CHARGE_ONLY,
                             false
                         ),
+                        hideFrequentVisits = prefs.getBoolean(FeaturePreferences.HIDE_DYNAMIC_FREQUENT_VISITS, false),
                         hideTopicList = prefs.getBoolean(
                             FeaturePreferences.HIDE_DYNAMIC_TOPIC_LIST,
                             false
@@ -3739,7 +3771,11 @@ class HookEntry : XposedModule() {
                             val v = param.thisObject as? View ?: return
                             if (v.id != descViewId) return
                             descCachedViewRef = java.lang.ref.WeakReference(v)
-                            v.post { applyFreeCopyListener(v, null, false) }
+                            v.post {
+                                HostThreadGuard.run("free_copy.desc_apply") {
+                                    applyFreeCopyListener(v, null, false)
+                                }
+                            }
                         }
                     }
                     var narrowed = false
@@ -3782,7 +3818,11 @@ class HookEntry : XposedModule() {
                                 val v = instance as? View ?: return@after
                                 if (v.id != descViewId) return@after
                                 descCachedViewRef = java.lang.ref.WeakReference(v)
-                                v.post { applyFreeCopyListener(v, null, false) }
+                                v.post {
+                                    HostThreadGuard.run("free_copy.desc_apply") {
+                                        applyFreeCopyListener(v, null, false)
+                                    }
+                                }
                             }
                         }
                     }

@@ -143,6 +143,9 @@ internal object FeaturePreferences {
     /** 未解锁的充电专属动态。 */
     const val REMOVE_DYNAMIC_CHARGE_ONLY = "remove_dynamic_charge_only"
 
+    /** 动态页顶部最常访问整栏，包含两排 UP 条目和标题/更多入口。 */
+    const val HIDE_DYNAMIC_FREQUENT_VISITS = "hide_dynamic_frequent_visits"
+
     /** 动态页顶部话题栏。 */
     const val HIDE_DYNAMIC_TOPIC_LIST = "hide_dynamic_topic_list"
 

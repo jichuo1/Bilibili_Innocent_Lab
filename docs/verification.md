@@ -1,5 +1,32 @@
 # Regression verification
 
+## Hide dynamic frequently visited (2026-09-08)
+
+- Final four gates passed with --no-daemon --rerun-tasks (8m33s; all 89 tasks
+  executed): assembleDebug, testDebugUnitTest, lintDebug, minifyReleaseWithR8.
+  157 suites / 902 tests, zero failures/errors/skips. Lint 0 errors / 183 warnings.
+  The initial run used a compiled class preceding the last error-evidence edit;
+  a bytecode check confirmed the mismatch and the forced final run replaced it.
+- Eight new real Modern-callback tests cover both tabs and sync/async paths,
+  whole-carrier absence and the verified no-row insertion predicate, source
+  identity preservation, topic independence, whole-over-live priority, missing
+  item dependencies, partial tab coverage, no-op clear/build failure, default
+  replies, null/error/completed callbacks and host exception propagation.
+  New catalog golden and old-backup/Remote tests cover the default-off setting.
+- Read-only check_whole_carrier.py passed on all 27 retained 8.84.0–9.11.0
+  samples including 8.90.2: paired getters/presence, builder clear/build and four
+  Moss methods. No version extrapolation or native-page acceptance is implied.
+- APK version 1.1.5 / 16; 11,736,804 bytes, 19 DEX, safe ZIP paths. New preference,
+  capability and clear-verification markers are present. Built 21:51:09, newer
+  than final main-source edit 21:44:50. SHA-256:
+  258D46486533E92CB1CBBFE27E9E1E0A6122E86322FE1034F55EA37A58F22982.
+- Server strict typecheck and 77 tests passed. User-approved Staging, Production
+  and private analytics deployments completed; online non-writing probes verify
+  catalog 1/2/3 support, catalog 4 rejection and anonymous Access login redirect.
+  No D1 migration, quota change or new personal-data category.
+- No device installation, commit or push. On-device spacing, cached first-frame
+  behavior and framework execution remain pending.
+
 ## NPatch Remote API cross-check and no-root mode boundary (2026-09-08)
 
 - Four gates passed with `--no-daemon`. The run that executed `testDebugUnitTest`

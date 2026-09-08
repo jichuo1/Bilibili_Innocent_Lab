@@ -17,6 +17,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.highcapable.betterandroid.ui.extension.view.childOrNull
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyGraph
@@ -1073,10 +1074,13 @@ internal class ReplyTopologyAnchorView(context: Context) : TextView(context) {
         ) {
             setBackgroundResource(typedValue.resourceId)
         }
+        // 监听器挂在宿主 View 上，由宿主主线程直接派发，不经框架 PROTECTIVE。
         setOnClickListener {
-            val currentSeed = seed ?: return@setOnClickListener
-            val activity = findActivity(context) ?: return@setOnClickListener
-            coordinator?.open(activity, currentSeed)
+            HostThreadGuard.run("comment_topology.entry_click") {
+                val currentSeed = seed ?: return@run
+                val activity = findActivity(context) ?: return@run
+                coordinator?.open(activity, currentSeed)
+            }
         }
     }
 
@@ -1123,7 +1127,20 @@ internal class ReplyTopologyCoordinator(
 ) {
     private val gate = ReplyTopologySessionGate()
     private val panelController = ReplyTopologyPanelController()
-    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /**
+     * 面板全部主线程任务的唯一投递口。
+     *
+     * 覆盖 `dispatchMessage` 而不是逐个 `post {}` 包裹：`Handler.post` 把 Runnable 挂在
+     * `msg.callback` 上，Looper 最终只经过这一个方法，所以这里是结构性保证——以后新增的
+     * post/postDelayed 自动纳入，不依赖“记得包”。框架的 `ExceptionMode.PROTECTIVE` 只覆盖
+     * Hook 回调，主线程消息逃逸异常会直接杀宿主。
+     */
+    private val mainHandler = object : Handler(Looper.getMainLooper()) {
+        override fun dispatchMessage(msg: android.os.Message) {
+            HostThreadGuard.run("comment_topology.main_message") { super.dispatchMessage(msg) }
+        }
+    }
     private var active: Active? = null
     private var lastOpacity = 0.90f
     private var lastPosition = ReplyTopologyPanelPosition(0.94f, 0.18f)
@@ -1478,7 +1495,9 @@ internal class ReplyTopologyCoordinator(
 
     private fun execute(worker: ExecutorService, action: () -> Unit) {
         try {
-            worker.execute(action)
+            // 任务体也要过防波堤：`BIL-ReplyTopology` 是宿主进程内的线程，
+            // Android 的默认 uncaught handler 对**任何**线程都是杀进程。
+            worker.execute { HostThreadGuard.run("comment_topology.worker", action) }
         } catch (_: RejectedExecutionException) {
             // 面板已关闭；宿主异步回调只需静默丢弃。
         }

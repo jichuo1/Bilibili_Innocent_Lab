@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -14,7 +15,12 @@ class HomeRecommendPurifyFeatureInstallerTest {
         val points = base.copy(responseItemGetters = listOf(base.responseItemGetters.first(), base.responseItemGetters.first()))
         val statuses = mutableListOf<Pair<String, String>>()
         val env = environment(statuses).copy(registrar = object : HookRegistrar by TestHookRegistrar {
-            override fun adapted(id: String, point: VersionAdapter.HookPoint, block: ModernMemberHookCreator.() -> Unit) {
+            override fun adapted(
+                id: String,
+                point: VersionAdapter.HookPoint,
+                exceptionPolicy: HookExceptionPolicy,
+                block: ModernMemberHookCreator.() -> Unit
+            ) {
                 if (id.endsWith(".0")) error("registration failed")
             }
         })

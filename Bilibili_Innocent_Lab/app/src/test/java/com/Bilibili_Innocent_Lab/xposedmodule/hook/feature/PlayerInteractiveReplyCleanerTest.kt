@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import com.bapis.bilibili.app.viewunite.v1.*
 import com.bapis.bilibili.community.service.dm.v1.Command
@@ -14,7 +15,12 @@ class PlayerInteractiveReplyCleanerTest {
     @Test fun `real installer callbacks wire sync async and getter without swallowing host failures`() {
         val recorded = PlayerPortTestRegistrar()
         val registrar = object : HookRegistrar by recorded {
-            override fun adapted(id: String, point: VersionAdapter.HookPoint, block: ModernMemberHookCreator.() -> Unit) {
+            override fun adapted(
+                id: String,
+                point: VersionAdapter.HookPoint,
+                exceptionPolicy: HookExceptionPolicy,
+                block: ModernMemberHookCreator.() -> Unit
+            ) {
                 recorded.exact(id, Class.forName(point.className), point.methodName,
                     *point.paramClassNames.orEmpty().map { Class.forName(it) }.toTypedArray(), block = block)
             }

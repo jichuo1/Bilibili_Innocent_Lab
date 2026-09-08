@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import java.lang.reflect.Constructor
 
@@ -30,6 +31,7 @@ internal object TestHookRegistrar : HookRegistrar {
     override fun adapted(
         id: String,
         point: VersionAdapter.HookPoint,
+        exceptionPolicy: HookExceptionPolicy,
         block: ModernMemberHookCreator.() -> Unit
     ) = Unit
 

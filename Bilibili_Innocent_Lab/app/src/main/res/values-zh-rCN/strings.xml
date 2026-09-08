@@ -757,6 +757,8 @@
     <string name="remove_dynamic_charge_only">隐藏未解锁的充电专属动态</string>
     <string name="remove_dynamic_charge_only_tip">开启后，隐藏未解锁的充电专属动态；已解锁或权限不明的动态保留。重启哔哩哔哩后生效。</string>
     <string name="hide_dynamic_topic_list">隐藏动态页话题栏</string>
+    <string name="hide_dynamic_frequent_visits">隐藏动态页最常访问</string>
+    <string name="hide_dynamic_frequent_visits_tip">开启后，整块隐藏动态页顶部的最常访问区域，不留占位，不影响动态内容。整栏隐藏时不再单独过滤其中的直播条目。重启哔哩哔哩后生效。</string>
     <string name="hide_dynamic_topic_list_tip">开启后，隐藏动态列表上方的话题栏，不影响动态内容。重启哔哩哔哩后生效。</string>
     <string name="remove_dynamic_live_up_entries">隐藏顶部 UP 栏的直播条目</string>
     <string name="remove_dynamic_live_up_entries_tip">开启后，隐藏动态页顶部 UP 栏的直播条目，不留空位。重启哔哩哔哩后生效。</string>

@@ -1,5 +1,28 @@
 # Runtime architecture
 
+## Hide frequently visited on Dynamics (2026-09-08)
+
+The default-off dynamic.frequent_visits.hidden setting removes the whole
+DynAllReply.upList / DynVideoReply.videoUpList carrier using a host builder copy.
+It reuses DynamicPurifyFeatureInstaller's sync and asynchronous response paths,
+not network blocking, global getters or View hiding. Whole-carrier resolution
+requires only the paired getter type, has method and builder clear method; it
+does not depend on individual UP fields, live state or position accessors.
+
+Whole removal takes precedence over live-entry filtering without changing its
+saved preference. Topic and dynamic-item filters remain independent. No-match
+and default replies retain identity; clear/build/readback failure returns the
+original reply. APPLIED follows verified absence in the completed copy, not hook
+registration. The verified 9.10 UI list composer only inserts this component
+when the relevant has method is true and the first row is nonempty, so removing
+the field omits the component rather than reserving a blank container.
+
+Settings catalog v15 adds one Boolean (122 settings). Diagnostic catalog v3 adds
+dynamic_frequent_visits_hidden; the local-only server projection keeps v1/v2
+accepted, with since=3 preventing the new leaf from masquerading as older data.
+No viewing content, account identity or new telemetry payload category is added.
+Native cold-cache layout behavior remains a device acceptance item.
+
 ## Video-session default speed (2026-09-08)
 
 PlayerSpeedSessions extends the existing default-speed setting with two paths:

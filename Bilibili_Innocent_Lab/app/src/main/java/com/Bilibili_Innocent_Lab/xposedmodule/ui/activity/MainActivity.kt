@@ -315,6 +315,7 @@ class MainActivity : SkinnedActivity() {
     private var removeDynamicPromotions = false
     private var removeDynamicChargeOnly = false
     private var hideDynamicTopicList = false
+    private var hideDynamicFrequentVisits = false
     private var removeDynamicLiveUpEntries = false
     private var removeSearchCommercial = false
     private var searchKeywordFilterEnabled = false
@@ -8300,6 +8301,9 @@ class MainActivity : SkinnedActivity() {
         hideDynamicTopicList = runCatching {
             modulePrefs?.getBoolean(FeaturePreferences.HIDE_DYNAMIC_TOPIC_LIST, false) ?: false
         }.getOrDefault(false)
+        hideDynamicFrequentVisits = runCatching {
+            modulePrefs?.getBoolean(FeaturePreferences.HIDE_DYNAMIC_FREQUENT_VISITS, false) ?: false
+        }.getOrDefault(false)
         removeDynamicLiveUpEntries = runCatching {
             modulePrefs?.getBoolean(
                 FeaturePreferences.REMOVE_DYNAMIC_LIVE_UP_ENTRIES,
@@ -9832,6 +9836,44 @@ class MainActivity : SkinnedActivity() {
                                         alpha = 0.6f
                                         setLineSpacing(6f, 1f)
                                         text = stringResource(R.string.remove_dynamic_charge_only_tip)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            topMargin = 12.dp
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        text = stringResource(R.string.hide_dynamic_frequent_visits)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        isChecked = hideDynamicFrequentVisits
+                                        setOnCheckedChangeListener { _, checked ->
+                                            hideDynamicFrequentVisits = checked
+                                            runCatching {
+                                                prefs().edit {
+                                                    putBoolean(
+                                                        FeaturePreferences.HIDE_DYNAMIC_FREQUENT_VISITS,
+                                                        checked
+                                                    )
+                                                }
+                                            }.onFailure { throwable ->
+                                                Log.e(
+                                                    "BilibiliInnocentLab",
+                                                    "write dynamic frequent visits prefs failed",
+                                                    throwable
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true)
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.hide_dynamic_frequent_visits_tip)
                                         textColor = colorResource(R.color.colorTextDark)
                                         textSize = 12f
                                     }
