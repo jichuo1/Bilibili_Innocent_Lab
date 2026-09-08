@@ -90,7 +90,11 @@ activation guidance. Device layout and callback timing remain pending.
 ## Explicit non-goals
 
 - No embedded-mode configuration UI. An embedded host with no companion
-  publisher remains fail-closed by design.
+  publisher remains fail-closed by design. NPatch integration mode (`--embed`)
+  has the same shape — its Remote Store lives inside the patched application and
+  the injected side is read-only — so the two are stated once as a shared
+  boundary in [architecture.md](architecture.md) rather than as two separate
+  framework quirks.
 - No signature-bypass escalation, anti-detection work, account-risk mitigation,
   or claim that a re-signed Bilibili package is safe for a user account.
 - No LSPatch canary compatibility promise. This record is pinned to v1.2 / 487.

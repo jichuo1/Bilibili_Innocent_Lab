@@ -26,6 +26,24 @@ class NPatchRemoteGatewayPolicyTest {
         )
     }
 
+    /**
+     * 手写 Parcel 路径唯一没有类型保护的地方就是这两个交易码。
+     *
+     * 这不是"防上游改号"的自动检测——JVM 单测加载不了继承 `android.os.Binder` 的
+     * `IXposedService$Stub`，读不到它的常量。它钉的是"取值不会被人顺手改掉"，并让
+     * 升级 `io.github.libxposed:interface` 时有一处必然被 diff 看见的地方；复核命令写在
+     * [NPatchRemoteGateway.TRANSACTION_REQUEST_REMOTE_PREFERENCES] 的 KDoc 里。
+     */
+    @Test
+    fun `remote preference transaction codes stay pinned to the libxposed AIDL`() {
+        assertEquals(21, NPatchRemoteGateway.TRANSACTION_REQUEST_REMOTE_PREFERENCES)
+        assertEquals(22, NPatchRemoteGateway.TRANSACTION_UPDATE_REMOTE_PREFERENCES)
+        assertEquals(
+            NPatchRemoteGateway.TRANSACTION_REQUEST_REMOTE_PREFERENCES + 1,
+            NPatchRemoteGateway.TRANSACTION_UPDATE_REMOTE_PREFERENCES
+        )
+    }
+
     @Test
     fun `connection circuit stays open only before its monotonic deadline`() {
         assertFalse(NPatchRemoteGateway.isConnectionCircuitOpen(100L, 0L))

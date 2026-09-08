@@ -267,6 +267,18 @@ read-only storage, timeout, or read-back mismatch records a bounded failure and
 leaves the host fail-closed. The setting switch controls only this configuration
 delivery; it cannot disable native injection already embedded by NPatch.
 
+Both no-root deliveries are limited to their manager modes, and for the same
+structural reason. NPatch integration mode (`--embed`) keeps the Remote Store
+inside the patched application, where the injected side is read-only and no
+companion publisher exists; an LSPatch embedded host has the same shape. A
+separate module settings application cannot publish an authorized snapshot in
+either case, so both remain fail-closed by design rather than falling back to a
+private file, a Provider or a broadcast. This is a boundary, not a defect to be
+worked around, and the two no-root status strings name it so the state is not
+mistaken for a missing manager. The hand-written NPatch Binder path additionally
+pins the two `IXposedService` transaction codes in a unit test, because a renumbered
+AIDL would otherwise fail only as an opaque remote error.
+
 Accepting terms retains a non-authorizing private pending decision until the
 publication succeeds, as described above. Declining publishes the denied
 configuration before committing the private decision; a failed write does not
@@ -274,8 +286,9 @@ claim the previous remote snapshot was revoked. Neither decision retrofits hooks
 into an already-running Bilibili process.
 
 Pinned API baselines, manager routing, platform limits and device acceptance
-matrices are in [vector_compatibility.md](vector_compatibility.md) and
-[irena_compatibility.md](irena_compatibility.md).
+matrices are in [vector_compatibility.md](vector_compatibility.md),
+[irena_compatibility.md](irena_compatibility.md) and
+[lspatch_compatibility.md](lspatch_compatibility.md).
 Host AndroidX classes are resolved through the host ClassLoader, including the
 RecyclerView hooks and type checks used by comment binding. Module-owned AndroidX
 classes are not used as substitutes for host types.
