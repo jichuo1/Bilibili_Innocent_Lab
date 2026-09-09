@@ -829,4 +829,25 @@
     <string name="diag_cap_home_banner_feed">首頁輪播·推薦流過濾</string>
     <string name="hide_search_home_recommend">隱藏搜尋頁熱搜推薦</string>
     <string name="hide_search_home_recommend_tip">開啟後，隱藏搜尋首頁的熱搜、搜尋發現及其附屬控制項，保留搜尋記錄，不留元件佔位。重新啟動 Bilibili 後生效。</string>
+    <string name="highlights_title">本次更新</string>
+    <string name="highlights_menu_tip">查看更新亮點，快速找到相關設定。</string>
+    <string name="highlights_version">已安裝版本：%1$s</string>
+    <string name="highlights_intro">了解新增與改進功能。點選項目可定位設定，不會自動開啟功能。</string>
+    <string name="highlights_entry_title">%1$s · %2$s</string>
+    <string name="highlights_new">新增</string>
+    <string name="highlights_improved">改進</string>
+    <string name="highlights_fixed">修復</string>
+    <string name="highlights_go_to_setting">前往設定 →</string>
+    <string name="highlights_unavailable">目前環境暫不提供此設定入口。</string>
+    <string name="highlights_empty">此安裝包沒有額外的更新亮點。</string>
+    <string name="highlights_full_notes">完整更新說明</string>
+    <string name="highlights_acknowledge">知道了</string>
+    <string name="highlights_search">隱藏搜尋首頁的熱搜與搜尋發現，保留搜尋記錄。</string>
+    <string name="highlights_dynamic">整塊隱藏動態頁最常訪問區域，不影響下方動態內容。</string>
+    <string name="highlights_pgc">依明確的卡片類型或影視播放網址過濾首頁推薦，不依標題猜測。</string>
+    <string name="highlights_special">獨立過濾已識別的特殊推薦卡片，與番劇影視過濾分開控制。</string>
+    <string name="highlights_speed">新影片使用設定的預設倍速，播放中的手動調速與長按暫時倍速保持獨立。</string>
+    <string name="highlights_interactive">補齊投票等互動元件的回應處理路徑，保留一般彈幕與章節資訊。</string>
+    <string name="highlights_stability_title">適配與穩定性</string>
+    <string name="highlights_stability">完善局部適配與例外處理，減少單一路徑缺失對其他功能的影響。</string>
 </resources>

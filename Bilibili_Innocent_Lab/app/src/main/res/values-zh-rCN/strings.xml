@@ -829,4 +829,25 @@
     <string name="diag_cap_home_banner_feed">首页轮播·推荐流过滤</string>
     <string name="hide_search_home_recommend">隐藏搜索页热搜推荐</string>
     <string name="hide_search_home_recommend_tip">开启后，隐藏搜索首页的热搜、搜索发现及其附属控件，保留搜索历史，不留组件占位。重启哔哩哔哩后生效。</string>
+    <string name="highlights_title">本次更新</string>
+    <string name="highlights_menu_tip">查看更新亮点，快速找到相关设置。</string>
+    <string name="highlights_version">已安装版本：%1$s</string>
+    <string name="highlights_intro">了解新增与改进功能。点击条目可定位设置，不会自动开启功能。</string>
+    <string name="highlights_entry_title">%1$s · %2$s</string>
+    <string name="highlights_new">新增</string>
+    <string name="highlights_improved">改进</string>
+    <string name="highlights_fixed">修复</string>
+    <string name="highlights_go_to_setting">去设置 →</string>
+    <string name="highlights_unavailable">当前环境暂不提供此设置入口。</string>
+    <string name="highlights_empty">此安装包没有额外的更新亮点。</string>
+    <string name="highlights_full_notes">完整更新说明</string>
+    <string name="highlights_acknowledge">知道了</string>
+    <string name="highlights_search">隐藏搜索首页的热搜与搜索发现，保留搜索历史。</string>
+    <string name="highlights_dynamic">整块隐藏动态页最常访问区域，不影响下方动态内容。</string>
+    <string name="highlights_pgc">按明确的卡片类型或影视播放地址过滤首页推荐，不按标题猜测。</string>
+    <string name="highlights_special">独立过滤已识别的特殊推荐卡片，与番剧影视过滤分开控制。</string>
+    <string name="highlights_speed">新视频使用设定的默认倍速，播放中的手动调速和长按临时倍速保持独立。</string>
+    <string name="highlights_interactive">补齐投票等互动组件的响应处理路径，保留普通弹幕和章节信息。</string>
+    <string name="highlights_stability_title">适配与稳定性</string>
+    <string name="highlights_stability">完善局部适配与异常处理，减少单条路径缺失对其他功能的影响。</string>
 </resources>

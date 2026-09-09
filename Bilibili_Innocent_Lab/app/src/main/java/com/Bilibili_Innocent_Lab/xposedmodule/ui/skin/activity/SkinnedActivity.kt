@@ -3,6 +3,17 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.view.View
+import android.view.ViewGroup
+import android.widget.CheckBox
+import android.widget.EditText
+import android.widget.TextView
+import android.content.res.ColorStateList
+import android.graphics.drawable.RippleDrawable
+import android.graphics.drawable.StateListDrawable
+import androidx.appcompat.widget.SwitchCompat
+import androidx.core.graphics.ColorUtils
+import com.Bilibili_Innocent_Lab.xposedmodule.R
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidChoiceDrawable
 import androidx.annotation.MainThread
 import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.ActivitySkinSession
@@ -52,7 +63,112 @@ abstract class SkinnedActivity : AppViewsActivity() {
         onFailure: (() -> Unit)? = null
     ): Boolean {
         if (lifecycleEnded) return false
+        stylePreparedSkinControls(root)
         return skinSessionOrNull?.bindRoot(root, onFailure) ?: false
+    }
+
+    /** One construction-time pass. No hierarchy listener, polling or preference reads. */
+    protected fun stylePreparedSkinControls(root: View) {
+        if (!isLiquidSkinEffective || lifecycleEnded) return
+        val density = resources.displayMetrics.density
+        fun choice(width: Int, height: Int, checkbox: Boolean = false, thumb: Boolean = false) =
+            LiquidChoiceDrawable(width, height, density, monetColors.surface, monetColors.primary,
+                monetColors.onPrimary, getColor(R.color.colorTextGray), checkbox, thumb)
+        fun visit(view: View) {
+            when (view) {
+                is SwitchCompat -> {
+                    val width = (view.thumbDrawable?.intrinsicWidth ?: 0).coerceAtLeast((20 * density).toInt())
+                    val height = (view.thumbDrawable?.intrinsicHeight ?: 0).coerceAtLeast((20 * density).toInt())
+                    view.thumbTintList = null
+                    view.trackTintList = null
+                    view.thumbDrawable = choice(width, height, thumb = true)
+                    view.trackDrawable = choice(width * 2, height)
+                    view.splitTrack = false
+                }
+                is CheckBox -> {
+                    val size = (view.buttonDrawable?.intrinsicWidth ?: 0).coerceAtLeast((24 * density).toInt())
+                    view.buttonTintList = null
+                    view.buttonDrawable = choice(size, size, checkbox = true)
+                }
+                is EditText -> {
+                    view.backgroundTintList = null
+                    replaceControlBackground(view, skinBackground(monetColors.surfaceVariant, 14f,
+                        materialOutline = false, role = SurfaceRole.SELECTED_ITEM))
+                    view.foreground = controlOutline(14f)
+                }
+            }
+            if (view is ViewGroup) for (index in 0 until view.childCount) visit(view.getChildAt(index))
+        }
+        visit(root)
+    }
+
+    /** Called after the existing Material decoration: Material/unauthorized paths are exact no-ops. */
+    protected fun skinActionButton(view: TextView, filled: Boolean, radiusDp: Float = 20f) {
+        if (!isLiquidSkinEffective || lifecycleEnded) return
+        val text = getColor(R.color.colorTextDark)
+        view.setTextColor(ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
+            intArrayOf(ColorUtils.setAlphaComponent(text, 0x66), text)))
+        view.backgroundTintList = null
+        replaceControlBackground(view, skinBackground(monetColors.surface, radiusDp, false,
+            if (filled) SurfaceRole.FILLED_BUTTON else SurfaceRole.TEXT_BUTTON))
+        val mask = GradientDrawable().apply {
+            cornerRadius = radiusDp * resources.displayMetrics.density
+            setColor(android.graphics.Color.WHITE)
+        }
+        // Glass stays the direct background; a foreground ripple cannot sever its View callback.
+        view.foreground = RippleDrawable(ColorStateList.valueOf(
+            ColorUtils.setAlphaComponent(monetColors.primary, 0x33)), controlOutline(radiusDp, filled), mask)
+    }
+
+    protected val skinEmphasisTextColor: Int
+        get() = if (isLiquidSkinEffective) getColor(R.color.colorTextDark) else monetColors.onPrimary
+
+    protected fun skinSelectionControl(view: View, radiusDp: Float, selected: Boolean) {
+        if (!isLiquidSkinEffective || lifecycleEnded) return
+        replaceControlBackground(view, skinBackground(monetColors.surface, radiusDp, false,
+            if (selected) SurfaceRole.SELECTED_ITEM else SurfaceRole.CARD))
+        view.foreground = controlOutline(radiusDp, selected)
+    }
+
+    protected fun skinUpdateBadge(view: TextView) {
+        if (!isLiquidSkinEffective || lifecycleEnded) return
+        view.setTextColor(getColor(R.color.colorTextDark))
+        view.background = com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.GithubUpdateBadgeDrawable(
+            ColorUtils.setAlphaComponent(monetColors.surface, 220), resources.displayMetrics.density,
+            ColorUtils.setAlphaComponent(monetColors.primary, 210))
+    }
+
+    protected fun skinStatusChip(view: TextView, accent: Int, radiusDp: Float = 9f) {
+        if (!isLiquidSkinEffective || lifecycleEnded) return
+        val density = resources.displayMetrics.density
+        // Small semantic labels retain a readable solid glyph; no per-label optical capture.
+        replaceControlBackground(view, GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(ColorUtils.setAlphaComponent(monetColors.surface, 210),
+                ColorUtils.setAlphaComponent(monetColors.surface, 160))).apply {
+            cornerRadius = radiusDp * density
+            setStroke(density.toInt().coerceAtLeast(1), ColorUtils.setAlphaComponent(accent, 180))
+        })
+    }
+
+    private fun replaceControlBackground(view: View, drawable: Drawable) {
+        val left = view.paddingLeft; val top = view.paddingTop
+        val right = view.paddingRight; val bottom = view.paddingBottom
+        view.background = drawable
+        view.setPadding(left, top, right, bottom)
+    }
+
+    private fun controlOutline(radiusDp: Float, emphasized: Boolean = false): Drawable {
+        fun border(active: Boolean) = GradientDrawable().apply {
+            cornerRadius = radiusDp * resources.displayMetrics.density
+            setColor(android.graphics.Color.TRANSPARENT)
+            setStroke(((if (active) 2f else 1f) * resources.displayMetrics.density).toInt().coerceAtLeast(1),
+                ColorUtils.setAlphaComponent(monetColors.primary, if (active || emphasized) 0xC0 else 0x55))
+        }
+        return StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_focused), border(true))
+            addState(intArrayOf(android.R.attr.state_pressed), border(true))
+            addState(intArrayOf(), border(false))
+        }
     }
 
     /** 让一个已在层级中的滚动 View 仅以前景内容参与系统 stretch；Material/低版本为 no-op。 */

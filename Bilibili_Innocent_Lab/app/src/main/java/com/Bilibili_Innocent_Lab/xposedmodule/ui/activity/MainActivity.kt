@@ -49,6 +49,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.os.LocaleListCompat
 import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
+import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
 import androidx.core.view.setPadding
 import androidx.core.view.updateMargins
@@ -56,6 +57,12 @@ import androidx.core.view.updatePadding
 import androidx.lifecycle.Lifecycle
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.R
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseHighlightsCatalog
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseHighlightsPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseHighlightsStore
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.HighlightKind
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseHighlightsLayout
 import com.highcapable.betterandroid.system.extension.component.disableComponent
 import com.highcapable.betterandroid.system.extension.component.enableComponent
 import com.highcapable.betterandroid.system.extension.component.isComponentEnabled
@@ -534,6 +541,32 @@ class MainActivity : SkinnedActivity() {
 
     /** 当前活动的确认弹窗：Activity 销毁时主动 dismiss，避免 WindowLeaked */
     private var activeConfirmDialog: Dialog? = null
+    private val settingsDestinations = SettingsDestinationRegistry<View>()
+    private var pendingHighlightsFrom: Int? = null
+    private var pendingHighlightsAutomatic = true
+    private var releaseHighlightsDialog: Dialog? = null
+    private var activeHighlightsFrom: Int? = null
+    private var activeHighlightsAutomatic = true
+    private var pendingHighlightDestination: String? = null
+    private var highlightNavigationInFlight = false
+    private var highlightNavigationGeneration = 0L
+    private var highlightsLayoutPending = false
+    private var highlightsDisposed = false
+    private val showHighlightsWhenIdle = Runnable {
+        if (highlightsDisposed || isFinishing || isDestroyed) return@Runnable
+        if (highlightNavigationInFlight || (pendingHighlightsFrom == null && pendingHighlightDestination == null)) return@Runnable
+        val root = settingsSearchRoot
+        val eligible = ReleaseHighlightsPolicy.canShow(updateUiResumed, userTermsDecision.isAuthorized,
+            root != null && root.isLaidOut, hasWindowFocus(), activeConfirmDialog?.isShowing == true,
+            !telemetryDisclosurePrompted && TelemetryStore.needsDisclosureReview(applicationContext),
+            updateCheckCoordinator.isBusy())
+        if (!eligible) return@Runnable
+        val destination = pendingHighlightDestination
+        if (destination != null) {
+            pendingHighlightDestination = null
+            revealHighlightDestination(destination)
+        } else pendingHighlightsFrom?.let { showReleaseHighlights(it, pendingHighlightsAutomatic) }
+    }
 
     /** Liquid 专用共享回弹层；滚动内容和根背景切片在同一 RenderNode 中形变。 */
     private var liquidStretchScrollTarget: View? = null
@@ -681,7 +714,7 @@ class MainActivity : SkinnedActivity() {
         val minimal = logLevelMinimalPill ?: return
         val complete = logLevelCompletePill ?: return
         val gray = getColor(R.color.colorTextGray)
-        val onPrimary = monetColors.onPrimary
+        val onPrimary = skinEmphasisTextColor
 
         // 目标 X 偏移：按容器宽度的一半计算（滑块已收缩为容器半宽，选中「完整」时右移容器半宽）。
         // 注意不能用 thumb.width/2：滑块收缩后自身宽度已是容器一半，再除 2 会只滑到 1/4 处（卡在中间）。
@@ -1227,6 +1260,7 @@ class MainActivity : SkinnedActivity() {
                     content,
                     rippleMask
                 )
+                skinActionButton(this, filled = true)
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
@@ -2103,6 +2137,7 @@ class MainActivity : SkinnedActivity() {
             } else {
                 selfRippleBackground(14f)
             }
+            skinActionButton(this, filled, if (filled) 20f else 14f)
             isClickable = true
             isFocusable = true
             setOnClickListener { onClick() }
@@ -2635,6 +2670,7 @@ class MainActivity : SkinnedActivity() {
                     content,
                     rippleMask
                 )
+                skinActionButton(this, filled = true)
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
@@ -2923,6 +2959,172 @@ class MainActivity : SkinnedActivity() {
     }
 
     /** 右上角 GitHub 图标的二级菜单。 */
+    private fun scheduleReleaseHighlights() {
+        updateUiHandler.removeCallbacks(showHighlightsWhenIdle)
+        if (highlightsDisposed || isFinishing || isDestroyed ||
+            highlightNavigationInFlight || (pendingHighlightsFrom == null && pendingHighlightDestination == null) || !updateUiResumed) return
+        val root = settingsSearchRoot ?: return
+        if (!root.isLaidOut) {
+            if (!highlightsLayoutPending) {
+                highlightsLayoutPending = true
+                root.doOnLayout { highlightsLayoutPending = false; scheduleReleaseHighlights() }
+            }
+            return
+        }
+        if (activeConfirmDialog?.isShowing == true || !hasWindowFocus()) return
+        updateUiHandler.postDelayed(showHighlightsWhenIdle, 450L)
+    }
+
+    private fun showReleaseHighlights(
+        fromRevision: Int = pendingHighlightsFrom ?: (ReleaseHighlightsCatalog.currentRevision - 1), automatic: Boolean = false
+    ) {
+        if (!userTermsDecision.isAuthorized || !updateUiResumed || isFinishing || isDestroyed) return
+        if (activeConfirmDialog?.isShowing == true) return
+        val entries = ReleaseHighlightsCatalog.entriesAfter(fromRevision, automatic)
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val container = createModalContainer()
+        container.addView(NativeTextView(this).apply {
+            text = getString(R.string.highlights_title)
+            textSize = 19f; textColor = getColor(R.color.colorTextDark)
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        })
+        container.addView(NativeTextView(this).apply {
+            text = getString(R.string.highlights_version, BuildConfig.VERSION_NAME)
+            textSize = 13f; textColor = getColor(R.color.colorTextGray)
+        }, NativeLinearLayout.LayoutParams(-1,-2).apply { topMargin = (6 * density).toInt() })
+        container.addView(NativeTextView(this).apply {
+            text = getString(R.string.highlights_intro)
+            textSize = 12f; textColor = getColor(R.color.colorTextGray)
+        }, NativeLinearLayout.LayoutParams(-1,-2).apply { topMargin = (8 * density).toInt() })
+        val rows = NativeLinearLayout(this).apply { orientation = NativeLinearLayout.VERTICAL }
+        val targets = collectSettingsSearchTargets()
+        entries.forEach { entry ->
+            val destination = entry.destination
+            val available = destination != null && targets.count { destination.settingId in it.settingIds } == 1
+            val kind = getString(when (entry.kind) {
+                HighlightKind.NEW -> R.string.highlights_new
+                HighlightKind.IMPROVED -> R.string.highlights_improved
+                HighlightKind.FIXED -> R.string.highlights_fixed
+            })
+            val action = if (destination == null) "" else "\n" + getString(
+                if (available) R.string.highlights_go_to_setting else R.string.highlights_unavailable)
+            val row = createGitHubMenuRow(
+                getString(R.string.highlights_entry_title,kind,getString(entry.titleRes)),
+                getString(entry.descriptionRes) + action, highlight = false
+            ) {
+                if (available) dismissWithAnimation(dialog,container) {
+                    revealHighlightDestination(destination.settingId)
+                }
+            }
+            row.isClickable = available
+            rows.addView(row,NativeLinearLayout.LayoutParams(-1,-2).apply { bottomMargin = (5 * density).toInt() })
+        }
+        if (entries.isEmpty()) rows.addView(NativeTextView(this).apply {
+            text = getString(R.string.highlights_empty); textSize = 14f
+            textColor = getColor(R.color.colorTextGray)
+        })
+        val body = NativeScrollView(this).apply { isFillViewport = false; addView(rows) }
+        val maxHeight = minOf((380 * density).toInt(), (resources.displayMetrics.heightPixels * 0.48f).toInt())
+        container.addView(body,NativeLinearLayout.LayoutParams(-1,
+            if (entries.isEmpty()) ViewGroup.LayoutParams.WRAP_CONTENT else maxHeight).apply {
+            topMargin = (12 * density).toInt()
+        })
+        val buttons = NativeLinearLayout(this).apply { orientation = NativeLinearLayout.HORIZONTAL; gravity = Gravity.END }
+        buttons.addView(createTermsActionButton(getString(R.string.highlights_full_notes),false) {
+            dismissWithAnimation(dialog,container) { openExternalUrl(GitHubReleaseChecker.REPOSITORY_URL + "/releases") }
+        },NativeLinearLayout.LayoutParams(0,-2,1f))
+        buttons.addView(createTermsActionButton(getString(R.string.highlights_acknowledge),true) {
+            dismissWithAnimation(dialog,container) {}
+        },NativeLinearLayout.LayoutParams(0,-2,1f).apply { marginStart = (8 * density).toInt() })
+        container.addView(buttons,NativeLinearLayout.LayoutParams(-1,-2).apply { topMargin = (12 * density).toInt() })
+        val width = minOf((520 * density).toInt(),
+            resources.displayMetrics.widthPixels - (64 * density).toInt()).coerceAtLeast(1)
+        val innerWidth = (width - container.paddingLeft - container.paddingRight).coerceAtLeast(1)
+        var fixedHeight = 0
+        for (index in 0 until container.childCount) {
+            val child = container.getChildAt(index)
+            if (child === body) continue
+            val params = child.layoutParams as NativeLinearLayout.LayoutParams
+            child.measure(View.MeasureSpec.makeMeasureSpec((innerWidth - params.leftMargin - params.rightMargin).coerceAtLeast(1),
+                View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED))
+            fixedHeight += child.measuredHeight + params.topMargin + params.bottomMargin
+        }
+        val bodyParams = body.layoutParams as NativeLinearLayout.LayoutParams
+        val budget = ReleaseHighlightsLayout.budget(resources.displayMetrics.heightPixels - (64 * density).toInt(),
+            container.paddingTop + container.paddingBottom, fixedHeight, bodyParams.topMargin + bodyParams.bottomMargin,
+            maxHeight, (96 * density).toInt())
+        if (budget.scrollWholeContent) {
+            val all = NativeLinearLayout(this).apply { orientation = NativeLinearLayout.VERTICAL }
+            while (container.childCount > 0) {
+                val child = container.getChildAt(0)
+                container.removeView(child)
+                if (child === body) {
+                    body.removeView(rows)
+                    all.addView(rows,NativeLinearLayout.LayoutParams(-1,-2).apply { topMargin = bodyParams.topMargin })
+                } else all.addView(child)
+            }
+            val whole = NativeScrollView(this).apply { addView(all) }
+            container.addView(whole,NativeLinearLayout.LayoutParams(-1,budget.bodyHeight))
+        } else if (entries.isNotEmpty()) {
+            bodyParams.height = budget.bodyHeight
+            body.layoutParams = bodyParams
+        }
+        dialog.setOnShowListener {
+            pendingHighlightsFrom = null
+            releaseHighlightsDialog = dialog
+            activeHighlightsFrom = fromRevision
+            activeHighlightsAutomatic = automatic
+            if (!ReleaseHighlightsStore.markPresented(applicationContext)) {
+                Log.w("BilibiliInnocentLab","Update highlights display marker could not be persisted")
+            }
+        }
+        presentSizedModalDialog(dialog,container,width)
+    }
+
+    private fun revealHighlightDestination(settingId: String) {
+        if (!userTermsDecision.isAuthorized || isFinishing || isDestroyed || highlightsDisposed) return
+        val destination = ReleaseHighlightsCatalog.destinations.singleOrNull { it.settingId == settingId }
+            ?: return
+        if (!updateUiResumed) {
+            pendingHighlightDestination = settingId
+            return
+        }
+        val target = collectSettingsSearchTargets().singleOrNull { settingId in it.settingIds }
+        if (target == null || settingsDestinations.resolve(settingId) { it === target.view && it.isAttachedToWindow } == null) {
+            pendingHighlightDestination = null
+            toast(getString(R.string.highlights_unavailable))
+            return
+        }
+        pendingHighlightDestination = settingId
+        highlightNavigationInFlight = true
+        val generation = ++highlightNavigationGeneration
+        revealSettingsSearchTarget(target) {
+            if (generation != highlightNavigationGeneration || highlightsDisposed) return@revealSettingsSearchTarget
+            highlightNavigationInFlight = false
+            if (!updateUiResumed || activeConfirmDialog?.isShowing == true || !hasWindowFocus()) {
+                scheduleReleaseHighlights()
+                return@revealSettingsSearchTarget
+            }
+            pendingHighlightDestination = null
+            if (destination.homeFilterOption) showHomeRecommendFilterDialog(SettingsCatalog.byId.getValue(settingId).storageKey)
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) scheduleReleaseHighlights()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (releaseHighlightsDialog?.isShowing == true) activeHighlightsFrom?.let {
+            outState.putInt("highlights_from",it)
+            outState.putBoolean("highlights_automatic",activeHighlightsAutomatic)
+        }
+        pendingHighlightDestination?.let { outState.putString("highlights_destination",it) }
+        super.onSaveInstanceState(outState)
+    }
+
     private fun showGitHubMenuDialog() {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
@@ -2980,6 +3182,9 @@ class MainActivity : SkinnedActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = (6 * density).toInt() }
         )
+        container.addView(createGitHubMenuRow(R.string.highlights_title,R.string.highlights_menu_tip) {
+            dismissWithAnimation(dialog,container) { showReleaseHighlights() }
+        },NativeLinearLayout.LayoutParams(-1,-2).apply { topMargin = (6 * density).toInt() })
         // 与仓库/更新同属“项目链接”一组，用 6dp 行距；遥测行保留 10dp 分组间距。
         container.addView(
             createGitHubMenuRow(
@@ -3064,6 +3269,7 @@ class MainActivity : SkinnedActivity() {
                 (13 * density).toInt()
             )
             background = selfRippleBackground(14f)
+            if (highlight) skinSelectionControl(this, 14f, selected = true)
             isClickable = true
             isFocusable = true
             setOnClickListener { onClick() }
@@ -4251,6 +4457,7 @@ class MainActivity : SkinnedActivity() {
                     if (activity.updateUiResumed) activity.startUpdateCheck(next, updatePrefs)
                     else activity.updateCheckCoordinator.complete(next.channel, selectedChannel)
                 }
+                activity.scheduleReleaseHighlights()
             }
         }, "github-release-check").apply {
             isDaemon = true
@@ -4536,6 +4743,7 @@ class MainActivity : SkinnedActivity() {
                     content,
                     rippleMask
                 )
+                skinActionButton(this, filled = true)
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
@@ -4612,19 +4820,27 @@ class MainActivity : SkinnedActivity() {
     // OnBackInvokedCallback（API 33+）接管并收敛到同一退场动画；此处的 KEYCODE_BACK
     // 拦截仅服务三键/硬件导航（它们仍派发按键事件），lint 的启发式检查不感知该
     // 双路径迁移，故定点抑制。
-    @Suppress("GestureBackNavigation")
     private fun presentModalDialog(
         dialog: Dialog,
         container: NativeLinearLayout,
         onBackDismiss: () -> Unit = {}
+    ) = presentSizedModalDialog(dialog,container,null,onBackDismiss)
+
+    @Suppress("GestureBackNavigation")
+    private fun presentSizedModalDialog(
+        dialog: Dialog,
+        container: NativeLinearLayout,
+        preferredWidth: Int?,
+        onBackDismiss: () -> Unit = {}
     ) {
         activeConfirmDialog?.dismiss()
+        stylePreparedSkinControls(container)
         val density = resources.displayMetrics.density
         val root = NativeFrameLayout(this).apply {
             addView(
                 container,
                 NativeFrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    preferredWidth ?: ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply {
                     gravity = Gravity.CENTER
@@ -4723,6 +4939,11 @@ class MainActivity : SkinnedActivity() {
                     dialog.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback)
                 }
             }
+            if (releaseHighlightsDialog === dialog) {
+                releaseHighlightsDialog = null
+                activeHighlightsFrom = null
+            }
+            scheduleReleaseHighlights()
         }
         activeConfirmDialog = dialog
         dialog.show()
@@ -5265,6 +5486,7 @@ class MainActivity : SkinnedActivity() {
                     content,
                     rippleMask
                 )
+                skinActionButton(this, filled = true)
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
@@ -5458,6 +5680,7 @@ class MainActivity : SkinnedActivity() {
                     content,
                     rippleMask
                 )
+                skinActionButton(this, filled = true)
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
@@ -5647,6 +5870,7 @@ class MainActivity : SkinnedActivity() {
                     content,
                     rippleMask
                 )
+                skinActionButton(this, filled = true)
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
@@ -5763,6 +5987,7 @@ class MainActivity : SkinnedActivity() {
                     content,
                     rippleMask
                 )
+                skinActionButton(this, filled = true)
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
@@ -6300,6 +6525,7 @@ class MainActivity : SkinnedActivity() {
         requestLspatchHostReceipt(framework)
         renderNoRootUi()
         synchronizeNoRootSupportIfEnabled()
+        scheduleReleaseHighlights()
     }
 
     override fun onStop() {
@@ -6311,6 +6537,8 @@ class MainActivity : SkinnedActivity() {
     }
 
     override fun onPause() {
+        highlightNavigationGeneration++
+        highlightNavigationInFlight = false
         updateUiResumed = false
         updateUiHandler.removeCallbacksAndMessages(null)
         ColdStartUpdateSession.state.pause(updateUiOwner)
@@ -6341,7 +6569,8 @@ class MainActivity : SkinnedActivity() {
     private data class RuntimeSettingsSearchTarget(
         val item: SettingsSearchItem,
         val view: View,
-        val section: SettingsSearchSection
+        val section: SettingsSearchSection,
+        val settingIds: Set<String> = emptySet()
     )
 
     private fun homeRecommendFilterValues(): Map<String, Boolean> = mapOf(
@@ -6392,7 +6621,7 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
-    private fun showHomeRecommendFilterDialog() {
+    private fun showHomeRecommendFilterDialog(focusPreferenceKey: String? = null) {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
         val container = createModalContainer()
@@ -6522,6 +6751,12 @@ class MainActivity : SkinnedActivity() {
         ))
         refreshUi()
         presentModalDialog(dialog, container)
+        focusPreferenceKey?.let { key -> checkboxes[key]?.let { checkbox ->
+            checkbox.doOnLayout {
+                listBody.smoothScrollTo(0,(checkbox.top - (12 * density).toInt()).coerceAtLeast(0))
+                scheduleSettingsSearchTargetHighlight(checkbox)
+            }
+        } }
     }
 
     private fun portraitContentFilterValues(): Map<String, Boolean> = mapOf(
@@ -7397,7 +7632,8 @@ class MainActivity : SkinnedActivity() {
                     } ?: settingsSearchSectionLabel(targetSection)
                 ),
                 view = view,
-                section = targetSection
+                section = targetSection,
+                settingIds = settingsDestinations.idsFor(view)
             )
         }
 
@@ -7690,7 +7926,7 @@ class MainActivity : SkinnedActivity() {
         targetView.postDelayed(highlightRunnable, SETTINGS_SEARCH_HIGHLIGHT_DELAY_MS)
     }
 
-    private fun revealSettingsSearchTarget(target: RuntimeSettingsSearchTarget) {
+    private fun revealSettingsSearchTarget(target: RuntimeSettingsSearchTarget, afterReveal: (() -> Unit)? = null) {
         val primarySectionDelay = when (target.section) {
             SettingsSearchSection.PURIFICATION_ADVANCED,
             SettingsSearchSection.ENHANCEMENT_ADVANCED,
@@ -7719,6 +7955,9 @@ class MainActivity : SkinnedActivity() {
             val topPadding = (28 * resources.displayMetrics.density).toInt()
             scrollView.smoothScrollTo(0, (rect.top - topPadding).coerceAtLeast(0))
             scheduleSettingsSearchTargetHighlight(target.view)
+            if (afterReveal != null) target.view.postDelayed({
+                if (!isFinishing && !isDestroyed && target.view.isAttachedToWindow) afterReveal()
+            },280L)
         }, sectionDelay)
     }
 
@@ -7756,6 +7995,8 @@ class MainActivity : SkinnedActivity() {
     }
 
     override fun onDestroy() {
+        highlightsDisposed = true
+        settingsDestinations.clear()
         updateUiHandler.removeCallbacksAndMessages(null)
         ColdStartUpdateSession.state.pause(updateUiOwner)
         ColdStartUpdateSession.stopObserving(updateUiOwner)
@@ -7866,6 +8107,16 @@ class MainActivity : SkinnedActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingHighlightsFrom = ReleaseHighlightsStore.prepare(applicationContext)
+        if (savedInstanceState?.containsKey("highlights_from") == true) {
+            savedInstanceState.getInt("highlights_from",-1)
+                .takeIf { it in 0 until ReleaseHighlightsCatalog.currentRevision }?.let {
+                    pendingHighlightsFrom = it
+                    pendingHighlightsAutomatic = savedInstanceState.getBoolean("highlights_automatic",true)
+                }
+        }
+        pendingHighlightDestination = savedInstanceState?.getString("highlights_destination")
+            ?.takeIf { id -> ReleaseHighlightsCatalog.destinations.any { it.settingId == id } }
 
         // Base activity background（应用 Monet 动态背景色）
         findViewById<View>(Android_R.id.content).setBackgroundColor(monetColors.background)
@@ -8565,6 +8816,7 @@ class MainActivity : SkinnedActivity() {
                             setPadding(0, 0, 0, 3.dp)
                             background = com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.GithubUpdateBadgeDrawable(
                                 monetColors.primary, resources.displayMetrics.density)
+                            skinUpdateBadge(this)
                             visibility = View.INVISIBLE
                             isClickable = true
                             isFocusable = true
@@ -9374,6 +9626,8 @@ class MainActivity : SkinnedActivity() {
                                         },
                                         init = {
                                             homeRecommendFilterEntryView = this
+                                            settingsDestinations.bind("home.recommend.pgc.removed",this)
+                                            settingsDestinations.bind("home.recommend.special_cards.removed",this)
                                             orientation = LinearLayout.HORIZONTAL
                                             gravity = Gravity.CENTER_VERTICAL
                                             background = selfRippleBackground(10f)
@@ -9868,6 +10122,7 @@ class MainActivity : SkinnedActivity() {
                                         }
                                     ) {
                                         text = stringResource(R.string.hide_dynamic_frequent_visits)
+                                        settingsDestinations.bind("dynamic.frequent_visits.hidden",this)
                                         isAllCaps = false
                                         textColor = colorResource(R.color.colorTextGray)
                                         textSize = 15f
@@ -9994,6 +10249,7 @@ class MainActivity : SkinnedActivity() {
                                         }
                                     ) {
                                         text = stringResource(R.string.hide_search_home_recommend)
+                                        settingsDestinations.bind("search.home_recommend.hidden",this)
                                         isAllCaps = false
                                         textColor = colorResource(R.color.colorTextGray)
                                         textSize = 15f
@@ -10395,6 +10651,7 @@ class MainActivity : SkinnedActivity() {
                                         }
                                     ) {
                                         text = stringResource(R.string.hide_player_interactive_overlays)
+                                        settingsDestinations.bind("player.interactive_overlays.hidden",this)
                                         isAllCaps = false
                                         textColor = colorResource(R.color.colorTextGray)
                                         textSize = 15f
@@ -12252,6 +12509,7 @@ class MainActivity : SkinnedActivity() {
                                                 isClickable = true
                                                 isFocusable = true
                                                 setOnClickListener { showPlayerSpeedDialog(longPress) }
+                                                if (!longPress) settingsDestinations.bind(SettingsCatalog.ID_PLAYER_DEFAULT_SPEED,this)
                                             }
                                         ) {
                                             TextView(lparams = LayoutParams(widthMatchParent = true)) {
@@ -13334,6 +13592,7 @@ class MainActivity : SkinnedActivity() {
                                         cornerRadius = resources.displayMetrics.density * 10f
                                         setColor(monetColors.background)
                                     }
+                                    skinSelectionControl(this, 10f, selected = false)
                                 }
                             ) {
                                 // 滑动滑块（primary 圆角，随选中项平移；宽度在布局后动态设为容器一半）
@@ -13342,6 +13601,7 @@ class MainActivity : SkinnedActivity() {
                                     init = {
                                         logLevelThumb = this
                                         background = logLevelThumbBg()
+                                        skinSelectionControl(this, 10f, selected = true)
                                     }
                                 )
                                 // 两个等宽文字项（透明背景，仅作点击热区 + 文字显示）
@@ -13363,7 +13623,7 @@ class MainActivity : SkinnedActivity() {
                                         textSize = 14f
                                         isClickable = true
                                         isFocusable = true
-                                        textColor = if (!logVerbose) monetColors.onPrimary else colorResource(R.color.colorTextGray)
+                                        textColor = if (!logVerbose) skinEmphasisTextColor else colorResource(R.color.colorTextGray)
                                         typeface = if (!logVerbose) Typeface.create(Typeface.DEFAULT, Typeface.BOLD) else Typeface.DEFAULT
                                         setOnClickListener {
                                             if (logVerbose) {
@@ -13388,7 +13648,7 @@ class MainActivity : SkinnedActivity() {
                                         textSize = 14f
                                         isClickable = true
                                         isFocusable = true
-                                        textColor = if (logVerbose) monetColors.onPrimary else colorResource(R.color.colorTextGray)
+                                        textColor = if (logVerbose) skinEmphasisTextColor else colorResource(R.color.colorTextGray)
                                         typeface = if (logVerbose) Typeface.create(Typeface.DEFAULT, Typeface.BOLD) else Typeface.DEFAULT
                                         setOnClickListener {
                                             if (!logVerbose) {
