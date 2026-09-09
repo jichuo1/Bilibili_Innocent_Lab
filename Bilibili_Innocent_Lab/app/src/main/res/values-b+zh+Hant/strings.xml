@@ -832,7 +832,7 @@
     <string name="highlights_title">本次更新</string>
     <string name="highlights_menu_tip">查看更新亮點，快速找到相關設定。</string>
     <string name="highlights_version">已安裝版本：%1$s</string>
-    <string name="highlights_intro">了解新增與改進功能。點選項目可定位設定，不會自動開啟功能。</string>
+    <string name="highlights_intro">了解新增與改進功能，點選項目可定位設定，不會自動開啟功能。</string>
     <string name="highlights_entry_title">%1$s · %2$s</string>
     <string name="highlights_new">新增</string>
     <string name="highlights_improved">改進</string>
