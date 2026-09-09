@@ -140,6 +140,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.telemetry.TelemetryActionStatus
 import com.Bilibili_Innocent_Lab.xposedmodule.telemetry.TelemetryCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.telemetry.TelemetryStore
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.MaxHeightScrollView
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseNotesMarkdownRenderer
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseNotesScrollView
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
@@ -1184,7 +1185,7 @@ class MainActivity : SkinnedActivity() {
      * 弹窗采用 scale + alpha 动画（GPU 加速、不触发布局重绘，低功耗），
      * 符合 Material 3 的 emphasized easing 标准。
      */
-    private fun showRestartConfirmDialog() {
+    private fun showRestartConfirmDialog(anchor: View? = null) {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
         val useNoRootFlow = shouldUseNoRootRestartFlow()
@@ -1285,15 +1286,29 @@ class MainActivity : SkinnedActivity() {
             }
         )
 
-        presentModalDialog(dialog, container)
+        presentModalDialog(dialog, container, anchor, AnchorStyle.BUBBLE)
     }
 
     /** 弹窗退场动画（scale 缩小 + fade out），结束后 dismiss 并回调 */
+    /**
+     * 已装上锚点动画的弹窗的收起入口。
+     *
+     * 全仓有 72 处直接调用 [dismissWithAnimation]（关闭按钮、各行点击后关闭等），它们本来会绕过
+     * 锚点动画去跑旧的 0.92 缩放淡出——入场是气泡/形变、退场是另一套，观感就是"没有退出动画"。
+     * 在这里登记后，那 72 处**一处不改**也全部走对应的收起动画。
+     *
+     * 签名是 `(interactiveCommit, afterClose) -> handled`：`afterClose` 为空时用弹窗自己的
+     * `onBackDismiss`，非空时用调用点传进来的那个（例如"关闭后打开链接"）。
+     */
+    private val dialogAnchoredClosers =
+        java.util.WeakHashMap<Dialog, (Boolean, (() -> Unit)?) -> Boolean>()
+
     private fun dismissWithAnimation(
         dialog: Dialog,
         container: View,
         onDismissed: () -> Unit
     ) {
+        if (dialogAnchoredClosers[dialog]?.invoke(false, onDismissed) == true) return
         container.animate()
             .scaleX(0.92f).scaleY(0.92f).alpha(0f)
             .setDuration(180L)
@@ -3125,7 +3140,7 @@ class MainActivity : SkinnedActivity() {
         super.onSaveInstanceState(outState)
     }
 
-    private fun showGitHubMenuDialog() {
+    private fun showGitHubMenuDialog(anchor: View? = null) {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
         val container = createModalContainer()
@@ -3239,7 +3254,7 @@ class MainActivity : SkinnedActivity() {
             ).apply { topMargin = (22 * density).toInt() }
         )
 
-        presentModalDialog(dialog, container)
+        presentModalDialog(dialog, container, anchor, AnchorStyle.BUBBLE)
     }
 
     private fun createGitHubMenuRow(
@@ -4797,6 +4812,67 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
+    /** 弹窗卡片圆角；图标锚点形变的展开端半径必须与它一致，否则末帧会有一次圆角跳变。 */
+    private val MODAL_CORNER_RADIUS_DP = 28f
+
+    /** 正文起始位移上限（每轴）。够看出"从锚点方向飞来"，又不至于让长卡片整体晃动。 */
+    private val CONTENT_TRAVEL_CAP_DP = 20f
+
+    /** 气泡宽度、边距与小角尺寸。 */
+    private val BUBBLE_WIDTH_DP = 320f
+    private val BUBBLE_SIDE_MARGIN_DP = 12f
+    private val BUBBLE_EDGE_MARGIN_DP = 16f
+    private val BUBBLE_GAP_DP = 6f
+    private val BUBBLE_TAIL_HEIGHT_DP = 9f
+    private val BUBBLE_TAIL_HALF_WIDTH_DP = 11f
+
+    /**
+     * 锚点弹窗的两种形态。
+     *
+     * [CONTAINER]：来源是整行设置项，弹窗形变到屏幕中央的大卡片。
+     * [BUBBLE]：来源是工具栏上的小图标，弹窗贴在图标旁边并伸出指向它的小角。
+     */
+    internal enum class AnchorStyle { CONTAINER, BUBBLE }
+
+    /**
+     * 把来源图标（屏幕坐标）与已完成布局的卡片换算成承载层内的形变几何。
+     *
+     * 卡片是承载层的直接 child，所以展开端直接用 `left/top/right/bottom`；折叠端要扣掉承载层
+     * 自己的窗口原点——弹窗与设置页是两个 Window，不能假设两者原点相同。
+     */
+    private fun resolveIconAnchoredGeometry(
+        layer: IconAnchoredMotionLayer,
+        card: View,
+        anchorOnScreen: SettingsBackupMotionRect,
+        density: Float
+    ): IconAnchoredMotionGeometry? {
+        if (!layer.isAttachedToWindow || layer.width <= 0 || layer.height <= 0) return null
+        if (card.width <= 0 || card.height <= 0) return null
+        val layerLocation = IntArray(2)
+        layer.getLocationOnScreen(layerLocation)
+        val collapsed = SettingsBackupMotionRect(
+            left = anchorOnScreen.left - layerLocation[0],
+            top = anchorOnScreen.top - layerLocation[1],
+            right = anchorOnScreen.right - layerLocation[0],
+            bottom = anchorOnScreen.bottom - layerLocation[1]
+        )
+        val expanded = SettingsBackupMotionRect(
+            left = card.left.toFloat(),
+            top = card.top.toFloat(),
+            right = card.right.toFloat(),
+            bottom = card.bottom.toFloat()
+        )
+        // 折叠端圆角取短边一半：27dp 图标收成正圆；设置行这类扁矩形则收成胶囊，
+        // 两种来源都不会出现"方角小块"。
+        return IconAnchoredMotionGeometry(
+            collapsedBounds = collapsed,
+            expandedBounds = expanded,
+            collapsedRadiusPx = minOf(collapsed.width, collapsed.height) / 2f,
+            expandedRadiusPx = MODAL_CORNER_RADIUS_DP * density,
+            contentTravelCapPx = CONTENT_TRAVEL_CAP_DP * density
+        ).takeIf { it.isUsable }
+    }
+
     private fun createModalContainer(): NativeLinearLayout {
         val density = resources.displayMetrics.density
         return NativeLinearLayout(this).apply {
@@ -4808,7 +4884,7 @@ class MainActivity : SkinnedActivity() {
                 (24 * density).toInt(),
                 (18 * density).toInt()
             )
-            background = skinModalBackground(monetColors.surface)
+            background = skinModalBackground(monetColors.surface, MODAL_CORNER_RADIUS_DP)
             elevation = 12 * density
             scaleX = 0.85f
             scaleY = 0.85f
@@ -4823,22 +4899,101 @@ class MainActivity : SkinnedActivity() {
     private fun presentModalDialog(
         dialog: Dialog,
         container: NativeLinearLayout,
+        morphAnchor: View? = null,
+        anchorStyle: AnchorStyle = AnchorStyle.CONTAINER,
         onBackDismiss: () -> Unit = {}
-    ) = presentSizedModalDialog(dialog,container,null,onBackDismiss)
+    ) = presentSizedModalDialog(dialog, container, null, morphAnchor, anchorStyle, onBackDismiss)
 
+    /**
+     * @param morphAnchor 传入无文字的来源图标（如工具栏的搜索/GitHub 按钮）即启用图标锚点形变：
+     *   弹窗表面从该图标的位置与圆角长成整张卡片。传 null 保持原有的居中缩放入场，**默认不变**，
+     *   30 个既有调用点一个都不受影响。
+     */
     @Suppress("GestureBackNavigation")
     private fun presentSizedModalDialog(
         dialog: Dialog,
         container: NativeLinearLayout,
         preferredWidth: Int?,
+        morphAnchor: View? = null,
+        anchorStyle: AnchorStyle = AnchorStyle.CONTAINER,
         onBackDismiss: () -> Unit = {}
     ) {
         activeConfirmDialog?.dismiss()
         stylePreparedSkinControls(container)
         val density = resources.displayMetrics.density
+        // 由 dismissWithAnimation 传进来的一次性收尾回调（例如"关闭后打开链接"）；
+        // 为空时用弹窗自己的 onBackDismiss。每次弹窗独立一份，不能提到 Activity 字段上。
+        val pendingAnchoredAfterClose =
+            java.util.concurrent.atomic.AtomicReference<(() -> Unit)?>(null)
+        // 来源矩形必须在点击那一刻取：形变开始后弹窗窗口会盖住图标，事后查位置不可靠。
+        val anchorBounds = morphAnchor?.takeIf {
+            it.isAttachedToWindow && it.width > 0 && it.height > 0 &&
+                ValueAnimator.areAnimatorsEnabled()
+        }?.let { anchor ->
+            val location = IntArray(2)
+            anchor.getLocationOnScreen(location)
+            SettingsBackupMotionRect(
+                left = location[0].toFloat(),
+                top = location[1].toFloat(),
+                right = (location[0] + anchor.width).toFloat(),
+                bottom = (location[1] + anchor.height).toFloat()
+            )
+        }
+        // 工具栏上的 27dp 小图标飞到屏幕正中会显得莫名，改成贴在图标旁边、伸出小角的气泡。
+        val bubblePlacement = if (anchorStyle == AnchorStyle.BUBBLE && anchorBounds != null) {
+            BubblePlacementSpec.place(
+                anchor = anchorBounds,
+                windowWidth = resources.displayMetrics.widthPixels.toFloat(),
+                windowHeight = resources.displayMetrics.heightPixels.toFloat(),
+                desiredWidth = BUBBLE_WIDTH_DP * density,
+                maxWidthPx = BUBBLE_WIDTH_DP * density,
+                sideMarginPx = BUBBLE_SIDE_MARGIN_DP * density,
+                edgeMarginPx = BUBBLE_EDGE_MARGIN_DP * density,
+                gapPx = BUBBLE_GAP_DP * density,
+                tailHeightPx = BUBBLE_TAIL_HEIGHT_DP * density,
+                tailHalfWidthPx = BUBBLE_TAIL_HALF_WIDTH_DP * density,
+                cornerRadiusPx = MODAL_CORNER_RADIUS_DP * density
+            )
+        } else {
+            null
+        }
+        if (bubblePlacement != null) {
+            // 小角占掉整体高度的一条，内容要让开，否则文字会压在尖上。
+            val tailPadding = (BUBBLE_TAIL_HEIGHT_DP * density).toInt()
+            container.setPadding(
+                container.paddingLeft,
+                container.paddingTop +
+                    if (bubblePlacement.tailEdge == BubbleTailEdge.TOP) tailPadding else 0,
+                container.paddingRight,
+                container.paddingBottom +
+                    if (bubblePlacement.tailEdge == BubbleTailEdge.BOTTOM) tailPadding else 0
+            )
+            container.background = BubbleSurfaceDrawable(
+                fillColor = monetColors.surface,
+                cornerRadiusPx = MODAL_CORNER_RADIUS_DP * density,
+                tailHeightPx = BUBBLE_TAIL_HEIGHT_DP * density,
+                tailHalfWidthPx = BUBBLE_TAIL_HALF_WIDTH_DP * density,
+                tailEdge = bubblePlacement.tailEdge,
+                tailCenterX = bubblePlacement.tailCenterX,
+                strokeWidthPx = density
+            )
+            // 气泡自己就是最终形态，不需要承载层与 outline 裁剪；缩放由控制器驱动。
+            container.scaleX = BubbleMotionSpec.COLLAPSED_SCALE
+            container.scaleY = BubbleMotionSpec.COLLAPSED_SCALE
+        }
+        val morphLayer = anchorBounds?.takeIf { bubblePlacement == null }
+            ?.let { IconAnchoredMotionLayer(this) }
         val root = NativeFrameLayout(this).apply {
-            addView(
-                container,
+            val cardParams = if (bubblePlacement != null) {
+                NativeFrameLayout.LayoutParams(
+                    bubblePlacement.width.toInt(),
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.TOP or Gravity.START
+                    leftMargin = bubblePlacement.left.toInt()
+                    topMargin = bubblePlacement.top.toInt()
+                }
+            } else {
                 NativeFrameLayout.LayoutParams(
                     preferredWidth ?: ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
@@ -4846,7 +5001,98 @@ class MainActivity : SkinnedActivity() {
                     gravity = Gravity.CENTER
                     setMargins((32 * density).toInt(), 0, (32 * density).toInt(), 0)
                 }
+            }
+            if (morphLayer != null) {
+                // 承载层必须全屏：outline 要从工具栏里的图标一路长到屏幕中央的卡片，
+                // 折叠端矩形本来就落在卡片之外。
+                morphLayer.addView(container, cardParams)
+                addView(
+                    morphLayer,
+                    NativeFrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                )
+            } else {
+                addView(container, cardParams)
+            }
+        }
+        val bubbleController = if (bubblePlacement != null) {
+            BubbleMotionController(
+                bubble = container,
+                // 轴心放在小角尖端：气泡就是从那一点长出来的，视觉上等于图标"发"出来的。
+                pivotXProvider = { bubblePlacement.tailCenterX },
+                pivotYProvider = {
+                    if (bubblePlacement.tailEdge == BubbleTailEdge.TOP) 0f
+                    else container.height.toFloat()
+                },
+                onClosed = {
+                    dialog.dismiss()
+                    (pendingAnchoredAfterClose.getAndSet(null) ?: onBackDismiss).invoke()
+                }
             )
+        } else {
+            null
+        }
+        val morphController = if (morphLayer != null && anchorBounds != null) {
+            // 形变不缩放卡片（缩放会把文字压扁），只驱动 outline + alpha，因此先抹掉
+            // createModalContainer 为缩放入场准备的 0.85；alpha 0 仍然保留给正文淡入。
+            container.scaleX = 1f
+            container.scaleY = 1f
+            IconAnchoredMotionController(
+                layer = morphLayer,
+                content = container,
+                // 必须和卡片用**同一种**背景（skinModalBackground），不能用
+                // skinMotionSurfaceBackground：后者是为全屏容器形变准备的半透明"运动表面"，
+                // 用在这里会让飞入过程变成一团能透看底页的鬼影，且抵达展开端时与卡片
+                // 交接会出现一次可见的不透明度跳变。
+                surfaceDrawable = skinModalBackground(
+                    monetColors.surface,
+                    MODAL_CORNER_RADIUS_DP
+                ),
+                resolveGeometry = {
+                    resolveIconAnchoredGeometry(morphLayer, container, anchorBounds, density)
+                },
+                onClosed = {
+                    dialog.dismiss()
+                    (pendingAnchoredAfterClose.getAndSet(null) ?: onBackDismiss).invoke()
+                }
+            )
+        } else {
+            null
+        }
+        // 登记收起入口：全仓 72 处 dismissWithAnimation 由此自动走对应的收起动画。
+        val anchoredCloser: ((Boolean, (() -> Unit)?) -> Boolean)? = when {
+            bubbleController != null -> { interactive, after ->
+                pendingAnchoredAfterClose.set(after)
+                bubbleController.requestClose(interactive)
+            }
+            morphController != null -> { interactive, after ->
+                pendingAnchoredAfterClose.set(after)
+                morphController.requestClose(interactive)
+            }
+            else -> null
+        }
+        if (anchoredCloser != null) dialogAnchoredClosers[dialog] = anchoredCloser
+        if (bubbleController != null) {
+            container.addOnLayoutChangeListener { _, left, top, right, bottom,
+                                                  oldLeft, oldTop, oldRight, oldBottom ->
+                val hadLayout = (oldRight - oldLeft) > 0 && (oldBottom - oldTop) > 0
+                val resized = (right - left) != (oldRight - oldLeft) ||
+                    (bottom - top) != (oldBottom - oldTop)
+                // 输入法或旋转改变了气泡尺寸后轴心失效，直接落到稳定端。
+                if (hadLayout && resized) bubbleController.handleWindowSizeChange()
+            }
+        }
+        morphLayer?.addOnLayoutChangeListener { _, left, top, right, bottom,
+                                                oldLeft, oldTop, oldRight, oldBottom ->
+            val hadLayout = (oldRight - oldLeft) > 0 && (oldBottom - oldTop) > 0
+            val resized = (right - left) != (oldRight - oldLeft) ||
+                (bottom - top) != (oldBottom - oldTop)
+            // 旋转/分屏/输入法改变窗口后旧矩形失效，直接落到稳定端而不是继续按旧几何插值。
+            if (hadLayout && resized && morphController?.isExpanded == false) {
+                morphController.handleWindowSizeChange()
+            }
         }
 
         dialog.window?.apply {
@@ -4867,9 +5113,11 @@ class MainActivity : SkinnedActivity() {
         // 都要判，`onBackStarted` 尤其不能漏，它才是调用 container.animate().cancel()
         // 的那处，取消在途退场会立刻触发收尾监听器（见该回调内注释）。
         var dismissing = false
-        fun requestDismiss() {
+        fun requestDismiss(interactiveCommit: Boolean = false) {
             if (dismissing) return
             dismissing = true
+            // 锚点动画接管失败（几何不可用）时回落到既有 scale 退场，不留半截形状。
+            if (anchoredCloser?.invoke(interactiveCommit, null) == true) return
             dismissWithAnimation(dialog, container, onBackDismiss)
         }
         var predictiveBackCallback: android.window.OnBackInvokedCallback? = null
@@ -4882,6 +5130,16 @@ class MainActivity : SkinnedActivity() {
                         // 后仍会派发 onAnimationEnd，取消在途退场会让 dialog.dismiss() 与
                         // onDismissed() 立刻执行、180ms 退场被截断。
                         if (dismissing) return
+                        // 形变路径由 controller 自己接管在途动画并按当前速度续接，
+                        // 不能在这里 cancel 掉 container 的 ViewPropertyAnimator（它根本没在跑）。
+                        if (bubbleController != null) {
+                            bubbleController.beginPredictiveBack()
+                            return
+                        }
+                        if (morphController != null) {
+                            morphController.beginPredictiveBack()
+                            return
+                        }
                         // 中断在途动画（入场或回弹），后续属性由手势进度直接驱动
                         container.animate().cancel()
                     }
@@ -4889,6 +5147,14 @@ class MainActivity : SkinnedActivity() {
                     override fun onBackProgressed(event: android.window.BackEvent) {
                         if (dismissing) return
                         val progress = event.progress
+                        if (bubbleController != null) {
+                            bubbleController.progressPredictiveBack(progress)
+                            return
+                        }
+                        if (morphController != null) {
+                            morphController.progressPredictiveBack(progress)
+                            return
+                        }
                         container.scaleX = 1f - 0.05f * progress
                         container.scaleY = 1f - 0.05f * progress
                         container.alpha = 1f - 0.15f * progress
@@ -4896,6 +5162,14 @@ class MainActivity : SkinnedActivity() {
 
                     override fun onBackCancelled() {
                         if (dismissing) return
+                        if (bubbleController != null) {
+                            bubbleController.cancelPredictiveBack()
+                            return
+                        }
+                        if (morphController != null) {
+                            morphController.cancelPredictiveBack()
+                            return
+                        }
                         container.animate()
                             .scaleX(1f).scaleY(1f).alpha(1f)
                             .setDuration(260L)
@@ -4904,7 +5178,9 @@ class MainActivity : SkinnedActivity() {
                     }
 
                     override fun onBackInvoked() {
-                        requestDismiss()
+                        // 手势松手：形变按当前值与当前速度续接，controller 内部再判断
+                        // 本次返回是否真的从手势开始（三键/按键路径 hadInteractiveStart 为 false）。
+                        requestDismiss(interactiveCommit = true)
                     }
                 }
         } else if (AndroidVersion.isAtLeast(AndroidVersion.T)) {
@@ -4932,6 +5208,11 @@ class MainActivity : SkinnedActivity() {
             }
         }
         dialog.setOnDismissListener {
+            // 其他入口硬关（presentSizedModalDialog 开头的 activeConfirmDialog?.dismiss()）
+            // 也要收掉在途 animator，否则回调会继续驱动一个已经消失的窗口。
+            morphController?.cancelMotion()
+            bubbleController?.cancelMotion()
+            dialogAnchoredClosers.remove(dialog)
             if (activeConfirmDialog === dialog) activeConfirmDialog = null
             val callback = predictiveBackCallback
             if (callback != null && AndroidVersion.isAtLeast(AndroidVersion.T)) {
@@ -4952,6 +5233,32 @@ class MainActivity : SkinnedActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT
         )
 
+        if (bubbleController != null) {
+            // 气泡不需要承载层：首帧已经是 scale=0.72 / alpha=0，布局完成后取轴心再展开。
+            container.post {
+                bubbleController.prepareFirstFrame()
+                bubbleController.startEntry()
+            }
+            return
+        }
+        if (morphController != null && morphLayer != null) {
+            // 必须在首帧绘制**之前**压到来源端，否则会先闪一帧完整卡片再跳回图标。
+            morphLayer.viewTreeObserver.addOnPreDrawListener(
+                object : android.view.ViewTreeObserver.OnPreDrawListener {
+                    override fun onPreDraw(): Boolean {
+                        morphLayer.viewTreeObserver.removeOnPreDrawListener(this)
+                        if (!morphController.prepareFirstFrame()) {
+                            // 尺寸未就绪或几何非法：直接落到展开端，不留半截形状。
+                            morphController.snapToExpanded()
+                            return true
+                        }
+                        morphLayer.post { morphController.startEntry() }
+                        return true
+                    }
+                }
+            )
+            return
+        }
         container.post {
             container.animate()
                 .scaleX(1f).scaleY(1f).alpha(1f)
@@ -5173,6 +5480,9 @@ class MainActivity : SkinnedActivity() {
         spec: ComponentPickerSurface,
         snapshot: MineComponentSnapshot
     ) {
+        // 来源行直接取自 spec 自己的摘要 TextView 的父容器：四个面共用同一条链路，
+        // 不需要把 View 从各个入口一路传进来。异步查询返回时该行仍在屏上。
+        val anchor = spec.summaryView()?.let { it.parent as? View ?: it }
         val entries = snapshot.entries
         if (entries.isEmpty()) return
 
@@ -5371,7 +5681,7 @@ class MainActivity : SkinnedActivity() {
             ).apply { topMargin = (10 * density).toInt() }
         )
 
-        presentModalDialog(dialog, container)
+        presentModalDialog(dialog, container, anchor)
     }
 
     /** 自定义隐藏规则编辑器：沿用项目模态弹窗与统一退场动画。 */
@@ -5889,7 +6199,7 @@ class MainActivity : SkinnedActivity() {
             }
         )
 
-        presentModalDialog(dialog, container, onCancel)
+        presentModalDialog(dialog, container, onBackDismiss = onCancel)
     }
 
     /** 手动亮色开关生效（写 prefs + 更新状态，供确认对话框确认后调用） */
@@ -6621,7 +6931,10 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
-    private fun showHomeRecommendFilterDialog(focusPreferenceKey: String? = null) {
+    private fun showHomeRecommendFilterDialog(
+        focusPreferenceKey: String? = null,
+        anchor: View? = null
+    ) {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
         val container = createModalContainer()
@@ -6750,7 +7063,7 @@ class MainActivity : SkinnedActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ))
         refreshUi()
-        presentModalDialog(dialog, container)
+        presentModalDialog(dialog, container, anchor)
         focusPreferenceKey?.let { key -> checkboxes[key]?.let { checkbox ->
             checkbox.doOnLayout {
                 listBody.smoothScrollTo(0,(checkbox.top - (12 * density).toInt()).coerceAtLeast(0))
@@ -6839,7 +7152,7 @@ class MainActivity : SkinnedActivity() {
      * 13 个既有开关使用草稿式编辑：返回/取消不落盘，保存时只在同一个 Editor 中写变化项。
      * “全部番剧影视”只改变子项的可编辑状态，不改写子项原值。
      */
-    private fun showPortraitContentFilterDialog() {
+    private fun showPortraitContentFilterDialog(anchor: View? = null) {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
         val container = createModalContainer()
@@ -7043,7 +7356,7 @@ class MainActivity : SkinnedActivity() {
             )
         )
         refreshUi()
-        presentModalDialog(dialog, container)
+        presentModalDialog(dialog, container, anchor)
     }
 
     private fun videoRelateFilterValues(): Map<String, Boolean> = mapOf(
@@ -7148,7 +7461,7 @@ class MainActivity : SkinnedActivity() {
      * 相关推荐沿用既有五个布尔开关，以草稿式二级勾选面板集中编辑。
      * 匹配增强和理由关键词同批落盘，取消弹窗不会改变现有运行时配置。
      */
-    private fun showVideoRelateFilterDialog() {
+    private fun showVideoRelateFilterDialog(anchor: View? = null) {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
         val container = createModalContainer()
@@ -7537,7 +7850,7 @@ class MainActivity : SkinnedActivity() {
             )
         )
         refreshUi()
-        presentModalDialog(dialog, container)
+        presentModalDialog(dialog, container, anchor)
     }
 
     private fun settingsSearchSectionLabel(section: SettingsSearchSection): String =
@@ -7674,7 +7987,7 @@ class MainActivity : SkinnedActivity() {
         return targets
     }
 
-    private fun showSettingsSearchDialog() {
+    private fun showSettingsSearchDialog(anchor: View? = null) {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
         val container = createModalContainer()
@@ -7715,17 +8028,21 @@ class MainActivity : SkinnedActivity() {
         val resultContainer = NativeLinearLayout(this).apply {
             orientation = NativeLinearLayout.VERTICAL
         }
-        val resultScroll = NativeScrollView(this).apply {
-            isFillViewport = true
-            addView(resultContainer)
-        }
+        // 按结果数收敛：空结果/少量结果时面板只占内容那么高，多了才停在上限并滚动。
+        // 原先写死 min(360dp, 44% 屏高)，贴着图标的气泡下半部会留一大片空白。
         val resultHeight = minOf(
             (360 * density).toInt(),
             (resources.displayMetrics.heightPixels * 0.44f).toInt()
         )
+        val resultScroll = MaxHeightScrollView(this, resultHeight).apply {
+            addView(resultContainer)
+        }
         container.addView(
             resultScroll,
-            NativeLinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, resultHeight).apply {
+            NativeLinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
                 topMargin = (10 * density).toInt()
             }
         )
@@ -7845,7 +8162,7 @@ class MainActivity : SkinnedActivity() {
             ).apply { topMargin = (8 * density).toInt() }
         )
 
-        presentModalDialog(dialog, container)
+        presentModalDialog(dialog, container, anchor, AnchorStyle.BUBBLE)
         dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         editor.requestFocus()
         editor.postDelayed({
@@ -8763,7 +9080,7 @@ class MainActivity : SkinnedActivity() {
                         setImageResource(R.drawable.ic_search)
                         imageTintList = stateColorResource(R.color.colorTextGray)
                         contentDescription = stringResource(R.string.settings_search_description)
-                        setOnClickListener { showSettingsSearchDialog() }
+                        setOnClickListener { showSettingsSearchDialog(it) }
                     }
                     Space(lparams = LayoutParams { weight = 1f })
                     ImageView(
@@ -8776,9 +9093,7 @@ class MainActivity : SkinnedActivity() {
                         setImageResource(R.drawable.ic_restart)
                         imageTintList = stateColorResource(R.color.colorTextGray)
                         contentDescription = stringResource(R.string.restart_bilibili)
-                        setOnClickListener {
-                            showRestartConfirmDialog()
-                        }
+                        setOnClickListener { showRestartConfirmDialog(it) }
                     }
                     // 只占原图标的空间，角标叠放，不改变工具栏高度或相邻按钮位置。
                     FrameLayout(
@@ -8796,7 +9111,7 @@ class MainActivity : SkinnedActivity() {
                             setImageResource(R.mipmap.ic_github)
                             imageTintList = stateColorResource(R.color.colorTextGray)
                             contentDescription = stringResource(R.string.github_menu_description)
-                            setOnClickListener { showGitHubMenuDialog() }
+                            setOnClickListener { showGitHubMenuDialog(it) }
                         }
                         TextView(
                             lparams = LayoutParams(22.dp, 15.dp) {
@@ -9637,7 +9952,7 @@ class MainActivity : SkinnedActivity() {
                                             contentDescription = stringResource(
                                                 R.string.home_recommend_filter_title
                                             )
-                                            setOnClickListener { showHomeRecommendFilterDialog() }
+                                            setOnClickListener { showHomeRecommendFilterDialog(anchor = it) }
                                         }
                                     ) {
                                         LinearLayout(
@@ -10736,7 +11051,7 @@ class MainActivity : SkinnedActivity() {
                                             contentDescription = stringResource(
                                                 R.string.portrait_content_filter_title
                                             )
-                                            setOnClickListener { showPortraitContentFilterDialog() }
+                                            setOnClickListener { showPortraitContentFilterDialog(it) }
                                         }
                                     ) {
                                         LinearLayout(
@@ -11028,7 +11343,7 @@ class MainActivity : SkinnedActivity() {
                                             contentDescription = stringResource(
                                                 R.string.video_relate_filter_settings
                                             )
-                                            setOnClickListener { showVideoRelateFilterDialog() }
+                                            setOnClickListener { showVideoRelateFilterDialog(it) }
                                         }
                                     ) {
                                         LinearLayout(
