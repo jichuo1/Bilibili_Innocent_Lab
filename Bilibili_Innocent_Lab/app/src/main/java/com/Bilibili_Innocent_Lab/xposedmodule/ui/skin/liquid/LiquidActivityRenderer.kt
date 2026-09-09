@@ -49,6 +49,7 @@ internal interface LiquidMotionSurfaceFrameProvider {
 
 /** Surface 的真实 Drawable 几何；只在已有对象上更新，实时反馈遮罩逐帧零分配。 */
 private class LiquidSurfaceFootprint {
+    val refreshState = LiquidSurfaceRefreshState()
     var left = 0
     var top = 0
     var right = 0
@@ -168,6 +169,10 @@ internal class LiquidActivityRenderer(
     private val realtimeCaptureSourceRect = Rect()
     private val realtimeRootLocation = IntArray(2)
     private val movedSurfaceLocation = IntArray(2)
+    private val refreshWindowLocation = IntArray(2)
+    private val refreshWindowBounds = RectF()
+    // Used only within one refresh pass; never retain a dismissed Dialog's root between callbacks.
+    private var refreshWindowRoot: View? = null
 
     /**
      * 抑制遮罩是否已按**发起截图那一刻**的几何构建完成。
@@ -876,53 +881,91 @@ internal class LiquidActivityRenderer(
      */
     private fun invalidateMovedSurfaces() {
         if (closed) return
-        val surfaceIterator = surfaceViews.entries.iterator()
-        while (surfaceIterator.hasNext()) {
-            val entry = surfaceIterator.next()
-            val view = entry.key
-            if (!view.isAttachedToWindow) {
-                surfaceIterator.remove()
-                continue
+        try {
+            val surfaceIterator = surfaceViews.entries.iterator()
+            while (surfaceIterator.hasNext()) {
+                val entry = surfaceIterator.next()
+                val view = entry.key
+                if (!view.isAttachedToWindow) {
+                    surfaceIterator.remove()
+                    continue
+                }
+                val visible = isSurfacePotentiallyVisible(view)
+                if (entry.value.refreshState.shouldRefresh(visible,
+                        originChanged = !entry.value.matchesOrigin(movedSurfaceLocation[0], movedSurfaceLocation[1]),
+                        contentChanged = false)) view.invalidate()
             }
-            if (!view.isShown) continue
-            view.getLocationOnScreen(movedSurfaceLocation)
-            if (entry.value.matchesOrigin(movedSurfaceLocation[0], movedSurfaceLocation[1])) {
-                continue
+            val stretchIterator = stretchViewports.keys.iterator()
+            while (stretchIterator.hasNext()) {
+                val view = stretchIterator.next()
+                if (!view.isAttachedToWindow) {
+                    stretchIterator.remove()
+                    continue
+                }
+                // viewport 自身的边界光学环随它一起移动，位置变化同样要重录。
+                if (!view.isShown) continue
+                view.getLocationOnScreen(movedSurfaceLocation)
+                if (stretchViewportOrigins[view]?.matches(
+                        movedSurfaceLocation[0],
+                        movedSurfaceLocation[1]
+                    ) == true
+                ) continue
+                view.invalidate()
             }
-            view.invalidate()
-        }
-        val stretchIterator = stretchViewports.keys.iterator()
-        while (stretchIterator.hasNext()) {
-            val view = stretchIterator.next()
-            if (!view.isAttachedToWindow) {
-                stretchIterator.remove()
-                continue
-            }
-            // viewport 自身的边界光学环随它一起移动，位置变化同样要重录。
-            if (!view.isShown) continue
-            view.getLocationOnScreen(movedSurfaceLocation)
-            if (stretchViewportOrigins[view]?.matches(
-                    movedSurfaceLocation[0],
-                    movedSurfaceLocation[1]
-                ) == true
-            ) continue
-            view.invalidate()
+        } finally {
+            refreshWindowRoot = null
         }
     }
 
     private fun invalidateRegisteredSurfaces() {
-        val surfaceIterator = surfaceViews.keys.iterator()
-        while (surfaceIterator.hasNext()) {
-            val view = surfaceIterator.next()
-            if (!view.isAttachedToWindow) surfaceIterator.remove()
-            else if (view.isShown) view.invalidate()
+        try {
+            val surfaceIterator = surfaceViews.entries.iterator()
+            while (surfaceIterator.hasNext()) {
+                val entry = surfaceIterator.next()
+                val view = entry.key
+                if (!view.isAttachedToWindow) surfaceIterator.remove()
+                else if (entry.value.refreshState.shouldRefresh(isSurfacePotentiallyVisible(view),
+                        originChanged = false, contentChanged = true)) view.invalidate()
+            }
+            val stretchIterator = stretchViewports.keys.iterator()
+            while (stretchIterator.hasNext()) {
+                val view = stretchIterator.next()
+                if (!view.isAttachedToWindow) stretchIterator.remove()
+                else if (view.isShown) view.invalidate()
+            }
+        } finally {
+            refreshWindowRoot = null
         }
-        val stretchIterator = stretchViewports.keys.iterator()
-        while (stretchIterator.hasNext()) {
-            val view = stretchIterator.next()
-            if (!view.isAttachedToWindow) stretchIterator.remove()
-            else if (view.isShown) view.invalidate()
+    }
+
+    /**
+     * Conservative window culling, not ancestor clipping. Keep the optical margin and all uncertain
+     * transform/stretch frames. Each Dialog uses its own root; do not compare it to the Activity root.
+     * Populates movedSurfaceLocation for the origin check without a second location query.
+     */
+    private fun isSurfacePotentiallyVisible(view: View): Boolean {
+        if (!view.isShown) return false
+        view.getLocationOnScreen(movedSurfaceLocation)
+        if (stretchOpticalIntensity > 1f) return true
+        var ancestor: View? = view
+        while (ancestor != null) {
+            if (!ancestor.matrix.isIdentity || ancestor.animation != null ||
+                ancestor is LiquidMotionSurfaceFrameProvider) return true
+            ancestor = ancestor.parent as? View
         }
+        val windowRoot = view.rootView
+        if (refreshWindowRoot !== windowRoot) {
+            windowRoot.getLocationOnScreen(refreshWindowLocation)
+            val left = refreshWindowLocation[0].toFloat()
+            val top = refreshWindowLocation[1].toFloat()
+            refreshWindowBounds.set(left, top, left + windowRoot.width, top + windowRoot.height)
+            refreshWindowRoot = windowRoot
+        }
+        val left = movedSurfaceLocation[0].toFloat()
+        val top = movedSurfaceLocation[1].toFloat()
+        return LiquidRefreshVisibilityPolicy.intersectsWindow(left, top, left + view.width, top + view.height,
+            refreshWindowBounds.left, refreshWindowBounds.top, refreshWindowBounds.right, refreshWindowBounds.bottom,
+            parameters.effectPaddingDp * density)
     }
 
     /** 根据 display mode 与热状态请求窗口刷新率，并同步 ADPF 目标周期。 */

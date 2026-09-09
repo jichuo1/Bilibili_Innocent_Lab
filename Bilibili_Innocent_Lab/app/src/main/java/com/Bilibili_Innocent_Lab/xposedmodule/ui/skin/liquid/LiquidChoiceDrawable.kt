@@ -27,13 +27,14 @@ internal class LiquidChoiceDrawable(
 ) : Drawable() {
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
-    private val mark = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val mark = if (checkbox) Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-    }
+    } else null
     private val rect = RectF()
-    private val tick = Path()
+    private val tick = if (checkbox) Path() else null
+    private val gradientCache = LiquidControlGradientCache()
     private var visualState = LiquidControlStyle.resolve(true, false, false, false)
     private var drawableAlpha = 255
     private var radius = 0f
@@ -55,38 +56,44 @@ internal class LiquidChoiceDrawable(
         val inset = if (checkbox) 3f * density else density
         rect.set(bounds.left + inset, bounds.top + inset, bounds.right - inset, bounds.bottom - inset)
         radius = if (checkbox) 4f * density else rect.height() / 2f
-        tick.reset()
-        tick.moveTo(rect.left + rect.width() * .22f, rect.top + rect.height() * .51f)
-        tick.lineTo(rect.left + rect.width() * .43f, rect.top + rect.height() * .72f)
-        tick.lineTo(rect.left + rect.width() * .79f, rect.top + rect.height() * .29f)
+        tick?.apply {
+            reset()
+            moveTo(rect.left + rect.width() * .22f, rect.top + rect.height() * .51f)
+            lineTo(rect.left + rect.width() * .43f, rect.top + rect.height() * .72f)
+            lineTo(rect.left + rect.width() * .79f, rect.top + rect.height() * .29f)
+        }
         updatePaints()
     }
     private fun updatePaints() {
         val selected = visualState.selected && !thumb
         val base = if (selected) accent else surface
         val alpha = LiquidControlStyle.fillAlpha(visualState)
-        fill.shader = LinearGradient(0f, rect.top, 0f, rect.bottom.coerceAtLeast(rect.top + 1f),
-            ColorUtils.setAlphaComponent(ColorUtils.blendARGB(base, Color.WHITE, .22f), alpha),
-            ColorUtils.setAlphaComponent(base, if (thumb) 220 else alpha), Shader.TileMode.CLAMP)
+        val bottom = rect.bottom.coerceAtLeast(rect.top + 1f)
+        val startColor = ColorUtils.setAlphaComponent(ColorUtils.blendARGB(base, Color.WHITE, .22f), alpha)
+        val endColor = ColorUtils.setAlphaComponent(base, if (thumb) 220 else alpha)
+        if (gradientCache.update(rect.top, bottom, startColor, endColor)) {
+            fill.shader = LinearGradient(0f, rect.top, 0f, bottom,
+                startColor, endColor, Shader.TileMode.CLAMP)
+        }
         edge.color = if (visualState.emphasized || selected) accent else outline
         edge.strokeWidth = (if (visualState.emphasized) 1.8f else 1f) * density
-        mark.color = onAccent
-        mark.strokeWidth = 2f * density
+        mark?.color = onAccent
+        mark?.strokeWidth = 2f * density
     }
     override fun draw(canvas: Canvas) {
         if (rect.isEmpty) return
         val alpha = drawableAlpha * LiquidControlStyle.opacity(visualState) / 255
         fill.alpha = alpha
         edge.alpha = alpha
-        mark.alpha = alpha
+        mark?.alpha = alpha
         canvas.drawRoundRect(rect, radius, radius, fill)
         canvas.drawRoundRect(rect, radius, radius, edge)
-        if (checkbox && visualState.selected) canvas.drawPath(tick, mark)
+        if (checkbox && visualState.selected) canvas.drawPath(requireNotNull(tick), requireNotNull(mark))
     }
     override fun setAlpha(alpha: Int) { drawableAlpha = alpha.coerceIn(0, 255); invalidateSelf() }
     override fun getAlpha() = drawableAlpha
     override fun setColorFilter(filter: ColorFilter?) {
-        fill.colorFilter = filter; edge.colorFilter = filter; mark.colorFilter = filter
+        fill.colorFilter = filter; edge.colorFilter = filter; mark?.colorFilter = filter
         invalidateSelf()
     }
     @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
