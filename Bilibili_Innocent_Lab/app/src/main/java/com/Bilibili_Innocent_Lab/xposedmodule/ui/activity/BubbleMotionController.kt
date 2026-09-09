@@ -4,7 +4,6 @@ import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.os.SystemClock
-import android.view.View
 import android.view.animation.LinearInterpolator
 import android.view.animation.PathInterpolator
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.NavigationMotionPhase as MotionState
@@ -13,7 +12,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.NavigationMotionPhase 
  * 锚定气泡的展开/收起驱动。
  *
  * 与 [IconAnchoredMotionController] 的分工：那条走 outline 形变（来源行 → 屏幕中央大卡片），
- * 这条走**以小角尖端为轴心的缩放**（工具栏小图标 → 贴在它旁边的气泡）。气泡不能用 outline
+ * 这条走**以来源图标中心为轴心的缩放**（工具栏小图标 → 贴在它旁边的气泡）。气泡不能用 outline
  * 裁剪，因为小角不是圆角矩形、表达不进 `Outline`；而缩放对短行程的气泡本来就是正解，
  * 小角会跟着一起长出来。
  *
@@ -21,17 +20,12 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.NavigationMotionPhase 
  * [NavigationMotionPolicy]，与另外两条动画路径保持同一套语义。
  */
 internal class BubbleMotionController(
-    private val bubble: View,
-    private val pivotXProvider: () -> Float,
-    private val pivotYProvider: () -> Float,
+    private val layer: BubblePanelLayer,
+    private val onExpanded: () -> Unit = {},
     private val onClosed: () -> Unit
 ) {
-    private val enterInterpolator = PathInterpolator(
-        BubbleMotionSpec.ENTER_EASING_X1,
-        BubbleMotionSpec.ENTER_EASING_Y1,
-        BubbleMotionSpec.ENTER_EASING_X2,
-        BubbleMotionSpec.ENTER_EASING_Y2
-    )
+    // Spec 已包含单调的宽高曲线，公共时钟保持线性，避免二次 easing 让入场过早冲到终点。
+    private val enterInterpolator = LinearInterpolator()
     private val closeInterpolator = PathInterpolator(
         BubbleMotionSpec.CLOSE_EASING_X1,
         BubbleMotionSpec.CLOSE_EASING_Y1,
@@ -51,6 +45,9 @@ internal class BubbleMotionController(
     private var animator: ValueAnimator? = null
     private var state = MotionState.PREPARING_ENTRY
     private var predictiveActive = false
+    private var predictiveStartExpansion = 1f
+    private var entryShape = true
+    private var entryNotified = false
 
     var expansion: Float = 0f
         private set
@@ -60,13 +57,14 @@ internal class BubbleMotionController(
 
     /** 首帧前压到收起端；轴心每次重取，旋转或输入法改布局后不沿用旧值。 */
     fun prepareFirstFrame() {
-        applyPivot()
+        if (state != MotionState.PREPARING_ENTRY) return
+        layer.prepare()
         apply(0f)
     }
 
     fun startEntry() {
+        if (state != MotionState.PREPARING_ENTRY) return
         state = MotionState.ENTERING
-        applyPivot()
         animateTo(
             target = 1f,
             durationMs = BubbleMotionSpec.ENTER_DURATION_MS,
@@ -84,17 +82,20 @@ internal class BubbleMotionController(
         state = MotionState.EXPANDED
         predictiveActive = false
         expansion = 1f
-        bubble.scaleX = 1f
-        bubble.scaleY = 1f
-        bubble.alpha = 1f
+        entryShape = false
+        layer.settleExpanded()
+        if (!entryNotified) {
+            entryNotified = true
+            onExpanded()
+        }
     }
 
     fun beginPredictiveBack(): Boolean {
         if (isClosing || predictiveActive) return false
         if (!NavigationMotionPolicy.canNavigate(state, businessBlocked = false)) return false
         cancelAnimator()
-        applyPivot()
         predictiveActive = true
+        predictiveStartExpansion = expansion
         state = MotionState.PREDICTIVE_BACK
         session.reset(expansion, SystemClock.uptimeMillis())
         return true
@@ -103,7 +104,7 @@ internal class BubbleMotionController(
     fun progressPredictiveBack(rawProgress: Float) {
         if (!predictiveActive || isClosing) return
         val mapped = predictiveBackInterpolator.getInterpolation(rawProgress.coerceIn(0f, 1f))
-        apply(1f - mapped)
+        apply(BubbleMotionSpec.predictiveExpansion(predictiveStartExpansion, mapped))
     }
 
     fun cancelPredictiveBack() {
@@ -126,7 +127,6 @@ internal class BubbleMotionController(
         val retarget = NavigationMotionPolicy.preserveFrame(state)
         predictiveActive = false
         cancelAnimator()
-        applyPivot()
         state = MotionState.CLOSING
         if (!ValueAnimator.areAnimatorsEnabled() || expansion <= 0.001f) {
             apply(0f)
@@ -140,7 +140,7 @@ internal class BubbleMotionController(
         }
         animateTo(
             target = 0f,
-            durationMs = NavigationMotionPolicy.remainingDuration(base, expansion, 0f),
+            durationMs = base,
             interpolator = if (interactiveCommit && hadInteractiveStart) {
                 commitInterpolator
             } else {
@@ -162,11 +162,7 @@ internal class BubbleMotionController(
         cancelAnimator()
         session.invalidate()
         state = MotionState.FINISHED
-    }
-
-    private fun applyPivot() {
-        bubble.pivotX = pivotXProvider()
-        bubble.pivotY = pivotYProvider()
+        layer.dispose()
     }
 
     private fun animateTo(
@@ -183,11 +179,8 @@ internal class BubbleMotionController(
             onEnd()
             return
         }
-        val actualDuration = if (retarget) {
-            NavigationMotionPolicy.remainingDuration(durationMs, start, target)
-        } else {
-            durationMs
-        }
+        // 剩余行程只折算一次；旧路径在打断关闭时连续乘了两次行程，后半段会突然加速。
+        val actualDuration = NavigationMotionPolicy.remainingDuration(durationMs, start, target)
         val now = SystemClock.uptimeMillis()
         val continuation = if (retarget) {
             NavigationMotionContinuation(start, target, session.velocity(now), actualDuration)
@@ -236,11 +229,7 @@ internal class BubbleMotionController(
         val clamped = value.coerceIn(0f, 1f)
         expansion = clamped
         session.sample(clamped, SystemClock.uptimeMillis())
-        val scale = BubbleMotionSpec.scale(clamped)
-        bubble.scaleX = scale
-        bubble.scaleY = scale
-        // 气泡的背景与内容是同一个 View，只有一条 alpha；不像居中形变那样存在独立的表面层。
-        bubble.alpha = BubbleMotionSpec.surfaceAlpha(clamped)
+        layer.applyFrame(clamped, entryShape)
     }
 
     private fun finish() {

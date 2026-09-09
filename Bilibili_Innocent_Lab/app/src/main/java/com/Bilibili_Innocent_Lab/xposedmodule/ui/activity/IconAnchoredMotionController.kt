@@ -29,6 +29,8 @@ internal class IconAnchoredMotionController(
     private val content: View,
     private val surfaceDrawable: Drawable,
     private val resolveGeometry: () -> IconAnchoredMotionGeometry?,
+    private val titleMotion: ModalTitleMotion? = null,
+    private val onExpanded: () -> Unit = {},
     private val onClosed: () -> Unit
 ) {
     private val enterInterpolator = PathInterpolator(
@@ -59,8 +61,10 @@ internal class IconAnchoredMotionController(
     private var contentTiming = IconAnchoredContentTiming.TIMED
     private var state = MotionState.PREPARING_ENTRY
     private var predictiveActive = false
+    private var predictiveStartExpansion = 1f
     private var wasInterrupted = false
     private var contentElevation = content.elevation
+    private var entryNotified = false
 
     var expansion: Float = 0f
         private set
@@ -79,6 +83,7 @@ internal class IconAnchoredMotionController(
      * 必须在 pre-draw 之前完成，否则会先闪一帧完整卡片再跳回图标。
      */
     fun prepareFirstFrame(): Boolean {
+        if (state != MotionState.PREPARING_ENTRY) return false
         val resolved = resolveGeometry() ?: return false
         geometry = resolved
         contentTiming = IconAnchoredContentTiming.TIMED
@@ -86,11 +91,13 @@ internal class IconAnchoredMotionController(
         content.elevation = 0f
         layer.background = surfaceDrawable
         layer.blockInteraction = true
+        titleMotion?.prepare(0f)
         apply(0f)
         return true
     }
 
     fun startEntry() {
+        if (state != MotionState.PREPARING_ENTRY) return
         if (geometry == null) {
             snapToExpanded()
             return
@@ -112,6 +119,7 @@ internal class IconAnchoredMotionController(
     }
 
     private fun settleExpanded() {
+        titleMotion?.expanded()
         state = MotionState.EXPANDED
         predictiveActive = false
         wasInterrupted = false
@@ -126,6 +134,10 @@ internal class IconAnchoredMotionController(
         layer.background = null
         layer.clearShape()
         layer.blockInteraction = false
+        if (!entryNotified) {
+            entryNotified = true
+            onExpanded()
+        }
     }
 
     /** @return true 表示这次返回由形变接管；false 表示调用方继续走原有退场。 */
@@ -136,6 +148,7 @@ internal class IconAnchoredMotionController(
         geometry = resolved
         cancelAnimator()
         predictiveActive = true
+        predictiveStartExpansion = expansion
         state = MotionState.PREDICTIVE_BACK
         session.reset(expansion, SystemClock.uptimeMillis())
         return true
@@ -144,7 +157,7 @@ internal class IconAnchoredMotionController(
     fun progressPredictiveBack(rawProgress: Float) {
         if (!predictiveActive || isClosing) return
         val mapped = predictiveBackInterpolator.getInterpolation(rawProgress.coerceIn(0f, 1f))
-        apply(1f - mapped)
+        apply(predictiveStartExpansion * (1f - mapped))
     }
 
     fun cancelPredictiveBack() {
@@ -171,7 +184,7 @@ internal class IconAnchoredMotionController(
             val resolved = prepareExitFrame(IconAnchoredContentTiming.TIMED) ?: return false
             geometry = resolved
         }
-        val retarget = NavigationMotionPolicy.preserveFrame(state) && !hadInteractiveStart
+        val retarget = NavigationMotionPolicy.preserveFrame(state)
         predictiveActive = false
         cancelAnimator()
         state = MotionState.CLOSING
@@ -187,7 +200,7 @@ internal class IconAnchoredMotionController(
         }
         animateTo(
             target = 0f,
-            durationMs = NavigationMotionPolicy.remainingDuration(base, expansion, 0f),
+            durationMs = base,
             interpolator = if (interactiveCommit && hadInteractiveStart) {
                 commitInterpolator
             } else {
@@ -213,6 +226,7 @@ internal class IconAnchoredMotionController(
     }
 
     fun cancelMotion() {
+        titleMotion?.dispose()
         cancelAnimator()
         session.invalidate()
         state = MotionState.FINISHED
@@ -237,6 +251,7 @@ internal class IconAnchoredMotionController(
         content.elevation = 0f
         layer.background = surfaceDrawable
         layer.blockInteraction = true
+        titleMotion?.prepare(expansion)
         return resolved
     }
 
@@ -254,11 +269,7 @@ internal class IconAnchoredMotionController(
             onEnd()
             return
         }
-        val actualDuration = if (retarget) {
-            NavigationMotionPolicy.remainingDuration(durationMs, start, target)
-        } else {
-            durationMs
-        }
+        val actualDuration = NavigationMotionPolicy.remainingDuration(durationMs, start, target)
         val now = SystemClock.uptimeMillis()
         val continuation = if (retarget) {
             NavigationMotionContinuation(start, target, session.velocity(now), actualDuration)
@@ -314,9 +325,11 @@ internal class IconAnchoredMotionController(
         content.alpha = frame.contentAlpha
         content.translationX = frame.contentTranslationXPx
         content.translationY = frame.contentTranslationYPx
+        titleMotion?.apply(clamped)
     }
 
     private fun finish() {
+        titleMotion?.closed()
         state = MotionState.FINISHED
         session.invalidate()
         onClosed()

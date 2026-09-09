@@ -15,8 +15,7 @@ import androidx.core.graphics.ColorUtils
  * 小角是路径的一部分而不是额外的 View，因此它跟着气泡一起缩放、一起被 alpha 影响，
  * 展开时看起来就是从图标那端"挤"出来的。
  *
- * [tailCenterX] 是尖端相对 drawable 左边的横坐标，由 [BubblePlacementSpec] 夹好，
- * 保证不会长在圆角上。
+ * 尖端对齐图标，根部独立避让圆角，避免贴边时连尖端也一起被推偏。
  */
 internal class BubbleSurfaceDrawable(
     private val fillColor: Int,
@@ -25,6 +24,7 @@ internal class BubbleSurfaceDrawable(
     private val tailHalfWidthPx: Float,
     private val tailEdge: BubbleTailEdge,
     private val tailCenterX: Float,
+    private val tailBaseCenterX: Float = tailCenterX,
     private val strokeColor: Int = ColorUtils.setAlphaComponent(android.graphics.Color.WHITE, 0x18),
     private val strokeWidthPx: Float = 0f
 ) : Drawable() {
@@ -39,6 +39,7 @@ internal class BubbleSurfaceDrawable(
         strokeWidth = strokeWidthPx
     }
     private val path = Path()
+    private val tail = Path()
     private val body = RectF()
     private var pathDirty = true
 
@@ -49,6 +50,8 @@ internal class BubbleSurfaceDrawable(
 
     private fun rebuild() {
         val b = bounds
+        path.reset()
+        pathDirty = false
         if (b.isEmpty) return
         // 小角占掉整体高度的一条，剩下的才是圆角矩形本体。
         val inset = strokeWidthPx / 2f
@@ -60,23 +63,23 @@ internal class BubbleSurfaceDrawable(
         )
         if (body.width() <= 0f || body.height() <= 0f) return
         val radius = cornerRadiusPx.coerceAtMost(minOf(body.width(), body.height()) / 2f)
-        path.reset()
         path.addRoundRect(body, radius, radius, Path.Direction.CW)
 
         // 尖端夹在本体范围内；贴边气泡的小角可能非常靠近圆角，夹一次避免长到圆弧外面。
-        val tipX = (b.left + tailCenterX).coerceIn(
-            body.left + radius + tailHalfWidthPx,
-            body.right - radius - tailHalfWidthPx
+        val tipX = (b.left + tailCenterX).coerceIn(body.left, body.right)
+        val halfWidth = tailHalfWidthPx.coerceAtMost((body.width() / 2f - radius).coerceAtLeast(0f))
+        val baseX = (b.left + tailBaseCenterX).coerceIn(
+            body.left + radius + halfWidth, body.right - radius - halfWidth
         )
-        val tail = Path()
+        tail.reset()
         if (tailEdge == BubbleTailEdge.TOP) {
-            tail.moveTo(tipX - tailHalfWidthPx, body.top)
-            tail.lineTo(tipX, b.top.toFloat() + inset)
-            tail.lineTo(tipX + tailHalfWidthPx, body.top)
+            tail.moveTo(baseX - halfWidth, body.top)
+            tail.quadTo(baseX - halfWidth * 0.4f, body.top, tipX, b.top.toFloat() + inset)
+            tail.quadTo(baseX + halfWidth * 0.4f, body.top, baseX + halfWidth, body.top)
         } else {
-            tail.moveTo(tipX - tailHalfWidthPx, body.bottom)
-            tail.lineTo(tipX, b.bottom.toFloat() - inset)
-            tail.lineTo(tipX + tailHalfWidthPx, body.bottom)
+            tail.moveTo(baseX - halfWidth, body.bottom)
+            tail.quadTo(baseX - halfWidth * 0.4f, body.bottom, tipX, b.bottom.toFloat() - inset)
+            tail.quadTo(baseX + halfWidth * 0.4f, body.bottom, baseX + halfWidth, body.bottom)
         }
         tail.close()
         // 用并集而不是分别绘制：分开画会在本体与小角的接缝上留下一条描边。

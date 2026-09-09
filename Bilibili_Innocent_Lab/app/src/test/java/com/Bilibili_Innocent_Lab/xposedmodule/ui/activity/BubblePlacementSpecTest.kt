@@ -71,14 +71,15 @@ class BubblePlacementSpecTest {
     }
 
     @Test
-    fun `tail never grows onto the rounded corner`() {
+    fun `tail base clears rounded corners while tip stays exactly aligned`() {
         listOf(topLeftIcon, topRightIcon).forEach { anchor ->
             val p = place(anchor)!!
             assertTrue(
                 "tail must clear the corner radius",
-                p.tailCenterX >= radius + tailHalf - 0.01f &&
-                    p.tailCenterX <= p.width - radius - tailHalf + 0.01f
+                p.tailBaseCenterX >= radius + tailHalf - 0.01f &&
+                    p.tailBaseCenterX <= p.width - radius - tailHalf + 0.01f
             )
+            assertEquals((anchor.left + anchor.right) / 2f, p.left + p.tailCenterX, 0.01f)
         }
     }
 
@@ -156,6 +157,88 @@ class BubblePlacementSpecTest {
             assertTrue("alpha must not decrease at $step", value >= previous)
             previous = value
             step++
+        }
+    }
+
+    @Test
+    fun `closing stays visible until the bubble is close to the icon`() {
+        assertEquals(1f, BubbleMotionSpec.surfaceAlpha(0.12f), 0f)
+        assertTrue(BubbleMotionSpec.scale(0.12f) < 0.15f)
+        assertEquals(0f, BubbleMotionSpec.scale(0f), 0f)
+    }
+
+    @Test
+    fun `every corner converges to the icon rather than the tail tip`() {
+        listOf(topLeftIcon, topRightIcon).forEach { anchor ->
+            val p = place(anchor)!!
+            val centerX = (anchor.left + anchor.right) / 2f
+            val centerY = (anchor.top + anchor.bottom) / 2f
+            val pivotX = centerX - p.left
+            val pivotY = centerY - p.top
+            listOf(0f to 0f, p.width to 600f).forEach { (x, y) ->
+                val scale = BubbleMotionSpec.scale(0f)
+                assertEquals(centerX, p.left + pivotX + (x - pivotX) * scale, 0.001f)
+                assertEquals(centerY, p.top + pivotY + (y - pivotY) * scale, 0.001f)
+            }
+        }
+    }
+
+    @Test
+    fun `predictive return interrupted during entry does not jump to expanded`() {
+        listOf(0.1f, 0.4f, 0.85f, 1f).forEach { start ->
+            assertEquals(start, BubbleMotionSpec.predictiveExpansion(start, 0f), 0f)
+            assertEquals(start / 2f, BubbleMotionSpec.predictiveExpansion(start, 0.5f), 0f)
+            assertEquals(0f, BubbleMotionSpec.predictiveExpansion(start, 1f), 0f)
+        }
+    }
+
+    @Test
+    fun `screen origin conversion preserves gap and tip alignment`() {
+        val offsetX = 30f
+        val offsetY = 96f
+        val local = SettingsBackupMotionRect(topRightIcon.left - offsetX, topRightIcon.top - offsetY,
+            topRightIcon.right - offsetX, topRightIcon.bottom - offsetY)
+        val p = place(local)!!
+        assertEquals(topRightIcon.bottom + gap, p.top + offsetY, 0.01f)
+        assertEquals((topRightIcon.left + topRightIcon.right) / 2f,
+            p.left + p.tailCenterX + offsetX, 0.01f)
+    }
+
+    @Test
+    fun `tiny bubble has bounded tail geometry instead of inverted clamp bounds`() {
+        val p = BubblePlacementSpec.place(
+            anchor = SettingsBackupMotionRect(20f, 10f, 30f, 20f),
+            windowWidth = 60f, windowHeight = 400f,
+            desiredWidth = 40f, maxWidthPx = 40f, sideMarginPx = 10f,
+            edgeMarginPx = 10f, gapPx = 4f, tailHeightPx = 9f,
+            tailHalfWidthPx = 11f, cornerRadiusPx = 28f
+        )!!
+        assertEquals(20f, p.tailBaseCenterX, 0f)
+        assertTrue(p.tailCenterX in 0f..p.width)
+    }
+
+    @Test
+    fun `nonfinite window or dimensions safely reject placement`() {
+        assertNull(BubblePlacementSpec.place(
+            anchor = topRightIcon, windowWidth = Float.NaN, windowHeight = windowHeight,
+            desiredWidth = width, maxWidthPx = width, sideMarginPx = side,
+            edgeMarginPx = edge, gapPx = gap, tailHeightPx = tailHeight,
+            tailHalfWidthPx = tailHalf, cornerRadiusPx = radius
+        ))
+    }
+
+    @Test
+    fun `entry and exit scale and opacity share the same continuous path`() {
+        var previousScale = -1f
+        for (step in 0..100) {
+            val expansion = step / 100f
+            val scale = BubbleMotionSpec.scale(expansion)
+            assertTrue(scale in 0f..1f && scale >= previousScale)
+            previousScale = scale
+            if (step > 0) {
+                assertTrue(kotlin.math.abs(BubbleMotionSpec.surfaceAlpha(expansion) -
+                    BubbleMotionSpec.surfaceAlpha((step - 1) / 100f)) < 0.13f)
+            }
         }
     }
 }

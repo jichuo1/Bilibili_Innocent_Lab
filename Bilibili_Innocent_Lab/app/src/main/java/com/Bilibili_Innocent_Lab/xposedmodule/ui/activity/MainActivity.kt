@@ -68,6 +68,7 @@ import com.highcapable.betterandroid.system.extension.component.enableComponent
 import com.highcapable.betterandroid.system.extension.component.isComponentEnabled
 import com.highcapable.betterandroid.system.extension.component.versionCodeCompat
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import com.highcapable.betterandroid.ui.extension.view.firstChildOrNull
 import com.highcapable.betterandroid.ui.extension.view.parentOrNull
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.betterandroid.ui.extension.view.textToString
@@ -2267,7 +2268,7 @@ class MainActivity : SkinnedActivity() {
     }
 
     /** 应用语言单选弹窗：沿用现有模态容器、选中强调色和统一进退场动画。 */
-    private fun showAppLanguageDialog() {
+    private fun showAppLanguageDialog(anchor: View? = null) {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
         val container = createModalContainer()
@@ -2351,7 +2352,7 @@ class MainActivity : SkinnedActivity() {
             ).apply { topMargin = (18 * density).toInt() }
         )
 
-        presentModalDialog(dialog, container)
+        presentModalDialog(dialog, container, anchor)
     }
 
     private fun createAppLanguageRow(
@@ -3896,7 +3897,7 @@ class MainActivity : SkinnedActivity() {
     }
 
     /** 播放器默认画质选择：只写模块配置，实际 Hook 在 B 站下次主进程启动时安装。 */
-    private fun showPlayerQualityDialog() {
+    private fun showPlayerQualityDialog(anchor: View? = null) {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
         val container = createModalContainer()
@@ -3998,7 +3999,7 @@ class MainActivity : SkinnedActivity() {
             ).apply { topMargin = (18 * density).toInt() }
         )
 
-        presentModalDialog(dialog, container)
+        presentModalDialog(dialog, container, anchor)
     }
 
     private fun playerQualityLabel(qn: Int): String = when (qn) {
@@ -4035,7 +4036,7 @@ class MainActivity : SkinnedActivity() {
     }
 
     /** 使用百分比整数发布配置；非法输入留在弹窗内，跟随宿主是独立、明确的操作。 */
-    private fun showPlayerSpeedDialog(longPress: Boolean) {
+    private fun showPlayerSpeedDialog(longPress: Boolean, anchor: View? = null) {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
         val container = createModalContainer()
@@ -4113,11 +4114,11 @@ class MainActivity : SkinnedActivity() {
             })
         }
         container.addView(buttons, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (12 * density).toInt() })
-        presentModalDialog(dialog, container)
+        presentModalDialog(dialog, container, anchor)
     }
 
     /** 评论最低等级选择：沿用播放器画质选择器的模态菜单与进退场动画。 */
-    private fun showCommentMinLevelDialog() {
+    private fun showCommentMinLevelDialog(anchor: View? = null) {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
         val container = createModalContainer()
@@ -4216,11 +4217,11 @@ class MainActivity : SkinnedActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = (18 * density).toInt() }
         )
-        presentModalDialog(dialog, container)
+        presentModalDialog(dialog, container, anchor)
     }
 
     /** 弹幕权重阈值选择；与评论等级选择共用同一套弹窗结构与关闭动画。 */
-    private fun showDanmakuWeightDialog() {
+    private fun showDanmakuWeightDialog(anchor: View? = null) {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
         val container = createModalContainer()
@@ -4323,7 +4324,7 @@ class MainActivity : SkinnedActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = (18 * density).toInt() }
         )
-        presentModalDialog(dialog, container)
+        presentModalDialog(dialog, container, anchor)
     }
 
     /** 规则入口统一文案：标题在上、当前值在下；四个新过滤入口共用同一结构。 */
@@ -4834,6 +4835,23 @@ class MainActivity : SkinnedActivity() {
      */
     internal enum class AnchorStyle { CONTAINER, BUBBLE }
 
+    /** 只使用当前可见的点击条目，不能拿整个可滚动父分组作为来源。 */
+    private fun modalAnchorBounds(anchor: View): SettingsBackupMotionRect? {
+        if (!anchor.isAttachedToWindow || !anchor.isShown) return null
+        val visible = android.graphics.Rect()
+        if (!anchor.getGlobalVisibleRect(visible) || visible.isEmpty) return null
+        val sourceRoot = anchor.rootView
+        if (sourceRoot.scaleX != 1f || sourceRoot.scaleY != 1f || sourceRoot.rotation != 0f ||
+            sourceRoot.rotationX != 0f || sourceRoot.rotationY != 0f) return null
+        // GlobalVisibleRect 属于 rootView 坐标；补上根窗口屏幕位置（含 adjustPan），
+        // 后续才可以与 Dialog 的 getLocationOnScreen 相减。
+        val rootLocation = IntArray(2)
+        sourceRoot.getLocationOnScreen(rootLocation)
+        visible.offset(rootLocation[0], rootLocation[1])
+        return SettingsBackupMotionRect(visible.left.toFloat(), visible.top.toFloat(),
+            visible.right.toFloat(), visible.bottom.toFloat()).takeIf { it.isValid }
+    }
+
     /**
      * 把来源图标（屏幕坐标）与已完成布局的卡片换算成承载层内的形变几何。
      *
@@ -4901,21 +4919,24 @@ class MainActivity : SkinnedActivity() {
         container: NativeLinearLayout,
         morphAnchor: View? = null,
         anchorStyle: AnchorStyle = AnchorStyle.CONTAINER,
+        onExpanded: () -> Unit = {},
         onBackDismiss: () -> Unit = {}
-    ) = presentSizedModalDialog(dialog, container, null, morphAnchor, anchorStyle, onBackDismiss)
+    ) = presentSizedModalDialog(dialog, container, null, morphAnchor, anchorStyle, onExpanded, onBackDismiss)
 
     /**
      * @param morphAnchor 传入无文字的来源图标（如工具栏的搜索/GitHub 按钮）即启用图标锚点形变：
      *   弹窗表面从该图标的位置与圆角长成整张卡片。传 null 保持原有的居中缩放入场，**默认不变**，
      *   30 个既有调用点一个都不受影响。
      */
-    @Suppress("GestureBackNavigation")
+    // 气泡 margin 与锚点均为物理窗口坐标，LEFT 不可替换成会再镜像一次的 START。
+    @Suppress("GestureBackNavigation", "RtlHardcoded")
     private fun presentSizedModalDialog(
         dialog: Dialog,
         container: NativeLinearLayout,
         preferredWidth: Int?,
         morphAnchor: View? = null,
         anchorStyle: AnchorStyle = AnchorStyle.CONTAINER,
+        onExpanded: () -> Unit = {},
         onBackDismiss: () -> Unit = {}
     ) {
         activeConfirmDialog?.dismiss()
@@ -4928,23 +4949,14 @@ class MainActivity : SkinnedActivity() {
         // 来源矩形必须在点击那一刻取：形变开始后弹窗窗口会盖住图标，事后查位置不可靠。
         val anchorBounds = morphAnchor?.takeIf {
             it.isAttachedToWindow && it.width > 0 && it.height > 0 &&
-                ValueAnimator.areAnimatorsEnabled()
-        }?.let { anchor ->
-            val location = IntArray(2)
-            anchor.getLocationOnScreen(location)
-            SettingsBackupMotionRect(
-                left = location[0].toFloat(),
-                top = location[1].toFloat(),
-                right = (location[0] + anchor.width).toFloat(),
-                bottom = (location[1] + anchor.height).toFloat()
-            )
-        }
+                (anchorStyle == AnchorStyle.BUBBLE || ValueAnimator.areAnimatorsEnabled())
+        }?.let(::modalAnchorBounds)
         // 工具栏上的 27dp 小图标飞到屏幕正中会显得莫名，改成贴在图标旁边、伸出小角的气泡。
-        val bubblePlacement = if (anchorStyle == AnchorStyle.BUBBLE && anchorBounds != null) {
+        fun placeBubble(anchor: SettingsBackupMotionRect, width: Float, height: Float) =
             BubblePlacementSpec.place(
-                anchor = anchorBounds,
-                windowWidth = resources.displayMetrics.widthPixels.toFloat(),
-                windowHeight = resources.displayMetrics.heightPixels.toFloat(),
+                anchor = anchor,
+                windowWidth = width,
+                windowHeight = height,
                 desiredWidth = BUBBLE_WIDTH_DP * density,
                 maxWidthPx = BUBBLE_WIDTH_DP * density,
                 sideMarginPx = BUBBLE_SIDE_MARGIN_DP * density,
@@ -4954,33 +4966,42 @@ class MainActivity : SkinnedActivity() {
                 tailHalfWidthPx = BUBBLE_TAIL_HALF_WIDTH_DP * density,
                 cornerRadiusPx = MODAL_CORNER_RADIUS_DP * density
             )
+        val bubblePlacement = if (anchorStyle == AnchorStyle.BUBBLE && anchorBounds != null) {
+            placeBubble(anchorBounds, resources.displayMetrics.widthPixels.toFloat(),
+                resources.displayMetrics.heightPixels.toFloat())
         } else {
             null
         }
-        if (bubblePlacement != null) {
+        val originalPaddingTop = container.paddingTop
+        val originalPaddingBottom = container.paddingBottom
+        val modalBackground = container.background
+        fun applyBubbleSurface(placement: BubblePlacement) {
             // 小角占掉整体高度的一条，内容要让开，否则文字会压在尖上。
             val tailPadding = (BUBBLE_TAIL_HEIGHT_DP * density).toInt()
             container.setPadding(
                 container.paddingLeft,
-                container.paddingTop +
-                    if (bubblePlacement.tailEdge == BubbleTailEdge.TOP) tailPadding else 0,
+                originalPaddingTop +
+                    if (placement.tailEdge == BubbleTailEdge.TOP) tailPadding else 0,
                 container.paddingRight,
-                container.paddingBottom +
-                    if (bubblePlacement.tailEdge == BubbleTailEdge.BOTTOM) tailPadding else 0
+                originalPaddingBottom +
+                    if (placement.tailEdge == BubbleTailEdge.BOTTOM) tailPadding else 0
             )
-            container.background = BubbleSurfaceDrawable(
-                fillColor = monetColors.surface,
-                cornerRadiusPx = MODAL_CORNER_RADIUS_DP * density,
-                tailHeightPx = BUBBLE_TAIL_HEIGHT_DP * density,
-                tailHalfWidthPx = BUBBLE_TAIL_HALF_WIDTH_DP * density,
-                tailEdge = bubblePlacement.tailEdge,
-                tailCenterX = bubblePlacement.tailCenterX,
-                strokeWidthPx = density
-            )
-            // 气泡自己就是最终形态，不需要承载层与 outline 裁剪；缩放由控制器驱动。
-            container.scaleX = BubbleMotionSpec.COLLAPSED_SCALE
-            container.scaleY = BubbleMotionSpec.COLLAPSED_SCALE
+            // 皮肤背景移交独立表面；正文保持原生尺寸，不再用纯色气泡替换 Liquid。
+            container.background = null
         }
+        if (bubblePlacement != null) {
+            applyBubbleSurface(bubblePlacement)
+            container.scaleX = 1f
+            container.scaleY = 1f
+            container.elevation = 0f
+        }
+        val bubbleLayer = if (bubblePlacement != null) {
+            BubblePanelLayer(this, container, morphAnchor as? android.widget.ImageView,
+                modalBackground ?: skinModalBackground(monetColors.surface, MODAL_CORNER_RADIUS_DP),
+                skinModalBackground(monetColors.surface, 0f), monetColors.surface,
+                MODAL_CORNER_RADIUS_DP * density, BUBBLE_TAIL_HEIGHT_DP * density,
+                BUBBLE_TAIL_HALF_WIDTH_DP * density).apply { setPlacement(bubblePlacement) }
+        } else null
         val morphLayer = anchorBounds?.takeIf { bubblePlacement == null }
             ?.let { IconAnchoredMotionLayer(this) }
         val root = NativeFrameLayout(this).apply {
@@ -4989,7 +5010,8 @@ class MainActivity : SkinnedActivity() {
                     bubblePlacement.width.toInt(),
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply {
-                    gravity = Gravity.TOP or Gravity.START
+                    // 几何来自物理屏幕坐标，不能在 RTL 下再次镜像。
+                    gravity = Gravity.TOP or Gravity.LEFT
                     leftMargin = bubblePlacement.left.toInt()
                     topMargin = bubblePlacement.top.toInt()
                 }
@@ -5002,7 +5024,11 @@ class MainActivity : SkinnedActivity() {
                     setMargins((32 * density).toInt(), 0, (32 * density).toInt(), 0)
                 }
             }
-            if (morphLayer != null) {
+            if (bubbleLayer != null) {
+                bubbleLayer.setContentLayoutParams(cardParams)
+                addView(bubbleLayer, NativeFrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            } else if (morphLayer != null) {
                 // 承载层必须全屏：outline 要从工具栏里的图标一路长到屏幕中央的卡片，
                 // 折叠端矩形本来就落在卡片之外。
                 morphLayer.addView(container, cardParams)
@@ -5017,15 +5043,15 @@ class MainActivity : SkinnedActivity() {
                 addView(container, cardParams)
             }
         }
-        val bubbleController = if (bubblePlacement != null) {
+        var currentBubblePlacement = bubblePlacement
+        var bubbleAnchor = anchorBounds
+        fun notifyExpanded() {
+            if (dialog.isShowing && !isFinishing && !isDestroyed) onExpanded()
+        }
+        val bubbleController = if (bubbleLayer != null) {
             BubbleMotionController(
-                bubble = container,
-                // 轴心放在小角尖端：气泡就是从那一点长出来的，视觉上等于图标"发"出来的。
-                pivotXProvider = { bubblePlacement.tailCenterX },
-                pivotYProvider = {
-                    if (bubblePlacement.tailEdge == BubbleTailEdge.TOP) 0f
-                    else container.height.toFloat()
-                },
+                layer = bubbleLayer,
+                onExpanded = ::notifyExpanded,
                 onClosed = {
                     dialog.dismiss()
                     (pendingAnchoredAfterClose.getAndSet(null) ?: onBackDismiss).invoke()
@@ -5034,6 +5060,13 @@ class MainActivity : SkinnedActivity() {
         } else {
             null
         }
+        val titleMotion = if (morphLayer != null) {
+            ModalTitleMotion.create(morphAnchor, container.firstChildOrNull<NativeTextView>(), root)
+                ?.also { title ->
+                    root.addView(title, NativeFrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                }
+        } else null
         val morphController = if (morphLayer != null && anchorBounds != null) {
             // 形变不缩放卡片（缩放会把文字压扁），只驱动 outline + alpha，因此先抹掉
             // createModalContainer 为缩放入场准备的 0.85；alpha 0 仍然保留给正文淡入。
@@ -5051,8 +5084,12 @@ class MainActivity : SkinnedActivity() {
                     MODAL_CORNER_RADIUS_DP
                 ),
                 resolveGeometry = {
-                    resolveIconAnchoredGeometry(morphLayer, container, anchorBounds, density)
+                    morphAnchor?.let(::modalAnchorBounds)?.let { currentAnchor ->
+                        resolveIconAnchoredGeometry(morphLayer, container, currentAnchor, density)
+                    }
                 },
+                titleMotion = titleMotion,
+                onExpanded = ::notifyExpanded,
                 onClosed = {
                     dialog.dismiss()
                     (pendingAnchoredAfterClose.getAndSet(null) ?: onBackDismiss).invoke()
@@ -5064,26 +5101,79 @@ class MainActivity : SkinnedActivity() {
         // 登记收起入口：全仓 72 处 dismissWithAnimation 由此自动走对应的收起动画。
         val anchoredCloser: ((Boolean, (() -> Unit)?) -> Boolean)? = when {
             bubbleController != null -> { interactive, after ->
-                pendingAnchoredAfterClose.set(after)
+                // 关闭按钮后紧接返回键不能覆盖第一次关闭的业务回调。
+                if (!bubbleController.isClosing) pendingAnchoredAfterClose.set(after)
                 bubbleController.requestClose(interactive)
             }
             morphController != null -> { interactive, after ->
-                pendingAnchoredAfterClose.set(after)
+                if (!morphController.isClosing) pendingAnchoredAfterClose.set(after)
                 morphController.requestClose(interactive)
             }
             else -> null
         }
         if (anchoredCloser != null) dialogAnchoredClosers[dialog] = anchoredCloser
-        if (bubbleController != null) {
-            container.addOnLayoutChangeListener { _, left, top, right, bottom,
-                                                  oldLeft, oldTop, oldRight, oldBottom ->
-                val hadLayout = (oldRight - oldLeft) > 0 && (oldBottom - oldTop) > 0
-                val resized = (right - left) != (oldRight - oldLeft) ||
-                    (bottom - top) != (oldBottom - oldTop)
-                // 输入法或旋转改变了气泡尺寸后轴心失效，直接落到稳定端。
-                if (hadLayout && resized) bubbleController.handleWindowSizeChange()
+        val bubbleRootLocation = IntArray(2)
+        val bubbleSourceLocation = IntArray(2)
+        var bubbleLaidOut = false
+        var previousBubbleHeight = 0
+        var bubbleGeometryPending = false
+        var previousBubbleLeft = Int.MIN_VALUE
+        var previousBubbleTop = Int.MIN_VALUE
+        var previousBubbleRight = Int.MIN_VALUE
+        var previousBubbleBottom = Int.MIN_VALUE
+        fun updateBubbleGeometry(): Boolean {
+            if (bubbleController == null || bubbleController.isClosing || root.width <= 0 || root.height <= 0) return false
+            val source = morphAnchor ?: return false
+            if (!source.isAttachedToWindow) return false
+            root.getLocationOnScreen(bubbleRootLocation)
+            source.getLocationOnScreen(bubbleSourceLocation)
+            // Dialog 的内容原点可能位于状态栏下面；统一转换后才计算小角与收回目标。
+            val x = (bubbleSourceLocation[0] - bubbleRootLocation[0]).toFloat()
+            val y = (bubbleSourceLocation[1] - bubbleRootLocation[1]).toFloat()
+            val localAnchor = SettingsBackupMotionRect(x, y, x + source.width, y + source.height)
+            val placement = placeBubble(localAnchor, root.width.toFloat(), root.height.toFloat()) ?: return false
+            val params = container.layoutParams as NativeFrameLayout.LayoutParams
+            val top = BubblePlacementSpec.resolveTop(placement, localAnchor, container.height.toFloat(),
+                BUBBLE_GAP_DP * density, BUBBLE_EDGE_MARGIN_DP * density).toInt()
+            val layoutChanged = params.width != placement.width.toInt() ||
+                params.leftMargin != placement.left.toInt() || params.topMargin != top
+            // 键盘只改变可用高度、但卡片本身仍放得下时，不打断仍在进行的展开动画。
+            val shapeChanged = placement.tailEdge != currentBubblePlacement?.tailEdge ||
+                placement.tailCenterX != currentBubblePlacement?.tailCenterX ||
+                placement.tailBaseCenterX != currentBubblePlacement?.tailBaseCenterX
+            val geometryChanged = layoutChanged || shapeChanged || localAnchor != bubbleAnchor ||
+                previousBubbleHeight != container.height
+            val actualBoundsChanged = container.left != previousBubbleLeft ||
+                container.top != previousBubbleTop || container.right != previousBubbleRight ||
+                container.bottom != previousBubbleBottom
+            bubbleGeometryPending = bubbleGeometryPending || geometryChanged || actualBoundsChanged
+            bubbleAnchor = localAnchor
+            if (shapeChanged) applyBubbleSurface(placement)
+            bubbleLayer?.setPlacement(placement)
+            bubbleLayer?.setAnchor(localAnchor)
+            currentBubblePlacement = placement
+            previousBubbleHeight = container.height
+            if (layoutChanged) {
+                params.width = placement.width.toInt()
+                params.leftMargin = placement.left.toInt()
+                params.topMargin = top
+                container.layoutParams = params
             }
+            // 参数写入不是布局完成；等实际四边就绪后再刷新独立背景与正文裁剪。
+            if (!layoutChanged && !container.isLayoutRequested) {
+                if (bubbleLaidOut && bubbleGeometryPending) bubbleController.handleWindowSizeChange()
+                bubbleGeometryPending = false
+                previousBubbleLeft = container.left
+                previousBubbleTop = container.top
+                previousBubbleRight = container.right
+                previousBubbleBottom = container.bottom
+            }
+            return layoutChanged
         }
+        val bubbleLayoutListener = if (bubbleController != null) {
+            android.view.ViewTreeObserver.OnGlobalLayoutListener { updateBubbleGeometry() }
+                .also { root.viewTreeObserver.addOnGlobalLayoutListener(it) }
+        } else null
         morphLayer?.addOnLayoutChangeListener { _, left, top, right, bottom,
                                                 oldLeft, oldTop, oldRight, oldBottom ->
             val hadLayout = (oldRight - oldLeft) > 0 && (oldBottom - oldTop) > 0
@@ -5212,6 +5302,9 @@ class MainActivity : SkinnedActivity() {
             // 也要收掉在途 animator，否则回调会继续驱动一个已经消失的窗口。
             morphController?.cancelMotion()
             bubbleController?.cancelMotion()
+            if (bubbleLayoutListener != null && root.viewTreeObserver.isAlive) {
+                root.viewTreeObserver.removeOnGlobalLayoutListener(bubbleLayoutListener)
+            }
             dialogAnchoredClosers.remove(dialog)
             if (activeConfirmDialog === dialog) activeConfirmDialog = null
             val callback = predictiveBackCallback
@@ -5234,11 +5327,18 @@ class MainActivity : SkinnedActivity() {
         )
 
         if (bubbleController != null) {
-            // 气泡不需要承载层：首帧已经是 scale=0.72 / alpha=0，布局完成后取轴心再展开。
-            container.post {
-                bubbleController.prepareFirstFrame()
-                bubbleController.startEntry()
-            }
+            // 在实际 Dialog 坐标和最终测量尺寸就绪后才开始，避免先闪一帧或从错误位置展开。
+            root.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    if (updateBubbleGeometry() || container.isLayoutRequested) return false
+                    root.viewTreeObserver.removeOnPreDrawListener(this)
+                    if (!dialog.isShowing || bubbleController.isClosing) return true
+                    bubbleLaidOut = true
+                    bubbleController.prepareFirstFrame()
+                    bubbleController.startEntry()
+                    return true
+                }
+            })
             return
         }
         if (morphController != null && morphLayer != null) {
@@ -5247,12 +5347,15 @@ class MainActivity : SkinnedActivity() {
                 object : android.view.ViewTreeObserver.OnPreDrawListener {
                     override fun onPreDraw(): Boolean {
                         morphLayer.viewTreeObserver.removeOnPreDrawListener(this)
+                        if (!dialog.isShowing || morphController.isClosing) return true
                         if (!morphController.prepareFirstFrame()) {
                             // 尺寸未就绪或几何非法：直接落到展开端，不留半截形状。
                             morphController.snapToExpanded()
                             return true
                         }
-                        morphLayer.post { morphController.startEntry() }
+                        morphLayer.post {
+                            if (dialog.isShowing && !morphController.isClosing) morphController.startEntry()
+                        }
                         return true
                     }
                 }
@@ -5264,6 +5367,7 @@ class MainActivity : SkinnedActivity() {
                 .scaleX(1f).scaleY(1f).alpha(1f)
                 .setDuration(260L)
                 .setInterpolator(emphasizedDecelerate)
+                .withEndAction(::notifyExpanded)
                 .start()
         }
     }
@@ -5466,7 +5570,8 @@ class MainActivity : SkinnedActivity() {
     }
 
     private fun showComponentManualRuleEditor(spec: ComponentPickerSurface) {
-        showRuleEditorDialog(spec.titleRes, spec.hintRes, spec.currentRules()) { value ->
+        val anchor = spec.summaryView()
+        showRuleEditorDialog(spec.titleRes, spec.hintRes, spec.currentRules(), anchor) { value ->
             spec.onRulesSaved(value)
             prefs().edit { putString(spec.rulesKey, value) }
             spec.refreshSummary()
@@ -5480,9 +5585,8 @@ class MainActivity : SkinnedActivity() {
         spec: ComponentPickerSurface,
         snapshot: MineComponentSnapshot
     ) {
-        // 来源行直接取自 spec 自己的摘要 TextView 的父容器：四个面共用同一条链路，
-        // 不需要把 View 从各个入口一路传进来。异步查询返回时该行仍在屏上。
-        val anchor = spec.summaryView()?.let { it.parent as? View ?: it }
+        // 四种面的摘要 TextView 本身就是点击条目，其父级是整段设置分组，绝不能向上取父容器。
+        val anchor = spec.summaryView()
         val entries = snapshot.entries
         if (entries.isEmpty()) return
 
@@ -5689,6 +5793,7 @@ class MainActivity : SkinnedActivity() {
         @StringRes titleRes: Int,
         @StringRes hintRes: Int,
         initialValue: String,
+        anchor: View? = null,
         onConfirm: (String) -> Unit
     ) {
         val density = resources.displayMetrics.density
@@ -5816,11 +5921,11 @@ class MainActivity : SkinnedActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = (18 * density).toInt() }
         )
-        presentModalDialog(dialog, container)
+        presentModalDialog(dialog, container, anchor)
     }
 
     /** 推荐视频时长范围编辑器：空输入表示不限制，非法区间保持弹窗等待修正。 */
-    private fun showRecommendVideoDurationRangeDialog() {
+    private fun showRecommendVideoDurationRangeDialog(anchor: View? = null) {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)
         val container = createModalContainer()
@@ -6046,7 +6151,7 @@ class MainActivity : SkinnedActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = (18 * density).toInt() }
         )
-        presentModalDialog(dialog, container)
+        presentModalDialog(dialog, container, anchor)
     }
 
     private fun updateRecommendVideoDurationSummary() {
@@ -8162,13 +8267,18 @@ class MainActivity : SkinnedActivity() {
             ).apply { topMargin = (8 * density).toInt() }
         )
 
-        presentModalDialog(dialog, container, anchor, AnchorStyle.BUBBLE)
-        dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
+            android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
         editor.requestFocus()
-        editor.postDelayed({
-            getSystemService(classOf<android.view.inputmethod.InputMethodManager>())
-                ?.showSoftInput(editor, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-        }, 220L)
+        presentModalDialog(dialog, container, anchor, AnchorStyle.BUBBLE, onExpanded = {
+            // 只在首轮真正展开后唤起键盘，关闭中的迟到计时任务不再存在。
+            if (dialog.isShowing && editor.isAttachedToWindow) {
+                dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+                editor.requestFocus()
+                getSystemService(classOf<android.view.inputmethod.InputMethodManager>())
+                    ?.showSoftInput(editor, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            }
+        })
     }
 
     private fun clearSettingsSearchTargetHighlight() {
@@ -10030,7 +10140,8 @@ class MainActivity : SkinnedActivity() {
                                             showRuleEditorDialog(
                                                 R.string.home_recommend_title_dialog_title,
                                                 R.string.home_recommend_title_dialog_hint,
-                                                homeRecommendTitleKeywords
+                                                homeRecommendTitleKeywords,
+                                                anchor = it
                                             ) { value ->
                                                 homeRecommendTitleKeywords = value
                                                 prefs().edit {
@@ -10248,7 +10359,8 @@ class MainActivity : SkinnedActivity() {
                                             showRuleEditorDialog(
                                                 R.string.dynamic_keyword_dialog_title,
                                                 R.string.dynamic_keyword_dialog_hint,
-                                                dynamicFilterKeywords
+                                                dynamicFilterKeywords,
+                                                anchor = it
                                             ) { value ->
                                                 dynamicFilterKeywords = value
                                                 prefs().edit {
@@ -10327,7 +10439,8 @@ class MainActivity : SkinnedActivity() {
                                             showRuleEditorDialog(
                                                 R.string.dynamic_author_filter_dialog_title,
                                                 R.string.dynamic_author_filter_dialog_hint,
-                                                dynamicAuthorFilterRules
+                                                dynamicAuthorFilterRules,
+                                                anchor = it
                                             ) { value ->
                                                 dynamicAuthorFilterRules = value
                                                 prefs().edit {
@@ -10686,7 +10799,8 @@ class MainActivity : SkinnedActivity() {
                                             showRuleEditorDialog(
                                                 R.string.search_keyword_dialog_title,
                                                 R.string.search_keyword_dialog_hint,
-                                                searchFilterKeywords
+                                                searchFilterKeywords,
+                                                anchor = it
                                             ) { value ->
                                                 searchFilterKeywords = value
                                                 prefs().edit {
@@ -10765,7 +10879,8 @@ class MainActivity : SkinnedActivity() {
                                             showRuleEditorDialog(
                                                 R.string.search_author_filter_dialog_title,
                                                 R.string.search_author_filter_dialog_hint,
-                                                searchAuthorFilterRules
+                                                searchAuthorFilterRules,
+                                                anchor = it
                                             ) { value ->
                                                 searchAuthorFilterRules = value
                                                 prefs().edit {
@@ -11433,7 +11548,7 @@ class MainActivity : SkinnedActivity() {
                                         background = selfRippleBackground(10f)
                                         isClickable = true
                                         isFocusable = true
-                                        setOnClickListener { showDanmakuWeightDialog() }
+                                        setOnClickListener { showDanmakuWeightDialog(it) }
                                     }
                                     TextView(
                                         lparams = LayoutParams(widthMatchParent = true)
@@ -11804,7 +11919,8 @@ class MainActivity : SkinnedActivity() {
                                             showRuleEditorDialog(
                                                 R.string.comment_keyword_dialog_title,
                                                 R.string.comment_keyword_dialog_hint,
-                                                commentFilterKeywords
+                                                commentFilterKeywords,
+                                                anchor = it
                                             ) { value ->
                                                 commentFilterKeywords = value
                                                 prefs().edit {
@@ -11875,7 +11991,7 @@ class MainActivity : SkinnedActivity() {
                                         background = selfRippleBackground(10f)
                                         isClickable = true
                                         isFocusable = true
-                                        setOnClickListener { showCommentMinLevelDialog() }
+                                        setOnClickListener { showCommentMinLevelDialog(it) }
                                     }
                                     TextView(
                                         lparams = LayoutParams(widthMatchParent = true)
@@ -11972,7 +12088,8 @@ class MainActivity : SkinnedActivity() {
                                             showRuleEditorDialog(
                                                 R.string.comment_user_filter_dialog_title,
                                                 R.string.comment_user_filter_dialog_hint,
-                                                commentUserFilterRules
+                                                commentUserFilterRules,
+                                                anchor = it
                                             ) { value ->
                                                 commentUserFilterRules = value
                                                 prefs().edit {
@@ -12244,7 +12361,7 @@ class MainActivity : SkinnedActivity() {
                                         isClickable = true
                                         isFocusable = true
                                         setOnClickListener {
-                                            showRecommendVideoDurationRangeDialog()
+                                            showRecommendVideoDurationRangeDialog(it)
                                         }
                                     }
                                     TextView(
@@ -12670,7 +12787,7 @@ class MainActivity : SkinnedActivity() {
                                             updatePadding(horizontal = 0.dp, vertical = 9.dp)
                                             isClickable = true
                                             isFocusable = true
-                                            setOnClickListener { showPlayerQualityDialog() }
+                                            setOnClickListener { showPlayerQualityDialog(it) }
                                         }
                                     ) {
                                         TextView(
@@ -12823,7 +12940,7 @@ class MainActivity : SkinnedActivity() {
                                                 updatePadding(horizontal = 0.dp, vertical = 9.dp)
                                                 isClickable = true
                                                 isFocusable = true
-                                                setOnClickListener { showPlayerSpeedDialog(longPress) }
+                                                setOnClickListener { showPlayerSpeedDialog(longPress, it) }
                                                 if (!longPress) settingsDestinations.bind(SettingsCatalog.ID_PLAYER_DEFAULT_SPEED,this)
                                             }
                                         ) {
@@ -13497,7 +13614,7 @@ class MainActivity : SkinnedActivity() {
                                             updatePadding(horizontal = 0.dp, vertical = 9.dp)
                                             isClickable = true
                                             isFocusable = true
-                                            setOnClickListener { showAppLanguageDialog() }
+                                            setOnClickListener { showAppLanguageDialog(it) }
                                         }
                                     ) {
                                         TextView(
