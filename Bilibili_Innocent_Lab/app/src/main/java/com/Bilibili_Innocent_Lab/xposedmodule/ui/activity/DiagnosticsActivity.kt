@@ -13,6 +13,8 @@
 
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.NavigationMotionPhase as MotionState
+
 import android.annotation.SuppressLint
 import android.content.res.ColorStateList
 import android.animation.Animator
@@ -97,15 +99,6 @@ class DiagnosticsActivity : SkinnedActivity() {
         BLOCKED
     }
 
-    private enum class MotionState {
-        PREPARING_ENTRY,
-        ENTERING,
-        EXPANDED,
-        PREDICTIVE_BACK,
-        CANCELLING_BACK,
-        CLOSING,
-        FINISHED
-    }
 
     private val viewModel by lazy {
         ViewModelProvider(this)[DiagnosticsViewModel::class.java]
@@ -123,6 +116,8 @@ class DiagnosticsActivity : SkinnedActivity() {
     private var allowLaunchOriginForExit = true
     private var motionGeometry: SettingsBackupMotionGeometry? = null
     private var motionAnimator: ValueAnimator? = null
+    private val motionSession = NavigationMotionSession()
+    private var motionWasInterrupted = false
     private var motionTitleMode = SettingsBackupTransitionTitleMode.SOURCE_TITLE
     private var motionContentTiming = SettingsBackupContentTiming.TIMED
     private var motionState = MotionState.PREPARING_ENTRY
@@ -292,14 +287,20 @@ class DiagnosticsActivity : SkinnedActivity() {
     }
 
     private fun handleMotionWindowSizeChange() {
+        if (finishingAfterMotion) return
+        val wasClosing = motionState == MotionState.CLOSING
         cancelMotionAnimator()
         backTarget = BackTarget.NONE
         predictiveMotionActive = false
         motionGeometry = null
-        completeExpandedMotion()
+        if (wasClosing) {
+            applyMotionExpansion(0f)
+            finishAfterMotion()
+        } else completeExpandedMotion()
     }
 
     private fun beginPredictiveBack() {
+        if (predictiveMotionActive || finishingAfterMotion || isFinishing || isDestroyed) return
         predictiveMotionActive = false
         backTarget = resolveBackTarget()
         if (backTarget != BackTarget.FINISH_ACTIVITY || !ValueAnimator.areAnimatorsEnabled()) {
@@ -310,6 +311,7 @@ class DiagnosticsActivity : SkinnedActivity() {
         gestureStartExpansion = motionHost.expansion
         predictiveMotionActive = true
         motionState = MotionState.PREDICTIVE_BACK
+        motionSession.reset(gestureStartExpansion, android.os.SystemClock.uptimeMillis())
     }
 
     private fun progressPredictiveBack(rawProgress: Float) {
@@ -331,6 +333,7 @@ class DiagnosticsActivity : SkinnedActivity() {
                 targetExpansion = 1f,
                 durationMs = BACK_CANCEL_DURATION_MS,
                 interpolator = cancelInterpolator,
+                retarget = motionWasInterrupted,
                 onEnd = ::completeExpandedMotion
             )
         }
@@ -339,6 +342,10 @@ class DiagnosticsActivity : SkinnedActivity() {
     }
 
     private fun commitBack() {
+        if (predictiveMotionActive && (exportRunning || pickerOpen || activeDialog != null)) {
+            cancelPredictiveBack()
+            return
+        }
         val target = if (backTarget == BackTarget.NONE) resolveBackTarget() else backTarget
         val hadInteractiveStart = predictiveMotionActive
         predictiveMotionActive = false
@@ -349,10 +356,8 @@ class DiagnosticsActivity : SkinnedActivity() {
     }
 
     private fun resolveBackTarget(): BackTarget = when {
-        motionState != MotionState.EXPANDED ||
-            motionAnimator != null ||
-            motionHost.expansion < 0.999f -> BackTarget.BLOCKED
-        exportRunning || pickerOpen || activeDialog != null -> BackTarget.BLOCKED
+        !NavigationMotionPolicy.canNavigate(motionState,
+            businessBlocked = exportRunning || pickerOpen || activeDialog != null || finishingAfterMotion) -> BackTarget.BLOCKED
         else -> BackTarget.FINISH_ACTIVITY
     }
 
@@ -364,6 +369,8 @@ class DiagnosticsActivity : SkinnedActivity() {
     }
 
     private fun scheduleInitialMotion(isFreshLaunch: Boolean) {
+        motionState = MotionState.PREPARING_ENTRY
+        val entryToken = motionSession.invalidate()
         val canResolveOrigin = launchOrigin != null ||
             DiagnosticsTransitionOriginRegistry.snapshot() != null
         val shouldAnimate = isFreshLaunch &&
@@ -371,6 +378,8 @@ class DiagnosticsActivity : SkinnedActivity() {
             ValueAnimator.areAnimatorsEnabled()
         if (shouldAnimate) motionHost.prepareFirstFrameForEntry()
         motionHost.doOnPreDraw {
+            if (isFinishing || isDestroyed || !motionSession.owns(entryToken) ||
+                motionState != MotionState.PREPARING_ENTRY) return@doOnPreDraw
             if (!shouldAnimate) {
                 completeExpandedMotion()
                 return@doOnPreDraw
@@ -397,7 +406,8 @@ class DiagnosticsActivity : SkinnedActivity() {
                 contentTiming = motionContentTiming
             )
             motionHost.post {
-                if (isFinishing || isDestroyed) return@post
+                if (isFinishing || isDestroyed || !motionSession.owns(entryToken) ||
+                    motionState != MotionState.ENTERING) return@post
                 animateMotionTo(
                     targetExpansion = 1f,
                     durationMs = ENTER_DURATION_MS,
@@ -410,6 +420,12 @@ class DiagnosticsActivity : SkinnedActivity() {
 
     private fun prepareExitMotion(contentTiming: SettingsBackupContentTiming) {
         finishPageStretch()
+        if (NavigationMotionPolicy.preserveFrame(motionState)) {
+            // Keep the same geometry, title mode and TIMED/PREDICTIVE profile until a stable endpoint.
+            motionWasInterrupted = true
+            return
+        }
+        motionWasInterrupted = false
         motionGeometry = resolveMotionGeometry(preferLiveOrigin = true)
         motionContentTiming = contentTiming
         motionTitleMode = if (motionGeometry?.titleMotionEnabled == true) {
@@ -422,7 +438,9 @@ class DiagnosticsActivity : SkinnedActivity() {
     }
 
     private fun requestClose(interactiveCommit: Boolean) {
-        if (finishingAfterMotion || motionState == MotionState.FINISHED) return
+        if (exportRunning || pickerOpen || activeDialog != null) return
+        if (finishingAfterMotion || motionState == MotionState.CLOSING || motionState == MotionState.FINISHED) return
+        val retarget = NavigationMotionPolicy.preserveFrame(motionState) && !interactiveCommit
         cancelMotionAnimator()
         if (!interactiveCommit) prepareExitMotion(SettingsBackupContentTiming.TIMED)
         motionState = MotionState.CLOSING
@@ -446,6 +464,7 @@ class DiagnosticsActivity : SkinnedActivity() {
             targetExpansion = 0f,
             durationMs = duration,
             interpolator = if (interactiveCommit) commitInterpolator else closeInterpolator,
+            retarget = retarget,
             onEnd = ::finishAfterMotion
         )
     }
@@ -454,6 +473,7 @@ class DiagnosticsActivity : SkinnedActivity() {
         targetExpansion: Float,
         durationMs: Long,
         interpolator: android.animation.TimeInterpolator,
+        retarget: Boolean = false,
         onEnd: () -> Unit
     ) {
         cancelMotionAnimator()
@@ -467,13 +487,23 @@ class DiagnosticsActivity : SkinnedActivity() {
             onEnd()
             return
         }
+        val actualDuration = if (retarget && targetExpansion == 1f)
+            NavigationMotionPolicy.remainingDuration(durationMs, startExpansion, targetExpansion) else durationMs
+        val now = android.os.SystemClock.uptimeMillis()
+        val continuation = if (retarget) NavigationMotionContinuation(startExpansion, targetExpansion,
+            motionSession.velocity(now), actualDuration) else null
+        motionSession.reset(startExpansion, now)
+        val token = motionSession.generation
         val animator = ValueAnimator.ofFloat(startExpansion, targetExpansion)
         val expansionDelta = targetExpansion - startExpansion
         motionAnimator = animator
-        animator.duration = durationMs
-        animator.interpolator = interpolator
+        animator.duration = actualDuration
+        animator.interpolator = if (continuation != null) android.view.animation.LinearInterpolator() else interpolator
         animator.addUpdateListener { valueAnimator ->
-            applyMotionExpansion(startExpansion + expansionDelta * valueAnimator.animatedFraction)
+            if (motionSession.owns(token) && motionAnimator === animator) {
+                applyMotionExpansion(continuation?.value(valueAnimator.animatedFraction)
+                    ?: (startExpansion + expansionDelta * valueAnimator.animatedFraction))
+            }
         }
         animator.addListener(object : AnimatorListenerAdapter() {
             private var cancelled = false
@@ -483,14 +513,16 @@ class DiagnosticsActivity : SkinnedActivity() {
             }
 
             override fun onAnimationEnd(animation: Animator) {
-                if (motionAnimator === animator) motionAnimator = null
-                if (!cancelled && !isDestroyed) onEnd()
+                val current = motionSession.owns(token) && motionAnimator === animator
+                if (current) motionAnimator = null
+                if (current && !cancelled && !isFinishing && !isDestroyed) onEnd()
             }
         })
         animator.start()
     }
 
     private fun applyMotionExpansion(expansion: Float) {
+        motionSession.sample(expansion, android.os.SystemClock.uptimeMillis())
         val geometry = motionGeometry
         if (geometry != null) {
             motionHost.applyExpansion(
@@ -515,6 +547,8 @@ class DiagnosticsActivity : SkinnedActivity() {
         motionGeometry = null
         motionContentTiming = SettingsBackupContentTiming.TIMED
         motionState = MotionState.EXPANDED
+        motionWasInterrupted = false
+        motionSession.reset(1f, android.os.SystemClock.uptimeMillis())
         predictiveMotionActive = false
         backTarget = BackTarget.NONE
         installPageStretch()
@@ -527,12 +561,13 @@ class DiagnosticsActivity : SkinnedActivity() {
     private fun finishAfterMotion() {
         if (finishingAfterMotion || isFinishing || isDestroyed) return
         finishingAfterMotion = true
+        val finishToken = motionSession.invalidate()
         motionState = MotionState.FINISHED
         motionHost.blockInteraction(true)
         // Animator 的最终 update 与 onEnd 发生在同一帧；延后一帧 finish，确保 expansion=0
         // 已提交给合成器，让下层真实入口自然接管，避免关闭末尾闪现。
         motionHost.postOnAnimation {
-            if (isFinishing || isDestroyed) return@postOnAnimation
+            if (isFinishing || isDestroyed || !motionSession.owns(finishToken)) return@postOnAnimation
             finish()
             suppressLegacyCloseTransition()
         }
@@ -546,6 +581,7 @@ class DiagnosticsActivity : SkinnedActivity() {
     }
 
     private fun cancelMotionAnimator() {
+        motionSession.invalidate()
         val animator = motionAnimator ?: return
         motionAnimator = null
         animator.removeAllUpdateListeners()
@@ -691,7 +727,7 @@ class DiagnosticsActivity : SkinnedActivity() {
         setPadding(10.dp, 0, 8.dp, 0)
         addView(actionButton("‹", getString(R.string.diagnostics_title)) {
             onBackPressedDispatcher.onBackPressed()
-        }, LinearLayout.LayoutParams(48.dp, 48.dp))
+        }.also(motionHost::registerNavigationBack), LinearLayout.LayoutParams(48.dp, 48.dp))
         addView(TextView(this@DiagnosticsActivity).apply {
             toolbarTitleView = this
             text = getString(R.string.diagnostics_title)

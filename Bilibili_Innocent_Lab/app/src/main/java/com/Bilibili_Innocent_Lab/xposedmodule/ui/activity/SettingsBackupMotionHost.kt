@@ -12,6 +12,7 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
@@ -77,7 +78,36 @@ internal class SettingsBackupMotionHost(
         pivotX = 0f
         pivotY = 0f
     }
-    private val inputBlocker = View(context).apply {
+    private var navigationBackTarget: View? = null
+    private var pressedBackTarget: View? = null
+    private var interactionBlocked = false
+    private val backLocation = IntArray(2)
+    private var shapedMotion = false
+    private val inputBlocker = object : View(context) {
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    clearBackPress()
+                    if (hitsNavigationBack(event)) {
+                        pressedBackTarget = navigationBackTarget
+                        pressedBackTarget?.isPressed = true
+                    }
+                }
+                MotionEvent.ACTION_MOVE -> if (event.pointerCount != 1 || !hitsNavigationBack(event)) clearBackPress()
+                MotionEvent.ACTION_UP -> {
+                    if (pressedBackTarget != null && pressedBackTarget === navigationBackTarget && hitsNavigationBack(event)) performClick()
+                    clearBackPress()
+                }
+                MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> clearBackPress()
+            }
+            return true // Never forward touches to moving business controls.
+        }
+        override fun performClick(): Boolean {
+            super.performClick()
+            pressedBackTarget?.takeIf { it === navigationBackTarget }?.performClick()
+            return true
+        }
+    }.apply {
         isClickable = true
         isFocusable = true
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -87,6 +117,33 @@ internal class SettingsBackupMotionHost(
     private var currentPage: View? = null
     private var currentToolbarTitle: TextView? = null
     private val motionFrame = SettingsBackupMotionFrameBuffer()
+
+    fun registerNavigationBack(view: View) {
+        clearBackPress()
+        navigationBackTarget = view
+    }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (!hasWindowFocus) clearBackPress()
+    }
+
+    private fun clearBackPress() {
+        pressedBackTarget?.isPressed = false
+        pressedBackTarget = null
+        if (!interactionBlocked) inputBlocker.visibility = View.GONE
+    }
+
+    private fun hitsNavigationBack(event: MotionEvent): Boolean {
+        val target = navigationBackTarget ?: return false
+        if (!target.isAttachedToWindow || !target.isShown || !target.isEnabled ||
+            (currentPage?.alpha ?: 0f) <= 0.01f) return false
+        if (shapedMotion && (event.x < motionFrame.left || event.x > motionFrame.right ||
+            event.y < motionFrame.top || event.y > motionFrame.bottom)) return false
+        target.getLocationOnScreen(backLocation)
+        return event.rawX >= backLocation[0] && event.rawX < backLocation[0] + target.width &&
+            event.rawY >= backLocation[1] && event.rawY < backLocation[1] + target.height
+    }
 
     var expansion: Float = 1f
         private set
@@ -166,6 +223,7 @@ internal class SettingsBackupMotionHost(
         titleMode: SettingsBackupTransitionTitleMode,
         contentTiming: SettingsBackupContentTiming
     ) {
+        shapedMotion = true
         val clamped = value.coerceIn(0f, 1f)
         expansion = clamped
         SettingsBackupMotionSpec.fillFrame(
@@ -268,6 +326,7 @@ internal class SettingsBackupMotionHost(
         contentTravelPx: Float,
         contentTiming: SettingsBackupContentTiming
     ) {
+        shapedMotion = false
         val clamped = value.coerceIn(0f, 1f)
         val contentFraction = if (contentTiming == SettingsBackupContentTiming.PREDICTIVE) {
             SettingsBackupMotionSpec.contentFraction(clamped, contentTiming)
@@ -302,6 +361,7 @@ internal class SettingsBackupMotionHost(
     }
 
     fun showExpandedImmediately() {
+        shapedMotion = false
         expansion = 1f
         backdropClip.visibility = View.VISIBLE
         backdropClip.alpha = 1f
@@ -336,7 +396,10 @@ internal class SettingsBackupMotionHost(
     }
 
     fun blockInteraction(blocked: Boolean) {
-        inputBlocker.visibility = if (blocked) View.VISIBLE else View.GONE
+        interactionBlocked = blocked
+        // Keep ownership of an existing back-button press across the final expansion frame.
+        inputBlocker.visibility = if (NavigationMotionPolicy.keepInputBlocked(blocked, pressedBackTarget != null))
+            View.VISIBLE else View.GONE
         pageClip.importantForAccessibility = if (blocked) {
             View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         } else {
