@@ -829,4 +829,25 @@
     <string name="diag_cap_home_banner_feed">Home banner: feed filtering</string>
     <string name="hide_search_home_recommend">Hide search-page trending and recommendations</string>
     <string name="hide_search_home_recommend_tip">Hides trending searches, discovery recommendations and their related controls on the search landing page, without placeholders. Search history is preserved. Restart Bilibili to apply.</string>
+    <string name="highlights_title">What’s new</string>
+    <string name="highlights_menu_tip">Review the highlights and jump to their settings.</string>
+    <string name="highlights_version">Installed version: %1$s</string>
+    <string name="highlights_intro">Explore new and improved features. Opening a setting does not enable it.</string>
+    <string name="highlights_entry_title">%1$s · %2$s</string>
+    <string name="highlights_new">New</string>
+    <string name="highlights_improved">Improved</string>
+    <string name="highlights_fixed">Fixed</string>
+    <string name="highlights_go_to_setting">Go to setting →</string>
+    <string name="highlights_unavailable">This setting is unavailable in the current environment.</string>
+    <string name="highlights_empty">This build has no additional highlights.</string>
+    <string name="highlights_full_notes">Full release notes</string>
+    <string name="highlights_acknowledge">Got it</string>
+    <string name="highlights_search">Hide trending and discovery sections while keeping search history.</string>
+    <string name="highlights_dynamic">Remove the frequently visited area without filtering the posts below.</string>
+    <string name="highlights_pgc">Filter identified anime and film recommendations without guessing from titles.</string>
+    <string name="highlights_special">Filter recognized special cards independently from anime and film cards.</string>
+    <string name="highlights_speed">Apply a default speed to new videos while preserving manual and temporary long-press speeds.</string>
+    <string name="highlights_interactive">Improve interactive-overlay response coverage while preserving regular danmaku and chapter data.</string>
+    <string name="highlights_stability_title">Compatibility and stability</string>
+    <string name="highlights_stability">Improve partial adaptation and error handling so missing paths do not disable unrelated features.</string>
 </resources>

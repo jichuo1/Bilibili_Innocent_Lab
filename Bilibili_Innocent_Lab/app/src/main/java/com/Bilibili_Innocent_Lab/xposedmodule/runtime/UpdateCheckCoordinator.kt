@@ -21,6 +21,9 @@ internal class UpdateCheckCoordinator {
     private var activeRequest: Request? = null
     private var pendingRequest: Request? = null
 
+    /** Read-only UI scheduling gate; does not change update request/channel semantics. */
+    @Synchronized fun isBusy(): Boolean = activeRequest != null || pendingRequest != null
+
     /**
      * 返回非 null 表示调用方应立即启动该请求；已有请求运行时，手动请求会覆盖排队项。
      */

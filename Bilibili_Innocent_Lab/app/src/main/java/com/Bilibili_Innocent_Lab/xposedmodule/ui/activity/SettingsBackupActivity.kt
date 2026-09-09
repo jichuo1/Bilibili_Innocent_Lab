@@ -1169,6 +1169,7 @@ class SettingsBackupActivity : SkinnedActivity() {
         setTextColor(monetColors.onPrimary)
         setPadding(dp(18), dp(11), dp(18), dp(11))
         background = ripple(monetColors.primary, 14f)
+        skinActionButton(this, filled = true, radiusDp = 14f)
         minWidth = dp(48)
         minHeight = dp(48)
         isClickable = true
@@ -1188,6 +1189,7 @@ class SettingsBackupActivity : SkinnedActivity() {
         setTextColor(getColor(R.color.colorTextGray))
         setPadding(dp(18), dp(11), dp(18), dp(11))
         background = ripple(monetColors.surface, 14f)
+        skinActionButton(this, filled = false, radiusDp = 14f)
         minWidth = dp(48)
         minHeight = dp(48)
         isClickable = true

@@ -7,8 +7,9 @@ import android.graphics.Rect
 import android.graphics.drawable.Drawable
 
 /** 复用现有气泡 Path，将箭头翻到左下方；箭头包含在 View 尺寸内。 */
-class GithubUpdateBadgeDrawable(color: Int, private val density: Float) : Drawable() {
-    private val bubble = BubbleDrawable(color, 6f*density, 3f*density, 5f*density, 5f*density)
+class GithubUpdateBadgeDrawable(color: Int, private val density: Float, rimColor: Int = 0) : Drawable() {
+    private val bubble = BubbleDrawable(color, 6f*density, 3f*density, 5f*density, 5f*density,
+        rimColor, if (rimColor == 0) 0f else .8f*density)
     private var bodyHeight = 0
     override fun onBoundsChange(bounds: Rect) {
         bodyHeight = (bounds.height() - 3f*density).toInt().coerceAtLeast(0)

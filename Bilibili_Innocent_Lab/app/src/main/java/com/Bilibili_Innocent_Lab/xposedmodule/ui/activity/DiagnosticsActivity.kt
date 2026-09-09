@@ -906,6 +906,7 @@ class DiagnosticsActivity : SkinnedActivity() {
             cornerRadius = 9.dp.toFloat()
             setColor(ColorUtils.setAlphaComponent(severityColor(item.severity), 0x28))
         }
+        skinStatusChip(this, severityColor(item.severity))
     }
 
     private fun itemTitle(id: DiagnosticItemId): String = getString(
@@ -1368,6 +1369,7 @@ class DiagnosticsActivity : SkinnedActivity() {
         }
         dialog.setOnDismissListener { if (activeDialog === dialog) activeDialog = null }
         activeDialog = dialog
+        stylePreparedSkinControls(container)
         dialog.show()
         dialog.window?.setLayout(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1421,6 +1423,7 @@ class DiagnosticsActivity : SkinnedActivity() {
                 content,
                 mask
             )
+            skinActionButton(this, filled)
             isClickable = true
             isFocusable = true
             setOnClickListener { onClick() }
