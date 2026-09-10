@@ -40,7 +40,13 @@ abstract class SkinnedActivity : AppViewsActivity() {
      * 这里故意不读取 SkinPrefs 或启动 renderer；调色板只读取独立的配色规范用户设置，
      * 让条款页与授权后的界面保持同一组 Material 颜色。
      */
-    protected val monetColors: MonetColors
+    // internal 而非 protected：设置页的弹窗正按主题外移成 `MainActivity` 的扩展函数，
+    // 而 Kotlin 的扩展函数**拿不到 protected 成员**（protected 只对子类体内可见）。
+    // internal 仍然限制在本模块内，不进入任何对外 API；调色板的来源约束不变
+    // （见 docs/architecture.md：与皮肤仓库无关，仍是 Activity 作用域的 fromWallpaper）。
+    // 只放宽外移代码真正需要的三个：monetColors / skinActionButton / skinCardBackground。
+    // stylePreparedSkinControls 等仍是 protected——它们只被留在 Activity 里的底座调用。
+    internal val monetColors: MonetColors
         get() = materialPaletteOrNull
             ?: MonetColors.fromWallpaper(this).also { materialPaletteOrNull = it }
 
@@ -103,7 +109,7 @@ abstract class SkinnedActivity : AppViewsActivity() {
     }
 
     /** Called after the existing Material decoration: Material/unauthorized paths are exact no-ops. */
-    protected fun skinActionButton(view: TextView, filled: Boolean, radiusDp: Float = 20f) {
+    internal fun skinActionButton(view: TextView, filled: Boolean, radiusDp: Float = 20f) {
         if (!isLiquidSkinEffective || lifecycleEnded) return
         val text = getColor(R.color.colorTextDark)
         view.setTextColor(ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
@@ -212,7 +218,7 @@ abstract class SkinnedActivity : AppViewsActivity() {
         skinSessionOrNull?.diagnostics
 
     /** 卡片语义背景；不向公开/受保护 API 暴露 internal token 或 SurfaceRole 类型。 */
-    protected fun skinCardBackground(
+    internal fun skinCardBackground(
         color: Int,
         radiusDp: Float = 15f
     ): Drawable = skinBackground(

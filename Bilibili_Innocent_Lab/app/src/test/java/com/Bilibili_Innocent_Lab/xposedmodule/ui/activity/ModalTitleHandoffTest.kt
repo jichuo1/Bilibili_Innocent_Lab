@@ -266,8 +266,9 @@ class ModalTitleHandoffTest {
      * 真机 `dumpsys window windows` 里 `anim=` 依旧非零。
      */
     @Test fun theDialogWindowAnimationIsDisabledAfterSetContentView() {
-        val code = source("MainActivity")
-        val present = code.substringAfter("private fun presentSizedModalDialog(")
+        // 不能钉 `private fun`：弹窗外移后这个底座已放宽成 internal，
+        // 而 substringAfter 失配会返回整份文件，断言照样通过、护栏静默失效。
+        val present = SettingsUiSource.function("presentSizedModalDialog")
         val setContent = present.indexOf("dialog.setContentView(root)")
         val disable = present.indexOf("dialog.window?.setWindowAnimations(0)")
         assertTrue("setContentView not found", setContent > 0)

@@ -94,10 +94,10 @@ class BubbleLayerIntegrationTest {
      * 赢下手势派发；而三键返回走 `Dialog.dispatchKeyEvent` → `mOnKeyListener`，仍有动画。
      */
     @Test fun systemBackGestureIsRegisteredAfterTheWindowIsAttached() {
-        val code = source("MainActivity")
-        val present = code.substringAfter("private fun presentSizedModalDialog(")
-            .substringBefore("private fun createModalContainer")
-            .ifEmpty { code.substringAfter("private fun presentSizedModalDialog(") }
+        // 按花括号配对精确取这一个函数：原来的"到 createModalContainer 为止"会随着
+        // 邻居搬迁或可见性放宽而失配，而 substringBefore 失配后返回原串，窗口会悄悄
+        // 扩大到整份文件——断言照样通过，护栏静默失效。
+        val present = SettingsUiSource.function("presentSizedModalDialog")
         val show = present.indexOf("dialog.show()")
         val register = present.indexOf("registerBackCallback()", show)
         assertTrue("dialog.show() not found", show > 0)
@@ -114,9 +114,7 @@ class BubbleLayerIntegrationTest {
     }
 
     @Test fun keyboardWaitsForFirstSettledEntryWithoutADelayedCloseRace() {
-        val main = source("MainActivity")
-        val search = main.substringAfter("private fun showSettingsSearchDialog(")
-            .substringBefore("private fun clearSettingsSearchTargetHighlight(")
+        val search = SettingsUiSource.function("showSettingsSearchDialog")
         assertTrue(search.contains("AnchorStyle.BUBBLE, onExpanded ="))
         assertFalse(search.contains("editor.postDelayed"))
         assertTrue(search.contains("SOFT_INPUT_STATE_ALWAYS_HIDDEN"))

@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin
 
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.SettingsUiSource
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidControlStyle
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidSurfaceAlphaPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidTokenResolver
@@ -50,21 +51,25 @@ class LiquidControlStyleTest {
     }
 
     @Test fun `all main activity modal creators use the skin container and shared presenter`() {
-        val main = source("ui/activity/MainActivity.kt")
-        val functions = Regex("(?m)^    (?:private |protected |override |internal )*fun (\\w+)").findAll(main).toList()
+        // 弹窗正在按主题外移到 ui/activity 下的 Dialogs 文件，所以这条不变式必须**跟着代码走**。
+        // 只扫 MainActivity 的话，搬走的弹窗会悄悄退出统计——而这里是唯一能发现
+        // "某个弹窗漏了 createModalContainer() 或 presentModalDialog()"的地方。
         var dialogs = 0
-        functions.forEachIndexed { index, match ->
-            val body = main.substring(match.range.first, functions.getOrNull(index + 1)?.range?.first ?: main.length)
-            if (body.contains("val dialog = Dialog(this)")) {
+        SettingsUiSource.settingsUiFiles().forEach { (file, text) ->
+            // 类成员缩进 4，外移文件里的顶层扩展函数缩进 0。
+            val indent = if (file == "MainActivity.kt") 4 else 0
+            SettingsUiSource.declaredFunctions(text, indent).forEach { (name, body) ->
+                if (!body.contains("val dialog = Dialog(this)")) return@forEach
                 dialogs++
-                assertTrue(match.groupValues[1], body.contains("createModalContainer()"))
-                if (match.groupValues[1] != "showUserTermsDialog") {
-                    assertTrue(match.groupValues[1], Regex("present(?:Sized)?ModalDialog\\(").containsMatchIn(body))
+                assertTrue("$file: $name", body.contains("createModalContainer()"))
+                if (name != "showUserTermsDialog") {
+                    assertTrue("$file: $name", Regex("present(?:Sized)?ModalDialog\\(").containsMatchIn(body))
                 }
             }
         }
-        assertTrue(dialogs >= 28)
-        val presenter = main.substringAfter("private fun presentSizedModalDialog(").substringBefore("private data class")
+        // 钉住总数而不是 >=：搬迁不允许让任何一个弹窗掉出统计。新增弹窗时一并改这里。
+        assertEquals(28, dialogs)
+        val presenter = SettingsUiSource.function("presentSizedModalDialog")
         assertTrue(presenter.indexOf("stylePreparedSkinControls(container)") in 0 until presenter.indexOf("dialog.show()"))
         val diagnostics = source("ui/activity/DiagnosticsActivity.kt")
         assertTrue(diagnostics.contains("background = skinModalBackground(monetColors.surface)"))

@@ -529,6 +529,15 @@ internal object SettingsCatalog {
 
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
 
+    /**
+     * 按**偏好存储键**索引，供设置页读取默认值用（`ModuleUiSettings`）。
+     *
+     * 存储键的唯一性由下面的 `init` 保证，所以 `associateBy` 不会静默丢条目。
+     * 有了这张表，"某个开关未设置时是什么"就只有目录一个来源——
+     * 设置页原来把默认值抄在每个 `getBoolean(key, default)` 里，抄了 114 份。
+     */
+    val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
+
     init {
         check(specs.size == 124) { "Expected 124 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }

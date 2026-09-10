@@ -15,8 +15,7 @@ class TelemetryMenuStructureTest {
 
     @Test
     fun `github telemetry entry navigates before any switch is constructed`() {
-        val row = source.substringAfter("private fun createTelemetryMenuRow(")
-            .substringBefore("private fun showTelemetryInfoDialog()")
+        val row = SettingsUiSource.function("createTelemetryMenuRow")
         assertTrue(row.contains("showControl: Boolean = false"))
         val entry = row.substringAfter("if (!showControl) {")
             .substringBefore("var programmaticChange")
@@ -42,11 +41,9 @@ class TelemetryMenuStructureTest {
 
     @Test
     fun `detail owns the switch and retains disclosure and save failure checks`() {
-        val detail = source.substringAfter("private fun showTelemetryInfoDialog()")
-            .substringBefore("private fun showTelemetryExplanationDialog()")
+        val detail = SettingsUiSource.function("showTelemetryInfoDialog")
         assertTrue(detail.contains("createTelemetryMenuRow(dialog, container, showControl = true)"))
-        val row = source.substringAfter("private fun createTelemetryMenuRow(")
-            .substringBefore("private fun showTelemetryInfoDialog()")
+        val row = SettingsUiSource.function("createTelemetryMenuRow")
         assertTrue(row.contains("enabled && !TelemetryStore.hasCurrentDisclosure(applicationContext)"))
         assertTrue(row.contains("if (!saved)"))
         assertTrue(row.contains("telemetry_choice_save_failed"))

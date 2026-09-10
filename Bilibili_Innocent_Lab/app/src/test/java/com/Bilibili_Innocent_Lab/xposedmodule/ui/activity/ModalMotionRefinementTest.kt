@@ -80,13 +80,13 @@ class ModalMotionRefinementTest {
     }
 
     @Test fun missingSnapshotUsesSameAnchoredRuleEditorWithoutChangingSelectionRules() {
-        val main = source("MainActivity")
-        val fallback = main.substringAfter("private fun showComponentManualRuleEditor(")
-            .substringBefore("private fun showComponentPickerDialog(")
+        // 这两个窗口原来靠"到下一个函数为止"划界，已经被搬迁悄悄撑破过一次：
+        // showRecommendVideoDurationRangeDialog 外移后分隔符失配，substringBefore
+        // 返回整段剩余源码，断言变成在半份文件里找字符串——照样通过，护栏没了。
+        val fallback = SettingsUiSource.function("showComponentManualRuleEditor")
         assertTrue(fallback.contains("spec.summaryView()"))
         assertTrue(fallback.contains("spec.currentRules(), anchor"))
-        val editor = main.substringAfter("private fun showRuleEditorDialog(")
-            .substringBefore("private fun showRecommendVideoDurationRangeDialog(")
+        val editor = SettingsUiSource.function("showRuleEditorDialog")
         assertTrue(editor.contains("presentModalDialog(dialog, container, anchor)"))
         assertFalse(fallback.contains("remove("))
         assertFalse(fallback.contains("clear("))

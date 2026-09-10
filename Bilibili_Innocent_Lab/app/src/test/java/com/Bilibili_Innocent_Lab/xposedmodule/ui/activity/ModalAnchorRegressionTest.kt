@@ -13,18 +13,18 @@ class ModalAnchorRegressionTest {
     }
 
     @Test fun scannedAndUnscannedPanelsUseTheClickableSummaryNotTheEntireSettingsGroup() {
-        val main = source("MainActivity")
-        val editors = main.substringAfter("private fun showComponentManualRuleEditor(")
-            .substringBefore("private fun showRuleEditorDialog(")
+        // 原来是"从手填回退到规则编辑器为止"的窗口，实际覆盖的是**两个**入口：
+        // 手填规则回退 + 组件选择弹窗，各取一次锚点，所以下面期望 2 次。
+        // 改成按函数精确取这两个，既不依赖声明顺序，也不依赖它们还在哪个文件里。
+        val editors = SettingsUiSource.function("showComponentManualRuleEditor") +
+            SettingsUiSource.function("showComponentPickerDialog")
         assertEquals(2, Regex("val anchor = spec.summaryView\\(\\)").findAll(editors).count())
         assertFalse(editors.contains("it.parent"))
         assertFalse(editors.contains("parentOrNull"))
     }
 
     @Test fun modalGeometryUsesVisibleBoundsAndRefreshesTheOriginBeforeReturning() {
-        val main = source("MainActivity")
-        val origin = main.substringAfter("private fun modalAnchorBounds(")
-            .substringBefore("private fun resolveIconAnchoredGeometry(")
+        val origin = SettingsUiSource.function("modalAnchorBounds")
         assertTrue(origin.contains("getGlobalVisibleRect(visible)"))
         assertTrue(origin.contains("val sourceRoot = anchor.rootView"))
         assertTrue(origin.contains("sourceRoot.getLocationOnScreen(rootLocation)"))
@@ -32,7 +32,8 @@ class ModalAnchorRegressionTest {
         assertTrue(origin.contains("sourceRoot.scaleX != 1f"))
         assertTrue(origin.contains("!anchor.isShown"))
         assertTrue(origin.contains("visible.bottom.toFloat()"))
-        assertTrue(main.contains("morphAnchor?.let(::modalAnchorBounds)?.let { currentAnchor ->"))
+        assertTrue(SettingsUiSource.all()
+            .contains("morphAnchor?.let(::modalAnchorBounds)?.let { currentAnchor ->"))
     }
 
     @Test fun visibleRootBoundsMapThroughScreenBeforeEnteringAnotherWindow() {
