@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.view.View
 import android.view.animation.LinearInterpolator
 import android.view.animation.PathInterpolator
+import kotlin.math.roundToInt
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.NavigationMotionPhase as MotionState
 
 /**
@@ -30,6 +31,8 @@ internal class IconAnchoredMotionController(
     private val surfaceDrawable: Drawable,
     private val resolveGeometry: () -> IconAnchoredMotionGeometry?,
     private val titleMotion: ModalTitleMotion? = null,
+    /** 每帧的展开进度；供背景毛玻璃这类"跟着同一个时钟"的附属效果使用，不另开动画。 */
+    private val onFrame: (Float) -> Unit = {},
     private val onExpanded: () -> Unit = {},
     private val onClosed: () -> Unit
 ) {
@@ -65,6 +68,15 @@ internal class IconAnchoredMotionController(
     private var wasInterrupted = false
     private var contentElevation = content.elevation
     private var entryNotified = false
+
+    /**
+     * 卡片自己的背景——**描边就在这张 drawable 上**。
+     *
+     * 形变期间承载层已经按纪律铺了同色同圆角的 `skinModalBackground`，所以给这张背景整体
+     * 降 alpha 在视觉上只淡掉描边，填充没有差别；正文的 alpha 仍由 `content.alpha` 单独控制。
+     * 每个弹窗的背景都是 `createModalContainer` 现造的实例，不与别处共享。
+     */
+    private val contentBackground: Drawable? = content.background
 
     var expansion: Float = 0f
         private set
@@ -130,6 +142,9 @@ internal class IconAnchoredMotionController(
         content.translationX = 0f
         content.translationY = 0f
         content.elevation = contentElevation
+        // 描边斜坡本来就收在 1，这里只是把浮点误差钉成整数 255。
+        contentBackground?.alpha = 255
+        onFrame(1f)
         layer.alpha = 1f
         layer.background = null
         layer.clearShape()
@@ -230,6 +245,9 @@ internal class IconAnchoredMotionController(
         cancelAnimator()
         session.invalidate()
         state = MotionState.FINISHED
+        // 硬关（activeConfirmDialog?.dismiss()）会停在半路，卡片背景不能留着半透明的 alpha：
+        // 这张 drawable 属于被关掉的弹窗，但复用同一个 container 的路径会看到残留。
+        contentBackground?.alpha = 255
     }
 
     /**
@@ -323,6 +341,8 @@ internal class IconAnchoredMotionController(
         layer.applyFrame(frame.left, frame.top, frame.right, frame.bottom, frame.radiusPx)
         layer.alpha = frame.surfaceAlpha
         content.alpha = frame.contentAlpha
+        contentBackground?.alpha = (frame.strokeAlpha * 255f).roundToInt().coerceIn(0, 255)
+        onFrame(clamped)
         content.translationX = frame.contentTranslationXPx
         content.translationY = frame.contentTranslationYPx
         titleMotion?.apply(clamped)

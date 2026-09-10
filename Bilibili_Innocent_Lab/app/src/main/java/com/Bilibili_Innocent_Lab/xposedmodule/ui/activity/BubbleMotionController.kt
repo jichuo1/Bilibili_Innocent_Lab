@@ -21,6 +21,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.NavigationMotionPhase 
  */
 internal class BubbleMotionController(
     private val layer: BubblePanelLayer,
+    /** 每帧的展开进度；供背景毛玻璃这类"跟着同一个时钟"的附属效果使用，不另开动画。 */
+    private val onFrame: (Float) -> Unit = {},
     private val onExpanded: () -> Unit = {},
     private val onClosed: () -> Unit
 ) {
@@ -84,6 +86,7 @@ internal class BubbleMotionController(
         expansion = 1f
         entryShape = false
         layer.settleExpanded()
+        onFrame(1f)
         if (!entryNotified) {
             entryNotified = true
             onExpanded()
@@ -230,6 +233,7 @@ internal class BubbleMotionController(
         expansion = clamped
         session.sample(clamped, SystemClock.uptimeMillis())
         layer.applyFrame(clamped, entryShape)
+        onFrame(clamped)
     }
 
     private fun finish() {

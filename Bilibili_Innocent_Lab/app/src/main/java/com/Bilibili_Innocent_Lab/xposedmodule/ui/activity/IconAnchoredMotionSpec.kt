@@ -56,6 +56,10 @@ internal class IconAnchoredMotionFrameBuffer {
         private set
     var contentAlpha = 0f
         private set
+
+    /** 卡片自身背景（= 描边所在的那张 drawable）的不透明度，独立于正文。 */
+    var strokeAlpha = 0f
+        private set
     var contentTranslationXPx = 0f
         private set
     var contentTranslationYPx = 0f
@@ -69,6 +73,7 @@ internal class IconAnchoredMotionFrameBuffer {
         radiusPx: Float,
         surfaceAlpha: Float,
         contentAlpha: Float,
+        strokeAlpha: Float,
         contentTranslationXPx: Float,
         contentTranslationYPx: Float
     ) {
@@ -79,6 +84,7 @@ internal class IconAnchoredMotionFrameBuffer {
         this.radiusPx = radiusPx
         this.surfaceAlpha = surfaceAlpha
         this.contentAlpha = contentAlpha
+        this.strokeAlpha = strokeAlpha
         this.contentTranslationXPx = contentTranslationXPx
         this.contentTranslationYPx = contentTranslationYPx
     }
@@ -132,6 +138,21 @@ internal object IconAnchoredMotionSpec {
     /** 正文起始位移相对"锚点中心 → 卡片中心"向量的比例，再由几何里的上限截断。 */
     private const val CONTENT_TRAVEL_RATIO = 0.10f
 
+    /**
+     * 卡片背景（描边所在那张 drawable）的淡入起点，终点固定为 1。
+     *
+     * 为什么描边要一条**独立**通道，而不是跟着 [contentFraction] 走：
+     * 正文窗口必须在 **0.85 之前**收干净——`ModalTitleMotionSpec.targetWeight` 从 0.85 起把
+     * 标题交还给卡片里的真实 TextView，那一刻卡片若还在淡入，标题会被淡两次。
+     * 但描边如果也在 0.78 就满了，之后还有约四成行程在跑，就会出现"最终尺寸的描边"被
+     * 一个仍在生长的裁剪矩形切开——现场表现为边框与形状分离、有破绽。
+     *
+     * 所以描边单独走一条**收在 1.0 的**斜坡：形状停住的同一刻描边刚好满，收起时反向推进，
+     * 描边先淡掉再看到形状缩回。承载层与卡片按纪律用**同一份** `skinModalBackground`
+     * （同色同圆角），所以给卡片背景整体降 alpha 在视觉上只淡掉描边，填充无差别。
+     */
+    private const val STROKE_EDGE_START = 0.45f
+
     fun fillFrame(
         out: IconAnchoredMotionFrameBuffer,
         expansion: Float,
@@ -159,6 +180,7 @@ internal object IconAnchoredMotionSpec {
             radiusPx = lerp(geometry.collapsedRadiusPx, geometry.expandedRadiusPx, fraction),
             surfaceAlpha = smoothStep(0f, SURFACE_EDGE_END, fraction),
             contentAlpha = content,
+            strokeAlpha = strokeAlpha(fraction),
             contentTranslationXPx =
                 (towardAnchorX * CONTENT_TRAVEL_RATIO).coerceIn(-cap, cap) * remaining,
             contentTranslationYPx =
@@ -185,6 +207,15 @@ internal object IconAnchoredMotionSpec {
         IconAnchoredContentTiming.TIMED -> smoothStep(0.30f, 0.78f, expansion)
         IconAnchoredContentTiming.PREDICTIVE -> smoothStep(0.12f, 0.58f, expansion)
     }
+
+    /**
+     * 描边（= 卡片背景）的不透明度，**恰好在形状停住的那一刻满**。
+     *
+     * 与 [contentFraction] 分开的理由见 [STROKE_EDGE_START]。方向无关：收起时同一条曲线
+     * 反向推进，描边先淡出、再看到形状缩回，"出现"与"消失"用的是同一段渐变。
+     */
+    internal fun strokeAlpha(expansion: Float): Float =
+        smoothStep(STROKE_EDGE_START, 1f, expansion.coerceIn(0f, 1f))
 
     internal fun smoothStep(edgeStart: Float, edgeEnd: Float, value: Float): Float {
         if (edgeStart >= edgeEnd) return if (value < edgeStart) 0f else 1f

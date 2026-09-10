@@ -141,6 +141,8 @@ internal object DiagnosticCapabilityCatalog {
         "free_copy.auto_light.enabled" to "LOCAL_APPEARANCE",
         "module_ui.predictive_back.enabled" to "MODULE_UI",
         "module_ui.material_color_spec" to "MODULE_UI",
+        // 只影响模块界面自己的弹窗动画，不进宿主，没有可诊断的宿主能力。
+        "module_ui.appearance.panel_window_blur" to "MODULE_UI",
         "diagnostics.logging.enabled" to "LOCAL_DIAGNOSTICS",
         "diagnostics.logging.level" to "LOCAL_DIAGNOSTICS"
     )

@@ -194,6 +194,15 @@ abstract class SkinnedActivity : AppViewsActivity() {
     protected val isLiquidSkinEffective: Boolean
         get() = skinSessionOrNull?.effectiveSkin == SkinId.LIQUID
 
+    /**
+     * Material You 美学是否生效。
+     *
+     * 没有皮肤会话时（回退路径）视觉上等价于 Material，所以也算 Material You——
+     * 判定写成"不是 Liquid"，新增第三种皮肤时这里必须重新审视。
+     */
+    protected val isMaterialYouSkinEffective: Boolean
+        get() = skinSessionOrNull?.effectiveSkin != SkinId.LIQUID
+
     /** 当前实际后端名称；Material You 或尚未准备时为 null。 */
     protected val liquidBackendName: String?
         get() = skinSessionOrNull?.liquidBackendName

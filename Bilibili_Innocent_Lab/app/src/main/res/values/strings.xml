@@ -382,6 +382,8 @@
     <string name="material_color_spec_title">Use SPEC 2025</string>
     <string name="material_color_spec_summary">The default color specification is SPEC 2021. Enable this option to use SPEC 2025; changes take effect immediately.</string>
     <string name="material_color_spec_save_failed">Could not save the color specification. The current setting was kept.</string>
+    <string name="panel_window_blur_title">Panel window blur</string>
+    <string name="panel_window_blur_summary">When on, panels in the module settings apply a frosted-glass blur to the background as they open, under the Material You look. Slightly increases rendering load.</string>
     <string name="liquid_background_choose">Choose image</string>
     <string name="liquid_background_replace">Replace image</string>
     <string name="liquid_background_choose_description">Uses the system file picker and copies a bounded, metadata-free image into private app storage.</string>
@@ -842,6 +844,7 @@
     <string name="highlights_empty">This build has no additional highlights.</string>
     <string name="highlights_full_notes">Full release notes</string>
     <string name="highlights_acknowledge">Got it</string>
+    <string name="highlights_panel_blur">Optional light frosted-glass layer behind panels, fading in with the open animation. Material You only, off by default.</string>
     <string name="highlights_search">Hide trending and discovery sections while keeping search history.</string>
     <string name="highlights_dynamic">Remove the frequently visited area without filtering the posts below.</string>
     <string name="highlights_pgc">Filter identified anime and film recommendations without guessing from titles.</string>

@@ -99,7 +99,11 @@ class ModalMotionRefinementTest {
         assertTrue(title.contains("targetLayout.lineCount != 1"))
         assertTrue(title.contains("renderedTitleLine("))
         assertTrue(title.contains("getEllipsisCount(0) != 0"))
-        assertTrue(title.contains("source.alpha = sourceAlpha"))
+        // 来源行只淡文字颜色，**不能**动 View 的 alpha：那会把 ripple 一起变透明并冻结它的
+        // 动画，等形变结束才补播一次高光（见 ModalTitleHandoffTest 的 ripple 用例）。
+        assertFalse(title.contains("source.alpha ="))
+        assertTrue(title.contains("sourceTextColors.withAlpha("))
+        assertTrue(title.contains("source.setTextColor(sourceTextColors)"))
         assertTrue(title.contains("target.alpha = targetAlpha"))
         val draw = title.substringAfter("override fun onDraw(").substringBefore("companion object")
         for (forbidden in listOf("requestLayout", "Bitmap", "find(", "TextPaint(", "textSize =")) {

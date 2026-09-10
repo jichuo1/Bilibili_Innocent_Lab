@@ -382,6 +382,8 @@
     <string name="material_color_spec_title">使用 SPEC 2025</string>
     <string name="material_color_spec_summary">色彩標準預設使用 SPEC 2021，啟用後使用 SPEC 2025，切換後立即生效。</string>
     <string name="material_color_spec_save_failed">配色規範儲存失敗，已維持目前設定。</string>
+    <string name="panel_window_blur_title">面板視窗模糊</string>
+    <string name="panel_window_blur_summary">開啟後，在 Material You 介面美學下，使模組設定中各面板呼出時向背景施加毛玻璃模糊效果，輕微提升渲染壓力。</string>
     <string name="liquid_background_choose">選擇圖片</string>
     <string name="liquid_background_replace">更換圖片</string>
     <string name="liquid_background_choose_description">透過系統檔案選擇器匯入，並將經過限幅、移除中繼資料的圖片複製到應用程式私人目錄。</string>
@@ -842,6 +844,7 @@
     <string name="highlights_empty">此安裝包沒有額外的更新亮點。</string>
     <string name="highlights_full_notes">完整更新說明</string>
     <string name="highlights_acknowledge">知道了</string>
+    <string name="highlights_panel_blur">面板呼出時可選為背景漸進加上一層淺毛玻璃，僅 Material You 美學生效，預設關閉。</string>
     <string name="highlights_search">隱藏搜尋首頁的熱搜與搜尋發現，保留搜尋記錄。</string>
     <string name="highlights_dynamic">整塊隱藏動態頁最常訪問區域，不影響下方動態內容。</string>
     <string name="highlights_pgc">依明確的卡片類型或影視播放網址過濾首頁推薦，不依標題猜測。</string>

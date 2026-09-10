@@ -9,6 +9,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpec
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpecStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.ModalBackdropBlurStore
 
 /**
  * 可备份用户意图的唯一白名单。
@@ -19,7 +20,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorS
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 16
+    const val CATALOG_VERSION = 17
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
@@ -507,6 +508,15 @@ internal object SettingsCatalog {
             introducedCatalogVersion = 4,
             effects = setOf(ImportEffect.RECREATE_MODULE_UI)
         ),
+        bool(
+            "module_ui.appearance.panel_window_blur",
+            ModalBackdropBlurStore.PREF_KEY,
+            R.string.panel_window_blur_title,
+            default = ModalBackdropBlurStore.DEFAULT,
+            introducedCatalogVersion = 17,
+            // 只影响模块界面自己的弹窗动画，不进宿主，不需要重启哔哩哔哩。
+            effects = setOf(ImportEffect.RECREATE_MODULE_UI)
+        ),
         bool("diagnostics.logging.enabled", HookEntry.PREF_LOG_ENABLED, R.string.log_capture_enable, default = true),
         text(
             "diagnostics.logging.level",
@@ -520,7 +530,7 @@ internal object SettingsCatalog {
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
 
     init {
-        check(specs.size == 123) { "Expected 123 catalog settings, found ${specs.size}" }
+        check(specs.size == 124) { "Expected 124 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

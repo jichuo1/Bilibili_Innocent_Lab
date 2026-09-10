@@ -20,6 +20,8 @@ internal object ReleaseHighlightsCatalog {
     const val REVIEWED_VERSION_CODE = 16
     const val SETTINGS_BASELINE_VERSION = 13
     val batches = listOf(ReleaseHighlightsBatch(1, listOf(
+        ReleaseHighlight("panel-window-blur", HighlightKind.NEW, R.string.highlights_panel_blur,
+            HighlightDestination("module_ui.appearance.panel_window_blur")),
         ReleaseHighlight("search-home-hidden", HighlightKind.NEW, R.string.highlights_search,
             HighlightDestination("search.home_recommend.hidden")),
         ReleaseHighlight("dynamic-frequent-hidden", HighlightKind.NEW, R.string.highlights_dynamic,

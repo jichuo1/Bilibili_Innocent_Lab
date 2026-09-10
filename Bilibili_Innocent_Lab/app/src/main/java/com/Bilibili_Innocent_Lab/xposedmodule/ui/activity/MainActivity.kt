@@ -122,6 +122,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportAppl
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ModuleSettingsStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpec
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpecStore
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.ModalBackdropBlurStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatus
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatusListener
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigPublishState
@@ -5048,9 +5049,18 @@ class MainActivity : SkinnedActivity() {
         fun notifyExpanded() {
             if (dialog.isShowing && !isFinishing && !isDestroyed) onExpanded()
         }
+        // 背景浅毛玻璃：跟着弹窗自己的进度渐进，让面板与背景分层。
+        // 用户开关 + Material You 美学 + API 31+ + 系统允许跨窗口模糊，四道门都在工厂里判。
+        val backdropBlur = ModalBackdropBlur.createOrNull(
+            window = dialog.window,
+            userEnabled = ModalBackdropBlurStore.read(this),
+            materialYouSkin = isMaterialYouSkinEffective,
+            density = density
+        )
         val bubbleController = if (bubbleLayer != null) {
             BubbleMotionController(
                 layer = bubbleLayer,
+                onFrame = { progress -> backdropBlur?.apply(progress) },
                 onExpanded = ::notifyExpanded,
                 onClosed = {
                     dialog.dismiss()
@@ -5089,6 +5099,7 @@ class MainActivity : SkinnedActivity() {
                     }
                 },
                 titleMotion = titleMotion,
+                onFrame = { progress -> backdropBlur?.apply(progress) },
                 onExpanded = ::notifyExpanded,
                 onClosed = {
                     dialog.dismiss()
@@ -5189,8 +5200,21 @@ class MainActivity : SkinnedActivity() {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             setDimAmount(0f)
+            // 关掉平台级窗口进出动画。本项目所有弹窗动画都是手绘的（形变 / 气泡 / 缩放淡出），
+            // 窗口动画只会叠在上面捣乱：`dialog.dismiss()` 是同步移窗，而
+            // WindowManager 的退出动画搬的是这个 surface **最后一次真正绘制**的那一帧——
+            // 而 `apply(0f)` 与 `titleMotion.closed()` 都发生在 animator 回调里、
+            // 在本帧 TRAVERSAL **之前**，所以它们压根没被画出来。
+            // 于是最后一帧里那份满不透明的飞行标题被窗口动画拖着向上飘走并淡出，
+            // 现场就是"返回动画末端，文字上方冒出一个重影往上飞着消失"。
+            // 实测本机这两个窗口的 `anim=` 是非零的（`dumpsys window windows`），确认动画开着。
         }
         dialog.setContentView(root)
+        // **必须在 setContentView 之后**：`PhoneWindow.generateLayout()`（由 setContentView 触发）
+        // 会从主题里重新读 `windowAnimationStyle` 覆盖 `params.windowAnimations`，
+        // 放在前面写的 0 会被原样抹掉——真机 `dumpsys window windows` 里 `anim=` 依旧非零，
+        // 实测踩过一次。
+        dialog.window?.setWindowAnimations(0)
         // 系统返回键也必须走项目统一的 180ms scale + fade 退场动画。
         // 预测性返回启用（targetSdk 33+ 注册、Android 16+ 系统强制）后，手势导航的
         // 返回不再向 Dialog 派发 KEYCODE_BACK，改走 OnBackInvokedCallback；三键导航
@@ -5330,6 +5354,9 @@ class MainActivity : SkinnedActivity() {
             // 也要收掉在途 animator，否则回调会继续驱动一个已经消失的窗口。
             morphController?.cancelMotion()
             bubbleController?.cancelMotion()
+            // 硬关会停在半路；窗口撤掉后模糊本来就没了，这里归零只为不把带 FLAG_BLUR_BEHIND
+            // 的属性留在一个可能被复用的 window 上。
+            backdropBlur?.clear()
             if (bubbleLayoutListener != null && root.viewTreeObserver.isAlive) {
                 root.viewTreeObserver.removeOnGlobalLayoutListener(bubbleLayoutListener)
             }
@@ -5400,7 +5427,14 @@ class MainActivity : SkinnedActivity() {
                 .scaleX(1f).scaleY(1f).alpha(1f)
                 .setDuration(260L)
                 .setInterpolator(emphasizedDecelerate)
-                .withEndAction(::notifyExpanded)
+                // 无锚点弹窗没有形变时钟，借它自己的入场进度推模糊。退场由
+                // 共用的 dismissWithAnimation 负责，窗口撤掉时模糊随之消失（硬切，
+                // 与这条路径本来的淡出观感一致），不去改那 72 个调用点。
+                .setUpdateListener { backdropBlur?.apply(container.alpha) }
+                .withEndAction {
+                    backdropBlur?.apply(1f)
+                    notifyExpanded()
+                }
                 .start()
         }
     }
@@ -13623,6 +13657,35 @@ class MainActivity : SkinnedActivity() {
                                         alpha = 0.6f
                                         setLineSpacing(6f, 1f)
                                         text = stringResource(R.string.material_color_spec_summary)
+                                        textColor = colorResource(R.color.colorTextDark)
+                                        textSize = 12f
+                                    }
+                                    MaterialSwitch(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 5.dp
+                                        }
+                                    ) {
+                                        updatePadding(horizontal = 0.dp)
+                                        text = stringResource(R.string.panel_window_blur_title)
+                                        isAllCaps = false
+                                        textColor = colorResource(R.color.colorTextGray)
+                                        textSize = 15f
+                                        // 未设置时默认关闭，见 ModalBackdropBlurStore.DEFAULT。
+                                        isChecked = ModalBackdropBlurStore.read(applicationContext)
+                                        setOnCheckedChangeListener { _, checked ->
+                                            prefs().edit {
+                                                putBoolean(ModalBackdropBlurStore.PREF_KEY, checked)
+                                            }
+                                        }
+                                    }
+                                    TextView(
+                                        lparams = LayoutParams(widthMatchParent = true) {
+                                            bottomMargin = 10.dp
+                                        }
+                                    ) {
+                                        alpha = 0.6f
+                                        setLineSpacing(6f, 1f)
+                                        text = stringResource(R.string.panel_window_blur_summary)
                                         textColor = colorResource(R.color.colorTextDark)
                                         textSize = 12f
                                     }
