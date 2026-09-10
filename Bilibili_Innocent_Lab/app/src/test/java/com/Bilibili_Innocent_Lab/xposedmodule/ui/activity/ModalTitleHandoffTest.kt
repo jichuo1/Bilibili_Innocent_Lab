@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 import kotlin.math.abs
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -120,6 +121,70 @@ class ModalTitleHandoffTest {
                 assertEquals(0f, frame.contentTranslationYPx, 0f)
             }
         }
+    }
+
+    /**
+     * 来源行把"标题 + \n + 摘要"塞进同一个 TextView 时，首行仍能配对。
+     *
+     * 回归："推荐标题关键词"这个填写面板的入口行文案与面板标题**完全同名**
+     * （`home_recommend_title_rules` == `home_recommend_title_dialog_title`），
+     * 但入口是 `标题 + "\n" + 摘要` 的单个 TextView（`ruleSummaryText` /
+     * `ComponentPickerSurface.refreshSummary` 都这么拼），整段比较永远配不上，
+     * 于是这类填写面板全都拿不到文字平移，只有容器形变。
+     */
+    @Test fun aMergedTitleAndSummaryRowStillPairsOnItsFirstLine() {
+        assertTrue(ModalTitleMotionSpec.titleLineMatches("推荐标题关键词", "推荐标题关键词"))
+        assertTrue(ModalTitleMotionSpec.titleLineMatches(
+            "推荐标题关键词\n当前未配置关键词，点击编辑", "推荐标题关键词"))
+        assertTrue(ModalTitleMotionSpec.titleLineMatches(
+            "推荐标题关键词\n当前关键词：竖屏\n第三行", "推荐标题关键词"))
+        // 放宽的只是"标题在哪"，不是配对的严格程度。
+        assertFalse(ModalTitleMotionSpec.titleLineMatches("评论关键词", "编辑评论关键词"))
+        assertFalse(ModalTitleMotionSpec.titleLineMatches("自定义首页组件", "首页组件隐藏规则"))
+        assertFalse(ModalTitleMotionSpec.titleLineMatches("推荐标题关键词？\n摘要", "推荐标题关键词"))
+        assertFalse(ModalTitleMotionSpec.titleLineMatches(" 推荐标题关键词\n摘要", "推荐标题关键词"))
+        // 首行只是标题的前缀不算：必须紧跟换行。
+        assertFalse(ModalTitleMotionSpec.titleLineMatches("推荐标题关键词过滤\n摘要", "推荐标题关键词"))
+        assertFalse(ModalTitleMotionSpec.titleLineMatches("推荐标题关键词 摘要", "推荐标题关键词"))
+        assertFalse(ModalTitleMotionSpec.titleLineMatches("", ""))
+        assertFalse(ModalTitleMotionSpec.titleLineMatches("\n摘要", ""))
+        // 严格的整段比较保持不变，仍是目标标题那一侧的判据。
+        assertFalse(ModalTitleMotionSpec.matches("推荐标题关键词\n摘要", "推荐标题关键词"))
+    }
+
+    /** 首行必须取自 Layout 的真实行边界：软换行时首行不等于标题，那种行不该配对。 */
+    @Test fun renderedFirstLineComesFromTheLayoutNotFromSplittingTheRawString() {
+        val text = "推荐标题关键词\n当前未配置关键词，点击编辑"
+        val hardBreak = text.indexOf('\n') + 1
+        assertEquals("推荐标题关键词",
+            ModalTitleMotionSpec.renderedTitleLine(text, 0, hardBreak))
+        // 软换行：Layout 把一行折成两行，首行不含换行符也不等于标题。
+        assertEquals("推荐标题关",
+            ModalTitleMotionSpec.renderedTitleLine("推荐标题关键词", 0, 5))
+        assertFalse(ModalTitleMotionSpec.matches(
+            ModalTitleMotionSpec.renderedTitleLine("推荐标题关键词", 0, 5), "推荐标题关键词"))
+        // 越界索引不得抛异常，动画降级成只做容器形变即可。
+        assertEquals("", ModalTitleMotionSpec.renderedTitleLine("abc", 5, 2))
+        assertEquals("abc", ModalTitleMotionSpec.renderedTitleLine("abc", -3, 99))
+        assertEquals("", ModalTitleMotionSpec.renderedTitleLine("", 0, 0))
+    }
+
+    /** 只搬首行：摘要不能跟着飞，也不能被整段绘制带出来。 */
+    @Test fun onlyTheFirstLineIsDrawnByTheTravelingOverlay() {
+        val path = "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/activity/ModalTitleMotion.kt"
+        val code = sequenceOf(java.io.File(path), java.io.File("app/$path"))
+            .first(java.io.File::isFile).readText()
+        val draw = code.substringAfter("override fun onDraw(").substringBefore("private fun stableTransform")
+        assertTrue(draw.contains("clipRect("))
+        assertTrue(draw.contains("layout.getLineTop(0)"))
+        assertTrue(draw.contains("layout.getLineBottom(0)"))
+        // 裁剪必须发生在进入 layout 坐标系之后、绘制之前。
+        assertTrue(draw.indexOf("-layout.getLineBaseline(0)") < draw.indexOf("clipRect("))
+        assertTrue(draw.indexOf("clipRect(") < draw.indexOf("layout.draw(this)"))
+        // 目标标题仍必须独占一行，来源才允许多行。
+        assertTrue(code.contains("targetLayout.lineCount != 1 || layout.lineCount < 1"))
+        assertTrue(code.contains("titleLineMatches(source.textToString(), title)"))
+        assertTrue(code.contains("matches(target.textToString(), title)"))
     }
 
     private fun weights(progress: Float): FloatArray = floatArrayOf(

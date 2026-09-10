@@ -19,6 +19,34 @@ internal object ModalTitleMotionSpec {
     fun matches(source: String, target: String): Boolean =
         source.isNotBlank() && source == target
 
+    /**
+     * 来源行**允许把标题与摘要写在同一个 TextView 里、用 `\n` 分行**。
+     *
+     * 规则编辑与勾选类入口全是这种结构（`ruleSummaryText`、
+     * `ComponentPickerSurface.refreshSummary` 拼的就是 `标题 + "\n" + 摘要`），
+     * 所以只认整段相等的话，"推荐标题关键词"这种标题与面板**完全同名**的入口
+     * 也永远配不上，白白丢掉文字平移。
+     *
+     * 放宽的只是"标题在哪"，**不是配对的严格程度**：仍然只承认整段相等，
+     * 或首行相等且紧跟一个换行；不猜近义、不去标点、不 trim。
+     * 首行是否真的只有标题，由 [ModalTitleMotion.prepare] 用渲染后的 Layout 复核。
+     */
+    fun titleLineMatches(source: String, target: String): Boolean =
+        matches(source, target) || (target.isNotBlank() && source.startsWith("$target\n"))
+
+    /**
+     * 渲染后的首行文字。
+     *
+     * 用 Layout 的真实行边界，而不是按 `\n` 切原字符串——软换行（一行太长被折行）时
+     * 首行并不等于标题，那种行必须落到只做容器动画的分支。硬换行会把 `\n`
+     * 计进 `getLineEnd(0)`，去掉它才是标题本身。
+     */
+    fun renderedTitleLine(layoutText: String, lineStart: Int, lineEnd: Int): String {
+        val from = lineStart.coerceIn(0, layoutText.length)
+        val to = lineEnd.coerceIn(from, layoutText.length)
+        return layoutText.substring(from, to).removeSuffix("\n")
+    }
+
     fun renderedTextMatches(raw: String, rendered: String): Boolean = raw == rendered
 
     fun interpolate(start: Float, end: Float, progress: Float): Float =
@@ -83,7 +111,7 @@ internal class ModalTitleMotion private constructor(
         val layout = source.layout ?: return
         val targetLayout = target.layout ?: return
         if (!source.isAttachedToWindow || !target.isAttachedToWindow || !source.isShown ||
-            !ModalTitleMotionSpec.matches(source.textToString(), title) ||
+            !ModalTitleMotionSpec.titleLineMatches(source.textToString(), title) ||
             !ModalTitleMotionSpec.matches(target.textToString(), title) ||
             source.text is Spanned || target.text is Spanned ||
             !ModalTitleMotionSpec.renderedTextMatches(source.textToString(), layout.text.toString()) ||
@@ -92,7 +120,15 @@ internal class ModalTitleMotion private constructor(
             target.ellipsize == TextUtils.TruncateAt.MARQUEE ||
             !stableTransform(source, checkAncestorAlpha = true) ||
             !stableTransform(target, checkAncestorAlpha = false) ||
-            layout.lineCount != 1 || targetLayout.lineCount != 1 ||
+            // 目标标题必须独占一行；来源只要求**渲染后的首行**正好是标题，
+            // 后面还有摘要行也可以——只搬首行，见 onDraw 的行裁剪。
+            targetLayout.lineCount != 1 || layout.lineCount < 1 ||
+            !ModalTitleMotionSpec.matches(
+                ModalTitleMotionSpec.renderedTitleLine(
+                    layout.text.toString(), layout.getLineStart(0), layout.getLineEnd(0)
+                ),
+                title
+            ) ||
             layout.getEllipsisCount(0) != 0 || targetLayout.getEllipsisCount(0) != 0 ||
             layout.getParagraphDirection(0) < 0 || targetLayout.getParagraphDirection(0) < 0 ||
             !source.getGlobalVisibleRect(visibleBounds) ||
@@ -164,6 +200,12 @@ internal class ModalTitleMotion private constructor(
             val scale = size / sourceSize
             scale(scale, scale)
             translate(-layout.getLineLeft(0), -layout.getLineBaseline(0).toFloat())
+            // 只搬首行：来源行可能是"标题 \n 摘要"合成的一个 TextView，摘要不该跟着飞。
+            // Layout.draw 会按画布裁剪决定绘制哪些行，所以这一句同时挡住像素和后续行。
+            clipRect(
+                layout.getLineLeft(0), layout.getLineTop(0).toFloat(),
+                layout.getLineRight(0), layout.getLineBottom(0).toFloat()
+            )
             layout.draw(this)
         }
     }
@@ -187,7 +229,10 @@ internal class ModalTitleMotion private constructor(
             fun find(view: View): TextView? {
                 if (--remaining < 0 || view.visibility != VISIBLE) return null
                 if (view is TextView && view !is android.widget.EditText &&
-                    ModalTitleMotionSpec.matches(view.textToString(), target.textToString())) return view
+                    ModalTitleMotionSpec.titleLineMatches(
+                        view.textToString(), target.textToString()
+                    )
+                ) return view
                 if (view is ViewGroup) {
                     for (index in 0 until view.childCount) {
                         if (remaining <= 0) break

@@ -5279,11 +5279,39 @@ class MainActivity : SkinnedActivity() {
             }
         }
         val callbackToRegister = predictiveBackCallback
-        if (callbackToRegister != null && AndroidVersion.isAtLeast(AndroidVersion.T)) {
+        // 注册必须发生在 show() **之后**，见下面 registerBackCallback 的说明；
+        // 记住当时那个 dispatcher，注销才对得上同一个对象。
+        var registeredBackDispatcher: android.window.OnBackInvokedDispatcher? = null
+        /**
+         * 把系统返回（手势与三键）接到项目自己的退场动画上。
+         *
+         * 原来在 `dialog.show()` **之前**注册：那时 decor 还没挂上 `ViewRootImpl`，
+         * API 33 又没有 API 34 才加的 `ProxyOnBackInvokedDispatcher` 来缓存 attach 前的注册，
+         * 于是这次注册被丢掉，而 `Dialog.show()` 自己会注册一个 system 级默认回调
+         * （`onBackPressed → cancel → dismiss`，**瞬间消失、没有任何动画**）。
+         * 结果就是两条返回路径行为不一致：三键/按键走 `Dialog.dispatchKeyEvent` →
+         * 先问 `mOnKeyListener`（下面那个）→ 有动画；而**手势**走 dispatcher →
+         * 只剩系统默认回调 → 没动画。
+         *
+         * 放到 attach 之后注册，我们的 `PRIORITY_DEFAULT` 就压在系统默认回调之上
+         * （system 优先级低于 default），两条路径都收敛到 `requestDismiss()`。
+         * 失败要留日志：这里原本被 `runCatching` 静默吞掉，正是它让上面那条不一致
+         * 长期不可观测。
+         */
+        fun registerBackCallback() {
+            if (callbackToRegister == null || !AndroidVersion.isAtLeast(AndroidVersion.T)) return
+            if (registeredBackDispatcher != null) return
             runCatching {
-                dialog.onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                val dispatcher = dialog.onBackInvokedDispatcher
+                dispatcher.registerOnBackInvokedCallback(
                     android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
                     callbackToRegister
+                )
+                registeredBackDispatcher = dispatcher
+            }.onFailure {
+                Log.e(
+                    "BilibiliInnocentLab",
+                    "register OnBackInvokedCallback failed; back gesture loses its animation", it
                 )
             }
         }
@@ -5308,10 +5336,12 @@ class MainActivity : SkinnedActivity() {
             dialogAnchoredClosers.remove(dialog)
             if (activeConfirmDialog === dialog) activeConfirmDialog = null
             val callback = predictiveBackCallback
-            if (callback != null && AndroidVersion.isAtLeast(AndroidVersion.T)) {
-                runCatching {
-                    dialog.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback)
-                }
+            // 注销要冲着**当时注册成功的那个** dispatcher；窗口已 detach 时
+            // `dialog.onBackInvokedDispatcher` 可能已经换了对象或直接抛。
+            val dispatcher = registeredBackDispatcher
+            if (callback != null && dispatcher != null) {
+                registeredBackDispatcher = null
+                runCatching { dispatcher.unregisterOnBackInvokedCallback(callback) }
             }
             if (releaseHighlightsDialog === dialog) {
                 releaseHighlightsDialog = null
@@ -5325,6 +5355,9 @@ class MainActivity : SkinnedActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         )
+        // show() 之后：窗口已 attach，dispatcher 是真的那一个，
+        // 且我们的回调会压在 Dialog.show() 刚注册的 system 级默认回调之上。
+        registerBackCallback()
 
         if (bubbleController != null) {
             // 在实际 Dialog 坐标和最终测量尺寸就绪后才开始，避免先闪一帧或从错误位置展开。
