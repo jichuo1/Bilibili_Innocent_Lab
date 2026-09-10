@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import java.io.File
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -71,7 +72,45 @@ class BubbleLayerIntegrationTest {
         val layer = source("BubblePanelLayer")
         assertTrue(layer.contains("icon?.settleExpanded()"))
         assertTrue(layer.contains("icon?.dispose()"))
-        assertTrue(source("BubbleIconProxy").contains("source.alpha = originalAlpha"))
+        val icon = source("BubbleIconProxy")
+        assertTrue(icon.contains("source.alpha = originalAlpha"))
+        // 原始 alpha 按 View 记账而不是每个代理各记一份：硬关时 Dialog 只把收尾监听器 post
+        // 出去，新代理会在真正 dispose 之前构造，把动画中途的 alpha 当成"原始值"，
+        // 连续打断后图标永久消失。
+        assertTrue(icon.contains("SourceIconAlpha.acquire(source)"))
+        assertTrue(icon.contains("SourceIconAlpha.release(source)"))
+        assertTrue(icon.contains("WeakHashMap<ImageView, Entry>"))
+        // 惰性代理（捕获失败）不许替别人还原，dispose 的记账必须幂等。
+        assertTrue(icon.contains("if (!tookOver) return"))
+        assertTrue(icon.contains("if (disposed) {"))
+    }
+
+    /**
+     * 系统返回（手势）必须和三键返回走同一条退场动画。
+     *
+     * 回归：注册发生在 `dialog.show()` 之前，那时 decor 还没挂上 `ViewRootImpl`，
+     * API 33 也没有 API 34 才加的 `ProxyOnBackInvokedDispatcher` 缓存 attach 前的注册，
+     * 于是注册被丢弃、`Dialog.show()` 自己那个 system 级默认回调（直接 dismiss、无动画）
+     * 赢下手势派发；而三键返回走 `Dialog.dispatchKeyEvent` → `mOnKeyListener`，仍有动画。
+     */
+    @Test fun systemBackGestureIsRegisteredAfterTheWindowIsAttached() {
+        val code = source("MainActivity")
+        val present = code.substringAfter("private fun presentSizedModalDialog(")
+            .substringBefore("private fun createModalContainer")
+            .ifEmpty { code.substringAfter("private fun presentSizedModalDialog(") }
+        val show = present.indexOf("dialog.show()")
+        val register = present.indexOf("registerBackCallback()", show)
+        assertTrue("dialog.show() not found", show > 0)
+        assertTrue("back callback must be registered after dialog.show()", register > show)
+        // 注册前不能有第二处抢跑
+        assertEquals(-1, present.substring(0, show).indexOf(".registerOnBackInvokedCallback("))
+        // 注销必须冲着当时注册成功的那个 dispatcher，而不是重新取一次
+        assertTrue(present.contains("val dispatcher = registeredBackDispatcher"))
+        assertTrue(present.contains("dispatcher.unregisterOnBackInvokedCallback(callback)"))
+        // 失败不许再静默
+        assertTrue(present.contains("register OnBackInvokedCallback failed"))
+        // 三键/按键回退路径保留
+        assertTrue(present.contains("keyCode == KeyEvent.KEYCODE_BACK"))
     }
 
     @Test fun keyboardWaitsForFirstSettledEntryWithoutADelayedCloseRace() {

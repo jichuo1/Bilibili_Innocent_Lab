@@ -12,8 +12,53 @@ import android.graphics.RectF
 import android.view.View
 import android.widget.ImageView
 import androidx.core.graphics.withSave
+import java.util.WeakHashMap
 import kotlin.math.ceil
 import kotlin.math.roundToInt
+
+/**
+ * 来源图标"未被动画改过"的 alpha，按 View 记账（仅主线程使用）。
+ *
+ * 不能让每个代理各自记一份 `source.alpha`。`presentSizedModalDialog` 开头的
+ * `activeConfirmDialog?.dismiss()` 是硬关，而 `Dialog.dismiss` 只把收尾监听器 **post** 出去，
+ * 真正的 [BubbleIconProxy.dispose] 要等下一轮消息循环；新代理在那之前就已构造完成，于是把
+ * 停在动画中途的 alpha 当成了"原始值"。连续打断几次，每次"还原"都比上一次更暗，图标最终
+ * 永久看不见——只有重建 Activity 才恢复，与现场报告一致。
+ *
+ * 首个持有者记下的值就是全体持有者共同的还原目标；最后一个持有者释放时把它写回，
+ * 所以无论中途走了哪条异常路径，最后一个气泡消失后图标一定回到原样。
+ */
+private object SourceIconAlpha {
+    private class Entry(val alpha: Float) {
+        var holders = 0
+
+        /** 是否有任一持有者真的改过这个 View 的 alpha。 */
+        var touched = false
+    }
+
+    private val entries = WeakHashMap<ImageView, Entry>()
+
+    fun acquire(view: ImageView): Float {
+        val entry = entries.getOrPut(view) { Entry(view.alpha) }
+        entry.holders++
+        return entry.alpha
+    }
+
+    fun markTakenOver(view: ImageView) {
+        entries[view]?.touched = true
+    }
+
+    fun release(view: ImageView) {
+        val entry = entries[view] ?: return
+        if (--entry.holders > 0) return
+        entries.remove(view)
+        // 只回收自己动过的：没人接管过就不碰，免得盖掉换肤之类的正当改动。
+        // 非法值同样不回写，那不是这里改坏的，也不该由这里定义"原样"。
+        if (entry.touched && entry.alpha.isFinite() && entry.alpha in 0f..1f) {
+            view.alpha = entry.alpha
+        }
+    }
+}
 
 /**
  * 工具栏图标的短期图案代理：只捕获 ImageView 的 drawable，不包含 ripple、兄弟角标或背景。
@@ -22,7 +67,7 @@ import kotlin.math.roundToInt
  * 已配置的 drawable；不更改其 bounds，也不改动真实控件的图片属性。动画期只改 alpha 和矩形。
  */
 internal class BubbleIconProxy(private val source: ImageView) {
-    private val originalAlpha = source.alpha
+    private val originalAlpha = SourceIconAlpha.acquire(source)
     private val sourceLocation = IntArray(2)
     private val rootLocation = IntArray(2)
     private val visibleBounds = Rect()
@@ -39,6 +84,14 @@ internal class BubbleIconProxy(private val source: ImageView) {
     private var captureScale = 1f
     private var prepared = false
     private var disposed = false
+
+    /**
+     * 这个代理是否真的动过来源控件的 alpha。
+     *
+     * 捕获失败的代理是完全惰性的，[settleExpanded] 与 [dispose] 便不该替它"还原"——
+     * 无条件写回会把上一轮留下的中途值当成真值盖到图标上。
+     */
+    private var tookOver = false
 
     val hasSnapshot: Boolean
         get() = bitmap != null && !disposed
@@ -150,6 +203,10 @@ internal class BubbleIconProxy(private val source: ImageView) {
             drawBounds.set(centerX - width / 2f, centerY - height / 2f,
                 centerX + width / 2f, centerY + height / 2f)
         }
+        if (!tookOver) {
+            tookOver = true
+            SourceIconAlpha.markTakenOver(source)
+        }
         source.alpha = originalAlpha * BubbleLayerMotionSpec.sourceIconWeight(p)
         iconPaint.alpha = (255f * originalAlpha * BubbleLayerMotionSpec.iconOpacity(p))
             .roundToInt().coerceIn(0, 255)
@@ -168,19 +225,32 @@ internal class BubbleIconProxy(private val source: ImageView) {
     }
 
     fun settleExpanded() {
-        source.alpha = originalAlpha
+        restoreSource()
         iconPaint.alpha = 0
     }
 
     fun dispose() {
-        source.alpha = originalAlpha
+        // 幂等：updateFrame 的失败分支可能已经废弃过一次，之后图层还会再调一次。
+        // 记账必须只减一次，否则最后一个持有者永远等不到写回。
+        if (disposed) {
+            restoreSource()
+            return
+        }
+        disposed = true
+        restoreSource()
         iconPaint.alpha = 0
         bitmap = null
         root = null
         sourceBounds.setEmpty()
         drawBounds.setEmpty()
-        disposed = true
+        SourceIconAlpha.release(source)
         // 不立即 recycle：RenderThread 可能仍持有前一帧 display list 中的 Bitmap 引用。
+    }
+
+    /** 只还原自己动过的东西；从未接管过来源的惰性代理不写 alpha。 */
+    private fun restoreSource() {
+        if (!tookOver) return
+        source.alpha = originalAlpha
     }
 
     private fun drawSnapshot(canvas: Canvas, paint: Paint) {

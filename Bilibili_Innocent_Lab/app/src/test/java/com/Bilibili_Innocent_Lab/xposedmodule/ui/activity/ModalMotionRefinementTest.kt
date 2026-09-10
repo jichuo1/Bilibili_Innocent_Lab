@@ -94,7 +94,10 @@ class ModalMotionRefinementTest {
 
     @Test fun titleOverlayIsOptionalRestoredAndNeverReflowsPerFrame() {
         val title = source("ModalTitleMotion")
-        assertTrue(title.contains("layout.lineCount != 1"))
+        // 目标标题必须独占一行；来源允许是"标题 \n 摘要"的合成 TextView，
+        // 由渲染后的首行复核（见 ModalTitleHandoffTest 的首行配对用例）。
+        assertTrue(title.contains("targetLayout.lineCount != 1"))
+        assertTrue(title.contains("renderedTitleLine("))
         assertTrue(title.contains("getEllipsisCount(0) != 0"))
         assertTrue(title.contains("source.alpha = sourceAlpha"))
         assertTrue(title.contains("target.alpha = targetAlpha"))
