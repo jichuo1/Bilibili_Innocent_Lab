@@ -146,6 +146,11 @@ class VersionAdapterTest {
                 listOf("android.view.Menu", "android.view.MenuInflater"),
                 viewField = "config"
             ),
+            composeGameMenu = VersionAdapter.HookPoint(
+                "home.TopRight",
+                "invoke",
+                listOf("java.util.List", "kotlin.coroutines.Continuation")
+            ),
             baseOnViewCreated = VersionAdapter.HookPoint(
                 "home.Base",
                 "onViewCreated",

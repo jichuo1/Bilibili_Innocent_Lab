@@ -11,5 +11,11 @@ internal object VersionAdapterContract {
      * 所以**只抬 rule、不抬 schema**——抬 schema 会让所有宿主全量重跑适配，
      * 为一次候选表增补付这个代价不值。快路径指纹含 rule，旧设备会自然重定位。
      */
-    const val RULE_VERSION = 52
+    /**
+     * 52 → 53（2026-09-11，首页游戏中心入口加 Compose 顶栏层）：
+     * `HomeTopBarPoints` 多了 `game_compose` 一个键。JSON 只是**新增**键，
+     * 老缓存缺它时 `fromJson` 得到 null、新层降级即可，不需要抬 schema；
+     * 但必须抬 rule——`HostIdentity` 指纹含 rule，抬了旧设备才会重定位拿到新落点。
+     */
+    const val RULE_VERSION = 53
 }

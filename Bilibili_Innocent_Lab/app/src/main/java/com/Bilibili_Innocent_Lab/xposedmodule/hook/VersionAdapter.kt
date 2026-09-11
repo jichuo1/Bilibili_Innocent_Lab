@@ -278,11 +278,21 @@ object VersionAdapter {
     /** 首页顶部栏游戏入口与搜索默认词的结构化入口。 */
     data class HomeTopBarPoints(
         val gameMenu: HookPoint?,
+        /**
+         * 新 Compose 顶栏的整列表入口（9.11.0 实测与老 options menu 路径**并存**）。
+         *
+         * 落点是 `TopRightComponent$initTopRight$1$1.invoke(List, Continuation)`，
+         * 参数 0 就是全部右上角项。比 [gameMenu] 更靠上游，且锚点类名未混淆
+         * （R8 把外层组件改成了 `topbar.k`，合成 lambda 的描述符仍保留原名）。
+         * 两条路径互为保底，不可互相替代：老宿主只有前者、放量后只有后者生效。
+         */
+        val composeGameMenu: HookPoint?,
         val baseOnViewCreated: HookPoint?,
         val defaultWordMethods: List<HookPoint>
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             gameMenu?.let { put("game", it.toJson()) }
+            composeGameMenu?.let { put("game_compose", it.toJson()) }
             baseOnViewCreated?.let { put("view", it.toJson()) }
             put(
                 "words",
@@ -295,6 +305,7 @@ object VersionAdapter {
                 val words = o.optJSONArray("words")
                 return HomeTopBarPoints(
                     gameMenu = o.optJSONObject("game")?.let(HookPoint::fromJson),
+                    composeGameMenu = o.optJSONObject("game_compose")?.let(HookPoint::fromJson),
                     baseOnViewCreated = o.optJSONObject("view")?.let(HookPoint::fromJson),
                     defaultWordMethods = if (words == null) emptyList() else
                         (0 until words.length()).map {
@@ -1647,6 +1658,8 @@ object VersionAdapter {
                     value.gameMenu?.let { point ->
                         point.isValid() && !point.viewField.isNullOrBlank()
                     } != false &&
+                        // Compose 层按元素字段判定 action，不需要 viewField。
+                        value.composeGameMenu?.isValid() != false &&
                         value.baseOnViewCreated?.let { point ->
                             point.isValid() && !point.viewField.isNullOrBlank()
                         } != false &&
@@ -1961,6 +1974,17 @@ object VersionAdapter {
 
     private const val HOME_MENU_ITEM_CLASS =
         "com.bilibili.lib.homepage.startdust.menu.a"
+
+    /**
+     * 新 Compose 顶栏右上角项列表的收集 lambda（9.11.0(9110400) 实测存在）。
+     *
+     * **这是少见的"可以按名写死"的例外**：R8 把外层组件混淆成了
+     * `tv.danmaku.bili.home.components.topbar.k`（由本类 `this$0` 字段类型确认），
+     * 但 Kotlin 合成 lambda 的类描述符保留了原始外层类名，所以这个名字本身是稳定的。
+     * 即便如此，方法仍按签名过滤而不按名字，缺失时整层降级、不影响老路径。
+     */
+    private const val HOME_TOP_RIGHT_LAMBDA_CLASS =
+        "tv.danmaku.bili.home.components.topbar.TopRightComponent\$initTopRight\$1\$1"
     private val HOME_BASE_FRAGMENT_CANDIDATES = listOf(
         "tv.danmaku.bili.ui.main2.basic.BaseMainFrameFragment",
         "tv.danmaku.p9138bili.p9228ui.main2.basic.BaseMainFrameFragment"
@@ -1975,7 +1999,7 @@ object VersionAdapter {
         // 9.1.0–9.9.0
         "com.bilibili.app.comm.list.common.api.b"
     )
-    private val HOME_TOP_BAR_CANDIDATES = listOf(HOME_MENU_ITEM_CLASS) +
+    private val HOME_TOP_BAR_CANDIDATES = listOf(HOME_MENU_ITEM_CLASS, HOME_TOP_RIGHT_LAMBDA_CLASS) +
         HOME_BASE_FRAGMENT_CANDIDATES + HOME_MAIN_FRAGMENT_CANDIDATES
     private const val MINE_FRAGMENT_CLASS =
         "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment"
@@ -3336,6 +3360,8 @@ object VersionAdapter {
             "com.bilibili.pegasus.holders.bannerv8.V8Banner"
         )
         val gameMenuCandidateExists = KavaMemberLookup.hasClass(loader, HOME_MENU_ITEM_CLASS)
+        val composeGameCandidateExists =
+            KavaMemberLookup.hasClass(loader, HOME_TOP_RIGHT_LAMBDA_CLASS)
         val searchCandidateExists = HOME_MAIN_FRAGMENT_CANDIDATES.any {
             KavaMemberLookup.hasClass(loader, it)
         }
@@ -3381,6 +3407,12 @@ object VersionAdapter {
                 "home.top_bar.game",
                 stateFor(homeTopBar?.gameMenu != null, gameMenuCandidateExists),
                 homeTopBar?.gameMenu?.label().orEmpty()
+            ),
+            // 两条路径分开上报：合并成一条就没法在 Compose 顶栏放量时分因。
+            AdaptDiagnostic(
+                "home.top_bar.game_compose",
+                stateFor(homeTopBar?.composeGameMenu != null, composeGameCandidateExists),
+                homeTopBar?.composeGameMenu?.label().orEmpty()
             ),
             AdaptDiagnostic(
                 "home.top_bar.search",
@@ -5840,6 +5872,18 @@ object VersionAdapter {
             method.toHookPoint().copy(viewField = configField.name)
         }
 
+        // 新 Compose 路径：只认签名 `(List, Continuation) -> Object`。
+        // 同名的桥接方法是 `(Object, Object) -> Object`，靠参数 0 的类型把它排除掉；
+        // 命中不到就整层缺失，由安装器单独降级，绝不影响上面的老路径。
+        val composeGameMenu = KavaMemberLookup.classOrNull(loader, HOME_TOP_RIGHT_LAMBDA_CLASS)
+            ?.let { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                    !it.isStatic && it.name == "invoke" && it.parameterCount == 2 &&
+                        it.parameterTypes[0] == classOf<List<*>>() &&
+                        it.returnType == classOf<Any>()
+                }.singleOrNull()?.toHookPoint()
+            }
+
         val baseOnViewCreated = HOME_BASE_FRAGMENT_CANDIDATES.asSequence()
             .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
             .mapNotNull { owner ->
@@ -5879,10 +5923,12 @@ object VersionAdapter {
                 .map { it.toHookPoint() }
         }
 
-        if (gameMenu == null && baseOnViewCreated == null && defaultWordMethods.isEmpty()) {
+        if (gameMenu == null && composeGameMenu == null &&
+            baseOnViewCreated == null && defaultWordMethods.isEmpty()
+        ) {
             null
         } else {
-            HomeTopBarPoints(gameMenu, baseOnViewCreated, defaultWordMethods)
+            HomeTopBarPoints(gameMenu, composeGameMenu, baseOnViewCreated, defaultWordMethods)
         }
     }.getOrNull()
 
