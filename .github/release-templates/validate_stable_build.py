@@ -9,7 +9,11 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from validate_alpha_build import read_gradle_properties, unquote
+from validate_alpha_build import (
+    read_gradle_properties,
+    require_reviewed_highlights,
+    unquote,
+)
 
 
 STABLE_VERSION_PATTERN = re.compile(
@@ -171,6 +175,7 @@ def main() -> None:
 
     try:
         identity = resolve_build_identity(args.gradle_properties, args.release_tag)
+        require_reviewed_highlights(args.gradle_properties, identity.version_code)
         previous_tag = validate_release_progression(
             args.repo_root.resolve(),
             args.gradle_properties,

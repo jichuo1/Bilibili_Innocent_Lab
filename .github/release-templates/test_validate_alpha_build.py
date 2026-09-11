@@ -4,7 +4,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from validate_alpha_build import resolve_build_identity
+from validate_alpha_build import (
+    HIGHLIGHTS_CATALOG_RELATIVE_PATH,
+    require_reviewed_highlights,
+    resolve_build_identity,
+)
 
 
 class ValidateAlphaBuildTest(unittest.TestCase):
@@ -55,6 +59,75 @@ class ValidateAlphaBuildTest(unittest.TestCase):
             resolve_build_identity(self.write_properties(), "v1.0.7-alpha.02")
         with self.assertRaisesRegex(ValueError, "positive integer"):
             resolve_build_identity(self.write_properties(version_code="0"), "v1.0.7-alpha.2")
+
+
+class ReviewedHighlightsGateTest(unittest.TestCase):
+    def write_module(self, catalog_body: str | None = "    const val REVIEWED_VERSION_CODE = 7") -> Path:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        module_root = Path(temp_dir.name)
+        properties_path = module_root / "gradle.properties"
+        properties_path.write_text("project.app.versionCode=7\n", encoding="utf-8")
+        if catalog_body is not None:
+            catalog_path = module_root / HIGHLIGHTS_CATALOG_RELATIVE_PATH
+            catalog_path.parent.mkdir(parents=True, exist_ok=True)
+            catalog_path.write_text(
+                "internal object ReleaseHighlightsCatalog {\n"
+                f"{catalog_body}\n"
+                "    const val SETTINGS_BASELINE_VERSION = 13\n"
+                "}\n",
+                encoding="utf-8",
+            )
+        return properties_path
+
+    def test_matching_review_marker_passes(self) -> None:
+        properties_path = self.write_module()
+        self.assertTrue(require_reviewed_highlights(properties_path, 7).is_file())
+
+    def test_version_bump_without_review_is_rejected(self) -> None:
+        properties_path = self.write_module()
+        with self.assertRaisesRegex(ValueError, "REVIEWED_VERSION_CODE = 8"):
+            require_reviewed_highlights(properties_path, 8)
+
+    def test_stale_review_marker_ahead_of_the_build_is_also_rejected(self) -> None:
+        properties_path = self.write_module("    const val REVIEWED_VERSION_CODE = 99")
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            require_reviewed_highlights(properties_path, 7)
+
+    def test_lost_anchor_fails_instead_of_skipping_the_gate(self) -> None:
+        for body in ("    // REVIEWED_VERSION_CODE was removed", ""):
+            with self.subTest(body=body):
+                with self.assertRaisesRegex(ValueError, "lost its anchor"):
+                    require_reviewed_highlights(self.write_module(body), 7)
+
+    def test_duplicate_declarations_fail_rather_than_picking_one(self) -> None:
+        properties_path = self.write_module(
+            "    const val REVIEWED_VERSION_CODE = 7\n"
+            "    const val REVIEWED_VERSION_CODE = 8"
+        )
+        with self.assertRaisesRegex(ValueError, "found 2"):
+            require_reviewed_highlights(properties_path, 7)
+
+    def test_missing_catalog_never_silently_passes(self) -> None:
+        properties_path = self.write_module(catalog_body=None)
+        with self.assertRaisesRegex(ValueError, "catalog not found"):
+            require_reviewed_highlights(properties_path, 7)
+
+    def test_gate_is_wired_into_both_release_validators(self) -> None:
+        templates = Path(__file__).parent
+        for script in ("validate_alpha_build.py", "validate_stable_build.py"):
+            with self.subTest(script=script):
+                self.assertIn(
+                    "require_reviewed_highlights(args.gradle_properties",
+                    (templates / script).read_text(encoding="utf-8"),
+                )
+
+
+class ShippedCatalogTest(unittest.TestCase):
+    def test_checked_in_catalog_matches_the_checked_in_version_code(self) -> None:
+        properties_path = Path(__file__).parents[2] / "Bilibili_Innocent_Lab" / "gradle.properties"
+        identity = resolve_build_identity(properties_path, "")
+        require_reviewed_highlights(properties_path, identity.version_code)
 
 
 if __name__ == "__main__":

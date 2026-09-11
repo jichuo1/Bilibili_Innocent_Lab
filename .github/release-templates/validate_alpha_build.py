@@ -15,6 +15,15 @@ ALPHA_TAG_PATTERN = re.compile(
 PACKAGE_NAME_PATTERN = re.compile(
     r"^(?:[A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*$"
 )
+# 相对 gradle.properties 所在的模块根解析，而不是相对仓库根或脚本自身：
+# 两个 workflow 都用 --gradle-properties 钉住模块根，这里跟着它走就不会分叉。
+HIGHLIGHTS_CATALOG_RELATIVE_PATH = (
+    "app/src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/release/"
+    "ReleaseHighlightsCatalog.kt"
+)
+REVIEWED_VERSION_CODE_PATTERN = re.compile(
+    r"^\s*const\s+val\s+REVIEWED_VERSION_CODE\s*=\s*(\d+)\s*$", re.MULTILINE
+)
 
 
 @dataclass(frozen=True)
@@ -98,6 +107,46 @@ def resolve_build_identity(properties_path: Path, release_tag: str = "") -> Buil
     )
 
 
+def read_reviewed_version_code(catalog_path: Path) -> int:
+    """Extract REVIEWED_VERSION_CODE, failing loudly when the anchor drifts."""
+    matches = REVIEWED_VERSION_CODE_PATTERN.findall(
+        catalog_path.read_text(encoding="utf-8")
+    )
+    if len(matches) != 1:
+        raise ValueError(
+            f"Expected exactly one REVIEWED_VERSION_CODE declaration in {catalog_path}; "
+            f"found {len(matches)}. The release-highlights review gate lost its anchor: "
+            "repair this validator so the gate keeps biting, never drop the check."
+        )
+    return int(matches[0])
+
+
+def require_reviewed_highlights(properties_path: Path, version_code: int) -> Path:
+    """Refuse a release whose bundled highlights were not reviewed for this version.
+
+    Duplicates ReleaseHighlightsTest so the mismatch surfaces before the Android SDK
+    and the eight-minute Gradle gate, not after them. Both release workflows call this.
+    """
+    catalog_path = properties_path.parent / HIGHLIGHTS_CATALOG_RELATIVE_PATH
+    if not catalog_path.is_file():
+        raise ValueError(
+            f"Release-highlights catalog not found at {catalog_path}. If it legitimately "
+            "moved, update HIGHLIGHTS_CATALOG_RELATIVE_PATH; a missing catalog must never "
+            "silently skip the review gate."
+        )
+    reviewed = read_reviewed_version_code(catalog_path)
+    if reviewed != version_code:
+        raise ValueError(
+            f"project.app.versionCode {version_code} does not match "
+            f"ReleaseHighlightsCatalog.REVIEWED_VERSION_CODE {reviewed}. Review the bundled "
+            "highlights for this release first — confirm every setting introduced after "
+            "SETTINGS_BASELINE_VERSION still has an entry with a navigation destination — "
+            f"then set REVIEWED_VERSION_CODE = {version_code}. Do not derive it from "
+            "BuildConfig: this mismatch is the review reminder."
+        )
+    return catalog_path
+
+
 def append_github_outputs(path: Path, identity: BuildIdentity) -> None:
     values = {
         "release_tag": identity.release_tag,
@@ -120,6 +169,7 @@ def main() -> None:
 
     try:
         identity = resolve_build_identity(args.gradle_properties, args.release_tag)
+        require_reviewed_highlights(args.gradle_properties, identity.version_code)
     except ValueError as error:
         raise SystemExit(str(error)) from error
 

@@ -21,6 +21,7 @@ internal object ReleaseHighlightsCatalog {
     // 开屏广告、更新检查、暂停页广告都复用既有开关，没有引入新设置，所以
     // "新设置必须有公告与导航目标"这条门禁不需要新增条目；批次 1 本身在
     // v1.1.5 时还不存在，从未随发布展示过，也不该拆成新批次。
+    // 注意以后改版本号都要改一下这个地方的版本号，下面这个REVIEWED，不然过不了ci
     const val REVIEWED_VERSION_CODE = 17
     const val SETTINGS_BASELINE_VERSION = 13
     val batches = listOf(ReleaseHighlightsBatch(1, listOf(
