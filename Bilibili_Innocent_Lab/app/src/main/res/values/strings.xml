@@ -272,6 +272,31 @@
     <string name="video_relate_filter_save" tools:ignore="PluralsCandidate">Save · %1$d selected</string>
     <string name="video_relate_filter_applied">Related recommendation filters saved. Restart Bilibili to apply.</string>
     <string name="video_relate_filter_save_failed">Could not save the related recommendation filters. Please try again.</string>
+    <!-- Detail page module purify (UGC view.v1 top-level fields) -->
+    <string name="detail_module_purify_settings">Detail page components</string>
+    <string name="detail_module_purify_tip">Applies to UGC video detail pages only; PGC pages such as anime are not covered yet</string>
+    <string name="detail_module_purify_dialog_description">Select the components to hide on the video detail page. Changes are saved together only after you tap Save, and take effect after restarting Bilibili.</string>
+    <string name="detail_module_purify_summary_none">No components selected</string>
+    <string name="detail_module_purify_summary_selected" tools:ignore="PluralsCandidate">%1$d of %2$d components selected · Restart Bilibili to apply</string>
+    <string name="detail_module_purify_select_all">Select all</string>
+    <string name="detail_module_purify_clear">Clear</string>
+    <string name="detail_module_purify_save" tools:ignore="PluralsCandidate">Save · %1$d selected</string>
+    <string name="detail_module_purify_applied">Detail page component filters saved. Restart Bilibili to apply.</string>
+    <string name="detail_module_purify_save_failed">Could not save the detail page component filters. Please try again.</string>
+    <string name="remove_detail_honor">Hide the honor list</string>
+    <string name="remove_detail_live_order">Hide the live reservation card</string>
+    <string name="remove_detail_ugc_season">Hide the collection entry</string>
+    <string name="remove_detail_up_vip_label">Hide the uploader membership badge</string>
+    <string name="remove_detail_topic_tags">Hide video topic tags</string>
+    <string name="remove_detail_staff_follow">Hide co-creator follow buttons</string>
+    <string name="remove_detail_hot_banner">Hide trending-search strips and badges</string>
+    <string name="highlights_detail_honor">Hides the honor list under the video title on UGC detail pages.</string>
+    <string name="highlights_detail_live_order">Hides the live reservation card on UGC detail pages.</string>
+    <string name="highlights_detail_ugc_season">Hides the collection entry on UGC detail pages.</string>
+    <string name="highlights_detail_up_vip_label">Hides the membership badge in the uploader row on UGC detail pages.</string>
+    <string name="highlights_detail_topic_tags">Removes detail-page topic entries by matching the topic link, not the displayed tag text.</string>
+    <string name="highlights_detail_hot_banner">Removes trending-search strips and title badges from detail pages, using the component structure and source URI rather than displayed text.</string>
+    <string name="highlights_detail_staff_follow">Hides the follow button on every member of the creator team list, so it can no longer be tapped by accident. On co-created videos the uploader is the first entry of that list, so its button is hidden too; follow buttons elsewhere in the app are untouched.</string>
     <string name="video_relate_matching_enhancement">Enhanced filter matching</string>
     <string name="video_relate_matching_enhancement_tip">Uses structured recommendation reasons as additional evidence for commercial and special promotions. It does not match ordinary titles or descriptions.</string>
     <string name="video_relate_strong_mode">Strong mode</string>

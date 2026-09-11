@@ -20,7 +20,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.ModalBackdropB
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 17
+    const val CATALOG_VERSION = 18
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
@@ -290,6 +290,50 @@ internal object SettingsCatalog {
             introducedCatalogVersion = 11
         ),
 
+        // 详情页模块净化：UGC 详情页 view.v1 协议面的四个顶层字段，各自独立、默认全关。
+        bool(
+            "purify.detail.honor.removed",
+            FeaturePreferences.REMOVE_DETAIL_HONOR,
+            R.string.remove_detail_honor,
+            introducedCatalogVersion = 18
+        ),
+        bool(
+            "purify.detail.live_order.removed",
+            FeaturePreferences.REMOVE_DETAIL_LIVE_ORDER,
+            R.string.remove_detail_live_order,
+            introducedCatalogVersion = 18
+        ),
+        bool(
+            "purify.detail.ugc_season.removed",
+            FeaturePreferences.REMOVE_DETAIL_UGC_SEASON,
+            R.string.remove_detail_ugc_season,
+            introducedCatalogVersion = 18
+        ),
+        bool(
+            "purify.detail.up_vip_label.removed",
+            FeaturePreferences.REMOVE_DETAIL_UP_VIP_LABEL,
+            R.string.remove_detail_up_vip_label,
+            introducedCatalogVersion = 18
+        ),
+        bool(
+            "purify.detail.topic_tags.removed",
+            FeaturePreferences.REMOVE_DETAIL_TOPIC_TAGS,
+            R.string.remove_detail_topic_tags,
+            introducedCatalogVersion = 18
+        ),
+        bool(
+            "purify.detail.staff_follow.hidden",
+            FeaturePreferences.REMOVE_DETAIL_STAFF_FOLLOW,
+            R.string.remove_detail_staff_follow,
+            introducedCatalogVersion = 18
+        ),
+        bool(
+            "purify.detail.hot_banner.hidden",
+            FeaturePreferences.REMOVE_DETAIL_HOT_BANNER,
+            R.string.remove_detail_hot_banner,
+            introducedCatalogVersion = 18
+        ),
+
         bool("video.related.commercial.removed", FeaturePreferences.REMOVE_RELATE_COMMERCIAL, R.string.remove_relate_commercial),
         bool("video.related.game.removed", FeaturePreferences.REMOVE_RELATE_GAME, R.string.remove_relate_game),
         bool("video.related.live.removed", FeaturePreferences.REMOVE_RELATE_LIVE, R.string.remove_relate_live),
@@ -539,7 +583,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 124) { "Expected 124 catalog settings, found ${specs.size}" }
+        check(specs.size == 131) { "Expected 131 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

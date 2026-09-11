@@ -106,6 +106,31 @@ internal object DiagnosticFeatureRegistry {
             DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
             runtimeEvidenceExpected = true
         ),
+        // 详细页组件净化：各子项在清除成功后报 APPLIED（见 DetailModuleReplyCleaner）。
+        DiagnosticFeatureDescriptor(
+            "detail_module_purify",
+            DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
+            runtimeEvidenceExpected = true
+        ),
+        // 详细页 View 层净化（关注按钮、热搜横条），命中时报 APPLIED。
+        DiagnosticFeatureDescriptor(
+            "detail_view_purify",
+            DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
+            runtimeEvidenceExpected = true
+        ),
+        // United 详情页的标题 label / SpecialTag 在渲染模型层按 URI 精确过滤。
+        DiagnosticFeatureDescriptor(
+            "detail_united_presentation_purify",
+            DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
+            runtimeEvidenceExpected = true
+        ),
+        // United 详情页协议层：按 ModuleType 删模块 + 清 owner.vip。
+        // 这是 detail_module_purify 那五项的正确落点，两者互为保底。
+        DiagnosticFeatureDescriptor(
+            "detail_united_module_purify",
+            DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
+            runtimeEvidenceExpected = true
+        ),
         DiagnosticFeatureDescriptor(
             "player_default_quality",
             DiagnosticFeatureCategory.PLAYER_AND_DETAIL,

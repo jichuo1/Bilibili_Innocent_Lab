@@ -13,7 +13,14 @@ internal data class DiagnosticCapabilityDefinition(
 )
 
 internal object DiagnosticCapabilityCatalog {
-    const val VERSION = 4
+    /**
+     * 目录版本。
+     *
+     * **每次新增条目都要把新条目的 `introducedCatalogVersion` 标成这个值**——
+     * 客户端是按 "比我已知的版本更新" 做增量的，
+     * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
+     */
+    const val VERSION = 7
     val definitions = listOf(
         DiagnosticCapabilityDefinition("search_home_recommend_hidden", "search_home_recommend_hidden", R.string.hide_search_home_recommend, setOf("search.home_recommend.hidden"), introducedCatalogVersion = 4),
         DiagnosticCapabilityDefinition("player_interactive_legacy_follow", "player_interactive_overlay", R.string.diag_cap_player_interactive_legacy_follow, setOf("player.interactive_overlays.hidden"), "legacy/guide/clearAttention"),
@@ -134,7 +141,29 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("free_copy_description_enabled", "free_copy", R.string.free_copy_desc_enable, setOf("free_copy.description.enabled")),
         DiagnosticCapabilityDefinition("roaming_compat", "roaming_compat", R.string.roaming_compat_enable, setOf("compat.roaming.enabled")),
         DiagnosticCapabilityDefinition("home_recommend_duration_filter", "home_recommend_purify", R.string.diagnostics_capability_duration, setOf("recommend.video_duration.minimum_seconds", "recommend.video_duration.maximum_seconds")),
-        DiagnosticCapabilityDefinition("video_related_duration_filter", "video_relate_filter", R.string.diagnostics_capability_duration, setOf("recommend.video_duration.minimum_seconds", "recommend.video_duration.maximum_seconds"))
+        DiagnosticCapabilityDefinition("video_related_duration_filter", "video_relate_filter", R.string.diagnostics_capability_duration, setOf("recommend.video_duration.minimum_seconds", "recommend.video_duration.maximum_seconds")),
+        DiagnosticCapabilityDefinition("detail_honor_removed", "detail_module_purify", R.string.remove_detail_honor, setOf("purify.detail.honor.removed"), introducedCatalogVersion = 5),
+        DiagnosticCapabilityDefinition("detail_live_order_removed", "detail_module_purify", R.string.remove_detail_live_order, setOf("purify.detail.live_order.removed"), introducedCatalogVersion = 5),
+        DiagnosticCapabilityDefinition("detail_ugc_season_removed", "detail_module_purify", R.string.remove_detail_ugc_season, setOf("purify.detail.ugc_season.removed"), introducedCatalogVersion = 5),
+        DiagnosticCapabilityDefinition("detail_up_vip_label_removed", "detail_module_purify", R.string.remove_detail_up_vip_label, setOf("purify.detail.up_vip_label.removed"), introducedCatalogVersion = 5),
+        DiagnosticCapabilityDefinition("detail_topic_tags_removed", "detail_module_purify", R.string.remove_detail_topic_tags, setOf("purify.detail.topic_tags.removed"), introducedCatalogVersion = 5),
+        DiagnosticCapabilityDefinition("detail_staff_follow_hidden", "detail_view_purify", R.string.remove_detail_staff_follow, setOf("purify.detail.staff_follow.hidden"), introducedCatalogVersion = 5),
+        DiagnosticCapabilityDefinition("detail_hot_banner_hidden", "detail_view_purify", R.string.remove_detail_hot_banner, setOf("purify.detail.hot_banner.hidden"), introducedCatalogVersion = 5),
+        DiagnosticCapabilityDefinition("detail_hot_badge_hidden", "detail_united_presentation_purify", R.string.remove_detail_hot_banner, setOf("purify.detail.hot_banner.hidden"), introducedCatalogVersion = 6),
+        DiagnosticCapabilityDefinition("detail_united_special_topic_hidden", "detail_united_presentation_purify", R.string.remove_detail_topic_tags, setOf("purify.detail.topic_tags.removed"), introducedCatalogVersion = 6),
+        // v7：详情页那五项的正确落点。与上面同名的 detail_* / detail_united_special_topic_*
+        // 互为保底，capability id 刻意分开，诊断里才看得出是哪一层真的生效了。
+        DiagnosticCapabilityDefinition("detail_united_honor_removed", "detail_united_module_purify", R.string.remove_detail_honor, setOf("purify.detail.honor.removed"), introducedCatalogVersion = 7),
+        DiagnosticCapabilityDefinition("detail_united_live_order_removed", "detail_united_module_purify", R.string.remove_detail_live_order, setOf("purify.detail.live_order.removed"), introducedCatalogVersion = 7),
+        DiagnosticCapabilityDefinition("detail_united_ugc_season_removed", "detail_united_module_purify", R.string.remove_detail_ugc_season, setOf("purify.detail.ugc_season.removed"), introducedCatalogVersion = 7),
+        DiagnosticCapabilityDefinition("detail_united_topic_tags_removed", "detail_united_module_purify", R.string.remove_detail_topic_tags, setOf("purify.detail.topic_tags.removed"), introducedCatalogVersion = 7),
+        DiagnosticCapabilityDefinition("detail_united_up_vip_label_removed", "detail_united_module_purify", R.string.remove_detail_up_vip_label, setOf("purify.detail.up_vip_label.removed"), introducedCatalogVersion = 7),
+        DiagnosticCapabilityDefinition("detail_united_hot_banner_removed", "detail_united_module_purify", R.string.remove_detail_hot_banner, setOf("purify.detail.hot_banner.hidden"), introducedCatalogVersion = 7),
+        // 视频提及的协议层总闸；与 game_mentioned_promotion 那 10+ 条渲染路由互为保底，
+        // 共用同一个用户开关，capability id 分开以便看出是哪一层生效。
+        DiagnosticCapabilityDefinition("detail_united_video_mentions_removed", "detail_united_module_purify", R.string.gamecard_ad_enable, setOf("ads.game_card.hidden"), introducedCatalogVersion = 7),
+        // 好物商品卡的协议层总闸；与 merchandise 那条渲染层互为保底，共用同一个开关。
+        DiagnosticCapabilityDefinition("detail_united_merchandise_removed", "detail_united_module_purify", R.string.merch_ad_enable, setOf("ads.merchandise.hidden"), introducedCatalogVersion = 7)
     )
     val localOnlySettings = mapOf(
         "free_copy.light_mode.enabled" to "LOCAL_APPEARANCE",

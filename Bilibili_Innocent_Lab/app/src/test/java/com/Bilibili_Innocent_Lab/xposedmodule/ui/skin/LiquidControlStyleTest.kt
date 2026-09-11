@@ -68,7 +68,7 @@ class LiquidControlStyleTest {
             }
         }
         // 钉住总数而不是 >=：搬迁不允许让任何一个弹窗掉出统计。新增弹窗时一并改这里。
-        assertEquals(28, dialogs)
+        assertEquals(29, dialogs)
         val presenter = SettingsUiSource.function("presentSizedModalDialog")
         assertTrue(presenter.indexOf("stylePreparedSkinControls(container)") in 0 until presenter.indexOf("dialog.show()"))
         val diagnostics = source("ui/activity/DiagnosticsActivity.kt")

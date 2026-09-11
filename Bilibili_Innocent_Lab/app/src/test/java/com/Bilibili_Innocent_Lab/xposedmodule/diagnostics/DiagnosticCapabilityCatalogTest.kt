@@ -38,6 +38,19 @@ class DiagnosticCapabilityCatalogTest {
         assertEquals(expected, DiagnosticCapabilityCatalog.byLocatorKey.keys)
     }
 
+    /**
+     * VERSION 涨了就必须有条目标在这个新版本上。
+     *
+     * 客户端按"比我已知版本更新"做增量，所以 VERSION=N 而没有任何条目
+     * `introducedCatalogVersion == N` 时，增量是空集——新增的能力永远同步不下去。
+     * 2026-09-11 真出过这个错：VERSION 从 4 跳到 6，9 个新条目却全标成 5。
+     */
+    @Test fun bumpingTheCatalogVersionRequiresAtLeastOneEntryIntroducedAtThatVersion() {
+        val introduced = DiagnosticCapabilityCatalog.definitions.map { it.introducedCatalogVersion }
+        assertEquals(DiagnosticCapabilityCatalog.VERSION, introduced.max())
+        assertTrue(introduced.all { it in 1..DiagnosticCapabilityCatalog.VERSION })
+    }
+
     @Test fun serverCatalogIsAProjectionOfTheAndroidDirectoryNotASecondManualRegistry() {
         val file = File("../../server/src/analytics/capability-catalog.json")
         // 服务端目录仅保留在本地；公开仓库仍运行所有 Android 目录完整性测试。

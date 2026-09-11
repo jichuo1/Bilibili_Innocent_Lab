@@ -72,6 +72,13 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentFilterFe
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PausedAdFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PgcAutoActivityPopupFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPortraitFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailModulePurifyFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailViewPurifyFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailViewPurifyPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailModulePurifyPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailUnitedModulePurifyFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailUnitedModulePurifyPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailUnitedPresentationPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerInteractiveOverlayFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerStatusBarFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SearchPurifyFeatureInstaller
@@ -3144,6 +3151,44 @@ class HookEntry : XposedModule() {
                             false
                         ),
                         points = hostAdaptResult?.playerInteractiveOverlays
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    DetailModulePurifyFeatureInstaller(
+                        enabledKeys = DetailModulePurifyPolicy.preferenceKeys
+                            .filterTo(linkedSetOf()) { prefs.getBoolean(it, false) }
+                    ),
+                    // 同一个「详细页组件」面板，但这些项在 View 层，所以是独立安装器。
+                    DetailViewPurifyFeatureInstaller(
+                        enabledKeys = DetailViewPurifyPolicy.preferenceKeys
+                            .filterTo(linkedSetOf()) { prefs.getBoolean(it, false) }
+                    ),
+                    // 详情页实际由 viewunite 供数，所以那五项的**正确落点**在这里：
+                    // 按 ModuleType 删模块 + 清 owner.vip。与上面两层互为保底——
+                    // 本层删掉模块后，下游拿不到数据自然空转，不存在两层改同一个对象。
+                    DetailUnitedModulePurifyFeatureInstaller(
+                        enabledKeys = DetailUnitedModulePurifyPolicy.preferenceKeys
+                            .filterTo(linkedSetOf()) { prefs.getBoolean(it, false) },
+                        // 视频提及沿用游戏卡开关，它**默认开**，所以不走上面那条
+                        // 默认关的过滤；这一层是 GamePromotion 那 10+ 条渲染路由的协议层总闸。
+                        hideVideoMentions = prefs.getBoolean(PREF_GAMECARD_ENABLED, true),
+                        // 好物商品卡同理：协议层总闸，渲染层那条 MerchandiseComponent 保留作兜底。
+                        hideMerchandise = prefs.getBoolean(PREF_MERCH_ENABLED, true)
+                    ),
+                    // United 详情页实际消费 viewunite 的渲染模型；复用既有两项开关，
+                    // 不让旧 view.v1 路径的“已安装”冒充当前页面已经生效。
+                    DetailUnitedPresentationPurifyFeatureInstaller(
+                        hideHotSearchBadge = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_DETAIL_HOT_BANNER,
+                            false
+                        ),
+                        hideSpecialTopicTags = prefs.getBoolean(
+                            FeaturePreferences.REMOVE_DETAIL_TOPIC_TAGS,
+                            false
+                        )
                     )
                 )
             )

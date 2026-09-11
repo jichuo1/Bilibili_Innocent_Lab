@@ -27,6 +27,7 @@ import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
 import androidx.core.view.setPadding
 import com.Bilibili_Innocent_Lab.xposedmodule.R
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailModulePurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.highcapable.betterandroid.ui.extension.view.textColor
@@ -1160,4 +1161,167 @@ private fun MainActivity.updateRecommendVideoDurationSummary() {
     recommendVideoDurationSummaryView?.text =
         getString(R.string.recommend_video_duration_range) + "\n" +
             recommendVideoDurationSummary()
+}
+
+/**
+ * 详细页组件净化的勾选面板。
+ *
+ * 与首页推荐 / 相关推荐两个面板同一套交互：勾选只改草稿，点保存才一次性写偏好，
+ * 之后同步刷新一级界面的摘要行。键清单来自 [DetailModulePurifyPolicy]，UI 不另抄一份。
+ */
+internal fun MainActivity.showDetailModuleFilterDialog(
+    focusPreferenceKey: String? = null,
+    anchor: View? = null
+) {
+    val density = resources.displayMetrics.density
+    val dialog = Dialog(this)
+    val container = createModalContainer()
+    val draft = DetailModuleFilterDraft(detailModuleFilterValues())
+    container.addView(NativeTextView(this).apply {
+        text = getString(R.string.detail_module_purify_settings)
+        textColor = getColor(R.color.colorTextDark)
+        textSize = 19f
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    })
+    container.addView(NativeTextView(this).apply {
+        text = getString(R.string.detail_module_purify_dialog_description)
+        textColor = getColor(R.color.colorTextGray)
+        textSize = 12f
+        alpha = 0.72f
+        setLineSpacing(4 * density, 1f)
+    }, NativeLinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+    ).apply { topMargin = (7 * density).toInt() })
+
+    val quickActions = NativeLinearLayout(this).apply {
+        orientation = NativeLinearLayout.HORIZONTAL
+        gravity = Gravity.END or Gravity.CENTER_VERTICAL
+    }
+    val selectAllButton = createTermsActionButton(
+        getString(R.string.detail_module_purify_select_all), filled = false
+    ) {}
+    val clearButton = createTermsActionButton(
+        getString(R.string.detail_module_purify_clear), filled = false
+    ) {}
+    quickActions.addView(selectAllButton,
+        NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    quickActions.addView(clearButton,
+        NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginStart = (8 * density).toInt()
+        })
+    container.addView(quickActions, NativeLinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+    ).apply { topMargin = (12 * density).toInt() })
+
+    val rows = NativeLinearLayout(this).apply {
+        orientation = NativeLinearLayout.VERTICAL
+        setPadding(0, (4 * density).toInt(), 0, (4 * density).toInt())
+    }
+    val checkboxes = linkedMapOf<String, android.widget.CheckBox>()
+    DetailComponentPanelCatalog.preferenceKeys.forEach { key ->
+        val box = android.widget.CheckBox(this).apply {
+            text = getString(detailModuleFilterLabel(key))
+            textSize = 14f
+            textColor = getColor(R.color.colorTextDark)
+            minimumHeight = (48 * density).toInt()
+            isChecked = draft[key]
+            isFocusable = true
+        }
+        checkboxes[key] = box
+        rows.addView(box, NativeLinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+    }
+    container.addView(rows, NativeLinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+    ).apply {
+        topMargin = (7 * density).toInt()
+        bottomMargin = (4 * density).toInt()
+    })
+    container.addView(NativeTextView(this).apply {
+        text = getString(R.string.detail_module_purify_tip)
+        textColor = getColor(R.color.colorTextGray)
+        textSize = 11f
+        alpha = 0.66f
+        setLineSpacing(3 * density, 1f)
+    }, NativeLinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+    ).apply { bottomMargin = (8 * density).toInt() })
+
+    val buttonRow = NativeLinearLayout(this).apply {
+        orientation = NativeLinearLayout.HORIZONTAL
+        gravity = Gravity.END or Gravity.CENTER_VERTICAL
+    }
+    val cancelButton = createTermsActionButton(getString(R.string.dialog_cancel), filled = false) {
+        dismissWithAnimation(dialog, container) {}
+    }
+    val saveButton = createTermsActionButton("", filled = true) {
+        val changed = draft.changedValues()
+        if (changed.isEmpty()) {
+            dismissWithAnimation(dialog, container) {}
+            return@createTermsActionButton
+        }
+        val saved = runCatching {
+            prefs().edit {
+                changed.forEach { (key, value) -> putBoolean(key, value) }
+            }
+        }.isSuccess
+        if (!saved) {
+            toast(getString(R.string.detail_module_purify_save_failed))
+            return@createTermsActionButton
+        }
+        changed.forEach { (key, value) -> applyDetailModuleFilterValue(key, value) }
+        detailModuleFilterSummaryView?.text = detailModuleFilterSummary()
+        toast(getString(R.string.detail_module_purify_applied))
+        dismissWithAnimation(dialog, container) {}
+    }
+    var updating = false
+    fun refreshUi() {
+        updating = true
+        checkboxes.forEach { (key, box) -> box.isChecked = draft[key] }
+        saveButton.text = getString(
+            R.string.detail_module_purify_save, draft.selectedCount()
+        )
+        updating = false
+    }
+    checkboxes.forEach { (key, box) ->
+        box.setOnCheckedChangeListener { _, checked ->
+            if (!updating) {
+                draft[key] = checked
+                refreshUi()
+            }
+        }
+    }
+    selectAllButton.setOnClickListener { draft.selectAll(); refreshUi() }
+    clearButton.setOnClickListener { draft.clear(); refreshUi() }
+    buttonRow.addView(cancelButton,
+        NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    buttonRow.addView(saveButton,
+        NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginStart = (8 * density).toInt()
+        })
+    container.addView(buttonRow, NativeLinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+    ))
+    refreshUi()
+    presentModalDialog(dialog, container, anchor)
+    focusPreferenceKey?.let { key ->
+        checkboxes[key]?.let { checkbox ->
+            checkbox.doOnLayout { scheduleSettingsSearchTargetHighlight(checkbox) }
+        }
+    }
+}
+
+/** 保存后同步一级界面的镜像字段；未知键直接失败，避免面板与 Hook 名单静默漂移。 */
+private fun MainActivity.applyDetailModuleFilterValue(preferenceKey: String, enabled: Boolean) {
+    when (preferenceKey) {
+        FeaturePreferences.REMOVE_DETAIL_HONOR -> removeDetailHonor = enabled
+        FeaturePreferences.REMOVE_DETAIL_LIVE_ORDER -> removeDetailLiveOrder = enabled
+        FeaturePreferences.REMOVE_DETAIL_UGC_SEASON -> removeDetailUgcSeason = enabled
+        FeaturePreferences.REMOVE_DETAIL_UP_VIP_LABEL -> removeDetailUpVipLabel = enabled
+        FeaturePreferences.REMOVE_DETAIL_TOPIC_TAGS -> removeDetailTopicTags = enabled
+        FeaturePreferences.REMOVE_DETAIL_STAFF_FOLLOW -> removeDetailStaffFollow = enabled
+        FeaturePreferences.REMOVE_DETAIL_HOT_BANNER -> removeDetailHotBanner = enabled
+        else -> error("Unknown detail module filter key: $preferenceKey")
+    }
 }

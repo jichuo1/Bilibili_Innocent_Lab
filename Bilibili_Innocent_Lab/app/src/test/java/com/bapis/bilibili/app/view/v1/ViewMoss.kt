@@ -3,7 +3,12 @@ package com.bapis.bilibili.app.view.v1
 import com.bilibili.lib.moss.api.MossResponseHandler
 
 class ViewProgressReq
+class ViewReq
+
 class ViewMoss {
+    // 详情页两条协议面（真机核对：executeView(ViewReq): ViewReply / view(ViewReq, handler): void）
+    fun executeView(req: ViewReq): ViewReply = ViewReply()
+    fun view(req: ViewReq, handler: MossResponseHandler) { handler.onNext(ViewReply()); handler.onCompleted() }
     fun executeViewProgress(req: ViewProgressReq): ViewProgressReply = ViewProgressReply()
     fun viewProgress(req: ViewProgressReq, handler: MossResponseHandler) { handler.onNext(ViewProgressReply()); handler.onCompleted() }
 }

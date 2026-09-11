@@ -7,10 +7,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsCatalogTest {
+    @Test fun `catalog v18 adds seven default off detail component settings`() {
+        val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v18.txt"))
+            .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 18 }
+        assertEquals(
+            listOf(
+                "purify.detail.honor.removed",
+                "purify.detail.hot_banner.hidden",
+                "purify.detail.live_order.removed",
+                "purify.detail.staff_follow.hidden",
+                "purify.detail.topic_tags.removed",
+                "purify.detail.ugc_season.removed",
+                "purify.detail.up_vip_label.removed"
+            ),
+            added.map { it.id }.sorted()
+        )
+        // 新增净化项一律默认关，不动用户既有页面。
+        added.forEach { assertEquals(SettingValue.Bool(false), it.defaultValue) }
+        added.forEach { assertEquals(RestorePolicy.AUTOMATIC, it.restorePolicy) }
+        // 这七项都进宿主，导入后必须提示重启哔哩哔哩。
+        added.forEach { assertTrue(ImportEffect.RESTART_BILIBILI in it.effects) }
+    }
+
     @Test fun `catalog v17 adds one default off module ui panel blur setting`() {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v17.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
-        assertEquals(expected, SettingsCatalog.specs.map { it.id }.sorted())
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 17 }.map { it.id }.sorted())
         val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 17 }
         assertEquals("module_ui.appearance.panel_window_blur", added.id)
         assertEquals(SettingValue.Bool(false), added.defaultValue)
@@ -42,11 +66,11 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog is a unique allowlist with 124 settings`() {
-        assertEquals(124, SettingsCatalog.specs.size)
-        assertEquals(124, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(124, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(123, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 131 settings`() {
+        assertEquals(131, SettingsCatalog.specs.size)
+        assertEquals(131, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(131, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(130, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(1, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -277,7 +301,7 @@ class SettingsCatalogTest {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v13.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 13 }.map { it.id }.sorted())
-        assertEquals(17, SettingsCatalog.CATALOG_VERSION)
+        assertEquals(18, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 13 }
         assertEquals(6, added.size)
         assertTrue(added.all { it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects })
@@ -291,7 +315,7 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(98, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(105, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(7, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(19, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 

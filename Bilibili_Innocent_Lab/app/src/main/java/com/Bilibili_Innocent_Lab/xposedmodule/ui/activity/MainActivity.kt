@@ -93,6 +93,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.RoamingCompatHook
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailModulePurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyPolicy
@@ -299,6 +300,14 @@ class MainActivity : SkinnedActivity() {
     private var hidePlayerInteractiveOverlays = false
     private var hidePgcAutoActivityPopup = false
     private var transparentPlayerStatusBar = false
+    // 详情页模块净化（UGC view.v1 顶层字段）；勾选面板保存后由 applyDetailModuleFilterValue 同步。
+    internal var removeDetailHonor = false
+    internal var removeDetailLiveOrder = false
+    internal var removeDetailUgcSeason = false
+    internal var removeDetailUpVipLabel = false
+    internal var removeDetailTopicTags = false
+    internal var removeDetailStaffFollow = false
+    internal var removeDetailHotBanner = false
     internal var removeRelateCommercial = false
     internal var removeRelateGame = false
     internal var removeRelateLive = false
@@ -396,6 +405,7 @@ class MainActivity : SkinnedActivity() {
     internal var danmakuWeightSummaryView: NativeTextView? = null
     internal var portraitContentFilterSummaryView: NativeTextView? = null
     internal var videoRelateFilterSummaryView: NativeTextView? = null
+    internal var detailModuleFilterSummaryView: NativeTextView? = null
     /** 设置备份入口及标题：用于跨 Activity 容器形变的来源坐标。 */
     private var settingsBackupEntryView: View? = null
     private var settingsBackupEntryTitleView: NativeTextView? = null
@@ -3401,6 +3411,41 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
+    internal fun detailModuleFilterValues(): Map<String, Boolean> = mapOf(
+        FeaturePreferences.REMOVE_DETAIL_HONOR to removeDetailHonor,
+        FeaturePreferences.REMOVE_DETAIL_LIVE_ORDER to removeDetailLiveOrder,
+        FeaturePreferences.REMOVE_DETAIL_UGC_SEASON to removeDetailUgcSeason,
+        FeaturePreferences.REMOVE_DETAIL_UP_VIP_LABEL to removeDetailUpVipLabel,
+        FeaturePreferences.REMOVE_DETAIL_TOPIC_TAGS to removeDetailTopicTags,
+        FeaturePreferences.REMOVE_DETAIL_STAFF_FOLLOW to removeDetailStaffFollow,
+        FeaturePreferences.REMOVE_DETAIL_HOT_BANNER to removeDetailHotBanner
+    )
+
+    internal fun detailModuleFilterSummary(): String {
+        val selected = detailModuleFilterValues().values.count { it }
+        return if (selected == 0) {
+            getString(R.string.detail_module_purify_summary_none)
+        } else {
+            getString(
+                R.string.detail_module_purify_summary_selected,
+                selected,
+                DetailComponentPanelCatalog.preferenceKeys.size
+            )
+        }
+    }
+
+    @StringRes
+    internal fun detailModuleFilterLabel(preferenceKey: String): Int = when (preferenceKey) {
+        FeaturePreferences.REMOVE_DETAIL_HONOR -> R.string.remove_detail_honor
+        FeaturePreferences.REMOVE_DETAIL_LIVE_ORDER -> R.string.remove_detail_live_order
+        FeaturePreferences.REMOVE_DETAIL_UGC_SEASON -> R.string.remove_detail_ugc_season
+        FeaturePreferences.REMOVE_DETAIL_UP_VIP_LABEL -> R.string.remove_detail_up_vip_label
+        FeaturePreferences.REMOVE_DETAIL_TOPIC_TAGS -> R.string.remove_detail_topic_tags
+        FeaturePreferences.REMOVE_DETAIL_STAFF_FOLLOW -> R.string.remove_detail_staff_follow
+        FeaturePreferences.REMOVE_DETAIL_HOT_BANNER -> R.string.remove_detail_hot_banner
+        else -> error("Unknown detail module filter key: ")
+    }
+
     internal fun videoRelateFilterValues(): Map<String, Boolean> = mapOf(
         FeaturePreferences.REMOVE_RELATE_COMMERCIAL to removeRelateCommercial,
         FeaturePreferences.REMOVE_RELATE_GAME to removeRelateGame,
@@ -3920,6 +3965,13 @@ class MainActivity : SkinnedActivity() {
         hidePlayerInteractiveOverlays = uiSettings.bool(FeaturePreferences.HIDE_PLAYER_INTERACTIVE_OVERLAYS)
         hidePgcAutoActivityPopup = uiSettings.bool(FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP)
         transparentPlayerStatusBar = uiSettings.bool(FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR)
+        removeDetailHonor = uiSettings.bool(FeaturePreferences.REMOVE_DETAIL_HONOR)
+        removeDetailLiveOrder = uiSettings.bool(FeaturePreferences.REMOVE_DETAIL_LIVE_ORDER)
+        removeDetailUgcSeason = uiSettings.bool(FeaturePreferences.REMOVE_DETAIL_UGC_SEASON)
+        removeDetailUpVipLabel = uiSettings.bool(FeaturePreferences.REMOVE_DETAIL_UP_VIP_LABEL)
+        removeDetailTopicTags = uiSettings.bool(FeaturePreferences.REMOVE_DETAIL_TOPIC_TAGS)
+        removeDetailStaffFollow = uiSettings.bool(FeaturePreferences.REMOVE_DETAIL_STAFF_FOLLOW)
+        removeDetailHotBanner = uiSettings.bool(FeaturePreferences.REMOVE_DETAIL_HOT_BANNER)
         removeRelateCommercial = uiSettings.bool(FeaturePreferences.REMOVE_RELATE_COMMERCIAL)
         removeRelateGame = uiSettings.bool(FeaturePreferences.REMOVE_RELATE_GAME)
         removeRelateLive = uiSettings.bool(FeaturePreferences.REMOVE_RELATE_LIVE)
@@ -6901,6 +6953,65 @@ class MainActivity : SkinnedActivity() {
             text = stringResource(R.string.hide_pgc_auto_activity_popup_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
+        }
+        LinearLayout(
+            lparams = LayoutParams(widthMatchParent = true) {
+                topMargin = 14.dp
+                bottomMargin = 8.dp
+            },
+            init = {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = selfRippleBackground(10f)
+                updatePadding(horizontal = 4.dp, vertical = 9.dp)
+                isClickable = true
+                isFocusable = true
+                contentDescription = stringResource(R.string.detail_module_purify_settings)
+                setOnClickListener { showDetailModuleFilterDialog(anchor = it) }
+            }
+        ) {
+            LinearLayout(
+                lparams = LayoutParams { weight = 1f },
+                init = { orientation = LinearLayout.VERTICAL }
+            ) {
+                TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                    text = stringResource(R.string.detail_module_purify_settings)
+                    textColor = colorResource(R.color.colorTextGray)
+                    textSize = 15f
+                }
+                TextView(
+                    lparams = LayoutParams(widthMatchParent = true) {
+                        topMargin = 4.dp
+                    }
+                ) {
+                    detailModuleFilterSummaryView = this
+                    alpha = 0.68f
+                    text = detailModuleFilterSummary()
+                    textColor = colorResource(R.color.colorTextDark)
+                    textSize = 12f
+                }
+                // 供设置项搜索命中子项：只做索引，不显示。
+                TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                    visibility = View.GONE
+                    text = listOf(
+                        R.string.remove_detail_honor,
+                        R.string.remove_detail_live_order,
+                        R.string.remove_detail_ugc_season,
+                        R.string.remove_detail_up_vip_label,
+                        R.string.remove_detail_topic_tags,
+                        R.string.remove_detail_staff_follow,
+                        R.string.remove_detail_hot_banner
+                    ).joinToString(separator = " ") { stringResource(it) }
+                    textColor = colorResource(R.color.colorTextDark)
+                    textSize = 12f
+                }
+            }
+            ImageView(lparams = LayoutParams(18.dp, 18.dp)) {
+                setImageResource(R.drawable.ic_chevron_down)
+                rotation = -90f
+                alpha = 0.8f
+                imageTintList = stateColorResource(R.color.colorTextGray)
+            }
         }
         LinearLayout(
             lparams = LayoutParams(widthMatchParent = true) {

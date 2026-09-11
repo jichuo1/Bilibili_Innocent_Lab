@@ -3,9 +3,21 @@ package com.bapis.bilibili.app.viewunite.v1
 import com.bilibili.lib.moss.api.MossResponseHandler
 
 class ViewProgressReq
+
+/** 详情页正文那条请求。与 `view.v1.ViewReq` 同名不同类——这正是落点搞错过的地方。 */
+class ViewReq
+
+/** 暂停页那条请求。 */
+class PlayPauseReq
+
 class ViewMoss {
     fun executeViewProgress(req: ViewProgressReq): ViewProgressReply = ViewProgressReply()
     fun viewProgress(req: ViewProgressReq, handler: MossResponseHandler) { handler.onNext(ViewProgressReply()); handler.onCompleted() }
+    // 详情页正文：DetailUnitedModulePurifyFeatureInstaller 挂的就是这两条。
+    fun executeView(req: ViewReq): ViewReply = ViewReply(null, null)
+    fun view(req: ViewReq, handler: MossResponseHandler) { handler.onNext(ViewReply(null, null)); handler.onCompleted() }
+    // 暂停页：PausedAdFeatureInstaller 的 P4 响应层挂这条。
+    fun executePlayPause(req: PlayPauseReq): PlayPauseReply = PlayPauseReply(null, null)
 }
 class VideoGuide(val fields: Set<String> = emptySet(), val preserved: Any = Any(), val failClear: String = "") {
     fun clearContractCard() = Unit

@@ -20,6 +20,29 @@ internal object ReleaseHighlightsCatalog {
     const val REVIEWED_VERSION_CODE = 16
     const val SETTINGS_BASELINE_VERSION = 13
     val batches = listOf(ReleaseHighlightsBatch(1, listOf(
+        // 四个子项各自成条：门禁要求每个新增设置都有导航目标，而
+        // HighlightDestination 一条只能指一个 settingId。标题自动取设置自己的 labelRes。
+        ReleaseHighlight("detail-honor", HighlightKind.NEW,
+            R.string.highlights_detail_honor,
+            HighlightDestination("purify.detail.honor.removed")),
+        ReleaseHighlight("detail-live-order", HighlightKind.NEW,
+            R.string.highlights_detail_live_order,
+            HighlightDestination("purify.detail.live_order.removed")),
+        ReleaseHighlight("detail-ugc-season", HighlightKind.NEW,
+            R.string.highlights_detail_ugc_season,
+            HighlightDestination("purify.detail.ugc_season.removed")),
+        ReleaseHighlight("detail-up-vip-label", HighlightKind.NEW,
+            R.string.highlights_detail_up_vip_label,
+            HighlightDestination("purify.detail.up_vip_label.removed")),
+        ReleaseHighlight("detail-topic-tags", HighlightKind.NEW,
+            R.string.highlights_detail_topic_tags,
+            HighlightDestination("purify.detail.topic_tags.removed")),
+        ReleaseHighlight("detail-staff-follow", HighlightKind.NEW,
+            R.string.highlights_detail_staff_follow,
+            HighlightDestination("purify.detail.staff_follow.hidden")),
+        ReleaseHighlight("detail-hot-banner", HighlightKind.NEW,
+            R.string.highlights_detail_hot_banner,
+            HighlightDestination("purify.detail.hot_banner.hidden")),
         ReleaseHighlight("panel-window-blur", HighlightKind.NEW, R.string.highlights_panel_blur,
             HighlightDestination("module_ui.appearance.panel_window_blur")),
         ReleaseHighlight("search-home-hidden", HighlightKind.NEW, R.string.highlights_search,

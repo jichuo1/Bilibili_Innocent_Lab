@@ -33,6 +33,15 @@ internal object FeaturePreferences {
     const val HIDE_PGC_AUTO_ACTIVITY_POPUP = "hide_pgc_auto_activity_popup"
     const val HIDE_PLAYER_INTERACTIVE_OVERLAYS = "hide_player_interactive_overlays"
     const val TRANSPARENT_PLAYER_STATUS_BAR = "transparent_player_status_bar"
+    // 详情页模块净化（UGC 详情页 view.v1 协议面的顶层字段），四项各自独立、默认全关。
+    const val REMOVE_DETAIL_HONOR = "remove_detail_honor"
+    const val REMOVE_DETAIL_LIVE_ORDER = "remove_detail_live_order"
+    const val REMOVE_DETAIL_UGC_SEASON = "remove_detail_ugc_season"
+    const val REMOVE_DETAIL_UP_VIP_LABEL = "remove_detail_up_vip_label"
+    const val REMOVE_DETAIL_TOPIC_TAGS = "remove_detail_topic_tags"
+    // 这一项走 View 层（协议层做不到，见 DetailStaffFollowPolicy）。
+    const val REMOVE_DETAIL_STAFF_FOLLOW = "remove_detail_staff_follow"
+    const val REMOVE_DETAIL_HOT_BANNER = "remove_detail_hot_banner"
     const val REMOVE_RELATE_COMMERCIAL = "remove_relate_commercial"
     const val REMOVE_RELATE_GAME = "remove_relate_game"
     const val REMOVE_RELATE_LIVE = "remove_relate_live"
