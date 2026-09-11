@@ -1990,7 +1990,19 @@ object VersionAdapter {
     private val BLOCK_UPDATE_OWNER_CANDIDATES = listOf(
         // 9.11.0 → 9.1.0/9.1.1；再到 8.99.0 → 8.84.0。每个 owner 仍须通过
         // 精确 (Context) -> BiliUpgradeInfo 签名和叶子实现筛选，类名存在本身不算命中。
-        // 9.11.0 的 mq1.c 执行网络请求；同签名 mq1.a 是缓存聚合器，不能替代网络边界。
+        //
+        // 9.11.0(9110400)：mq1.* 整族消失，搬到 qq1.*。三个同签名候选里
+        // **qq1.c 才是网络边界**——它的方法体常量与 9110200 的 mq1.c 逐字相同
+        // （'Do sync http request.' / 'fawkes.update.info.supplier' /
+        // 'Http request result %s, saved to file cache.' / 'Nothing to update, clean caches.'）。
+        // qq1.a 与抽象的 qq1.d 方法体**没有任何字符串常量**，与旧 mq1.a（缓存聚合器）
+        // 同形，所以**刻意不进候选**——沿用"缓存聚合器不能替代网络边界"那条纪律。
+        // 判定方式是按 const-string 提取方法体常量，并先在 9110200 上复现过
+        // mq1.c/mq1.a 的已知分工作为对照组（脚本 Temp/dexstrings.py）。
+        // 前置安全性已逐版核对：25 个存档宿主里 qq1.c 要么无类、要么类在但无此签名，
+        // 只有 9110400 命中，旧宿主会被签名过滤自然回退。
+        "qq1.c",
+        // 9.11.0(9110200) 的网络边界；同签名 mq1.a 是缓存聚合器，不能替代。
         "mq1.c",
         "Ip1.c", "Ro1.c", "Sn1.c", "Wm1.c", "wm1.c", "dl1.c",
         "Uj1.c", "Ch1.c", "kh1.c", "ih1.c",
@@ -2211,6 +2223,15 @@ object VersionAdapter {
         // 无参 Int 入口。8.84.0–8.99.0 与 9.1.0–9.11.0 均由
         // "quality settings:" / 画质偏好键的离线方法体语义交叉核验。
         // 9.11.0 的稳定 getDefaultQuality 仅转发 es1.i.a；getSettingsQuality 只读偏好。
+        //
+        // 9.11.0(9110400)：es1.i 消失，实现搬到 is1.h。判定依据是方法体常量与
+        // 9110200 的 es1.i#a()I **逐字相同**（'quality settings:' +
+        // 'pref_player_mediaSource_quality_wifi_key' + ' defaultQuality:32 isLogin:' …），
+        // 且 is1.h 全类**只有** `static a()I` 这一个方法，owner 内唯一性天然成立。
+        // ⚠️ 同版本里 PlayerSettingHelper#getSettingsQuality 也带偏好键但**只读偏好**，
+        // 是审计语义侧的反例，绝不能选它——所以判据要求**两个标记同时命中**。
+        // 前置安全性已逐版核对：25 个存档宿主里 is1.h 只在 9110400 带无参 Int 入口。
+        "is1.h",
         "es1.i",
         "Ar1.l", "Jq1.l", "Kp1.l", "Oo1.i", "oo1.g", "Vm1.i",
         "Kl1.j", "tj1.g", "bj1.i", "Zi1.h",

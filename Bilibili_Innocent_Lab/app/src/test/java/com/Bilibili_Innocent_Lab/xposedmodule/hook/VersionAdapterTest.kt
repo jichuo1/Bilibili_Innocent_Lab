@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -999,7 +1000,9 @@ class VersionAdapterTest {
     fun `prefers latest verified update implementation`() {
         val point = VersionAdapter.locateBlockUpdate(requireNotNull(javaClass.classLoader))
 
-        assertEquals("mq1.c", point?.className)
+        // 9.11.0(9110400)：网络边界搬到 qq1.c（方法体常量与旧 mq1.c 逐字相同）。
+        // 同签名的 qq1.a 是缓存聚合器，夹具里也在，所以这条同时锁住"不许选缓存层"。
+        assertEquals("qq1.c", point?.className)
         assertEquals("a", point?.methodName)
         assertEquals(listOf("android.content.Context"), point?.paramClassNames)
     }
@@ -1009,16 +1012,44 @@ class VersionAdapterTest {
         val parent = requireNotNull(javaClass.classLoader)
         val previousLoader = object : ClassLoader(parent) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
-                if (name == "mq1.c") throw ClassNotFoundException(name)
+                if (name == "qq1.c") throw ClassNotFoundException(name)
                 return super.loadClass(name, resolve)
             }
         }
 
         val point = VersionAdapter.locateBlockUpdate(previousLoader)
 
-        assertEquals("Ip1.c", point?.className)
+        // 9110400 的 owner 不在（9110200 及更早），回退到上一代网络边界。
+        assertEquals("mq1.c", point?.className)
         assertEquals("a", point?.methodName)
         assertEquals(listOf("android.content.Context"), point?.paramClassNames)
+    }
+
+    /**
+     * 缓存聚合器**永远不许**被选成更新检查入口。
+     *
+     * `qq1.a`（9110400）与 `mq1.a`（9110200）跟各自的网络边界**签名完全相同**
+     * （`(Context) -> BiliUpgradeInfo`），区别只在方法体：网络侧带一整组 http 常量
+     * （`Do sync http request.` / `fawkes.update.info.supplier`），缓存侧一个字符串都没有。
+     * 签名相同就随手加进候选表，会把屏蔽点挂到缓存层上——网络请求照发，静默失效。
+     *
+     * 所以哪怕两代网络边界都不在，也必须继续往下找旧候选，而不是退到同包的 `*.a`。
+     */
+    @Test
+    fun `the cache aggregator is never selected even when both network owners are gone`() {
+        val parent = requireNotNull(javaClass.classLoader)
+        val loader = object : ClassLoader(parent) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if (name == "qq1.c" || name == "mq1.c") throw ClassNotFoundException(name)
+                return super.loadClass(name, resolve)
+            }
+        }
+
+        val point = VersionAdapter.locateBlockUpdate(loader)
+
+        assertNotEquals("qq1.a", point?.className)
+        assertNotEquals("mq1.a", point?.className)
+        assertEquals("Ip1.c", point?.className)
     }
 
     @Test
@@ -1026,7 +1057,9 @@ class VersionAdapterTest {
         val parent = requireNotNull(javaClass.classLoader)
         val legacyLoader = object : ClassLoader(parent) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
-                if (name == "mq1.c" || name == "Ip1.c") throw ClassNotFoundException(name)
+                if (name == "qq1.c" || name == "mq1.c" || name == "Ip1.c") {
+                    throw ClassNotFoundException(name)
+                }
                 return super.loadClass(name, resolve)
             }
         }
@@ -1344,7 +1377,9 @@ class VersionAdapterTest {
         val points = VersionAdapter.locateDefaultVideoQuality(requireNotNull(javaClass.classLoader))
         val point = points?.defaultQualityMethod
 
-        assertEquals("es1.i", point?.className)
+        // 9.11.0(9110400)：实现搬到 is1.h（方法体常量与旧 es1.i 逐字相同，
+        // 且该类只有一个 static a()I，owner 内唯一性天然成立）。
+        assertEquals("is1.h", point?.className)
         assertEquals("a", point?.methodName)
         assertEquals(emptyList<String>(), point?.paramClassNames)
         assertEquals(
@@ -1358,7 +1393,25 @@ class VersionAdapterTest {
         val parent = requireNotNull(javaClass.classLoader)
         val previousLoader = object : ClassLoader(parent) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
-                if (name == "es1.i") throw ClassNotFoundException(name)
+                if (name == "is1.h") throw ClassNotFoundException(name)
+                return super.loadClass(name, resolve)
+            }
+        }
+
+        val point = VersionAdapter.locateDefaultVideoQuality(previousLoader)
+            ?.defaultQualityMethod
+
+        assertEquals("es1.i", point?.className)
+        assertEquals("a", point?.methodName)
+        assertEquals(emptyList<String>(), point?.paramClassNames)
+    }
+
+    @Test
+    fun `falls back to older verified quality owner`() {
+        val parent = requireNotNull(javaClass.classLoader)
+        val previousLoader = object : ClassLoader(parent) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if (name == "is1.h" || name == "es1.i") throw ClassNotFoundException(name)
                 return super.loadClass(name, resolve)
             }
         }
@@ -1372,29 +1425,11 @@ class VersionAdapterTest {
     }
 
     @Test
-    fun `falls back to older verified quality owner`() {
-        val parent = requireNotNull(javaClass.classLoader)
-        val previousLoader = object : ClassLoader(parent) {
-            override fun loadClass(name: String, resolve: Boolean): Class<*> {
-                if (name == "es1.i" || name == "Ar1.l") throw ClassNotFoundException(name)
-                return super.loadClass(name, resolve)
-            }
-        }
-
-        val point = VersionAdapter.locateDefaultVideoQuality(previousLoader)
-            ?.defaultQualityMethod
-
-        assertEquals("Jq1.l", point?.className)
-        assertEquals("a", point?.methodName)
-        assertEquals(emptyList<String>(), point?.paramClassNames)
-    }
-
-    @Test
     fun `uses legacy default quality helper without selecting settings getter`() {
         val parent = requireNotNull(javaClass.classLoader)
         val legacyOnlyLoader = object : ClassLoader(parent) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
-                if (name in setOf("es1.i", "Ar1.l", "Jq1.l", "gh6.h")) {
+                if (name in setOf("is1.h", "es1.i", "Ar1.l", "Jq1.l", "gh6.h")) {
                     throw ClassNotFoundException(name)
                 }
                 return super.loadClass(name, resolve)
