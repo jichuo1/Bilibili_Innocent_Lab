@@ -2394,78 +2394,74 @@ class MainActivity : SkinnedActivity() {
             if (anchoredCloser?.invoke(interactiveCommit, null) == true) return
             dismissWithAnimation(dialog, container, onBackDismiss)
         }
-        var predictiveBackCallback: android.window.OnBackInvokedCallback? = null
+        // 类型必须是 `Any?`：一旦写成 API 33 的 `OnBackInvokedCallback?`，这个被 lambda
+        // 捕获的 var 就会把那个类型引用带进 dismiss 回调的字节码，ART 在 API 32 及以下
+        // 进入那个方法时直接抛 NoClassDefFoundError（下面的 SDK 判断和 runCatching 都
+        // 来不及生效）。类型本身只许出现在 PredictiveBackApi33 里，见该文件类注释。
+        var predictiveBackCallback: Any? = null
         if (AndroidVersion.isAtLeast(AndroidVersion.U)) {
-            predictiveBackCallback =
-                object : android.window.OnBackAnimationCallback {
-                    override fun onBackStarted(event: android.window.BackEvent) {
-                        // 退场动画期间再起手势必须整条忽略：`dismissWithAnimation` 用
-                        // AnimatorListenerAdapter 收尾，而 ViewPropertyAnimator 在 cancel()
-                        // 后仍会派发 onAnimationEnd，取消在途退场会让 dialog.dismiss() 与
-                        // onDismissed() 立刻执行、180ms 退场被截断。
-                        if (dismissing) return
+            predictiveBackCallback = PredictiveBackApi33.animationCallback(
+                onStarted = {
+                    // 退场动画期间再起手势必须整条忽略：`dismissWithAnimation` 用
+                    // AnimatorListenerAdapter 收尾，而 ViewPropertyAnimator 在 cancel()
+                    // 后仍会派发 onAnimationEnd，取消在途退场会让 dialog.dismiss() 与
+                    // onDismissed() 立刻执行、180ms 退场被截断。
+                    if (!dismissing) {
                         // 形变路径由 controller 自己接管在途动画并按当前速度续接，
                         // 不能在这里 cancel 掉 container 的 ViewPropertyAnimator（它根本没在跑）。
                         if (bubbleController != null) {
                             bubbleController.beginPredictiveBack()
-                            return
-                        }
-                        if (morphController != null) {
+                        } else if (morphController != null) {
                             morphController.beginPredictiveBack()
-                            return
+                        } else {
+                            // 中断在途动画（入场或回弹），后续属性由手势进度直接驱动
+                            container.animate().cancel()
                         }
-                        // 中断在途动画（入场或回弹），后续属性由手势进度直接驱动
-                        container.animate().cancel()
                     }
-
-                    override fun onBackProgressed(event: android.window.BackEvent) {
-                        if (dismissing) return
-                        val progress = event.progress
+                },
+                onProgressed = { progress ->
+                    if (!dismissing) {
                         if (bubbleController != null) {
                             bubbleController.progressPredictiveBack(progress)
-                            return
-                        }
-                        if (morphController != null) {
+                        } else if (morphController != null) {
                             morphController.progressPredictiveBack(progress)
-                            return
+                        } else {
+                            container.scaleX = 1f - 0.05f * progress
+                            container.scaleY = 1f - 0.05f * progress
+                            container.alpha = 1f - 0.15f * progress
                         }
-                        container.scaleX = 1f - 0.05f * progress
-                        container.scaleY = 1f - 0.05f * progress
-                        container.alpha = 1f - 0.15f * progress
                     }
-
-                    override fun onBackCancelled() {
-                        if (dismissing) return
+                },
+                onCancelled = {
+                    if (!dismissing) {
                         if (bubbleController != null) {
                             bubbleController.cancelPredictiveBack()
-                            return
-                        }
-                        if (morphController != null) {
+                        } else if (morphController != null) {
                             morphController.cancelPredictiveBack()
-                            return
+                        } else {
+                            container.animate()
+                                .scaleX(1f).scaleY(1f).alpha(1f)
+                                .setDuration(260L)
+                                .setInterpolator(emphasizedDecelerate)
+                                .start()
                         }
-                        container.animate()
-                            .scaleX(1f).scaleY(1f).alpha(1f)
-                            .setDuration(260L)
-                            .setInterpolator(emphasizedDecelerate)
-                            .start()
                     }
-
-                    override fun onBackInvoked() {
-                        // 手势松手：形变按当前值与当前速度续接，controller 内部再判断
-                        // 本次返回是否真的从手势开始（三键/按键路径 hadInteractiveStart 为 false）。
-                        requestDismiss(interactiveCommit = true)
-                    }
+                },
+                onInvoked = {
+                    // 手势松手：形变按当前值与当前速度续接，controller 内部再判断
+                    // 本次返回是否真的从手势开始（三键/按键路径 hadInteractiveStart 为 false）。
+                    requestDismiss(interactiveCommit = true)
                 }
+            )
         } else if (AndroidVersion.isAtLeast(AndroidVersion.T)) {
-            predictiveBackCallback = android.window.OnBackInvokedCallback {
-                requestDismiss()
-            }
+            predictiveBackCallback = PredictiveBackApi33.plainCallback { requestDismiss() }
         }
         val callbackToRegister = predictiveBackCallback
         // 注册必须发生在 show() **之后**，见下面 registerBackCallback 的说明；
-        // 记住当时那个 dispatcher，注销才对得上同一个对象。
-        var registeredBackDispatcher: android.window.OnBackInvokedDispatcher? = null
+        // 记住当时那个 dispatcher，注销才对得上同一个对象。类型同样必须是 `Any?`：
+        // 这个 var 正是 2026-09-11 那次崩溃里被 dismiss 回调捕获、把
+        // OnBackInvokedDispatcher 带进字节码的那一个。
+        var registeredBackDispatcher: Any? = null
         /**
          * 把系统返回（手势与三键）接到项目自己的退场动画上。
          *
@@ -2486,12 +2482,7 @@ class MainActivity : SkinnedActivity() {
             if (callbackToRegister == null || !AndroidVersion.isAtLeast(AndroidVersion.T)) return
             if (registeredBackDispatcher != null) return
             runCatching {
-                val dispatcher = dialog.onBackInvokedDispatcher
-                dispatcher.registerOnBackInvokedCallback(
-                    android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
-                    callbackToRegister
-                )
-                registeredBackDispatcher = dispatcher
+                registeredBackDispatcher = PredictiveBackApi33.register(dialog, callbackToRegister)
             }.onFailure {
                 Log.e(
                     "BilibiliInnocentLab",
@@ -2523,12 +2514,15 @@ class MainActivity : SkinnedActivity() {
             dialogAnchoredClosers.remove(dialog)
             if (activeConfirmDialog === dialog) activeConfirmDialog = null
             val callback = predictiveBackCallback
-            // 注销要冲着**当时注册成功的那个** dispatcher；窗口已 detach 时
-            // `dialog.onBackInvokedDispatcher` 可能已经换了对象或直接抛。
+            // 注销要冲着**当时注册成功的那个** dispatcher；窗口已 detach 时重新向
+            // dialog 取一次，可能拿到换过的对象、也可能直接抛。取的动作本身在
+            // PredictiveBackApi33 里，这个函数不许再出现（有单测盯着）。
             val dispatcher = registeredBackDispatcher
-            if (callback != null && dispatcher != null) {
+            // 两个都非空只可能发生在 API 33+（注册路径本身就压在 SDK 判断后面），
+            // 但 SDK 判断仍要显式写出来：它决定 PredictiveBackApi33 这个类会不会被加载。
+            if (callback != null && dispatcher != null && AndroidVersion.isAtLeast(AndroidVersion.T)) {
                 registeredBackDispatcher = null
-                runCatching { dispatcher.unregisterOnBackInvokedCallback(callback) }
+                runCatching { PredictiveBackApi33.unregister(dispatcher, callback) }
             }
             if (releaseHighlightsDialog === dialog) {
                 releaseHighlightsDialog = null

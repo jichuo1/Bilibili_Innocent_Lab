@@ -106,7 +106,11 @@ class BubbleLayerIntegrationTest {
         assertEquals(-1, present.substring(0, show).indexOf(".registerOnBackInvokedCallback("))
         // 注销必须冲着当时注册成功的那个 dispatcher，而不是重新取一次
         assertTrue(present.contains("val dispatcher = registeredBackDispatcher"))
-        assertTrue(present.contains("dispatcher.unregisterOnBackInvokedCallback(callback)"))
+        assertTrue(present.contains("PredictiveBackApi33.unregister(dispatcher, callback)"))
+        // "不许重新取一次"现在可以正面断言：取 dispatcher 的动作整体搬进了隔离层，
+        // 这个函数里不该再出现它（2026-09-11 的 NoClassDefFoundError 修复，API 33
+        // 类型只许留在 PredictiveBackApi33 里）。
+        assertEquals(-1, present.indexOf("onBackInvokedDispatcher"))
         // 失败不许再静默
         assertTrue(present.contains("register OnBackInvokedCallback failed"))
         // 三键/按键回退路径保留
