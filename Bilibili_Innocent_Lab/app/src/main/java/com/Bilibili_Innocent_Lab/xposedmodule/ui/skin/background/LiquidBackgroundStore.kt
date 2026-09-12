@@ -6,7 +6,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.media.ExifInterface
@@ -264,7 +263,7 @@ internal object LiquidBackgroundStore {
         }
         val target = LiquidBackgroundSizingPolicy.resolveNormalizedSize(bounds.first, bounds.second)
         val decoded = if (Build.VERSION.SDK_INT >= 28) {
-            decodeApi28(file)
+            LiquidImageDecoderApi28.decode(file)
         } else {
             decodeApi27(file, target)
         } ?: return NormalizeResult(null, LiquidBackgroundImportFailure.UNSUPPORTED_IMAGE)
@@ -290,19 +289,6 @@ internal object LiquidBackgroundStore {
         }
         return NormalizeResult(scaled, null)
     }
-
-    @SuppressLint("NewApi")
-    private fun decodeApi28(file: File): Bitmap? = runCatching {
-        ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
-            val orientedSize = LiquidBackgroundSizingPolicy.resolveNormalizedSize(
-                info.size.width,
-                info.size.height
-            )
-            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-            decoder.memorySizePolicy = ImageDecoder.MEMORY_POLICY_LOW_RAM
-            decoder.setTargetSize(orientedSize.width, orientedSize.height)
-        }
-    }.getOrNull()
 
     @Suppress("DEPRECATION")
     private fun decodeApi27(file: File, target: LiquidNormalizedImageSize): Bitmap? {
