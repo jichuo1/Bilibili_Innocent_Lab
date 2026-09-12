@@ -101,7 +101,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentScanEntr
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSelectionCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshotCodec
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ExactRuleSetCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.RuleSetCodec
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TidBlocklistCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AndroidUserSpace
@@ -263,6 +265,9 @@ class MainActivity : SkinnedActivity() {
     internal var removeHomeRecommendGamePromotions = false
     private var homeRecommendTitleFilterEnabled = false
     private var homeRecommendTitleKeywords = ""
+    private var homeRecommendBlockedTids = ""
+    private var videoRelateBlockedAuthors = ""
+    private var videoRelateBlockedTags = ""
     internal var removeHomeRecommendLive = false
     internal var removeHomeRecommendCourses = false
     internal var removeHomeRecommendVertical = false
@@ -389,6 +394,9 @@ class MainActivity : SkinnedActivity() {
     private var playerDefaultSpeedSummary: NativeTextView? = null
     private var homeTabRulesSummaryView: NativeTextView? = null
     private var homeRecommendTitleSummaryView: NativeTextView? = null
+    private var homeRecommendBlockedTidsSummaryView: NativeTextView? = null
+    private var videoRelateBlockedAuthorsSummaryView: NativeTextView? = null
+    private var videoRelateBlockedTagsSummaryView: NativeTextView? = null
     private var homeRecommendFilterEntryView: View? = null
     internal var homeRecommendFilterSummaryView: NativeTextView? = null
     private var homeComponentRulesSummaryView: NativeTextView? = null
@@ -3807,6 +3815,9 @@ class MainActivity : SkinnedActivity() {
         playerDefaultSpeedSummary = null
         homeTabRulesSummaryView = null
         homeRecommendTitleSummaryView = null
+        homeRecommendBlockedTidsSummaryView = null
+        videoRelateBlockedAuthorsSummaryView = null
+        videoRelateBlockedTagsSummaryView = null
         homeRecommendFilterEntryView = null
         homeRecommendFilterSummaryView = null
         homeComponentRulesSummaryView = null
@@ -3920,6 +3931,9 @@ class MainActivity : SkinnedActivity() {
         removeHomeRecommendGamePromotions = uiSettings.bool(FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS)
         homeRecommendTitleFilterEnabled = uiSettings.bool(FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_ENABLED)
         homeRecommendTitleKeywords = uiSettings.string(FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_KEYWORDS)
+        homeRecommendBlockedTids = uiSettings.string(FeaturePreferences.HOME_RECOMMEND_BLOCKED_TIDS)
+        videoRelateBlockedAuthors = uiSettings.string(FeaturePreferences.VIDEO_RELATE_BLOCKED_AUTHORS)
+        videoRelateBlockedTags = uiSettings.string(FeaturePreferences.VIDEO_RELATE_BLOCKED_TAGS)
         removeHomeRecommendLive = uiSettings.bool(FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE)
         removeHomeRecommendCourses = uiSettings.bool(FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES)
         removeHomeRecommendVertical = uiSettings.bool(FeaturePreferences.REMOVE_HOME_RECOMMEND_VERTICAL)
@@ -5289,7 +5303,7 @@ class MainActivity : SkinnedActivity() {
                             updatePadding(horizontal = 0.dp, vertical = 9.dp)
                             isClickable = true
                             isFocusable = true
-                            setOnClickListener { showSkinSelectionDialog() }
+                            setOnClickListener { showSkinSelectionDialog(it) }
                         }
                     ) {
                         TextView(
@@ -5333,7 +5347,7 @@ class MainActivity : SkinnedActivity() {
                             updatePadding(horizontal = 0.dp, vertical = 9.dp)
                             isClickable = true
                             isFocusable = true
-                            setOnClickListener { showLiquidBackgroundDialog() }
+                            setOnClickListener { showLiquidBackgroundDialog(it) }
                         }
                     ) {
                         TextView(
@@ -5736,7 +5750,7 @@ class MainActivity : SkinnedActivity() {
                             // 解析为不透明实心 drawable，整行盖住内容 →「只剩空位但可点击」
                             background = selfRippleBackground(10f)
                             updatePadding(horizontal = 0.dp, vertical = 9.dp)
-                            setOnClickListener { showAdaptConfirmDialog() }
+                            setOnClickListener { showAdaptConfirmDialog(it) }
                         }
                     ) {
                         ImageView(
@@ -6620,7 +6634,8 @@ class MainActivity : SkinnedActivity() {
             isFocusable = true
             setOnClickListener {
                 showRuleEditorDialog(
-                    R.string.comment_keyword_dialog_title,
+                    // 标题复用来源行的 string，否则 ModalTitleMotion 配不上（见该文件类注释）。
+                    R.string.comment_keyword_rules,
                     R.string.comment_keyword_dialog_hint,
                     commentFilterKeywords,
                     anchor = it
@@ -6789,7 +6804,7 @@ class MainActivity : SkinnedActivity() {
             isFocusable = true
             setOnClickListener {
                 showRuleEditorDialog(
-                    R.string.comment_user_filter_dialog_title,
+                    R.string.comment_user_filter_rules,
                     R.string.comment_user_filter_dialog_hint,
                     commentUserFilterRules,
                     anchor = it
@@ -7359,6 +7374,92 @@ class MainActivity : SkinnedActivity() {
                 imageTintList = stateColorResource(R.color.colorTextGray)
             }
         }
+        // 详情页没有分区 id，"按分区过滤"在这里退到 UP 主与标签两档；判据是整串相等。
+        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            videoRelateBlockedAuthorsSummaryView = this
+            text = ruleEntryText(
+                R.string.video_relate_blocked_authors,
+                R.string.video_relate_blocked_authors_empty,
+                R.string.video_relate_blocked_authors_current,
+                videoRelateBlockedAuthors
+            )
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.END
+            setLineSpacing(5f, 1f)
+            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+            background = selfRippleBackground(10f)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                showRuleEditorDialog(
+                    R.string.video_relate_blocked_authors,
+                    R.string.video_relate_blocked_authors_hint,
+                    videoRelateBlockedAuthors,
+                    anchor = it
+                ) { value ->
+                    val normalized = ExactRuleSetCodec.encode(ExactRuleSetCodec.parse(value))
+                    videoRelateBlockedAuthors = normalized
+                    prefs().edit {
+                        putString(FeaturePreferences.VIDEO_RELATE_BLOCKED_AUTHORS, normalized)
+                    }
+                    videoRelateBlockedAuthorsSummaryView?.text = ruleEntryText(
+                        R.string.video_relate_blocked_authors,
+                        R.string.video_relate_blocked_authors_empty,
+                        R.string.video_relate_blocked_authors_current,
+                        normalized
+                    )
+                }
+            }
+        }
+        TextView(
+            lparams = LayoutParams(widthMatchParent = true) { topMargin = 4.dp }
+        ) {
+            videoRelateBlockedTagsSummaryView = this
+            text = ruleEntryText(
+                R.string.video_relate_blocked_tags,
+                R.string.video_relate_blocked_tags_empty,
+                R.string.video_relate_blocked_tags_current,
+                videoRelateBlockedTags
+            )
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.END
+            setLineSpacing(5f, 1f)
+            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+            background = selfRippleBackground(10f)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                showRuleEditorDialog(
+                    R.string.video_relate_blocked_tags,
+                    R.string.video_relate_blocked_tags_hint,
+                    videoRelateBlockedTags,
+                    anchor = it
+                ) { value ->
+                    val normalized = ExactRuleSetCodec.encode(ExactRuleSetCodec.parse(value))
+                    videoRelateBlockedTags = normalized
+                    prefs().edit {
+                        putString(FeaturePreferences.VIDEO_RELATE_BLOCKED_TAGS, normalized)
+                    }
+                    videoRelateBlockedTagsSummaryView?.text = ruleEntryText(
+                        R.string.video_relate_blocked_tags,
+                        R.string.video_relate_blocked_tags_empty,
+                        R.string.video_relate_blocked_tags_current,
+                        normalized
+                    )
+                }
+            }
+        }
+        TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 4.dp }) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.video_relate_blocked_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
         // 弹幕净化：内容流（DmSegMobileReply）侧的权重与会员彩字，
         // 与播放器互动组件（指令弹幕/角标）分属两条链路，各自独立开关。
         MaterialSwitch(
@@ -7724,7 +7825,7 @@ class MainActivity : SkinnedActivity() {
             isFocusable = true
             setOnClickListener {
                 showRuleEditorDialog(
-                    R.string.search_keyword_dialog_title,
+                    R.string.search_keyword_rules,
                     R.string.search_keyword_dialog_hint,
                     searchFilterKeywords,
                     anchor = it
@@ -7804,7 +7905,7 @@ class MainActivity : SkinnedActivity() {
             isFocusable = true
             setOnClickListener {
                 showRuleEditorDialog(
-                    R.string.search_author_filter_dialog_title,
+                    R.string.search_author_filter_rules,
                     R.string.search_author_filter_dialog_hint,
                     searchAuthorFilterRules,
                     anchor = it
@@ -8026,7 +8127,7 @@ class MainActivity : SkinnedActivity() {
             isFocusable = true
             setOnClickListener {
                 showRuleEditorDialog(
-                    R.string.dynamic_keyword_dialog_title,
+                    R.string.dynamic_keyword_rules,
                     R.string.dynamic_keyword_dialog_hint,
                     dynamicFilterKeywords,
                     anchor = it
@@ -8106,7 +8207,7 @@ class MainActivity : SkinnedActivity() {
             isFocusable = true
             setOnClickListener {
                 showRuleEditorDialog(
-                    R.string.dynamic_author_filter_dialog_title,
+                    R.string.dynamic_author_filter_rules,
                     R.string.dynamic_author_filter_dialog_hint,
                     dynamicAuthorFilterRules,
                     anchor = it
@@ -8622,7 +8723,9 @@ class MainActivity : SkinnedActivity() {
             isFocusable = true
             setOnClickListener {
                 showRuleEditorDialog(
-                    R.string.home_recommend_title_dialog_title,
+                    // 文案本来就与来源行相同（所以这处平移一直是好的），
+                    // 改成直接复用同一个 string，免得将来改文案时只改一边。
+                    R.string.home_recommend_title_rules,
                     R.string.home_recommend_title_dialog_hint,
                     homeRecommendTitleKeywords,
                     anchor = it
@@ -8646,6 +8749,60 @@ class MainActivity : SkinnedActivity() {
                             }
                 }
             }
+        }
+        TextView(
+            lparams = LayoutParams(widthMatchParent = true)
+        ) {
+            homeRecommendBlockedTidsSummaryView = this
+            text = ruleEntryText(
+                R.string.home_recommend_blocked_tids,
+                R.string.home_recommend_blocked_tids_empty,
+                R.string.home_recommend_blocked_tids_current,
+                homeRecommendBlockedTids
+            )
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.END
+            setLineSpacing(5f, 1f)
+            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+            background = selfRippleBackground(10f)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                showRuleEditorDialog(
+                    R.string.home_recommend_blocked_tids,
+                    R.string.home_recommend_blocked_tids_hint,
+                    homeRecommendBlockedTids,
+                    anchor = it
+                ) { value ->
+                    // 落库前先规范化：手填的非法项与重复项在这里就清掉，
+                    // 免得摘要显示一堆过滤链根本不认的内容。
+                    val normalized = TidBlocklistCodec.encode(TidBlocklistCodec.parse(value))
+                    homeRecommendBlockedTids = normalized
+                    prefs().edit {
+                        putString(
+                            FeaturePreferences.HOME_RECOMMEND_BLOCKED_TIDS,
+                            normalized
+                        )
+                    }
+                    homeRecommendBlockedTidsSummaryView?.text = ruleEntryText(
+                        R.string.home_recommend_blocked_tids,
+                        R.string.home_recommend_blocked_tids_empty,
+                        R.string.home_recommend_blocked_tids_current,
+                        normalized
+                    )
+                }
+            }
+        }
+        TextView(
+            lparams = LayoutParams(widthMatchParent = true)
+        ) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.home_recommend_blocked_tids_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
         }
         TextView(
             lparams = LayoutParams(widthMatchParent = true)

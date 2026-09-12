@@ -57,7 +57,7 @@ import android.widget.TextView as NativeTextView
  */
 
 /** 界面皮肤单选弹窗；只在同步持久化成功后退场并重建 Activity。 */
-internal fun MainActivity.showSkinSelectionDialog() {
+internal fun MainActivity.showSkinSelectionDialog(anchor: View? = null) {
     val density = resources.displayMetrics.density
     val dialog = Dialog(this)
     val container = createModalContainer()
@@ -66,7 +66,8 @@ internal fun MainActivity.showSkinSelectionDialog() {
 
     container.addView(
         NativeTextView(this).apply {
-            text = getString(R.string.skin_dialog_title)
+            // 复用来源行的 string（文字平移要求），见 ModalTitleMotion。
+            text = getString(R.string.skin_setting_title)
             textColor = getColor(R.color.colorTextDark)
             textSize = 17f
             setLineSpacing(4 * density, 1f)
@@ -141,11 +142,11 @@ internal fun MainActivity.showSkinSelectionDialog() {
         ).apply { topMargin = (18 * density).toInt() }
     )
 
-    presentModalDialog(dialog, container)
+    presentModalDialog(dialog, container, anchor)
 }
 
 /** 实验性功能中的自定义背景配置；选择器只授权单个 image URI，不申请媒体库权限。 */
-internal fun MainActivity.showLiquidBackgroundDialog() {
+internal fun MainActivity.showLiquidBackgroundDialog(anchor: View? = null) {
     val activity = this
     if (liquidBackgroundImportInProgress) return
     val density = resources.displayMetrics.density
@@ -156,7 +157,8 @@ internal fun MainActivity.showLiquidBackgroundDialog() {
     liquidBackgroundDialogContainer = container
     container.addView(
         NativeTextView(this).apply {
-            text = getString(R.string.liquid_background_dialog_title)
+            // 复用来源行的 string（文字平移要求）。
+            text = getString(R.string.liquid_background_setting_title)
             textColor = getColor(R.color.colorTextDark)
             textSize = 17f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -308,7 +310,7 @@ internal fun MainActivity.showLiquidBackgroundDialog() {
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = (16 * density).toInt() }
     )
-    presentModalDialog(dialog, container)
+    presentModalDialog(dialog, container, anchor)
     dialog.setOnDismissListener {
         if (activeConfirmDialog === dialog) activeConfirmDialog = null
         if (liquidBackgroundDialog === dialog) {

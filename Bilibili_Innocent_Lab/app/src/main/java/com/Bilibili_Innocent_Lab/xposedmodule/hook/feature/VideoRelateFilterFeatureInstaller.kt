@@ -17,7 +17,11 @@ internal class VideoRelateFilterFeatureInstaller(
     private val strongModeEnabled: Boolean = false,
     private val reasonFilterEnabled: Boolean = false,
     rawReasonKeywords: String = "",
-    private val points: VersionAdapter.VideoRelatePoints?
+    private val points: VersionAdapter.VideoRelatePoints?,
+    /** 作者黑名单（UP 名或 mid，整串相等）。 */
+    rawBlockedAuthors: String = "",
+    /** 标签黑名单（分区标签，整串相等）。 */
+    rawBlockedTags: String = ""
 ) : FeatureInstaller {
 
     private val durationRange = VideoDurationRange(minDurationSeconds, maxDurationSeconds)
@@ -26,6 +30,8 @@ internal class VideoRelateFilterFeatureInstaller(
     } else {
         emptySet()
     }
+    private val blockedAuthors = ExactRuleSetCodec.parse(rawBlockedAuthors)
+    private val blockedTags = ExactRuleSetCodec.parse(rawBlockedTags)
 
     override val id: String = ID
     override val capabilityIds: List<String> get() = buildList {
@@ -38,6 +44,8 @@ internal class VideoRelateFilterFeatureInstaller(
         if (matchingEnhancementEnabled && strongModeEnabled) add("video_related_strong_mode_enabled")
         if (customReasonKeywords.isNotEmpty()) add("video_related_reason_filter_enabled")
         if (durationRange.isEnabled) add("video_related_duration_filter")
+        if (blockedAuthors.isNotEmpty()) add("video_related_author_block")
+        if (blockedTags.isNotEmpty()) add("video_related_tag_block")
     }
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
@@ -61,7 +69,10 @@ internal class VideoRelateFilterFeatureInstaller(
                     "min=${durationRange.minSeconds},max=${durationRange.maxSeconds}"
             )
         }
-        if (normalizedHidden.isEmpty() && !durationRange.isEnabled && !reasonFilteringActive) {
+        // 作者/标签名单也算"开着"，否则只设名单不勾类型时整个功能会被判 disabled。
+        if (normalizedHidden.isEmpty() && !durationRange.isEnabled && !reasonFilteringActive &&
+            blockedAuthors.isEmpty() && blockedTags.isEmpty()
+        ) {
             val reason = if (durationRange.isConfigured && !durationRange.isValid) {
                 "invalid-duration-range"
             } else {
@@ -135,6 +146,16 @@ internal class VideoRelateFilterFeatureInstaller(
             relateTypeValueEvidence.isNotEmpty()
         val durationPaths = resolveDurationPaths(environment, adapted)
         val reasonPaths = resolveReasonPaths(environment, adapted, reasonFilteringActive)
+        // 作者名与 mid 合成同一组链：两者都按字符串比，用户填名或填 mid 都能命中。
+        val authorPaths = resolveChainPaths(
+            environment,
+            adapted.authorNameChains + adapted.authorMidChains,
+            "author",
+            blockedAuthors.isNotEmpty()
+        )
+        val tagPaths = resolveChainPaths(
+            environment, adapted.tagNameChains, "tag", blockedTags.isNotEmpty()
+        )
         val commercialEvidencePaths = resolveCommercialEvidencePaths(
             environment,
             adapted,
@@ -169,6 +190,23 @@ internal class VideoRelateFilterFeatureInstaller(
             environment.logError(
                 "video_relate_reason_missing",
                 "[BIL] 详情页结构化推荐理由读取适配不完整，按当前模式继续处理"
+            )
+        }
+
+        // 名单非空却读不到对应字段：必须报 partial，否则每张卡都拿空值、
+        // 静默变成"从不命中"，用户只会看到"设了名单但没生效"而状态一路 success。
+        if (blockedAuthors.isNotEmpty() && authorPaths.isEmpty()) {
+            partialReasons += "missing-author-accessor"
+            environment.logError(
+                "video_relate_author_missing",
+                "[BIL] 详情页作者读取适配不完整，作者档不生效，其余判据继续"
+            )
+        }
+        if (blockedTags.isNotEmpty() && tagPaths.isEmpty()) {
+            partialReasons += "missing-tag-accessor"
+            environment.logError(
+                "video_relate_tag_missing",
+                "[BIL] 详情页标签读取适配不完整，标签档不生效，其余判据继续"
             )
         }
 
@@ -218,6 +256,14 @@ internal class VideoRelateFilterFeatureInstaller(
                 false
             }
             if (typeMatched) return@filter true
+            // 作者与标签是独立维度：整串相等，读不到一律放行。
+            // 放在类型之后、时长之前，判据互不依赖，谁缺失都不影响其余档。
+            if (blockedAuthors.isNotEmpty() && ExactRuleSetCodec.matches(
+                    blockedAuthors, *readTexts(item, authorPaths).toTypedArray()
+                )) return@filter true
+            if (blockedTags.isNotEmpty() && ExactRuleSetCodec.matches(
+                    blockedTags, *readTexts(item, tagPaths).toTypedArray()
+                )) return@filter true
             if (durationRange.shouldRemove(
                     VideoDurationReader.fromMethods(item, durationPaths)
                 )) return@filter true
@@ -347,6 +393,8 @@ internal class VideoRelateFilterFeatureInstaller(
                     (promotionReasonEnhancementActive && reasonPaths.isNotEmpty()) ||
                         (customReasonKeywords.isNotEmpty() && reasonPaths.isNotEmpty()) || strongModeActive
                 "video_related_strong_mode_enabled" -> strongModeActive
+                "video_related_author_block" -> authorPaths.isNotEmpty()
+                "video_related_tag_block" -> tagPaths.isNotEmpty()
                 else -> hasTypeEvidence
             }
             // Strong mode's fallbacks are intentional, but missing readable inputs are still partial coverage.
@@ -545,6 +593,44 @@ internal class VideoRelateFilterFeatureInstaller(
             methods.filterNotNull()
         }
         return VideoRelateReasonReader.buildMethodPaths(chains)
+    }
+
+    /** 与 reason/commercial 同模式的链解析；任一级解析不到就丢掉整条链。 */
+    private fun resolveChainPaths(
+        environment: HookEnvironment,
+        chains: List<VersionAdapter.ReasonMethodChain>,
+        tag: String,
+        enabled: Boolean
+    ): List<List<Method>> {
+        if (!enabled) return emptyList()
+        return chains.mapIndexedNotNull { chainIndex, chain ->
+            val methods = chain.steps.mapIndexed { stepIndex, point ->
+                resolve(environment, "$tag.$chainIndex.$stepIndex", point)
+            }
+            if (methods.any { it == null }) null else methods.filterNotNull()
+        }
+    }
+
+    /**
+     * 走链取值。任一级为 null、接收者类型不匹配或调用抛出，就跳过这条链——
+     * **绝不回退到 toString 或标题**，那会把无关文本喂进整串相等的判据里。
+     * 数值（作者 mid）按十进制字符串出口，与用户填的 mid 直接可比。
+     */
+    private fun readTexts(item: Any, paths: List<List<Method>>): List<String> {
+        if (paths.isEmpty()) return emptyList()
+        return paths.mapNotNull { methods ->
+            var current: Any? = item
+            for (method in methods) {
+                val receiver = current ?: return@mapNotNull null
+                if (!method.declaringClass.isInstance(receiver)) return@mapNotNull null
+                current = runCatching { method.invoke(receiver) }.getOrNull()
+            }
+            when (val value = current) {
+                is CharSequence -> value.toString().takeIf { it.isNotBlank() }
+                is Number -> value.toLong().takeIf { it > 0L }?.toString()
+                else -> null
+            }
+        }
     }
 
     private fun resolveCommercialEvidencePaths(

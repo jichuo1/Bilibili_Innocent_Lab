@@ -3032,7 +3032,11 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.RECOMMEND_VIDEO_MAX_DURATION_SECONDS,
                             0
                         ),
-                        points = hostAdaptResult?.homeRecommendFeed
+                        points = hostAdaptResult?.homeRecommendFeed,
+                        rawBlockedTids = prefs.getString(
+                            FeaturePreferences.HOME_RECOMMEND_BLOCKED_TIDS,
+                            ""
+                        ).orEmpty()
                     )
                 )
             )
@@ -3261,7 +3265,15 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.VIDEO_RELATE_REASON_FILTER_KEYWORDS,
                             ""
                         ).orEmpty(),
-                        points = hostAdaptResult?.videoRelate
+                        points = hostAdaptResult?.videoRelate,
+                        rawBlockedAuthors = prefs.getString(
+                            FeaturePreferences.VIDEO_RELATE_BLOCKED_AUTHORS,
+                            ""
+                        ).orEmpty(),
+                        rawBlockedTags = prefs.getString(
+                            FeaturePreferences.VIDEO_RELATE_BLOCKED_TAGS,
+                            ""
+                        ).orEmpty()
                     )
                 )
             )

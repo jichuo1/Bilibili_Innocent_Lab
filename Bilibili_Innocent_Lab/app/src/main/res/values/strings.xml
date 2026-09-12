@@ -133,7 +133,11 @@
     <string name="home_recommend_title_rules">Recommendation title keywords</string>
     <string name="home_recommend_title_rules_empty">No keywords configured; tap to edit</string>
     <string name="home_recommend_title_rules_current">Current keywords: %1$s</string>
-    <string name="home_recommend_title_dialog_title">Recommendation title keywords</string>
+    <string name="home_recommend_blocked_tids">Filter recommendations by section</string>
+    <string name="home_recommend_blocked_tids_empty">No sections blocked; tap to edit</string>
+    <string name="home_recommend_blocked_tids_current">Blocked sections: %1$s</string>
+    <string name="home_recommend_blocked_tids_hint">Section ids separated by commas, for example 163,29413</string>
+    <string name="home_recommend_blocked_tids_tip">Cards whose section id is on the list are removed from the recommendation feed. Cards without a section, such as anime, are always kept. Restart Bilibili to apply.</string>
     <string name="home_recommend_title_dialog_hint">Example: compilation, reaction</string>
     <string name="remove_home_recommend_live">Filter live recommendations</string>
     <string name="remove_home_recommend_courses">Filter course recommendations</string>
@@ -302,6 +306,15 @@
     <string name="video_relate_reason_filter">Filter videos by recommendation reason</string>
     <string name="video_relate_reason_filter_tip">Applies your keywords only to structured recommendation reasons. Missing reason fields are kept.</string>
     <string name="video_relate_reason_filter_keywords">Recommendation reason keywords</string>
+    <string name="video_relate_blocked_authors">Filter related videos by uploader</string>
+    <string name="video_relate_blocked_authors_empty">No uploaders blocked; tap to edit</string>
+    <string name="video_relate_blocked_authors_current">Blocked uploaders: %1$s</string>
+    <string name="video_relate_blocked_authors_hint">Uploader names or mids separated by commas</string>
+    <string name="video_relate_blocked_tags">Filter related videos by tag</string>
+    <string name="video_relate_blocked_tags_empty">No tags blocked; tap to edit</string>
+    <string name="video_relate_blocked_tags_current">Blocked tags: %1$s</string>
+    <string name="video_relate_blocked_tags_hint">Tags separated by commas</string>
+    <string name="video_relate_blocked_tip">Related cards are removed when the uploader or tag matches an entry exactly. The detail page protocol carries no section id, so these two lists replace it there. Cards without an uploader or tag are always kept.</string>
     <string name="video_relate_reason_filter_keywords_hint">One per line or separated by commas, for example: Sponsored\nOpen mini program\nDownload now</string>
     <string name="player_default_quality">Default playback quality</string>
     <string name="player_default_quality_tip">Choose the preferred quality when playback starts. This does not unlock paid quality, and unavailable quality is adjusted automatically. Restart Bilibili to apply.</string>
@@ -333,7 +346,6 @@
     <string name="comment_keyword_rules">Comment keywords</string>
     <string name="comment_keyword_rules_empty">No keywords configured; tap to edit</string>
     <string name="comment_keyword_rules_current">Current: %1$s</string>
-    <string name="comment_keyword_dialog_title">Edit comment keywords</string>
     <string name="comment_keyword_dialog_hint">Separate with commas, semicolons, or new lines; up to 64 entries</string>
     <string name="comment_keyword_filter_tip">When enabled, hides comments and replies containing any keyword. Matching ignores case. Restart Bilibili to apply.</string>
     <string name="comment_min_level_filter">Filter comments by user level</string>
@@ -379,7 +391,6 @@
     <string name="skin_current_material_you">Current: Material You</string>
     <string name="skin_current_liquid">Current: Liquid Glass (experimental) · %1$s</string>
     <string name="skin_setting_tip">This setting changes only the module interface and does not alter Hook features or their configuration.</string>
-    <string name="skin_dialog_title">Choose interface appearance</string>
     <string name="skin_material_title">Material You (recommended)</string>
     <string name="skin_material_desc">Uses the existing dynamic color appearance and remains the stable default.</string>
     <string name="skin_liquid_title">Liquid Glass (experimental)</string>
@@ -398,7 +409,6 @@
     <string name="liquid_background_summary_active">Custom image is active</string>
     <string name="liquid_background_summary_saved">Custom image saved; switch to Liquid Glass to use it</string>
     <string name="liquid_background_summary_unavailable">Custom image is unavailable; automatic background will be used</string>
-    <string name="liquid_background_dialog_title">Configure Liquid Glass background</string>
     <string name="liquid_background_dialog_description">Choose a local image for the interface underlay. The root background and glass surfaces will sample the same processed image.</string>
     <string name="liquid_background_preview_description">Current custom Liquid Glass background preview</string>
     <string name="material_color_spec_title">Use SPEC 2025</string>
@@ -739,7 +749,6 @@
     <string name="comment_user_filter_rules">Comment authors</string>
     <string name="comment_user_filter_rules_empty">No authors configured; tap to edit</string>
     <string name="comment_user_filter_rules_current">Current: %1$s</string>
-    <string name="comment_user_filter_dialog_title">Edit comment authors</string>
     <string name="comment_user_filter_dialog_hint">One UID or user name per entry; separate with commas, semicolons, or new lines. Names must match exactly.</string>
     <string name="purify_share_content">Clean up shared links</string>
     <string name="purify_share_content_tip">Strips tracking parameters from Bilibili links in the share sheet and the share text, keeping only the part and timestamp. Short links are not expanded, so no network request is made.</string>
@@ -769,14 +778,12 @@
     <string name="dynamic_keyword_rules">Dynamic keywords</string>
     <string name="dynamic_keyword_rules_empty">No keywords configured; tap to edit</string>
     <string name="dynamic_keyword_rules_current">Current: %1$s</string>
-    <string name="dynamic_keyword_dialog_title">Edit dynamic keywords</string>
     <string name="dynamic_keyword_dialog_hint">Separate with commas, semicolons, or new lines; up to 64 entries</string>
     <string name="dynamic_author_filter">Filter dynamics by author</string>
     <string name="dynamic_author_filter_tip">Hides dynamics from the listed authors, including forwarded ones. Dynamics are kept when the author cannot be identified. Restart Bilibili to apply.</string>
     <string name="dynamic_author_filter_rules">Dynamic authors</string>
     <string name="dynamic_author_filter_rules_empty">No authors configured; tap to edit</string>
     <string name="dynamic_author_filter_rules_current">Current: %1$s</string>
-    <string name="dynamic_author_filter_dialog_title">Edit dynamic authors</string>
     <string name="dynamic_author_filter_dialog_hint">One UID or user name per entry; separate with commas, semicolons, or new lines. Names must match exactly.</string>
     <string name="remove_dynamic_promotions">Hide shopping and recommendation cards</string>
     <string name="remove_dynamic_promotions_tip">Hides dynamics carrying a shopping card or an "recommended UP" attachment. The judgement uses the attachment type sent by Bilibili, not the wording. Restart Bilibili to apply.</string>
@@ -795,14 +802,12 @@
     <string name="search_keyword_rules">Search keywords</string>
     <string name="search_keyword_rules_empty">No keywords configured; tap to edit</string>
     <string name="search_keyword_rules_current">Current: %1$s</string>
-    <string name="search_keyword_dialog_title">Edit search keywords</string>
     <string name="search_keyword_dialog_hint">Separate with commas, semicolons, or new lines; up to 64 entries</string>
     <string name="search_author_filter">Filter search results by author</string>
     <string name="search_author_filter_tip">Hides video results from the listed authors. Only video cards are filtered; results are kept when the author cannot be identified. Restart Bilibili to apply.</string>
     <string name="search_author_filter_rules">Search authors</string>
     <string name="search_author_filter_rules_empty">No authors configured; tap to edit</string>
     <string name="search_author_filter_rules_current">Current: %1$s</string>
-    <string name="search_author_filter_dialog_title">Edit search authors</string>
     <string name="search_author_filter_dialog_hint">One UID or user name per entry; separate with commas, semicolons, or new lines. Names must match exactly.</string>
     <string name="diagnostics_host_feature_dynamic_feed">Dynamic feed filtering</string>
     <string name="diagnostics_host_feature_search">Search result filtering</string>
@@ -874,5 +879,7 @@
     <string name="highlights_speed">Apply a default speed to new videos while preserving manual and temporary long-press speeds.</string>
     <string name="highlights_interactive">Improve interactive-overlay response coverage while preserving regular danmaku and chapter data.</string>
     <string name="highlights_stability_title">Compatibility and stability</string>
+    <string name="highlights_home_blocked_tids">Block a whole section from the recommendation feed by its id. Cards without a section are always kept.</string>
+    <string name="highlights_video_relate_blocked_authors">Block an uploader or a tag from the related video list. The detail page has no section id, so these replace it there.</string>
     <string name="highlights_stability">Improve partial adaptation and error handling so missing paths do not disable unrelated features.</string>
 </resources>

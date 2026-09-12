@@ -7,10 +7,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsCatalogTest {
+    @Test fun `catalog v19 adds the recommendation section blocklist`() {
+        val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v19.txt"))
+            .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 19 }
+        assertEquals(
+            listOf(
+                "home.recommend.blocked_tids",
+                "video.related.blocked_authors",
+                "video.related.blocked_tags"
+            ),
+            added.map { it.id }.sorted()
+        )
+        // 三条都是 Text：授权链只搬 Bool/Int/Text，集合型偏好过不了那一层。
+        added.forEach { assertEquals(SettingValue.Text(""), it.defaultValue) }
+        added.forEach { assertEquals(RestorePolicy.AUTOMATIC, it.restorePolicy) }
+        added.forEach { assertTrue(ImportEffect.RESTART_BILIBILI in it.effects) }
+    }
+
     @Test fun `catalog v18 adds seven default off detail component settings`() {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v18.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
-        assertEquals(expected, SettingsCatalog.specs.map { it.id }.sorted())
+        // 上一版 golden 只能比"截至 v18 的集合"，否则每加一个新设置都会顶红。
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 18 }.map { it.id }.sorted())
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 18 }
         assertEquals(
             listOf(
@@ -66,11 +86,11 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog is a unique allowlist with 131 settings`() {
-        assertEquals(131, SettingsCatalog.specs.size)
-        assertEquals(131, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(131, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(130, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 134 settings`() {
+        assertEquals(134, SettingsCatalog.specs.size)
+        assertEquals(134, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(134, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(133, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(1, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -301,7 +321,7 @@ class SettingsCatalogTest {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v13.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 13 }.map { it.id }.sorted())
-        assertEquals(18, SettingsCatalog.CATALOG_VERSION)
+        assertEquals(19, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 13 }
         assertEquals(6, added.size)
         assertTrue(added.all { it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects })
@@ -317,7 +337,7 @@ class SettingsCatalogTest {
     fun `catalog types and manual roaming boundary are explicit`() {
         assertEquals(105, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(7, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
-        assertEquals(19, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
+        assertEquals(22, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 
         val roaming = requireNotNull(SettingsCatalog.byId["compat.roaming.enabled"])
         assertEquals(RestorePolicy.MANUAL, roaming.restorePolicy)

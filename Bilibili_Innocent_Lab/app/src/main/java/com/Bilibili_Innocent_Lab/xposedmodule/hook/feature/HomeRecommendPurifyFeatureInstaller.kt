@@ -21,7 +21,9 @@ internal class HomeRecommendPurifyFeatureInstaller(
     maxDurationSeconds: Int,
     private val points: VersionAdapter.HomeRecommendFeedPoints?,
     private val removePgc: Boolean = false,
-    private val removeSpecialCards: Boolean = false
+    private val removeSpecialCards: Boolean = false,
+    /** 分区 id 黑名单的原始存储串；空串就是整个维度关闭。 */
+    rawBlockedTids: String = ""
 ) : FeatureInstaller {
 
     private val titleKeywords = if (titleFilterEnabled) {
@@ -30,6 +32,9 @@ internal class HomeRecommendPurifyFeatureInstaller(
         emptySet()
     }
     private val durationRange = VideoDurationRange(minDurationSeconds, maxDurationSeconds)
+
+    /** 没有开关，名单非空即启用——与标题关键词同模式，避免"开着但名单为空"的无意义状态。 */
+    private val blockedTids = TidBlocklistCodec.parse(rawBlockedTids)
 
     override val id: String = ID
     override val capabilityIds: List<String> get() = buildList {
@@ -46,12 +51,13 @@ internal class HomeRecommendPurifyFeatureInstaller(
         if (removePgc) add("home_recommend_pgc_removed")
         if (removeSpecialCards) add("home_recommend_special_cards_removed")
         if (durationRange.isEnabled) add("home_recommend_duration_filter")
+        if (blockedTids.isNotEmpty()) add("home_recommend_tid_block")
     }
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         val hasContentFilter = removeAds || removeCmV2 || removeBanner || removePictures || removeGamePromotions ||
             titleKeywords.isNotEmpty() || removeLive || removeCourses || removeVertical ||
-            removeLarge || removePgc || removeSpecialCards
+            removeLarge || removePgc || removeSpecialCards || blockedTids.isNotEmpty()
         if (durationRange.isConfigured && !durationRange.isValid) {
             environment.logError(
                 "home_recommend_duration_invalid",
@@ -85,7 +91,8 @@ internal class HomeRecommendPurifyFeatureInstaller(
             title = resolveOptional(environment, "title", adapted.titleGetter),
             subtitle = resolveOptional(environment, "subtitle", adapted.subtitleGetter),
             desc = resolveOptional(environment, "desc", adapted.descGetter),
-            duration = resolveDuration(environment, adapted)
+            duration = resolveDuration(environment, adapted),
+            tid = resolveTid(environment, adapted)
         )
         var partialReason: String? = null
         val extraTypesReadable = accessors.cardType != null || accessors.cardGoto != null || accessors.goTo != null
@@ -97,6 +104,16 @@ internal class HomeRecommendPurifyFeatureInstaller(
             environment.logError(
                 "home_recommend_duration_missing",
                 "[BIL] 首页推荐时长读取适配不完整，其他推荐过滤继续生效"
+            )
+        }
+        // 名单非空却读不到 tid：必须报 partial。否则每张卡都拿 null、静默变成"从不命中"，
+        // 用户只会看到"设了分区但没生效"，而状态通道一路 success。
+        if (blockedTids.isNotEmpty() && accessors.tid == null) {
+            partialReason = "missing-tid-accessor"
+            environment.logError(
+                "home_recommend_tid_missing",
+                "[BIL] 首页推荐分区读取适配不完整（args/tid 链缺失），" +
+                    "分区维度不生效，其他推荐过滤继续"
             )
         }
 
@@ -173,6 +190,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
                 "home_recommend_large_removed" -> true // required holderType is resolved above
                 "home_recommend_pgc_removed" -> extraTypesReadable || accessors.uri != null
                 "home_recommend_special_cards_removed" -> extraTypesReadable
+                "home_recommend_tid_block" -> accessors.tid != null
                 else -> routeReadable
             }
             environment.reportCapabilityCoverage(capability, readable, installed, adapted.responseItemGetters.size)
@@ -203,7 +221,9 @@ internal class HomeRecommendPurifyFeatureInstaller(
             (removeCourses && HostContentKind.COURSE in kinds) ||
             (removeVertical && HostContentKind.VERTICAL in kinds) ||
             (removeLarge && HostContentKind.LARGE in kinds) ||
-            durationRange.shouldRemove(signals.durationSeconds)
+            durationRange.shouldRemove(signals.durationSeconds) ||
+            // 分区是独立维度：精确相等，读不到 tid 放行。
+            TidBlocklistCodec.matches(blockedTids, signals.tid)
     }
 
     private fun signals(item: Any, accessors: Accessors): Signals {
@@ -256,8 +276,32 @@ internal class HomeRecommendPurifyFeatureInstaller(
                 }
             } else {
                 null
+            },
+            // 名单为空时 accessors.tid 本来就是 null，这里不会产生任何反射调用。
+            tid = accessors.tid?.let { chain ->
+                invokeCompatible(chain.argsGetter, item)?.let { args ->
+                    (invokeCompatible(chain.tidGetter, args) as? Number)?.toLong()
+                }
             }
         )
+    }
+
+    /** 名单为空时**不解析**，免得在热路径上白做两次反射查找。 */
+    private fun resolveTid(
+        environment: HookEnvironment,
+        points: VersionAdapter.HomeRecommendFeedPoints
+    ): TidAccessor? {
+        if (blockedTids.isEmpty()) return null
+        val argsPoint = points.argsGetter ?: return null
+        val tidPoint = points.argsTidGetter ?: return null
+        val argsGetter = resolve(environment, "args", argsPoint) ?: return null
+        val tidGetter = environment.hookPoints.resolveAdapted(
+            "home.recommend.resolve.args_tid",
+            tidPoint.className,
+            tidPoint.methodName,
+            tidPoint.paramClassNames
+        ) ?: return null
+        return TidAccessor(argsGetter, tidGetter)
     }
 
     private fun resolveDuration(
@@ -330,7 +374,9 @@ internal class HomeRecommendPurifyFeatureInstaller(
         val subtitle: String? = null,
         val desc: String? = null,
         val hasAdInfo: Boolean = false,
-        val durationSeconds: Long? = null
+        val durationSeconds: Long? = null,
+        /** `args.tid`；读不到就是 null，**null 一律放行**（番剧/广告卡本来就没有分区）。 */
+        val tid: Long? = null
     )
 
     private data class Accessors(
@@ -345,7 +391,14 @@ internal class HomeRecommendPurifyFeatureInstaller(
         val title: Method?,
         val subtitle: Method?,
         val desc: Method?,
-        val duration: DurationAccessor?
+        val duration: DurationAccessor?,
+        val tid: TidAccessor?
+    )
+
+    /** 两级链：容器 getter + 数值 getter，缺任一级整个维度不可用。 */
+    private data class TidAccessor(
+        val argsGetter: Method,
+        val tidGetter: Method
     )
 
     private data class DurationAccessor(

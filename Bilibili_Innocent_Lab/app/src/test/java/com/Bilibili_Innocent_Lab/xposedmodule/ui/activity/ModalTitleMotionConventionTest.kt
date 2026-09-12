@@ -67,6 +67,33 @@ class ModalTitleMotionConventionTest {
         )
     }
 
+    /**
+     * 通用编辑器的标题是**参数**，所以"面板函数体里不许出现 `*_dialog_title`"这条
+     * 拦不到它——违规发生在调用方。2026-09-12 实测 `showRuleEditorDialog` 的 7 个调用点
+     * 全都传了独立的 `*_dialog_title`（其中 6 个文案是"编辑 X"、与来源行不同）。
+     */
+    @Test fun ruleEditorCallersPassTheRowTitleNotADialogOnlyString() {
+        val activity = sequenceOf(
+            File("src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/activity/MainActivity.kt"),
+            File("app/src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/activity/MainActivity.kt")
+        ).firstOrNull(File::isFile) ?: error("找不到 MainActivity.kt")
+        val lines = activity.readLines()
+        val callSites = lines.withIndex().filter { it.value.contains("showRuleEditorDialog(") }
+        assertTrue("没扫到 showRuleEditorDialog 调用点，护栏会静默通过", callSites.size >= 5)
+        val offenders = callSites.mapNotNull { (index, _) ->
+            // 标题是第一个实参，紧跟在调用行后面（允许中间夹注释行）。
+            val titleRef = lines.drop(index + 1).take(4)
+                .firstNotNullOfOrNull { Regex("""R\.string\.(\w+)""").find(it)?.groupValues?.get(1) }
+            titleRef?.takeIf { it.endsWith("_dialog_title") }?.let { "MainActivity.kt:${index + 1} → $it" }
+        }
+        assertEquals(
+            "showRuleEditorDialog 的标题实参要传来源行那一行用的 string，不能另写一条 " +
+                "*_dialog_title——弹窗标题与来源行文案不同就配不上文字平移。",
+            emptyList<String>(),
+            offenders
+        )
+    }
+
     @Test fun theFivePanelsFixedInThisChangeStayFixed() {
         // 逐个钉死，避免将来有人"顺手"又给它们写一条独立标题。
         val expected = mapOf(

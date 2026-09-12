@@ -251,7 +251,12 @@ internal fun MainActivity.showAutoLightConfirmDialog(onConfirm: () -> Unit, onCa
  * （showRestartConfirmDialog）完全一致（模态容器 + 取消/确认按钮 + 进出动画）。
  * 确认后清除版本适配缓存（VersionAdapter.clearCache），重启 B 站后自动重新定位。
  */
-internal fun MainActivity.showAdaptConfirmDialog() {
+/**
+ * 标题刻意**不**与来源行同名：这是破坏性操作的确认框，"确认清除适配缓存？"这个问句
+ * 比复述行标题更重要。按 AGENTS.md 的约定，不同名时自动退化成只做容器形变——
+ * 这里要的正是容器形变，文字平移是主动放弃的。
+ */
+internal fun MainActivity.showAdaptConfirmDialog(anchor: View? = null) {
     val activity = this
     val density = resources.displayMetrics.density
     val dialog = Dialog(this)
@@ -328,7 +333,7 @@ internal fun MainActivity.showAdaptConfirmDialog() {
         }
     )
 
-    presentModalDialog(dialog, container)
+    presentModalDialog(dialog, container, anchor)
 }
 
 /** Hikage 属性运行时异常时提供不依赖 DSL 的可退出页面，并保留全部用户状态。 */

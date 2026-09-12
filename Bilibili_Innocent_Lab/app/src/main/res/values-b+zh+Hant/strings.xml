@@ -133,7 +133,11 @@
     <string name="home_recommend_title_rules">推薦標題關鍵字</string>
     <string name="home_recommend_title_rules_empty">目前尚未設定關鍵字，點按即可編輯</string>
     <string name="home_recommend_title_rules_current">目前關鍵字：%1$s</string>
-    <string name="home_recommend_title_dialog_title">推薦標題關鍵字</string>
+    <string name="home_recommend_blocked_tids">依分區過濾推薦</string>
+    <string name="home_recommend_blocked_tids_empty">目前尚未封鎖任何分區，點按即可編輯</string>
+    <string name="home_recommend_blocked_tids_current">已封鎖分區：%1$s</string>
+    <string name="home_recommend_blocked_tids_hint">分區 id，以逗號分隔，例如 163,29413</string>
+    <string name="home_recommend_blocked_tids_tip">分區 id 在名單內的卡片會從推薦流中移除。沒有分區的卡片（例如動畫）一律保留。請重新啟動哔哩哔哩以套用。</string>
     <string name="home_recommend_title_dialog_hint">例如：盤點, 搬運</string>
     <string name="remove_home_recommend_live">過濾直播推薦</string>
     <string name="remove_home_recommend_courses">過濾課程推薦</string>
@@ -302,6 +306,15 @@
     <string name="video_relate_reason_filter">依推薦理由過濾影片</string>
     <string name="video_relate_reason_filter_tip">開啟後，依推薦理由中的關鍵字過濾影片；理由缺少或無法讀取時保留。</string>
     <string name="video_relate_reason_filter_keywords">推薦理由過濾關鍵字</string>
+    <string name="video_relate_blocked_authors">依 UP 主過濾相關影片</string>
+    <string name="video_relate_blocked_authors_empty">目前尚未封鎖任何 UP 主，點按即可編輯</string>
+    <string name="video_relate_blocked_authors_current">已封鎖 UP 主：%1$s</string>
+    <string name="video_relate_blocked_authors_hint">UP 主名稱或 mid，以逗號分隔</string>
+    <string name="video_relate_blocked_tags">依標籤過濾相關影片</string>
+    <string name="video_relate_blocked_tags_empty">目前尚未封鎖任何標籤，點按即可編輯</string>
+    <string name="video_relate_blocked_tags_current">已封鎖標籤：%1$s</string>
+    <string name="video_relate_blocked_tags_hint">標籤，以逗號分隔</string>
+    <string name="video_relate_blocked_tip">UP 主或標籤與名單整串相同的相關影片會被移除。詳情頁協定中沒有分區 id，因此這兩項在詳情頁取代依分區過濾。沒有 UP 主或標籤的卡片一律保留。</string>
     <string name="video_relate_reason_filter_keywords_hint">每行一個或以逗號分隔，例如：創作推廣\n前往小程式\n立即下載</string>
     <string name="player_default_quality">預設播放畫質</string>
     <string name="player_default_quality_tip">選擇影片開始播放時優先使用的畫質；此功能不會解鎖付費畫質，所選畫質無法使用時仍會自動調整。重新啟動 Bilibili 後生效。</string>
@@ -333,7 +346,6 @@
     <string name="comment_keyword_rules">評論關鍵字</string>
     <string name="comment_keyword_rules_empty">尚未設定關鍵字，點按即可編輯</string>
     <string name="comment_keyword_rules_current">目前：%1$s</string>
-    <string name="comment_keyword_dialog_title">編輯評論關鍵字</string>
     <string name="comment_keyword_dialog_hint">使用半形或全形逗號、分號或換行分隔，最多 64 項</string>
     <string name="comment_keyword_filter_tip">啟用後，隱藏內容中包含任一關鍵字的評論及回覆，比對時忽略大小寫。重新啟動 Bilibili 後生效。</string>
     <string name="comment_min_level_filter">依使用者等級過濾評論</string>
@@ -379,7 +391,6 @@
     <string name="skin_current_material_you">目前：Material You</string>
     <string name="skin_current_liquid">目前：Liquid Glass（實驗性） · %1$s</string>
     <string name="skin_setting_tip">此設定只會變更模組圖形化介面的視覺效果，不影響 Hook 功能及其設定。</string>
-    <string name="skin_dialog_title">選擇介面美學</string>
     <string name="skin_material_title">Material You（建議）</string>
     <string name="skin_material_desc">沿用既有動態取色與介面呈現，是穩定的預設方案。</string>
     <string name="skin_liquid_title">Liquid Glass（實驗性）</string>
@@ -398,7 +409,6 @@
     <string name="liquid_background_summary_active">正在使用自訂圖片</string>
     <string name="liquid_background_summary_saved">圖片已儲存，切換至 Liquid Glass 後生效</string>
     <string name="liquid_background_summary_unavailable">自訂圖片無法使用，將使用自動背景</string>
-    <string name="liquid_background_dialog_title">設定 Liquid Glass 背景</string>
     <string name="liquid_background_dialog_description">選擇一張本機圖片作為圖形化介面的底層背景，頁面根背景與玻璃表面會取樣同一張處理後的圖片。</string>
     <string name="liquid_background_preview_description">目前自訂 Liquid Glass 背景預覽</string>
     <string name="material_color_spec_title">使用 SPEC 2025</string>
@@ -739,7 +749,6 @@
     <string name="comment_user_filter_rules">評論發佈者</string>
     <string name="comment_user_filter_rules_empty">尚未設定發佈者，點按即可編輯</string>
     <string name="comment_user_filter_rules_current">目前：%1$s</string>
-    <string name="comment_user_filter_dialog_title">編輯評論發佈者</string>
     <string name="comment_user_filter_dialog_hint">每項填寫一個 UID 或使用者名稱，以逗號、分號或換行分隔；使用者名稱需完全一致。</string>
     <string name="purify_share_content">淨化分享連結</string>
     <string name="purify_share_content_tip">開啟後，清理分享內容中嗶哩嗶哩連結的追蹤參數，保留分頁與時間點；不展開短連結、不連網。</string>
@@ -769,14 +778,12 @@
     <string name="dynamic_keyword_rules">動態關鍵字</string>
     <string name="dynamic_keyword_rules_empty">尚未設定關鍵字，點按即可編輯</string>
     <string name="dynamic_keyword_rules_current">目前：%1$s</string>
-    <string name="dynamic_keyword_dialog_title">編輯動態關鍵字</string>
     <string name="dynamic_keyword_dialog_hint">以逗號、分號或換行分隔，最多 64 個</string>
     <string name="dynamic_author_filter">依發佈者過濾動態</string>
     <string name="dynamic_author_filter_tip">開啟後，隱藏名單內發佈者的動態（含轉發）；無法辨識發佈者時保留。重新啟動嗶哩嗶哩後生效。</string>
     <string name="dynamic_author_filter_rules">動態發佈者</string>
     <string name="dynamic_author_filter_rules_empty">尚未設定發佈者，點按即可編輯</string>
     <string name="dynamic_author_filter_rules_current">目前：%1$s</string>
-    <string name="dynamic_author_filter_dialog_title">編輯動態發佈者</string>
     <string name="dynamic_author_filter_dialog_hint">每項填寫一個 UID 或使用者名稱，以逗號、分號或換行分隔；使用者名稱需完全一致。</string>
     <string name="remove_dynamic_promotions">隱藏帶貨與推薦附加卡</string>
     <string name="remove_dynamic_promotions_tip">開啟後，隱藏帶有帶貨或「UP 主推薦」附加卡的動態，依卡片類型判斷。重新啟動嗶哩嗶哩後生效。</string>
@@ -795,14 +802,12 @@
     <string name="search_keyword_rules">搜尋關鍵字</string>
     <string name="search_keyword_rules_empty">尚未設定關鍵字，點按即可編輯</string>
     <string name="search_keyword_rules_current">目前：%1$s</string>
-    <string name="search_keyword_dialog_title">編輯搜尋關鍵字</string>
     <string name="search_keyword_dialog_hint">以逗號、分號或換行分隔，最多 64 個</string>
     <string name="search_author_filter">依發佈者過濾搜尋結果</string>
     <string name="search_author_filter_tip">開啟後，隱藏名單內發佈者的影片搜尋結果；其他類型及發佈者不明的結果保留。重新啟動嗶哩嗶哩後生效。</string>
     <string name="search_author_filter_rules">搜尋發佈者</string>
     <string name="search_author_filter_rules_empty">尚未設定發佈者，點按即可編輯</string>
     <string name="search_author_filter_rules_current">目前：%1$s</string>
-    <string name="search_author_filter_dialog_title">編輯搜尋發佈者</string>
     <string name="search_author_filter_dialog_hint">每項填寫一個 UID 或使用者名稱，以逗號、分號或換行分隔；使用者名稱需完全一致。</string>
     <string name="diagnostics_host_feature_dynamic_feed">動態內容過濾</string>
     <string name="diagnostics_host_feature_search">搜尋結果過濾</string>
@@ -874,5 +879,7 @@
     <string name="highlights_speed">新影片使用設定的預設倍速，播放中的手動調速與長按暫時倍速保持獨立。</string>
     <string name="highlights_interactive">補齊投票等互動元件的回應處理路徑，保留一般彈幕與章節資訊。</string>
     <string name="highlights_stability_title">適配與穩定性</string>
+    <string name="highlights_home_blocked_tids">依分區 id 將整個分區從推薦流中封鎖。沒有分區的卡片一律保留。</string>
+    <string name="highlights_video_relate_blocked_authors">將某個 UP 主或標籤從相關影片中封鎖。詳情頁沒有分區 id，這兩項在該處取代依分區過濾。</string>
     <string name="highlights_stability">完善局部適配與例外處理，減少單一路徑缺失對其他功能的影響。</string>
 </resources>

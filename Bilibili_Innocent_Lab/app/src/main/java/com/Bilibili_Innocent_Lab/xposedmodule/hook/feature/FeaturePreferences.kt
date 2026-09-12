@@ -14,6 +14,15 @@ internal object FeaturePreferences {
     const val REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS = "remove_home_recommend_game_promotions"
     const val HOME_RECOMMEND_TITLE_FILTER_ENABLED = "home_recommend_title_filter_enabled"
     const val HOME_RECOMMEND_TITLE_FILTER_KEYWORDS = "home_recommend_title_filter_keywords"
+
+    /**
+     * 分区 id 黑名单，分隔符拼起来的一条 Text。
+     *
+     * **不能用 `getStringSet`**：授权链只搬 Bool/Int/Text 三种 `SettingValue`
+     * （`RemoteHookConfigContract.resolveSourceValues`），集合型偏好过不了那一层。
+     * 解析见 [TidBlocklistCodec]。
+     */
+    const val HOME_RECOMMEND_BLOCKED_TIDS = "home_recommend_blocked_tids"
     const val REMOVE_HOME_RECOMMEND_LIVE = "remove_home_recommend_live"
     const val REMOVE_HOME_RECOMMEND_COURSES = "remove_home_recommend_courses"
     const val REMOVE_HOME_RECOMMEND_VERTICAL = "remove_home_recommend_vertical"
@@ -52,6 +61,15 @@ internal object FeaturePreferences {
     const val VIDEO_RELATE_STRONG_MODE_ENABLED = "video_relate_strong_mode_enabled"
     const val VIDEO_RELATE_REASON_FILTER_ENABLED = "video_relate_reason_filter_enabled"
     const val VIDEO_RELATE_REASON_FILTER_KEYWORDS = "video_relate_reason_filter_keywords"
+
+    /**
+     * 详情页作者黑名单（UP 名或 mid）与标签黑名单，各一条 Text。
+     *
+     * 详情页协议里没有 tid（`view.v1.Relate` 实测 98 字段无此字段），所以"按分区过滤"
+     * 在详情页退到这两档。判据是**整串相等**（[ExactRuleSetCodec]），不是 contains。
+     */
+    const val VIDEO_RELATE_BLOCKED_AUTHORS = "video_relate_blocked_authors"
+    const val VIDEO_RELATE_BLOCKED_TAGS = "video_relate_blocked_tags"
     const val MINE_COMPONENT_HIDDEN_RULES = "mine_component_hidden_rules"
     /** “我的”页勾选隐藏的组件 id 集合（新 UI 勾选列表持久化，换行/逗号分隔的字符串）。 */
     const val MINE_COMPONENT_HIDDEN_IDS = "mine_component_hidden_ids"

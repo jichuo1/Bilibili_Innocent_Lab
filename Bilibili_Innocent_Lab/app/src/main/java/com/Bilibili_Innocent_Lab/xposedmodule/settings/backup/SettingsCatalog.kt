@@ -20,7 +20,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.ModalBackdropB
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 18
+    const val CATALOG_VERSION = 19
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
@@ -123,6 +123,9 @@ internal object SettingsCatalog {
         bool("home.recommend.game_promotions.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS, R.string.remove_home_recommend_game_promotions),
         bool("home.recommend.title_filter.enabled", FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_ENABLED, R.string.home_recommend_title_filter),
         text("home.recommend.title_filter.keywords", FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_KEYWORDS, R.string.home_recommend_title_rules),
+        // 分区 id 名单存成 Text 而不是集合：授权链只搬 Bool/Int/Text，见 TidBlocklistCodec。
+        text("home.recommend.blocked_tids", FeaturePreferences.HOME_RECOMMEND_BLOCKED_TIDS,
+            R.string.home_recommend_blocked_tids, introducedCatalogVersion = 19),
         bool("home.recommend.live.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE, R.string.remove_home_recommend_live),
         bool("home.recommend.pgc.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC,
             R.string.remove_home_recommend_pgc, introducedCatalogVersion = 14),
@@ -364,6 +367,21 @@ internal object SettingsCatalog {
             maxStringLength = 4_096,
             introducedCatalogVersion = 5
         ),
+        // 详情页没有 tid，"按分区过滤"在这里退到作者与标签两档；判据是整串相等。
+        text(
+            "video.related.blocked_authors",
+            FeaturePreferences.VIDEO_RELATE_BLOCKED_AUTHORS,
+            R.string.video_relate_blocked_authors,
+            maxStringLength = 4_096,
+            introducedCatalogVersion = 19
+        ),
+        text(
+            "video.related.blocked_tags",
+            FeaturePreferences.VIDEO_RELATE_BLOCKED_TAGS,
+            R.string.video_relate_blocked_tags,
+            maxStringLength = 4_096,
+            introducedCatalogVersion = 19
+        ),
 
         bool("story.ads.removed", FeaturePreferences.REMOVE_STORY_ADS, R.string.remove_story_ads),
         bool("story.live.removed", FeaturePreferences.REMOVE_STORY_LIVE, R.string.remove_story_live),
@@ -583,7 +601,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 131) { "Expected 131 catalog settings, found ${specs.size}" }
+        check(specs.size == 134) { "Expected 134 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

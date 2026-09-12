@@ -62,6 +62,16 @@ internal object ReleaseHighlightsCatalog {
             HighlightDestination(SettingsCatalog.ID_PLAYER_DEFAULT_SPEED)),
         ReleaseHighlight("interactive-response-coverage", HighlightKind.FIXED, R.string.highlights_interactive,
             HighlightDestination("player.interactive_overlays.hidden")),
+        ReleaseHighlight("home-blocked-tids", HighlightKind.NEW,
+            R.string.highlights_home_blocked_tids,
+            HighlightDestination("home.recommend.blocked_tids")),
+        // 一条 destination 只能指一个 settingId，所以作者与标签各成一条。
+        ReleaseHighlight("relate-blocked-authors", HighlightKind.NEW,
+            R.string.highlights_video_relate_blocked_authors,
+            HighlightDestination("video.related.blocked_authors")),
+        ReleaseHighlight("relate-blocked-tags", HighlightKind.NEW,
+            R.string.highlights_video_relate_blocked_authors,
+            HighlightDestination("video.related.blocked_tags")),
         ReleaseHighlight("independent-adaptation", HighlightKind.FIXED, R.string.highlights_stability,
             standaloneTitleRes = R.string.highlights_stability_title)
     )))

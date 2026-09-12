@@ -584,6 +584,15 @@ object VersionAdapter {
         val cardTypeGetter: HookPoint? = null,
         /** PlayerArgs.getDuration()；字段注解路径继续作为旧模型兜底。 */
         val playerArgsDurationGetter: HookPoint? = null,
+        /**
+         * `BasePegasusData.getArgs()`：分区过滤的上下文来源（`ArgsData`）。
+         *
+         * 与 [playerArgsGetter] 同构的两级链——外层拿容器、内层拿数值，
+         * 缺任一级就整个维度降级，不影响其他判据。
+         */
+        val argsGetter: HookPoint? = null,
+        /** `ArgsData.getTid()`：分区 id。9110400 实测返回 `long`，但装箱形式也收。 */
+        val argsTidGetter: HookPoint? = null,
         /** 宿主统一 Intent 入口；只用于近期首页视频的 Story 路由最终净化。 */
         val intentHandlerOnCreate: HookPoint? = null
     ) {
@@ -603,6 +612,8 @@ object VersionAdapter {
             playerArgsDurationField?.let { put("player_args_duration", it) }
             cardTypeGetter?.let { put("card_type", it.toJson()) }
             playerArgsDurationGetter?.let { put("player_args_duration_getter", it.toJson()) }
+            argsGetter?.let { put("args", it.toJson()) }
+            argsTidGetter?.let { put("args_tid", it.toJson()) }
             intentHandlerOnCreate?.let { put("intent_handler_on_create", it.toJson()) }
         }
 
@@ -629,6 +640,8 @@ object VersionAdapter {
                 cardTypeGetter = o.optJSONObject("card_type")?.let(HookPoint::fromJson),
                 playerArgsDurationGetter = o.optJSONObject("player_args_duration_getter")
                     ?.let(HookPoint::fromJson),
+                argsGetter = o.optJSONObject("args")?.let(HookPoint::fromJson),
+                argsTidGetter = o.optJSONObject("args_tid")?.let(HookPoint::fromJson),
                 intentHandlerOnCreate = o.optJSONObject("intent_handler_on_create")
                     ?.let(HookPoint::fromJson)
             )
@@ -747,6 +760,15 @@ object VersionAdapter {
         val durationChains: List<DurationMethodChain>,
         val reasonChains: List<ReasonMethodChain> = emptyList(),
         val commercialEvidenceChains: List<BooleanMethodChain> = emptyList(),
+        /**
+         * 作者与标签维度的读取链（按分区过滤的详情页侧）。
+         *
+         * 详情页协议里**没有 tid**（`view.v1.Relate` 98 字段实测无此字段），
+         * 所以这里退到作者与 `tagName`。三条都是可选的，缺了只降级对应那一档。
+         */
+        val authorNameChains: List<ReasonMethodChain> = emptyList(),
+        val authorMidChains: List<ReasonMethodChain> = emptyList(),
+        val tagNameChains: List<ReasonMethodChain> = emptyList(),
         val detailRelateService: DetailRelateServicePoint? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
@@ -786,6 +808,9 @@ object VersionAdapter {
                 "commercial_evidence_chains",
                 JSONArray().apply { commercialEvidenceChains.forEach { put(it.toJson()) } }
             )
+            put("author_name_chains", JSONArray().apply { authorNameChains.forEach { put(it.toJson()) } })
+            put("author_mid_chains", JSONArray().apply { authorMidChains.forEach { put(it.toJson()) } })
+            put("tag_name_chains", JSONArray().apply { tagNameChains.forEach { put(it.toJson()) } })
             detailRelateService?.let { put("detail_relate_service", it.toJson()) }
         }
 
@@ -836,9 +861,20 @@ object VersionAdapter {
                             BooleanMethodChain.fromJson(values.getJSONObject(it))
                         }
                     }.orEmpty(),
+                authorNameChains = chainsOf(o, "author_name_chains"),
+                authorMidChains = chainsOf(o, "author_mid_chains"),
+                tagNameChains = chainsOf(o, "tag_name_chains"),
                 detailRelateService = o.optJSONObject("detail_relate_service")
                     ?.let(DetailRelateServicePoint::fromJson)
             )
+
+            /** 老缓存没有这三个键时得到空表，对应那一档降级，不影响既有维度。 */
+            private fun chainsOf(o: JSONObject, key: String): List<ReasonMethodChain> =
+                o.optJSONArray(key)?.let { values ->
+                    (0 until values.length()).map {
+                        ReasonMethodChain.fromJson(values.getJSONObject(it))
+                    }
+                }.orEmpty()
         }
     }
 
@@ -1724,6 +1760,11 @@ object VersionAdapter {
                         value.playerArgsGetter?.isValid() != false &&
                         value.cardTypeGetter?.isValid() != false &&
                         value.playerArgsDurationGetter?.isValid() != false &&
+                        value.argsGetter?.isValid() != false &&
+                        value.argsTidGetter?.isValid() != false &&
+                        // tid 读取是两级链，缺内层就整维度作废——留着外层会让安装器
+                        // 以为能读分区，实际每张卡都拿 null，静默变成"从不命中"。
+                        (value.argsGetter != null || value.argsTidGetter == null) &&
                         value.intentHandlerOnCreate?.isValid() != false &&
                         if (value.playerArgsGetter == null) {
                             value.playerArgsDurationField.isNullOrBlank() &&
@@ -1765,6 +1806,10 @@ object VersionAdapter {
                         value.commercialEvidenceChains.all { chain ->
                             chain.steps.size in 1..2 && chain.steps.all { it.isValid() }
                         } &&
+                        (value.authorNameChains + value.authorMidChains + value.tagNameChains)
+                            .all { chain ->
+                                chain.steps.size in 1..3 && chain.steps.all { it.isValid() }
+                            } &&
                         value.detailRelateService?.let { service ->
                             service.componentFactory.isValid() &&
                                 service.typeField?.isNotBlank() != false &&
@@ -4284,6 +4329,25 @@ object VersionAdapter {
         }.distinctBy(Method::toGenericString).singleOrNull()
         fun objectGetter(name: String): HookPoint? = objectGetterMethod(name)?.toHookPoint()
 
+        // 分区过滤的上下文链：`getArgs()` → `ArgsData.getTid()`。
+        // 只按方法名 + 无参 + 数值返回类型过滤；`classOf<Long>()` 是原始 `long`，
+        // 装箱形式必须显式写 `primitiveType = false`（AGENTS.md 红线），两种都收。
+        val argsGetter = objectGetterMethod("getArgs")
+        val argsTidGetter = argsGetter?.returnType?.let { argsClass ->
+            KavaMemberLookup.methods(
+                argsClass,
+                includeSuperclasses = true,
+                makeAccessible = true
+            ) { method ->
+                method.name == "getTid" && method.parameterCount == 0 &&
+                    method.isPublic && !method.isStatic &&
+                    method.returnType in setOf(
+                        classOf<Int>(), classOf<Long>(),
+                        classOf<Int>(primitiveType = false),
+                        classOf<Long>(primitiveType = false)
+                    )
+            }.distinctBy(Method::toGenericString).singleOrNull()
+        }
         val playerArgsGetter = objectGetterMethod("getPlayerArgs")
         val playerArgsDurationGetter = playerArgsGetter?.returnType?.let { playerArgsClass ->
             KavaMemberLookup.methods(
@@ -4344,6 +4408,8 @@ object VersionAdapter {
             playerArgsGetter = playerArgsGetter?.toHookPoint(),
             playerArgsDurationField = playerArgsDurationField?.name,
             playerArgsDurationGetter = playerArgsDurationGetter?.toHookPoint(),
+            argsGetter = argsGetter?.toHookPoint(),
+            argsTidGetter = argsTidGetter?.toHookPoint(),
             intentHandlerOnCreate = intentHandlerOnCreate
         )
     }.getOrNull()
@@ -4604,6 +4670,32 @@ object VersionAdapter {
         val reasonChains = (directReasonChains + nestedReasonChains).distinctBy { chain ->
             chain.steps.joinToString("->") { it.label() }
         }
+        // 作者与标签维度。`getTagName` 直接是 String，`getAuthor` 要再下一级。
+        // 数值 mid 不能走 reasonChain（它只认文本），所以单独建一条两级链。
+        val tagNameChains = itemMethods("getTagName")
+            .mapNotNull { reasonChain(listOf(it)) }
+            .distinctBy { chain -> chain.steps.joinToString("->") { it.label() } }
+        val authorGetters = itemMethods("getAuthor")
+        fun authorLeaf(name: String, accept: (Method) -> Boolean): List<ReasonMethodChain> =
+            authorGetters.mapNotNull { authorGetter ->
+                val leaf = KavaMemberLookup.methods(
+                    authorGetter.returnType,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    method.name == name && method.parameterCount == 0 &&
+                        method.isPublic && !method.isStatic && accept(method)
+                }.distinctBy(Method::toGenericString).singleOrNull() ?: return@mapNotNull null
+                ReasonMethodChain(listOf(authorGetter.toHookPoint(), leaf.toHookPoint()))
+            }.distinctBy { chain -> chain.steps.joinToString("->") { it.label() } }
+        val authorNameChains = authorLeaf("getName") { it.returnType == classOf<String>() }
+        val authorMidChains = authorLeaf("getMid") { method ->
+            method.returnType in setOf(
+                classOf<Int>(), classOf<Long>(),
+                classOf<Int>(primitiveType = false),
+                classOf<Long>(primitiveType = false)
+            )
+        }
         val directCommercialChains = listOf("hasCm", "hasCmStock")
             .flatMap(::itemMethods)
             .filter(::isBooleanMethod)
@@ -4643,6 +4735,9 @@ object VersionAdapter {
             durationChains = durationChains,
             reasonChains = reasonChains,
             commercialEvidenceChains = commercialEvidenceChains,
+            authorNameChains = authorNameChains,
+            authorMidChains = authorMidChains,
+            tagNameChains = tagNameChains,
             detailRelateService = detailRelateService
         )
     }.getOrNull()
