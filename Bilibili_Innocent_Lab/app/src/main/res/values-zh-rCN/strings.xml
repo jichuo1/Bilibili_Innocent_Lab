@@ -66,7 +66,6 @@
     <string name="app_language">应用语言</string>
     <string name="app_language_tip">选择模块界面与模块注入界面使用的语言</string>
     <string name="app_language_current">当前：%1$s</string>
-    <string name="app_language_dialog_title">选择应用语言</string>
     <string name="app_language_follow_system">跟随系统</string>
     <string name="app_language_simplified_chinese">简体中文</string>
     <string name="app_language_traditional_chinese">繁體中文</string>
@@ -158,7 +157,6 @@
     <string name="recommend_video_duration_min_only">最短：%1$s</string>
     <string name="recommend_video_duration_max_only">最长：%1$s</string>
     <string name="recommend_video_duration_both">范围：%1$s ～ %2$s</string>
-    <string name="recommend_video_duration_dialog_title">推荐视频时长范围</string>
     <string name="recommend_video_min_duration">推荐视频最短时长（秒）</string>
     <string name="recommend_video_max_duration">推荐视频最长时长（秒）</string>
     <string name="recommend_video_duration_input_hint">留空表示不限制</string>
@@ -308,7 +306,6 @@
     <string name="player_default_quality">默认播放画质</string>
     <string name="player_default_quality_tip">选择视频开始播放时优先使用的画质；不会解锁付费画质，画质不可用时仍会自动调整。重启哔哩哔哩后生效。</string>
     <string name="player_default_quality_current">当前：%1$s</string>
-    <string name="player_default_quality_dialog_title">选择默认播放画质</string>
     <string name="player_default_quality_follow_host">跟随哔哩哔哩</string>
     <string name="player_default_quality_follow_host_tip">继续使用哔哩哔哩的自动画质设置。</string>
     <string name="player_default_quality_override_tip">优先使用该画质，不可用时会自动调整。</string>

@@ -66,7 +66,6 @@
     <string name="app_language">App language</string>
     <string name="app_language_tip">Choose the language used by the module interface and its injected UI</string>
     <string name="app_language_current">Current: %1$s</string>
-    <string name="app_language_dialog_title">Choose app language</string>
     <string name="app_language_follow_system">Follow system</string>
     <string name="app_language_simplified_chinese">Simplified Chinese</string>
     <string name="app_language_traditional_chinese">Traditional Chinese</string>
@@ -158,7 +157,6 @@
     <string name="recommend_video_duration_min_only">Minimum: %1$s</string>
     <string name="recommend_video_duration_max_only">Maximum: %1$s</string>
     <string name="recommend_video_duration_both">Range: %1$s – %2$s</string>
-    <string name="recommend_video_duration_dialog_title">Recommended video duration range</string>
     <string name="recommend_video_min_duration">Minimum recommended video duration (seconds)</string>
     <string name="recommend_video_max_duration">Maximum recommended video duration (seconds)</string>
     <string name="recommend_video_duration_input_hint">Leave blank for no limit</string>
@@ -308,7 +306,6 @@
     <string name="player_default_quality">Default playback quality</string>
     <string name="player_default_quality_tip">Choose the preferred quality when playback starts. This does not unlock paid quality, and unavailable quality is adjusted automatically. Restart Bilibili to apply.</string>
     <string name="player_default_quality_current">Current: %1$s</string>
-    <string name="player_default_quality_dialog_title">Choose the default playback quality</string>
     <string name="player_default_quality_follow_host">Follow Bilibili</string>
     <string name="player_default_quality_follow_host_tip">Continue using Bilibili’s automatic quality setting.</string>
     <string name="player_default_quality_override_tip">Prefer this quality and adjust automatically when it is unavailable.</string>

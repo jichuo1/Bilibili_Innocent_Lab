@@ -66,7 +66,6 @@
     <string name="app_language">應用程式語言</string>
     <string name="app_language_tip">選擇模組介面與注入宿主的介面所使用的語言</string>
     <string name="app_language_current">目前：%1$s</string>
-    <string name="app_language_dialog_title">選擇應用程式語言</string>
     <string name="app_language_follow_system">跟隨系統</string>
     <string name="app_language_simplified_chinese">簡體中文</string>
     <string name="app_language_traditional_chinese">繁體中文</string>
@@ -158,7 +157,6 @@
     <string name="recommend_video_duration_min_only">最短：%1$s</string>
     <string name="recommend_video_duration_max_only">最長：%1$s</string>
     <string name="recommend_video_duration_both">範圍：%1$s ～ %2$s</string>
-    <string name="recommend_video_duration_dialog_title">推薦影片時長範圍</string>
     <string name="recommend_video_min_duration">推薦影片最短時長（秒）</string>
     <string name="recommend_video_max_duration">推薦影片最長時長（秒）</string>
     <string name="recommend_video_duration_input_hint">留空表示不限制</string>
@@ -308,7 +306,6 @@
     <string name="player_default_quality">預設播放畫質</string>
     <string name="player_default_quality_tip">選擇影片開始播放時優先使用的畫質；此功能不會解鎖付費畫質，所選畫質無法使用時仍會自動調整。重新啟動 Bilibili 後生效。</string>
     <string name="player_default_quality_current">目前：%1$s</string>
-    <string name="player_default_quality_dialog_title">選擇預設播放畫質</string>
     <string name="player_default_quality_follow_host">跟隨 Bilibili</string>
     <string name="player_default_quality_follow_host_tip">繼續使用 Bilibili 的自動畫質設定。</string>
     <string name="player_default_quality_override_tip">優先使用此畫質，無法使用時會自動調整。</string>

@@ -813,7 +813,9 @@ internal fun MainActivity.showRecommendVideoDurationRangeDialog(anchor: View? = 
 
     container.addView(
         NativeTextView(this).apply {
-            text = getString(R.string.recommend_video_duration_dialog_title)
+            // 复用来源行标题（文字平移要求）。来源行是"标题 + \n + 摘要"同一个 TextView，
+            // `titleLineMatches` 只认渲染后的首行相等，所以必须与首行那个 string 一致。
+            text = getString(R.string.recommend_video_duration_range)
             textColor = getColor(R.color.colorTextDark)
             textSize = 17f
             setLineSpacing(4 * density, 1f)

@@ -439,7 +439,8 @@ internal fun MainActivity.showAppLanguageDialog(anchor: View? = null) {
 
     container.addView(
         NativeTextView(this).apply {
-            text = getString(R.string.app_language_dialog_title)
+            // 复用来源行标题（文字平移要求），见 ModalTitleMotion。
+            text = getString(R.string.app_language)
             textColor = getColor(R.color.colorTextDark)
             textSize = 17f
             setLineSpacing(4 * density, 1f)

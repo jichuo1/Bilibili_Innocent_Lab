@@ -47,7 +47,9 @@ internal fun MainActivity.showPlayerQualityDialog(anchor: View? = null) {
 
     container.addView(
         NativeTextView(this).apply {
-            text = getString(R.string.player_default_quality_dialog_title)
+            // 标题必须与来源行**同一个字符串**，否则 ModalTitleMotion 配不上、文字平移
+            // 静默退化成只有容器形变（`ModalTitleMotionSpec.matches` 比的是渲染文本）。
+            text = getString(R.string.player_default_quality)
             textColor = getColor(R.color.colorTextDark)
             textSize = 17f
             setLineSpacing(4 * density, 1f)
@@ -235,7 +237,9 @@ internal fun MainActivity.showCommentMinLevelDialog(anchor: View? = null) {
 
     container.addView(
         NativeTextView(this).apply {
-            text = getString(R.string.comment_min_level_dialog_title)
+            // 复用来源行标题（文字平移要求）；`comment_min_level_dialog_title` 仍留着，
+            // 它是 SettingsCatalog 里这一项的 labelRes，两者用途不同。
+            text = getString(R.string.comment_min_level_filter)
             textColor = getColor(R.color.colorTextDark)
             textSize = 17f
             setLineSpacing(4 * density, 1f)
@@ -338,7 +342,8 @@ internal fun MainActivity.showDanmakuWeightDialog(anchor: View? = null) {
 
     container.addView(
         NativeTextView(this).apply {
-            text = getString(R.string.danmaku_weight_dialog_title)
+            // 同上：复用来源行标题；`danmaku_weight_dialog_title` 是 SettingsCatalog 的 labelRes。
+            text = getString(R.string.danmaku_weight_filter)
             textColor = getColor(R.color.colorTextDark)
             textSize = 17f
             setLineSpacing(4 * density, 1f)
