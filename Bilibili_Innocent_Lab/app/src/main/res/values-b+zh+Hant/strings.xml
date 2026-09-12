@@ -133,11 +133,21 @@
     <string name="home_recommend_title_rules">推薦標題關鍵字</string>
     <string name="home_recommend_title_rules_empty">目前尚未設定關鍵字，點按即可編輯</string>
     <string name="home_recommend_title_rules_current">目前關鍵字：%1$s</string>
-    <string name="home_recommend_blocked_tids">依分區過濾推薦</string>
-    <string name="home_recommend_blocked_tids_empty">目前尚未封鎖任何分區，點按即可編輯</string>
-    <string name="home_recommend_blocked_tids_current">已封鎖分區：%1$s</string>
-    <string name="home_recommend_blocked_tids_hint">分區 id，以逗號分隔，例如 163,29413</string>
-    <string name="home_recommend_blocked_tids_tip">分區 id 在名單內的卡片會從推薦流中移除。沒有分區的卡片（例如動畫）一律保留。請重新啟動哔哩哔哩以套用。</string>
+    <string name="home_recommend_blocked_tids">依標籤過濾推薦</string>
+    <string name="home_recommend_blocked_tids_empty">目前尚未封鎖任何標籤，點按即可編輯</string>
+    <string name="home_recommend_blocked_tids_current">已封鎖標籤：%1$s</string>
+    <string name="home_recommend_blocked_tids_hint">標籤名稱或標籤 id，以逗號分隔，例如 鬼畜,8318</string>
+    <string name="home_recommend_blocked_tids_tip">標籤在名單內的卡片會從推薦流中移除。填名稱時須整串相同，所以「科技」不會誤刪「科技美學」；純數字按標籤 id 處理。沒有標籤的卡片（例如動畫）一律保留。請重新啟動哔哩哔哩以套用。</string>
+    <string name="home_recommend_section_pick">從哔哩哔哩面板選擇標籤</string>
+    <string name="home_recommend_section_pick_tip">開啟後，首頁和詳情頁推薦的三點面板會增加模組封鎖選項。有可辨識的標籤時可直接選擇，本次執行立即生效；長期儲存需回到本頁確認。</string>
+    <string name="home_recommend_section_pick_pending">在哔哩哔哩中選了 %1$s 個尚未儲存，已替你填在下方。</string>
+    <string name="home_recommend_blocked_authors">依 UP 主過濾推薦</string>
+    <string name="home_recommend_blocked_authors_empty">目前尚未封鎖任何 UP 主，點按即可編輯</string>
+    <string name="home_recommend_blocked_authors_current">已封鎖 UP 主：%1$s</string>
+    <string name="home_recommend_blocked_authors_hint">UP 主名稱或 UP 主 id，以逗號分隔</string>
+    <string name="home_recommend_blocked_authors_tip">名單內的 UP 主，其卡片會從推薦流中移除。填名稱時須整串相同；純數字按 UP 主 id 處理，兩種填法都認。沒有 UP 主的卡片一律保留。請重新啟動哔哩哔哩以套用。</string>
+    <string name="home_recommend_blocked_authors_pending">在哔哩哔哩中選了 %1$s 個尚未儲存，已替你填在下方。</string>
+    <string name="highlights_home_blocked_authors">依 UP 主名稱或 id 將某個 UP 主從推薦流中封鎖，也可以直接在哔哩哔哩三點面板中選取。</string>
     <string name="home_recommend_title_dialog_hint">例如：盤點, 搬運</string>
     <string name="remove_home_recommend_live">過濾直播推薦</string>
     <string name="remove_home_recommend_courses">過濾課程推薦</string>
@@ -182,7 +192,7 @@
     <string name="custom_mine_component_snapshot_missing">暫無有效掃描結果，請開啟嗶哩嗶哩「我的」頁面以掃描勾選項；目前使用手動規則。</string>
     <string name="custom_mine_component_snapshot_querying">正在從嗶哩嗶哩讀取最新「我的」頁面掃描結果…</string>
     <string name="custom_mine_component_snapshot_waiting_page">已連線到模組 Hook，但嗶哩嗶哩尚未快取「我的」頁面元件；請先進入或重新整理一次「我的」頁面。</string>
-    <string name="custom_mine_component_snapshot_unavailable">未連線到已啟用的嗶哩嗶哩程序；請啟用模組後啟動嗶哩嗶哩並進入「我的」頁面。</string>
+    <string name="custom_mine_component_snapshot_unavailable">未收到嗶哩嗶哩回應。請啟用模組並進入「我的」頁面後重試；系統背景限制也可能影響回執。</string>
     <string name="custom_mine_component_snapshot_invalid">傳回的掃描結果驗證失敗；請重新啟動嗶哩嗶哩後再次進入「我的」頁面掃描。</string>
     <string name="custom_mine_component_snapshot_store_failed">已讀取掃描結果，但模組快取寫入失敗；本次仍可選擇，重新啟動模組介面後請再次檢查。</string>
     <!-- 勾選面板通用文案：%1$s 為面名稱，供底欄 / 首頁標籤 / 首頁元件共用。 -->
@@ -194,7 +204,7 @@
     <string name="component_picker_snapshot_legacy">這是舊版%1$s掃描結果；儲存時會遷移為穩定選擇鍵。請至少保留一項。</string>
     <string name="component_picker_snapshot_querying">正在從嗶哩嗶哩讀取最新的%1$s掃描結果…</string>
     <string name="component_picker_snapshot_waiting_page">已連線到模組 Hook，但嗶哩嗶哩尚未快取%1$s；請先開啟或重新整理一次對應頁面。</string>
-    <string name="component_picker_snapshot_unavailable">未連線到已啟用的嗶哩嗶哩處理程序；請在啟用模組後啟動嗶哩嗶哩，並開啟含%1$s的頁面。</string>
+    <string name="component_picker_snapshot_unavailable">未收到嗶哩嗶哩回應。請啟用模組並開啟含%1$s的頁面後重試；系統背景限制也可能影響回執。</string>
     <string name="component_picker_snapshot_invalid">傳回的%1$s掃描結果驗證失敗；請重新啟動嗶哩嗶哩後重新掃描。</string>
     <string name="component_picker_snapshot_store_failed">已讀取%1$s掃描結果，但模組快取寫入失敗；本次仍可選擇，重新啟動模組介面後請再次檢查。</string>
     <string name="custom_mine_component_legacy_locked">（由舊手動規則隱藏）</string>
@@ -314,7 +324,7 @@
     <string name="video_relate_blocked_tags_empty">目前尚未封鎖任何標籤，點按即可編輯</string>
     <string name="video_relate_blocked_tags_current">已封鎖標籤：%1$s</string>
     <string name="video_relate_blocked_tags_hint">標籤，以逗號分隔</string>
-    <string name="video_relate_blocked_tip">UP 主或標籤與名單整串相同的相關影片會被移除。詳情頁協定中沒有分區 id，因此這兩項在詳情頁取代依分區過濾。沒有 UP 主或標籤的卡片一律保留。</string>
+    <string name="video_relate_blocked_tip">UP 主或標籤與名單整串相同的相關影片會被移除。沒有 UP 主或標籤的卡片一律保留。</string>
     <string name="video_relate_reason_filter_keywords_hint">每行一個或以逗號分隔，例如：創作推廣\n前往小程式\n立即下載</string>
     <string name="player_default_quality">預設播放畫質</string>
     <string name="player_default_quality_tip">選擇影片開始播放時優先使用的畫質；此功能不會解鎖付費畫質，所選畫質無法使用時仍會自動調整。重新啟動 Bilibili 後生效。</string>
@@ -675,7 +685,7 @@
     <string name="diagnostics_activation_npatch">已收到與目前模組及嗶哩嗶哩版本相符的 heartbeat。</string>
     <string name="diagnostics_activation_checking">正在等待啟用證據…</string>
     <string name="diagnostics_activation_unavailable">目前沒有有效的相容 Xposed 框架服務或相符的 NPatch heartbeat。</string>
-    <string name="diagnostics_bootstrap_unavailable">未連線到已啟用的嗶哩嗶哩主處理程序。請先啟動嗶哩嗶哩，再重新整理診斷。</string>
+    <string name="diagnostics_bootstrap_unavailable">未收到嗶哩嗶哩回應。請啟動嗶哩嗶哩後重新整理；系統背景限制也可能影響回執。</string>
     <string name="diagnostics_bootstrap_invalid">已收到宿主回執，但通訊協定、來源版本或摘要驗證失敗；請重新啟動嗶哩嗶哩後再重新整理。</string>
     <string name="diagnostics_bootstrap_config_rejected">宿主已啟動，但 Modern 設定驗證遭拒（%1$s）。請先開啟一次模組介面完成發佈，再冷啟動嗶哩嗶哩。</string>
     <string name="diagnostics_bootstrap_not_authorized">宿主已讀取設定，但使用者條款尚未同意，因此未安裝任何 Hook。</string>
@@ -879,7 +889,11 @@
     <string name="highlights_speed">新影片使用設定的預設倍速，播放中的手動調速與長按暫時倍速保持獨立。</string>
     <string name="highlights_interactive">補齊投票等互動元件的回應處理路徑，保留一般彈幕與章節資訊。</string>
     <string name="highlights_stability_title">適配與穩定性</string>
-    <string name="highlights_home_blocked_tids">依分區 id 將整個分區從推薦流中封鎖。沒有分區的卡片一律保留。</string>
-    <string name="highlights_video_relate_blocked_authors">將某個 UP 主或標籤從相關影片中封鎖。詳情頁沒有分區 id，這兩項在該處取代依分區過濾。</string>
+    <string name="highlights_home_blocked_tids">依標籤名稱或標籤 id 將整個標籤從推薦流中封鎖。名稱須整串相同，不會誤刪名稱相近的標籤。沒有標籤的卡片一律保留。</string>
+    <string name="highlights_video_relate_blocked_authors">將某個 UP 主或標籤從相關影片中封鎖。</string>
+    <string name="highlights_home_section_pick">首頁和詳情頁推薦的原生三點面板新增模組封鎖選項，選擇標籤後本次執行生效，回到模組確認後儲存。</string>
     <string name="highlights_stability">完善局部適配與例外處理，減少單一路徑缺失對其他功能的影響。</string>
+    <string name="component_snapshot_cached_notice">正在顯示上次儲存的掃描結果，尚未確認嗶哩嗶哩目前狀態。</string>
+    <string name="hide_player_popup_promotion">隱藏播放器彈窗推廣</string>
+    <string name="hide_player_popup_promotion_tip">隱藏播放器內的小程式等通用懸浮推廣卡片，保留其他互動元件和一般彈幕。</string>
 </resources>

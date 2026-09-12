@@ -593,6 +593,91 @@ object VersionAdapter {
         val argsGetter: HookPoint? = null,
         /** `ArgsData.getTid()`：分区 id。9110400 实测返回 `long`，但装箱形式也收。 */
         val argsTidGetter: HookPoint? = null,
+        /** `ArgsData.getTname()`：分区名，只用于快照展示，**不参与任何判定**。 */
+        val argsTnameGetter: HookPoint? = null,
+        /**
+         * `ArgsData.getRid()`：一级分区 id。
+         *
+         * 卡片同时带 `rid`（一级）与 `tid`（二级），是同一套分区 id 体系的两级。
+         * 服务端下发的面板项指哪一级不确定，所以两级都要参与比对。
+         */
+        val argsRidGetter: HookPoint? = null,
+        /**
+         * `DislikeItemData.setSelectedDislikeReason(DislikeReason)`——**广告卡**三点面板
+         * 执行"不感兴趣"时调用。
+         *
+         * 宿主在调用点自己已经按 `FeedbackType.DISLIKE` 分流（反馈组走
+         * `setSelectedFeedbackReason`），所以走到这里就一定是不喜欢组。
+         */
+        val dislikeReasonSetter: HookPoint? = null,
+        /**
+         * `DislikeItemData.setDislikeRequestRecord(DislikeRequestRecord)`——**普通卡**三点面板
+         * 执行"不感兴趣"时调用。
+         *
+         * 这条链不按类型分流，所以要自己读 [dislikeTypeGetter] 再判一次。
+         */
+        val dislikeRecordSetter: HookPoint? = null,
+        /**
+         * `DislikeItemData.getDislikeAnchor()`：不喜欢占位卡回指原卡。
+         *
+         * 占位卡自己的 `args` 是空的（宿主构造时全走默认值），分区只能从这里回读。
+         */
+        val dislikeAnchorGetter: HookPoint? = null,
+        /** `DislikeItemData.getSelectedDislikeType()`：区分"不感兴趣"与"反馈"两组。 */
+        val dislikeTypeGetter: HookPoint? = null,
+        /**
+         * `FeedbackItem.getExtend()`——被点项的 `extend`，分区项上等于这张卡的分区 id。
+         *
+         * 2026-09-12 实测：**不能**改从 `DislikeRequestRecord.getExtend()` 读，那个返回的是
+         * `DislikeReason.extra`；工厂搬运时只保留 id/toast/extra，`extend` 当场就丢了。
+         *
+         * `FeedbackItem` 在未混淆的共享弹窗模块里，且这个 getter 的 6 个调用点全部落在
+         * 不感兴趣的执行路径上（两条派发链 + 各自的撤销 lambda + 旧版 CardClickProcessor），
+         * 渲染期一次都不调，所以挂在这里既准又不烫。
+         */
+        val feedbackItemExtendGetter: HookPoint? = null,
+        /** `FeedbackItem.getId()`：被点项 id，只用于旧面板兜底判据与诊断。 */
+        val feedbackItemIdGetter: HookPoint? = null,
+        /**
+         * `FeedbackDialogFragmentV5.onCreate(Bundle)`——**手机**上的三点面板。
+         *
+         * 2026-09-12 实测：`com.bilibili.pegasus.feedbackdialog.a#b` 一开头按屏幕宽度分流，
+         * `isWidthNormal` 为真（手机）走 `a#a` → `FeedbackDialogFragmentV5`；
+         * `FeedbackDialogV5` 是平板/宽屏那条。前两版落点（`BottomSheetContent`、
+         * `FeedbackDialogV5` 构造器）都不在手机这条路上，表现为注入器建成了却一次不触发。
+         *
+         * 类名未混淆；分组列表与点击回调在它的字段里，各自**类型唯一**，按类型认即可。
+         */
+        val feedbackDialogFragmentCreate: HookPoint? = null,
+        /**
+         * `Feedback.getItems()`——一个**分组**里的项列表。
+         *
+         * 面板是分组结构（"稍后再看"一组、"不感兴趣"一组），外层 List 装的是分组，
+         * 不是项。注入要落到某个分组的 items 里，否则类型对不上。
+         */
+        val feedbackGroupItemsGetter: HookPoint? = null,
+        /** `Feedback.getStyle()`；`copy` 回去时原样带上，保持视觉一致。 */
+        val feedbackGroupStyleGetter: HookPoint? = null,
+        /** `Feedback.getTitle()`；同上。 */
+        val feedbackGroupTitleGetter: HookPoint? = null,
+        /** `Feedback.copy(style, title, items)`——用它把我们的行并进现有分组。 */
+        val feedbackGroupCopy: HookPoint? = null,
+        /**
+         * `FeedbackItem` 的主构造器（`methodName` 固定为 `<init>`，只用 className 与参数表）。
+         *
+         * 参数位置不写死：安装期用哨兵值构造一次再读 getter 反查，见 `FeedbackPanelInjector`。
+         */
+        val feedbackItemConstructor: HookPoint? = null,
+        /** `FeedbackItem.getTitle()`：只用于安装期标定构造器参数位置。 */
+        val feedbackItemTitleGetter: HookPoint? = null,
+        /** `FeedbackItem.getType()`：同上，兼作注入项的自检。 */
+        val feedbackItemTypeGetter: HookPoint? = null,
+        /** `FeedbackItem.getOnClick()`：同上。行点击调的就是它，所以注入项的回调归我们。 */
+        val feedbackItemOnClickGetter: HookPoint? = null,
+        /** `ArgsData.getUpId()`：UP 主 mid。 */
+        val argsUpIdGetter: HookPoint? = null,
+        /** `ArgsData.getUpName()`：UP 主名。 */
+        val argsUpNameGetter: HookPoint? = null,
         /** 宿主统一 Intent 入口；只用于近期首页视频的 Story 路由最终净化。 */
         val intentHandlerOnCreate: HookPoint? = null
     ) {
@@ -614,6 +699,25 @@ object VersionAdapter {
             playerArgsDurationGetter?.let { put("player_args_duration_getter", it.toJson()) }
             argsGetter?.let { put("args", it.toJson()) }
             argsTidGetter?.let { put("args_tid", it.toJson()) }
+            argsTnameGetter?.let { put("args_tname", it.toJson()) }
+            argsRidGetter?.let { put("args_rid", it.toJson()) }
+            dislikeReasonSetter?.let { put("dislike_reason_setter", it.toJson()) }
+            dislikeRecordSetter?.let { put("dislike_record_setter", it.toJson()) }
+            dislikeAnchorGetter?.let { put("dislike_anchor", it.toJson()) }
+            dislikeTypeGetter?.let { put("dislike_type", it.toJson()) }
+            feedbackItemExtendGetter?.let { put("feedback_item_extend", it.toJson()) }
+            feedbackItemIdGetter?.let { put("feedback_item_id", it.toJson()) }
+            feedbackDialogFragmentCreate?.let { put("feedback_dialog_create", it.toJson()) }
+            feedbackGroupItemsGetter?.let { put("feedback_group_items", it.toJson()) }
+            feedbackGroupStyleGetter?.let { put("feedback_group_style", it.toJson()) }
+            feedbackGroupTitleGetter?.let { put("feedback_group_title", it.toJson()) }
+            feedbackGroupCopy?.let { put("feedback_group_copy", it.toJson()) }
+            feedbackItemConstructor?.let { put("feedback_item_ctor", it.toJson()) }
+            feedbackItemTitleGetter?.let { put("feedback_item_title", it.toJson()) }
+            feedbackItemTypeGetter?.let { put("feedback_item_type", it.toJson()) }
+            feedbackItemOnClickGetter?.let { put("feedback_item_onclick", it.toJson()) }
+            argsUpIdGetter?.let { put("args_up_id", it.toJson()) }
+            argsUpNameGetter?.let { put("args_up_name", it.toJson()) }
             intentHandlerOnCreate?.let { put("intent_handler_on_create", it.toJson()) }
         }
 
@@ -642,6 +746,38 @@ object VersionAdapter {
                     ?.let(HookPoint::fromJson),
                 argsGetter = o.optJSONObject("args")?.let(HookPoint::fromJson),
                 argsTidGetter = o.optJSONObject("args_tid")?.let(HookPoint::fromJson),
+                argsTnameGetter = o.optJSONObject("args_tname")?.let(HookPoint::fromJson),
+                argsRidGetter = o.optJSONObject("args_rid")?.let(HookPoint::fromJson),
+                dislikeReasonSetter = o.optJSONObject("dislike_reason_setter")
+                    ?.let(HookPoint::fromJson),
+                dislikeRecordSetter = o.optJSONObject("dislike_record_setter")
+                    ?.let(HookPoint::fromJson),
+                dislikeAnchorGetter = o.optJSONObject("dislike_anchor")?.let(HookPoint::fromJson),
+                dislikeTypeGetter = o.optJSONObject("dislike_type")?.let(HookPoint::fromJson),
+                feedbackItemExtendGetter = o.optJSONObject("feedback_item_extend")
+                    ?.let(HookPoint::fromJson),
+                feedbackItemIdGetter = o.optJSONObject("feedback_item_id")
+                    ?.let(HookPoint::fromJson),
+                feedbackDialogFragmentCreate = o.optJSONObject("feedback_dialog_create")
+                    ?.let(HookPoint::fromJson),
+                feedbackGroupItemsGetter = o.optJSONObject("feedback_group_items")
+                    ?.let(HookPoint::fromJson),
+                feedbackGroupStyleGetter = o.optJSONObject("feedback_group_style")
+                    ?.let(HookPoint::fromJson),
+                feedbackGroupTitleGetter = o.optJSONObject("feedback_group_title")
+                    ?.let(HookPoint::fromJson),
+                feedbackGroupCopy = o.optJSONObject("feedback_group_copy")
+                    ?.let(HookPoint::fromJson),
+                feedbackItemConstructor = o.optJSONObject("feedback_item_ctor")
+                    ?.let(HookPoint::fromJson),
+                feedbackItemTitleGetter = o.optJSONObject("feedback_item_title")
+                    ?.let(HookPoint::fromJson),
+                feedbackItemTypeGetter = o.optJSONObject("feedback_item_type")
+                    ?.let(HookPoint::fromJson),
+                feedbackItemOnClickGetter = o.optJSONObject("feedback_item_onclick")
+                    ?.let(HookPoint::fromJson),
+                argsUpIdGetter = o.optJSONObject("args_up_id")?.let(HookPoint::fromJson),
+                argsUpNameGetter = o.optJSONObject("args_up_name")?.let(HookPoint::fromJson),
                 intentHandlerOnCreate = o.optJSONObject("intent_handler_on_create")
                     ?.let(HookPoint::fromJson)
             )
@@ -1762,6 +1898,34 @@ object VersionAdapter {
                         value.playerArgsDurationGetter?.isValid() != false &&
                         value.argsGetter?.isValid() != false &&
                         value.argsTidGetter?.isValid() != false &&
+                        value.argsTnameGetter?.isValid() != false &&
+                        value.dislikeReasonSetter?.isValid() != false &&
+                        value.dislikeRecordSetter?.isValid() != false &&
+                        value.dislikeAnchorGetter?.isValid() != false &&
+                        value.dislikeTypeGetter?.isValid() != false &&
+                        value.argsRidGetter?.isValid() != false &&
+                        value.feedbackItemExtendGetter?.isValid() != false &&
+                        value.feedbackItemIdGetter?.isValid() != false &&
+                        value.feedbackDialogFragmentCreate?.isValid() != false &&
+                        value.feedbackGroupItemsGetter?.isValid() != false &&
+                        value.feedbackGroupStyleGetter?.isValid() != false &&
+                        value.feedbackGroupTitleGetter?.isValid() != false &&
+                        value.feedbackGroupCopy?.isValid() != false &&
+                        value.feedbackItemConstructor?.isValid() != false &&
+                        value.feedbackItemTitleGetter?.isValid() != false &&
+                        value.feedbackItemTypeGetter?.isValid() != false &&
+                        value.feedbackItemOnClickGetter?.isValid() != false &&
+                        value.argsUpIdGetter?.isValid() != false &&
+                        value.argsUpNameGetter?.isValid() != false &&
+                        // UP 读取链也挂在 argsGetter 下面；外层缺了内层就作废。
+                        (value.argsGetter != null ||
+                            (value.argsUpIdGetter == null && value.argsUpNameGetter == null)) &&
+                        // rid/tid 是两级分区，都挂在 argsGetter 这条链下面；外层缺了内层就作废。
+                        (value.argsGetter != null || value.argsRidGetter == null) &&
+                        // 占位卡回指原卡是读分区的唯一路径；缺了就把两个 setter 一起作废，
+                        // 否则安装器会以为能读分区，实际每次都拿 null，静默变成"从不命中"。
+                        (value.dislikeAnchorGetter != null ||
+                            (value.dislikeReasonSetter == null && value.dislikeRecordSetter == null)) &&
                         // tid 读取是两级链，缺内层就整维度作废——留着外层会让安装器
                         // 以为能读分区，实际每张卡都拿 null，静默变成"从不命中"。
                         (value.argsGetter != null || value.argsTidGetter == null) &&
@@ -2016,6 +2180,41 @@ object VersionAdapter {
         // 字段 h 存 CommentItem——特征定位自动覆盖，候选仅提供类名入口）
         "com.bilibili.app.comment3.ui.holder.handle.CommentContentRichTextHandler"
     )
+
+    /**
+     * "不感兴趣"执行后替换原卡的占位卡。
+     *
+     * 2026-09-12 真机实测：三点面板有**两条**派发链——广告卡在
+     * `com.bilibili.ad.adview.pegasus.holders.threepoint.v5.ThreePointV5Kt$showV5MoreMenu$1`，
+     * 普通卡那条被 R8 重打包成 `st0.o#b`（类名与方法名全混淆，没法按名定位）。
+     * 之前只挂了广告卡那条，普通卡点了永不触发。
+     *
+     * 两条链最终都构造这个占位卡，且类名、setter 名、参数类型全部未混淆，
+     * 所以落点收敛到这里：一个类覆盖两条链，也不依赖 R8 是否保留某个合成 lambda 名。
+     */
+    private const val HOME_DISLIKE_ITEM_CLASS = "com.bilibili.pegasus.data.card.DislikeItemData"
+    private const val HOME_DISLIKE_REASON_CLASS =
+        "com.bilibili.app.comm.list.common.data.DislikeReason"
+    private const val HOME_DISLIKE_RECORD_CLASS =
+        "com.bilibili.pegasus.data.card.DislikeRequestRecord"
+    private const val HOME_PEGASUS_DATA_CLASS = "com.bilibili.pegasus.data.base.BasePegasusData"
+
+    /**
+     * 三点面板的被点项模型，在**未混淆**的共享弹窗模块 `kntr.app.pegasus.feedbackdialog` 里。
+     *
+     * 广告卡与普通卡两条派发链用的是同一个弹窗、同一个模型，所以被点项的 `extend`
+     * 只能也只该从这里读——落到占位卡之后它已经被工厂丢掉了。
+     */
+    private const val HOME_FEEDBACK_ITEM_CLASS =
+        "kntr.app.pegasus.feedbackdialog.model.FeedbackItem"
+
+    /** 手机上的三点面板；类名未混淆，两条派发链在手机上都到这里。 */
+    private const val HOME_FEEDBACK_DIALOG_CLASS =
+        "com.bilibili.pegasus.feedbackdialog.FeedbackDialogFragmentV5"
+
+    /** 面板的**分组**模型；外层 List 装的是它，不是项。 */
+    private const val HOME_FEEDBACK_GROUP_CLASS =
+        "kntr.app.pegasus.feedbackdialog.model.Feedback"
 
     private const val HOME_MENU_ITEM_CLASS =
         "com.bilibili.lib.homepage.startdust.menu.a"
@@ -4333,21 +4532,144 @@ object VersionAdapter {
         // 只按方法名 + 无参 + 数值返回类型过滤；`classOf<Long>()` 是原始 `long`，
         // 装箱形式必须显式写 `primitiveType = false`（AGENTS.md 红线），两种都收。
         val argsGetter = objectGetterMethod("getArgs")
-        val argsTidGetter = argsGetter?.returnType?.let { argsClass ->
+        fun argsLeaf(name: String, accept: (Method) -> Boolean): Method? =
+            argsGetter?.returnType?.let { argsClass ->
+                KavaMemberLookup.methods(
+                    argsClass,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    method.name == name && method.parameterCount == 0 &&
+                        method.isPublic && !method.isStatic && accept(method)
+                }.distinctBy(Method::toGenericString).singleOrNull()
+            }
+        val argsTidGetter = argsLeaf("getTid") { method ->
+            method.returnType in setOf(
+                classOf<Int>(), classOf<Long>(),
+                classOf<Int>(primitiveType = false),
+                classOf<Long>(primitiveType = false)
+            )
+        }
+        val argsTnameGetter = argsLeaf("getTname") { it.returnType == classOf<String>() }
+        val argsRidGetter = argsLeaf("getRid") { method ->
+            method.returnType in setOf(
+                classOf<Int>(), classOf<Long>(),
+                classOf<Int>(primitiveType = false),
+                classOf<Long>(primitiveType = false)
+            )
+        }
+        // 三点面板"不感兴趣"落点：全部收敛到未混淆的占位卡 DislikeItemData 上。
+        // 名字虽然未混淆，仍按"无参/单参 + 精确参数类型 + 非静态"选，避免同名重载误挂。
+        val dislikeItemClass = KavaMemberLookup.classOrNull(loader, HOME_DISLIKE_ITEM_CLASS)
+        fun dislikeSetter(name: String, parameterClassName: String): HookPoint? =
+            dislikeItemClass?.let { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    method.name == name && method.parameterCount == 1 && !method.isStatic &&
+                        method.parameterTypes[0].name == parameterClassName
+                }.distinctBy(Method::toGenericString).singleOrNull()?.toHookPoint()
+            }
+        fun dislikeGetter(name: String, returnClassName: String): HookPoint? =
+            dislikeItemClass?.let { owner ->
+                KavaMemberLookup.methods(
+                    owner,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    method.name == name && method.parameterCount == 0 && !method.isStatic &&
+                        method.returnType.name == returnClassName
+                }.distinctBy(Method::toGenericString).singleOrNull()?.toHookPoint()
+            }
+        val dislikeReasonSetter =
+            dislikeSetter("setSelectedDislikeReason", HOME_DISLIKE_REASON_CLASS)
+        val dislikeRecordSetter =
+            dislikeSetter("setDislikeRequestRecord", HOME_DISLIKE_RECORD_CLASS)
+        val dislikeAnchorGetter = dislikeGetter("getDislikeAnchor", HOME_PEGASUS_DATA_CLASS)
+        val dislikeTypeGetter = dislikeItemClass?.let { owner ->
             KavaMemberLookup.methods(
-                argsClass,
+                owner,
                 includeSuperclasses = true,
                 makeAccessible = true
             ) { method ->
-                method.name == "getTid" && method.parameterCount == 0 &&
-                    method.isPublic && !method.isStatic &&
-                    method.returnType in setOf(
-                        classOf<Int>(), classOf<Long>(),
-                        classOf<Int>(primitiveType = false),
-                        classOf<Long>(primitiveType = false)
-                    )
-            }.distinctBy(Method::toGenericString).singleOrNull()
+                method.name == "getSelectedDislikeType" && method.parameterCount == 0 &&
+                    !method.isStatic && method.returnType.isEnum
+            }.distinctBy(Method::toGenericString).singleOrNull()?.toHookPoint()
         }
+        val feedbackItemClass = KavaMemberLookup.classOrNull(loader, HOME_FEEDBACK_ITEM_CLASS)
+        fun feedbackItemGetter(name: String, accept: (Method) -> Boolean): HookPoint? =
+            feedbackItemClass?.let { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    method.name == name && method.parameterCount == 0 && !method.isStatic &&
+                        accept(method)
+                }.distinctBy(Method::toGenericString).singleOrNull()?.toHookPoint()
+            }
+        val feedbackItemExtendGetter =
+            feedbackItemGetter("getExtend") { it.returnType == classOf<String>() }
+        val feedbackItemIdGetter = feedbackItemGetter("getId") { method ->
+            method.returnType in setOf(
+                classOf<Int>(), classOf<Long>(),
+                classOf<Int>(primitiveType = false),
+                classOf<Long>(primitiveType = false)
+            )
+        }
+        val feedbackItemTitleGetter =
+            feedbackItemGetter("getTitle") { it.returnType == classOf<String>() }
+        val feedbackItemTypeGetter = feedbackItemGetter("getType") { it.returnType.isEnum }
+        val feedbackItemOnClickGetter = feedbackItemGetter("getOnClick") { true }
+        // 主构造器：排掉 Kotlin 默认参数生成的合成重载（带 DefaultConstructorMarker），
+        // 剩下参数最多的那个。参数**位置**不在这里定，安装期用哨兵值反查。
+        val feedbackItemConstructor = feedbackItemClass?.let { owner ->
+            KavaMemberLookup.declaredConstructors(owner) { constructor ->
+                constructor.parameterTypes.none {
+                    it.name == "kotlin.jvm.internal.DefaultConstructorMarker"
+                }
+            }.maxByOrNull { it.parameterCount }?.let { constructor ->
+                HookPoint(
+                    className = HOME_FEEDBACK_ITEM_CLASS,
+                    methodName = "<init>",
+                    paramClassNames = constructor.parameterTypes.map { it.name }
+                )
+            }
+        }
+        // 面板 Fragment 的 onCreate：标准 Android 回调，只认这个类自己声明的那个。
+        val feedbackDialogFragmentCreate = KavaMemberLookup
+            .classOrNull(loader, HOME_FEEDBACK_DIALOG_CLASS)
+            ?.let { owner ->
+                KavaMemberLookup.methodOrNull(owner, "onCreate", classOf<Bundle>())
+                    ?.takeIf { it.declaringClass == owner && !it.isStatic }
+                    ?.toHookPoint()
+            }
+        // 分组模型：getItems / getStyle / getTitle / copy 全未混淆，只按签名收敛。
+        val feedbackGroupClass = KavaMemberLookup.classOrNull(loader, HOME_FEEDBACK_GROUP_CLASS)
+        fun groupMember(name: String, accept: (Method) -> Boolean): HookPoint? =
+            feedbackGroupClass?.let { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    method.name == name && !method.isStatic && accept(method)
+                }.distinctBy(Method::toGenericString).singleOrNull()?.toHookPoint()
+            }
+        val feedbackGroupItemsGetter = groupMember("getItems") { method ->
+            method.parameterCount == 0 && (method.returnType isSubclassOf classOf<List<*>>())
+        }
+        val feedbackGroupTitleGetter = groupMember("getTitle") {
+            it.parameterCount == 0 && it.returnType == classOf<String>()
+        }
+        val feedbackGroupStyleGetter = groupMember("getStyle") {
+            it.parameterCount == 0 && it.returnType.isEnum
+        }
+        // copy 的参数表跟着 data class 走；认"三参数且返回自身类型"这一位就够唯一，
+        // 排掉 copy$default（它带 mask 与 Object 兜底位）。
+        val feedbackGroupCopy = groupMember("copy") { method ->
+            method.parameterCount == 3 &&
+                method.returnType.name == HOME_FEEDBACK_GROUP_CLASS &&
+                (method.parameterTypes[2] isSubclassOf classOf<List<*>>())
+        }
+        val argsUpIdGetter = argsLeaf("getUpId") { method ->
+            method.returnType in setOf(
+                classOf<Int>(), classOf<Long>(),
+                classOf<Int>(primitiveType = false),
+                classOf<Long>(primitiveType = false)
+            )
+        }
+        val argsUpNameGetter = argsLeaf("getUpName") { it.returnType == classOf<String>() }
         val playerArgsGetter = objectGetterMethod("getPlayerArgs")
         val playerArgsDurationGetter = playerArgsGetter?.returnType?.let { playerArgsClass ->
             KavaMemberLookup.methods(
@@ -4410,6 +4732,25 @@ object VersionAdapter {
             playerArgsDurationGetter = playerArgsDurationGetter?.toHookPoint(),
             argsGetter = argsGetter?.toHookPoint(),
             argsTidGetter = argsTidGetter?.toHookPoint(),
+            argsTnameGetter = argsTnameGetter?.toHookPoint(),
+            argsRidGetter = argsRidGetter?.toHookPoint(),
+            dislikeReasonSetter = dislikeReasonSetter,
+            dislikeRecordSetter = dislikeRecordSetter,
+            dislikeAnchorGetter = dislikeAnchorGetter,
+            dislikeTypeGetter = dislikeTypeGetter,
+            feedbackItemExtendGetter = feedbackItemExtendGetter,
+            feedbackItemIdGetter = feedbackItemIdGetter,
+            feedbackDialogFragmentCreate = feedbackDialogFragmentCreate,
+            feedbackGroupItemsGetter = feedbackGroupItemsGetter,
+            feedbackGroupStyleGetter = feedbackGroupStyleGetter,
+            feedbackGroupTitleGetter = feedbackGroupTitleGetter,
+            feedbackGroupCopy = feedbackGroupCopy,
+            feedbackItemConstructor = feedbackItemConstructor,
+            feedbackItemTitleGetter = feedbackItemTitleGetter,
+            feedbackItemTypeGetter = feedbackItemTypeGetter,
+            feedbackItemOnClickGetter = feedbackItemOnClickGetter,
+            argsUpIdGetter = argsUpIdGetter?.toHookPoint(),
+            argsUpNameGetter = argsUpNameGetter?.toHookPoint(),
             intentHandlerOnCreate = intentHandlerOnCreate
         )
     }.getOrNull()

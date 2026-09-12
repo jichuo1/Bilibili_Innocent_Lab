@@ -8,6 +8,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ModalTitleHandoffTest {
+    @Test fun destinationIsCapturedBeforeTheContentsTemporaryEntryTranslation() {
+        val controller = SettingsUiSource.file("IconAnchoredMotionController")
+        val first = SettingsUiSource.functions(controller, "prepareFirstFrame").single()
+        assertTrue(first.indexOf("captureTargetPosition()") >= 0)
+        assertTrue(first.indexOf("captureTargetPosition()") < first.indexOf("apply(0f)"))
+        val exit = SettingsUiSource.functions(controller, "prepareExitFrame").single()
+        assertTrue(exit.indexOf("captureTargetPosition()") < exit.indexOf("titleMotion?.prepare(expansion)"))
+        val title = SettingsUiSource.file("ModalTitleMotion")
+        val prepare = SettingsUiSource.functions(title, "prepare").single()
+        assertTrue(prepare.contains("if (!targetPositionCaptured) captureTargetPosition()"))
+        assertFalse(prepare.contains("target.getLocationOnScreen"))
+        assertTrue(SettingsUiSource.functions(title, "expanded").single().contains("targetPositionCaptured = false"))
+    }
+
     @Test fun sourceHandoffKeepsPositionBaselineAndSizeExactlyAtTheSource() {
         for (progress in listOf(-1f, 0f, .03f, .06f, .10f, .12f)) {
             val motion = ModalTitleMotionSpec.motionProgress(progress)
@@ -72,10 +86,10 @@ class ModalTitleHandoffTest {
             assertEquals(1f, ModalTitleMotionSpec.overlayWeight(progress), 0f)
         }
         // 两端的原生标题仍必须走到满，叠加层撤掉的那一刻下面得接得住。
-        assertArrayEquals(floatArrayOf(1f, 0f, 1f), weights(0f), 0f)
-        assertArrayEquals(floatArrayOf(0f, 1f, 1f), weights(1f), 0f)
-        assertArrayEquals(floatArrayOf(.5f, 0f, 1f), weights(.06f), .000001f)
-        assertArrayEquals(floatArrayOf(0f, .5f, 1f), weights(.925f), .000001f)
+        assertArrayEquals(floatArrayOf(0f, 0f, 1f), weights(0f), 0f)
+        assertArrayEquals(floatArrayOf(0f, 0f, 1f), weights(1f), 0f)
+        assertArrayEquals(floatArrayOf(0f, 0f, 1f), weights(.06f), .000001f)
+        assertArrayEquals(floatArrayOf(0f, 0f, 1f), weights(.925f), .000001f)
     }
 
     /**
@@ -308,11 +322,13 @@ class ModalTitleHandoffTest {
         assertFalse("must not touch the row's View alpha", code.contains("source.alpha ="))
         assertTrue(code.contains("sourceTextColors.withAlpha("))
         // 还原必须交还原始 CSL，而不是再写一个降过 alpha 的单色副本。
-        assertTrue(code.contains("source.setTextColor(sourceTextColors)"))
-        // 三条收尾路径都要还原文字颜色。
-        for (fn in listOf("fun expanded() {", "fun closed() {", "fun dispose() {")) {
-            val body = code.substringAfter(fn).substringBefore("    fun ").substringBefore("    private fun ")
-            assertTrue("$fn must restore the source text", body.contains("restoreSourceText()"))
+        assertTrue(code.contains("sourceColors.release(source, sourceOwner)?.let(source::setTextColor)"))
+        val expanded = SettingsUiSource.functions(code, "expanded").single()
+        assertFalse("source belongs to the panel while expanded", expanded.contains("restoreSourceText()"))
+        for (fn in listOf("closed", "dispose")) {
+            val body = SettingsUiSource.functions(code, fn).single()
+            assertTrue("$fn must release the source", body.contains("restoreSourceText()"))
+            assertFalse("a settled title must still be released", body.contains("if (!active) return"))
         }
         // 上限取默认色自带的 alpha，半透明文字不会在中途被提亮。
         assertTrue(code.contains("Color.alpha(sourceTextColors.defaultColor)"))
@@ -346,10 +362,29 @@ class ModalTitleHandoffTest {
         }
     }
 
-    private fun source(name: String): String {
-        val path = "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/activity/$name.kt"
-        return sequenceOf(java.io.File(path), java.io.File("app/$path"))
-            .first(java.io.File::isFile).readText()
+    private fun source(name: String): String = SettingsUiSource.file(name)
+
+    @Test fun antialiasedEdgesAreNotPaintedTwiceAtEitherHandoff() {
+        val edgeCoverage = .35f
+        for (step in 0..1000) {
+            val weights = weights(step / 1000f)
+            assertEquals(1, weights.count { it > 0f })
+            val composed = 1f - weights.fold(1f) { remaining, weight ->
+                remaining * (1f - edgeCoverage * weight)
+            }
+            assertEquals(edgeCoverage, composed, .000001f)
+        }
+    }
+
+    @Test fun targetEndpointDrawsTheActualTargetGlyphsWithoutASecondPass() {
+        val code = source("ModalTitleMotion")
+        val draw = SettingsUiSource.functions(code, "onDraw").single()
+        assertTrue(draw.contains("if (atTarget) targetLayout else sourceLayout"))
+        assertTrue(draw.contains("if (atTarget) size / targetSize else size / sourceSize"))
+        assertEquals(1, Regex("layout\\.draw\\(this\\)").findAll(draw).count())
+        val expanded = SettingsUiSource.functions(code, "expanded").single()
+        assertTrue(expanded.contains("target.alpha = targetAlpha"))
+        assertTrue(expanded.contains("visibility = INVISIBLE"))
     }
 
     private fun weights(progress: Float): FloatArray = floatArrayOf(

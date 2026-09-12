@@ -56,7 +56,8 @@ internal class DiagnosticsViewModel : ViewModel() {
                 skin,
                 frameworkCheckPending,
                 hostRuntime,
-                DiagnosticHostQueryState.valueOf(queryResult.status.name)
+                DiagnosticHostQueryState.valueOf(queryResult.status.name),
+                queryResult.failure
             )
         }
     }
@@ -67,7 +68,8 @@ internal class DiagnosticsViewModel : ViewModel() {
         skin: SkinSessionDiagnostics?,
         frameworkCheckPending: Boolean,
         hostRuntime: HostRuntimeDiagnosticsSnapshot?,
-        hostQueryState: DiagnosticHostQueryState
+        hostQueryState: DiagnosticHostQueryState,
+        hostQueryFailure: com.Bilibili_Innocent_Lab.xposedmodule.runtime.ReceiptQueryFailure
     ) {
         worker.submit {
             runCatching {
@@ -76,7 +78,8 @@ internal class DiagnosticsViewModel : ViewModel() {
                     skin = skin,
                     frameworkCheckPending = frameworkCheckPending,
                     hostRuntime = hostRuntime,
-                    hostQueryState = hostQueryState
+                    hostQueryState = hostQueryState,
+                    hostQueryFailure = hostQueryFailure
                 )
             }.onSuccess { snapshot ->
                 if (generation.get() == request) {

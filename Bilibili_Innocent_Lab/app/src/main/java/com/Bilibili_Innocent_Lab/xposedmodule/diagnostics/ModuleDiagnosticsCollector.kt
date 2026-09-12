@@ -28,6 +28,8 @@ internal object ModuleDiagnosticsCollector {
         frameworkCheckPending: Boolean = false,
         hostRuntime: HostRuntimeDiagnosticsSnapshot? = null,
         hostQueryState: DiagnosticHostQueryState = DiagnosticHostQueryState.TARGET_UNAVAILABLE,
+        hostQueryFailure: com.Bilibili_Innocent_Lab.xposedmodule.runtime.ReceiptQueryFailure =
+            com.Bilibili_Innocent_Lab.xposedmodule.runtime.ReceiptQueryFailure.NONE,
         nowEpochMs: Long = System.currentTimeMillis()
     ): ModuleDiagnosticSnapshot {
         val appContext = context.applicationContext ?: context
@@ -141,6 +143,7 @@ internal object ModuleDiagnosticsCollector {
                     }
                 }.orEmpty(),
                 hostQueryState = hostQueryState,
+                hostQueryFailure = hostQueryFailure,
                 hostBootstrapReached = hostRuntime?.bootstrap?.bootstrapReached == true,
                 hostConfigState = hostRuntime?.bootstrap?.configState?.let {
                     DiagnosticHostConfigState.valueOf(it.name)

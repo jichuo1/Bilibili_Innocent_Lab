@@ -104,6 +104,20 @@ class ComponentSelectionReconciliationTest {
         assertEquals(setOf("unknown"), selected(prefs, key))
     }
 
+    @Test fun `pushed snapshot never reads or rewrites selectors or manual rules`() {
+        val cache = MemoryPreferences()
+        val key = ComponentSelectionReconciler.selectorsKey("mine")
+        cache.values[key] = "[\"keep\"]"
+        cache.values["mine_component_hidden_rules"] = "manual"
+        assertTrue(MineComponentSnapshotStore.cache(cache.instance, payload("mine", listOf(entry("item", "new"))),
+            MineComponentSnapshotSource(911, 100, 17)))
+        assertEquals("[\"keep\"]", cache.values[key])
+        assertEquals("manual", cache.values["mine_component_hidden_rules"])
+        val before = cache.values.toMap()
+        assertFalse(MineComponentSnapshotStore.cache(cache.instance, "broken", MineComponentSnapshotSource(911, 100, 17)))
+        assertEquals(before, cache.values)
+    }
+
     private fun entry(kind: String, id: String) = requireNotNull(
         MineComponentScanEntry.create(kind, id, id, null, true)
     )

@@ -9,7 +9,7 @@ internal object VersionAdapterContract {
      * 这次付这个代价是值得的：tid 读取链缺失时整个分区维度静默失效，
      * 而 rule 单独抬只保证重定位、不保证旧结构缓存被丢弃。
      */
-    const val SCHEMA_VERSION = 57
+    const val SCHEMA_VERSION = 62
 
     /**
      * 51 → 52（2026-09-11，9.11.0(9110400) 适配）：
@@ -27,5 +27,5 @@ internal object VersionAdapterContract {
      * schema 抬了仍要抬 rule：前者管"旧缓存作废"，后者管"快路径指纹变化 ⇒ 重定位"，
      * 两件事不互相替代。
      */
-    const val RULE_VERSION = 54
+    const val RULE_VERSION = 59
 }

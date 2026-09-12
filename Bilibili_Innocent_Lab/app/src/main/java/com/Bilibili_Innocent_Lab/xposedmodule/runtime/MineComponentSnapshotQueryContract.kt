@@ -1,16 +1,17 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime
 
 import java.security.MessageDigest
+import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 
 /** “我的”页扫描结果的模块 -> 宿主有序广播查询协议。 */
 internal object MineComponentSnapshotQueryContract {
     const val PROTOCOL_VERSION = 1
-    const val MODULE_PACKAGE = "com.Bilibili_Innocent_Lab.xposedmodule"
+    val MODULE_PACKAGE: String = BuildConfig.APPLICATION_ID
     const val TARGET_PACKAGE = "tv.danmaku.bili"
 
-    const val ACTION_QUERY =
+    val ACTION_QUERY =
         "$MODULE_PACKAGE.QUERY_MINE_COMPONENT_SNAPSHOT"
-    const val PERMISSION_QUERY =
+    val PERMISSION_QUERY =
         "$MODULE_PACKAGE.permission.QUERY_MINE_COMPONENT_SNAPSHOT"
 
     const val EXTRA_PROTOCOL_VERSION = "mine_snapshot_protocol_version"

@@ -133,11 +133,21 @@
     <string name="home_recommend_title_rules">Recommendation title keywords</string>
     <string name="home_recommend_title_rules_empty">No keywords configured; tap to edit</string>
     <string name="home_recommend_title_rules_current">Current keywords: %1$s</string>
-    <string name="home_recommend_blocked_tids">Filter recommendations by section</string>
-    <string name="home_recommend_blocked_tids_empty">No sections blocked; tap to edit</string>
-    <string name="home_recommend_blocked_tids_current">Blocked sections: %1$s</string>
-    <string name="home_recommend_blocked_tids_hint">Section ids separated by commas, for example 163,29413</string>
-    <string name="home_recommend_blocked_tids_tip">Cards whose section id is on the list are removed from the recommendation feed. Cards without a section, such as anime, are always kept. Restart Bilibili to apply.</string>
+    <string name="home_recommend_blocked_tids">Filter recommendations by tag</string>
+    <string name="home_recommend_blocked_tids_empty">No tags blocked; tap to edit</string>
+    <string name="home_recommend_blocked_tids_current">Blocked tags: %1$s</string>
+    <string name="home_recommend_blocked_tids_hint">Tag names or ids separated by commas, for example VTuber,8318</string>
+    <string name="home_recommend_blocked_tids_tip">Cards whose tag is on the list are removed from the recommendation feed. A name must match the whole tag exactly, so "tech" does not remove "tech review". Numbers are treated as tag ids. Cards without a tag, such as anime, are always kept. Restart Bilibili to apply.</string>
+    <string name="home_recommend_section_pick">Pick tags from the Bilibili panel</string>
+    <string name="home_recommend_section_pick_tip">When enabled, module blocking options appear in the native three-dot panels on home and related videos. Recognized tags can be selected for the current session; confirm on this page to save them permanently.</string>
+    <string name="home_recommend_section_pick_pending">%1$s picked in Bilibili and not saved yet; they are already filled in below.</string>
+    <string name="home_recommend_blocked_authors">Filter recommendations by uploader</string>
+    <string name="home_recommend_blocked_authors_empty">No uploaders blocked; tap to edit</string>
+    <string name="home_recommend_blocked_authors_current">Blocked uploaders: %1$s</string>
+    <string name="home_recommend_blocked_authors_hint">Uploader names or ids separated by commas</string>
+    <string name="home_recommend_blocked_authors_tip">Cards from an uploader on the list are removed from the recommendation feed. A name must match the whole uploader name exactly. Numeric entries are treated as uploader ids, so either works. Cards without an uploader are always kept. Restart Bilibili to apply.</string>
+    <string name="home_recommend_blocked_authors_pending">%1$s picked in Bilibili and not saved yet; they are already filled in below.</string>
+    <string name="highlights_home_blocked_authors">Block an uploader from the recommendation feed by name or id, and pick one straight from the Bilibili three-dot panel.</string>
     <string name="home_recommend_title_dialog_hint">Example: compilation, reaction</string>
     <string name="remove_home_recommend_live">Filter live recommendations</string>
     <string name="remove_home_recommend_courses">Filter course recommendations</string>
@@ -182,7 +192,7 @@
     <string name="custom_mine_component_snapshot_missing">No valid scan yet. Open Bilibili’s Mine page once; manual rules are shown for now.</string>
     <string name="custom_mine_component_snapshot_querying">Reading the latest Mine-page scan from Bilibili…</string>
     <string name="custom_mine_component_snapshot_waiting_page">The module is connected, but Bilibili has not cached Mine-page components yet. Open or refresh the Mine page first.</string>
-    <string name="custom_mine_component_snapshot_unavailable">Could not reach an active Bilibili process. Start Bilibili with the module enabled, then open the Mine page.</string>
+    <string name="custom_mine_component_snapshot_unavailable">No response from Bilibili. Open the Mine page with the module enabled, then retry; background restrictions may prevent a response.</string>
     <string name="custom_mine_component_snapshot_invalid">The returned scan failed validation. Restart Bilibili and scan the Mine page again.</string>
     <string name="custom_mine_component_snapshot_store_failed">The scan was read but could not be saved. You can use it this time; check again after restarting the module app.</string>
     <!-- Shared picker copy: %1$s is the surface name, reused by the bottom bar / home tabs / home components. -->
@@ -194,7 +204,7 @@
     <string name="component_picker_snapshot_legacy">This is a legacy %1$s scan. Saving migrates selections to stable keys. Keep at least one item enabled.</string>
     <string name="component_picker_snapshot_querying">Reading the latest %1$s scan from Bilibili…</string>
     <string name="component_picker_snapshot_waiting_page">The module is connected, but Bilibili has not cached the %1$s yet. Open or refresh that page first.</string>
-    <string name="component_picker_snapshot_unavailable">Could not reach an active Bilibili process. Start Bilibili with the module enabled, then open the page that shows the %1$s.</string>
+    <string name="component_picker_snapshot_unavailable">No response from Bilibili. Open the page that shows the %1$s with the module enabled, then retry; background restrictions may prevent a response.</string>
     <string name="component_picker_snapshot_invalid">The returned %1$s scan failed validation. Restart Bilibili and scan again.</string>
     <string name="component_picker_snapshot_store_failed">The %1$s scan was read but could not be saved. You can use it this time; check again after restarting the module app.</string>
     <string name="custom_mine_component_legacy_locked"> (hidden by a legacy manual rule)</string>
@@ -314,7 +324,7 @@
     <string name="video_relate_blocked_tags_empty">No tags blocked; tap to edit</string>
     <string name="video_relate_blocked_tags_current">Blocked tags: %1$s</string>
     <string name="video_relate_blocked_tags_hint">Tags separated by commas</string>
-    <string name="video_relate_blocked_tip">Related cards are removed when the uploader or tag matches an entry exactly. The detail page protocol carries no section id, so these two lists replace it there. Cards without an uploader or tag are always kept.</string>
+    <string name="video_relate_blocked_tip">Related cards are removed when the uploader or tag matches an entry exactly. Cards without an uploader or tag are always kept.</string>
     <string name="video_relate_reason_filter_keywords_hint">One per line or separated by commas, for example: Sponsored\nOpen mini program\nDownload now</string>
     <string name="player_default_quality">Default playback quality</string>
     <string name="player_default_quality_tip">Choose the preferred quality when playback starts. This does not unlock paid quality, and unavailable quality is adjusted automatically. Restart Bilibili to apply.</string>
@@ -675,7 +685,7 @@
     <string name="diagnostics_activation_npatch">A heartbeat matching the current module and Bilibili version was received.</string>
     <string name="diagnostics_activation_checking">Waiting for activation evidence…</string>
     <string name="diagnostics_activation_unavailable">No valid compatible Xposed framework service or matching NPatch heartbeat is currently available.</string>
-    <string name="diagnostics_bootstrap_unavailable">No activated Bilibili main process is reachable. Start Bilibili, then refresh diagnostics.</string>
+    <string name="diagnostics_bootstrap_unavailable">No response from Bilibili. Start Bilibili, then refresh; background restrictions may prevent a response.</string>
     <string name="diagnostics_bootstrap_invalid">A host receipt was returned, but its protocol, source version, or digest validation failed. Restart Bilibili and refresh.</string>
     <string name="diagnostics_bootstrap_config_rejected">The host started, but Modern configuration validation was rejected (%1$s). Open the module UI once to publish, then cold-start Bilibili.</string>
     <string name="diagnostics_bootstrap_not_authorized">The host read the configuration, but no hooks were installed because the user terms have not been accepted.</string>
@@ -879,7 +889,11 @@
     <string name="highlights_speed">Apply a default speed to new videos while preserving manual and temporary long-press speeds.</string>
     <string name="highlights_interactive">Improve interactive-overlay response coverage while preserving regular danmaku and chapter data.</string>
     <string name="highlights_stability_title">Compatibility and stability</string>
-    <string name="highlights_home_blocked_tids">Block a whole section from the recommendation feed by its id. Cards without a section are always kept.</string>
-    <string name="highlights_video_relate_blocked_authors">Block an uploader or a tag from the related video list. The detail page has no section id, so these replace it there.</string>
+    <string name="highlights_home_blocked_tids">Block a tag from the recommendation feed by its name or its id. Names must match the whole tag exactly. Cards without a tag are always kept.</string>
+    <string name="highlights_video_relate_blocked_authors">Block an uploader or a tag from the related video list on the detail page.</string>
+    <string name="highlights_home_section_pick">Native three-dot panels on home and related videos now include module blocking options. Tag selections apply for the session and are saved after confirmation in the module.</string>
     <string name="highlights_stability">Improve partial adaptation and error handling so missing paths do not disable unrelated features.</string>
+    <string name="component_snapshot_cached_notice">Showing the last saved scan. The current Bilibili state could not be confirmed.</string>
+    <string name="hide_player_popup_promotion">Hide player popup promotions</string>
+    <string name="hide_player_popup_promotion_tip">Hide common floating promotion cards in the player, including mini program promotions. Other interactive components and regular danmaku are preserved.</string>
 </resources>

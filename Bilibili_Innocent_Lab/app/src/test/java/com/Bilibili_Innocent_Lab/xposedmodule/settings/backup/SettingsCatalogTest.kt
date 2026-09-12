@@ -7,21 +7,54 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsCatalogTest {
+    @Test fun `catalog v21 adds one default off player popup promotion setting`() {
+        val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v21.txt"))
+            .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 21 }
+        assertEquals("player.popup_promotion.hidden", added.id)
+        assertEquals(SettingValue.Bool(false), added.defaultValue)
+        assertEquals(RestorePolicy.AUTOMATIC, added.restorePolicy)
+        assertTrue(ImportEffect.RESTART_BILIBILI in added.effects)
+    }
+
+    @Test fun `catalog v20 adds the recommendation uploader blocklist`() {
+        val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v20.txt"))
+            .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 20 }.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 20 }
+        assertEquals(listOf("home.recommend.blocked_authors"), added.map { it.id })
+        // 名单是 Text：授权链只搬 Bool/Int/Text，集合型偏好过不了那一层。
+        val list = added.single()
+        assertEquals(SettingValueType.STRING, list.type)
+        assertEquals(SettingValue.Text(""), list.defaultValue)
+    }
+
     @Test fun `catalog v19 adds the recommendation section blocklist`() {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v19.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
-        assertEquals(expected, SettingsCatalog.specs.map { it.id }.sorted())
+        // 只比到 v19：v20 之后新增的条目不属于这份 golden。
+        assertEquals(
+            expected,
+            SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 19 }.map { it.id }.sorted()
+        )
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 19 }
         assertEquals(
             listOf(
                 "home.recommend.blocked_tids",
+                "home.recommend.section_pick.enabled",
                 "video.related.blocked_authors",
                 "video.related.blocked_tags"
             ),
             added.map { it.id }.sorted()
         )
-        // 三条都是 Text：授权链只搬 Bool/Int/Text，集合型偏好过不了那一层。
-        added.forEach { assertEquals(SettingValue.Text(""), it.defaultValue) }
+        // 三条名单是 Text：授权链只搬 Bool/Int/Text，集合型偏好过不了那一层。
+        val lists = added.filter { it.type == SettingValueType.STRING }
+        assertEquals(3, lists.size)
+        lists.forEach { assertEquals(SettingValue.Text(""), it.defaultValue) }
+        // 面板劫持改变宿主界面行为，必须默认关。
+        val pick = added.single { it.id == "home.recommend.section_pick.enabled" }
+        assertEquals(SettingValue.Bool(false), pick.defaultValue)
         added.forEach { assertEquals(RestorePolicy.AUTOMATIC, it.restorePolicy) }
         added.forEach { assertTrue(ImportEffect.RESTART_BILIBILI in it.effects) }
     }
@@ -86,11 +119,11 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog is a unique allowlist with 134 settings`() {
-        assertEquals(134, SettingsCatalog.specs.size)
-        assertEquals(134, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(134, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(133, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 137 settings`() {
+        assertEquals(137, SettingsCatalog.specs.size)
+        assertEquals(137, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(137, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(136, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(1, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -321,7 +354,7 @@ class SettingsCatalogTest {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v13.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 13 }.map { it.id }.sorted())
-        assertEquals(19, SettingsCatalog.CATALOG_VERSION)
+        assertEquals(21, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 13 }
         assertEquals(6, added.size)
         assertTrue(added.all { it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects })
@@ -335,9 +368,9 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(105, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(107, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(7, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
-        assertEquals(22, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
+        assertEquals(23, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 
         val roaming = requireNotNull(SettingsCatalog.byId["compat.roaming.enabled"])
         assertEquals(RestorePolicy.MANUAL, roaming.restorePolicy)

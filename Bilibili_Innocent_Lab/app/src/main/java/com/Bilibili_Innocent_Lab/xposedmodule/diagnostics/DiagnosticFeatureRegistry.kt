@@ -77,6 +77,11 @@ internal object DiagnosticFeatureRegistry {
         ),
         DiagnosticFeatureDescriptor("player_portrait_control", DiagnosticFeatureCategory.PLAYER_AND_DETAIL),
         DiagnosticFeatureDescriptor(
+            "player_popup_promotion",
+            DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
+            runtimeEvidenceExpected = true
+        ),
+        DiagnosticFeatureDescriptor(
             "player_interactive_overlay",
             DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
             runtimeEvidenceExpected = true

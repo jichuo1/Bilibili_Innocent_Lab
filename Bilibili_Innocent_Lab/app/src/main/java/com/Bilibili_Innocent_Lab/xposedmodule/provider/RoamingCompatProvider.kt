@@ -147,6 +147,8 @@ class RoamingCompatProvider : ContentProvider() {
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
         return when (method) {
+            com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostReceiptWire.METHOD ->
+                context?.let { com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostReceiptRegistry.receive(it, extras) }
             com.Bilibili_Innocent_Lab.xposedmodule.telemetry.TelemetryVersionTrigger.METHOD -> {
                 enforceTrustedCaller()
                 val accepted = context?.let {

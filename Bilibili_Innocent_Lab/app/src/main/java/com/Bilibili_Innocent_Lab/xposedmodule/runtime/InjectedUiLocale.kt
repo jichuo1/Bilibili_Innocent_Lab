@@ -22,7 +22,11 @@ internal data class InjectedUiMessages(
     val roamingSettingsTitle: String,
     val latestVersionMessage: String,
     val replyTopologyEntryLabel: String,
-    val replyTopologyEntryDescription: String
+    val replyTopologyEntryDescription: String,
+    /** 注入到宿主三点面板里的「屏蔽标签」行，`%1$s` 是这张卡的标签名。 */
+    val panelBlockTagLabel: String,
+    /** 注入到宿主三点面板里的「屏蔽 UP」行，`%1$s` 是这张卡的 UP 名。 */
+    val panelBlockAuthorLabel: String
 )
 
 /**
@@ -264,7 +268,9 @@ internal object InjectedUiLocale {
         roamingSettingsTitle = "BiliRoaming settings",
         latestVersionMessage = "You are already using the latest version",
         replyTopologyEntryLabel = "Trace",
-        replyTopologyEntryDescription = "Show reply context"
+        replyTopologyEntryDescription = "Show reply context",
+        panelBlockTagLabel = "Stop recommending tag: %1\$s",
+        panelBlockAuthorLabel = "Stop recommending uploader: %1\$s"
     )
 
     private val SIMPLIFIED_CHINESE_MESSAGES = InjectedUiMessages(
@@ -274,7 +280,9 @@ internal object InjectedUiLocale {
         roamingSettingsTitle = "哔哩漫游设置",
         latestVersionMessage = "当前已是最新版本",
         replyTopologyEntryLabel = "脉络",
-        replyTopologyEntryDescription = "查看回复脉络"
+        replyTopologyEntryDescription = "查看回复脉络",
+        panelBlockTagLabel = "不再推荐标签：%1\$s",
+        panelBlockAuthorLabel = "不再推荐 UP：%1\$s"
     )
 
     private val TRADITIONAL_CHINESE_MESSAGES = InjectedUiMessages(
@@ -284,7 +292,9 @@ internal object InjectedUiLocale {
         roamingSettingsTitle = "嗶哩漫遊設定",
         latestVersionMessage = "目前已是最新版本",
         replyTopologyEntryLabel = "脈絡",
-        replyTopologyEntryDescription = "查看回覆脈絡"
+        replyTopologyEntryDescription = "查看回覆脈絡",
+        panelBlockTagLabel = "不再推薦標籤：%1\$s",
+        panelBlockAuthorLabel = "不再推薦 UP：%1\$s"
     )
 
     private val TRADITIONAL_CHINESE_REGIONS = setOf("TW", "HK", "MO")

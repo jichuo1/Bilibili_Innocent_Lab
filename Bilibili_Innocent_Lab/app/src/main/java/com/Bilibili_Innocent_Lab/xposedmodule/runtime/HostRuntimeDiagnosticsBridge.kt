@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * B 站主进程中的只读诊断回执桥。每项阶段只在首次发生时更新内存 Map；持久化由单线程合并，
- * 查询端只能通过签名权限保护的有序广播读取固定白名单阶段证据。
+ * 查询端通过当前会话 Binder 或签名权限保护的广播读取同一份白名单阶段证据。
  */
 internal object HostRuntimeDiagnosticsBridge {
     private const val CACHE_PREFS = "innocent_lab_host_runtime_diagnostics"
@@ -75,11 +75,13 @@ internal object HostRuntimeDiagnosticsBridge {
             lastPersistAtEpochMs = 0L
             bootstrap = HostRuntimeBootstrapEvidence(bootstrapReached = true)
             capturedAtEpochMs = System.currentTimeMillis().coerceAtLeast(1L)
+            runCatching { HostReceiptHost.initialize(application, currentSource) }
+                .onFailure { logError("宿主回执通道初始化失败，保留广播查询") }
             if (receiverRegistered) return true
             return runCatching {
                 ContextCompat.registerReceiver(
                     application,
-                    createQueryReceiver(application),
+                    createQueryReceiver(),
                     IntentFilter(HostRuntimeDiagnosticsQueryContract.ACTION_QUERY),
                     HostRuntimeDiagnosticsQueryContract.PERMISSION_QUERY,
                     null,
@@ -126,6 +128,8 @@ internal object HostRuntimeDiagnosticsBridge {
     }
 
     fun observeVersionLaunch(application: android.app.Application) {
+        // 这里已经拿到实际 Application，补齐 attach.before 无法登记的恢复前台监听。
+        runCatching { source?.let { HostReceiptHost.initialize(application, it) } }
         if (!launchObserverRegistered.compareAndSet(false, true)) return
         runCatching {
             application.registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
@@ -147,6 +151,7 @@ internal object HostRuntimeDiagnosticsBridge {
     fun recordInstallChainCompleted() {
         updateBootstrap { copy(installChainState = HostInstallChainState.COMPLETED) }
         installCompleted = true
+        HostReceiptHost.diagnosticsReady()
         notifyVersionReceiptReady()
     }
 
@@ -177,6 +182,7 @@ internal object HostRuntimeDiagnosticsBridge {
 
     fun recordInstallChainFailed() {
         updateBootstrap { copy(installChainState = HostInstallChainState.FAILED) }
+        HostReceiptHost.diagnosticsReady()
     }
 
     fun recordHookPointSummary(diagnostics: List<HookPointRegistry.Diagnostic>) {
@@ -368,6 +374,7 @@ internal object HostRuntimeDiagnosticsBridge {
         val expectedSource = source ?: return
         val payload = runCatching { HostRuntimeDiagnosticsCodec.encode(snapshot()) }.getOrNull()
             ?: return
+        HostReceiptHost.publish(HostReceiptWire.DIAGNOSTICS, payload, expectedSource)
         runCatching {
             context.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE)
                 .edit()
@@ -410,7 +417,23 @@ internal object HostRuntimeDiagnosticsBridge {
         lastPersistAtEpochMs = restored.capturedAtEpochMs
     }
 
-    private fun createQueryReceiver(application: Context): BroadcastReceiver =
+    /** Binder 查询使用当前进程内存；不恢复上次进程的安装/运行证据。 */
+    internal fun response(nonce: String): android.os.Bundle? {
+        val currentSource = source ?: return null
+        val payload = HostRuntimeDiagnosticsCodec.encode(snapshot())
+        return android.os.Bundle().apply {
+            putBoolean(HostRuntimeDiagnosticsQueryContract.EXTRA_HANDLED, true)
+            putString(HostRuntimeDiagnosticsQueryContract.EXTRA_REQUEST_NONCE, nonce)
+            putString(HostRuntimeDiagnosticsQueryContract.EXTRA_STATUS, HostRuntimeDiagnosticsQueryContract.STATUS_READY)
+            putString(HostRuntimeDiagnosticsQueryContract.EXTRA_PAYLOAD, payload)
+            putString(HostRuntimeDiagnosticsQueryContract.EXTRA_PAYLOAD_SHA256, HostRuntimeDiagnosticsQueryContract.sha256(payload))
+            putLong(HostRuntimeDiagnosticsQueryContract.EXTRA_TARGET_VERSION, currentSource.targetVersionCode)
+            putLong(HostRuntimeDiagnosticsQueryContract.EXTRA_TARGET_UPDATE_TIME, currentSource.targetUpdateTime)
+            putLong(HostRuntimeDiagnosticsQueryContract.EXTRA_MODULE_VERSION, currentSource.moduleVersionCode)
+        }
+    }
+
+    private fun createQueryReceiver(): BroadcastReceiver =
         object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 if (intent.action != HostRuntimeDiagnosticsQueryContract.ACTION_QUERY ||
@@ -437,29 +460,7 @@ internal object HostRuntimeDiagnosticsBridge {
                     resultCode = HostRuntimeDiagnosticsQueryContract.RESULT_CODE_HANDLED
                     return
                 }
-                val currentSource = currentSource(application) ?: return
-                val payload = HostRuntimeDiagnosticsCodec.encode(snapshot())
-                extras.putString(
-                    HostRuntimeDiagnosticsQueryContract.EXTRA_STATUS,
-                    HostRuntimeDiagnosticsQueryContract.STATUS_READY
-                )
-                extras.putString(HostRuntimeDiagnosticsQueryContract.EXTRA_PAYLOAD, payload)
-                extras.putString(
-                    HostRuntimeDiagnosticsQueryContract.EXTRA_PAYLOAD_SHA256,
-                    HostRuntimeDiagnosticsQueryContract.sha256(payload)
-                )
-                extras.putLong(
-                    HostRuntimeDiagnosticsQueryContract.EXTRA_TARGET_VERSION,
-                    currentSource.targetVersionCode
-                )
-                extras.putLong(
-                    HostRuntimeDiagnosticsQueryContract.EXTRA_TARGET_UPDATE_TIME,
-                    currentSource.targetUpdateTime
-                )
-                extras.putLong(
-                    HostRuntimeDiagnosticsQueryContract.EXTRA_MODULE_VERSION,
-                    currentSource.moduleVersionCode
-                )
+                setResultExtras(response(nonce) ?: return)
                 resultCode = HostRuntimeDiagnosticsQueryContract.RESULT_CODE_HANDLED
             }
         }

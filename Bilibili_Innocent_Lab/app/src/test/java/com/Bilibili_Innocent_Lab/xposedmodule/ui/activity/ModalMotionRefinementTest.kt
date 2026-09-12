@@ -103,7 +103,7 @@ class ModalMotionRefinementTest {
         // 动画，等形变结束才补播一次高光（见 ModalTitleHandoffTest 的 ripple 用例）。
         assertFalse(title.contains("source.alpha ="))
         assertTrue(title.contains("sourceTextColors.withAlpha("))
-        assertTrue(title.contains("source.setTextColor(sourceTextColors)"))
+        assertTrue(title.contains("sourceColors.release(source, sourceOwner)?.let(source::setTextColor)"))
         assertTrue(title.contains("target.alpha = targetAlpha"))
         val draw = title.substringAfter("override fun onDraw(").substringBefore("companion object")
         for (forbidden in listOf("requestLayout", "Bitmap", "find(", "TextPaint(", "textSize =")) {
@@ -114,7 +114,7 @@ class ModalMotionRefinementTest {
         assertTrue(controller.contains("titleMotion?.prepare(expansion)"))
         assertTrue(controller.contains("titleMotion?.apply(clamped)"))
         assertTrue(controller.contains("titleMotion?.expanded()"))
-        assertTrue(controller.contains("titleMotion?.closed()"))
+        assertTrue(controller.contains("title.finishAfterSourceDraw(onClosed)"))
         assertTrue(controller.contains("titleMotion?.dispose()"))
         assertEquals(1, Regex("NavigationMotionPolicy.remainingDuration\\(").findAll(controller).count())
     }

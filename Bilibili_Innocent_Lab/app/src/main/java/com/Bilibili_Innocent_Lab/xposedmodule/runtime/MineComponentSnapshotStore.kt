@@ -34,6 +34,22 @@ internal object MineComponentSnapshotStore {
         write(context.getSharedPreferences(prefsName, Context.MODE_PRIVATE), payload, source)
     }.getOrDefault(false)
 
+    /** 主动提交只缓存，不触碰用户勾选；必须等用户发起的实时查询才能进行选择协调。 */
+    fun cache(context: Context, payload: String, source: MineComponentSnapshotSource): Boolean =
+        cache(context.getSharedPreferences("host_receipt_scans", Context.MODE_PRIVATE), payload, source)
+
+    internal fun cache(prefs: SharedPreferences, payload: String, source: MineComponentSnapshotSource): Boolean = runCatching {
+        val decoded = MineComponentSnapshotCodec.decodeOrNull(payload, allowLegacy = false) ?: return@runCatching false
+        if (!source.isComplete || decoded.entries.isEmpty()) return@runCatching false
+        if (prefs.getString(snapshotKey(decoded.surface), null) == payload && storedSource(prefs, decoded.surface) == source)
+            return@runCatching true
+        prefs.edit().putString(snapshotKey(decoded.surface), payload)
+            .putBoolean(sourceKey(KEY_SOURCE_PRESENT, decoded.surface), true)
+            .putLong(sourceKey(KEY_TARGET_VERSION, decoded.surface), source.targetVersionCode)
+            .putLong(sourceKey(KEY_TARGET_UPDATE_TIME, decoded.surface), source.targetUpdateTime)
+            .putLong(sourceKey(KEY_MODULE_VERSION, decoded.surface), source.moduleVersionCode).commit()
+    }.getOrDefault(false)
+
     /** 只由用户发起的、已验真查询调用；来源与勾选一起保存，手填键不参与清理。 */
     internal fun write(
         prefs: SharedPreferences,
@@ -82,6 +98,13 @@ internal object MineComponentSnapshotStore {
         context: Context,
         surface: String = MineComponentSnapshotCodec.SURFACE_MINE
     ): MineComponentSnapshot? = runCatching {
+        val pushed = context.getSharedPreferences("host_receipt_scans", Context.MODE_PRIVATE)
+        val pushedSource = storedSource(pushed, surface)
+        if (pushedSource != null && pushedSource == currentSource(context)) {
+            MineComponentSnapshotCodec.decodeOrNull(pushed.getString(snapshotKey(surface), null).orEmpty(), allowLegacy = false)
+                ?.takeIf { it.surface == surface && it.entries.isNotEmpty() }
+                ?.let { return@runCatching it }
+        }
         val prefsName = "${context.packageName}_preferences"
         val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
         val payload = prefs.getString(snapshotKey(surface), null).orEmpty()

@@ -133,11 +133,21 @@
     <string name="home_recommend_title_rules">推荐标题关键词</string>
     <string name="home_recommend_title_rules_empty">当前未配置关键词，点击编辑</string>
     <string name="home_recommend_title_rules_current">当前关键词：%1$s</string>
-    <string name="home_recommend_blocked_tids">按分区过滤推荐</string>
-    <string name="home_recommend_blocked_tids_empty">当前未屏蔽任何分区，点击编辑</string>
-    <string name="home_recommend_blocked_tids_current">已屏蔽分区：%1$s</string>
-    <string name="home_recommend_blocked_tids_hint">分区 id，用逗号分隔，例如 163,29413</string>
-    <string name="home_recommend_blocked_tids_tip">分区 id 在名单里的卡片会从推荐流里删除。没有分区的卡片（例如番剧）一律保留。重启哔哩哔哩后生效。</string>
+    <string name="home_recommend_blocked_tids">按标签过滤推荐</string>
+    <string name="home_recommend_blocked_tids_empty">当前未屏蔽任何标签，点击编辑</string>
+    <string name="home_recommend_blocked_tids_current">已屏蔽标签：%1$s</string>
+    <string name="home_recommend_blocked_tids_hint">标签名或标签 id，用逗号分隔，例如 鬼畜,8318</string>
+    <string name="home_recommend_blocked_tids_tip">标签在名单里的卡片会从推荐流里删除。填名字时要整串相同，所以「科技」不会误删「科技美学」；纯数字按标签 id 处理。没有标签的卡片（例如番剧）一律保留。重启哔哩哔哩后生效。</string>
+    <string name="home_recommend_section_pick">从哔哩哔哩面板选择标签</string>
+    <string name="home_recommend_section_pick_tip">开启后，首页和详情页推荐的三点面板会增加模块屏蔽选项。有可识别的标签时可直接选择，本次会话立即生效；长期保存需回到本页确认。</string>
+    <string name="home_recommend_section_pick_pending">在哔哩哔哩里选了 %1$s 个还没保存，已经替你填在下面了。</string>
+    <string name="home_recommend_blocked_authors">按 UP 主过滤推荐</string>
+    <string name="home_recommend_blocked_authors_empty">当前未屏蔽任何 UP 主，点击编辑</string>
+    <string name="home_recommend_blocked_authors_current">已屏蔽 UP 主：%1$s</string>
+    <string name="home_recommend_blocked_authors_hint">UP 主名或 UP 主 id，用逗号分隔</string>
+    <string name="home_recommend_blocked_authors_tip">名单里的 UP 主，其卡片会从推荐流里删除。填名字时要整串相同；纯数字按 UP 主 id 处理，两种填法都认。没有 UP 主的卡片一律保留。重启哔哩哔哩后生效。</string>
+    <string name="home_recommend_blocked_authors_pending">在哔哩哔哩里选了 %1$s 个还没保存，已经替你填在下面了。</string>
+    <string name="highlights_home_blocked_authors">按 UP 主名或 id 把某个 UP 主从推荐流里屏蔽掉，也可以直接在哔哩哔哩三点面板里选。</string>
     <string name="home_recommend_title_dialog_hint">例如：盘点, 搬运</string>
     <string name="remove_home_recommend_live">过滤直播推荐</string>
     <string name="remove_home_recommend_courses">过滤课堂推荐</string>
@@ -182,7 +192,7 @@
     <string name="custom_mine_component_snapshot_missing">暂无有效扫描结果，请打开哔哩哔哩“我的”页以扫描勾选项；当前使用手动规则。</string>
     <string name="custom_mine_component_snapshot_querying">正在从哔哩哔哩读取最新“我的”页扫描结果…</string>
     <string name="custom_mine_component_snapshot_waiting_page">已连接到模块 Hook，但哔哩哔哩尚未缓存“我的”页组件；请先进入或刷新一次“我的”页。</string>
-    <string name="custom_mine_component_snapshot_unavailable">未连接到已激活的哔哩哔哩进程；请启用模块后启动哔哩哔哩并进入“我的”页。</string>
+    <string name="custom_mine_component_snapshot_unavailable">未收到哔哩哔哩响应。请启用模块并进入“我的”页后重试；系统后台限制也可能影响回执。</string>
     <string name="custom_mine_component_snapshot_invalid">返回的扫描结果校验失败；请重启哔哩哔哩后重新进入“我的”页扫描。</string>
     <string name="custom_mine_component_snapshot_store_failed">已读取扫描结果，但模块缓存写入失败；本次仍可选择，重启模块界面后请再次检查。</string>
     <!-- 勾选面板通用文案：%1$s 为面名称，供底栏 / 首页标签 / 首页组件复用。 -->
@@ -194,7 +204,7 @@
     <string name="component_picker_snapshot_legacy">这是旧版%1$s扫描结果；保存时会迁移为稳定选择键。请至少保留一项。</string>
     <string name="component_picker_snapshot_querying">正在从哔哩哔哩读取最新的%1$s扫描结果…</string>
     <string name="component_picker_snapshot_waiting_page">已连接到模块 Hook，但哔哩哔哩尚未缓存%1$s；请先打开或刷新一次对应页面。</string>
-    <string name="component_picker_snapshot_unavailable">未连接到已激活的哔哩哔哩进程；请在启用模块后启动哔哩哔哩，并打开含%1$s的页面。</string>
+    <string name="component_picker_snapshot_unavailable">未收到哔哩哔哩响应。请启用模块并打开含%1$s的页面后重试；系统后台限制也可能影响回执。</string>
     <string name="component_picker_snapshot_invalid">返回的%1$s扫描结果校验失败；请重启哔哩哔哩后重新扫描。</string>
     <string name="component_picker_snapshot_store_failed">已读取%1$s扫描结果，但模块缓存写入失败；本次仍可选择，重启模块界面后请再次检查。</string>
     <string name="custom_mine_component_legacy_locked">（由旧手动规则隐藏）</string>
@@ -314,7 +324,7 @@
     <string name="video_relate_blocked_tags_empty">当前未屏蔽任何标签，点击编辑</string>
     <string name="video_relate_blocked_tags_current">已屏蔽标签：%1$s</string>
     <string name="video_relate_blocked_tags_hint">标签，用逗号分隔</string>
-    <string name="video_relate_blocked_tip">UP 主或标签与名单整串相同的相关视频会被删除。详情页协议里没有分区 id，所以这两项在详情页替代按分区过滤。没有 UP 主或标签的卡片一律保留。</string>
+    <string name="video_relate_blocked_tip">UP 主或标签与名单整串相同的相关视频会被删除。没有 UP 主或标签的卡片一律保留。</string>
     <string name="video_relate_reason_filter_keywords_hint">每行一个或使用逗号分隔，例如：创作推广\n去小程序\n立即下载</string>
     <string name="player_default_quality">默认播放画质</string>
     <string name="player_default_quality_tip">选择视频开始播放时优先使用的画质；不会解锁付费画质，画质不可用时仍会自动调整。重启哔哩哔哩后生效。</string>
@@ -675,7 +685,7 @@
     <string name="diagnostics_activation_npatch">已收到与当前模块及哔哩哔哩版本匹配的 heartbeat。</string>
     <string name="diagnostics_activation_checking">正在等待激活证据…</string>
     <string name="diagnostics_activation_unavailable">当前没有有效的兼容 Xposed 框架服务或匹配的 NPatch heartbeat。</string>
-    <string name="diagnostics_bootstrap_unavailable">未连接到已激活的哔哩哔哩主进程。请先启动哔哩哔哩，再刷新诊断。</string>
+    <string name="diagnostics_bootstrap_unavailable">未收到哔哩哔哩响应。请启动哔哩哔哩后刷新；系统后台限制也可能影响回执。</string>
     <string name="diagnostics_bootstrap_invalid">收到了宿主回执，但协议、来源版本或摘要校验失败；请重启哔哩哔哩后刷新。</string>
     <string name="diagnostics_bootstrap_config_rejected">宿主已启动，但 Modern 配置校验被拒绝（%1$s）。请打开一次模块界面完成发布，再冷启动哔哩哔哩。</string>
     <string name="diagnostics_bootstrap_not_authorized">宿主已读取配置，但用户条款尚未同意，因此没有安装任何 Hook。</string>
@@ -879,7 +889,11 @@
     <string name="highlights_speed">新视频使用设定的默认倍速，播放中的手动调速和长按临时倍速保持独立。</string>
     <string name="highlights_interactive">补齐投票等互动组件的响应处理路径，保留普通弹幕和章节信息。</string>
     <string name="highlights_stability_title">适配与稳定性</string>
-    <string name="highlights_home_blocked_tids">按分区 id 把整个分区从推荐流里屏蔽掉。没有分区的卡片一律保留。</string>
-    <string name="highlights_video_relate_blocked_authors">把某个 UP 主或标签从相关视频里屏蔽掉。详情页没有分区 id，这两项在那里替代按分区过滤。</string>
+    <string name="highlights_home_blocked_tids">按标签名或标签 id 把整个标签从推荐流里屏蔽掉。名字要整串相同，不会误删名字相近的标签。没有标签的卡片一律保留。</string>
+    <string name="highlights_video_relate_blocked_authors">把某个 UP 主或标签从相关视频里屏蔽掉。</string>
+    <string name="highlights_home_section_pick">首页和详情页推荐的原生三点面板新增模块屏蔽选项，选择标签后本次会话生效，回到模块确认后保存。</string>
     <string name="highlights_stability">完善局部适配与异常处理，减少单条路径缺失对其他功能的影响。</string>
+    <string name="component_snapshot_cached_notice">正在显示上次保存的扫描结果，尚未确认哔哩哔哩当前状态。</string>
+    <string name="hide_player_popup_promotion">隐藏播放器弹窗推广</string>
+    <string name="hide_player_popup_promotion_tip">隐藏播放器内的小程序等通用悬浮推广卡片，保留其他互动组件和普通弹幕。</string>
 </resources>

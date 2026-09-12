@@ -65,6 +65,12 @@ internal object ReleaseHighlightsCatalog {
         ReleaseHighlight("home-blocked-tids", HighlightKind.NEW,
             R.string.highlights_home_blocked_tids,
             HighlightDestination("home.recommend.blocked_tids")),
+        ReleaseHighlight("home-section-pick", HighlightKind.NEW,
+            R.string.highlights_home_section_pick,
+            HighlightDestination("home.recommend.section_pick.enabled")),
+        ReleaseHighlight("home-blocked-authors", HighlightKind.NEW,
+            R.string.highlights_home_blocked_authors,
+            HighlightDestination("home.recommend.blocked_authors")),
         // 一条 destination 只能指一个 settingId，所以作者与标签各成一条。
         ReleaseHighlight("relate-blocked-authors", HighlightKind.NEW,
             R.string.highlights_video_relate_blocked_authors,
@@ -72,6 +78,8 @@ internal object ReleaseHighlightsCatalog {
         ReleaseHighlight("relate-blocked-tags", HighlightKind.NEW,
             R.string.highlights_video_relate_blocked_authors,
             HighlightDestination("video.related.blocked_tags")),
+        ReleaseHighlight("player-popup-promotion", HighlightKind.NEW, R.string.hide_player_popup_promotion_tip,
+            HighlightDestination("player.popup_promotion.hidden")),
         ReleaseHighlight("independent-adaptation", HighlightKind.FIXED, R.string.highlights_stability,
             standaloneTitleRes = R.string.highlights_stability_title)
     )))

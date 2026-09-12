@@ -21,7 +21,9 @@ internal class VideoRelateFilterFeatureInstaller(
     /** 作者黑名单（UP 名或 mid，整串相等）。 */
     rawBlockedAuthors: String = "",
     /** 标签黑名单（分区标签，整串相等）。 */
-    rawBlockedTags: String = ""
+    rawBlockedTags: String = "",
+    private val sectionPickEnabled: Boolean = false,
+    rawPickedTagIds: String = ""
 ) : FeatureInstaller {
 
     private val durationRange = VideoDurationRange(minDurationSeconds, maxDurationSeconds)
@@ -32,6 +34,7 @@ internal class VideoRelateFilterFeatureInstaller(
     }
     private val blockedAuthors = ExactRuleSetCodec.parse(rawBlockedAuthors)
     private val blockedTags = ExactRuleSetCodec.parse(rawBlockedTags)
+    private val pickedTagIds = if (sectionPickEnabled) TidBlocklistCodec.parse(rawPickedTagIds) else emptySet()
 
     override val id: String = ID
     override val capabilityIds: List<String> get() = buildList {
@@ -71,7 +74,7 @@ internal class VideoRelateFilterFeatureInstaller(
         }
         // 作者/标签名单也算"开着"，否则只设名单不勾类型时整个功能会被判 disabled。
         if (normalizedHidden.isEmpty() && !durationRange.isEnabled && !reasonFilteringActive &&
-            blockedAuthors.isEmpty() && blockedTags.isEmpty()
+            blockedAuthors.isEmpty() && blockedTags.isEmpty() && !sectionPickEnabled && pickedTagIds.isEmpty()
         ) {
             val reason = if (durationRange.isConfigured && !durationRange.isValid) {
                 "invalid-duration-range"
@@ -340,6 +343,12 @@ internal class VideoRelateFilterFeatureInstaller(
         }
 
         detailServiceAccess?.let { access ->
+            val pickedTags = if (sectionPickEnabled || pickedTagIds.isNotEmpty()) {
+                access.componentFactory.parameterTypes.firstOrNull()?.let(RelatedFeedbackTags::resolve)
+            } else null
+            if ((sectionPickEnabled || pickedTagIds.isNotEmpty()) && pickedTags == null) {
+                partialReasons += "missing-picked-tag-accessor"
+            }
             runCatching {
                 environment.registrar.exact(
                     "video.relate.service",
@@ -350,7 +359,14 @@ internal class VideoRelateFilterFeatureInstaller(
                     before {
                         val item = args.firstOrNull() ?: return@before
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                        if (!shouldRemoveDetailServiceItem(
+                        val tagBlocked = runCatching {
+                            pickedTags?.matches(item, pickedTagIds,
+                                if (sectionPickEnabled) SectionPickSession.current else emptySet()) == true
+                        }.getOrElse {
+                            environment.logError("video_relate_picked_tag_read", "[BIL] 所选标签读取失败，保留其他推荐过滤: ${it.javaClass.simpleName}")
+                            false
+                        }
+                        if (!tagBlocked && !shouldRemoveDetailServiceItem(
                                 item = item,
                                 access = access,
                                 normalizedHidden = normalizedHidden,

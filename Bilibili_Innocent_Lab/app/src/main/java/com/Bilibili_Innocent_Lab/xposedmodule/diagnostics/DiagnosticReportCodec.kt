@@ -18,7 +18,7 @@ internal data class DiagnosticReportMetadata(
 /** 只导出固定白名单字段的本地诊断报告；不接受设置值、日志正文和任意异常文本。 */
 internal object DiagnosticReportCodec {
     const val FORMAT_NAME = "bilab-diagnostics"
-    const val CURRENT_FORMAT_VERSION = 5
+    const val CURRENT_FORMAT_VERSION = 6
     const val PRODUCT_ID = "bilibili-innocent-lab"
     const val MAX_FILE_BYTES = 256 * 1024
 
@@ -111,6 +111,7 @@ internal object DiagnosticReportCodec {
                     .put("hostObservedFeatureCount", input.hostObservedFeatureCount)
                     .put("hostAppliedFeatureCount", input.hostAppliedFeatureCount)
                     .put("hostQueryState", input.hostQueryState.name)
+                    .put("hostQueryFailure", input.hostQueryFailure.name)
                     .put(
                         "hostBootstrap",
                         JSONObject()
@@ -250,6 +251,7 @@ internal object DiagnosticReportCodec {
         }
         val runtime = root.getJSONObject("runtime")
         DiagnosticHostQueryState.valueOf(runtime.getString("hostQueryState"))
+        com.Bilibili_Innocent_Lab.xposedmodule.runtime.ReceiptQueryFailure.valueOf(runtime.getString("hostQueryFailure"))
         val bootstrap = runtime.getJSONObject("hostBootstrap")
         require(bootstrap.length() == 9) { "Invalid host bootstrap assessment" }
         DiagnosticHostConfigState.valueOf(bootstrap.getString("configState"))

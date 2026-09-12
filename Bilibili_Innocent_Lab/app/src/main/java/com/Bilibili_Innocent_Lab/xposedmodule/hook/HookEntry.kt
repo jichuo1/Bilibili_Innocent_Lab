@@ -61,6 +61,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeBannerFeatureInst
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeTopBarFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeVerticalDetailFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeRecommendPurifyFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SectionPickFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeTabFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeComponentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
@@ -80,6 +81,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailUnitedModulePur
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailUnitedModulePurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailUnitedPresentationPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerInteractiveOverlayFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPopupPromotionFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerStatusBarFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SearchPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SearchHomeRecommendFeatureInstaller
@@ -3036,7 +3038,28 @@ class HookEntry : XposedModule() {
                         rawBlockedTids = prefs.getString(
                             FeaturePreferences.HOME_RECOMMEND_BLOCKED_TIDS,
                             ""
-                        ).orEmpty()
+                        ).orEmpty(),
+                        rawBlockedAuthors = prefs.getString(
+                            FeaturePreferences.HOME_RECOMMEND_BLOCKED_AUTHORS,
+                            ""
+                        ).orEmpty(),
+                        sectionPickEnabled = prefs.getBoolean(
+                            FeaturePreferences.HOME_RECOMMEND_SECTION_PICK_ENABLED,
+                            false
+                        )
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    SectionPickFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.HOME_RECOMMEND_SECTION_PICK_ENABLED,
+                            false
+                        ),
+                        points = hostAdaptResult?.homeRecommendFeed,
+                        relatedPoints = hostAdaptResult?.videoRelate
                     )
                 )
             )
@@ -3155,6 +3178,9 @@ class HookEntry : XposedModule() {
                             false
                         ),
                         points = hostAdaptResult?.playerInteractiveOverlays
+                    ),
+                    PlayerPopupPromotionFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.HIDE_PLAYER_POPUP_PROMOTION, false)
                     )
                 )
             )
@@ -3273,6 +3299,12 @@ class HookEntry : XposedModule() {
                         rawBlockedTags = prefs.getString(
                             FeaturePreferences.VIDEO_RELATE_BLOCKED_TAGS,
                             ""
+                        ).orEmpty(),
+                        sectionPickEnabled = prefs.getBoolean(
+                            FeaturePreferences.HOME_RECOMMEND_SECTION_PICK_ENABLED, false
+                        ),
+                        rawPickedTagIds = prefs.getString(
+                            FeaturePreferences.HOME_RECOMMEND_BLOCKED_TIDS, ""
                         ).orEmpty()
                     )
                 )

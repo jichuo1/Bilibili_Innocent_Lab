@@ -16,7 +16,7 @@ import java.util.concurrent.Executors
  * 运行在 B 站主进程中的扫描快照桥。
  *
  * 扫描结果先留在宿主内存并异步写入宿主私有缓存；模块设置页通过受签名权限保护的
- * 有序广播主动查询。这样不再依赖该设备已确认不可用的宿主 -> 模块 Provider/广播通道。
+ * 有序广播兜底查询；同时异步提交至模块 Provider，支持当前会话 Binder 查询。
  */
 internal object MineComponentSnapshotHostBridge {
     private const val CACHE_PREFS = "innocent_lab_mine_component_snapshot"
@@ -128,9 +128,31 @@ internal object MineComponentSnapshotHostBridge {
                 .putLong("${KEY_MODULE_VERSION}_$surface", source.moduleVersionCode)
                 .commit()
         }.getOrDefault(false)
-        if (committed) latest[surface] = updated
+        if (committed) {
+            latest[surface] = updated
+            HostReceiptHost.publish(surface, payload, HostRuntimeDiagnosticsSource(
+                source.targetVersionCode, source.targetUpdateTime, source.moduleVersionCode))
+        }
         committed
     }.getOrDefault(false)
+
+    /** 两种实时传输读取同一份内存快照，Binder 线程不做磁盘读取。 */
+    internal fun response(surface: String, nonce: String): android.os.Bundle {
+        val cached = latest[surface]?.takeIf { it.source == processSource }
+        return android.os.Bundle().apply {
+            putBoolean(MineComponentSnapshotQueryContract.EXTRA_HANDLED, true)
+            putString(MineComponentSnapshotQueryContract.EXTRA_REQUEST_NONCE, nonce)
+            putString(MineComponentSnapshotQueryContract.EXTRA_STATUS,
+                if (cached == null) MineComponentSnapshotQueryContract.STATUS_WAITING_PAGE else MineComponentSnapshotQueryContract.STATUS_READY)
+            if (cached != null) {
+                putString(MineComponentSnapshotQueryContract.EXTRA_PAYLOAD, cached.payload)
+                putString(MineComponentSnapshotQueryContract.EXTRA_PAYLOAD_SHA256, MineComponentSnapshotQueryContract.sha256(cached.payload))
+                putLong(MineComponentSnapshotQueryContract.EXTRA_TARGET_VERSION, cached.source.targetVersionCode)
+                putLong(MineComponentSnapshotQueryContract.EXTRA_TARGET_UPDATE_TIME, cached.source.targetUpdateTime)
+                putLong(MineComponentSnapshotQueryContract.EXTRA_MODULE_VERSION, cached.source.moduleVersionCode)
+            }
+        }
+    }
 
     private fun createQueryReceiver(): BroadcastReceiver =
         object : BroadcastReceiver() {
@@ -166,37 +188,7 @@ internal object MineComponentSnapshotHostBridge {
                     MineComponentSnapshotQueryContract.EXTRA_SURFACE
                 )?.takeIf { it in MineComponentSnapshotCodec.ALLOWED_SURFACES }
                     ?: MineComponentSnapshotCodec.SURFACE_MINE
-                val cached = latest[requestedSurface]
-                    ?.takeIf { it.source == processSource }
-                if (cached == null) {
-                    extras.putString(
-                        MineComponentSnapshotQueryContract.EXTRA_STATUS,
-                        MineComponentSnapshotQueryContract.STATUS_WAITING_PAGE
-                    )
-                    resultCode = MineComponentSnapshotQueryContract.RESULT_CODE_HANDLED
-                    return
-                }
-                extras.putString(
-                    MineComponentSnapshotQueryContract.EXTRA_STATUS,
-                    MineComponentSnapshotQueryContract.STATUS_READY
-                )
-                extras.putString(MineComponentSnapshotQueryContract.EXTRA_PAYLOAD, cached.payload)
-                extras.putString(
-                    MineComponentSnapshotQueryContract.EXTRA_PAYLOAD_SHA256,
-                    MineComponentSnapshotQueryContract.sha256(cached.payload)
-                )
-                extras.putLong(
-                    MineComponentSnapshotQueryContract.EXTRA_TARGET_VERSION,
-                    cached.source.targetVersionCode
-                )
-                extras.putLong(
-                    MineComponentSnapshotQueryContract.EXTRA_TARGET_UPDATE_TIME,
-                    cached.source.targetUpdateTime
-                )
-                extras.putLong(
-                    MineComponentSnapshotQueryContract.EXTRA_MODULE_VERSION,
-                    cached.source.moduleVersionCode
-                )
+                setResultExtras(response(requestedSurface, nonce))
                 resultCode = MineComponentSnapshotQueryContract.RESULT_CODE_HANDLED
             }
         }

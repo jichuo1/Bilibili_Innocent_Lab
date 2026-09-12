@@ -411,11 +411,12 @@ internal fun MainActivity.showComponentSnapshotFallback(
     message: String,
     transientSnapshot: MineComponentSnapshot? = null
 ) {
-    toast(message)
     val snapshot = transientSnapshot ?: readComponentSnapshot(spec)
     if (snapshot != null && snapshot.entries.isNotEmpty()) {
+        toast(if (transientSnapshot != null) message else getString(R.string.component_snapshot_cached_notice))
         showComponentPickerDialog(spec, snapshot)
     } else {
+        toast(message)
         showComponentManualRuleEditor(spec)
     }
 }

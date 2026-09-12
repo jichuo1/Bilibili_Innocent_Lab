@@ -20,7 +20,7 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 8
+    const val VERSION = 10
     val definitions = listOf(
         DiagnosticCapabilityDefinition("search_home_recommend_hidden", "search_home_recommend_hidden", R.string.hide_search_home_recommend, setOf("search.home_recommend.hidden"), introducedCatalogVersion = 4),
         DiagnosticCapabilityDefinition("player_interactive_legacy_follow", "player_interactive_overlay", R.string.diag_cap_player_interactive_legacy_follow, setOf("player.interactive_overlays.hidden"), "legacy/guide/clearAttention"),
@@ -165,10 +165,12 @@ internal object DiagnosticCapabilityCatalog {
         // 好物商品卡的协议层总闸；与 merchandise 那条渲染层互为保底，共用同一个开关。
         DiagnosticCapabilityDefinition("detail_united_merchandise_removed", "detail_united_module_purify", R.string.merch_ad_enable, setOf("ads.merchandise.hidden"), introducedCatalogVersion = 7),
         // 按分区过滤推荐：名单非空即启用，没有独立开关，所以只挂名单那一个设置。
-        DiagnosticCapabilityDefinition("home_recommend_tid_block", "home_recommend_purify", R.string.home_recommend_blocked_tids, setOf("home.recommend.blocked_tids"), introducedCatalogVersion = 8),
+        DiagnosticCapabilityDefinition("home_recommend_tid_block", "home_recommend_purify", R.string.home_recommend_blocked_tids, setOf("home.recommend.blocked_tids", "home.recommend.section_pick.enabled"), introducedCatalogVersion = 8),
+        DiagnosticCapabilityDefinition("home_recommend_author_block", "home_recommend_purify", R.string.home_recommend_blocked_authors, setOf("home.recommend.blocked_authors", "home.recommend.section_pick.enabled"), introducedCatalogVersion = 9),
         // 详情页没有 tid，同一需求退到作者与标签两档。
         DiagnosticCapabilityDefinition("video_related_author_block", "video_relate_filter", R.string.video_relate_blocked_authors, setOf("video.related.blocked_authors"), introducedCatalogVersion = 8),
-        DiagnosticCapabilityDefinition("video_related_tag_block", "video_relate_filter", R.string.video_relate_blocked_tags, setOf("video.related.blocked_tags"), introducedCatalogVersion = 8)
+        DiagnosticCapabilityDefinition("video_related_tag_block", "video_relate_filter", R.string.video_relate_blocked_tags, setOf("video.related.blocked_tags"), introducedCatalogVersion = 8),
+        DiagnosticCapabilityDefinition("player_popup_promotion", "player_popup_promotion", R.string.hide_player_popup_promotion, setOf("player.popup_promotion.hidden"), introducedCatalogVersion = 10)
     )
     val localOnlySettings = mapOf(
         "free_copy.light_mode.enabled" to "LOCAL_APPEARANCE",

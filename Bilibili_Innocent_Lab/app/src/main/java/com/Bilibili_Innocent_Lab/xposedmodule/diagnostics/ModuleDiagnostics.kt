@@ -139,6 +139,8 @@ internal data class ModuleDiagnosticInputs(
     val hostAppliedFeatureCount: Int = 0,
     val hostFeatures: List<DiagnosticHostFeature> = emptyList(),
     val hostQueryState: DiagnosticHostQueryState = DiagnosticHostQueryState.TARGET_UNAVAILABLE,
+    val hostQueryFailure: com.Bilibili_Innocent_Lab.xposedmodule.runtime.ReceiptQueryFailure =
+        com.Bilibili_Innocent_Lab.xposedmodule.runtime.ReceiptQueryFailure.NONE,
     val hostBootstrapReached: Boolean = false,
     val hostConfigState: DiagnosticHostConfigState = DiagnosticHostConfigState.NOT_CHECKED,
     val hostConfigGeneration: Long = 0L,

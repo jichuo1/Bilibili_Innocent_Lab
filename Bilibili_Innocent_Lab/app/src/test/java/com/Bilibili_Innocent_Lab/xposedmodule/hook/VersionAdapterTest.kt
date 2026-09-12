@@ -47,7 +47,7 @@ class VersionAdapterTest {
         val current = result().copy(pgcAutoActivityPopup = points)
         val restored = VersionAdapter.AdaptResult.fromJson(current.toJson())
         assertEquals(points, restored?.pgcAutoActivityPopup)
-        assertEquals(57, current.toJson().getInt("sv"))
+        assertEquals(62, current.toJson().getInt("sv"))
         assertNull(VersionAdapter.AdaptResult.fromJson(current.toJson().put("sv", 53)))
         assertNull(VersionAdapter.AdaptResult.fromJson(
             current.toJson().apply { getJSONObject("pgc_auto_activity_popup").put("index", -1) }

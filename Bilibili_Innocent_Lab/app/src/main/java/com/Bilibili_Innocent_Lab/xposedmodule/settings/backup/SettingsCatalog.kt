@@ -20,7 +20,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.ModalBackdropB
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 19
+    const val CATALOG_VERSION = 21
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
@@ -126,6 +126,12 @@ internal object SettingsCatalog {
         // 分区 id 名单存成 Text 而不是集合：授权链只搬 Bool/Int/Text，见 TidBlocklistCodec。
         text("home.recommend.blocked_tids", FeaturePreferences.HOME_RECOMMEND_BLOCKED_TIDS,
             R.string.home_recommend_blocked_tids, introducedCatalogVersion = 19),
+        bool("home.recommend.section_pick.enabled",
+            FeaturePreferences.HOME_RECOMMEND_SECTION_PICK_ENABLED,
+            R.string.home_recommend_section_pick, introducedCatalogVersion = 19),
+        // UP 名单同样存成 Text；判据与详情页那档共用 ExactRuleSetCodec。
+        text("home.recommend.blocked_authors", FeaturePreferences.HOME_RECOMMEND_BLOCKED_AUTHORS,
+            R.string.home_recommend_blocked_authors, introducedCatalogVersion = 20),
         bool("home.recommend.live.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE, R.string.remove_home_recommend_live),
         bool("home.recommend.pgc.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC,
             R.string.remove_home_recommend_pgc, introducedCatalogVersion = 14),
@@ -252,6 +258,12 @@ internal object SettingsCatalog {
             FeaturePreferences.HIDE_PLAYER_INTERACTIVE_OVERLAYS,
             R.string.hide_player_interactive_overlays,
             introducedCatalogVersion = 7
+        ),
+        bool(
+            "player.popup_promotion.hidden",
+            FeaturePreferences.HIDE_PLAYER_POPUP_PROMOTION,
+            R.string.hide_player_popup_promotion,
+            introducedCatalogVersion = 21
         ),
         bool(
             "pgc.auto_activity_popup.hidden",
@@ -601,7 +613,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 134) { "Expected 134 catalog settings, found ${specs.size}" }
+        check(specs.size == 137) { "Expected 137 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

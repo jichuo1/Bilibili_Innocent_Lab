@@ -103,7 +103,7 @@ internal class IconAnchoredMotionController(
         content.elevation = 0f
         layer.background = surfaceDrawable
         layer.blockInteraction = true
-        titleMotion?.prepare(0f)
+        titleMotion?.captureTargetPosition()
         apply(0f)
         return true
     }
@@ -115,12 +115,20 @@ internal class IconAnchoredMotionController(
             return
         }
         state = MotionState.ENTERING
-        animateTo(
-            target = 1f,
-            durationMs = IconAnchoredMotionSpec.ENTER_DURATION_MS,
-            interpolator = enterInterpolator,
-            onEnd = ::settleExpanded
-        )
+        // 首个弹窗缓冲区就绪后再借走来源文字；否则底页先隐藏、弹窗还没显示，会空一帧。
+        layer.postOnAnimation {
+            if (state != MotionState.ENTERING) return@postOnAnimation
+            titleMotion?.prepare(0f)
+            layer.postOnAnimation beginTravel@{
+                if (state != MotionState.ENTERING) return@beginTravel
+                animateTo(
+                    target = 1f,
+                    durationMs = IconAnchoredMotionSpec.ENTER_DURATION_MS,
+                    interpolator = enterInterpolator,
+                    onEnd = ::settleExpanded
+                )
+            }
+        }
     }
 
     /** 无来源矩形、系统动画关闭或几何失效时的终态。 */
@@ -269,6 +277,7 @@ internal class IconAnchoredMotionController(
         content.elevation = 0f
         layer.background = surfaceDrawable
         layer.blockInteraction = true
+        titleMotion?.captureTargetPosition()
         titleMotion?.prepare(expansion)
         return resolved
     }
@@ -349,9 +358,9 @@ internal class IconAnchoredMotionController(
     }
 
     private fun finish() {
-        titleMotion?.closed()
         state = MotionState.FINISHED
         session.invalidate()
-        onClosed()
+        val title = titleMotion
+        if (title != null) title.finishAfterSourceDraw(onClosed) else onClosed()
     }
 }

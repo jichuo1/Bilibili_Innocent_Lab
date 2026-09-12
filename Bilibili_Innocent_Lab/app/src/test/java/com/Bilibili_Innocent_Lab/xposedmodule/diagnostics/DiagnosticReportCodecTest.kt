@@ -9,6 +9,18 @@ import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 
 class DiagnosticReportCodecTest {
+    @Test fun `query failures round trip as bounded reasons without changing host evidence`() {
+        com.Bilibili_Innocent_Lab.xposedmodule.runtime.ReceiptQueryFailure.entries.forEach { reason ->
+            val bytes = DiagnosticReportCodec.encode(ModuleHealthEvaluator.evaluate(inputs().copy(hostQueryFailure = reason)))
+            DiagnosticReportCodec.validate(bytes)
+            assertEquals(reason.name, JSONObject(String(bytes, StandardCharsets.UTF_8))
+                .getJSONObject("runtime").getString("hostQueryFailure"))
+        }
+        val json = JSONObject(String(DiagnosticReportCodec.encode(ModuleHealthEvaluator.evaluate(inputs())), StandardCharsets.UTF_8))
+        json.getJSONObject("runtime").put("hostQueryFailure", "/private/unbounded-message")
+        assertTrue(runCatching { DiagnosticReportCodec.validate(json.toString().toByteArray(StandardCharsets.UTF_8)) }.isFailure)
+    }
+
     @Test
     fun `LSPatch display states retain compatible bounded activation wire values`() {
         val expected = mapOf(
@@ -40,7 +52,7 @@ class DiagnosticReportCodecTest {
         val bytes = DiagnosticReportCodec.encode(ModuleHealthEvaluator.evaluate(state))
         DiagnosticReportCodec.validate(bytes)
         val json = JSONObject(bytes.toString(StandardCharsets.UTF_8))
-        assertEquals(5, json.getInt("formatVersion"))
+        assertEquals(6, json.getInt("formatVersion"))
         assertEquals(3110L, json.getJSONObject("framework").getLong("versionCode"))
         assertEquals(7L, json.getJSONObject("framework").getLong("properties"))
         assertEquals("MATCHED", json.getJSONObject("remoteConfig").getString("hostDelivery"))

@@ -132,6 +132,8 @@ internal object MineComponentSelector {
             ?: title?.let { "home_tab:title:${normalize(it)}" }
         // 首页子组件：标识只有混淆类名，放在 id 里；title 仅作展示，不参与键。
         "home_component" -> id?.let { "home_component:id:${normalize(it)}" }
+        "section" -> id?.toLongOrNull()?.takeIf { it > 0 }?.let { "tid:$it" }
+        "author" -> id?.takeIf(String::isNotBlank)?.let { "author:name:${normalize(it)}" }
         else -> null
     }
 
@@ -174,14 +176,33 @@ internal object MineComponentSnapshotCodec {
         "bottom_tab",                            // 底栏
         "home_tab",                              // 首页顶栏 Tab
         "home_component",                        // 首页子组件（标识是混淆类名）
+        "section", "author",                    // 原生面板中显式选择的标签、UP
     )
 
     const val SURFACE_MINE = "mine"
     const val SURFACE_BOTTOM_BAR = "bottom_bar"
     const val SURFACE_HOME_TABS = "home_tabs"
     const val SURFACE_HOME_COMPONENTS = "home_components"
+
+    /**
+     * 用户在 B 站三点面板里点过的分区。
+     *
+     * 与其余四个面同为**观测**通道：宿主只上报"看到/点到了什么"，是否写进黑名单由模块 App
+     * 里的用户确认。授权链方向不变（配置仍是模块 → 宿主单向下发），这里不新增任何反向
+     * 配置通道，也就不触碰"不得回退私有文件/Provider/广播"那条红线。
+     */
+    const val SURFACE_SECTION_PICKS = "section_picks"
+
+    /**
+     * 用户在 B 站三点面板里点过的 UP 主。
+     *
+     * 与 [SURFACE_SECTION_PICKS] 同一套语义与同一条边界，只是落到另一份名单：
+     * 标签进标签名单、UP 进 UP 名单，两者在模块设置里是两个独立入口。
+     */
+    const val SURFACE_AUTHOR_PICKS = "author_picks"
     val ALLOWED_SURFACES = setOf(
-        SURFACE_MINE, SURFACE_BOTTOM_BAR, SURFACE_HOME_TABS, SURFACE_HOME_COMPONENTS
+        SURFACE_MINE, SURFACE_BOTTOM_BAR, SURFACE_HOME_TABS, SURFACE_HOME_COMPONENTS,
+        SURFACE_SECTION_PICKS, SURFACE_AUTHOR_PICKS
     )
 
     fun encode(

@@ -3,6 +3,9 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 import android.annotation.SuppressLint
 import android.graphics.Canvas
 import android.graphics.Rect
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.text.Layout
 import android.text.Spanned
 import android.text.TextUtils
@@ -54,30 +57,26 @@ internal object ModalTitleMotionSpec {
         start + (end - start) * progress.coerceIn(0f, 1f)
 
     private fun smooth(start: Float, end: Float, progress: Float): Float {
-        val t = ((progress - start) / (end - start)).coerceIn(0f, 1f)
+        val t = ((boundedProgress(progress) - start) / (end - start)).coerceIn(0f, 1f)
         return t * t * (3f - 2f * t)
     }
 
     // 先到位，再交接；交接区不再移动文字，避免跨窗口晚一帧造成空间重影。
     fun motionProgress(progress: Float): Float = smooth(.12f, .85f, progress)
-    fun sourceWeight(progress: Float): Float = 1f - smooth(0f, .12f, progress)
-    fun targetWeight(progress: Float): Float = smooth(.85f, 1f, progress)
+    fun descriptionWeight(progress: Float): Float = 1f - smooth(0f, .30f, progress)
+    // 活动绘制期间只有叠加层持有文字，包括两端的停位窗口。
+    // 即使两份字的位置相同，抗锯齿边缘也不是满 alpha；叠画会加深边缘。
+    // 来源与目标字重不同时（如 Liquid Glass 背景），还会直接出现不同轮廓的重影。
+    fun sourceWeight(progress: Float): Float {
+        boundedProgress(progress)
+        return 0f
+    }
 
-    /**
-     * 叠加层**全程满不透明**，而不是与原生标题互补淡入淡出。
-     *
-     * 原来是 `(1 - source)(1 - target)`，两端各有一段与原生标题的交叉淡化。但**alpha 合成不是
-     * 相加**：两份**重合且相同**的字，各 0.5 叠在一起的覆盖率是 `1-(1-.5)(1-.5) = 0.75`，
-     * 而两端都是 1.0 ⇒ 每次交接都有一次约 25% 的**变暗**，就是现场看到的"明度闪动"
-     * （交接窗口 0..0.12 与 0.85..1，400ms 入场里各约两三帧）。
-     *
-     * 交接区里 `motionProgress` 恰好被钳在 0 或 1（见上），也就是叠加层此刻**与原生标题
-     * 严格重合、同字号**，颜色又由 [ModalTitleMotion] 按同一 progress 混到目标色——
-     * 所以让叠加层始终满不透明地盖在上面，画出来的像素与原生标题一致：
-     * 既不会变暗，也不怕跨窗口晚一帧（两侧都是同样的像素）。
-     * 原生标题的斜坡仍然保留：叠加层在 `expanded()` / `closed()` 撤掉的那一刻，
-     * 下面必须已经是满不透明的那一份。
-     */
+    fun targetWeight(progress: Float): Float {
+        boundedProgress(progress)
+        return 0f
+    }
+
     fun overlayWeight(progress: Float): Float {
         boundedProgress(progress)
         return 1f
@@ -100,10 +99,12 @@ internal object ModalTitleMotionSpec {
 internal class ModalTitleMotion private constructor(
     private val source: TextView,
     private val target: TextView,
-    private val root: ViewGroup
+    private val root: ViewGroup,
+    anchor: View
 ) : View(root.context) {
     private val title = target.textToString()
     private var sourceLayout: Layout? = null
+    private var targetLayout: Layout? = null
     private var sourceSize = 1f
     private var targetSize = 1f
     private val rootLocation = IntArray(2)
@@ -121,9 +122,12 @@ internal class ModalTitleMotion private constructor(
      * 现场表现就是"面板都展开完了，原来那一行才闪一下高光"。
      * 只压文字颜色的 alpha，行背景全程照常绘制，高光在点击那一刻就地播完。
      */
-    private val sourceTextColors = source.textColors
+    private val sourceTextColors = sourceColors.original(source, source.textColors)
+    private val sourceOwner = Any()
+    private val descriptions = ModalTitleDescriptions(source, anchor, sourceTextColors)
     private val sourceTextBaseAlpha = android.graphics.Color.alpha(sourceTextColors.defaultColor)
     private var sourceTextFaded = false
+    private var appliedSourceTextWeight = 1f
 
     /**
      * 飞行标题两端的颜色，**在任何淡出发生之前**各取一次。
@@ -145,8 +149,12 @@ internal class ModalTitleMotion private constructor(
     private var startBaseline = 0f
     private var endX = 0f
     private var endBaseline = 0f
+    private var targetPositionCaptured = false
     private var progress = 0f
+    private var titleOpacity = 1f
     private var active = false
+    private var sourceBorrowPending = false
+    private var pendingRelease: Runnable? = null
 
     init {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -157,6 +165,17 @@ internal class ModalTitleMotion private constructor(
 
     // 单份无 Span 的文字内容不需要全窗离屏混合，避免交接 alpha 引入额外整屏图层。
     override fun hasOverlappingRendering(): Boolean = false
+
+    /** 由控制器在施加正文临时位移前调用，终点属于静止的原生标题。 */
+    fun captureTargetPosition() {
+        val layout = target.layout ?: return
+        root.getLocationOnScreen(rootLocation)
+        target.getLocationOnScreen(location)
+        endX = ModalTitleMotionSpec.layoutOffset((location[0] - rootLocation[0]).toFloat(),
+            target.totalPaddingLeft.toFloat(), layout.getLineLeft(0), target.scrollX.toFloat())
+        endBaseline = (location[1] - rootLocation[1] + target.baseline - target.scrollY).toFloat()
+        targetPositionCaptured = true
+    }
 
     fun prepare(expansion: Float) {
         if (active) return
@@ -191,15 +210,15 @@ internal class ModalTitleMotion private constructor(
         startX = ModalTitleMotionSpec.layoutOffset((location[0] - rootLocation[0]).toFloat(),
             source.totalPaddingLeft.toFloat(), layout.getLineLeft(0), source.scrollX.toFloat())
         startBaseline = (location[1] - rootLocation[1] + source.baseline - source.scrollY).toFloat()
-        target.getLocationOnScreen(location)
-        endX = ModalTitleMotionSpec.layoutOffset((location[0] - rootLocation[0]).toFloat(),
-            target.totalPaddingLeft.toFloat(), targetLayout.getLineLeft(0), target.scrollX.toFloat())
-        endBaseline = (location[1] - rootLocation[1] + target.baseline - target.scrollY).toFloat()
+        if (!targetPositionCaptured) captureTargetPosition()
         sourceLayout = layout
+        this.targetLayout = targetLayout
         sourceSize = source.textSize.coerceAtLeast(1f)
         targetSize = target.textSize.coerceAtLeast(1f)
         active = true
+        sourceBorrowPending = !sourceTextFaded
         visibility = VISIBLE
+        descriptions.prepare(root)
         apply(expansion)
     }
 
@@ -207,9 +226,10 @@ internal class ModalTitleMotion private constructor(
         if (!active) return
         val p = expansion.coerceIn(0f, 1f)
         progress = ModalTitleMotionSpec.motionProgress(p)
-        applySourceTextWeight(ModalTitleMotionSpec.sourceWeight(p))
+        if (!sourceBorrowPending) applySourceTextWeight(ModalTitleMotionSpec.sourceWeight(p))
+        descriptions.apply(p)
         target.alpha = targetAlpha * ModalTitleMotionSpec.targetWeight(p)
-        alpha = ModalTitleMotionSpec.overlayWeight(p) *
+        titleOpacity = ModalTitleMotionSpec.overlayWeight(p) *
             ModalTitleMotionSpec.interpolate(sourceAlpha, targetAlpha, progress)
         invalidate()
     }
@@ -218,27 +238,79 @@ internal class ModalTitleMotion private constructor(
         if (!active) return
         active = false
         visibility = INVISIBLE
-        restoreSourceText()
+        // 文字已经交给面板；来源一直保持隐藏，直到关闭或销毁。
         target.alpha = targetAlpha
         sourceLayout = null
+        targetLayout = null
+        targetPositionCaptured = false
     }
 
     fun closed() {
-        if (!active) return
         // 关闭只交还源标题，不要在尚未撤掉的 Dialog 中复活目标标题。
         active = false
+        sourceBorrowPending = false
         visibility = INVISIBLE
+        descriptions.apply(0f)
+        descriptions.dispose()
         restoreSourceText()
         target.alpha = 0f
         sourceLayout = null
+        targetLayout = null
+        targetPositionCaptured = false
+    }
+
+    /** 等来源窗口真正提交恢复帧，再撤掉仍在原位置绘字的弹窗表面。 */
+    fun finishAfterSourceDraw(onComplete: () -> Unit) {
+        if (pendingRelease != null) return
+        if (!active || !source.isAttachedToWindow) {
+            closed()
+            onComplete()
+            return
+        }
+        val handler = Handler(Looper.getMainLooper())
+        val observer = source.viewTreeObserver
+        var committed: Runnable? = null
+        val release = Runnable {
+            val pending = pendingRelease ?: return@Runnable
+            pendingRelease = null
+            handler.removeCallbacks(pending)
+            if (Build.VERSION.SDK_INT >= 29 && observer.isAlive) {
+                committed?.let(observer::unregisterFrameCommitCallback)
+            }
+            closed()
+            onComplete()
+        }
+        pendingRelease = release
+        if (Build.VERSION.SDK_INT >= 29 && source.isHardwareAccelerated && observer.isAlive) {
+            committed = Runnable {
+                if (Looper.myLooper() == Looper.getMainLooper()) release.run()
+                else handler.postAtFrontOfQueue(release)
+            }
+            observer.registerFrameCommitCallback(committed)
+        } else {
+            source.postOnAnimation { handler.post(release) }
+        }
+        // 移动层继续持有最终一帧，避免来源窗口晚绘一帧时出现空白。
+        sourceBorrowPending = false
+        descriptions.apply(0f)
+        descriptions.restoreNative()
+        restoreSourceText()
+        source.invalidate()
+        // 窗口失去可见性时可能不再提交帧，关闭不能因此挂起。
+        handler.postDelayed(release, 80L)
     }
 
     fun dispose() {
+        pendingRelease?.run()
         active = false
+        sourceBorrowPending = false
         visibility = INVISIBLE
+        descriptions.dispose()
         restoreSourceText()
         target.alpha = targetAlpha
         sourceLayout = null
+        targetLayout = null
+        targetPositionCaptured = false
     }
 
     /**
@@ -250,11 +322,14 @@ internal class ModalTitleMotion private constructor(
      */
     private fun applySourceTextWeight(weight: Float) {
         val w = weight.coerceIn(0f, 1f)
+        if (sourceTextFaded && w == appliedSourceTextWeight) return
         if (w >= 1f) {
             restoreSourceText()
             return
         }
+        if (!sourceTextFaded) sourceColors.acquire(source, sourceOwner, sourceTextColors)
         sourceTextFaded = true
+        appliedSourceTextWeight = w
         source.setTextColor(sourceTextColors.withAlpha((sourceTextBaseAlpha * w).roundToInt()))
     }
 
@@ -262,12 +337,23 @@ internal class ModalTitleMotion private constructor(
     private fun restoreSourceText() {
         if (!sourceTextFaded) return
         sourceTextFaded = false
-        source.setTextColor(sourceTextColors)
+        appliedSourceTextWeight = 1f
+        sourceColors.release(source, sourceOwner)?.let(source::setTextColor)
     }
 
     override fun onDraw(canvas: Canvas) {
         if (!active) return
-        val layout = sourceLayout ?: return
+        // 等移动层确实开始绘制才隐藏底页，避免跨窗口首帧尚未提交时提前借走文字。
+        if (sourceBorrowPending) {
+            sourceBorrowPending = false
+            applySourceTextWeight(0f)
+            descriptions.hideNative()
+        }
+        descriptions.draw(canvas)
+        // 到达目标端后使用目标自己的 Layout，粗细、字距和栅格与原生标题一致。
+        // 每帧仍只画一次，不把缩放后的来源字形叠在目标字形上。
+        val atTarget = progress >= 1f
+        val layout = (if (atTarget) targetLayout else sourceLayout) ?: return
         val x = ModalTitleMotionSpec.interpolate(startX, endX, progress)
         val baseline = ModalTitleMotionSpec.interpolate(startBaseline, endBaseline, progress)
         val size = ModalTitleMotionSpec.interpolate(sourceSize, targetSize, progress)
@@ -282,10 +368,11 @@ internal class ModalTitleMotion private constructor(
         // 与下面那份原生标题**同色**，否则会看到一次明度跳变。
         paint.color = androidx.core.graphics.ColorUtils
             .blendARGB(overlayTextColor, targetTextColor, progress)
+        paint.alpha = (android.graphics.Color.alpha(paint.color) * titleOpacity).roundToInt()
         try {
             canvas.withSave {
                 translate(x, baseline)
-                val scale = size / sourceSize
+                val scale = if (atTarget) size / targetSize else size / sourceSize
                 scale(scale, scale)
                 translate(-layout.getLineLeft(0), -layout.getLineBaseline(0).toFloat())
                 // 只搬首行：来源行可能是"标题 \n 摘要"合成的一个 TextView，摘要不该跟着飞。
@@ -313,6 +400,8 @@ internal class ModalTitleMotion private constructor(
     }
 
     companion object {
+        private val sourceColors = ModalTitleColorOwners<TextView, android.content.res.ColorStateList>()
+
         fun create(anchor: View?, target: TextView?, root: ViewGroup): ModalTitleMotion? {
             if (anchor == null || target == null) return null
             // 只在点击的来源行内查找，最多检查 64 个节点，不遍历设置页面或按近义词误配。
@@ -332,7 +421,7 @@ internal class ModalTitleMotion private constructor(
                 }
                 return null
             }
-            return find(anchor)?.let { ModalTitleMotion(it, target, root) }
+            return find(anchor)?.let { ModalTitleMotion(it, target, root, anchor) }
         }
     }
 }

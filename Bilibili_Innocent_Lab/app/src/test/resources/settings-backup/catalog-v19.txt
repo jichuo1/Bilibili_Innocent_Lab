@@ -50,6 +50,7 @@ home.recommend.large.removed
 home.recommend.live.removed
 home.recommend.pgc.removed
 home.recommend.pictures.removed
+home.recommend.section_pick.enabled
 home.recommend.special_cards.removed
 home.recommend.title_filter.enabled
 home.recommend.title_filter.keywords
