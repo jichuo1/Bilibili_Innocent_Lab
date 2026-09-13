@@ -20,7 +20,7 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 10
+    const val VERSION = 11
     val definitions = listOf(
         DiagnosticCapabilityDefinition("search_home_recommend_hidden", "search_home_recommend_hidden", R.string.hide_search_home_recommend, setOf("search.home_recommend.hidden"), introducedCatalogVersion = 4),
         DiagnosticCapabilityDefinition("player_interactive_legacy_follow", "player_interactive_overlay", R.string.diag_cap_player_interactive_legacy_follow, setOf("player.interactive_overlays.hidden"), "legacy/guide/clearAttention"),
@@ -170,9 +170,11 @@ internal object DiagnosticCapabilityCatalog {
         // 详情页没有 tid，同一需求退到作者与标签两档。
         DiagnosticCapabilityDefinition("video_related_author_block", "video_relate_filter", R.string.video_relate_blocked_authors, setOf("video.related.blocked_authors"), introducedCatalogVersion = 8),
         DiagnosticCapabilityDefinition("video_related_tag_block", "video_relate_filter", R.string.video_relate_blocked_tags, setOf("video.related.blocked_tags"), introducedCatalogVersion = 8),
+        DiagnosticCapabilityDefinition("player_end_page_recommend", "player_end_page_recommend", R.string.hide_player_end_page_recommend, setOf("player.end_page_recommend.hidden"), introducedCatalogVersion = 11),
         DiagnosticCapabilityDefinition("player_popup_promotion", "player_popup_promotion", R.string.hide_player_popup_promotion, setOf("player.popup_promotion.hidden"), introducedCatalogVersion = 10)
     )
     val localOnlySettings = mapOf(
+        "communication.compatibility.enabled" to "LOCAL_DIAGNOSTICS",
         "free_copy.light_mode.enabled" to "LOCAL_APPEARANCE",
         "free_copy.auto_light.enabled" to "LOCAL_APPEARANCE",
         "module_ui.predictive_back.enabled" to "MODULE_UI",

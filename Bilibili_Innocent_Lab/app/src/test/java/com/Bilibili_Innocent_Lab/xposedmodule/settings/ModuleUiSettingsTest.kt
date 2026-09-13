@@ -138,7 +138,8 @@ class ModuleUiSettingsTest {
             "FeaturePreferences" to "hook/feature/FeaturePreferences.kt",
             "HookEntry" to "hook/HookEntry.kt",
             "MaterialColorSpecStore" to "settings/appearance/MaterialColorSpecStore.kt",
-            "ModalBackdropBlurStore" to "settings/appearance/ModalBackdropBlurStore.kt"
+            "ModalBackdropBlurStore" to "settings/appearance/ModalBackdropBlurStore.kt",
+            "CommunicationCompatibilityStore" to "runtime/compat/CommunicationCompatibilityStore.kt"
         )
         val out = mutableMapOf<String, String>()
         files.forEach { (owner, path) ->

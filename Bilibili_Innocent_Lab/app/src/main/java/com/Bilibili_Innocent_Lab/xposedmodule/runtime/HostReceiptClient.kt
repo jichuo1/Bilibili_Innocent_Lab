@@ -14,13 +14,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal object HostReceiptClient {
     private val worker = HostReceiptWire.executor("bil-receipt-query")
 
-    fun query(channel: String, callback: (Bundle?, String) -> Unit) {
+    fun query(channel: String, timeoutMs: Long = HostReceiptWire.TIMEOUT_MS, callback: (Bundle?, String) -> Unit) {
         val session = HostReceiptRegistry.current()
         val nonce = UUID.randomUUID().toString()
         if (session == null) { callback(null, nonce); return }
         val main = Handler(Looper.getMainLooper())
         val completed = AtomicBoolean(false)
-        val deadline = SystemClock.elapsedRealtime() + HostReceiptWire.TIMEOUT_MS
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
         fun finish(value: Bundle?) {
             if (!completed.compareAndSet(false, true)) return
             main.post { callback(value?.takeIf { HostReceiptRegistry.current() == session }, nonce) }
@@ -31,7 +31,7 @@ internal object HostReceiptClient {
                 finish(null)
             }
         }
-        main.postDelayed(timeout, HostReceiptWire.TIMEOUT_MS)
+        main.postDelayed(timeout, timeoutMs)
         val response = object : Binder() {
             override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
                 if (code != HostReceiptWire.RESPONSE) return super.onTransact(code, data, reply, flags)

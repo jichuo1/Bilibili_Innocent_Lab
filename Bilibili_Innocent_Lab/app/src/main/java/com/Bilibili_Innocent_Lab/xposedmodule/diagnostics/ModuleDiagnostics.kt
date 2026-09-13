@@ -144,6 +144,9 @@ internal data class ModuleDiagnosticInputs(
     val hostBootstrapReached: Boolean = false,
     val hostConfigState: DiagnosticHostConfigState = DiagnosticHostConfigState.NOT_CHECKED,
     val hostConfigGeneration: Long = 0L,
+    val hostConfigSource: String = "manager",
+    val hostAdmissionPresent: Boolean = false,
+    val hostAdmissionCurrent: Boolean = false,
     val hostConfigReasonCode: String? = null,
     val hostInstallChainState: DiagnosticHostInstallChainState =
         DiagnosticHostInstallChainState.NOT_STARTED,

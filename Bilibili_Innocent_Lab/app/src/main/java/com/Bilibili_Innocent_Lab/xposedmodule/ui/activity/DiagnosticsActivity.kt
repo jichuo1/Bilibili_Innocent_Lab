@@ -1039,6 +1039,8 @@ class DiagnosticsActivity : SkinnedActivity() {
                     else -> getString(R.string.diagnostics_remote_not_initialized)
                 }
                 val delivery = when (configDelivery(input)) {
+                    DiagnosticConfigDelivery.DIRECT_MATCHED -> getString(R.string.communication_direct_matched)
+                    DiagnosticConfigDelivery.DIRECT_STALE -> getString(R.string.communication_direct_stale)
                     DiagnosticConfigDelivery.MATCHED ->
                         getString(R.string.diagnostics_delivery_matched, input.hostConfigGeneration)
                     DiagnosticConfigDelivery.HOST_OLDER ->

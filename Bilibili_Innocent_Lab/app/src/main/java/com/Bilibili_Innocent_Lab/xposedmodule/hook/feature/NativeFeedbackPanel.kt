@@ -134,7 +134,8 @@ internal class NativeFeedbackPanel(
                 val added = SectionPickSession.add(tag.id)
                 if (!added && !SectionPickSession.contains(tag.id)) return
                 publisher.accumulate(MineComponentScanEntry(SectionPickPolicy.snapshotKey(tag.id),
-                    SectionPickPolicy.SNAPSHOT_KIND, tag.name, tag.id.toString(), null, true))
+                    SectionPickPolicy.SNAPSHOT_KIND, tag.name, tag.id.toString(), null, true,
+                    selectionToken = java.util.UUID.randomUUID().toString()))
                 if (!added) return
                 environment.reportRuntimeEvidence(SectionPickFeatureInstaller.ID, FeatureRuntimeStage.APPLIED)
                 environment.logInfo("section_pick_hit:${tag.id}", "[BIL] 已选择标签 id=${tag.id}，本次会话生效，长期保存需在模块中确认")
@@ -161,7 +162,8 @@ internal class NativeFeedbackPanel(
                             val upId = (mid?.invoke(data) as? Number)?.toLong()?.takeIf { it > 0 }
                             injector.newEntry(String.format(messages.panelBlockAuthorLabel, upName)) {
                                 if (AuthorPickSession.add(upName)) {
-                                    authors.accumulate(MineComponentScanEntry.create("author", upName, upName, null, true))
+                                    authors.accumulate(MineComponentScanEntry.create("author", upName, upName, null, true)
+                                        ?.copy(selectionToken = java.util.UUID.randomUUID().toString()))
                                 }
                             }?.let(::add)
                         }

@@ -24,7 +24,8 @@ internal enum class UserTermsDecision {
  */
 internal data class UserTermsConsentState(
     val decision: UserTermsDecision,
-    val pendingAcceptance: UserTermsPendingAcceptance? = null
+    val pendingAcceptance: UserTermsPendingAcceptance? = null,
+    val consentRevision: Long = 0L
 ) {
     val isAcceptancePending: Boolean
         get() = pendingAcceptance != null
@@ -75,6 +76,8 @@ internal object UserTermsConsentStore {
     internal const val KEY_PENDING_PREVIOUS_DECISION = "pending_previous_decision"
     private const val LEGACY_PREFS_ALIVE_KEY = "prefs_alive_ts"
     private val lock = Any()
+    internal const val KEY_CONSENT_REVISION = "consent_revision"
+    internal fun <T> withAuthorityLock(action: () -> T): T = synchronized(lock, action)
 
     fun readOrInitialize(context: Context): UserTermsDecision =
         readStateOrInitialize(context).decision
@@ -129,7 +132,15 @@ internal object UserTermsConsentStore {
                     preferences.contains(KEY_PENDING_PREVIOUS_DECISION)
             }.getOrDefault(false)
             if (hasPendingMetadata && pending == null) clearPending(preferences)
-            return@synchronized UserTermsConsentState(persisted, pending)
+            var revision = preferences.getLong(KEY_CONSENT_REVISION, 0L)
+            if (revision <= 0L) {
+                revision = pending?.revision ?: System.currentTimeMillis().coerceAtLeast(1L)
+                if (!preferences.edit().putLong(KEY_CONSENT_REVISION, revision).commit()) {
+                    com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationAuthorityStore.stopGrants()
+                    return@synchronized UserTermsConsentState(UserTermsDecision.UNDECIDED)
+                }
+            }
+            return@synchronized UserTermsConsentState(persisted, pending, revision)
         }
 
         val initial = inferInitialDecision(
@@ -141,7 +152,7 @@ internal object UserTermsConsentStore {
         } else {
             UserTermsDecision.UNDECIDED
         }
-        UserTermsConsentState(resolved)
+        UserTermsConsentState(resolved, consentRevision = preferences.getLong(KEY_CONSENT_REVISION, 0L))
     }
 
     /**
@@ -156,8 +167,10 @@ internal object UserTermsConsentStore {
         }
         val preferences = openPreferences(appContext) ?: return@synchronized null
         val storedRevision = runCatching {
-            preferences.getLong(KEY_PENDING_REVISION, 0L)
+            preferences.getLong(KEY_CONSENT_REVISION, 0L)
         }.getOrDefault(0L)
+        if (storedRevision == Long.MAX_VALUE) return@synchronized null
+        val before = preferences.all.toMap()
         val revision = max(
             System.currentTimeMillis().coerceAtLeast(1L),
             storedRevision.nextRevision()
@@ -169,15 +182,33 @@ internal object UserTermsConsentStore {
                 .putBoolean(KEY_PENDING_ACCEPTANCE, true)
                 .putInt(KEY_PENDING_TERMS_VERSION, CURRENT_TERMS_VERSION)
                 .putLong(KEY_PENDING_REVISION, revision)
+                .putLong(KEY_CONSENT_REVISION, revision)
                 .putString(KEY_PENDING_PREVIOUS_DECISION, current.decision.name)
                 .commit()
         }.getOrDefault(false)
-        if (!committed) null else UserTermsConsentState(
+        if (!committed) {
+            com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationAuthorityStore.stopGrants()
+            val rollback = preferences.edit()
+            listOf(KEY_DECISION, KEY_TERMS_VERSION, KEY_PENDING_ACCEPTANCE, KEY_PENDING_TERMS_VERSION,
+                KEY_PENDING_REVISION, KEY_CONSENT_REVISION, KEY_PENDING_PREVIOUS_DECISION).forEach { key ->
+                when (val value = before[key]) {
+                    is String -> rollback.putString(key, value)
+                    is Boolean -> rollback.putBoolean(key, value)
+                    is Int -> rollback.putInt(key, value)
+                    is Long -> rollback.putLong(key, value)
+                    else -> rollback.remove(key)
+                }
+            }
+            runCatching { rollback.commit() }
+            return@synchronized null
+        }
+        UserTermsConsentState(
             decision = current.decision,
             pendingAcceptance = UserTermsPendingAcceptance(
                 revision = revision,
                 previousDecision = current.decision
-            )
+            ),
+            consentRevision = revision
         )
     }
 
@@ -194,7 +225,7 @@ internal object UserTermsConsentStore {
         }
         val preferences = openPreferences(appContext)
             ?: return@synchronized UserTermsPendingCompletion.WRITE_FAILED
-        if (persistDecision(preferences, UserTermsDecision.ACCEPTED)) {
+        if (persistDecision(preferences, UserTermsDecision.ACCEPTED, expectedRevision)) {
             UserTermsPendingCompletion.COMPLETED
         } else {
             UserTermsPendingCompletion.WRITE_FAILED
@@ -284,27 +315,45 @@ internal object UserTermsConsentStore {
     @SuppressLint("UseKtx") // 必须检查 commit() 返回值，KTX edit(commit=true) 会丢失该结果。
     private fun persistDecision(
         preferences: SharedPreferences,
-        decision: UserTermsDecision
+        decision: UserTermsDecision,
+        keepRevision: Long? = null
     ): Boolean = runCatching {
-        preferences.edit()
+        val keys = listOf(KEY_DECISION, KEY_TERMS_VERSION, KEY_PENDING_ACCEPTANCE,
+            KEY_PENDING_TERMS_VERSION, KEY_PENDING_REVISION, KEY_PENDING_PREVIOUS_DECISION, KEY_CONSENT_REVISION)
+        val before = preferences.all.filterKeys { it in keys }
+        val previous = (before[KEY_CONSENT_REVISION] as? Long)?.coerceAtLeast(0L) ?: 0L
+        check(previous < Long.MAX_VALUE || keepRevision == previous)
+        val revision = keepRevision ?: max(System.currentTimeMillis().coerceAtLeast(1L), previous + 1L)
+        val saved = preferences.edit()
             .putString(KEY_DECISION, decision.name)
             .putInt(KEY_TERMS_VERSION, CURRENT_TERMS_VERSION)
-            .remove(KEY_PENDING_ACCEPTANCE)
-            .remove(KEY_PENDING_TERMS_VERSION)
-            .remove(KEY_PENDING_REVISION)
-            .remove(KEY_PENDING_PREVIOUS_DECISION)
-            .commit()
+            .putLong(KEY_CONSENT_REVISION, revision)
+            .remove(KEY_PENDING_ACCEPTANCE).remove(KEY_PENDING_TERMS_VERSION)
+            .remove(KEY_PENDING_REVISION).remove(KEY_PENDING_PREVIOUS_DECISION).commit()
+        if (!saved) {
+            com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationAuthorityStore.stopGrants()
+            // commit 失败时 Android 的内存映像仍可能已改变，不能据此放行。
+            val rollback = preferences.edit()
+            keys.forEach { key ->
+                when (val value = before[key]) {
+                    is String -> rollback.putString(key, value)
+                    is Boolean -> rollback.putBoolean(key, value)
+                    is Int -> rollback.putInt(key, value)
+                    is Long -> rollback.putLong(key, value)
+                    else -> rollback.remove(key)
+                }
+            }
+            rollback.commit()
+        }
+        saved
     }.getOrDefault(false)
 
-    @SuppressLint("UseKtx")
-    private fun clearPending(preferences: SharedPreferences): Boolean = runCatching {
-        preferences.edit()
-            .remove(KEY_PENDING_ACCEPTANCE)
-            .remove(KEY_PENDING_TERMS_VERSION)
-            .remove(KEY_PENDING_REVISION)
-            .remove(KEY_PENDING_PREVIOUS_DECISION)
-            .commit()
-    }.getOrDefault(false)
+    private fun clearPending(preferences: SharedPreferences): Boolean {
+        val decision = resolvePersistedDecision(true, preferences.getString(KEY_DECISION, null),
+            preferences.getInt(KEY_TERMS_VERSION, -1)) ?: UserTermsDecision.UNDECIDED
+        // 取消会推进持久代次，旧挑战及异步发布无法再次完成这次同意。
+        return persistDecision(preferences, decision)
+    }
 
     private fun openPreferences(context: Context): SharedPreferences? = runCatching {
         context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)

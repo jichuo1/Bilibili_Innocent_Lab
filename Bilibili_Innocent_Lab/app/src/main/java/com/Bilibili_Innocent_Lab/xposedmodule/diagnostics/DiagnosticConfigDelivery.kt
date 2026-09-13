@@ -8,6 +8,8 @@ internal enum class DiagnosticConfigDelivery {
     HOST_NOT_CHECKED,
     HOST_REJECTED,
     MATCHED,
+    DIRECT_MATCHED,
+    DIRECT_STALE,
     HOST_OLDER,
     HOST_NEWER
 }
@@ -20,6 +22,13 @@ internal fun hasCurrentRemoteCommit(input: ModuleDiagnosticInputs): Boolean =
         !input.remotePublishPending && input.remoteGeneration > 0L
 
 internal fun configDelivery(input: ModuleDiagnosticInputs): DiagnosticConfigDelivery = when {
+    input.hostConfigSource == "module_direct" -> when {
+        !input.hostRuntimeReceiptAvailable || input.hostQueryState != DiagnosticHostQueryState.READY -> DiagnosticConfigDelivery.HOST_UNAVAILABLE
+        input.hostConfigState != DiagnosticHostConfigState.ACCEPTED -> DiagnosticConfigDelivery.HOST_REJECTED
+        input.hostAdmissionCurrent -> DiagnosticConfigDelivery.DIRECT_MATCHED
+        else -> DiagnosticConfigDelivery.DIRECT_STALE
+    }
+    input.hostAdmissionPresent && !input.hostAdmissionCurrent -> DiagnosticConfigDelivery.HOST_OLDER
     input.activationState == DiagnosticActivationState.ACTIVE_NPATCH ->
         DiagnosticConfigDelivery.NOT_APPLICABLE
     !hasCurrentRemoteCommit(input) -> DiagnosticConfigDelivery.NOT_PUBLISHED

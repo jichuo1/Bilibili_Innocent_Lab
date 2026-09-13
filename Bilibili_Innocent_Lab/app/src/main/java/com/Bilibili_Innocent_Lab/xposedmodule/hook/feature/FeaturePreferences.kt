@@ -57,6 +57,7 @@ internal object FeaturePreferences {
     const val HIDE_PLAYER_PORTRAIT_CONTROL = "hide_player_portrait_control"
     const val HIDE_PGC_AUTO_ACTIVITY_POPUP = "hide_pgc_auto_activity_popup"
     const val HIDE_PLAYER_INTERACTIVE_OVERLAYS = "hide_player_interactive_overlays"
+    const val HIDE_PLAYER_END_PAGE_RECOMMEND = "hide_player_end_page_recommend"
     const val HIDE_PLAYER_POPUP_PROMOTION = "hide_player_popup_promotion"
     const val TRANSPARENT_PLAYER_STATUS_BAR = "transparent_player_status_bar"
     // 详情页模块净化（UGC 详情页 view.v1 协议面的顶层字段），四项各自独立、默认全关。

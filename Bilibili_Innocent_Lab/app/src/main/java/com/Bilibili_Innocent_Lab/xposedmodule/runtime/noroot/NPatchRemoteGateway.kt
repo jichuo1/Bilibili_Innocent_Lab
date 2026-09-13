@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.compat.CommunicationCompatibilityStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.compat.CommunicationCompatibilityPolicy
 import android.content.Context
 import android.os.Bundle
 import android.os.IBinder
@@ -47,7 +49,6 @@ internal object NPatchRemoteGateway {
     private const val METHOD_GET_REMOTE_SERVICE = "getRemoteService"
     private const val KEY_MODULE_PACKAGE = "modulePackageName"
     private const val KEY_BINDER = "binder"
-    private const val CONNECT_TIMEOUT_SECONDS = 3L
     private const val CONNECTION_RETRY_COOLDOWN_SECONDS = 15L
     private const val SERVICE_DESCRIPTOR = "io.github.libxposed.service.IXposedService"
     /**
@@ -94,13 +95,14 @@ internal object NPatchRemoteGateway {
         snapshot: NoRootConfigSnapshot,
         decision: UserTermsDecision,
         stillCurrent: () -> Boolean = { true },
-        callback: (SyncResult) -> Unit
+        callback: (SyncResult, com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationIdentity?) -> Unit
     ) {
         val appContext = context.applicationContext
+        val identity = com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationAuthorityStore.current(appContext)?.identity
         coordinatorExecutor.execute {
             if (!isStillCurrent(stillCurrent)) return@execute
             val result = sync(appContext, snapshot, decision, stillCurrent) ?: return@execute
-            if (isStillCurrent(stillCurrent)) callback(result)
+            if (isStillCurrent(stillCurrent)) callback(result, identity)
         }
     }
 
@@ -151,7 +153,7 @@ internal object NPatchRemoteGateway {
         context.packageManager.resolveContentProvider(AUTHORITY, 0)?.packageName == MANAGER_PACKAGE
     }.getOrDefault(false)
 
-    /** Provider 连接与 Binder 写入共享同一个 3 秒截止时间。 */
+    /** Provider 连接与 Binder 写入共享同一个 6 秒截止时间。 */
     private fun runRemoteWriteWithTimeout(
         context: Context,
         snapshot: NoRootConfigSnapshot,
@@ -168,14 +170,20 @@ internal object NPatchRemoteGateway {
                 if (!isStillCurrent(stillCurrent)) return@submit null
                 val service = connectServiceBlocking(context)
                 if (!isStillCurrent(stillCurrent)) return@submit null
-                publishRemotePreferences(service, snapshot, decision, values, stillCurrent)
+                val publication = com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationAuthorityStore.current(context)
+                    ?.takeIf { it.decision == decision &&
+                        (if (snapshot.enabled) NoRootSupportStore.isDesiredEnabled(context) && it.values == values
+                        else !NoRootSupportStore.isDesiredEnabled(context)) } ?: return@submit null
+                publishRemotePreferences(service, snapshot, decision, values) {
+                    stillCurrent() && com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationAuthorityStore.matches(context, publication)
+                }
             }
         } catch (exception: RejectedExecutionException) {
             openConnectionCircuit()
             throw ConnectionTimeoutException(exception)
         }
         val result = try {
-            call.get(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            call.get(CommunicationCompatibilityPolicy.managerTimeout(CommunicationCompatibilityStore.isEnabled(context)), TimeUnit.MILLISECONDS)
         } catch (exception: TimeoutException) {
             call.cancel(true)
             connectionExecutor.purge()
@@ -198,12 +206,14 @@ internal object NPatchRemoteGateway {
         val extras = Bundle().apply {
             putString(KEY_MODULE_PACKAGE, context.packageName)
         }
-        val result = context.contentResolver.call(
-            "content://$AUTHORITY".toUri(),
-            METHOD_GET_REMOTE_SERVICE,
-            null,
-            extras
-        )
+        fun standardCall() = context.contentResolver.call(
+            "content://$AUTHORITY".toUri(), METHOD_GET_REMOTE_SERVICE, null, extras)
+        // 两种模式共用稳定协议；仅 Provider 进程死亡可重建一次，不吞身份拒绝。
+        val result = try {
+            context.contentResolver.acquireUnstableContentProviderClient(AUTHORITY)?.use {
+                it.call(METHOD_GET_REMOTE_SERVICE, null, extras)
+            }
+        } catch (_: android.os.DeadObjectException) { standardCall() }
         val binder = result?.getBinder(KEY_BINDER)
             ?: throw SecurityException("NPatch rejected module identity")
         if (!binder.isBinderAlive || !binder.pingBinder()) {

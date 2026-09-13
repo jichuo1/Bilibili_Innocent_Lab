@@ -10,6 +10,17 @@ class RemoteHookConfigCommitterTest {
     private val committer = RemoteHookConfigCommitter()
     private val backend = CachedBackend()
 
+    @Test fun manualRefreshCannotUseTheAcknowledgedCache() {
+        assertTrue(publish().succeeded)
+        assertTrue(committer.publish(1L, BuildConfig.VERSION_CODE.toLong(), UserTermsDecision.ACCEPTED,
+            values, 100L, backend, force = true).succeeded)
+        assertEquals(2,backend.commits)
+    }
+    @Test fun cancelledPublicationCannotCommitOrAcknowledge() {
+        val result=committer.publish(1L,BuildConfig.VERSION_CODE.toLong(),UserTermsDecision.ACCEPTED,
+            values,100L,backend,stillCurrent={false})
+        assertFalse(result.succeeded); assertEquals(0,backend.commits)
+    }
     private fun publish(
         decision: UserTermsDecision = UserTermsDecision.ACCEPTED,
         connectionId: Long = 1L,

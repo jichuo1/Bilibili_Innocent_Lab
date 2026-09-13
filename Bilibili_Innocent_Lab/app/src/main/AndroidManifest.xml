@@ -14,6 +14,7 @@
         <!-- 条款待同步页只在管理器入口确实可解析时显示快捷按钮。 -->
         <package android:name="org.lsposed.manager" />
         <package android:name="org.lsposed.lspatch" />
+        <package android:name="top.nkbe.npatch" />
         <package android:name="org.matrix.vector.manager" />
         <package android:name="com.android.shell" />
         <!-- NPatch Local/Manager 模式的 Remote API Provider 可见性。 -->
@@ -81,6 +82,16 @@
             自由复制配置及模块注入 UI 的语言标签，解决部分 LSPosed 构建下
             XSharedPreferences 跨应用读取被 SELinux 拦截的问题。
         -->
+        <service
+            android:name=".runtime.compat.CompatibilityReceiptService"
+            android:enabled="true"
+            android:exported="true" />
+
+        <provider
+            android:name=".provider.HostAdmissionProvider"
+            android:authorities="${applicationId}.admission"
+            android:exported="true" />
+
         <provider
             android:name=".provider.RoamingCompatProvider"
             android:authorities="${applicationId}.roaming"

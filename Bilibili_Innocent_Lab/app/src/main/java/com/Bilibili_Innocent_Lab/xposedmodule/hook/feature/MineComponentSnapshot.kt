@@ -36,7 +36,9 @@ internal data class MineComponentScanEntry(
     val id: String?,
     val uri: String?,
     val showing: Boolean,
-    val selectable: Boolean = true
+    val selectable: Boolean = true,
+    /** 本次显式反馈点选的身份；处理旧快照时避免恢复已撤销规则。 */
+    val selectionToken: String? = null
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("key", key)
@@ -46,6 +48,7 @@ internal data class MineComponentScanEntry(
         uri?.let { put("uri", it) }
         put("showing", showing)
         put("selectable", selectable)
+        selectionToken?.let { put("selectionToken", it) }
     }
 
     companion object {
@@ -88,6 +91,8 @@ internal data class MineComponentScanEntry(
                 (id?.length ?: 0) > MAX_ID_LENGTH ||
                 (uri?.length ?: 0) > MAX_URI_LENGTH
             ) return null
+            val selectionToken = value.optString("selectionToken").trim().takeIf(String::isNotEmpty)
+            if ((selectionToken?.length ?: 0) > 64) return null
             val derivedKey = MineComponentSelector.key(kind, title, id, uri) ?: return null
             val key = value.optString("key").trim().takeIf(String::isNotEmpty) ?: derivedKey
             if (key.length > MAX_KEY_LENGTH || key != derivedKey) return null
@@ -98,7 +103,8 @@ internal data class MineComponentScanEntry(
                 id = id,
                 uri = uri,
                 showing = value.optBoolean("showing", true),
-                selectable = value.optBoolean("selectable", true)
+                selectable = value.optBoolean("selectable", true),
+                selectionToken = selectionToken
             )
         }
 

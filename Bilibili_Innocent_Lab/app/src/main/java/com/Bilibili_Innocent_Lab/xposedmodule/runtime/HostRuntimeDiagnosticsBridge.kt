@@ -97,13 +97,20 @@ internal object HostRuntimeDiagnosticsBridge {
         }
     }
 
-    fun recordConfigAccepted(generation: Long, authorized: Boolean) {
+    fun recordConfigAccepted(
+        generation: Long, authorized: Boolean, source: String = "manager", incarnation: String? = null,
+        consentRevision: Long = 0L, policyEpoch: Long = 0L, snapshotRevision: Long = 0L, fingerprint: String = ""
+    ) {
         if (generation <= 0L) return
         updateBootstrap {
             copy(
                 configState = if (authorized) HostConfigState.ACCEPTED
                 else HostConfigState.NOT_AUTHORIZED,
                 configGeneration = generation,
+                configSource = source,
+                admission = incarnation?.let {
+                    com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationIdentity(it, consentRevision, policyEpoch, snapshotRevision, fingerprint)
+                },
                 configReasonCode = null
             )
         }

@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.compat.CommunicationCompatibilityStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.compat.CommunicationCompatibilityPolicy
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -24,13 +26,25 @@ internal object ReceiptQueryTransport {
         MineComponentSnapshotQueryContract.RESULT_CODE_HANDLED)
 
     fun query(context: Context, channel: String, callback: (Reply) -> Unit) {
-        HostReceiptClient.query(channel) { extras, nonce ->
-            if (extras != null) callback(Reply(extras, nonce))
-            else broadcast(context, channel, callback)
+        val enabled = CommunicationCompatibilityStore.isEnabled(context)
+        val completed = AtomicBoolean(false)
+        val main = Handler(Looper.getMainLooper())
+        fun finish(reply: Reply) { if (completed.compareAndSet(false, true)) callback(reply) }
+        fun attempt(index: Int) {
+            val compatibility = enabled && CommunicationCompatibilityStore.isEnabled(context)
+            HostReceiptClient.query(channel, CommunicationCompatibilityPolicy.binderTimeout(compatibility)) { extras, nonce ->
+                if (extras != null) finish(Reply(extras, nonce))
+                else broadcast(context, channel, compatibility) { reply ->
+                    if (CommunicationCompatibilityPolicy.retryReceipt(compatibility, index, reply.failure)) {
+                        main.postDelayed({ if (!completed.get()) attempt(index + 1) }, CommunicationCompatibilityPolicy.RETRY_DELAY_MS)
+                    } else finish(reply)
+                }
+            }
         }
+        attempt(0)
     }
 
-    private fun broadcast(context: Context, channel: String, callback: (Reply) -> Unit) {
+    private fun broadcast(context: Context, channel: String, compatibility: Boolean, callback: (Reply) -> Unit) {
         val spec = contract(channel == HostReceiptWire.DIAGNOSTICS)
         val main = Handler(Looper.getMainLooper())
         val completed = AtomicBoolean(false)
@@ -39,7 +53,7 @@ internal object ReceiptQueryTransport {
             if (completed.compareAndSet(false, true)) callback(reply)
         }
         val timeout = Runnable { finish(Reply(failure = ReceiptQueryFailure.TIMEOUT)) }
-        main.postDelayed(timeout, 1_500L)
+        main.postDelayed(timeout, CommunicationCompatibilityPolicy.broadcastTimeout(compatibility))
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 if (completed.get()) return
@@ -62,6 +76,7 @@ internal object ReceiptQueryTransport {
             .putExtra(spec.protocol, if (channel == HostReceiptWire.DIAGNOSTICS)
                 HostRuntimeDiagnosticsQueryContract.PROTOCOL_VERSION else MineComponentSnapshotQueryContract.PROTOCOL_VERSION)
             .putExtra(spec.nonce, nonce)
+        intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
         if (channel != HostReceiptWire.DIAGNOSTICS) intent.putExtra(MineComponentSnapshotQueryContract.EXTRA_SURFACE, channel)
         runCatching {
             CrossAppBroadcastCompat.sendOrderedBroadcast(context, intent, receiver, main)

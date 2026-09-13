@@ -36,8 +36,11 @@ internal class RemoteHookConfigCommitter {
         decision: UserTermsDecision,
         values: Map<String, Any>,
         nowEpochMs: Long,
-        backend: RemoteHookConfigBackend
+        backend: RemoteHookConfigBackend,
+        force: Boolean = false,
+        stillCurrent: () -> Boolean = { true }
     ): RemoteHookConfigPublishResult = runCatching {
+        check(stillCurrent()) { "stale_publication" }
         check(connectionId > 0L) { "remote service connection is unavailable" }
         if (cleanupConnectionId != connectionId) {
             cleanupConnectionId = connectionId
@@ -53,11 +56,12 @@ internal class RemoteHookConfigCommitter {
                 it.noRootRevision == 0L && it.decision == decision && it.values == values
         }
         val confirmation = acknowledged
-        if (matchingSnapshot != null && pendingRemovals.isEmpty() &&
+        if (!force && matchingSnapshot != null && pendingRemovals.isEmpty() &&
             confirmation?.connectionId == connectionId &&
             confirmation.generation == matchingSnapshot.generation &&
             confirmation.digest == cached[RemoteHookConfigContract.KEY_DIGEST]
         ) {
+            check(stillCurrent()) { "stale_publication" }
             return@runCatching RemoteHookConfigPublishResult.Success(
                 matchingSnapshot.generation, changed = false
             )
@@ -79,6 +83,7 @@ internal class RemoteHookConfigCommitter {
             decision = decision,
             values = values
         )
+        check(stillCurrent()) { "stale_publication" }
         check(backend.commit(document, pendingRemovals.toSet())) {
             "remote preferences commit returned false"
         }
@@ -87,6 +92,7 @@ internal class RemoteHookConfigCommitter {
         check(decoded is RemoteHookConfigDecodeResult.Ready && localCopy == document) {
             "remote client cache verification failed"
         }
+        check(stillCurrent()) { "stale_publication" }
         acknowledged = Acknowledgement(
             connectionId, generation, document.getValue(RemoteHookConfigContract.KEY_DIGEST) as String
         )

@@ -81,6 +81,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailUnitedModulePur
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailUnitedModulePurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailUnitedPresentationPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerInteractiveOverlayFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerEndPageRecommendFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPopupPromotionFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerStatusBarFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SearchPurifyFeatureInstaller
@@ -305,22 +306,43 @@ class HookEntry : XposedModule() {
         private const val MODULE_PACKAGE = "com.Bilibili_Innocent_Lab.xposedmodule"
 
         /**
-         * LSPosed 与已通过 NPatch 启动的宿主都只读取 API 102 Remote Preferences 白名单配置。协议会一次性校验目录、
+         * 普通模式读取管理器 Remote Preferences 白名单配置，再取得当前模块的启动许可。协议一次性校验目录、
          * 类型、摘要、条款和运行时修订号；失败时不回退到应用私有 prefs，避免把不可读或半更新配置
-         * 当作默认值继续安装。读取必须在 attach 同步完成，不能等待 IPC 后延迟补装。
+         * 当作默认值继续安装。兼容模式仅允许经新鲜许可校验的完整配置直达；所有读取有界，不延迟补装。
          */
         private sealed interface RemoteHookConfigQueryOutcome {
             data class Ready(val snapshot: RemoteHookConfigSnapshot) : RemoteHookConfigQueryOutcome
             data class Rejected(val reasonCode: String) : RemoteHookConfigQueryOutcome
         }
 
+        private val remoteBootstrapReader by lazy {
+            com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostReceiptWire.executor("bil-bootstrap-config")
+        }
+
         private fun queryRemoteHookConfig(): RemoteHookConfigQueryOutcome {
+            val call = runCatching { remoteBootstrapReader.submit<RemoteHookConfigQueryOutcome> { readRemoteHookConfig() } }
+                .getOrNull() ?: return RemoteHookConfigQueryOutcome.Rejected("remote_read_exception")
+            return try { call.get(600L, java.util.concurrent.TimeUnit.MILLISECONDS) }
+            catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                RemoteHookConfigQueryOutcome.Rejected("remote_read_exception")
+            } catch (_: Exception) { RemoteHookConfigQueryOutcome.Rejected("remote_read_exception") }
+            finally { call.cancel(false) }
+        }
+
+        private fun readRemoteHookConfig(): RemoteHookConfigQueryOutcome {
             return runCatching<RemoteHookConfigQueryOutcome> {
                 val preferences = moduleInstance?.getRemotePreferences(RemoteHookConfigContract.GROUP)
                     ?: return@runCatching RemoteHookConfigQueryOutcome.Rejected(
                         "remote_group_unavailable"
                     )
-                when (val decoded = RemoteHookConfigContract.decode(preferences.all)) {
+                val raw = preferences.all
+                if (raw.isEmpty()) return@runCatching RemoteHookConfigQueryOutcome.Rejected("remote_group_missing")
+                val oldCatalog = raw[RemoteHookConfigContract.KEY_CATALOG_VERSION] as? Int
+                if (oldCatalog != null && oldCatalog in 1 until com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog.CATALOG_VERSION) {
+                    return@runCatching RemoteHookConfigQueryOutcome.Rejected("remote_stale_protocol")
+                }
+                when (val decoded = RemoteHookConfigContract.decode(raw)) {
                     is RemoteHookConfigDecodeResult.Ready ->
                         RemoteHookConfigQueryOutcome.Ready(decoded.snapshot)
                     is RemoteHookConfigDecodeResult.Invalid -> {
@@ -336,7 +358,7 @@ class HookEntry : XposedModule() {
                         "${throwable.javaClass.simpleName}: ${throwable.message}"
                 )
             }.getOrElse {
-                RemoteHookConfigQueryOutcome.Rejected("remote_read_exception")
+                RemoteHookConfigQueryOutcome.Rejected(if (it is SecurityException) "remote_auth_rejected" else "remote_read_exception")
             }
         }
 
@@ -3179,6 +3201,9 @@ class HookEntry : XposedModule() {
                         ),
                         points = hostAdaptResult?.playerInteractiveOverlays
                     ),
+                    PlayerEndPageRecommendFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.HIDE_PLAYER_END_PAGE_RECOMMEND, false)
+                    ),
                     PlayerPopupPromotionFeatureInstaller(
                         enabled = prefs.getBoolean(FeaturePreferences.HIDE_PLAYER_POPUP_PROMOTION, false)
                     )
@@ -4662,31 +4687,24 @@ class HookEntry : XposedModule() {
                         )
                     }
                 }
-                val config = when (val outcome = queryRemoteHookConfig()) {
-                    is RemoteHookConfigQueryOutcome.Ready -> outcome.snapshot.also { snapshot ->
-                        if (processName == TARGET_PACKAGE) {
-                            HostRuntimeDiagnosticsBridge.recordConfigAccepted(
-                                snapshot.generation,
-                                snapshot.authorized
-                            )
-                        }
-                    }
-                    is RemoteHookConfigQueryOutcome.Rejected -> {
-                        if (processName == TARGET_PACKAGE) {
-                            HostRuntimeDiagnosticsBridge.recordConfigRejected(outcome.reasonCode)
-                        }
-                        authorizedInstallerRef.set(null)
-                        frameworkLog(
-                            "[BIL] Modern Remote Preferences 不可用；请打开一次模块界面后重启 B 站，" +
-                                "当前宿主进程不安装任何功能"
-                        )
-                        return
-                    }
+                val outcome = queryRemoteHookConfig()
+                val normal = (outcome as? RemoteHookConfigQueryOutcome.Ready)?.snapshot
+                val reason = (outcome as? RemoteHookConfigQueryOutcome.Rejected)?.reasonCode
+                val admission = com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostAdmissionClient.admit(appContext, normal, reason)
+                val grant = admission.grant
+                if (grant == null) {
+                    if (processName == TARGET_PACKAGE) HostRuntimeDiagnosticsBridge.recordConfigRejected(admission.reason)
+                    authorizedInstallerRef.set(null)
+                    frameworkLog("[BIL] 启动授权未完成，当前进程不安装功能(reason=${admission.reason})")
+                    return
                 }
-                frameworkLog(
-                    "[BIL] Modern Remote Preferences 验证成功" +
-                        "(generation=${config.generation}, authorized=${config.authorized})"
-                )
+                val config = grant.snapshot
+                if (processName == TARGET_PACKAGE) {
+                    HostRuntimeDiagnosticsBridge.recordConfigAccepted(config.generation, config.authorized,
+                        grant.source, grant.identity.incarnation, grant.identity.consentRevision,
+                        grant.identity.policyEpoch, grant.identity.snapshotRevision, grant.identity.fingerprint)
+                }
+                frameworkLog("[BIL] 已获得新鲜启动许可(source=${grant.source}, generation=${config.generation})")
                 performAuthorizationAndInstall(appContext, config)
             }
 

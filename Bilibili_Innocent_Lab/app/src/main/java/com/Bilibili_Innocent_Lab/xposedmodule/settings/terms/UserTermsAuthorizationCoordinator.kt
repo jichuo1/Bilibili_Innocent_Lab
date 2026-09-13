@@ -139,36 +139,31 @@ internal object UserTermsAuthorizationCoordinator {
         return true
     }
 
+    fun retryPendingAcceptanceAttempt(
+        context: Context,
+        origin: com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemotePublicationAttempt.Origin,
+        onComplete: (RemoteHookConfigPublishResult) -> Unit
+    ): com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemotePublicationAttempt? {
+        val app = context.applicationContext ?: context
+        val pending = UserTermsConsentStore.readStateOrInitialize(app).pendingAcceptance ?: return null
+        localFailureCode = null
+        return RemoteHookConfigStore.requestManualAttempt(app, pending.revision, origin, onComplete)
+    }
+
     /**
-     * 拒绝继续沿用原来的同步安全顺序：先使在途接受结果失效，再确认远端关闭态，
-     * 最后写入本地决定。该低频操作不另建第二条发布队列。
+     * 先持久化本地拒绝以关闭新鲜授权入口，再通过既有单线程队列清理远端。
      */
     fun decline(context: Context): UserTermsActionResult {
-        val appContext = context.applicationContext ?: context
-        applicationContext = appContext
+        val app = context.applicationContext ?: context
+        applicationContext = app
         localFailureCode = null
-        if (!UserTermsConsentStore.cancelPendingAcceptance(appContext)) {
-            return localFailure(appContext)
-        }
-        val publishResult = RemoteHookConfigStore.publish(
-            appContext,
-            UserTermsDecision.DECLINED
-        ).also(RemoteHookConfigStore::logFailure)
-        if (!publishResult.succeeded) {
-            val state = UserTermsConsentStore.readStateOrInitialize(appContext)
-            notifyListeners(buildSnapshot(appContext))
-            return UserTermsActionResult(
-                succeeded = false,
-                state = state,
-                failureCode = RemoteHookConfigStore.diagnostics().failureCode
-            )
-        }
-        if (!UserTermsConsentStore.writeDecision(appContext, UserTermsDecision.DECLINED)) {
-            return localFailure(appContext)
-        }
-        val state = UserTermsConsentStore.readStateOrInitialize(appContext)
-        notifyListeners(buildSnapshot(appContext))
-        return UserTermsActionResult(succeeded = true, state = state)
+        // 本地拒绝先持久化；所有新宿主的授权许可都会读取这一闸门。
+        // 后续管理器清理是异步的，旧远端写入不能通过新鲜许可重新授权。
+        if (!UserTermsConsentStore.writeDecision(app, UserTermsDecision.DECLINED)) return localFailure(app)
+        RemoteHookConfigStore.requestDecisionPublish(app, UserTermsDecision.DECLINED)
+        val state = UserTermsConsentStore.readStateOrInitialize(app)
+        notifyListeners(buildSnapshot(app))
+        return UserTermsActionResult(true, state)
     }
 
     fun addListener(listener: UserTermsAuthorizationListener) {
@@ -193,7 +188,7 @@ internal object UserTermsAuthorizationCoordinator {
         val appContext = applicationContext ?: return
         val current = UserTermsConsentStore.readStateOrInitialize(appContext)
         val pending = current.pendingAcceptance
-        if (event.decision != UserTermsDecision.ACCEPTED || pending == null) {
+        if (event.decision != UserTermsDecision.ACCEPTED || pending == null || event.consentRevision != pending.revision) {
             notifyListeners(buildSnapshot(appContext))
             return
         }
@@ -202,7 +197,12 @@ internal object UserTermsAuthorizationCoordinator {
             return
         }
 
-        when (UserTermsConsentStore.completePendingAcceptance(appContext, pending.revision)) {
+        val completion = UserTermsConsentStore.withAuthorityLock {
+            RemoteHookConfigStore.withCurrentPublication(event.result.proof) {
+                UserTermsConsentStore.completePendingAcceptance(appContext, pending.revision)
+            }
+        } ?: UserTermsPendingCompletion.STALE
+        when (completion) {
             UserTermsPendingCompletion.COMPLETED -> {
                 localFailureCode = null
             }

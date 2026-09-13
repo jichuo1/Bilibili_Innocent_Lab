@@ -61,7 +61,10 @@ internal object NoRootSupportController {
      * 只提交用户意图并使旧同步回调失效；开启后的快照构造与 Binder 同步由调用方
      * 随后放到后台执行。这样快速开关时，最后一次 UI 操作始终拥有最终决定权。
      */
-    fun setDesiredEnabled(
+    fun setDesiredEnabled(context: Context, enabled: Boolean): Boolean =
+        UserTermsConsentStore.withAuthorityLock { setDesiredEnabledLocked(context, enabled) }
+
+    private fun setDesiredEnabledLocked(
         context: Context,
         enabled: Boolean
     ): Boolean {
@@ -117,6 +120,8 @@ internal object NoRootSupportController {
      * 同步读取当前用户意图代次。生命周期刷新不会生成新代次，避免相同内容的
      * onResume/onPause 调用互相作废；只有用户切换免 Root 意图才递增代次。
      */
+    internal fun isCurrentGeneration(generation: Long): Boolean = requestGeneration.get() == generation
+
     fun beginSynchronization(context: Context): Long? {
         val appContext = context.applicationContext
         if (!NoRootSupportStore.isDesiredEnabled(appContext) ||
@@ -429,8 +434,13 @@ internal object NoRootSupportController {
                     syncFlights.isCurrent(token) &&
                         runCatching(stillCurrent).getOrDefault(false)
                 }
-            ) { result ->
-                completeFlight(token, result)
+            ) { result, identity ->
+                UserTermsConsentStore.withAuthorityLock {
+                    val current = com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationAuthorityStore.current(context)?.identity
+                    val checked = if (result == NPatchRemoteGateway.SyncResult.Success && (identity == null || identity != current))
+                        NPatchRemoteGateway.SyncResult.Failure("stale_publication") else result
+                    completeFlight(token, checked)
+                }
             }
         }.onFailure { throwable ->
             completeFlight(

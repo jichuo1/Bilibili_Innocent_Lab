@@ -138,30 +138,22 @@ internal fun MainActivity.showPendingTermsPage(snapshot: UserTermsAuthorizationS
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { bottomMargin = (14 * density).toInt() }
     )
-    container.addView(
-        createTermsActionButton(
-            text = getString(R.string.user_terms_retry_sync),
-            filled = true
-        ) {
-            if (NoRootSupportStore.isDesiredEnabled(applicationContext)) {
-                synchronizePendingTermsThroughNoRoot(enableFirst = false)
-            } else {
-                UserTermsAuthorizationCoordinator.retryPendingAcceptance(applicationContext)
-            }
-            termsAuthorizationSnapshot =
-                UserTermsAuthorizationCoordinator.snapshot(applicationContext)
-            termsAuthorizationSnapshot?.let(::renderPendingTermsUi)
-        },
-        NativeLinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        )
-    )
+    val retryButton = createTermsActionButton(getString(R.string.user_terms_retry_sync), filled = true) {
+        retryPendingTermsWithCompatibility()
+    }
+    compatibilityRetryButton = retryButton
+    container.addView(retryButton, NativeLinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    val compatibilityHint = createCommunicationCompatibilityHint()
+    compatibilityRetryHint = compatibilityHint
+    container.addView(compatibilityHint, NativeLinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = (8 * density).toInt() })
     container.addView(
         createTermsActionButton(
             text = getString(R.string.user_terms_use_npatch_sync),
             filled = false
         ) {
+            compatibilityPendingRetry?.cancel()
             synchronizePendingTermsThroughNoRoot(enableFirst = true)
         },
         NativeLinearLayout.LayoutParams(
@@ -669,13 +661,15 @@ private fun MainActivity.commitUserTermsDecision(
  * 条款等待页尚未构建主设置树，只能由用户在此显式选择 NPatch 后建立免 Root 意图。
  * 同步成功会由 Controller 在远端完整读回后推进待接受条款并触发界面重建。
  */
-private fun MainActivity.synchronizePendingTermsThroughNoRoot(enableFirst: Boolean) {
+internal fun MainActivity.synchronizePendingTermsThroughNoRoot(enableFirst: Boolean, onComplete: ((Boolean) -> Unit)? = null) {
     if (AndroidVersion.isLessThan(AndroidVersion.P)) {
         toast(getString(R.string.no_root_status_unsupported_os))
+        onComplete?.invoke(true)
         return
     }
     val bridge = runCatching { prefs() }.getOrNull() ?: run {
         toast(getString(R.string.no_root_enable_failed))
+        onComplete?.invoke(true)
         return
     }
     val appContext = applicationContext
@@ -683,10 +677,12 @@ private fun MainActivity.synchronizePendingTermsThroughNoRoot(enableFirst: Boole
         !NoRootSupportController.setDesiredEnabled(appContext, enabled = true)
     ) {
         toast(getString(R.string.no_root_enable_failed))
+        onComplete?.invoke(true)
         return
     }
     val generation = NoRootSupportController.beginSynchronization(appContext) ?: run {
         toast(getString(R.string.no_root_enable_failed))
+        onComplete?.invoke(true)
         return
     }
     termsPendingStatusView?.setText(R.string.no_root_status_checking)
@@ -699,6 +695,7 @@ private fun MainActivity.synchronizePendingTermsThroughNoRoot(enableFirst: Boole
                 activity.termsAuthorizationSnapshot =
                     UserTermsAuthorizationCoordinator.snapshot(appContext)
                 activity.termsAuthorizationSnapshot?.let(activity::renderPendingTermsUi)
+                onComplete?.invoke(NoRootSupportController.isCurrentGeneration(generation))
             }
         }
     }, "InnocentLab-NoRootTermsSync").apply { isDaemon = true }.start()

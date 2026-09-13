@@ -40,7 +40,9 @@ internal data class HostRuntimeBootstrapEvidence(
     val hookPointResolvedCount: Int = 0,
     val hookPointInstalledCount: Int = 0,
     val hookPointMissingCount: Int = 0,
-    val hookPointFailedCount: Int = 0
+    val hookPointFailedCount: Int = 0,
+    val configSource: String = "manager",
+    val admission: com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationIdentity? = null
 )
 
 internal data class HostRuntimeFeatureEvidence(
@@ -107,6 +109,8 @@ internal object HostRuntimeDiagnosticsCodec {
     val allowedFeatureIds: Set<String> = DiagnosticFeatureRegistry.ids
 
     val allowedConfigReasonCodes: Set<String> = setOf(
+        "admission_unavailable", "admission_denied", "admission_timeout",
+        "remote_group_missing", "remote_stale_protocol", "remote_auth_rejected",
         "remote_group_unavailable",
         "remote_not_ready",
         "remote_key_set_mismatch",
@@ -232,7 +236,11 @@ internal object HostRuntimeDiagnosticsCodec {
             hookPointResolvedCount = value.optInt("hook_resolved", -1),
             hookPointInstalledCount = value.optInt("hook_installed", -1),
             hookPointMissingCount = value.optInt("hook_missing", -1),
-            hookPointFailedCount = value.optInt("hook_failed", -1)
+            hookPointFailedCount = value.optInt("hook_failed", -1),
+            configSource = value.optString("config_source", "manager"),
+            admission = if (value.has("admission") && !value.isNull("admission")) {
+                HostAdmissionContract.identityJson(value.optJSONObject("admission") ?: return null) ?: return null
+            } else null
         )
         return result.takeIf { it.isValid() }
     }
@@ -247,9 +255,13 @@ internal object HostRuntimeDiagnosticsCodec {
         .put("hook_installed", hookPointInstalledCount)
         .put("hook_missing", hookPointMissingCount)
         .put("hook_failed", hookPointFailedCount)
+        .put("config_source", configSource)
+        .put("admission", admission?.let(HostAdmissionContract::identityJson) ?: JSONObject.NULL)
 
     private fun HostRuntimeBootstrapEvidence.isValid(): Boolean =
-        configGeneration >= 0L &&
+        configSource in setOf("manager", "module_direct") &&
+            (configSource != "module_direct" || admission != null) &&
+            configGeneration >= 0L &&
             hookPointResolvedCount in 0..MAX_HOOK_COUNT &&
             hookPointInstalledCount in 0..MAX_HOOK_COUNT &&
             hookPointMissingCount in 0..MAX_HOOK_COUNT &&

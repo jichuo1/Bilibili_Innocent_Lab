@@ -2,6 +2,7 @@
 
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.compat.CommunicationCompatibilityStore
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
@@ -113,7 +114,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsQueryClient
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotQueryClient
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ShellCommandRunner
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateCheckCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ColdStartUpdateSession
@@ -305,6 +305,7 @@ class MainActivity : SkinnedActivity() {
     private var showFullNumbers = false
     private var hidePlayerPortraitControl = false
     private var hidePlayerInteractiveOverlays = false
+    private var hidePlayerEndPageRecommend = false
     private var hidePlayerPopupPromotion = false
     private var hidePgcAutoActivityPopup = false
     private var transparentPlayerStatusBar = false
@@ -618,6 +619,12 @@ class MainActivity : SkinnedActivity() {
     /** 条款弹窗/等待页的提示与框架管理器入口，只持有当前 Activity 的 View。 */
     internal var termsDialogHintView: NativeTextView? = null
     internal var termsManagerLauncher: NativeTextView? = null
+    internal var compatibilityModeSwitch: androidx.appcompat.widget.SwitchCompat? = null
+    internal var compatibilityProgrammaticSwitch = false
+    internal var compatibilityRetryButton: View? = null
+    internal var compatibilityRetryHint: View? = null
+    internal val compatibilityRetryTracker = CompatibilityRetryTracker()
+    internal var compatibilityPendingRetry: PendingCompatibilityRetry? = null
     internal var termsPendingStatusView: NativeTextView? = null
     internal var termsDiagnosticsValueView: NativeTextView? = null
 
@@ -1221,7 +1228,11 @@ class MainActivity : SkinnedActivity() {
         if (!snapshot.consentState.isAcceptancePending) return
         val status = RemoteHookConfigStore.status()
         val noRootDesired = NoRootSupportStore.isDesiredEnabled(applicationContext)
-        termsPendingStatusView?.text = if (noRootDesired) {
+        termsPendingStatusView?.text = if (snapshot.failureCode == UserTermsAuthorizationCoordinator.FAILURE_LOCAL_WRITE) {
+            getString(R.string.user_terms_pending_local_failed)
+        } else if (CommunicationCompatibilityStore.isEnabled(applicationContext)) {
+            getString(R.string.communication_compatibility_pending)
+        } else if (noRootDesired) {
             getString(noRootStatusText(currentNoRootDisplayState()))
         } else {
             when {
@@ -1247,6 +1258,7 @@ class MainActivity : SkinnedActivity() {
         } else {
             updateTermsManagerLauncher(status)
         }
+        updateCommunicationCompatibilityHint()
         renderTermsGateDiagnostics()
     }
 
@@ -1553,6 +1565,8 @@ class MainActivity : SkinnedActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putLong("compat_retry_revision", compatibilityRetryTracker.pendingRevision ?: 0L)
+        outState.putInt("compat_retry_failures", compatibilityRetryTracker.failures)
         if (releaseHighlightsDialog?.isShowing == true) activeHighlightsFrom?.let {
             outState.putInt("highlights_from",it)
             outState.putBoolean("highlights_automatic",activeHighlightsAutomatic)
@@ -1814,41 +1828,25 @@ class MainActivity : SkinnedActivity() {
         playerDefaultSpeedSummary?.text = playerSpeedLabel(playerDefaultSpeedPercent)
     }
 
-    /** 规则入口统一文案：标题在上、当前值在下；四个新过滤入口共用同一结构。 */
-    /**
-     * 已保存的标签名单 + 用户在 B 站面板里点过但尚未确认的标签。
-     *
-     * 快照是**宿主写、模块读**的观测通道（`SURFACE_SECTION_PICKS`），读不到就退回已保存值——
-     * 面板劫持没开、宿主没跑过、快照过期都走这条路，不报错也不清空用户名单。
-     */
-    private fun prefilledBlockedTids(): String = runCatching {
-        val snapshot = MineComponentSnapshotStore.read(
-            this,
-            MineComponentSnapshotCodec.SURFACE_SECTION_PICKS
-        ) ?: return@runCatching homeRecommendBlockedTids
-        val picked = snapshot.entries.mapNotNull { it.id?.toLongOrNull() }
-        // 逐个 add 而不是 encode(parse(...) + picked)：后者只留数字，会把用户
-        // 已经填好的标签**名**在预填这一步就抹掉。
-        picked.fold(homeRecommendBlockedTids) { current, tid ->
-            TidBlocklistCodec.add(current, tid)
-        }
-    }.getOrDefault(homeRecommendBlockedTids)
+    /** 手动入口只展示已保存规则；宿主点选统一在管理面板确认。 */
+    private fun refreshRecommendationBlocklistSummaries() {
+        homeRecommendBlockedTids = prefs().getString(FeaturePreferences.HOME_RECOMMEND_BLOCKED_TIDS, "").orEmpty()
+        homeRecommendBlockedAuthors = prefs().getString(FeaturePreferences.HOME_RECOMMEND_BLOCKED_AUTHORS, "").orEmpty()
+        homeRecommendBlockedTidsSummaryView?.text = ruleEntryText(
+            R.string.home_recommend_blocked_tids, R.string.home_recommend_blocked_tids_empty,
+            R.string.home_recommend_blocked_tids_current, recommendationRuleCount(homeRecommendBlockedTids, tags = true)
+        )
+        homeRecommendBlockedAuthorsSummaryView?.text = ruleEntryText(
+            R.string.home_recommend_blocked_authors, R.string.home_recommend_blocked_authors_empty,
+            R.string.home_recommend_blocked_authors_current, recommendationRuleCount(homeRecommendBlockedAuthors, tags = false)
+        )
+    }
 
-    /**
-     * 已保存的 UP 名单 + 用户在 B 站面板里点过但尚未确认的 UP。
-     *
-     * 与 [prefilledBlockedTids] 同构，只是换一个观测面；读不到快照就退回已保存值。
-     */
-    private fun prefilledBlockedAuthors(): String = runCatching {
-        val snapshot = MineComponentSnapshotStore.read(
-            this,
-            MineComponentSnapshotCodec.SURFACE_AUTHOR_PICKS
-        ) ?: return@runCatching homeRecommendBlockedAuthors
-        val picked = snapshot.entries.mapNotNull { it.id?.takeIf(String::isNotBlank) }
-        picked.fold(homeRecommendBlockedAuthors) { current, author ->
-            ExactRuleSetCodec.add(current, author)
-        }
-    }.getOrDefault(homeRecommendBlockedAuthors)
+    private fun recommendationRuleCount(value: String, tags: Boolean): String {
+        val count = if (tags) TidBlocklistCodec.parse(value).size + TidBlocklistCodec.parseNames(value).size
+            else ExactRuleSetCodec.parse(value).size
+        return if (count == 0) "" else count.toString()
+    }
 
     private fun ruleEntryText(
         @StringRes titleRes: Int,
@@ -3343,6 +3341,8 @@ class MainActivity : SkinnedActivity() {
     }
 
     override fun onStop() {
+        compatibilityPendingRetry?.cancel()
+
         UserTermsAuthorizationCoordinator.removeListener(userTermsAuthorizationListener)
         RemoteHookConfigStore.removeStatusListener(frameworkStatusListener)
         activationMainHandler.removeCallbacks(frameworkStatusTimeout)
@@ -3768,6 +3768,12 @@ class MainActivity : SkinnedActivity() {
     }
 
     override fun onDestroy() {
+        compatibilityPendingRetry?.cancel()
+        compatibilityRetryHint?.animate()?.cancel()
+        compatibilityRetryHint = null
+        compatibilityRetryButton = null
+        compatibilityModeSwitch = null
+
         highlightsDisposed = true
         settingsDestinations.clear()
         updateUiHandler.removeCallbacksAndMessages(null)
@@ -3900,6 +3906,8 @@ class MainActivity : SkinnedActivity() {
 
         // 条款门禁必须先于现有 prefs、跨进程镜像、主布局和自动更新检查。
         termsConsentState = UserTermsConsentStore.readStateOrInitialize(applicationContext)
+        compatibilityRetryTracker.restore(savedInstanceState?.getLong("compat_retry_revision") ?: 0L,
+            savedInstanceState?.getInt("compat_retry_failures") ?: 0, termsConsentState.pendingAcceptance?.revision)
         userTermsDecision = termsConsentState.decision
         if (!userTermsDecision.isAuthorized) {
             termsAuthorizationSnapshot =
@@ -4014,6 +4022,7 @@ class MainActivity : SkinnedActivity() {
         showFullNumbers = uiSettings.bool(FeaturePreferences.SHOW_FULL_NUMBERS)
         hidePlayerPortraitControl = uiSettings.bool(FeaturePreferences.HIDE_PLAYER_PORTRAIT_CONTROL)
         hidePlayerInteractiveOverlays = uiSettings.bool(FeaturePreferences.HIDE_PLAYER_INTERACTIVE_OVERLAYS)
+        hidePlayerEndPageRecommend = uiSettings.bool(FeaturePreferences.HIDE_PLAYER_END_PAGE_RECOMMEND)
         hidePlayerPopupPromotion = uiSettings.bool(FeaturePreferences.HIDE_PLAYER_POPUP_PROMOTION)
         hidePgcAutoActivityPopup = uiSettings.bool(FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP)
         transparentPlayerStatusBar = uiSettings.bool(FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR)
@@ -4445,7 +4454,7 @@ class MainActivity : SkinnedActivity() {
                         Space(lparams = LayoutParams(height = 10.dp))
                         enhancementSettingsCard(uiSettings)
                         Space(lparams = LayoutParams(height = 10.dp))
-                        experimentalFeaturesCard()
+                        experimentalFeaturesCard(uiSettings)
                         Space(lparams = LayoutParams(height = 10.dp))
                         logSettingsCard()
                         Space(lparams = LayoutParams(height = 10.dp))
@@ -5086,7 +5095,7 @@ class MainActivity : SkinnedActivity() {
                 textColor = colorResource(R.color.colorTextGray)
                 textSize = 15f
                 isChecked = freeCopyLightMode
-                setOnCheckedChangeListener { _, isChecked ->
+                setOnCheckedChangeListener { button, isChecked ->
                     if (programmaticSwitch) return@setOnCheckedChangeListener
                     // 手动优先：自动跟随开启时切换手动开关 → 二次确认，
                     // 确认后自动关闭跟随（手动接管）；取消则复位开关 UI
@@ -5095,6 +5104,7 @@ class MainActivity : SkinnedActivity() {
                         autoLightConfirmInProgress = true
                         // 确认：关闭自动跟随 + 手动值生效 + tip 切回普通描述
                         showAutoLightConfirmDialog(
+                            anchor = button,
                             onConfirm = {
                                 autoLightConfirmInProgress = false
                                 freeCopyAutoLight = false
@@ -5215,7 +5225,7 @@ class MainActivity : SkinnedActivity() {
     // 注解用全限定名：本文件已经导入了同名的**函数** com.highcapable.hikage.core.base.Hikagable
     // （见 createPromotionItem 的 Hikagable<MarginLayoutParams> { }），不能再按简名导入注解。
     @com.highcapable.hikage.annotation.Hikagable
-    private fun Hikage.Performer<NativeLinearLayout.LayoutParams>.experimentalFeaturesCard() {
+    private fun Hikage.Performer<NativeLinearLayout.LayoutParams>.experimentalFeaturesCard(uiSettings: ModuleUiSettings) {
         LinearLayout(
             lparams = LayoutParams(widthMatchParent = true) {
                 updateMargins(horizontal = 15.dp)
@@ -5654,6 +5664,30 @@ class MainActivity : SkinnedActivity() {
                         updatePadding(left = contentPadding, right = contentPadding, bottom = 10.dp)
                     }
                 ) {
+                    MaterialSwitch(lparams = LayoutParams(widthMatchParent = true) { bottomMargin = 5.dp }) {
+                        text = stringResource(R.string.communication_compatibility_mode)
+                        textColor = colorResource(R.color.colorTextGray)
+                        textSize = 15f
+                        isAllCaps = false
+                        isChecked = uiSettings.bool(CommunicationCompatibilityStore.KEY) &&
+                            CommunicationCompatibilityStore.warningAccepted(applicationContext)
+                        compatibilityModeSwitch = this
+                        setOnCheckedChangeListener { button, checked ->
+                            if (compatibilityProgrammaticSwitch) return@setOnCheckedChangeListener
+                            compatibilityProgrammaticSwitch = true
+                            button.isChecked = CommunicationCompatibilityStore.isEnabled(applicationContext)
+                            compatibilityProgrammaticSwitch = false
+                            if (checked) showCommunicationCompatibilityConfirmDialog(anchor = button)
+                            else setCommunicationCompatibilityEnabled(false)
+                        }
+                    }
+                    TextView(lparams = LayoutParams(widthMatchParent = true) { bottomMargin = 12.dp }) {
+                        alpha = 0.6f
+                        setLineSpacing(6f, 1f)
+                        text = stringResource(R.string.communication_compatibility_tip)
+                        textColor = colorResource(R.color.colorTextDark)
+                        textSize = 12f
+                    }
                     MaterialSwitch(
                         lparams = LayoutParams(widthMatchParent = true) {
                             bottomMargin = 5.dp
@@ -7005,6 +7039,45 @@ class MainActivity : SkinnedActivity() {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
             text = stringResource(R.string.hide_player_popup_promotion_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
+        MaterialSwitch(
+            lparams = LayoutParams(widthMatchParent = true) {
+                topMargin = 12.dp
+                bottomMargin = 5.dp
+            }
+        ) {
+            text = stringResource(R.string.hide_player_end_page_recommend)
+            settingsDestinations.bind("player.end_page_recommend.hidden",this)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = hidePlayerEndPageRecommend
+            setOnCheckedChangeListener { _, isChecked ->
+                hidePlayerEndPageRecommend = isChecked
+                runCatching {
+                    prefs().edit {
+                        putBoolean(
+                            FeaturePreferences.HIDE_PLAYER_END_PAGE_RECOMMEND,
+                            isChecked
+                        )
+                    }
+                }.onFailure { t ->
+                    Log.e(
+                        "BilibiliInnocentLab",
+                        "write player end page recommend prefs failed",
+                        t
+                    )
+                }
+            }
+        }
+        TextView(
+            lparams = LayoutParams(widthMatchParent = true)
+        ) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.hide_player_end_page_recommend_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
@@ -8836,141 +8909,6 @@ class MainActivity : SkinnedActivity() {
         TextView(
             lparams = LayoutParams(widthMatchParent = true)
         ) {
-            homeRecommendBlockedTidsSummaryView = this
-            text = ruleEntryText(
-                R.string.home_recommend_blocked_tids,
-                R.string.home_recommend_blocked_tids_empty,
-                R.string.home_recommend_blocked_tids_current,
-                homeRecommendBlockedTids
-            )
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 15f
-            maxLines = 3
-            ellipsize = TextUtils.TruncateAt.END
-            setLineSpacing(5f, 1f)
-            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-            background = selfRippleBackground(10f)
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                // 把用户在 B 站面板里点过、但还没确认的标签**预填进输入框**——
-                // 用户看得见、可以删，点确认才落库。这就是"宿主只观测、模块才写"
-                // 那条边界在 UI 上的落点，不做静默合并。
-                showRuleEditorDialog(
-                    R.string.home_recommend_blocked_tids,
-                    R.string.home_recommend_blocked_tids_hint,
-                    prefilledBlockedTids(),
-                    anchor = it
-                ) { value ->
-                    // 落库前先规范化：手填的非法项与重复项在这里就清掉，
-                    // 免得摘要显示一堆过滤链根本不认的内容。
-                    // 用 normalize 而不是 encode(parse(...))——后者只留数字，
-                    // 用户填的标签名会在按确定的瞬间被静默吃掉。
-                    val normalized = TidBlocklistCodec.normalize(value)
-                    homeRecommendBlockedTids = normalized
-                    prefs().edit {
-                        putString(
-                            FeaturePreferences.HOME_RECOMMEND_BLOCKED_TIDS,
-                            normalized
-                        )
-                    }
-                    homeRecommendBlockedTidsSummaryView?.text = ruleEntryText(
-                        R.string.home_recommend_blocked_tids,
-                        R.string.home_recommend_blocked_tids_empty,
-                        R.string.home_recommend_blocked_tids_current,
-                        normalized
-                    )
-                }
-            }
-        }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true)
-        ) {
-            alpha = 0.6f
-            setLineSpacing(6f, 1f)
-            text = stringResource(R.string.home_recommend_blocked_tids_tip)
-            textColor = colorResource(R.color.colorTextDark)
-            textSize = 12f
-        }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true)
-        ) {
-            homeRecommendBlockedAuthorsSummaryView = this
-            text = ruleEntryText(
-                R.string.home_recommend_blocked_authors,
-                R.string.home_recommend_blocked_authors_empty,
-                R.string.home_recommend_blocked_authors_current,
-                homeRecommendBlockedAuthors
-            )
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 15f
-            maxLines = 3
-            ellipsize = TextUtils.TruncateAt.END
-            setLineSpacing(5f, 1f)
-            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-            background = selfRippleBackground(10f)
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                // 与标签那一档同构：面板里点过但还没确认的 UP 先预填进输入框，
-                // 用户看得见、可以删，点确认才落库。
-                showRuleEditorDialog(
-                    R.string.home_recommend_blocked_authors,
-                    R.string.home_recommend_blocked_authors_hint,
-                    prefilledBlockedAuthors(),
-                    anchor = it
-                ) { value ->
-                    val normalized = ExactRuleSetCodec.encode(ExactRuleSetCodec.parse(value))
-                    homeRecommendBlockedAuthors = normalized
-                    prefs().edit {
-                        putString(
-                            FeaturePreferences.HOME_RECOMMEND_BLOCKED_AUTHORS,
-                            normalized
-                        )
-                    }
-                    homeRecommendBlockedAuthorsSummaryView?.text = ruleEntryText(
-                        R.string.home_recommend_blocked_authors,
-                        R.string.home_recommend_blocked_authors_empty,
-                        R.string.home_recommend_blocked_authors_current,
-                        normalized
-                    )
-                }
-            }
-        }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true)
-        ) {
-            alpha = 0.6f
-            setLineSpacing(6f, 1f)
-            text = stringResource(R.string.home_recommend_blocked_authors_tip)
-            textColor = colorResource(R.color.colorTextDark)
-            textSize = 12f
-        }
-        MaterialSwitch(lparams = LayoutParams(widthMatchParent = true)) {
-            text = stringResource(R.string.home_recommend_section_pick)
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 15f
-            isChecked = homeRecommendSectionPickEnabled
-            setOnCheckedChangeListener { _, checked ->
-                homeRecommendSectionPickEnabled = checked
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.HOME_RECOMMEND_SECTION_PICK_ENABLED,
-                        checked
-                    )
-                }
-            }
-        }
-        TextView(lparams = LayoutParams(widthMatchParent = true)) {
-            alpha = 0.6f
-            setLineSpacing(6f, 1f)
-            text = stringResource(R.string.home_recommend_section_pick_tip)
-            textColor = colorResource(R.color.colorTextDark)
-            textSize = 12f
-        }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true)
-        ) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
             text = stringResource(R.string.home_recommend_purify_tip)
@@ -9607,6 +9545,158 @@ class MainActivity : SkinnedActivity() {
             textColor = monetColors.primary
             textSize = 12f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        MaterialSwitch(lparams = LayoutParams(widthMatchParent = true) {
+            topMargin = 12.dp
+            bottomMargin = 5.dp
+        }) {
+            text = stringResource(R.string.home_recommend_section_pick)
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = homeRecommendSectionPickEnabled
+            setOnCheckedChangeListener { _, checked ->
+                homeRecommendSectionPickEnabled = checked
+                prefs().edit {
+                    putBoolean(
+                        FeaturePreferences.HOME_RECOMMEND_SECTION_PICK_ENABLED,
+                        checked
+                    )
+                }
+            }
+        }
+        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.home_recommend_section_pick_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
+        TextView(
+            lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp }
+        ) {
+            homeRecommendBlockedTidsSummaryView = this
+            text = ruleEntryText(
+                R.string.home_recommend_blocked_tids,
+                R.string.home_recommend_blocked_tids_empty,
+                R.string.home_recommend_blocked_tids_current,
+                recommendationRuleCount(homeRecommendBlockedTids, tags = true)
+            )
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.END
+            setLineSpacing(5f, 1f)
+            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+            background = selfRippleBackground(10f)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                showRuleEditorDialog(
+                    R.string.home_recommend_blocked_tids,
+                    R.string.home_recommend_blocked_tids_hint,
+                    prefs().getString(FeaturePreferences.HOME_RECOMMEND_BLOCKED_TIDS, "").orEmpty(),
+                    anchor = it
+                ) { value ->
+                    // 落库前先规范化：手填的非法项与重复项在这里就清掉，
+                    // 免得摘要显示一堆过滤链根本不认的内容。
+                    // 用 normalize 而不是 encode(parse(...))——后者只留数字，
+                    // 用户填的标签名会在按确定的瞬间被静默吃掉。
+                    val normalized = TidBlocklistCodec.normalize(value)
+                    homeRecommendBlockedTids = normalized
+                    prefs().edit {
+                        putString(
+                            FeaturePreferences.HOME_RECOMMEND_BLOCKED_TIDS,
+                            normalized
+                        )
+                    }
+                    homeRecommendBlockedTidsSummaryView?.text = ruleEntryText(
+                        R.string.home_recommend_blocked_tids,
+                        R.string.home_recommend_blocked_tids_empty,
+                        R.string.home_recommend_blocked_tids_current,
+                        recommendationRuleCount(normalized, tags = true)
+                    )
+                }
+            }
+        }
+        TextView(
+            lparams = LayoutParams(widthMatchParent = true)
+        ) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.home_recommend_blocked_tids_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
+        TextView(
+            lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp }
+        ) {
+            homeRecommendBlockedAuthorsSummaryView = this
+            text = ruleEntryText(
+                R.string.home_recommend_blocked_authors,
+                R.string.home_recommend_blocked_authors_empty,
+                R.string.home_recommend_blocked_authors_current,
+                recommendationRuleCount(homeRecommendBlockedAuthors, tags = false)
+            )
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.END
+            setLineSpacing(5f, 1f)
+            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+            background = selfRippleBackground(10f)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                showRuleEditorDialog(
+                    R.string.home_recommend_blocked_authors,
+                    R.string.home_recommend_blocked_authors_hint,
+                    prefs().getString(FeaturePreferences.HOME_RECOMMEND_BLOCKED_AUTHORS, "").orEmpty(),
+                    anchor = it
+                ) { value ->
+                    val normalized = ExactRuleSetCodec.encode(ExactRuleSetCodec.parse(value))
+                    homeRecommendBlockedAuthors = normalized
+                    prefs().edit {
+                        putString(
+                            FeaturePreferences.HOME_RECOMMEND_BLOCKED_AUTHORS,
+                            normalized
+                        )
+                    }
+                    homeRecommendBlockedAuthorsSummaryView?.text = ruleEntryText(
+                        R.string.home_recommend_blocked_authors,
+                        R.string.home_recommend_blocked_authors_empty,
+                        R.string.home_recommend_blocked_authors_current,
+                        recommendationRuleCount(normalized, tags = false)
+                    )
+                }
+            }
+        }
+        TextView(
+            lparams = LayoutParams(widthMatchParent = true)
+        ) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.home_recommend_blocked_authors_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
+        TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp }) {
+            text = stringResource(R.string.recommendation_blocklist_manage)
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+            background = selfRippleBackground(10f)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                showRecommendationBlocklistDialog(anchor = it) { refreshRecommendationBlocklistSummaries() }
+            }
+        }
+        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.recommendation_blocklist_manage_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
         }
         MaterialSwitch(
             lparams = LayoutParams(widthMatchParent = true) {

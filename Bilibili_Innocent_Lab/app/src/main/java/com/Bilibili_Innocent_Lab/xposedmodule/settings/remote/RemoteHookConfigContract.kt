@@ -213,6 +213,17 @@ internal object RemoteHookConfigContract {
         )
     }
 
+    /** 跨载体比较使用内容身份，不比较各管理器自己的 generation/noRootRevision。 */
+    fun contentFingerprint(snapshot: RemoteHookConfigSnapshot): String = contentFingerprint(
+        snapshot.moduleVersionCode, snapshot.decision, snapshot.values, snapshot.deliveryEnabled)
+
+    fun contentFingerprint(
+        moduleVersionCode: Long,
+        decision: UserTermsDecision,
+        values: Map<String, Any>,
+        deliveryEnabled: Boolean = true
+    ): String = digest(1L, moduleVersionCode, deliveryEnabled, 0L, decision, values)
+
     private fun validateHookValues(values: Map<String, Any>): String? {
         SettingsCatalog.specs.forEach { spec ->
             val value = when (val raw = values[spec.storageKey]) {

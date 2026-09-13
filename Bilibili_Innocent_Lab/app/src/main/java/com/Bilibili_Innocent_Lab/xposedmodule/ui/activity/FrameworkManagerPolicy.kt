@@ -13,6 +13,7 @@ internal fun frameworkManagerTargets(frameworkName: String): List<FrameworkManag
     val vector = FrameworkManagerTarget("org.matrix.vector.manager")
     val lsposed = FrameworkManagerTarget("org.lsposed.manager")
     val lspatch = FrameworkManagerTarget("org.lsposed.lspatch")
+    if (frameworkName.contains("npatch", ignoreCase = true)) return listOf(FrameworkManagerTarget("top.nkbe.npatch"))
     // LSPatch 是独立管理器；不得回退到 LSPosed/Vector 或 shell 寄生入口。
     if (isLspatchFrameworkName(frameworkName)) return listOf(lspatch)
     val manager = when {

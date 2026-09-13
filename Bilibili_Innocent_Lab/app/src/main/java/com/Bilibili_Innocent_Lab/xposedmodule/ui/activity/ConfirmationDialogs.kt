@@ -171,19 +171,35 @@ internal fun MainActivity.showRestartConfirmDialog(anchor: View? = null) {
  * @param onConfirm 确认回调（自动跟随关闭 + 手动值生效；由调用方负责 UI 动画同步）
  * @param onCancel  取消回调（开关 UI 复位）
  */
-internal fun MainActivity.showAutoLightConfirmDialog(onConfirm: () -> Unit, onCancel: () -> Unit) {
+internal fun MainActivity.showAutoLightConfirmDialog(
+    anchor: View? = null,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit
+) {
     val density = resources.displayMetrics.density
     val dialog = Dialog(this)
     val container = createModalContainer()
 
     container.addView(
         NativeTextView(this).apply {
-            text = getString(R.string.free_copy_light_mode_confirm_title)
+            text = getString(R.string.free_copy_light_mode)
             textColor = getColor(R.color.colorTextDark)
             textSize = 17f
             setLineSpacing(4 * density, 1f)
         },
         NativeLinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+    )
+
+    container.addView(
+        NativeTextView(this).apply {
+            text = getString(R.string.free_copy_light_mode_confirm_title)
+            textColor = getColor(R.color.colorTextGray)
+            textSize = 13f
+            setLineSpacing(4 * density, 1f)
+        },
+        NativeLinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = (10 * density).toInt()
+        }
     )
 
     val buttonRow = NativeLinearLayout(this).apply {
@@ -243,7 +259,7 @@ internal fun MainActivity.showAutoLightConfirmDialog(onConfirm: () -> Unit, onCa
         }
     )
 
-    presentModalDialog(dialog, container, onBackDismiss = onCancel)
+    presentModalDialog(dialog, container, anchor, onBackDismiss = onCancel)
 }
 
 /**

@@ -18,7 +18,7 @@ internal data class DiagnosticReportMetadata(
 /** 只导出固定白名单字段的本地诊断报告；不接受设置值、日志正文和任意异常文本。 */
 internal object DiagnosticReportCodec {
     const val FORMAT_NAME = "bilab-diagnostics"
-    const val CURRENT_FORMAT_VERSION = 6
+    const val CURRENT_FORMAT_VERSION = 7
     const val PRODUCT_ID = "bilibili-innocent-lab"
     const val MAX_FILE_BYTES = 256 * 1024
 
@@ -118,6 +118,8 @@ internal object DiagnosticReportCodec {
                             .put("reached", input.hostBootstrapReached)
                             .put("configState", input.hostConfigState.name)
                             .put("configGeneration", input.hostConfigGeneration)
+                            .put("configSource", input.hostConfigSource)
+                            .put("admissionCurrent", input.hostAdmissionCurrent)
                             .put(
                                 "configReasonCode",
                                 input.hostConfigReasonCode.boundedCode(
@@ -253,7 +255,9 @@ internal object DiagnosticReportCodec {
         DiagnosticHostQueryState.valueOf(runtime.getString("hostQueryState"))
         com.Bilibili_Innocent_Lab.xposedmodule.runtime.ReceiptQueryFailure.valueOf(runtime.getString("hostQueryFailure"))
         val bootstrap = runtime.getJSONObject("hostBootstrap")
-        require(bootstrap.length() == 9) { "Invalid host bootstrap assessment" }
+        require(bootstrap.length() == 11) { "Invalid host bootstrap assessment" }
+        require(bootstrap.getString("configSource") in setOf("manager", "module_direct")) { "Invalid config source" }
+        require(bootstrap.get("admissionCurrent") is Boolean) { "Invalid admission evidence" }
         DiagnosticHostConfigState.valueOf(bootstrap.getString("configState"))
         DiagnosticHostInstallChainState.valueOf(bootstrap.getString("installChainState"))
         require(bootstrap.getLong("configGeneration") >= 0L) {

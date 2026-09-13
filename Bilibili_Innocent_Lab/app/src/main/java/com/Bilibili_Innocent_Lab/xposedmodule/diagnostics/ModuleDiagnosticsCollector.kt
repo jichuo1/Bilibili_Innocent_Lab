@@ -149,6 +149,12 @@ internal object ModuleDiagnosticsCollector {
                     DiagnosticHostConfigState.valueOf(it.name)
                 } ?: DiagnosticHostConfigState.NOT_CHECKED,
                 hostConfigGeneration = hostRuntime?.bootstrap?.configGeneration ?: 0L,
+                hostConfigSource = hostRuntime?.bootstrap?.configSource ?: "manager",
+                hostAdmissionPresent = hostRuntime?.bootstrap?.admission != null,
+                hostAdmissionCurrent = hostQueryState == DiagnosticHostQueryState.READY &&
+                    hostRuntime?.bootstrap?.admission?.let { it ==
+                        com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationAuthorityStore.current(context)?.identity
+                    } == true,
                 hostConfigReasonCode = hostRuntime?.bootstrap?.configReasonCode,
                 hostInstallChainState = hostRuntime?.bootstrap?.installChainState?.let {
                     DiagnosticHostInstallChainState.valueOf(it.name)

@@ -25,6 +25,12 @@ internal object ReleaseHighlightsCatalog {
     const val REVIEWED_VERSION_CODE = 17
     const val SETTINGS_BASELINE_VERSION = 13
     val batches = listOf(ReleaseHighlightsBatch(1, listOf(
+        ReleaseHighlight("player-end-page-recommend", HighlightKind.NEW,
+            R.string.hide_player_end_page_recommend_tip,
+            HighlightDestination("player.end_page_recommend.hidden")),
+        ReleaseHighlight("communication-compatibility", HighlightKind.NEW,
+            R.string.communication_compatibility_tip,
+            HighlightDestination("communication.compatibility.enabled")),
         // 四个子项各自成条：门禁要求每个新增设置都有导航目标，而
         // HighlightDestination 一条只能指一个 settingId。标题自动取设置自己的 labelRes。
         ReleaseHighlight("detail-honor", HighlightKind.NEW,

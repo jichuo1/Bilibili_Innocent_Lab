@@ -1,5 +1,11 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.settings.remote
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.compat.CommunicationCompatibilityStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.compat.CommunicationCompatibilityPolicy
+import android.os.SystemClock
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostReceiptWire
+import java.util.concurrent.atomic.AtomicLong
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
@@ -17,7 +23,8 @@ internal sealed interface RemoteHookConfigPublishResult {
 
     data class Success(
         val generation: Long,
-        val changed: Boolean
+        val changed: Boolean,
+        val proof: RemotePublicationProof? = null
     ) : RemoteHookConfigPublishResult {
         override val succeeded: Boolean = true
     }
@@ -57,7 +64,8 @@ internal fun interface ModernFrameworkStatusListener {
 
 internal data class RemoteHookConfigPublishEvent(
     val decision: UserTermsDecision,
-    val result: RemoteHookConfigPublishResult
+    val result: RemoteHookConfigPublishResult,
+    val consentRevision: Long? = null
 )
 
 internal fun interface RemoteHookConfigPublishListener {
@@ -78,18 +86,21 @@ internal fun shouldRepeatRemotePublish(
  */
 internal object RemoteHookConfigStore {
     private const val TAG = "BilibiliInnocentLab"
-    private val lock = Any()
+    private val lock = Any() // 串行发布与 committer，不被 UI getter 获取。
+    private val stateLock = Any()
+    private val intentEpoch = AtomicLong()
+    private val operationIds = AtomicLong()
+    private val candidates = ServiceCandidateGate<XposedService>()
+    private val metadataExecutor = HostReceiptWire.executor("bil-framework-metadata")
     private val committer = RemoteHookConfigCommitter()
-    private var connectionId = 0L
+    @Volatile private var connectionId = 0L
     private val observedKeys = RemoteHookConfigContract.hookValueKeys
     private val publishScheduled = AtomicBoolean(false)
     private val publishDirty = AtomicBoolean(false)
     private val listenerRegistered = AtomicBoolean(false)
     private val statusListeners = CopyOnWriteArraySet<ModernFrameworkStatusListener>()
     private val publishListeners = CopyOnWriteArraySet<RemoteHookConfigPublishListener>()
-    private val publishExecutor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "bil-remote-config").apply { isDaemon = true }
-    }
+    private val publishExecutor = HostReceiptWire.executor("bil-remote-config")
 
     private var applicationContext: Context? = null
     private var observedPreferences: SharedPreferences? = null
@@ -116,11 +127,12 @@ internal object RemoteHookConfigStore {
         applicationContext = appContext
         requestedDecision = decision
         registerServiceListener()
-        synchronized(lock) {
+        synchronized(stateLock) {
             if (observedPreferences == null) {
                 val source = appContext.modulePreferences()
                 val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
                     if (key == null || key !in observedKeys) return@OnSharedPreferenceChangeListener
+                    intentEpoch.incrementAndGet()
                     requestPublish(appContext)
                 }
                 source.registerOnSharedPreferenceChangeListener(listener)
@@ -128,7 +140,8 @@ internal object RemoteHookConfigStore {
                 preferenceListener = listener
             }
         }
-        return publishSnapshotAndNotify(appContext, decision)
+        requestPublish(appContext)
+        return RemoteHookConfigPublishResult.Failure("publication_pending")
     }
 
     fun publish(
@@ -138,6 +151,7 @@ internal object RemoteHookConfigStore {
         val appContext = context.applicationContext ?: context
         applicationContext = appContext
         requestedDecision = decision
+        intentEpoch.incrementAndGet()
         return publishSnapshotAndNotify(appContext, decision)
     }
 
@@ -148,35 +162,73 @@ internal object RemoteHookConfigStore {
     fun requestDecisionPublish(context: Context, decision: UserTermsDecision) {
         val appContext = context.applicationContext ?: context
         applicationContext = appContext
-        requestedDecision = decision
+        if (requestedDecision != decision) {
+            requestedDecision = decision
+            intentEpoch.incrementAndGet()
+        }
         requestPublish(appContext)
+    }
+
+    fun requestManualAttempt(
+        context: Context,
+        consentRevision: Long,
+        origin: RemotePublicationAttempt.Origin,
+        callback: (RemoteHookConfigPublishResult) -> Unit
+    ): RemotePublicationAttempt {
+        val app = context.applicationContext ?: context
+        requestedDecision = UserTermsDecision.ACCEPTED
+        val epoch = intentEpoch.incrementAndGet()
+        val attempt = RemotePublicationAttempt(operationIds.incrementAndGet(), consentRevision, epoch,
+            SystemClock.elapsedRealtime() + 15_000L, SystemClock::elapsedRealtime, callback, origin)
+        com.Bilibili_Innocent_Lab.xposedmodule.runtime.compat.CompatibilityManagerProbe.request(app)
+        val work = Runnable {
+            val connectDeadline = SystemClock.elapsedRealtime() + 6_000L
+            while (attempt.isActive() && intentEpoch.get() == epoch && !frameworkStatus.capable &&
+                SystemClock.elapsedRealtime() < connectDeadline) Thread.sleep(100L)
+            if (!attempt.isActive()) return@Runnable
+            val result = publishSnapshot(app, UserTermsDecision.ACCEPTED, consentRevision,
+                force = true, isAttemptCurrent = { attempt.isActive() && intentEpoch.get() == epoch })
+            notifyPublishListeners(RemoteHookConfigPublishEvent(UserTermsDecision.ACCEPTED, result, consentRevision))
+            attempt.complete(result)
+        }
+        attempt.onCancel { publishExecutor.remove(work) }
+        runCatching { publishExecutor.execute(work) }.onFailure {
+            attempt.complete(RemoteHookConfigPublishResult.Failure("publication_queue_busy"))
+        }
+        return attempt
     }
 
     private fun publishSnapshotAndNotify(
         appContext: Context,
         decision: UserTermsDecision
     ): RemoteHookConfigPublishResult {
-        val result = publishSnapshot(appContext, decision)
-        notifyPublishListeners(RemoteHookConfigPublishEvent(decision, result))
+        val revision = UserTermsConsentStore.readStateOrInitialize(appContext).pendingAcceptance?.revision
+        val result = publishSnapshot(appContext, decision, revision)
+        notifyPublishListeners(RemoteHookConfigPublishEvent(decision, result, revision))
         return result
     }
 
-    /** 在取得发布锁后才截取目标决定，避免同步拒绝返回后旧 ACCEPTED 任务再次落盘。 */
     private fun publishRequestedSnapshotAndNotify(
         appContext: Context
     ): Pair<UserTermsDecision, RemoteHookConfigPublishResult> {
-        val (decision, result) = synchronized(lock) {
-            val target = requestedDecision
-            target to publishSnapshot(appContext, target)
-        }
-        notifyPublishListeners(RemoteHookConfigPublishEvent(decision, result))
-        return decision to result
+        val target = requestedDecision
+        return target to publishSnapshotAndNotify(appContext, target)
     }
 
     private fun publishSnapshot(
         appContext: Context,
-        decision: UserTermsDecision
+        decision: UserTermsDecision,
+        consentRevision: Long?,
+        force: Boolean = false,
+        isAttemptCurrent: () -> Boolean = { true }
     ): RemoteHookConfigPublishResult = synchronized(lock) {
+        val capturedEpoch = intentEpoch.get()
+        val capturedConnection = connectionId
+        val activeService = service
+        fun current(): Boolean = isAttemptCurrent() && requestedDecision == decision &&
+            intentEpoch.get() == capturedEpoch && service === activeService && connectionId == capturedConnection &&
+            (consentRevision == null || UserTermsConsentStore.readStateOrInitialize(appContext).pendingAcceptance?.revision == consentRevision)
+        if (!current()) return@synchronized RemoteHookConfigPublishResult.Failure("stale_publication")
         val attemptAt = System.currentTimeMillis().coerceAtLeast(1L)
         publishDiagnostics = publishDiagnostics.copy(
             state = RemoteHookConfigPublishState.PUBLISHING,
@@ -184,8 +236,9 @@ internal object RemoteHookConfigStore {
             failureCode = null,
             publishPending = true
         )
-        val activeService = service
         val result = when {
+            com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore.isDesiredEnabled(appContext) ->
+                RemoteHookConfigPublishResult.Failure("NPatch selected")
             activeService == null -> RemoteHookConfigPublishResult.Failure(
                 "Xposed service is not connected"
             )
@@ -194,9 +247,16 @@ internal object RemoteHookConfigStore {
             !frameworkStatus.capable -> RemoteHookConfigPublishResult.Failure(
                 "Xposed framework does not provide supported Modern remote preferences"
             )
-            else -> publishWithService(appContext, decision, activeService)
+            else -> publishWithService(appContext, decision, activeService, capturedConnection, capturedEpoch, force || consentRevision != null, ::current)
         }
         if (!result.succeeded) committer.invalidate()
+        if (!current()) {
+            committer.invalidate()
+            publishDiagnostics = publishDiagnostics.copy(publishPending = false,
+                state = if (service == null) RemoteHookConfigPublishState.WAITING_FOR_SERVICE else RemoteHookConfigPublishState.FAILED,
+                failureCode = "publication_outcome_unknown")
+            return@synchronized RemoteHookConfigPublishResult.Failure("stale_publication")
+        }
         publishDiagnostics = when (result) {
             is RemoteHookConfigPublishResult.Success -> publishDiagnostics.copy(
                 state = RemoteHookConfigPublishState.READY,
@@ -222,16 +282,24 @@ internal object RemoteHookConfigStore {
     private fun publishWithService(
         appContext: Context,
         decision: UserTermsDecision,
-        activeService: XposedService
+        activeService: XposedService,
+        capturedConnection: Long,
+        capturedEpoch: Long,
+        force: Boolean,
+        stillCurrent: () -> Boolean
     ): RemoteHookConfigPublishResult = runCatching {
         val values = RemoteHookConfigContract.resolveSourceValues(appContext.modulePreferences().all)
+        val publication = PublicationAuthorityStore.forPublication(appContext, decision, values)
+            ?: return@runCatching RemoteHookConfigPublishResult.Failure("stale_publication")
         val preferences = activeService.getRemotePreferences(RemoteHookConfigContract.GROUP)
-        committer.publish(
-            connectionId = connectionId,
+        val result = committer.publish(
+            connectionId = capturedConnection,
             moduleVersionCode = BuildConfig.VERSION_CODE.toLong(),
             decision = decision,
             values = values,
             nowEpochMs = System.currentTimeMillis(),
+            force = force,
+            stillCurrent = { stillCurrent() && PublicationAuthorityStore.matches(appContext, publication) },
             backend = object : RemoteHookConfigBackend {
                 override fun readCached(): Map<String, *> = preferences.all
 
@@ -253,6 +321,9 @@ internal object RemoteHookConfigStore {
                 }
             }
         )
+        if (result is RemoteHookConfigPublishResult.Success) result.copy(
+            proof = RemotePublicationProof(publication.identity, capturedConnection, capturedEpoch, stillCurrent))
+        else result
     }.getOrElse { throwable ->
         committer.invalidate()
         RemoteHookConfigPublishResult.Failure(
@@ -260,14 +331,19 @@ internal object RemoteHookConfigStore {
         )
     }
 
+    /** 调用方先持有短期授权锁；这里锁住连接交接，结束后才能分发监听器。 */
+    fun <T> withCurrentPublication(proof: RemotePublicationProof?, action: () -> T): T? = synchronized(stateLock) {
+        if (proof == null || !frameworkStatus.capable || service == null ||
+            !proof.matches(applicationContext?.let { PublicationAuthorityStore.current(it)?.identity }, connectionId, intentEpoch.get())) null
+        else action()
+    }
+
     fun status(): ModernFrameworkStatus = frameworkStatus
 
-    fun diagnostics(): RemoteHookConfigDiagnostics = synchronized(lock) {
-        publishDiagnostics.copy(
+    fun diagnostics(): RemoteHookConfigDiagnostics = publishDiagnostics.copy(
             publishPending = publishDiagnostics.publishPending ||
                 publishScheduled.get() || publishDirty.get()
         )
-    }
 
     /**
      * 框架服务由 LSPosed 异步投递；订阅时立即回送当前快照，消除 Activity 首次绘制与
@@ -291,7 +367,7 @@ internal object RemoteHookConfigStore {
     }
 
     fun logFailure(result: RemoteHookConfigPublishResult) {
-        if (result !is RemoteHookConfigPublishResult.Failure) return
+        if (result !is RemoteHookConfigPublishResult.Failure || result.reason == "publication_pending") return
         Log.w(TAG, "publish remote hook config failed: ${result.reason}", result.throwable)
     }
 
@@ -299,40 +375,38 @@ internal object RemoteHookConfigStore {
         if (!listenerRegistered.compareAndSet(false, true)) return
         XposedServiceHelper.registerListener(object : XposedServiceHelper.OnServiceListener {
             override fun onServiceBind(boundService: XposedService) {
-                val metadata = readModernFrameworkStatus(
-                    readApiVersion = { boundService.apiVersion },
-                    readProperties = { boundService.frameworkProperties },
-                    readName = { boundService.frameworkName },
-                    readVersion = { boundService.frameworkVersion },
-                    readVersionCode = { boundService.frameworkVersionCode }
-                )
-                val newStatus = synchronized(lock) {
-                    if (!metadata.capable && frameworkStatus.capable && service !== boundService) {
-                        null
-                    } else {
-                        if (service !== boundService) {
-                            connectionId += 1L
-                            committer.invalidate()
-                            publishDiagnostics = publishDiagnostics.copy(
-                                state = RemoteHookConfigPublishState.WAITING_FOR_SERVICE,
-                                failureCode = null
-                            )
-                        }
-                        service = boundService
-                        metadata.copy(connectionId = connectionId).also { frameworkStatus = it }
-                    }
+                val arrival = synchronized(stateLock) {
+                    candidates.arrive(boundService)
                 }
-                if (newStatus != null) notifyStatusListeners(newStatus)
-                applicationContext?.let(::requestPublish)
+                runCatching { metadataExecutor.execute {
+                    val metadata = readModernFrameworkStatus(
+                        readApiVersion = { boundService.apiVersion },
+                        readProperties = { boundService.frameworkProperties },
+                        readName = { boundService.frameworkName },
+                        readVersion = { boundService.frameworkVersion },
+                        readVersionCode = { boundService.frameworkVersionCode })
+                    if (!candidates.matches(boundService, arrival)) return@execute
+                    val newStatus = synchronized(stateLock) {
+                        if (!candidates.matches(boundService, arrival)) null
+                        else if (!metadata.capable && frameworkStatus.capable && service !== boundService) null
+                        else {
+                            if (service !== boundService) connectionId += 1L
+                            service = boundService
+                            metadata.copy(connectionId = connectionId).also { frameworkStatus = it }
+                        }
+                    }
+                    if (newStatus != null) notifyStatusListeners(newStatus)
+                    applicationContext?.let(::requestPublish)
+                } }
             }
 
             override fun onServiceDied(deadService: XposedService) {
-                val disconnected = synchronized(lock) {
+                val disconnected = synchronized(stateLock) {
+                    candidates.remove(deadService)
                     if (service !== deadService) {
                         null
                     } else {
                         service = null
-                        committer.invalidate()
                         publishDiagnostics = publishDiagnostics.copy(
                             state = RemoteHookConfigPublishState.WAITING_FOR_SERVICE,
                             failureCode = "service_not_connected"
@@ -371,17 +445,29 @@ internal object RemoteHookConfigStore {
     }
 
     private fun requestPublish(context: Context) {
+        com.Bilibili_Innocent_Lab.xposedmodule.runtime.compat.CompatibilityManagerProbe.request(context)
         publishDirty.set(true)
         if (!publishScheduled.compareAndSet(false, true)) return
-        publishExecutor.execute {
+        runCatching { publishExecutor.execute {
             try {
                 var attemptedDecision: UserTermsDecision
                 do {
                     publishDirty.set(false)
-                    val attempt = publishRequestedSnapshotAndNotify(context)
-                    attemptedDecision = attempt.first
-                    val result = attempt.second
-                    logFailure(result)
+                    attemptedDecision = requestedDecision
+                    val attempts = CommunicationCompatibilityPolicy.managerAttempts(CommunicationCompatibilityStore.isEnabled(context))
+                    for (index in 0 until attempts) {
+                        if (index > 0) {
+                            if (attemptedDecision != requestedDecision || publishDirty.get()) break
+                            Thread.sleep(CommunicationCompatibilityPolicy.RETRY_DELAY_MS)
+                            if (attemptedDecision != requestedDecision) break
+                        }
+                        val attempt = publishRequestedSnapshotAndNotify(context)
+                        attemptedDecision = attempt.first
+                        logFailure(attempt.second)
+                        val failure = attempt.second as? RemoteHookConfigPublishResult.Failure
+                        if (failure == null || failure.reason !in setOf("Xposed service is not connected",
+                            "Xposed framework metadata is unavailable") && failure.throwable !is android.os.DeadObjectException) break
+                    }
                 } while (shouldRepeatRemotePublish(
                     dirty = publishDirty.get(),
                     attemptedDecision = attemptedDecision,
@@ -391,10 +477,17 @@ internal object RemoteHookConfigStore {
                 publishScheduled.set(false)
                 if (publishDirty.get()) requestPublish(context)
             }
+        } }.onFailure {
+            publishScheduled.set(false)
+            publishDiagnostics = publishDiagnostics.copy(state = RemoteHookConfigPublishState.FAILED,
+                failureCode = "publish_queue_busy", publishPending = false)
+            // 脏标志保留给下一次外部事件；拒绝时不自旋创建更多任务。
         }
     }
 
+
     private fun RemoteHookConfigPublishResult.Failure.toFailureCode(): String = when (reason) {
+        "stale_publication" -> "publication_outcome_unknown"
         "Xposed service is not connected" -> "service_not_connected"
         "Xposed framework metadata is unavailable" -> "framework_metadata_unavailable"
         "Xposed framework does not provide supported Modern remote preferences" ->
