@@ -1262,9 +1262,13 @@ internal class LiquidActivityRenderer(
         // 抑制期录制的都是光学直采路径，解除后要重录回折射路径——实时模式下随后的
         // 采集完成会再失效一次；采集已挂起（suspended）时则靠这次失效恢复玻璃观感。
         invalidateRegisteredSurfaces()
-        // 立刻排一次新采集；完成时 handleRealtimeCaptureResult 会把实时缓冲绑回去。
+        // 排一次新采集；完成时 handleRealtimeCaptureResult 会把实时缓冲绑回去。
+        // 与唤醒同一规则，隔 [LiquidRealtimeCapturePolicy.WAKE_SETTLE_FRAMES] 帧再截：上面那次整组重录
+        // 的 GPU 约 12ms，同一 vsync 就截的话 PixelCopy 在 RenderThread 上干等它的栅栏 15–18ms，
+        // 每次滚动/翻页/切页收尾都掉一帧（2026-09-27 atrace：copySurfaceInto 18.5ms，隔开后只剩拷贝本身）。
         resetRealtimeIdle()
-        realtimeNextCaptureNanos = 0L
+        realtimeNextCaptureNanos = System.nanoTime() +
+            LiquidRealtimeCapturePolicy.WAKE_SETTLE_FRAMES * refreshRate.frameIntervalNanos
         postRealtimeFrameCallback()
     }
 

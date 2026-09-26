@@ -240,4 +240,50 @@ class SettingsPageMotionPolicyTest {
         assertEquals(180L, SettingsPageMotionPolicy.duration(1f, 1f))
         assertEquals(420L, SettingsPageMotionPolicy.duration(-1f, 99f))
     }
+
+    /** 点击切页：从静止起步、非线性（前快后慢），单调无过冲，恰好停在目标。 */
+    @Test fun navigationCurveStartsFromRestAcceleratesThenGlidesIntoTarget() {
+        for ((from, to) in listOf(0f to 1, 0f to 3, 3f to 0, 2f to 1)) {
+            val duration = SettingsPageMotionPolicy.navigationDuration(from, to.toFloat())
+            val curve = SettingsPageMotionContinuation(from, to, 0f, duration, 4, navigation = true)
+            assertEquals(from, curve.value(0f), 0f)
+            assertEquals(to.toFloat(), curve.value(1f), .00001f)
+            val sign = if (to > from) 1f else -1f
+            var previous = from
+            repeat(1000) {
+                val next = curve.value((it + 1) / 1000f)
+                assertTrue((next - previous) * sign >= -.000001f)
+                previous = next
+            }
+            // 起点速度为 0（第一毫帧几乎不动），中段过半、前 40% 时间走完大部分：不是线性，也不是对称的 smoothstep。
+            assertTrue(abs(curve.value(.001f) - from) < .001f * abs(to - from))
+            assertTrue(abs(curve.value(.4f) - from) > .7f * abs(to - from))
+        }
+    }
+
+    @Test fun fartherJumpsLastLongerAndLaunchHarder() {
+        val one = SettingsPageMotionPolicy.navigationDuration(0f, 1f)
+        val two = SettingsPageMotionPolicy.navigationDuration(0f, 2f)
+        val three = SettingsPageMotionPolicy.navigationDuration(0f, 3f)
+        assertTrue(one < two && two < three)
+        assertTrue(three <= SettingsPageMotionPolicy.NAVIGATION_MAX_MS)
+        // 时长增长慢于距离：远跳的额外距离由更陡的起步吸收。
+        assertTrue(three < 3 * one)
+        assertTrue(SettingsPageMotionPolicy.navigationSteepness(3f) > SettingsPageMotionPolicy.navigationSteepness(1f))
+        assertEquals(SettingsPageMotionPolicy.NAVIGATION_MIN_MS, SettingsPageMotionPolicy.navigationDuration(Float.NaN, 1f))
+    }
+
+    /** 动画途中再次点击：新曲线以当前速度起步，位置与速度都连续。 */
+    @Test fun retargetDuringNavigationKeepsVelocityContinuous() {
+        val duration = 400L
+        val velocity = 4f
+        val curve = SettingsPageMotionContinuation(1.3f, 3, velocity, duration, 4, navigation = true)
+        val dt = .0005f
+        val startSpeed = (curve.value(dt) - curve.value(0f)) / (dt * duration / 1000f)
+        assertEquals(velocity, startSpeed, .15f)
+        for (v in listOf(-8f, 8f)) for (start in listOf(-.17f, 3.17f)) {
+            val bounded = SettingsPageMotionContinuation(start, 0, v, duration, 4, navigation = true)
+            repeat(1001) { assertTrue(bounded.value(it / 1000f) in -.18f..3.18f) }
+        }
+    }
 }

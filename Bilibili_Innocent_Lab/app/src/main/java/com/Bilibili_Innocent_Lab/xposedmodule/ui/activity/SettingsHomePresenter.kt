@@ -264,9 +264,11 @@ internal class SettingsHomePresenter(
                 if (view is ViewGroup) for (i in 0 until view.childCount) collectIcons(view.child(i))
             }
             collectIcons(toolbar)
+            // 胶囊本体上没有文字，图标都在三枚圆按钮里：补偿只加在圆按钮上，本体与底栏一样保持清透。
+            // 加厚本体时亮背景下补偿封顶，整条胶囊被洗成一层灰（2026-09-27 真机：顶栏 luma 0.635 → boost 1.0）。
             chrome.attach(
                 header, GlowScrollEdge.TOP, activity.getColor(R.color.colorTextGray),
-                companions = icons, onForeground = toolbarForeground(icons)
+                companions = icons, thickenHost = false, onForeground = toolbarForeground(icons)
             )
         }
         pager.onPageSelected = { index ->

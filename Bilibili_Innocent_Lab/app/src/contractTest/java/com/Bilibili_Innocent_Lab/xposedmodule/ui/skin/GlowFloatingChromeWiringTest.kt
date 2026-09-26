@@ -95,4 +95,14 @@ class GlowFloatingChromeWiringTest {
         // 光学参数与绘制同一条映射，策略算出的补偿与实际加厚一致。
         assertTrue(renderer.contains("maxTintAlpha = LiquidLegibilityTuning.ceiling(base)"))
     }
+
+    /** 顶栏胶囊本体没有文字：补偿只加在圆按钮上，本体保持清透；底栏的标签压在玻璃上，照旧加厚。 */
+    @Test fun topCapsuleBodyStaysClearWhileItsButtonsCarryCompensation() {
+        val chrome = SourceContract.read("ui/skin/engine/GlowFloatingChrome.kt")
+        assertTrue(chrome.contains("glow?.setSurfaceLegibility(surface.host, value.takeIf { surface.thickenHost })"))
+        assertTrue(chrome.contains("surface.companions.forEach { glow?.setSurfaceLegibility(it, value) }"))
+        val home = SourceContract.read("ui/activity/SettingsHomePresenter.kt")
+        assertTrue(home.contains("companions = icons, thickenHost = false"))
+        assertTrue(home.contains("chrome.attach(dock, GlowScrollEdge.BOTTOM, activity.getColor(R.color.colorTextGray)) { boost ->"))
+    }
 }

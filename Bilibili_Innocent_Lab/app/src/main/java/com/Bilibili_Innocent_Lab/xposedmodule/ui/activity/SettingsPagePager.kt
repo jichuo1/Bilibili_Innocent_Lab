@@ -107,10 +107,13 @@ internal class SettingsPagePager @JvmOverloads constructor(
     fun selectPage(index: Int, animate: Boolean = true) {
         gestureBlocked = true
         motionPaused = false
-        settle(SettingsPageMotionPolicy.selected(index, childCount), motion.velocity(SystemClock.uptimeMillis()), animate)
+        settle(
+            SettingsPageMotionPolicy.selected(index, childCount), motion.velocity(SystemClock.uptimeMillis()), animate,
+            navigation = true
+        )
     }
 
-    private fun settle(index: Int, velocity: Float = 0f, animate: Boolean = true) {
+    private fun settle(index: Int, velocity: Float = 0f, animate: Boolean = true, navigation: Boolean = false) {
         stopMotion()
         val target = SettingsPageMotionPolicy.selected(index, childCount)
         val changed = selectedPage != target
@@ -127,8 +130,9 @@ internal class SettingsPagePager @JvmOverloads constructor(
         } else {
             if (motionLifecycle.beginMotion()) onMotionStarted()
             if (!motion.owns(token)) return
-            val duration = SettingsPageMotionPolicy.duration(position, target.toFloat())
-            val continuation = SettingsPageMotionContinuation(position, target, velocity, duration, childCount)
+            val duration = if (navigation) SettingsPageMotionPolicy.navigationDuration(position, target.toFloat())
+            else SettingsPageMotionPolicy.duration(position, target.toFloat())
+            val continuation = SettingsPageMotionContinuation(position, target, velocity, duration, childCount, navigation)
             motion.reset(position, SystemClock.uptimeMillis())
             val nextAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
                 this.duration = duration

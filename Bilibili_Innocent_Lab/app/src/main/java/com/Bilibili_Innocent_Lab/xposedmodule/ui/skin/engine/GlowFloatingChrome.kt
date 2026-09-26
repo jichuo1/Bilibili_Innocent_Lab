@@ -36,6 +36,7 @@ internal class GlowFloatingChrome(
         val companions: List<View>,
         val edge: GlowScrollEdge,
         val foregroundColor: Int,
+        val thickenHost: Boolean,
         val onForeground: (Float) -> Unit
     ) {
         val region = RectF()
@@ -97,16 +98,19 @@ internal class GlowFloatingChrome(
      * 登记一条悬浮栏。[host] 必须与 [target] 同一个父容器（坐标直接相减）。
      * [companions] 是栏内自带玻璃表面的子控件（顶栏的三枚圆按钮），与栏共用同一份补偿。
      * [onForeground] 收到 0..1 的前景加强量；0 表示恢复原色。
+     * [thickenHost] 为 false 时栏本体始终保持中性（清透），补偿只加在 [companions] 上：栏上没有直接压在
+     * 玻璃上的文字/图标时（顶栏的图标都在圆按钮里），加厚本体只会把背景洗灰，对可读性没有贡献。
      */
     fun attach(
         host: View,
         edge: GlowScrollEdge,
         foregroundColor: Int,
         companions: List<View> = emptyList(),
+        thickenHost: Boolean = true,
         onForeground: (Float) -> Unit
     ) {
         if (disposed) return
-        surfaces += Surface(host, companions, edge, foregroundColor, onForeground)
+        surfaces += Surface(host, companions, edge, foregroundColor, thickenHost, onForeground)
         backdropsDirty = true
         host.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> if (!disposed) updateGeometry() }
         updateGeometry()
@@ -328,7 +332,7 @@ internal class GlowFloatingChrome(
         if (!force && value == surface.applied) return
         surface.applied = value
         val glow = engine()
-        glow?.setSurfaceLegibility(surface.host, value)
+        glow?.setSurfaceLegibility(surface.host, value.takeIf { surface.thickenHost })
         surface.companions.forEach { glow?.setSurfaceLegibility(it, value) }
         surface.onForeground(value.boost)
     }

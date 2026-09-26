@@ -164,8 +164,11 @@ internal fun MainActivity.showSettingsSearchDialog(anchor: View? = null) {
     val density = resources.displayMetrics.density
     val dialog = Dialog(this).also { installDialogElasticInteraction(it) }
     val container = createModalContainer()
-    val runtimeTargets = collectSettingsSearchTargets()
-    val targetByKey = runtimeTargets.associateBy { it.item.key }
+    // 遍历整棵设置视图树收集可搜索文字，真机 7.5–11ms；打开时是空查询、用不到它，放在打开那一帧里
+    // 会把气泡的首帧推迟约 20ms（2026-09-27 atrace）。延到第一次非空查询再收：面板开着时底下的
+    // 设置页静止，收到的结果与打开时相同。
+    val runtimeTargets by lazy(LazyThreadSafetyMode.NONE) { collectSettingsSearchTargets() }
+    val targetByKey by lazy(LazyThreadSafetyMode.NONE) { runtimeTargets.associateBy { it.item.key } }
 
     container.addView(
         NativeTextView(this).apply {
@@ -222,7 +225,7 @@ internal fun MainActivity.showSettingsSearchDialog(anchor: View? = null) {
 
     fun renderResults(query: String) {
         resultContainer.removeAllViews()
-        val results = SettingsSearchMatcher.searchMatches(
+        val results = if (query.isBlank()) emptyList() else SettingsSearchMatcher.searchMatches(
             query = query,
             items = runtimeTargets.map(RuntimeSettingsSearchTarget::item)
         )
