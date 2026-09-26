@@ -60,6 +60,8 @@ internal class SettingsHomePresenter(
     // pager 的直接容器：只装会从悬浮栏下穿过的内容与滚动边缘溶解层，两栏是它的兄弟。
     private val backdropTarget = GlowBackdropTarget(activity)
     private var floatingChrome: GlowFloatingChrome? = null
+    private var textChain: SettingsPageTextChain? = null
+    private val headings = ArrayList<View>(4)
     private var navigation: ModernNavigationBar? = null
     private val contents = List(4) { LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL } }
     private val scrolls = List(4) { SettingsHomeScrollView(activity, ::userNavigated, navigationTouched).apply {
@@ -102,6 +104,7 @@ internal class SettingsHomePresenter(
             navigation?.setPageProgress(pager.pagePosition, notifyPositionChanged = false)
             skinPositionChanged()
             floatingChrome?.onContentMoved()
+            textChain?.onPositionChanged()
         }
         fun collect(view: View) {
             if (view is MaterialSwitch && view.isVisible) {
@@ -170,6 +173,7 @@ internal class SettingsHomePresenter(
                 })
             }
             content.addView(heading, 0)
+            headings += heading
             scrolls[index].addView(content, ViewGroup.LayoutParams(-1, -2))
             pager.addView(scrolls[index], FrameLayout.LayoutParams(-1, -1))
             stretches += installStretch(scrolls[index]) { pager.selectedPage == index && pager.isSettled }
@@ -277,6 +281,7 @@ internal class SettingsHomePresenter(
             dock.setSelectedPage(index)
         }
         pager.onMotionStarted = { stretches.forEach(finishStretch) }
+        textChain = SettingsPageTextChain(pager, headings)
         pager.onUserInteraction = { if (!revealingPage) userNavigated() }
         val restored = savedState?.getInt("settings_home_page", 0)?.coerceIn(0, 3) ?: 0
         revealingPage = true
@@ -485,6 +490,8 @@ internal class SettingsHomePresenter(
         disposed = true
         floatingChrome?.dispose()
         floatingChrome = null
+        textChain?.dispose()
+        textChain = null
         peerDisposers.forEach { it() }; peerDisposers.clear()
         stretches.forEach(finishStretch); stretches.clear()
         pager.onPageSelected = {}

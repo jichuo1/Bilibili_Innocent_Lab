@@ -286,4 +286,34 @@ class SettingsPageMotionPolicyTest {
             repeat(1001) { assertTrue(bounded.value(it / 1000f) in -.18f..3.18f) }
         }
     }
+
+    /** 中途再点、同向高速接续：导航曲线不越过目标。 */
+    @Test fun navigationRetargetNeverOvershootsEvenWithFastSameDirectionVelocity() {
+        for (target in 1..3) for (velocity in listOf(.5f, 2f, 4f, 8f)) for (start in listOf(0f, .4f, .9f)) {
+            if (start >= target) continue
+            val base = SettingsPageMotionPolicy.navigationDuration(start, target.toFloat())
+            val duration = SettingsPageMotionPolicy.handoffDuration(base, start, target.toFloat(), velocity)
+            val curve = SettingsPageMotionContinuation(start, target, velocity, duration, 4, navigation = true)
+            repeat(1001) { assertTrue(curve.value(it / 1000f) <= target + .0001f) }
+        }
+    }
+
+    /** 离目标近却甩得快：缩短时长让起点速度等于接手速度（不被夹断），反向/静止保持原时长。 */
+    @Test fun handoffDurationMatchesTheIncomingVelocity() {
+        for (navigation in listOf(false, true)) for (velocity in listOf(3f, 6f, 8f)) {
+            val start = .8f
+            val base = if (navigation) SettingsPageMotionPolicy.navigationDuration(start, 1f)
+            else SettingsPageMotionPolicy.duration(start, 1f)
+            val duration = SettingsPageMotionPolicy.handoffDuration(base, start, 1f, velocity)
+            assertTrue(duration <= base && duration >= SettingsPageMotionPolicy.HANDOFF_MIN_MS)
+            val curve = SettingsPageMotionContinuation(start, 1, velocity, duration, 4, navigation)
+            val dt = .0005f
+            val speed = (curve.value(dt) - curve.value(0f)) / (dt * duration / 1000f)
+            if (duration > SettingsPageMotionPolicy.HANDOFF_MIN_MS) assertEquals(velocity, speed, velocity * .06f)
+            repeat(1001) { assertTrue(curve.value(it / 1000f) <= 1.0001f) }
+        }
+        assertEquals(340L, SettingsPageMotionPolicy.handoffDuration(340L, .8f, 1f, -5f))
+        assertEquals(340L, SettingsPageMotionPolicy.handoffDuration(340L, .8f, 1f, 0f))
+        assertEquals(340L, SettingsPageMotionPolicy.handoffDuration(340L, 0f, 1f, .5f))
+    }
 }

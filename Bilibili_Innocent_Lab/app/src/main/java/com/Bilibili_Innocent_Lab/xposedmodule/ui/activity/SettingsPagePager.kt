@@ -25,7 +25,6 @@ import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
 import com.highcapable.betterandroid.ui.extension.view.child
 import java.util.IdentityHashMap
 import kotlin.math.abs
-import kotlin.math.sign
 
 /** Four retained pages; only intersecting pages render, sharing the Activity's existing skin. */
 internal class SettingsPagePager @JvmOverloads constructor(
@@ -42,6 +41,12 @@ internal class SettingsPagePager @JvmOverloads constructor(
     var onUserInteraction: () -> Unit = {}
     /** After actual page translation/visibility changes, so skin sampling origins follow this frame. */
     var onPositionChanged: () -> Unit = {}
+    /**
+     * 当前这段运动的锚点（本 View 坐标系的 y）：横向拖动接手时取按下位置；底栏/键盘/搜索这类导航为 NaN，
+     * 由调用方决定锚在哪里（底栏在底部）。只在运动开始时更新，供链式联动按"离手指远近"排先后。
+     */
+    var motionAnchorY: Float = Float.NaN
+        private set
     val isSettled: Boolean
         get() = motionLifecycle.isSettled && !gestureOwned && animator == null && abs(position - selectedPage) < .0001f
 
@@ -64,9 +69,6 @@ internal class SettingsPagePager @JvmOverloads constructor(
     private var gestureBlocked = true
     private var gestureOwned = false
     private var blockChildStream = false
-    private var motionPaused = false
-    private var pausedVelocity = 0f
-    private var pausedAt = 0L
     private val pageWidth: Int get() = (width - paddingLeft - paddingRight).coerceAtLeast(0)
     private val rtl: Boolean get() = layoutDirection == LAYOUT_DIRECTION_RTL
     private val isAtRest: Boolean get() = isSettled
@@ -106,7 +108,7 @@ internal class SettingsPagePager @JvmOverloads constructor(
 
     fun selectPage(index: Int, animate: Boolean = true) {
         gestureBlocked = true
-        motionPaused = false
+        motionAnchorY = Float.NaN
         settle(
             SettingsPageMotionPolicy.selected(index, childCount), motion.velocity(SystemClock.uptimeMillis()), animate,
             navigation = true
@@ -130,8 +132,9 @@ internal class SettingsPagePager @JvmOverloads constructor(
         } else {
             if (motionLifecycle.beginMotion()) onMotionStarted()
             if (!motion.owns(token)) return
-            val duration = if (navigation) SettingsPageMotionPolicy.navigationDuration(position, target.toFloat())
+            val base = if (navigation) SettingsPageMotionPolicy.navigationDuration(position, target.toFloat())
             else SettingsPageMotionPolicy.duration(position, target.toFloat())
+            val duration = SettingsPageMotionPolicy.handoffDuration(base, position, target.toFloat(), velocity)
             val continuation = SettingsPageMotionContinuation(position, target, velocity, duration, childCount, navigation)
             motion.reset(position, SystemClock.uptimeMillis())
             val nextAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
@@ -230,13 +233,11 @@ internal class SettingsPagePager @JvmOverloads constructor(
         if (event.pointerCount > 1 || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
             if (!gestureBlocked) {
                 gestureBlocked = true
-                motionPaused = false
-                settle(selectedPage)
+                if (gestureOwned) settle(selectedPage)
             }
         }
         val handled = super.dispatchTouchEvent(event)
         if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
-            resumePausedMotion()
             clearGesture()
         }
         return handled
@@ -253,12 +254,9 @@ internal class SettingsPagePager @JvmOverloads constructor(
             downX >= width - maxOf(edgeFallback, rightGestureInset.toFloat()) ||
             protectedChildAt(this, downX, downY)
         if (gestureBlocked) return
+        // 按下不冻结进行中的动画：竖滑或轻点时动画照常走完，不再"停一下再按零速度重起"。
+        // 只有判定为横向拖动（tryOwnGesture 接手）那一刻，才从动画当前位置把页面交给手指。
         tracker = VelocityTracker.obtain()
-        motionPaused = animator != null
-        pausedVelocity = motion.velocity(SystemClock.uptimeMillis())
-        pausedAt = SystemClock.uptimeMillis()
-        stopMotion()
-        dragStart = position
     }
 
     /** Only inspected on DOWN: no tree walk or coordinate allocations in animation/drag frames. */
@@ -297,24 +295,25 @@ internal class SettingsPagePager @JvmOverloads constructor(
         val pointer = event.findPointerIndex(pointerId)
         if (pointer < 0) {
             gestureBlocked = true
-            resumePausedMotion()
             return
         }
         val dx = event.getX(pointer) - downX
         val dy = event.getY(pointer) - downY
         if (abs(dy) > touchSlop && abs(dy) >= abs(dx)) {
             gestureBlocked = true
-            resumePausedMotion()
         } else if (abs(dx) > touchSlop && abs(dx) > abs(dy) * 1.2f) {
             gestureOwned = true
-            motionPaused = false
+            // 接手：停在动画此刻的位置，以当前手指 x 为零点，接手帧位置连续、不跳。
+            stopMotion()
+            dragStart = position
+            downX = event.getX(pointer)
+            motionAnchorY = downY
             val notifyUser = motionLifecycle.beginUserGesture()
             val notifyMotion = motionLifecycle.beginMotion()
             activePage?.clearFocus()
             updatePageAccessibility()
             if (notifyMotion) onMotionStarted()
             if (notifyUser) onUserInteraction()
-            downX += sign(dx) * touchSlop
             parent?.requestDisallowInterceptTouchEvent(true)
         }
     }
@@ -352,17 +351,8 @@ internal class SettingsPagePager @JvmOverloads constructor(
     override fun performClick(): Boolean = super.performClick()
 
     override fun requestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {
-        if (disallowIntercept && !gestureOwned) {
-            gestureBlocked = true
-            resumePausedMotion()
-        }
+        if (disallowIntercept && !gestureOwned) gestureBlocked = true
         super.requestDisallowInterceptTouchEvent(disallowIntercept)
-    }
-
-    private fun resumePausedMotion() {
-        if (!motionPaused) return
-        motionPaused = false
-        settle(selectedPage, if (SystemClock.uptimeMillis() - pausedAt <= 100L) pausedVelocity else 0f)
     }
 
     private fun clearGesture() {
@@ -372,7 +362,6 @@ internal class SettingsPagePager @JvmOverloads constructor(
         gestureBlocked = true
         gestureOwned = false
         blockChildStream = false
-        motionPaused = false
         motionLifecycle.finishUserGesture()
         if (animator == null && abs(position - selectedPage) < .0001f) motionLifecycle.finishMotion()
         parent?.requestDisallowInterceptTouchEvent(false)

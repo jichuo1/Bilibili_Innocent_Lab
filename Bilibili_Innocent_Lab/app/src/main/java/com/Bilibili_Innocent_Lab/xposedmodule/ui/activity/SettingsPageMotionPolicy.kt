@@ -140,6 +140,21 @@ internal object SettingsPageMotionPolicy {
         else (NAVIGATION_MIN_STEEPNESS + .75f * (abs(distance) - 1f))
             .coerceIn(NAVIGATION_MIN_STEEPNESS, NAVIGATION_MAX_STEEPNESS)
 
+    /**
+     * 接手时的速度衔接：曲线起点速度 = tangent / T，而 tangent 被夹在剩余距离的 [HANDOFF_TANGENT_RATIO] 倍
+     * 以内（再大会越过目标）。离目标很近却甩得很快时，按原时长速度会被夹断、页面像被拽住；此时缩短时长
+     * 让起点速度等于手指/当前速度，最短 [HANDOFF_MIN_MS]。反向或静止起步保持原时长。
+     */
+    fun handoffDuration(base: Long, start: Float, target: Float, velocity: Float): Long {
+        if (!start.isFinite() || !target.isFinite() || !velocity.isFinite()) return base
+        val delta = target - start
+        if (delta == 0f || velocity == 0f || delta * velocity < 0f) return base
+        val matched = (HANDOFF_TANGENT_RATIO * abs(delta) / abs(velocity) * 1000f).roundToLong()
+        return minOf(base, matched).coerceAtLeast(minOf(base, HANDOFF_MIN_MS))
+    }
+
+    const val HANDOFF_TANGENT_RATIO = 2.6f
+    const val HANDOFF_MIN_MS = 120L
     const val NAVIGATION_MIN_MS = 240L
     const val NAVIGATION_MAX_MS = 560L
     const val NAVIGATION_MIN_STEEPNESS = 6f
@@ -176,10 +191,13 @@ internal class SettingsPageMotionContinuation(
         val t2 = t * t
         val t3 = t2 * t
         if (navigation) {
-            // 归一化到 t=1 恰好落在目标；速度项 t(1-t)^2 在两端都不贡献位移，只在起点提供初速度。
+            // 归一化到 t=1 恰好落在目标；速度项 t(1-t)^4 在两端都不贡献位移，只在起点提供初速度。
+            // 用四次而不是 Hermite 的二次：弹簧前段已很快，二次项衰减太慢，同向初速超过剩余距离 0.95 倍
+            // 就会越过目标；四次项在 tangent ≤ 5.7 倍剩余距离内都不过冲（上面的夹紧是 3 倍）。
             val at = steepness * t
             val spring = (1f - (1f + at) * exp(-at)) / springNorm
-            return (from + delta * spring + tangent * (t3 - 2f * t2 + t)).coerceIn(lower, upper)
+            val rest = 1f - t
+            return (from + delta * spring + tangent * t * rest * rest * rest * rest).coerceIn(lower, upper)
         }
         return ((2f * t3 - 3f * t2 + 1f) * from + (t3 - 2f * t2 + t) * tangent +
             (-2f * t3 + 3f * t2) * to).coerceIn(lower, upper)
