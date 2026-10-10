@@ -42,6 +42,8 @@ internal class AgentConversation(private val system: String, private val goal: S
             sanitized = AgentContextBudget.project(sanitized).put("truncated", true)
         }
         val tool = JSONObject().put("role", "tool").put("tool_call_id", call.id).put("content", sanitized.toString())
+        if (sanitized.optJSONObject("data")?.optString("backend") == "accessibility" &&
+            sanitized.optJSONObject("data")?.has("snapshot_id") == true) compactOldUi()
         val note = AgentContextBudget.evidence(call, sanitized)
         val round = Round(assistant, tool, note, sourceFingerprint, assistant.toString().length + tool.toString().length + 2)
         rounds.addLast(round)
@@ -67,6 +69,31 @@ internal class AgentConversation(private val system: String, private val goal: S
     fun clear() { rounds.clear(); evidence.clear(); callIds.clear(); roundChars = 0; evidenceChars = 0 }
 
     private fun removeRound(): Round = rounds.removeFirst().also { roundChars -= it.encodedChars }
+
+    /** 只有最新完整快照可以选动作；历史页面保留简短文字证据，不携带可复用的控件身份。 */
+    private fun compactOldUi() {
+        val revised = rounds.map { round ->
+            val response = runCatching { JSONObject(round.tool.getString("content")) }.getOrNull()
+            val data = response?.optJSONObject("data")
+            if (data?.optString("backend") != "accessibility" || !data.has("snapshot_id")) round else {
+                val nodes = data.optJSONArray("nodes") ?: JSONArray()
+                val labels = (0 until nodes.length()).mapNotNull { nodes.optJSONObject(it) }
+                    .filter { !it.optBoolean("protected") }.map { it.optString("label") }
+                    .filter { it.isNotBlank() }.distinct()
+                val history = JSONObject().put("backend", "accessibility").put("historical", true)
+                    .put("complete", data.optBoolean("complete")).put("visible_labels", JSONArray(labels))
+                    .put("instructions", "历史界面不可用于当前操作；请使用最新快照。")
+                for (key in listOf("action", "observation_after_action", "verification_required", "observation_error", "offset", "total_nodes", "next_offset")) {
+                    if (data.has(key)) history.put(key, data.opt(key))
+                }
+                response.put("data", history)
+                val oldTool = JSONObject(round.tool.toString()).put("content", response.toString())
+                round.copy(tool = oldTool, encodedChars = round.assistant.toString().length + oldTool.toString().length + 2)
+            }
+        }
+        rounds.clear(); revised.forEach(rounds::addLast)
+        roundChars = revised.sumOf { it.encodedChars }
+    }
     private fun removeEvidence() { evidenceChars -= evidence.removeFirst().encodedChars }
 
     private fun archive(note: JSONObject) {

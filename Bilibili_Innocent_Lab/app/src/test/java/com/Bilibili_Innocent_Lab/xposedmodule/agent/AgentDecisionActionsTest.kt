@@ -8,6 +8,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AgentDecisionActionsTest {
+    @Test fun observedPostActionUiRefreshesMenusWithoutAnExtraModelReadRound() {
+        val actions = AgentDecisionActions("搜索")
+        val data = JSONObject().put("backend", "accessibility").put("snapshot_id", "12345678-1234-1234-1234-123456789abc")
+            .put("observation_after_action", true).put("nodes", JSONArray().put(JSONObject().put("node_id", "0.1")
+                .put("label", "新页面按钮").put("clickable", true).put("enabled", true)))
+        actions.record(call("click_ui"), JSONObject().put("ok", true).put("data", data))
+        assertTrue(actions.menu(false).containsKey("finish"))
+        assertTrue(actions.menu(false).values.any { it.first == "click_ui" && it.second.optString("node_id") == "0.1" })
+    }
     @Test fun uiMenusAreBoundedAndCannotFinishBeforeAnActionIsObserved() {
         val actions = AgentDecisionActions("搜索悟空")
         val id = "12345678-1234-1234-1234-123456789abc"

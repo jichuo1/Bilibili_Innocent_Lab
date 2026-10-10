@@ -13,14 +13,16 @@ internal class AgentProgressGuard(private val maximumStagnant: Int = 8) {
     init { require(maximumStagnant in 1..64) }
 
     fun observe(call: AgentModelToolCall, response: JSONObject): Boolean {
-        if (!response.optBoolean("ok") || call.name == "open_video" || call.name in AgentToolCatalog.uiActions) return stagnate()
+        if (!response.optBoolean("ok") || call.name == "open_video" ||
+            call.name in AgentToolCatalog.uiActions && response.optJSONObject("data")?.optBoolean("observation_after_action") != true) return stagnate()
         val data = response.optJSONObject("data") ?: return stagnate()
         val facts = if (call.name == "search_videos") searchFacts(data) ?: return stagnate() else {
             if (data.length() == 0) return stagnate()
             data
         }
         // 不把模型换查询词/游标/请求 ID 当成进展；搜索只比较宿主实际返回的候选内容。
-        val signature = stableDigest(JSONObject().put("operation", call.name).put("facts", facts))
+        val ui = facts.optString("backend") == "accessibility"
+        val signature = stableDigest(JSONObject().put("operation", if (ui) "ui_state" else call.name).put("facts", facts))
         if (evidence.add(signature)) {
             stagnant = 0
             while (evidence.size > MAX_EVIDENCE) evidence.remove(evidence.first())
@@ -55,7 +57,7 @@ internal class AgentProgressGuard(private val maximumStagnant: Int = 8) {
     companion object {
         const val MAX_EVIDENCE = 128
         private val VOLATILE_KEYS = setOf("image_data_url", "capture_elapsed", "observed_at_elapsed", "cache_hit",
-            "snapshot_id", "offset", "next_offset",
+            "snapshot_id", "offset", "next_offset", "action", "observation_after_action", "verification_required",
             "deadline_elapsed", "lease_until", "step", "observations", "sequence", "source_index", "tool_call_id", "progress_digest",
             "decision_review", "decision_review_status", "decision_review_is_unverified", "visual_assessment", "visual_status")
 

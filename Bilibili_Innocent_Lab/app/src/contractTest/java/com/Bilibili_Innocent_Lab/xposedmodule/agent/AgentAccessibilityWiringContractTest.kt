@@ -7,6 +7,23 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AgentAccessibilityWiringContractTest {
+    @Test fun postActionObservationCannotReplayEffectsOrPublishAfterTheAdmissionDeadline() {
+        val service = SourceContract.read("agent/AgentAccessibilityService.kt")
+        val observation = service.after("private fun changed(").before("private fun gesture(")
+        assertTrue(observation.contains("if (result.isDone) return"))
+        val read = observation.indexOf("val data = observe(task)")
+        assertTrue(observation.indexOf("admit()") < read)
+        assertTrue(observation.indexOf("admit()", read) > read)
+        assertTrue(observation.contains("attempt < 3"))
+        assertTrue(observation.contains("observation_error"))
+        assertFalse(observation.contains("performAction"))
+        assertFalse(observation.contains("performGlobalAction"))
+        assertFalse(observation.contains("dispatchGesture"))
+        val update = SourceContract.read("agent/AgentSessionService.kt").after("private val update:").before("private val observer:")
+        assertTrue(update.contains("AgentController.currentTaskId() != task"))
+        assertFalse(update.contains("AgentController.owns")) // 仅显示 stopping；控制接收器仍检查 owns。
+        assertTrue(SourceContract.read("agent/AgentNotificationReceiver.kt").contains("if (!AgentController.owns(task)) return"))
+    }
     @Test fun readingModuleLogsWaitsWithoutReplayingThePreviousUiAction() {
         val controller = SourceContract.read("agent/AgentController.kt")
         val boundary = controller.after("val visibleResponse =").before("private fun leaseUntil(")

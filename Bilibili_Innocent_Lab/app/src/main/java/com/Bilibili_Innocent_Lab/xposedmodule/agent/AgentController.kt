@@ -218,11 +218,13 @@ internal object AgentController {
                 if (task.accessibility && response.optString("error") in setOf("host_not_foreground", "device_locked", "accessibility_not_connected"))
                     throw IllegalStateException(response.optString("error"))
                 if (response.optBoolean("ok")) {
-                    if (call.name in AgentToolCatalog.uiActions || call.name == "open_video") verificationPending = true
+                    if (call.name in AgentToolCatalog.uiActions) verificationPending = response.optJSONObject("data")?.optBoolean("observation_after_action") != true
+                    else if (call.name == "open_video") verificationPending = true
                     else if (call.name in setOf("get_host_state", "get_ui_state", "inspect_screen")) verificationPending = false
                 }
                 check(response.optString("error") !in setOf("task_inactive", "closed_task", "task_budget_exhausted", "host_disconnected")) { "task_inactive" }
-                if (response.optBoolean("ok") && call.name !in AgentToolCatalog.uiActions && call.name != "open_video") observed++
+                if (response.optBoolean("ok") && (call.name !in AgentToolCatalog.uiActions && call.name != "open_video" ||
+                    response.optJSONObject("data")?.optBoolean("observation_after_action") == true)) observed++
                 val data = response.optJSONObject("data")
                 val image = data?.optString("image_data_url").orEmpty()
                 if (image.isNotEmpty()) {

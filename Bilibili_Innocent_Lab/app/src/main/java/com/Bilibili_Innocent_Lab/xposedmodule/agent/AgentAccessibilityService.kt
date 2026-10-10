@@ -149,7 +149,7 @@ class AgentAccessibilityService : AccessibilityService() {
         return ok(JSONObject().put("backend", "accessibility").put("snapshot_id", current.id)
             .put("window_id", tree.window).put("complete", tree.complete).put("nodes", nodes)
             .put("offset", offset).put("total_nodes", sorted.size)
-            .put("next_offset", if (offset + 12 < sorted.size) offset + 12 else JSONObject.NULL)
+            .put("next_offset", if (offset + visible.size < sorted.size) offset + visible.size else JSONObject.NULL)
             .put("coordinate_space", "0..1000 relative to host window").put("window_bounds",
                 JSONArray(listOf(tree.bounds.left, tree.bounds.top, tree.bounds.right, tree.bounds.bottom))))
     }
@@ -189,9 +189,27 @@ class AgentAccessibilityService : AccessibilityService() {
             return action(node)
         } finally { release(node) }
     }
-    private fun changed(): JSONObject {
+    private fun changed(task: String, admit: () -> Unit, result: CompletableFuture<JSONObject>) {
         snapshot = null; visualSnapshot = null
-        return ok(JSONObject().put("action", "dispatched").put("verification_required", true))
+        val dispatched = JSONObject().put("action", "dispatched").put("verification_required", true)
+        fun observeAfter(attempt: Int) {
+            if (result.isDone) return
+            try {
+                admit()
+                val data = observe(task).getJSONObject("data")
+                admit()
+                val verified = data.optBoolean("complete") && data.optJSONArray("nodes")?.length()?.let { it > 0 } == true
+                result.complete(ok(data.put("action", "dispatched").put("observation_after_action", verified)
+                    .put("verification_required", !verified)))
+            } catch (failure: Exception) {
+                val code = reason(failure)
+                if (attempt < 3 && code in setOf("host_not_foreground", "ui_unavailable") && authorized(task))
+                    main.postDelayed({ observeAfter(attempt + 1) }, 150)
+                else result.complete(if (authorized(task)) ok(dispatched.put("observation_error", code)) else error("task_inactive"))
+            }
+        }
+        // 一次动作后追加有界只读观测，不重放动作，也不等待网络内容完全加载。
+        main.postDelayed({ observeAfter(1) }, 180)
     }
     private fun gesture(task: String, tree: Tree, path: Path, duration: Long, admit: () -> Unit, result: CompletableFuture<JSONObject>) {
         val focused = hostRoot()
@@ -201,7 +219,7 @@ class AgentAccessibilityService : AccessibilityService() {
         val accepted = dispatchGesture(GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, duration)).build(),
             object : GestureResultCallback() {
                 override fun onCompleted(gestureDescription: GestureDescription?) {
-                    result.complete(if (authorized(task)) changed() else error("task_inactive"))
+                    if (authorized(task)) changed(task, admit, result) else result.complete(error("task_inactive"))
                 }
                 override fun onCancelled(gestureDescription: GestureDescription?) { result.complete(error("gesture_cancelled")) }
             }, main)
@@ -227,7 +245,7 @@ class AgentAccessibilityService : AccessibilityService() {
                     check(target.clickable && AgentUiPolicy.mayClick(target.label, target.protected)) { "ui_target_not_clickable" }
                     withNode(target, ::admit) { it.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
                 }
-                result.complete(if (applied) changed() else error("ui_action_unavailable"))
+                if (applied) changed(task, ::admit, result) else result.complete(error("ui_action_unavailable"))
             }
             "swipe_ui" -> {
                 val id = args.optString("node_id")
@@ -244,7 +262,7 @@ class AgentAccessibilityService : AccessibilityService() {
                         "left" -> AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT.id
                         else -> AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT.id
                     }
-                    if (target.scrollable && withNode(target, ::admit) { it.performAction(action) }) { result.complete(changed()); return }
+                    if (target.scrollable && withNode(target, ::admit) { it.performAction(action) }) { changed(task, ::admit, result); return }
                 }
                 // 手势仅在完整、无敏感字段的宿主窗口内；不接受屏幕绝对坐标。
                 check(!AgentUiPolicy.sensitiveControl(tree.text)) { "sensitive_action_blocked" }
@@ -275,7 +293,7 @@ class AgentAccessibilityService : AccessibilityService() {
                 val focused = hostRoot()
                 try { check(focused.windowId == tree.window) { "ui_snapshot_stale" } } finally { release(focused) }
                 admit()
-                result.complete(if (performGlobalAction(GLOBAL_ACTION_BACK)) changed() else error("ui_action_unavailable"))
+                if (performGlobalAction(GLOBAL_ACTION_BACK)) changed(task, ::admit, result) else result.complete(error("ui_action_unavailable"))
             }
             "inspect_screen" -> if (Build.VERSION.SDK_INT >= 34) screenshot(task, result, ::admit)
                 else result.complete(error("accessibility_screenshot_requires_android14"))

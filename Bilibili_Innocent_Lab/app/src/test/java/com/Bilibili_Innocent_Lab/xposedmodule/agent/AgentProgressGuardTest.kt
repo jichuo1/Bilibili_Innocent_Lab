@@ -7,6 +7,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AgentProgressGuardTest {
+    @Test fun postActionSnapshotUsesRealUiFactsWithoutInventingProgressFromDispatch() {
+        fun ui(label: String, after: Boolean) = JSONObject().put("ok", true).put("data", JSONObject().put("backend", "accessibility")
+            .put("snapshot_id", "fresh").put("nodes", JSONArray().put(JSONObject().put("label", label)))
+            .apply { if (after) put("action", "dispatched").put("observation_after_action", true).put("verification_required", false) })
+        val guard = AgentProgressGuard(2)
+        assertTrue(guard.observe(call("get_ui_state"), ui("same", false)))
+        assertTrue(guard.observe(call("click_ui"), ui("same", true)))
+        assertFalse(guard.observe(call("get_ui_state"), ui("same", false)))
+        assertTrue(guard.observe(call("swipe_ui"), ui("new", true)))
+    }
     @Test fun newSnapshotIdsOffsetsAndDispatchedClicksCannotFakeUiProgress() {
         val guard = AgentProgressGuard(3)
         fun same(id: String, offset: Int) = JSONObject().put("ok", true).put("data", JSONObject()

@@ -8,6 +8,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AgentConversationTest {
+    @Test fun oldUiNodesAreCompactedWhileTheNewestSnapshotAndCallPairRemain() {
+        val history = AgentConversation("system", "goal")
+        fun response(id: String) = JSONObject().put("ok", true).put("data", JSONObject().put("backend", "accessibility")
+            .put("snapshot_id", id).put("complete", true).put("nodes", JSONArray((0..63).map { index ->
+                JSONObject().put("node_id", "0.$index").put("label", "真实页面文字$id-$index".repeat(4)).put("bounds", JSONArray(listOf(1,2,3,4)))
+            })))
+        history.append(turn(1, "get_ui_state", JSONObject()), response("old"))
+        history.append(turn(2, "get_ui_state", JSONObject()), response("new"))
+        val messages = history.messages()
+        val previous = JSONObject(messages.getJSONObject(3).getString("content")).getJSONObject("data")
+        val newest = JSONObject(messages.getJSONObject(5).getString("content")).getJSONObject("data")
+        assertTrue(previous.getBoolean("historical"))
+        assertFalse(previous.has("snapshot_id")); assertFalse(previous.has("nodes")); assertFalse(previous.has("bounds"))
+        assertEquals(64, previous.getJSONArray("visible_labels").length())
+        assertEquals("真实页面文字old-63".repeat(4), previous.getJSONArray("visible_labels").getString(63))
+        assertEquals("new", newest.getString("snapshot_id")); assertEquals(64, newest.getJSONArray("nodes").length())
+        assertTrue(messages.toString().length < response("old").toString().length + response("new").toString().length)
+    }
     @Test fun currentUiKeepsLaterControlsWithoutImagesAndWithinTheResultBudget() {
         val conversation = AgentConversation("system", "click control")
         val nodes = JSONArray((0 until 64).map { index -> JSONObject().put("node_id", "0.$index")

@@ -47,7 +47,9 @@ internal class AgentDecisionActions(private val goal: String, private val elapse
             verificationPending = false
         }
         if (call.name in AgentToolCatalog.uiActions) {
-            ui = null; visual = null; verificationPending = true
+            visual = null
+            verificationPending = !data.optBoolean("observation_after_action")
+            if (verificationPending) ui = null
         }
         if (call.name == "open_video" || call.name == "search_videos" && data.optString("navigation") == "requested") visual = null
         data.optJSONObject("visual_assessment")?.let { assessment ->
