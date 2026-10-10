@@ -8,6 +8,22 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingValue
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.RestorePolicy
 
 class AgentToolCatalogTest {
+    @Test fun nativeIntegerSlotsAreNormalizedWithoutGuessingIdentityOrMutatingInput() {
+        val original = JSONObject().put("offset", 0)
+        val normalized = AgentToolCatalog.normalizeArguments("get_ui_state", original)
+        assertEquals("0", normalized.getString("offset"))
+        assertTrue(AgentToolCatalog.valid("get_ui_state", normalized, false))
+        assertTrue(original.get("offset") is Number)
+        for (value in listOf(-1, 0.5, 257, 1001, java.math.BigDecimal("1.0000000000000000001"))) assertFalse(AgentToolCatalog.valid("get_ui_state",
+            AgentToolCatalog.normalizeArguments("get_ui_state", JSONObject().put("offset", value)), false))
+        assertFalse(AgentToolCatalog.valid("open_video", AgentToolCatalog.normalizeArguments("open_video",
+            JSONObject().put("video_id", 123)), false))
+        val point = AgentToolCatalog.normalizeArguments("tap_ui", JSONObject().put("snapshot_id", "12345678-1234-1234-1234-123456789abc")
+            .put("x", 500.0).put("y", 499))
+        assertTrue(AgentToolCatalog.valid("tap_ui", point, true))
+        assertFalse(AgentToolCatalog.valid("tap_ui", point, false))
+        assertFalse(AgentToolCatalog.valid("tap_ui", AgentToolCatalog.normalizeArguments("tap_ui", JSONObject(point.toString()).put("x", 0)), true))
+    }
     @Test fun `arbitrary invocation and extra network parameters are not actions`() {
         assertFalse(AgentToolCatalog.valid("invoke", JSONObject().put("class", "java.lang.Runtime"), true))
         assertFalse(AgentToolCatalog.valid("search_videos", JSONObject().put("query", "悟空").put("url", "https://example.org"), false))

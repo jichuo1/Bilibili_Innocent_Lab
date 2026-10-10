@@ -7,6 +7,48 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AgentCooperationTest {
+    private fun nativeCall(name: String, args: JSONObject, id: String = "native_call"): String = JSONObject()
+        .put("choices", JSONArray().put(JSONObject().put("finish_reason", "tool_calls").put("message", JSONObject()
+            .put("role", "assistant").put("content", JSONObject.NULL).put("tool_calls", JSONArray().put(JSONObject()
+                .put("id", id).put("type", "function").put("function", JSONObject().put("name", name).put("arguments", args.toString())))))))
+        .put("usage", JSONObject().put("prompt_tokens", 12).put("completion_tokens", 4)).toString()
+
+    @Test fun nativeNumericReadHasCanonicalHistoryAndNoAdditionalRequest() {
+        val planner = source(1); var requests = 0
+        val cooperation = models(listOf(planner), mapOf(planner.fingerprint to caps(tools = true)), AgentRoutePolicy(setOf(1)),
+            AgentHttpTransport { _, _, _, _ -> requests++; nativeCall("get_ui_state", JSONObject().put("offset", 0)) })
+        val turn = cooperation.next(AgentConversation(AgentToolCatalog.SYSTEM, goal))
+        assertEquals(1, requests)
+        assertEquals("0", turn.toolCalls.single().arguments.getString("offset"))
+        val echo = JSONObject(turn.message.getJSONArray("tool_calls").getJSONObject(0).getJSONObject("function").getString("arguments"))
+        assertEquals("0", echo.getString("offset")); assertEquals(12L, turn.usage!!.inputTokens)
+    }
+    @Test fun invalidNativePlanUsesOnlyPermittedFallbackAndRetainsItsTokenMetrics() {
+        val primary = source(1); val backup = source(2); val requests = mutableListOf<Int>(); val updates = mutableListOf<AgentRequestUpdate>()
+        val transport = AgentHttpTransport { selected, _, _, _ ->
+            requests += selected.index
+            if (selected.index == 1) nativeCall("swipe_ui", JSONObject().put("direction", "up"))
+            else nativeCall("get_host_state", JSONObject(), "backup_read")
+        }
+        val cooperation = AgentCooperation(listOf(primary, backup), mapOf(primary.fingerprint to caps(tools = true), backup.fingerprint to caps(tools = true)),
+            AgentRoutePolicy(setOf(1, 2), fixedIndex = 1, allowFallback = true), goal, false, { 5000 }, { false }, {}, { 10_000L },
+            AgentModelClient(transport), AgentDecisionClient(transport), AgentHealthRegistry(), requestEvent = updates::add)
+        val turn = cooperation.next(AgentConversation(AgentToolCatalog.SYSTEM, goal))
+        assertEquals(listOf(1, 2), requests); assertEquals("get_host_state", turn.toolCalls.single().name)
+        val invalid = updates.single { it.status == AgentRequestStatus.FALLBACK }
+        assertEquals(AgentModelException.Reason.INVALID_RESPONSE, invalid.error)
+        assertEquals(12L, invalid.usage!!.inputTokens)
+    }
+    @Test fun invalidFixedPlanNeverEscapesThroughUnapprovedFallbackOrMissingIdentity() {
+        val primary = source(1); val backup = source(2); val requests = mutableListOf<Int>()
+        val cooperation = models(listOf(primary, backup), mapOf(primary.fingerprint to caps(tools = true), backup.fingerprint to caps(tools = true)),
+            AgentRoutePolicy(setOf(1, 2), fixedIndex = 1, allowFallback = false), AgentHttpTransport { selected, _, _, _ ->
+                requests += selected.index; nativeCall("swipe_ui", JSONObject().put("direction", "up"))
+            })
+        try { cooperation.next(AgentConversation(AgentToolCatalog.SYSTEM, goal)); fail("Invalid plan must not be returned") }
+        catch (error: AgentModelException) { assertEquals(AgentModelException.Reason.INVALID_RESPONSE, error.reason) }
+        assertEquals(listOf(1), requests)
+    }
     @Test fun textOnlyPlannerReceivesOrdinaryDialogAndRealExecutionResults() {
         val planner = source(1)
         val proof = caps().copy(plainPlanning = true, plainState = AgentCapabilityState.SUPPORTED)

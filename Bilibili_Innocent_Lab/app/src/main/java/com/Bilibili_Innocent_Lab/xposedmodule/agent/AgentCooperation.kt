@@ -55,9 +55,12 @@ internal class AgentCooperation(
             }
         }
         decisionPlanned = false
-        try { return request(AgentModelRole.PLANNER, chatRoute) { source, timeout ->
+        try { return request(AgentModelRole.PLANNER, chatRoute,
+            accept = { turn -> turn.toolCalls.isEmpty() || turn.toolCalls.size == 1 &&
+                AgentToolCatalog.valid(turn.toolCalls.single().name, turn.toolCalls.single().arguments, vision) },
+            retainUncertain = false) { source, timeout ->
             plannerFingerprint = source.fingerprint
-            plan(source, conversation, timeout)
+            normalizePlan(plan(source, conversation, timeout))
         } } catch (error: AgentModelException) {
             if (error.reason == AgentModelException.Reason.CANCELLED || !canUseDecisionFallback()) throw error
         } catch (error: IllegalStateException) {
@@ -68,6 +71,14 @@ internal class AgentCooperation(
 
     private fun canUseDecisionFallback(): Boolean = (route.fixedIndex == null || route.allowFallback) &&
         sources.any { it.protocol == AgentSourceProtocol.DECISIONS && caps[it.fingerprint]?.decisions == true }
+
+    private fun normalizePlan(turn: AgentModelTurn): AgentModelTurn {
+        val call = turn.toolCalls.singleOrNull() ?: return turn
+        val normalized = call.copy(arguments = AgentToolCatalog.normalizeArguments(call.name, call.arguments))
+        val message = JSONObject(turn.message.toString())
+        message.getJSONArray("tool_calls").getJSONObject(0).getJSONObject("function").put("arguments", normalized.arguments.toString())
+        return turn.copy(message = message, toolCalls = listOf(normalized))
+    }
 
     private fun plan(source: AgentModelSource, conversation: AgentConversation, timeout: Int): AgentModelTurn {
         var proof = caps[source.fingerprint] ?: throw AgentModelException(AgentModelException.Reason.PLAIN_UNVERIFIED)
@@ -195,7 +206,8 @@ internal class AgentCooperation(
     }
 
     private fun <T : Any> request(role: AgentModelRole, policy: AgentRoutePolicy, preferred: String? = null,
-                                accept: (T) -> Boolean = { true }, block: (AgentModelSource, Int) -> T): T {
+                                accept: (T) -> Boolean = { true }, retainUncertain: Boolean = true,
+                                block: (AgentModelSource, Int) -> T): T {
         val excluded = hashSetOf<String>()
         var failure: AgentModelException? = null
         var uncertain: T? = null
@@ -212,16 +224,20 @@ internal class AgentCooperation(
                     if (cancelled()) throw AgentModelException(AgentModelException.Reason.CANCELLED)
                     val cacheHit = result is Auxiliary && result.cached
                     val usage = when (result) { is AgentModelTurn -> result.usage; is AgentDecisionSelection -> result.usage; is Auxiliary -> result.usage; else -> null }
+                    val accepted = accept(result)
                     if (cacheHit) lease.close()
-                    else lease.succeed(elapsed() - started)
-                    if (accept(result)) {
+                    else if (accepted || retainUncertain) lease.succeed(elapsed() - started)
+                    if (accepted) {
                         emit(AgentRequestUpdate(role, lease.source.index, if (cacheHit) AgentRequestStatus.CACHE_HIT else AgentRequestStatus.SUCCEEDED,
                             (elapsed() - started).coerceAtLeast(0), usage))
                         return result
                     }
-                    emit(AgentRequestUpdate(role, lease.source.index, AgentRequestStatus.FALLBACK, (elapsed() - started).coerceAtLeast(0), usage))
-                    uncertain = result
-                    excluded += lease.source.fingerprint // 质量不足时换“眼睛”，不惩罚提供者健康。
+                    val invalid = if (retainUncertain) null else AgentModelException(AgentModelException.Reason.INVALID_RESPONSE)
+                    emit(AgentRequestUpdate(role, lease.source.index, AgentRequestStatus.FALLBACK, (elapsed() - started).coerceAtLeast(0), usage,
+                        error = invalid?.reason))
+                    if (retainUncertain) uncertain = result // 诚实的视觉不确定性不惩罚健康。
+                    else { failure = invalid; lease.fail(wallClock(), error = invalid) }
+                    excluded += lease.source.fingerprint // 不重试同一无效规划，更不执行其中动作。
                 } catch (error: AgentModelException) {
                     emit(AgentRequestUpdate(role, lease.source.index, AgentRequestStatus.FAILED, (elapsed() - started).coerceAtLeast(0),
                         error = error.reason, httpStatus = error.status))

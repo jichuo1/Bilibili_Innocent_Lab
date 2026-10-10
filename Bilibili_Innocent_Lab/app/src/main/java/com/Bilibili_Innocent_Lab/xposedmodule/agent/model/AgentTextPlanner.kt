@@ -81,16 +81,7 @@ internal class AgentTextPlanner(private val client: AgentModelClient, private va
             if (keys != setOf("action", "arguments")) throw AgentModelException(AgentModelException.Reason.INVALID_RESPONSE)
             val name = value.opt("action") as? String ?: throw AgentModelException(AgentModelException.Reason.INVALID_RESPONSE)
             val args = value.optJSONObject("arguments") ?: throw AgentModelException(AgentModelException.Reason.INVALID_RESPONSE)
-            val normalized = JSONObject(args.toString())
-            // 只对已有边界明确的数值槽做无损整数字符串转换，不猜动作、节点或视频身份。
-            val numbers = when (name) { "get_ui_state" -> setOf("offset"); "tap_ui" -> setOf("x", "y"); else -> emptySet() }
-            numbers.forEach { key ->
-                val number = normalized.opt(key) as? Number ?: return@forEach
-                val numeric = number.toDouble()
-                if (!numeric.isFinite() || numeric % 1.0 != 0.0 || numeric !in 0.0..1000.0)
-                    throw AgentModelException(AgentModelException.Reason.INVALID_RESPONSE)
-                normalized.put(key, numeric.toInt().toString())
-            }
+            val normalized = AgentToolCatalog.normalizeArguments(name, args)
             if (!AgentToolCatalog.valid(name, normalized, vision)) throw AgentModelException(AgentModelException.Reason.INVALID_RESPONSE)
             val call = AgentModelToolCall("text_" + UUID.randomUUID(), name, normalized)
             val calls = JSONArray().put(JSONObject().put("id", call.id).put("type", "function").put("function",
