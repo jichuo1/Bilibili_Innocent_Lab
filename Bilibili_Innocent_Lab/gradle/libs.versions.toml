@@ -19,7 +19,7 @@ material = "1.14.0"
 androidx-constraintlayout = "2.2.2"
 androidx-recyclerview = "1.4.0"
 # All Lumen modules use the same reviewed release source in the composite build.
-lumen-engine = "1.2.4"
+lumen-engine = "1.2.5"
 markwon = "4.6.2"
 junit = "4.13.2"
 androidx-test-junit = "1.3.0"
