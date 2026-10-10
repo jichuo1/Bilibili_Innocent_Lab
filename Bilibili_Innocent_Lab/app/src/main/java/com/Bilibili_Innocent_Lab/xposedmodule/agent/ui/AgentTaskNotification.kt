@@ -33,7 +33,11 @@ internal object AgentTaskNotification {
         fun control(actionName: String, code: Int) = PendingIntent.getBroadcast(context, code,
             Intent(context, AgentNotificationReceiver::class.java).setAction(actionName).setData(Uri.parse("agent-task:$task")),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val tip = AgentStatusText.tip(context, state)
+        val currentTip = AgentStatusText.tip(context, state)
+        val recent = if (state.showRecentOperation && state.lastOperation.isNotBlank()) context.getString(
+            if (state.lastOperationSucceeded == true) R.string.agent_recent_completed else R.string.agent_recent_failed,
+            AgentStatusText.tip(context, state.copy(phase = state.lastOperation))) else null
+        val tip = recent?.let { "$it · $currentTip" } ?: currentTip
         val builder = Notification.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_science)
             .setContentTitle(context.getString(R.string.agent_notification_title)).setContentText(tip)
             .setContentIntent(logs).setOngoing(true).setOnlyAlertOnce(true).setShowWhen(false)
@@ -41,7 +45,7 @@ internal object AgentTaskNotification {
             .setDeleteIntent(control(AgentNotificationReceiver.DISMISS, 2))
             .addAction(Notification.Action.Builder(null, context.getString(R.string.agent_logs_title), logs).build())
             .addAction(Notification.Action.Builder(null, context.getString(R.string.agent_stop), control(AgentNotificationReceiver.STOP, 1)).build())
-        if (Build.VERSION.SDK_INT >= 36) AgentPromotedNotification.configure(builder, manager, tip,
+        if (Build.VERSION.SDK_INT >= 36) AgentPromotedNotification.configure(builder, manager, recent ?: currentTip,
             AgentPreferences.islandAllowed(context) && !AgentNotificationReceiver.dismissed(task))
         return builder.build()
     }

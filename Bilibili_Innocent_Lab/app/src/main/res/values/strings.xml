@@ -1381,4 +1381,6 @@
     <string name="agent_sensitive_blocked">This is a protected operation. Please complete it yourself.</string>
     <string name="agent_ui_stale">The interface changed. Observe it again before acting.</string>
     <string name="agent_waiting_host">Waiting for return to Bilibili</string>
+    <string name="agent_recent_completed">%1$s completed</string>
+    <string name="agent_recent_failed">%1$s unsuccessful</string>
 </resources>

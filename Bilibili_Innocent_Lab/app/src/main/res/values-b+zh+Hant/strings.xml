@@ -1381,4 +1381,6 @@
     <string name="agent_sensitive_blocked">此操作涉及受保護內容，請由您手動處理。</string>
     <string name="agent_ui_stale">介面已變化，需要重新觀察後再操作。</string>
     <string name="agent_waiting_host">等待返回嗶哩嗶哩</string>
+    <string name="agent_recent_completed">%1$s完成</string>
+    <string name="agent_recent_failed">%1$s未成功</string>
 </resources>

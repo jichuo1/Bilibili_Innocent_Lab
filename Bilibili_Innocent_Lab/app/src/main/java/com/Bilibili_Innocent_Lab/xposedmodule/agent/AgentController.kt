@@ -34,7 +34,9 @@ import com.highcapable.kavaref.extension.classOf
 
 internal data class AgentTaskState(val running: Boolean = false, val phase: String = "idle", val step: Long = 0,
                                    val source: Int = 0, val detail: String = "", val observations: Long = 0,
-                                   val maximumSteps: Long = AgentWire.MAX_STEPS.toLong(), val role: AgentModelRole? = null)
+                                   val maximumSteps: Long = AgentWire.MAX_STEPS.toLong(), val role: AgentModelRole? = null,
+                                   val lastOperation: String = "", val lastOperationSucceeded: Boolean? = null,
+                                   val lastOperationStep: Long = 0, val showRecentOperation: Boolean = false)
 
 /** 所有模型请求在模块进程串行执行。状态与对话只在内存，进程回收后不会自动恢复或重放动作。 */
 internal object AgentController {
@@ -47,6 +49,9 @@ internal object AgentController {
         val cancelled = AtomicBoolean()
         val closing = AtomicBoolean()
         val accessibility = AgentAccessibilityService.connected()
+        var lastOperation = ""
+        var lastOperationSucceeded: Boolean? = null
+        var lastOperationStep = 0L
         var future: Future<*>? = null
         fun stopped() = cancelled.get() || Thread.currentThread().isInterrupted || limits.timeExceeded(startedAt, SystemClock.elapsedRealtime()) ||
             !context.prefs().getBoolean(AgentPreferences.ENABLED, false)
@@ -206,6 +211,10 @@ internal object AgentController {
                     role = if (planner?.protocol == com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentSourceProtocol.DECISIONS) AgentModelRole.DECISION else AgentModelRole.PLANNER))
                 renew(task)
                 val response = host(task, call.name, call.arguments)
+                task.lastOperation = call.name
+                task.lastOperationSucceeded = response.optBoolean("ok")
+                task.lastOperationStep = steps
+                publish(task, state, recordLog = false)
                 if (task.accessibility && response.optString("error") in setOf("host_not_foreground", "device_locked", "accessibility_not_connected"))
                     throw IllegalStateException(response.optString("error"))
                 if (response.optBoolean("ok")) {
@@ -322,7 +331,8 @@ internal object AgentController {
     }
 
     private fun publish(task: Task, next: AgentTaskState, recordLog: Boolean = true) { if (active === task && !task.cancelled.get()) {
-        state = next.copy(maximumSteps = task.limits.maximumSteps)
+        state = next.copy(maximumSteps = task.limits.maximumSteps, lastOperation = task.lastOperation,
+            lastOperationSucceeded = task.lastOperationSucceeded, lastOperationStep = task.lastOperationStep)
         if (recordLog) AgentTaskLog.state(task.id, state)
         notifyObservers()
     } }

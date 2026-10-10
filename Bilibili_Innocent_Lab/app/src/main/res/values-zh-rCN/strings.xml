@@ -1381,4 +1381,6 @@
     <string name="agent_sensitive_blocked">此操作涉及受保护内容，请由您手动处理。</string>
     <string name="agent_ui_stale">界面已变化，需要重新观察后再操作。</string>
     <string name="agent_waiting_host">等待返回哔哩哔哩</string>
+    <string name="agent_recent_completed">%1$s完成</string>
+    <string name="agent_recent_failed">%1$s未成功</string>
 </resources>

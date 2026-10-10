@@ -8,6 +8,7 @@ import android.os.Parcel
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.content.pm.ServiceInfo
 import android.app.NotificationManager
 import android.Manifest
@@ -20,21 +21,24 @@ class AgentSessionService : Service() {
     private var ownerTaskId: String? = null
     private var island: AgentIslandOverlay? = null
     private val main = Handler(Looper.getMainLooper())
-    private var lastNotification = ""
-    private val update = Runnable {
+    private val notificationPolicy = AgentNotificationPolicy()
+    private val update: Runnable = Runnable {
         val task = ownerTaskId ?: return@Runnable
         val state = AgentController.state
-        if (!state.running || !AgentController.owns(task) || AgentNotificationReceiver.dismissed(task)) return@Runnable
-        val key = state.phase
-        if (lastNotification != key && (Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)) {
-            lastNotification = key
+        if (!state.running || AgentController.currentTaskId() != task || AgentNotificationReceiver.dismissed(task)) return@Runnable
+        val visible = notificationPolicy.take(SystemClock.elapsedRealtime())
+        if (visible != null && (Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)) {
             runCatching { getSystemService(NotificationManager::class.java).notify(AgentTaskNotification.ID,
-                AgentTaskNotification.create(this, task, state)) }
+                AgentTaskNotification.create(this, task, visible)) }
         }
+        notificationPolicy.delay(SystemClock.elapsedRealtime())?.let { main.postDelayed(update, it) }
     }
     private val observer: (AgentTaskState) -> Unit = {
+        val current = AgentController.currentTaskId()
+        if (ownerTaskId != current) { notificationPolicy.reset(); ownerTaskId = current }
+        val delay = notificationPolicy.offer(it, SystemClock.elapsedRealtime())
         main.removeCallbacks(update)
-        if (!it.running) stopForeground(STOP_FOREGROUND_REMOVE) else main.postDelayed(update, 350)
+        if (!it.running) stopForeground(STOP_FOREGROUND_REMOVE) else delay?.let { wait -> main.postDelayed(update, wait) }
     }
     override fun onCreate() {
         super.onCreate()
@@ -64,6 +68,8 @@ class AgentSessionService : Service() {
 
     override fun onBind(intent: Intent?): IBinder = endpoint
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        main.removeCallbacks(update)
+        notificationPolicy.reset()
         ownerTaskId = AgentController.currentTaskId()
         val task = ownerTaskId
         if (!AgentController.state.running || task == null) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(startId) }
@@ -71,6 +77,7 @@ class AgentSessionService : Service() {
             val notification = AgentTaskNotification.create(this, task, AgentController.state)
             if (Build.VERSION.SDK_INT >= 34) startForeground(AgentTaskNotification.ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
             else startForeground(AgentTaskNotification.ID, notification)
+            notificationPolicy.offer(AgentController.state, SystemClock.elapsedRealtime())?.let { main.postDelayed(update, it) }
         }
         return START_NOT_STICKY
     }
