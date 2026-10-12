@@ -28,6 +28,134 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class HostBackgroundPagesInstrumentedTest {
+    @Test fun commentHeaderContentAndInputShareOneWallpaperInEitherAttachOrder() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val decor = activity.window.decorView as ViewGroup
+                for (childFirst in listOf(false, true)) {
+                    val root = FrameLayout(activity)
+                    val header = View(activity).apply { setBackgroundColor(Color.WHITE) }
+                    val layer = FrameLayout(activity).apply { setBackgroundColor(Color.WHITE) }
+                    val input = View(activity).apply { setBackgroundColor(Color.WHITE) }
+                    val list = RecyclerView(activity).apply { layoutManager = LinearLayoutManager(activity) }
+                    root.addView(header, FrameLayout.LayoutParams(-1, 80))
+                    root.addView(layer, FrameLayout.LayoutParams(-1, 520).apply { topMargin = 80 })
+                    layer.addView(list, FrameLayout.LayoutParams(-1, -1))
+                    root.addView(input, FrameLayout.LayoutParams(-1, 40).apply { topMargin = 600 })
+                    decor.addView(root, ViewGroup.LayoutParams(320, 640))
+                    root.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                    root.layout(0, 0, 320, 640)
+                    val controller = HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.NEBULA), { throw it })
+                    val pages = HostBackgroundPages(controller, HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                    fun draw() {
+                        root.viewTreeObserver.dispatchOnGlobalLayout()
+                        root.viewTreeObserver.dispatchOnPreDraw()
+                    }
+                    if (childFirst) { pages.attach(layer, HostBackgroundPagePolicy.Kind.COMMENT); draw() }
+                    pages.attach(root, HostBackgroundPagePolicy.Kind.COMMENT)
+                    pages.attach(layer, HostBackgroundPagePolicy.Kind.COMMENT)
+                    draw()
+                    assertSame(root, HostBackgroundPages.owner(list))
+                    assertTrue(root.background is HostBackgroundDrawable)
+                    assertNull(header.background)
+                    assertNull(layer.background)
+                    assertNull(input.background)
+                    assertNull(list.background)
+                    assertTrue(pages.scroll(list, 137))
+                    assertEquals(137L, (root.background as HostBackgroundDrawable).scrollOffset)
+                    controller.apply(list, false)
+                    assertNull(list.background)
+                    decor.removeView(root)
+                }
+            }
+        }
+    }
+
+    @Test fun embeddedVideoTabsMoveTheHeaderWithTheirScrollAndInterpolateDuringPaging() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val decor = activity.window.decorView as ViewGroup
+                val context = InstrumentationRegistry.getInstrumentation().context
+                val round = FrameLayout(context).apply { id = TestR.id.round_container }
+                val panel = FrameLayout(context).apply { id = TestR.id.content_container }
+                val header = View(activity).apply { setBackgroundColor(Color.WHITE) }
+                val comment = FrameLayout(activity).apply { setBackgroundColor(Color.WHITE) }
+                val list = RecyclerView(activity).apply { layoutManager = LinearLayoutManager(activity) }
+                val intro = FrameLayout(activity).apply { setBackgroundColor(Color.WHITE); translationX = 320f }
+                val introList = RecyclerView(activity).apply { layoutManager = LinearLayoutManager(activity) }
+                round.addView(panel, FrameLayout.LayoutParams(-1, -1))
+                panel.addView(header, FrameLayout.LayoutParams(-1, 80))
+                panel.addView(comment, FrameLayout.LayoutParams(-1, 560).apply { topMargin = 80 })
+                comment.addView(list, FrameLayout.LayoutParams(-1, -1))
+                panel.addView(intro, FrameLayout.LayoutParams(-1, 560).apply { topMargin = 80 })
+                intro.addView(introList, FrameLayout.LayoutParams(-1, -1))
+                decor.addView(round, ViewGroup.LayoutParams(320, 640))
+                round.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                round.layout(0, 0, 320, 640)
+                val controller = HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.NEBULA), { throw it })
+                val pages = HostBackgroundPages(controller, HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                // 宿主卡片会先绑定列表，随后 Fragment 才注册页面身份。
+                controller.apply(introList, false)
+                assertTrue(introList.background is HostBackgroundDrawable)
+                pages.attach(comment, HostBackgroundPagePolicy.Kind.COMMENT)
+                round.viewTreeObserver.dispatchOnPreDraw()
+                assertTrue(comment.background is HostBackgroundDrawable)
+                pages.attach(intro, HostBackgroundPagePolicy.Kind.PAGE)
+                pages.attach(panel, HostBackgroundPagePolicy.Kind.NATIVE)
+                round.viewTreeObserver.dispatchOnGlobalLayout()
+                round.viewTreeObserver.dispatchOnPreDraw()
+                assertSame(panel, HostBackgroundPages.sharedWallpaperOwner(comment))
+                assertSame(panel, HostBackgroundPages.sharedWallpaperOwner(intro))
+                assertSame(comment, HostBackgroundPages.owner(list))
+                assertNull(round.background)
+                assertNull(header.background)
+                assertNull(comment.background)
+                assertNull(list.background)
+                assertNull(intro.background)
+                assertNull(introList.background)
+                val wallpaper = panel.background as HostBackgroundDrawable
+                assertTrue(pages.scroll(list, 281))
+                assertEquals(281L, wallpaper.scrollOffset)
+                assertFalse("Offscreen introduction must not move the header", pages.scroll(introList, 50))
+                intro.translationX = 0f
+                comment.translationX = 320f
+                round.viewTreeObserver.dispatchOnPreDraw()
+                assertEquals("The header must restore introduction's position", 0L, wallpaper.scrollOffset)
+                assertTrue(pages.scroll(introList, 137))
+                assertEquals(137L, wallpaper.scrollOffset)
+                controller.apply(introList, false)
+                assertNull(intro.background)
+                assertNull(introList.background)
+                intro.translationX = -80f
+                comment.translationX = 240f
+                round.viewTreeObserver.dispatchOnPreDraw()
+                assertEquals("A quarter swipe must interpolate the two scroll positions", 173L, wallpaper.scrollOffset)
+                intro.translationX = -160f
+                comment.translationX = 160f
+                round.viewTreeObserver.dispatchOnPreDraw()
+                assertEquals("Halfway through paging, callback order must not select a tab abruptly", 209L, wallpaper.scrollOffset)
+                intro.translationX = -320f
+                comment.translationX = 0f
+                round.viewTreeObserver.dispatchOnPreDraw()
+                assertEquals("Returning to comments must restore their position", 281L, wallpaper.scrollOffset)
+                controller.apply(list, true)
+                assertTrue(wallpaper.night)
+                assertNull(list.background)
+                comment.visibility = View.GONE
+                assertFalse(pages.scroll(list, 50))
+                comment.visibility = View.VISIBLE
+                round.viewTreeObserver.dispatchOnPreDraw()
+                assertEquals(281L, wallpaper.scrollOffset)
+                // 普通窗口/动态评论弹层不应借用视频前景面板。
+                round.id = View.NO_ID
+                assertNull(HostBackgroundPages.sharedWallpaperOwner(comment))
+                decor.removeView(round)
+            }
+        }
+    }
+
     @Test fun homeFeedsShareTheWindowWallpaperAndKeepTheirOwnScrollPositions() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->

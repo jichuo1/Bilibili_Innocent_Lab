@@ -6,4 +6,6 @@
     <item name="video_area" type="id" />
     <item name="main_top_layout" type="id" />
     <item name="fake_input_layout" type="id" />
+    <item name="content_container" type="id" />
+    <item name="round_container" type="id" />
 </resources>

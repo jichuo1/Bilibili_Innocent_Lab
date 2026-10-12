@@ -41,10 +41,10 @@ internal class HostBackgroundController(private val config: HostBackgroundConfig
         // 动态的凝光卡片在列表后方的兄弟层，壁纸必须位于整页后面。
         val page = HostBackgroundPages.owner(list)
         val pageKind = page?.let { HostBackgroundPages.kind(it) }
-        val feedWindow = page?.let(HostBackgroundPages::nativeFeedOwner)
-        if (feedWindow != null) {
+        val wallpaperOwner = page?.let(HostBackgroundPages::sharedWallpaperOwner)
+        if (wallpaperOwner != null) {
             release(list)
-            apply(feedWindow, night)
+            apply(wallpaperOwner, night)
             return
         }
         if (page != null && page !== list && pageKind != HostBackgroundPagePolicy.Kind.FEED && pageKind != HostBackgroundPagePolicy.Kind.LIVE) {
