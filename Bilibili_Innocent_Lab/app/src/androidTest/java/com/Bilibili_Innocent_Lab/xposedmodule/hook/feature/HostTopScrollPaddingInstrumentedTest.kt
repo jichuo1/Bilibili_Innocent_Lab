@@ -6,6 +6,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top.HostTopListPositio
 import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -17,6 +18,26 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class HostTopScrollPaddingInstrumentedTest {
+    @Test fun horizontalCategoriesAndBannersKeepTheirOwnPadding() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            val list = RecyclerView(instrumentation.targetContext).apply {
+                layoutManager = LinearLayoutManager(context, RecyclerView.HORIZONTAL, false)
+                setPadding(11, 7, 13, 9)
+                clipToPadding = true
+            }
+            repeat(3) { HostTopBarFxController.applyScrollPadding(list, 155, 2.75f) }
+            assertEquals(7, list.paddingTop)
+            assertEquals(11, list.paddingLeft)
+            assertEquals(13, list.paddingRight)
+            assertEquals(9, list.paddingBottom)
+            assertTrue(list.clipToPadding)
+            // 布局管理器尚未设置时也不能先给未知方向的列表追加避让高度。
+            list.layoutManager = null
+            HostTopBarFxController.applyScrollPadding(list, 155, 2.75f)
+            assertEquals(7, list.paddingTop)
+        }
+    }
     private fun layout(view: View) {
         view.measure(View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(1800, View.MeasureSpec.EXACTLY))

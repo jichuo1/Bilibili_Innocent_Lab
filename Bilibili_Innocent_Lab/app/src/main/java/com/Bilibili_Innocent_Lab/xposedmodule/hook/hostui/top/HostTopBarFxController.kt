@@ -552,6 +552,13 @@ internal object HostTopBarFxController {
         // 宿主 RecyclerView 属于另一份 ClassLoader，连同其子类按继承链识别。
         if (view is RecyclerView || generateSequence(view.javaClass as Class<*>) { it.superclass }
                 .any { it.simpleName == "RecyclerView" }) {
+            // 胶囊只占用纵向内容流的顶部；直播分区、轮播和横向海报不能被推到自身高度之外。
+            val vertical = if (view is RecyclerView) view.layoutManager?.canScrollVertically() == true
+            else runCatching {
+                val manager = KavaMemberLookup.inheritedMethodOrNull(view.javaClass, "getLayoutManager")?.invoke(view)
+                manager != null && KavaMemberLookup.inheritedMethodOrNull(manager.javaClass, "canScrollVertically")?.invoke(manager) == true
+            }.getOrDefault(false)
+            if (!vertical) return
             if (view.paddingTop != topPadding) {
                 val wasAtTop = !view.canScrollVertically(-1)
                 view.setPadding(view.paddingLeft, topPadding, view.paddingRight, view.paddingBottom)

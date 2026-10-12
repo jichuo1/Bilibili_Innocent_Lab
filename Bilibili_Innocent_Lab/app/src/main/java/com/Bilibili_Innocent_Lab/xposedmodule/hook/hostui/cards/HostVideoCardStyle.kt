@@ -36,7 +36,9 @@ internal class HostVideoCardStyle(
         val covers: Array<Cover>,
         val info: WeakReference<View>?,
         val spacing: HostVideoCardSpacing,
-        val feedback: Boolean
+        val feedback: Boolean,
+        val livePanel: Boolean,
+        val nativePanels: Array<WeakReference<View>>
     ) : ViewOutlineProvider() {
         var surface: Drawable? = null
         var surfaceRadius = -1f
@@ -73,8 +75,8 @@ internal class HostVideoCardStyle(
     private val resourceKinds = SparseIntArray()
     private val recyclerTypes = HashMap<Class<*>, Boolean>()
     private val rowDecorations = android.graphics.Rect()
-    private val coverNames = setOf("cover_layout", "cover", "video_cover", "iv_cover", "cover_image", "image_cover", "cover_container", "thumbnail", "pic")
-    private val titleNames = setOf("title", "title_layout", "video_title", "tv_title")
+    private val coverNames = setOf("cover_layout", "cover", "video_cover", "iv_cover", "cover_image", "image_cover", "cover_container", "thumbnail", "pic", "ivCover")
+    private val titleNames = setOf("title", "title_layout", "video_title", "tv_title", "tvTitle")
     private val coverOutline = object : ViewOutlineProvider() {
         override fun getOutline(view: View, outline: Outline) {
             outline.setRoundRect(0, 0, view.width, view.height,
@@ -125,6 +127,7 @@ internal class HostVideoCardStyle(
                 if (!state.decorated) continue
                 var changed = state.color != color || root.background !== state.surface ||
                     root.outlineProvider !== state || !root.clipToOutline
+                if (!changed) changed = state.nativePanels.any { it.get()?.background != null }
                 if (!changed) for (cached in state.covers) {
                     val cover = cached.view.get() ?: continue
                     val outline = if (state.integratedCover) ViewOutlineProvider.BOUNDS else coverOutline
@@ -202,6 +205,7 @@ internal class HostVideoCardStyle(
         if (!decorateCards && !homeSpacing.enabled) return
         val state = states[root] ?: return
         if (isInPlayer(root)) return
+        if (state.livePanel && !isInLiveHome(root)) return
         val params = root.layoutParams as? ViewGroup.MarginLayoutParams ?: return
         val span = grid?.spacingSpan(manager, params) ?: -1
         val spacing = state.spacing
@@ -228,8 +232,15 @@ internal class HostVideoCardStyle(
         var hasTitle = false
         var playerContent = false
         var info: WeakReference<View>? = null
+        var liveInfo: View? = null
+        var livePanel = root.javaClass.name == "tv.danmaku.bili.widget.RoundRectFrameLayout"
         fun visit(view: View, depth: Int) {
             if (depth > 10 || depth > 0 && isRecycler(view.javaClass)) return
+            when (resourceName(view)) {
+                "bottomContaner", "title_area" -> liveInfo = view
+                "ivCover", "inline_area" -> livePanel = true
+                "home_head_layout" -> { livePanel = true; liveInfo = view }
+            }
             when (resourceKind(view)) {
                 PLAYER -> { playerContent = true; return }
                 COVER -> if (view is ImageView || view is ViewGroup) {
@@ -243,12 +254,13 @@ internal class HostVideoCardStyle(
         }
         // 占位卡保留整卡裁切、柔影与双列留白，不修改反馈内容的内部布局。
         if (!feedback) visit(root, 0)
-        if (playerContent || !feedback && (!hasTitle || covers.isEmpty())) return null
+        if (playerContent || !feedback && (!hasTitle || covers.isEmpty() && !livePanel)) return null
         val params = root.layoutParams as? ViewGroup.MarginLayoutParams
         val spacing = previousSpacing ?: HostVideoCardSpacing(params?.leftMargin ?: 0,
             params?.topMargin ?: 0, params?.rightMargin ?: 0, params?.bottomMargin ?: 0,
             root.resources.displayMetrics.density)
-        return State(root.childCount, covers.toTypedArray(), info, spacing, feedback)
+        return State(root.childCount, covers.toTypedArray(), info, spacing, feedback, livePanel,
+            (if (livePanel) listOfNotNull(liveInfo) else emptyList()).map { WeakReference(it) }.toTypedArray())
     }
 
     private fun configureInfo(root: ViewGroup, state: State) {
@@ -297,6 +309,7 @@ internal class HostVideoCardStyle(
         val parent = root.parent as? ViewGroup ?: return
         if (!isRecycler(parent.javaClass)) return
         if (isInPlayer(parent)) return
+        if (state.livePanel && !isInLiveHome(root)) return
         val night = nightOverride ?: host.isNight(root.context)
         background?.apply(parent, night)
         watch(parent)
@@ -306,17 +319,17 @@ internal class HostVideoCardStyle(
         for (cached in state.covers) {
             val cover = cached.view.get() ?: continue
             // 不改变 Story 竖屏播放器或全屏媒体容器。
-            if (cover.width <= 0 || cover.height <= 0 || cover.height >= parent.height * 0.7f) continue
+            if (cover.width <= 0 || cover.height <= 0 || !state.livePanel && cover.height >= parent.height * 0.7f) continue
             count++
             single = cover
         }
-        if (count == 0 && !state.feedback) return
+        if (count == 0 && !state.feedback && !state.livePanel) return
         // 贴满卡片顶部的封面由整个卡片统一裁切，底边保持直线，避免圆角切出异色缺口。
-        val integrated = count == 1 && single != null && single.left == 0 && single.top == 0 && single.width == root.width
+        val integrated = count == 1 && single != null && integratedCover(root, single)
         state.integratedCover = integrated
         for (cached in state.covers) {
             val cover = cached.view.get() ?: continue
-            if (cover.width <= 0 || cover.height <= 0 || cover.height >= parent.height * 0.7f) continue
+            if (cover.width <= 0 || cover.height <= 0 || !state.livePanel && cover.height >= parent.height * 0.7f) continue
             val resized = cached.width != cover.width || cached.height != cover.height
             cached.width = cover.width
             cached.height = cover.height
@@ -333,7 +346,7 @@ internal class HostVideoCardStyle(
             if (resized && !replaced) cover.invalidateOutline()
         }
         val density = root.resources.displayMetrics.density
-        val radius = if (integrated && single != null)
+        val radius = if (integrated)
             HostVideoCardStyleSpec.coverRadius(single.width, single.height, radiusDp, density)
             else HostVideoCardStyleSpec.cardRadius(root.width, root.height, radiusDp, density)
         val resized = state.updateGeometry(root.width, root.height, radius)
@@ -351,6 +364,8 @@ internal class HostVideoCardStyle(
             onApplied()
         }
         if (root.background !== state.surface) root.background = state.surface
+        // 信息区保留宿主约束和点击目标，背景由整卡统一承载，换肤后也不会重新出现方形底板。
+        for (panel in state.nativePanels) panel.get()?.let { if (it.background != null) it.background = null }
         val replaced = root.outlineProvider !== state
         if (replaced) root.outlineProvider = state
         // 引擎背景、裁切与平台柔影共用半径。
@@ -385,6 +400,32 @@ internal class HostVideoCardStyle(
         }
         resourceKinds.put(id, kind)
         return kind
+    }
+
+    private fun resourceName(view: View): String = if (view.id == View.NO_ID) "" else
+        runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")
+
+    private fun isInLiveHome(view: View): Boolean {
+        var node: View? = view
+        while (node != null) {
+            if (resourceName(node) == "liveTabContainer") return true
+            node = node.parent as? View
+        }
+        return false
+    }
+
+    private fun integratedCover(root: ViewGroup, cover: View): Boolean {
+        var node = cover
+        var left = cover.left
+        var top = cover.top
+        while (node.parent !== root) {
+            node = node.parent as? View ?: return false
+            left += node.left
+            top += node.top
+        }
+        val tolerance = (2 * root.resources.displayMetrics.density).toInt()
+        return left in 0..tolerance && top in 0..tolerance &&
+            root.width - cover.width in 0..tolerance
     }
 
     /** 播放器结束页采用固定深色背景/浅色标题，不能套用页面卡片的主题表面。 */

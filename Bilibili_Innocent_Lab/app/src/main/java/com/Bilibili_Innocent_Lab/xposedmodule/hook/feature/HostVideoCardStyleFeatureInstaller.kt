@@ -5,6 +5,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardHos
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardStyle
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardStyleSpec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostHomeCardSpacingSpec
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostOgvCardHooks
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundController
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundTheme
@@ -65,6 +66,13 @@ internal class HostVideoCardStyleFeatureInstaller(
             }
         })
         return runCatching {
+            val ogvHooks = if (enabled) HostOgvCardHooks.install(environment, styleHost,
+                HostVideoCardStyleSpec.normalizeRadius(radiusDp)) {
+                if (firstHit.compareAndSet(false, true)) {
+                    environment.reportRuntimeEvidence(id, FeatureRuntimeStage.APPLIED)
+                    environment.logInfo("${id}_applied", "[BIL] 追番/影视卡片表面已生效")
+                }
+            } else 0
             val spacingHooks = if (homeSpacing.enabled) HostHomeCardSpacingHooks.install(environment, style::markHome) else 0
             if (backgroundConfig.enabled) pageHookCount = HostBackgroundPageHooks.install(backgroundEnvironment ?: environment, pages)
             val dividerHooks = if (enabled) HostVideoCardDividerHooks.install(environment, id, style::replacesSeparators) else 0
@@ -114,7 +122,7 @@ internal class HostVideoCardStyleFeatureInstaller(
                 }
             }
             environment.logInfo("${id}_installed", "[BIL] 视频列表美化安装成功（测量前留白=${grid != null}）")
-            FeatureInstallResult.Installed((if (grid != null) 3 else 1) + scrollHooks + dividerHooks + pageHookCount + spacingHooks,
+            FeatureInstallResult.Installed((if (grid != null) 3 else 1) + scrollHooks + dividerHooks + pageHookCount + spacingHooks + ogvHooks,
                 complete = (!(enabled || homeSpacing.enabled) || grid != null) && (!homeSpacing.enabled || spacingHooks > 0))
         }.getOrElse {
             environment.logError("${id}_error", "[BIL] 视频列表美化安装失败: $it")
