@@ -56,7 +56,9 @@ val lumenHostVersions = listOf("agp", "kotlin", "androidx-core-ktx", "androidx-a
             ?: error("Missing host version for Lumen: $name")
     }
 val lumenVersionFingerprint = lumenHostVersions.entries.joinToString("\n") { "${it.key}=${it.value}" }.toByteArray()
-val lumenSourceKey = digest(lumenVersionFingerprint)
+val lumenContinuityPatch = file("gradle/lumen/surface-continuity.patch")
+val lumenPatchBytes = lumenContinuityPatch.readBytes()
+val lumenSourceKey = digest(lumenVersionFingerprint + lumenPatchBytes + "strict-single-hunk-v1".toByteArray())
 val lumenCache = file(".gradle/lumen-source").apply { mkdirs() }
 val lumenDevelopmentSource = providers.gradleProperty("innocentLab.lumenDevelopmentSource").orNull?.let(::file)
 val lumenSource = lumenDevelopmentSource ?: lumenCache.resolve("${lumenRevision.take(12)}-${lumenSourceKey.take(12)}")
@@ -96,6 +98,30 @@ if (lumenDevelopmentSource != null) {
                         }
                     }
                 }
+                // This patch intentionally contains one hunk for one pinned source file. Verify
+                // the complete old fragment rather than let Git silently skip an ignored checkout.
+                val patchLines = lumenPatchBytes.toString(Charsets.UTF_8).trimEnd('\n').lines()
+                val sessionPath = "lumen-engine/src/main/java/com/lumen/coacervation/engine/host/LumenSurfaceSession.kt"
+                check(patchLines.count { it.startsWith("@@ ") } == 1 &&
+                    patchLines[1] == "--- a/$sessionPath" && patchLines[2] == "+++ b/$sessionPath") {
+                    "Unexpected Lumen continuity patch structure."
+                }
+                val hunk = patchLines.dropWhile { !it.startsWith("@@ ") }.drop(1)
+                check(hunk.all { it.startsWith(" ") || it.startsWith("+") || it.startsWith("-") })
+                fun fragment(prefix: String) = hunk.filter { it.startsWith(" ") || it.startsWith(prefix) }
+                    .joinToString("\n", postfix = "\n") { it.drop(1) }
+                val before = fragment("-")
+                val after = fragment("+")
+                val sessionSource = lumenSource.resolve(sessionPath)
+                val sessionText = sessionSource.readText().replace("\r\n", "\n")
+                check(Regex(Regex.escape(before)).findAll(sessionText).count() == 1) {
+                    "Pinned Lumen source does not match the continuity patch."
+                }
+                sessionSource.writeText(sessionText.replace(before, after))
+                val sourceProperties = lumenSource.resolve("gradle.properties")
+                sourceProperties.writeText(sourceProperties.readText().replace(
+                    "lumen.version=$lumenRevision", "lumen.version=$lumenRevision-host.${digest(lumenPatchBytes).take(12)}"
+                ))
                 val sourceCatalog = lumenSource.resolve("gradle/libs.versions.toml")
                 var alignedCatalog = sourceCatalog.readText()
                 for ((name, version) in lumenHostVersions) {

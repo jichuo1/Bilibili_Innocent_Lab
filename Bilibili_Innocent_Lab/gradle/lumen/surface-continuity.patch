@@ -1,0 +1,27 @@
+diff --git a/lumen-engine/src/main/java/com/lumen/coacervation/engine/host/LumenSurfaceSession.kt b/lumen-engine/src/main/java/com/lumen/coacervation/engine/host/LumenSurfaceSession.kt
+--- a/lumen-engine/src/main/java/com/lumen/coacervation/engine/host/LumenSurfaceSession.kt
++++ b/lumen-engine/src/main/java/com/lumen/coacervation/engine/host/LumenSurfaceSession.kt
+@@ -387,7 +387,22 @@ public class LumenSurfaceSession @JvmOverloads constructor(
+         if (closed) return
+         checkMain()
+         entries.firstOrNull { it.id == id }?.let { entry ->
+-            if (entry.config != value) { entry.config = value; entry.rebuild(); entry.install() }
++            if (entry.config == value) return
++            val next = LumenMaterialRecipe.resolve(value, entry.enhancements.material, palette)
++            val tintOnly = entry.appearance.copy(tintOpacity = next.tintOpacity,
++                fallbackTintOpacity = next.fallbackTintOpacity) == next
++            entry.config = value
++            if (tintOnly) {
++                // Legibility animates the tint during scrolling. Keep the sampled frame, lens,
++                // capture geometry and backend state: none of their inputs changed.
++                entry.appearance = next
++                entry.drawable.configure()
++                if (entry.host.get()?.background !== entry.drawable) entry.install()
++                else entry.invalidateFrame()
++            } else {
++                entry.rebuild()
++                entry.install()
++            }
+         }
+     }
+ 

@@ -2,7 +2,7 @@
 
 ## 依赖与边界
 
-catalog 保留 JitPack 的 `com.github.jichuo1.LumenCoacervationEngine:lumen-engine` 和 `lumen-motion`，基线统一固定为上游正式标签 `1.2.6`。Android settings 的复合构建同时替换两个模块，实际 APK 不混入旧 JitPack 类。线性淡出等公共扩展已在 1.2.3 被上游吸收，当前不再应用本地补丁。源码下载校验、工具链对齐与升级方法见 [接入说明](../Bilibili_Innocent_Lab/gradle/lumen/README.md)。此前发布依赖 1.0.0 不包含局部表面与分段组件；没有使用浮动版本、修改包名或发布依赖。
+catalog 保留 JitPack 的 `com.github.jichuo1.LumenCoacervationEngine:lumen-engine` 和 `lumen-motion`，基线统一固定为上游正式标签 `1.2.6`。Android settings 的复合构建同时替换两个模块，实际 APK 不混入旧 JitPack 类。线性淡出等历史公共扩展已在 1.2.3 被上游吸收；当前仅应用纯色罩更新保留采样的表面连续性补丁。源码下载校验、工具链对齐、补丁与升级方法见 [接入说明](../Bilibili_Innocent_Lab/gradle/lumen/README.md)。此前发布依赖 1.0.0 不包含局部表面与分段组件；没有使用浮动版本、修改包名或发布依赖。
 
 这是对宿主原生 RecyclerView/TabLayout 的 LSPosed 局部适配，正文及部分辅助内容仍由宿主 Compose 实现。沿用 `HOST_VIDEO_CARDS` 开关与 `HostChromeTheme` 主题源；不接管 Activity、Window、系统栏配置和播放器。状态栏背后的渐隐表面只属于关注页。现有 `HostBottomBarFxController` 及其历史内嵌材质会话保持不变，没有迁移到底部以外的新会话。
 

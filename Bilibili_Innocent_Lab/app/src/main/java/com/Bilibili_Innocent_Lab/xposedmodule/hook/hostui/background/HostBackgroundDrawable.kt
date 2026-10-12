@@ -39,6 +39,15 @@ internal class HostBackgroundDrawable(
     private var key: HostBackgroundRasterCache.Key? = null
     private var raster: Bitmap? = null
     internal val isRasterReady get() = scene?.isReady ?: (raster != null)
+    /** Scene inputs that can change independently of the feed's own invalidation. */
+    internal val samplingState: Long
+        get() {
+            var state = scrollOffset * 31 + if (night) 1L else 0L
+            state = state * 31 + drawableAlpha
+            state = state * 31 + System.identityHashCode(paint.colorFilter)
+            state = state * 31 + System.identityHashCode(raster)
+            return state * 31 + if (isRasterReady) 1L else 0L
+        }
     private var requestScheduled = false
     private var requestedKey: HostBackgroundRasterCache.Key? = null
     private val cacheRequest = Runnable {
