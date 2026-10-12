@@ -1,4 +1,9 @@
 <resources>
+    <item name="splash_layout" type="id" />
+    <item name="splash_container" type="id" />
+    <item name="head_layout" type="id" />
+    <item name="top_layout" type="id" />
+    <item name="select_list" type="id" />
     <item name="loading" type="id" />
     <item name="tv_left" type="id" />
     <item name="tv_right" type="id" />

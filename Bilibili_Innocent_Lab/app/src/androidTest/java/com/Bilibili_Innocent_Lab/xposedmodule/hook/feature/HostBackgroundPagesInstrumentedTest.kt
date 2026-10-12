@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import android.graphics.Color
 import android.content.res.ColorStateList
 import android.content.res.Configuration
+import android.content.ContextWrapper
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.LayerDrawable
@@ -28,6 +29,55 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class HostBackgroundPagesInstrumentedTest {
+    @Test fun splashAndPinnedSelectionHeaderKeepTheirOccludingSurfaces() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val context = InstrumentationRegistry.getInstrumentation().context
+                val decor = activity.window.decorView as ViewGroup
+                val root = FrameLayout(context)
+                val splash = FrameLayout(context).apply { id = TestR.id.splash_layout; setBackgroundColor(Color.BLACK) }
+                val splashContent = FrameLayout(context).apply { id = TestR.id.splash_container; setBackgroundColor(Color.WHITE) }
+                val selection = FrameLayout(context)
+                val list = RecyclerView(context).apply { id = TestR.id.select_list; layoutManager = LinearLayoutManager(context) }
+                val header = FrameLayout(context).apply { id = TestR.id.head_layout; setBackgroundColor(Color.DKGRAY) }
+                val headerChild = View(context).apply { setBackgroundColor(Color.GRAY) }
+                val title = FrameLayout(context).apply { id = TestR.id.top_layout; setBackgroundColor(Color.DKGRAY) }
+                header.addView(headerChild, FrameLayout.LayoutParams(-1, -1))
+                selection.addView(list, FrameLayout.LayoutParams(-1, -1))
+                selection.addView(header, FrameLayout.LayoutParams(-1, 100))
+                selection.addView(title, FrameLayout.LayoutParams(-1, 40))
+                val plainHeader = View(context).apply { id = TestR.id.head_layout; setBackgroundColor(Color.WHITE) }
+                root.addView(selection, FrameLayout.LayoutParams(-1, -1))
+                root.addView(plainHeader, FrameLayout.LayoutParams(-1, 40))
+                root.addView(splash, FrameLayout.LayoutParams(-1, -1))
+                root.addView(splashContent, FrameLayout.LayoutParams(-1, -1))
+                val overlays = listOf(splash, splashContent, header, headerChild, title)
+                val originals = overlays.map { it.background }
+                decor.addView(root, ViewGroup.LayoutParams(320, 640))
+                root.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                root.layout(0, 0, 320, 640)
+                val controller = HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.NEBULA), { throw it })
+                val pages = HostBackgroundPages(controller, HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE)
+                repeat(2) {
+                    root.viewTreeObserver.dispatchOnGlobalLayout()
+                    root.viewTreeObserver.dispatchOnPreDraw()
+                    overlays.forEachIndexed { index, view ->
+                        assertSame(originals[index], view.background)
+                        assertTrue(HostBackgroundPages.protectedAncestor(view))
+                    }
+                    assertNull(plainHeader.background)
+                    assertNull(list.background)
+                    assertTrue(root.background is HostBackgroundDrawable)
+                    splash.visibility = View.INVISIBLE
+                    header.translationY = -50f
+                }
+                decor.removeView(root)
+            }
+        }
+    }
+
     @Test fun commentHeaderContentAndInputShareOneWallpaperInEitherAttachOrder() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
@@ -76,9 +126,13 @@ class HostBackgroundPagesInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 val decor = activity.window.decorView as ViewGroup
-                val context = InstrumentationRegistry.getInstrumentation().context
+                val testResources = InstrumentationRegistry.getInstrumentation().context.resources
+                val context = object : ContextWrapper(activity) {
+                    override fun getResources() = testResources
+                }
                 val round = FrameLayout(context).apply { id = TestR.id.round_container }
                 val panel = FrameLayout(context).apply { id = TestR.id.content_container }
+                val pager = FrameLayout(context).apply { id = TestR.id.pager }
                 val header = View(activity).apply { setBackgroundColor(Color.WHITE) }
                 val comment = FrameLayout(activity).apply { setBackgroundColor(Color.WHITE) }
                 val list = RecyclerView(activity).apply { layoutManager = LinearLayoutManager(activity) }
@@ -86,9 +140,10 @@ class HostBackgroundPagesInstrumentedTest {
                 val introList = RecyclerView(activity).apply { layoutManager = LinearLayoutManager(activity) }
                 round.addView(panel, FrameLayout.LayoutParams(-1, -1))
                 panel.addView(header, FrameLayout.LayoutParams(-1, 80))
-                panel.addView(comment, FrameLayout.LayoutParams(-1, 560).apply { topMargin = 80 })
+                panel.addView(pager, FrameLayout.LayoutParams(-1, 560).apply { topMargin = 80 })
+                pager.addView(comment, FrameLayout.LayoutParams(-1, -1))
                 comment.addView(list, FrameLayout.LayoutParams(-1, -1))
-                panel.addView(intro, FrameLayout.LayoutParams(-1, 560).apply { topMargin = 80 })
+                pager.addView(intro, FrameLayout.LayoutParams(-1, -1))
                 intro.addView(introList, FrameLayout.LayoutParams(-1, -1))
                 decor.addView(round, ViewGroup.LayoutParams(320, 640))
                 round.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
@@ -115,6 +170,28 @@ class HostBackgroundPagesInstrumentedTest {
                 assertNull(list.background)
                 assertNull(intro.background)
                 assertNull(introList.background)
+                // 楼中楼与标签页是兄弟叠层，宿主保留底层主评论的可见性，弹层必须有独立底板。
+                val overlayHost = FrameLayout(context)
+                val detail = FrameLayout(context).apply { setBackgroundColor(Color.WHITE) }
+                val detailList = RecyclerView(context).apply { layoutManager = LinearLayoutManager(context) }
+                detail.addView(detailList, FrameLayout.LayoutParams(-1, -1))
+                overlayHost.addView(detail, FrameLayout.LayoutParams(-1, -1))
+                panel.addView(overlayHost, FrameLayout.LayoutParams(-1, -1))
+                round.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                round.layout(0, 0, 320, 640)
+                pages.attach(detail, HostBackgroundPagePolicy.Kind.COMMENT)
+                round.viewTreeObserver.dispatchOnGlobalLayout()
+                round.viewTreeObserver.dispatchOnPreDraw()
+                assertNull("Reply overlays must not share the wallpaper behind the main comments", HostBackgroundPages.sharedWallpaperOwner(detail))
+                assertSame(detail, HostBackgroundPages.owner(detailList))
+                assertTrue(detail.background is HostBackgroundDrawable)
+                assertNull(detailList.background)
+                controller.apply(detailList, true)
+                assertTrue(detail.background is HostBackgroundDrawable)
+                assertEquals(View.VISIBLE, comment.visibility)
+                assertEquals(View.VISIBLE, pager.visibility)
+                panel.removeView(overlayHost)
                 val wallpaper = panel.background as HostBackgroundDrawable
                 assertTrue(pages.scroll(list, 281))
                 assertEquals(281L, wallpaper.scrollOffset)

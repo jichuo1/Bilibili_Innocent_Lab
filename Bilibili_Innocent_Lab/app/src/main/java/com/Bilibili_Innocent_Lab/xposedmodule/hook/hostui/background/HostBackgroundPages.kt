@@ -320,6 +320,7 @@ internal class HostBackgroundPages(
     }
 
     private fun clearNeutral(view: View, page: ViewGroup, nativeContainers: Boolean) {
+        if (protected(view)) return
         if (detailBackgrounds[view]?.let { it === view.background } == true) return
         // 侧边中心会随标签切换，把同一容器从 Bg2 改成黑色。媒体页白色顶栏依赖这块黑底。
         if ((view.background as? ColorDrawable)?.color == android.graphics.Color.BLACK && name(view) == "sidecenter_layout") return
@@ -448,22 +449,24 @@ internal class HostBackgroundPages(
         fun sharedWallpaperOwner(page: ViewGroup): ViewGroup? {
             nativeFeedOwner(page)?.let { return it }
             if (kinds[page] != HostBackgroundPagePolicy.Kind.COMMENT && kinds[page] != HostBackgroundPagePolicy.Kind.PAGE) return null
+            var branch: View = page
             var node = page.parent as? View
             while (node != null) {
                 if (node is ViewGroup && kinds.containsKey(node)) {
                     // 视频详情的前景面板包含简介/评论标签；壁纸不能提升到播放器所在的窗口。
                     return node.takeIf {
-                        kinds[it] == HostBackgroundPagePolicy.Kind.NATIVE && name(it) == "content_container" &&
+                        kinds[it] == HostBackgroundPagePolicy.Kind.NATIVE && name(it) == "content_container" && name(branch) == "pager" &&
                             (it.parent as? View)?.let(::name) == "round_container" && page.width > 0 && page.width == it.width
                     }
                 }
+                branch = node
                 node = node.parent as? View
             }
             return null
         }
         fun contains(view: View) = kind(view) != null
         private fun protected(view: View): Boolean = view is ImageView || view is SurfaceView || view is TextureView || view is WebView ||
-            name(view) in protectedNames || view.javaClass.name.contains("Player") || view.javaClass.name.contains("ControlContainer") ||
+            name(view) in protectedNames || selectionChrome(view) || view.javaClass.name.contains("Player") || view.javaClass.name.contains("ControlContainer") ||
             view.javaClass.name.startsWith("com.bilibili.cron.") || view.javaClass.name.startsWith("tv.danmaku.render.")
 
         fun protectedAncestor(view: View): Boolean {
@@ -477,12 +480,18 @@ internal class HostBackgroundPages(
 
         private fun name(view: View) = if (view.id == View.NO_ID) "" else
             runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")
+        // 合集的吸顶信息栏遮住列表，固定标题栏遮住收起中的信息栏；两层都不能当作页面底板清空。
+        private fun selectionChrome(view: View): Boolean {
+            if (name(view) != "head_layout" && name(view) != "top_layout") return false
+            val parent = view.parent as? ViewGroup ?: return false
+            return (0 until parent.childCount).any { name(parent.getChildAt(it)) == "select_list" }
+        }
         private fun videoPanel(view: View): Boolean = name(view) == "content_container" &&
             (view.parent as? View)?.let(::name) == "round_container"
         private val listNames = setOf("recyclerView", "recycler_view", "dy_list", "recycler", "list")
         private val sectionNames = setOf("sticky_container", "sub_sticky_container", "tab_recyclerView", "top_bar", "dy_app_bar", "dy_sticky_group")
         private val chromeNames = setOf("main_top_layout", "nav_top_bar", "top_bar", "mine_top_view", "fake_input_layout", "cmt3_page_title_container")
-        private val protectedNames = setOf("video_container", "video_area", "control_container", "player_wrapper", "video_cover_wrapper",
+        private val protectedNames = setOf("splash_layout", "splash_container", "video_container", "video_area", "control_container", "player_wrapper", "video_cover_wrapper",
             "cover", "cover_layout", "video_cover", "iv_cover", "cover_image", "image_cover", "cover_container", "thumbnail", "pic", "banner", "dy_tab_layout",
             "avatar", "avatar_container", "avatar_layer", "garb_bg", "high_light_view", "login_mask", "login_mask_container", "video_area_float_layer_container",
             "shortcut_video_view", "recycler_top_car", "cover_ground_layout")
