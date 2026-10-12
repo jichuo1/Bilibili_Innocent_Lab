@@ -8,4 +8,7 @@
     <item name="fake_input_layout" type="id" />
     <item name="content_container" type="id" />
     <item name="round_container" type="id" />
+    <item name="tabs_back_board" type="id" />
+    <item name="shadow_dig" type="id" />
+    <item name="pager" type="id" />
 </resources>

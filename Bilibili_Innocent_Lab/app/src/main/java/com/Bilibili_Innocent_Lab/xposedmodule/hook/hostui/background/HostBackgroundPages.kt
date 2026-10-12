@@ -29,6 +29,7 @@ internal class HostBackgroundPages(
     private val onError: (Throwable) -> Unit
 ) {
     private val pages = WeakHashMap<ViewGroup, Page>()
+    private val detailBackgrounds = WeakHashMap<View, Drawable>()
     private val types = HashMap<Class<*>, Boolean>()
     private val materialFills = HashMap<Class<*>, Pair<java.lang.reflect.Method, java.lang.reflect.Method>?>()
     private val visiblePageBounds = Rect()
@@ -138,6 +139,12 @@ internal class HostBackgroundPages(
         private val wallpaperSystemBars = background.requiresNight || window?.context?.javaClass?.name == HostBackgroundPagePolicy.SIDE_CENTER_ACTIVITY
         private var sideCenter: WeakReference<View>? = null
         private var windowBackground = WeakReference<Drawable>(null)
+        private val detailSurfaces = if (kind == HostBackgroundPagePolicy.Kind.NATIVE && videoPanel(root))
+            HostDetailSurfaces(root, detailBackgrounds) else null
+        private var mediaWindow = window?.context?.let { context ->
+            HostBackgroundPagePolicy.mediaDetailActivity(generateSequence(context.javaClass as Class<*>?) { it.superclass }
+                .map { it.name }.toList())
+        } == true
         private val wholePage = kind != HostBackgroundPagePolicy.Kind.FEED && kind != HostBackgroundPagePolicy.Kind.LIVE
         private val nativeContainers = kind == HostBackgroundPagePolicy.Kind.NATIVE || kind == HostBackgroundPagePolicy.Kind.COMMENT
 
@@ -177,6 +184,7 @@ internal class HostBackgroundPages(
                 it.removeOnPreDrawListener(this)
             }
             observer = null
+            detailSurfaces?.detach()
         }
 
         fun dispose() {
@@ -203,9 +211,10 @@ internal class HostBackgroundPages(
                 if (id == "sidecenter_layout") sideCenter = WeakReference(node)
                 if (protected(node)) return
                 if (kind == HostBackgroundPagePolicy.Kind.NATIVE && node !== root && node is ViewGroup &&
-                    id == "content_container" && (node.parent as? View)?.let(::name) == "round_container" && node.width >= root.width * .9f) {
+                    videoPanel(node) && node.width >= root.width * .9f) {
                     // 详情页的媒体层可以占满窗口；内容前景必须拥有自己的底板，不能透到播放器黑底。
                     attach(node, HostBackgroundPagePolicy.Kind.NATIVE)
+                    mediaWindow = true
                     return
                 }
                 if (node is ViewGroup && recycler(node)) {
@@ -241,6 +250,7 @@ internal class HostBackgroundPages(
             containers = nextContainers.distinctBy { it.get() }
             lists = nextLists
             texts = nextTexts
+            detailSurfaces?.discover()
             dirty = false
         }
 
@@ -248,6 +258,8 @@ internal class HostBackgroundPages(
             runCatching {
                 val page = root.get()?.takeIf { it.isShown } ?: return@runCatching
                 if (dirty) discover(page)
+                // 播放窗口只给前景面板铺壁纸，状态栏、播放器及其工具栏保留宿主材质。
+                if (mediaWindow) return@runCatching
                 val night = host.isNight(page.context) || background.requiresNight
                 if (wallpaperSystemBars && kind == HostBackgroundPagePolicy.Kind.NATIVE && page === page.rootView) {
                     // 侧边中心默认使用白色状态栏文字；透明化后按壁纸主题同步对比度，覆盖晚到的 Compose 副作用。
@@ -288,6 +300,7 @@ internal class HostBackgroundPages(
                     if (wallpaperOwner != null && kind != HostBackgroundPagePolicy.Kind.FEED) updateDetailWallpaper(wallpaperOwner)
                     else wallpaperOffset()?.let { background.pageOffset(wallpaperOwner ?: page, it) }
                 }
+                detailSurfaces?.apply(night)
             }.onFailure(onError)
             return true
         }
@@ -307,6 +320,7 @@ internal class HostBackgroundPages(
     }
 
     private fun clearNeutral(view: View, page: ViewGroup, nativeContainers: Boolean) {
+        if (detailBackgrounds[view]?.let { it === view.background } == true) return
         // 侧边中心会随标签切换，把同一容器从 Bg2 改成黑色。媒体页白色顶栏依赖这块黑底。
         if ((view.background as? ColorDrawable)?.color == android.graphics.Color.BLACK && name(view) == "sidecenter_layout") return
         val left = view.paddingLeft
@@ -463,6 +477,8 @@ internal class HostBackgroundPages(
 
         private fun name(view: View) = if (view.id == View.NO_ID) "" else
             runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")
+        private fun videoPanel(view: View): Boolean = name(view) == "content_container" &&
+            (view.parent as? View)?.let(::name) == "round_container"
         private val listNames = setOf("recyclerView", "recycler_view", "dy_list", "recycler", "list")
         private val sectionNames = setOf("sticky_container", "sub_sticky_container", "tab_recyclerView", "top_bar", "dy_app_bar", "dy_sticky_group")
         private val chromeNames = setOf("main_top_layout", "nav_top_bar", "top_bar", "mine_top_view", "fake_input_layout", "cmt3_page_title_container")

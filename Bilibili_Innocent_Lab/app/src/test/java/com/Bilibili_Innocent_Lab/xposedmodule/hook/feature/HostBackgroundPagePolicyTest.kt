@@ -6,6 +6,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HostBackgroundPagePolicyTest {
+    @Test fun mediaDetailsKeepTheirWindowButStillAcceptContentBackgrounds() {
+        val detail = "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity"
+        assertTrue(HostBackgroundPagePolicy.mediaDetailActivity(listOf("host.DetailVariant", detail, "android.app.Activity")))
+        assertTrue(HostBackgroundPagePolicy.nativeActivity(listOf(detail)))
+        assertFalse(HostBackgroundPagePolicy.mediaDetailActivity(listOf("tv.danmaku.bili.ui.main2.MainActivityV2")))
+        assertFalse(HostBackgroundPagePolicy.mediaDetailActivity(listOf("another.app.UnitedBizDetailsActivity")))
+    }
+
     @Test fun pagesAreRecognizedWithoutDependingOnVideoCards() {
         assertEquals(Kind.COMPOSE, HostBackgroundPagePolicy.kind("com.bilibili.ogv.operation2.BangumiHomeFlowFragmentV5"))
         assertEquals(Kind.COMPOSE, HostBackgroundPagePolicy.kind("com.bilibili.ogv.misc.timeline.OgvTimelineFragment"))

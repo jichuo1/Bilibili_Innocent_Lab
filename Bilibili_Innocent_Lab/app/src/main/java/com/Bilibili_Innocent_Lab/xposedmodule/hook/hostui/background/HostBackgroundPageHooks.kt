@@ -112,6 +112,7 @@ internal object HostBackgroundPageHooks {
     private fun installNative(environment: HookEnvironment, pages: HostBackgroundPages): Int {
         val resume = KavaMemberLookup.methodOrNull(Activity::class.java, "onPostResume") ?: return 0
         val activities = HashMap<Class<*>, Boolean>()
+        val mediaDetails = HashMap<Class<*>, Boolean>()
         environment.registrar.exact("host_background.native_page", resume.declaringClass, resume.name, *resume.parameterTypes) {
             after {
                 if (hasThrowable) return@after
@@ -122,10 +123,18 @@ internal object HostBackgroundPageHooks {
                     HostBackgroundPagePolicy.nativeActivity(names, activity.packageName)
                 }
                 if (!supported) return@after
+                val mediaDetail = mediaDetails.getOrPut(activity.javaClass) {
+                    HostBackgroundPagePolicy.mediaDetailActivity(generateSequence(activity.javaClass as Class<*>?) { it.superclass }
+                        .map { it.name }.toList())
+                }
                 val root = activity.window?.decorView as? ViewGroup ?: return@after
                 root.post {
                     if (!root.isAttachedToWindow) return@post
                     val window = activity.window
+                    if (mediaDetail) {
+                        pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE, window)
+                        return@post
+                    }
                     // 非沉浸式旧页面的 Decor 背景会避开不透明系统栏；先让窗口取消这块白色占位。
                     if (HostBackgroundPagePolicy.neutral(window.statusBarColor)) window.statusBarColor = Color.TRANSPARENT
                     if (HostBackgroundPagePolicy.neutral(window.navigationBarColor)) window.navigationBarColor = Color.TRANSPARENT

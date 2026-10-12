@@ -3,7 +3,11 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background
 /** 页面身份独立于卡片内容；空列表、图文动态和 Compose 页面也能接入。 */
 internal object HostBackgroundPagePolicy {
     const val SIDE_CENTER_ACTIVITY = "com.bilibili.videoshortcut.sidecenter.SideCenterActivity"
+    private const val VIDEO_DETAIL_ACTIVITY = "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity"
     enum class Kind { FEED, LIVE, DYNAMIC, COMPOSE, PAGE, NATIVE, COMMENT }
+
+    /** 视频详情仍接入内容面板，系统栏和播放器窗口由宿主负责。 */
+    fun mediaDetailActivity(names: List<String>): Boolean = VIDEO_DETAIL_ACTIVITY in names
 
     fun kind(name: String): Kind? = when {
         name.startsWith("com.bilibili.app.comment") && name.substringAfterLast('.').startsWith("Comment") && name.endsWith("Fragment") -> Kind.COMMENT
