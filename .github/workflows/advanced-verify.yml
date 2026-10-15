@@ -2,7 +2,7 @@ name: Verify Advanced
 
 on:
   push:
-    branches: [Advanced]
+    branches: [codex/bil-ci-performance-validation-20261015-v2]
   workflow_dispatch:
 
 permissions:
@@ -20,7 +20,7 @@ env:
 
 jobs:
   verify:
-    if: github.ref == 'refs/heads/Advanced'
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/codex/bil-ci-performance-validation-20261015-v2' && github.repository == 'jichuo1/Bilibili_Innocent_Lab' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:
@@ -29,7 +29,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: cb0737a2579981591f33e08fe134589e6db40196
+          fetch-depth: 0
+      - name: Verify immutable validation source
+        working-directory: .
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REF" = refs/heads/codex/bil-ci-performance-validation-20261015-v2
+          test "$GITHUB_REPOSITORY" = jichuo1/Bilibili_Innocent_Lab
+          test "$(git rev-parse HEAD)" = cb0737a2579981591f33e08fe134589e6db40196
+          test "$(git rev-parse "$GITHUB_SHA^")" = cb0737a2579981591f33e08fe134589e6db40196
+          {
+            echo '### Read-only Linux candidate validation'
+            echo '- Source commit: `cb0737a2579981591f33e08fe134589e6db40196`'
+            printf -- '- Wrapper commit: `%s`\n' "$GITHUB_SHA"
+            echo '- Full candidate source/workflows checked out; cache writes/signing/publication disabled.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Test complete release tooling without providers
+        working-directory: .
+        run: python3 -B -m unittest discover -s .github/release-templates -p 'test_*.py'
       - uses: actions/setup-java@v6.0.1
         with:
           distribution: temurin
@@ -38,7 +57,7 @@ jobs:
         with:
           cache-provider: basic
           # Only the trusted branch in the owning repository may populate this cache.
-          cache-read-only: ${{ github.repository != 'jichuo1/Bilibili_Innocent_Lab' || github.ref != 'refs/heads/Advanced' }}
+          cache-read-only: true
       - name: Probe exact Android SDK packages
         id: sdk
         working-directory: .
