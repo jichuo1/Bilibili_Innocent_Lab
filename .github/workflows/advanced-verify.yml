@@ -1,97 +1,201 @@
 name: Verify Advanced
-
-on:
-  push:
-    branches: [Advanced]
-  workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
   group: advanced-verify-${{ github.ref }}
   cancel-in-progress: true
-
 env:
   CI_COMPILE_SDK: '37'
-  CI_BUILD_TOOLS: '37.0.0'
-  CI_GRADLE_JVMARGS: '-Xmx6144m -Dfile.encoding=UTF-8'
-  JDK_JAVA_OPTIONS: '-XX:MaxMetaspaceSize=1024m -XX:ReservedCodeCacheSize=512m -XX:+UseCodeCacheFlushing'
-
+  CI_BUILD_TOOLS: 37.0.0
+  CI_GRADLE_JVMARGS: -Xmx6144m -Dfile.encoding=UTF-8
+  JDK_JAVA_OPTIONS: -XX:MaxMetaspaceSize=1024m -XX:ReservedCodeCacheSize=512m -XX:+UseCodeCacheFlushing
 jobs:
-  verify:
-    if: github.ref == 'refs/heads/Advanced'
+  baseline:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'jichuo1/Bilibili_Innocent_Lab' && github.ref
+      == 'refs/heads/codex/ci-reporting-validation-20261016' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:
       run:
         working-directory: Bilibili_Innocent_Lab
     steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          ref: ${{ github.sha }}
-      - name: Validate CI tooling
-        working-directory: .
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p Bilibili_Innocent_Lab/build/reports/tooling
-          python3 -m unittest discover -s .github/release-templates -p 'test_*.py' 2>&1 | tee Bilibili_Innocent_Lab/build/reports/tooling/unittest.log
-      - uses: actions/setup-java@v6.0.1
-        with:
-          distribution: temurin
-          java-version: '17'
-      - name: Set up Gradle and restore build cache
-        id: gradle-cache
-        uses: ./.github/actions/gradle-cache
-      - name: Probe exact Android SDK packages
-        id: sdk
-        working-directory: .
-        run: python3 .github/release-templates/android_sdk_probe.py --build-tools "$CI_BUILD_TOOLS" --platform android-37.0 --github-output "$GITHUB_OUTPUT" --github-env "$GITHUB_ENV"
-      - uses: android-actions/setup-android@v4.0.4
-        if: steps.sdk.outputs.ready != 'true'
-        with:
-          packages: platform-tools
-      - name: Install Android SDK
-        if: steps.sdk.outputs.ready != 'true'
-        run: sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0'
-      - name: Require exact Android SDK packages
-        working-directory: .
-        run: python3 .github/release-templates/android_sdk_probe.py --build-tools "$CI_BUILD_TOOLS" --platform android-37.0 --require-ready --github-env "$GITHUB_ENV"
-      - name: Build, test, lint and validate release minification
-        id: build
-        working-directory: .
-        run: python3 .github/release-templates/run_gradle_gates.py --project-root Bilibili_Innocent_Lab --compile-sdk "$CI_COMPILE_SDK" --jvmargs="$CI_GRADLE_JVMARGS"
-      - name: Collect complete verification evidence
-        id: reports
-        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
-        working-directory: .
-        env:
-          BUILD_OUTCOME: ${{ steps.build.outcome }}
-        run: python3 .github/release-templates/collect_verification_reports.py --build-outcome "$BUILD_OUTCOME"
+    - uses: actions/checkout@v7.0.1
+      with:
+        ref: 0d5af384218055baf5cbf946ca8334cb09d6536f
+        fetch-depth: 0
+    - name: Verify immutable comparison source
+      working-directory: .
+      run: 'set -euo pipefail
 
-      - name: Upload test and lint reports
-        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: advanced-verification-${{ github.sha }}-${{ github.run_attempt }}
-          path: Bilibili_Innocent_Lab/build/verification-reports/
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 6
+        test "$(git rev-parse HEAD)" = 0d5af384218055baf5cbf946ca8334cb09d6536f
 
-      - name: Save verified Gradle snapshot
-        if: ${{ success() && github.repository == 'jichuo1/Bilibili_Innocent_Lab' && github.ref == 'refs/heads/Advanced' && steps.build.outcome == 'success' && steps.reports.outcome == 'success' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ steps.gradle-cache.outputs.key }}
-      - name: Upload debug APK
-        if: ${{ success() }}
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: advanced-debug-${{ github.sha }}
-          retention-days: 14
-          path: Bilibili_Innocent_Lab/app/build/outputs/apk/debug/app-debug.apk
+        test "$(git rev-parse "$GITHUB_SHA^")" = 0d5af384218055baf5cbf946ca8334cb09d6536f
+
+        '
+    - name: Validate CI tooling
+      working-directory: .
+      shell: bash
+      run: 'set -euo pipefail
+
+        mkdir -p Bilibili_Innocent_Lab/build/reports/tooling
+
+        python3 -m unittest discover -s .github/release-templates -p ''test_*.py'' 2>&1 | tee Bilibili_Innocent_Lab/build/reports/tooling/unittest.log
+
+        '
+    - uses: actions/setup-java@v6.0.1
+      with:
+        distribution: temurin
+        java-version: '17'
+    - name: Set up Gradle and restore build cache
+      id: gradle-cache
+      uses: gradle/actions/setup-gradle@v6.4.0
+      with:
+        cache-provider: basic
+        cache-read-only: true
+    - name: Probe exact Android SDK packages
+      id: sdk
+      working-directory: .
+      run: python3 .github/release-templates/android_sdk_probe.py --build-tools "$CI_BUILD_TOOLS" --platform android-37.0
+        --github-output "$GITHUB_OUTPUT" --github-env "$GITHUB_ENV"
+    - uses: android-actions/setup-android@v4.0.4
+      if: steps.sdk.outputs.ready != 'true'
+      with:
+        packages: platform-tools
+    - name: Install Android SDK
+      if: steps.sdk.outputs.ready != 'true'
+      run: sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0'
+    - name: Require exact Android SDK packages
+      working-directory: .
+      run: python3 .github/release-templates/android_sdk_probe.py --build-tools "$CI_BUILD_TOOLS" --platform android-37.0
+        --require-ready --github-env "$GITHUB_ENV"
+    - name: Build, test, lint and validate release minification
+      id: build
+      working-directory: .
+      run: python3 .github/release-templates/run_gradle_gates.py --project-root Bilibili_Innocent_Lab --compile-sdk "$CI_COMPILE_SDK"
+        --jvmargs="$CI_GRADLE_JVMARGS"
+    - name: Collect complete verification evidence
+      id: reports
+      if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
+      working-directory: .
+      env:
+        BUILD_OUTCOME: ${{ steps.build.outcome }}
+      run: GITHUB_SHA=0d5af384218055baf5cbf946ca8334cb09d6536f python3 .github/release-templates/collect_verification_reports.py
+        --build-outcome "$BUILD_OUTCOME"
+    - name: Upload test and lint reports
+      if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
+      uses: actions/upload-artifact@v7.0.2
+      with:
+        name: advanced-verification-${{ github.sha }}-${{ github.run_attempt }}-${{ github.job }}
+        path: Bilibili_Innocent_Lab/build/verification-reports/
+        if-no-files-found: error
+        retention-days: 14
+        compression-level: 6
+    - name: Upload debug APK
+      if: ${{ success() }}
+      uses: actions/upload-artifact@v7.0.2
+      with:
+        name: advanced-debug-${{ github.sha }}-${{ github.job }}
+        retention-days: 14
+        path: Bilibili_Innocent_Lab/app/build/outputs/apk/debug/app-debug.apk
+    name: Old basic cache after build-script change
+  candidate:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'jichuo1/Bilibili_Innocent_Lab' && github.ref
+      == 'refs/heads/codex/ci-reporting-validation-20261016' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: Bilibili_Innocent_Lab
+    steps:
+    - uses: actions/checkout@v7.0.1
+      with:
+        ref: 0d5af384218055baf5cbf946ca8334cb09d6536f
+        fetch-depth: 0
+    - name: Verify immutable comparison source
+      working-directory: .
+      run: 'set -euo pipefail
+
+        test "$(git rev-parse HEAD)" = 0d5af384218055baf5cbf946ca8334cb09d6536f
+
+        test "$(git rev-parse "$GITHUB_SHA^")" = 0d5af384218055baf5cbf946ca8334cb09d6536f
+
+        '
+    - name: Validate CI tooling
+      working-directory: .
+      shell: bash
+      run: 'set -euo pipefail
+
+        mkdir -p Bilibili_Innocent_Lab/build/reports/tooling
+
+        python3 -m unittest discover -s .github/release-templates -p ''test_*.py'' 2>&1 | tee Bilibili_Innocent_Lab/build/reports/tooling/unittest.log
+
+        '
+    - uses: actions/setup-java@v6.0.1
+      with:
+        distribution: temurin
+        java-version: '17'
+    - name: Set up Gradle and restore build cache
+      id: gradle-cache
+      uses: ./.github/actions/gradle-cache
+    - name: Probe exact Android SDK packages
+      id: sdk
+      working-directory: .
+      run: python3 .github/release-templates/android_sdk_probe.py --build-tools "$CI_BUILD_TOOLS" --platform android-37.0
+        --github-output "$GITHUB_OUTPUT" --github-env "$GITHUB_ENV"
+    - uses: android-actions/setup-android@v4.0.4
+      if: steps.sdk.outputs.ready != 'true'
+      with:
+        packages: platform-tools
+    - name: Install Android SDK
+      if: steps.sdk.outputs.ready != 'true'
+      run: sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0'
+    - name: Require exact Android SDK packages
+      working-directory: .
+      run: python3 .github/release-templates/android_sdk_probe.py --build-tools "$CI_BUILD_TOOLS" --platform android-37.0
+        --require-ready --github-env "$GITHUB_ENV"
+    - name: Build, test, lint and validate release minification
+      id: build
+      working-directory: .
+      run: python3 .github/release-templates/run_gradle_gates.py --project-root Bilibili_Innocent_Lab --compile-sdk "$CI_COMPILE_SDK"
+        --jvmargs="$CI_GRADLE_JVMARGS"
+    - name: Collect complete verification evidence
+      id: reports
+      if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
+      working-directory: .
+      env:
+        BUILD_OUTCOME: ${{ steps.build.outcome }}
+      run: GITHUB_SHA=0d5af384218055baf5cbf946ca8334cb09d6536f python3 .github/release-templates/collect_verification_reports.py
+        --build-outcome "$BUILD_OUTCOME"
+    - name: Upload test and lint reports
+      if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
+      uses: actions/upload-artifact@v7.0.2
+      with:
+        name: advanced-verification-${{ github.sha }}-${{ github.run_attempt }}-${{ github.job }}
+        path: Bilibili_Innocent_Lab/build/verification-reports/
+        if-no-files-found: error
+        retention-days: 14
+        compression-level: 6
+    - name: Save verified Gradle snapshot
+      if: ${{ success() && github.repository == 'jichuo1/Bilibili_Innocent_Lab' && github.ref == 'refs/heads/codex/ci-reporting-validation-20261016'
+        && steps.build.outcome == 'success' && steps.reports.outcome == 'success' }}
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: '~/.gradle/caches
+
+          ~/.gradle/wrapper
+
+          '
+        key: ${{ steps.gradle-cache.outputs.key }}
+    - name: Upload debug APK
+      if: ${{ success() }}
+      uses: actions/upload-artifact@v7.0.2
+      with:
+        name: advanced-debug-${{ github.sha }}-${{ github.job }}
+        retention-days: 14
+        path: Bilibili_Innocent_Lab/app/build/outputs/apk/debug/app-debug.apk
+    name: Compatible snapshot after build-script change
+'on':
+  push:
+    branches:
+    - Advanced
+  workflow_dispatch: null
