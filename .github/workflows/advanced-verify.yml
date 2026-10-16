@@ -20,7 +20,7 @@ env:
 
 jobs:
   verify:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'jichuo1/Bilibili_Innocent_Lab' && github.ref == 'refs/heads/codex/ci-reporting-validation-20261016' }}
+    if: github.ref == 'refs/heads/Advanced'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:
@@ -29,15 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          ref: a2d68c61279d5e3c2d465ad2cc43af177cd257d0
-          fetch-depth: 0
-      - name: Verify immutable validation source
-        working-directory: .
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = a2d68c61279d5e3c2d465ad2cc43af177cd257d0
-          test "$(git rev-parse "$GITHUB_SHA^")" = a2d68c61279d5e3c2d465ad2cc43af177cd257d0
-          echo 'Validated immutable candidate a2d68c61279d5e3c2d465ad2cc43af177cd257d0' >> "$GITHUB_STEP_SUMMARY"
+          ref: ${{ github.sha }}
       - name: Validate CI tooling
         working-directory: .
         shell: bash
@@ -76,7 +68,7 @@ jobs:
         working-directory: .
         env:
           BUILD_OUTCOME: ${{ steps.build.outcome }}
-        run: GITHUB_SHA=a2d68c61279d5e3c2d465ad2cc43af177cd257d0 python3 .github/release-templates/collect_verification_reports.py --build-outcome "$BUILD_OUTCOME"
+        run: python3 .github/release-templates/collect_verification_reports.py --build-outcome "$BUILD_OUTCOME"
 
       - name: Upload test and lint reports
         if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
@@ -89,7 +81,7 @@ jobs:
           compression-level: 6
 
       - name: Save verified Gradle snapshot
-        if: ${{ success() && github.repository == 'jichuo1/Bilibili_Innocent_Lab' && github.ref == 'refs/heads/codex/ci-reporting-validation-20261016' && steps.build.outcome == 'success' && steps.reports.outcome == 'success' }}
+        if: ${{ success() && github.repository == 'jichuo1/Bilibili_Innocent_Lab' && github.ref == 'refs/heads/Advanced' && steps.build.outcome == 'success' && steps.reports.outcome == 'success' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |

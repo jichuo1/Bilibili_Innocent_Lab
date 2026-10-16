@@ -415,3 +415,5 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.espresso.core)
 }
+
+// CI cache compatibility probe: comment-only build-script change.
