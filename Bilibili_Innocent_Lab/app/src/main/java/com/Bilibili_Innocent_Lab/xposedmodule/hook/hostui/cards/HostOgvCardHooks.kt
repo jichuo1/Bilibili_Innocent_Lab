@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
@@ -19,9 +20,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal object HostOgvCardHooks {
     private val playerNames = setOf("video_container", "video_area", "control_container", "story_fragment_root")
     fun install(environment: HookEnvironment, host: HostVideoCardHostAccess, radiusDp: Int, material: HostCardMaterial = HostCardMaterial.ORIGINAL,
+        cachedPoints: Map<String, HookPoint> = emptyMap(),
         onApplied: () -> Unit): HostCardHookCoverage = runCatching {
         val loader = environment.classLoader ?: return@runCatching HostCardHookCoverage.NONE
-        val resolution = HostOgvCardAdapter.resolve(loader)
+        val resolution = HostOgvCardAdapter.resolve(loader, cachedPoints)
         val missing = resolution.families.filter { it.applicable }.associate { it.id to it.reason }
         fun unavailable() = HostCardHookCoverage(0, resolution.expected, 0, missing)
         val access = CommentComposeViewAccess.resolve(loader) ?: return@runCatching unavailable()
@@ -87,7 +89,7 @@ internal object HostOgvCardHooks {
         HostCardHookCoverage(count, resolution.expected, ready, states)
     }.getOrElse {
         environment.logError("host_video_cards_ogv_error", "[BIL] 追番/影视卡片接入失败: $it")
-        val expected = environment.classLoader?.let { HostOgvCardAdapter.resolve(it).expected } ?: 0
+        val expected = environment.classLoader?.let { HostOgvCardAdapter.resolve(it, cachedPoints).expected } ?: 0
         HostCardHookCoverage(0, expected, 0, mapOf("ogv" to "initialization-failed"))
     }
 

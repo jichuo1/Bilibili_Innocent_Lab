@@ -16,8 +16,8 @@ import java.lang.reflect.WildcardType
 internal object SearchHomeRecommendLocator {
     const val SQUARE = "com.bilibili.search2.api.SearchSquareType"
     const val GUESS = "com.bilibili.search2.api.SearchReferral\$Guess"
-    private const val DISCOVER = "com.bilibili.search2.discover."
-    private const val STATE = "com.bilibili.search2.main.data."
+    const val DISCOVER = "com.bilibili.search2.discover."
+    const val STATE = "com.bilibili.search2.main.data."
 
     /** 一级候选：宿主 discover 包的稳定短名（R8 混淆池 a-z + 未混淆的 ViewModel 名）。 */
     private val ROOT_NAMES: List<String> =
@@ -46,7 +46,7 @@ internal object SearchHomeRecommendLocator {
         /** 投递候选数，仅用于区分「宿主没有该结构」与「候选歧义」，不参与功能判定。 */
         val deliveryCandidateCount: Int = 0)
 
-    fun locate(loader: ClassLoader): Points? = runCatching {
+    fun locate(loader: ClassLoader, cached: PageBoundaryPoints? = null): Points? = runCatching {
         val square = Lookup.classOrNull(loader, SQUARE) ?: return null
         val type = Lookup.methodOrNull(square, "getType")
             ?.takeIf { !it.isStatic && it.returnType == classOf<String>() } ?: return null
@@ -69,11 +69,14 @@ internal object SearchHomeRecommendLocator {
         val declared = roots.flatMap { root ->
             runCatching { root.declaredClasses.toList() }.getOrDefault(emptyList())
         }
-        val callbacks = (roots + enumerated + declared).distinct()
+        val cachedDelivery = cached?.searchDelivery?.takeIf { it.startsWith(DISCOVER) }
+            ?.let { Lookup.classOrNull(loader, it) }
+        val callbacks = (roots + enumerated + declared + listOfNotNull(cachedDelivery)).distinct()
             .filter { !it.isInterface && !it.isAbstract }
             .mapNotNull(::delivery)
 
-        val states = ('a'..'z').mapNotNull { Lookup.classOrNull(loader, STATE + it) }
+        val states = (('a'..'z').mapNotNull { Lookup.classOrNull(loader, STATE + it) } +
+            listOfNotNull(cached?.searchState?.takeIf { it.startsWith(STATE) }?.let { Lookup.classOrNull(loader, it) })).distinct()
             .filter { !it.isInterface && !it.isAbstract }.mapNotNull(::state)
         Points(square, type, callbacks.singleOrNull(), states.singleOrNull(),
             Lookup.classOrNull(loader, "com.bilibili.search2.main.MainSearchViewModel") != null,

@@ -14,24 +14,31 @@ class PlayViewUniteReply(private var configuration: PlayArcConf = PlayArcConf.ge
     }
 }
 class PlayViewUniteReq(
-    private val vod: VideoVod = VideoVod(CodeType.CODE_UNKNOWN, 16)
+    private val vod: VideoVod = VideoVod(CodeType.CODE_UNKNOWN, 16),
+    val unrelated: String = "keep"
 ) {
     fun getVod() = vod
+    fun toByteArray(): ByteArray = "${vod.getPreferCodecType().name}|${vod.getFnval()}|$unrelated".toByteArray()
 
     companion object {
+        @JvmStatic fun parseFrom(bytes: ByteArray): PlayViewUniteReq {
+            val parts = String(bytes).split('|', limit = 3)
+            return PlayViewUniteReq(VideoVod(CodeType.valueOf(parts[0]), parts[1].toInt()), parts[2])
+        }
         @JvmStatic
         fun newBuilder(source: PlayViewUniteReq) = Builder(source)
     }
 
     class Builder(source: PlayViewUniteReq) {
         private var vod = source.vod
+        private val unrelated = source.unrelated
 
         fun setVod(value: VideoVod): Builder {
             vod = value
             return this
         }
 
-        fun build() = PlayViewUniteReq(vod)
+        fun build() = PlayViewUniteReq(vod, unrelated)
     }
 }
 @Suppress("UNUSED_PARAMETER")

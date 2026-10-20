@@ -6,13 +6,15 @@ import android.graphics.RectF
 import android.content.Context
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostCardHookCoverage
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 
 /** 仅接入已确认的分隔线绘制入口；不删除 ItemDecoration，不改变布局偏移或卡片阴影。 */
 internal object HostVideoCardDividerHooks {
-    fun install(environment: HookEnvironment, id: String, replacesSeparators: (ViewGroup) -> Boolean): HostCardHookCoverage {
+    fun install(environment: HookEnvironment, id: String, replacesSeparators: (ViewGroup) -> Boolean,
+        cached: HookPoint? = null): HostCardHookCoverage {
         val loader = environment.classLoader ?: return HostCardHookCoverage.NONE
         fun type(name: String) = KavaMemberLookup.classOrNull(loader, name)
         val recycler = type("androidx.recyclerview.widget.RecyclerView")
@@ -55,14 +57,11 @@ internal object HostVideoCardDividerHooks {
         }
         // 两版完整 raw 和 PegasusFragment 的实际 addItemDecoration 调用均指向单列底线层。
         // 不碰同类 onDraw 的双列阴影，也不以 widget.c 的空 onDrawOver 冒充恢复。
-        val pegasusPoints = listOf("com.bilibili.pegasus.widget.j", "com.bilibili.pegasus.widget.l")
-            .mapNotNull(::type).mapNotNull {
-                pegasus(it, decoration, Canvas::class.java, recycler, state,
-                    Context::class.java, Paint::class.java, RectF::class.java)
-            }
-        if (type("com.bilibili.pegasus.PegasusFragment") != null || pegasusPoints.isNotEmpty()) {
-            register("pegasus", pegasusPoints.singleOrNull())
+        val pegasusPoint = pegasusBoundary(loader, cached)
+        if (type("com.bilibili.pegasus.PegasusFragment") != null || pegasusPoint != null) {
+            register("pegasus", pegasusPoint)
         }
+
         for ((key, className, method) in targets) {
             val owner = type(className) ?: continue
             if (!decoration.isAssignableFrom(owner)) continue
@@ -72,10 +71,36 @@ internal object HostVideoCardDividerHooks {
         return HostCardHookCoverage(installed, expected, ready, states)
     }
 
+    internal fun pegasusBoundary(loader: ClassLoader, cached: HookPoint?): Method? {
+        val direct = listOf("com.bilibili.pegasus.widget.j", "com.bilibili.pegasus.widget.l")
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }.flatMap { owner ->
+                KavaMemberLookup.declaredMethods(owner, true) { verifiedPegasus(loader, it) }
+            }
+        val stored = cached?.takeIf { it.viewField == null }?.let { point ->
+            KavaMemberLookup.classOrNull(loader, point.className)?.let { owner ->
+                KavaMemberLookup.declaredMethods(owner, true) { it.name == point.methodName &&
+                    it.parameterTypes.map(Class<*>::getName) == point.paramClassNames && verifiedPegasus(loader, it) }.singleOrNull()
+            }
+        }
+        return (direct + listOfNotNull(stored)).distinct().singleOrNull()
+    }
+
+    internal fun verifiedPegasus(loader: ClassLoader, method: Method): Boolean {
+        if (method.name != "onDrawOver" || !method.declaringClass.name.startsWith("com.bilibili.pegasus.widget.")) return false
+        val decoration = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView\$ItemDecoration") ?: return false
+        val recycler = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView") ?: return false
+        val state = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView\$State") ?: return false
+        return pegasus(method.declaringClass, decoration, Canvas::class.java, recycler, state,
+            Context::class.java, Paint::class.java, RectF::class.java) == method
+    }
+
     internal fun pegasus(owner: Class<*>, decoration: Class<*>, canvas: Class<*>, recycler: Class<*>,
         state: Class<*>, context: Class<*>, paint: Class<*>, rect: Class<*>): Method? {
         if (!decoration.isAssignableFrom(owner)) return null
         val fields = owner.declaredFields.filter { !Modifier.isStatic(it.modifiers) }
+        // The general c decorator has two Lazy dimensions. Its paint counts otherwise
+        // collide with the real Pegasus bottom-line layer.
+        if (fields.any { it.type.name == "kotlin.Lazy" }) return null
         if (fields.count { it.type == paint } != 2 || fields.count { it.type == rect } != 1 ||
             fields.count { it.type == context } != 1 || fields.count { it.type == Boolean::class.javaPrimitiveType } != 1) return null
         if (owner.declaredConstructors.none { constructor ->

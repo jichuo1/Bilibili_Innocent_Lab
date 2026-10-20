@@ -57,7 +57,8 @@ internal object VersionAdapterContract {
     /** 72 → 73：倍速菜单增加后台 DexKit 兜底和可选成员缓存；旧缓存缺键仍可读取。 */
     /** 73 → 74：9.16.0 更新/默认画质、动态绘制器及本地归属字段迁移；缓存 JSON 形状不变。 */
     /** 74 → 75：Story 清晰度支持 R8 将无状态策略基类优化为接口；旧缓存需重新验证。 */
-    const val RULE_VERSION = 75
+    /** 75 → 76：Story 读取契约、页面/卡片语义兜底及 Kotlin 播放请求；新增可选缓存键。 */
+    const val RULE_VERSION = 76
 
     /**
      * 51 → 52（2026-09-11，9.11.0(9110400) 适配）：

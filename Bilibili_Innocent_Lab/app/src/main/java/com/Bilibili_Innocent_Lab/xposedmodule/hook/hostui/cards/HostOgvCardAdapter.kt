@@ -1,6 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HostCardSemanticAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import com.highcapable.kavaref.extension.classOf
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
@@ -44,9 +47,16 @@ internal object HostOgvCardAdapter {
         val expected: Int get() = families.count { it.applicable }
     }
 
-    fun resolve(loader: ClassLoader): Resolution = resolve { KavaMemberLookup.classOrNull(loader, it) }
+    fun resolve(loader: ClassLoader): Resolution = resolve(loader, emptyMap())
 
-    internal fun resolve(type: (String) -> Class<*>?): Resolution {
+    fun resolve(loader: ClassLoader, cached: Map<String, HookPoint>): Resolution = resolve(
+        { KavaMemberLookup.classOrNull(loader, it) }, cached.mapNotNull { (family, point) ->
+            HostCardSemanticAdapter.resolve(loader, family, point)?.let { method ->
+                semanticPoint(loader, method)?.let { family to it }
+            }
+        }.toMap())
+
+    internal fun resolve(type: (String) -> Class<*>?, assisted: Map<String, Point> = emptyMap()): Resolution {
         val modifier = type(MODIFIER)
         val composer = type(COMPOSER)
         val model = type(MODEL)
@@ -67,12 +77,13 @@ internal object HostOgvCardAdapter {
             families += Family(id, owner != null, listOfNotNull(point))
         }
         val item = type(FOLLOW_ITEM)
-        val following = listOf("com.bilibili.ogv.kmm.operation.following.b" to "wc3.o",
-            "com.bilibili.ogv.kmm.operation.following.c" to "Ao0.p").mapNotNull { (ownerName, helperName) ->
-            val owner = type(ownerName) ?: return@mapNotNull null
-            val helper = type(helperName) ?: return@mapNotNull null
-            item?.let { following(owner, it, helper, modifier, composer) }
+        // R8 changes the helper type (9.16: Fo0.p); the stable single-card model and
+        // full Compose ABI identify this boundary without a helper-name table.
+        val following = listOf("com.bilibili.ogv.kmm.operation.following.b",
+            "com.bilibili.ogv.kmm.operation.following.c").mapNotNull(type).mapNotNull { owner ->
+            item?.let { following(owner, it, null, modifier, composer) }
         }
+
         families += Family("following", item != null, following.takeIf { it.size == 1 }.orEmpty())
         val standalone = listOf(
             Triple("trending", "ed3.r", "ed3.f\$c"), Triple("double", "sc3.n", "sc3.f\$c"),
@@ -83,9 +94,10 @@ internal object HostOgvCardAdapter {
             val card = type(modelName)
             val helper = type(if (id == "upcoming") "com.bilibili.ogv.operation3.module.followable.i"
                 else "com.bilibili.ogv.operation3.module.feedback.v")
-            val point = if (owner != null && card != null && helper != null) {
+            val direct = if (owner != null && card != null && helper != null) {
                 following(owner, card, helper, modifier, composer)
             } else null
+            val point = listOfNotNull(direct, assisted[id]).distinctBy { it.method }.singleOrNull()
             // 9.15 完整 raw：这三族已变为 LazyItemScope / BoxWithConstraintsScope，均无传入 Modifier。
             val inline = type(when (id) { "trending" -> "Eo0.l"; "double" -> "Fo0.t"; else -> "Go0.d" })
             val inlinePresent = inline?.let { renderer ->
@@ -101,6 +113,15 @@ internal object HostOgvCardAdapter {
         return Resolution(families)
     }
 
+    internal fun semanticPoint(loader: ClassLoader, method: Method): Point? {
+        val modifier = KavaMemberLookup.classOrNull(loader, MODIFIER) ?: return null
+        val composer = KavaMemberLookup.classOrNull(loader, COMPOSER) ?: return null
+        val params = method.parameterTypes
+        if (params.size !in 5..6 || params[0].isPrimitive ||
+            params[0] in setOf(classOf<Any>(), classOf<String>(), classOf<List<*>>(), modifier, composer)) return null
+        return following(method.declaringClass, params[0], null, modifier, composer)?.takeIf { it.method == method }
+    }
+
     internal fun captured(owner: Class<*>, model: Class<*>, follow: Class<*>?, modifier: Class<*>, composer: Class<*>): Point? {
         if (owner.interfaces.none { it.name == "kotlin.jvm.functions.Function3" }) return null
         val field = KavaMemberLookup.declaredFields(owner, makeAccessible = true) {
@@ -113,12 +134,14 @@ internal object HostOgvCardAdapter {
         return Point(entry, 0, 1, 2, modifier = modifier, composer = composer, model = field)
     }
 
-    internal fun following(owner: Class<*>, item: Class<*>, helper: Class<*>, modifier: Class<*>, composer: Class<*>): Point? {
+    internal fun following(owner: Class<*>, item: Class<*>, helper: Class<*>?, modifier: Class<*>, composer: Class<*>): Point? {
         val matches = methods(owner) { method ->
-            val prefix = arrayOf(item, helper, modifier, composer, Int::class.javaPrimitiveType!!)
-            Modifier.isStatic(method.modifiers) && method.returnType == Void.TYPE &&
-                (method.parameterTypes.contentEquals(prefix) ||
-                    method.parameterTypes.contentEquals(prefix + Int::class.javaPrimitiveType!!))
+            val params = method.parameterTypes
+            Modifier.isStatic(method.modifiers) && !method.isBridge && !method.isSynthetic && method.returnType == Void.TYPE && params.size in 5..6 &&
+                params[0] == item && params[2] == modifier && params[3] == composer &&
+                params[4] == Int::class.javaPrimitiveType && (params.size == 5 || params[5] == Int::class.javaPrimitiveType) &&
+                (if (helper != null) params[1] == helper else !params[1].isPrimitive &&
+                    params[1] !in setOf(classOf<Any>(), classOf<String>(), classOf<List<*>>(), modifier, composer))
         }
         val method = matches.singleOrNull() ?: return null
         return Point(method, 2, 3, 4, if (method.parameterCount == 6) 5 else null,

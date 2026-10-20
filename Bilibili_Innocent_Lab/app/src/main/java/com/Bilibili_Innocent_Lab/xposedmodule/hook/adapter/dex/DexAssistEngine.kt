@@ -66,7 +66,18 @@ internal enum class DexAssistQuery {
     FOLLOW_FEED_STYLE,
 
     /** 倍速列表填充（clear + abs）、选项工厂 ABI 与专用打开事件；运行时复核全部模型结构。 */
-    PLAYER_SPEED_MENU
+    PLAYER_SPEED_MENU,
+
+    /** Page callback with history read plus typed square-list delivery; full owner graph revalidated. */
+    SEARCH_HOME_DELIVERY,
+    /** Typed search landing-page List constructor, never global observable publication. */
+    SEARCH_HOME_STATE,
+    /** Unique two-List merger strictly inside the UGC end-page package. */
+    PLAYER_END_PAGE_MERGER,
+    OGV_TRENDING_CARD,
+    OGV_DOUBLE_CARD,
+    OGV_UPCOMING_CARD,
+    PEGASUS_DIVIDER
 }
 
 internal sealed interface DexAssistResult {

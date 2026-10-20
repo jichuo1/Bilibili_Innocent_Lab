@@ -186,7 +186,9 @@ internal class StoryQualityHostAccess private constructor(
             StoryQualityHostAccess(roles, handler, provider, params, select, request,
                 request.parameterTypes.indexOf(params), reload, constructor, invoke, create, resolveTask, resolveProvider,
                 resolveParams.singleOrNull(), serviceHandler, handlerProvider, current, at, pointer,
-                method(params, "getDisplayParams", displayClass) ?: return null,
+                // 这里只做虚调用读取，真实宿主在抽象参数基类声明、由具体条目实现。
+                // Hook 的 invokeSuspend/create 等入口仍要求可执行方法体。
+                method(params, "getDisplayParams", displayClass, allowAbstract = true) ?: return null,
                 method(displayClass, "getAvid", Long::class.javaPrimitiveType!!) ?: return null,
                 method(displayClass, "getCid", Long::class.javaPrimitiveType!!) ?: return null,
                 method(params, "getFrom", String::class.java) ?: return null,
@@ -202,10 +204,10 @@ internal class StoryQualityHostAccess private constructor(
         private fun concrete(method: Method) = !Modifier.isStatic(method.modifiers) && !Modifier.isAbstract(method.modifiers) && !method.isBridge
         private fun typedField(owner: Class<*>, type: Class<*>): Field? =
             Lookup.declaredFields(owner, true) { !Modifier.isStatic(it.modifiers) && it.type == type }.singleOrNull()
-        private fun method(owner: Class<*>, name: String, returns: Class<*>, vararg args: Class<*>, static: Boolean = false): Method? =
+        private fun method(owner: Class<*>, name: String, returns: Class<*>, vararg args: Class<*>, static: Boolean = false, allowAbstract: Boolean = false): Method? =
             Lookup.methods(owner, includeSuperclasses = true, makeAccessible = true) {
                 it.name == name && it.returnType == returns && it.parameterTypes.contentEquals(args) &&
-                    Modifier.isStatic(it.modifiers) == static && !Modifier.isAbstract(it.modifiers) && !it.isBridge
+                    Modifier.isStatic(it.modifiers) == static && (allowAbstract || !Modifier.isAbstract(it.modifiers)) && !it.isBridge
             }.distinctBy { it.name to it.parameterTypes.toList() }.singleOrNull()
     }
 }

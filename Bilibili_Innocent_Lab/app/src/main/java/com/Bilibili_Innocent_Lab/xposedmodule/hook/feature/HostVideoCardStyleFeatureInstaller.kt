@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardGridAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardHostAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardStyle
@@ -26,7 +27,8 @@ internal class HostVideoCardStyleFeatureInstaller(
     private val backgroundConfig: HostBackgroundConfig = HostBackgroundConfig(),
     override val id: String = ID,
     private val homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec(),
-    private val material: HostCardMaterial = HostCardMaterial.ORIGINAL
+    private val material: HostCardMaterial = HostCardMaterial.ORIGINAL,
+    private val cardSurfaces: Map<String, HookPoint> = emptyMap()
 ) : FeatureInstaller {
     private var backgroundEnvironment: HookEnvironment? = null
     private var pageHookCount = 0
@@ -70,7 +72,7 @@ internal class HostVideoCardStyleFeatureInstaller(
         })
         return runCatching {
             val ogvHooks = if (enabled) HostOgvCardHooks.install(environment, styleHost,
-                HostVideoCardStyleSpec.normalizeRadius(radiusDp), material = material) {
+                HostVideoCardStyleSpec.normalizeRadius(radiusDp), material = material, cachedPoints = cardSurfaces) {
                 if (firstHit.compareAndSet(false, true)) {
                     environment.reportRuntimeEvidence(id, FeatureRuntimeStage.APPLIED)
                     environment.logInfo("${id}_applied", "[BIL] 追番/影视卡片表面已生效")
@@ -78,7 +80,7 @@ internal class HostVideoCardStyleFeatureInstaller(
             } else HostCardHookCoverage.NONE
             val spacingHooks = if (homeSpacing.enabled) HostHomeCardSpacingHooks.install(environment, style::markHome) else 0
             if (backgroundConfig.enabled) pageHookCount = HostBackgroundPageHooks.install(backgroundEnvironment ?: environment, pages)
-            val dividerHooks = if (enabled) HostVideoCardDividerHooks.install(environment, id, style::replacesSeparators) else HostCardHookCoverage.NONE
+            val dividerHooks = if (enabled) HostVideoCardDividerHooks.install(environment, id, style::replacesSeparators, cardSurfaces["pegasus_divider"]) else HostCardHookCoverage.NONE
             var scrollHooks = 0
             if (backgroundConfig.enabled && backgroundConfig.preset != HostBackgroundPreset.CUSTOM) {
                 val recycler = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView")
@@ -143,10 +145,11 @@ internal class HostVideoCardStyleFeatureInstaller(
 
         /** 两项诊断仍独立，实际 bind Hook、卡片识别、主题读取和列表监听只安装一套。 */
         fun shared(enabled: Boolean, radiusDp: Int, backgroundConfig: HostBackgroundConfig,
-            homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec(), material: HostCardMaterial = HostCardMaterial.ORIGINAL): List<FeatureInstaller> {
+            homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec(), material: HostCardMaterial = HostCardMaterial.ORIGINAL,
+            cardSurfaces: Map<String, HookPoint> = emptyMap()): List<FeatureInstaller> {
             val delegate = HostVideoCardStyleFeatureInstaller(enabled, radiusDp, backgroundConfig,
                 id = if (enabled || homeSpacing.enabled) ID else BACKGROUND_ID, homeSpacing = homeSpacing.normalized(),
-                material = if (enabled) material else HostCardMaterial.ORIGINAL)
+                material = if (enabled) material else HostCardMaterial.ORIGINAL, cardSurfaces = cardSurfaces)
             var result: FeatureInstallResult? = null
             fun install(environment: HookEnvironment): FeatureInstallResult = result ?: delegate.install(environment).also { result = it }
             return listOf(

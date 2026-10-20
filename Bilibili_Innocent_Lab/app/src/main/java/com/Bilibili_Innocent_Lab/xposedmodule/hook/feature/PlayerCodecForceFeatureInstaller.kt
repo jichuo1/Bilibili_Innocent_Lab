@@ -2,6 +2,9 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import android.os.Bundle
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import com.highcapable.kavaref.extension.classOf
+import com.highcapable.kavaref.extension.isAbstract
+import com.highcapable.kavaref.extension.isStatic
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 
@@ -72,7 +75,11 @@ internal class PlayerCodecForceFeatureInstaller(
                     setOf("executePlayView", "playView"),
                     nestedVod = false,
                     capability = requestCapability
-                )
+                ),
+                installKotlinRequestFamily(environment, loader, MOSS_CLASSES_UNITE.first(), REQUEST_CLASSES_UNITE.first(),
+                    "playViewUnite", nestedVod = true, capability = requestCapability),
+                installKotlinRequestFamily(environment, loader, MOSS_CLASSES_LEGACY.first(), REQUEST_CLASSES_LEGACY.first(),
+                    "playView", nestedVod = false, capability = requestCapability)
             ).fold(InstallCoverage()) { total, current ->
                 InstallCoverage(total.available + current.available, total.installed + current.installed)
             }
@@ -132,7 +139,7 @@ internal class PlayerCodecForceFeatureInstaller(
             }
         }.firstOrNull() ?: return InstallCoverage()
         val access = RequestAccess.resolve(resolved.request, nestedVod, requestPreference)
-            ?: return InstallCoverage()
+            ?: return InstallCoverage(listOfNotNull(resolved.sync, resolved.async).size, 0)
         var available = 0
         var installed = 0
         resolved.sync?.let { method ->
@@ -163,6 +170,58 @@ internal class PlayerCodecForceFeatureInstaller(
     }.getOrElse {
         environment.logError("$ID.request", "[BIL] 编码偏好入口解析/注册失败")
         InstallCoverage()
+    }
+
+    /**
+     * K*Moss typed request names and fields are R8 aliases. Its generic callback entry is
+     * shared by suspend/callback calls and supplies the actual request serializer. Reuse
+     * the host's wire codec and the same Java copy-on-write policy for both channels.
+     */
+    private fun installKotlinRequestFamily(environment: HookEnvironment, loader: ClassLoader,
+        javaMoss: String, javaRequest: String, rpc: String, nestedVod: Boolean, capability: String): InstallCoverage {
+        val owner = KotlinMossBridgeMembers.kotlinMossClassName(javaMoss)
+            ?.let { KavaMemberLookup.classOrNull(loader, it) } ?: return InstallCoverage()
+        val missing = InstallCoverage(1, 0)
+        val entry = KavaMemberLookup.declaredMethods(owner, true) { method ->
+            val types = method.parameterTypes
+            method.name == rpc && !method.isStatic && !method.isAbstract &&
+                method.returnType == Void.TYPE && types.size in 4..5 && types[0] == classOf<Any>() &&
+                types[1].name == KotlinMossBridgeMembers.SERIALIZATION_STRATEGY &&
+                types[2].name == KotlinMossBridgeMembers.DESERIALIZATION_STRATEGY &&
+                !types[3].isPrimitive && !types[3].isArray &&
+                (types.size == 4 || types[4].name == KotlinMossBridgeMembers.PROTO_BUF)
+        }.singleOrNull() ?: return missing
+        val request = KavaMemberLookup.classOrNull(loader, javaRequest) ?: return missing
+        val access = RequestAccess.resolve(request, nestedVod, requestPreference) ?: return missing
+        val members = KotlinMossBridgeMembers.resolve(loader) ?: return missing
+        val codec = KotlinMossBridgeMembers.JavaReplyCodec.resolve(request) ?: return missing
+        // 8.84–9.8 use the host moss service's ProtoBuf.Default; 9.9+ supply the format.
+        if (entry.parameterCount == 4 && members.defaultProtoBuf() == null) return missing
+        val errorLogged = java.util.concurrent.atomic.AtomicBoolean(false)
+        val installed = runCatching {
+            environment.registrar.exact("$ID.request.kotlin.$rpc", owner, entry.name, *entry.parameterTypes) {
+                before {
+                    val original = argOrNull(0) ?: return@before
+                    runCatching {
+                        val format = if (entry.parameterCount == 4) members.defaultProtoBuf() else argOrNull(4)
+                        val bridge = members.bridgeFor(format, argOrNull(1), codec)
+                            ?: error("Missing request serializer roundtrip")
+                        environment.reportRuntimeEvidence(capability, FeatureRuntimeStage.OBSERVED)
+                        val updated = bridge.transform(original) { value -> access.rewrite(value, requestPreference) ?: value }
+                        check(original.javaClass.isInstance(updated))
+                        if (updated !== original) {
+                            args[0] = updated
+                            environment.reportRuntimeEvidence(capability, FeatureRuntimeStage.APPLIED)
+                        }
+                    }.onFailure {
+                        environment.reportRuntimeEvidence(capability, FeatureRuntimeStage.ERROR)
+                        if (errorLogged.compareAndSet(false, true)) environment.logError("$ID.kotlin.$rpc",
+                            "[BIL] Kotlin 播放请求编码偏好改写失败，保留原请求")
+                    }
+                }
+            }
+        }.onFailure { environment.logError("$ID.kotlin.$rpc", "[BIL] Kotlin 播放请求入口注册失败") }.isSuccess
+        return InstallCoverage(1, if (installed) 1 else 0)
     }
 
     private fun registerRequestHook(

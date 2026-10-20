@@ -1,16 +1,22 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
 import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** 清理结束页回复及合并后的播放器列表；getter 独立后备。任一路解析/注册失败都不会撤掉另一条防线。 */
 internal class PlayerEndPageRecommendFeatureInstaller(
     private val enabled: Boolean,
+    private val cachedPoints: () -> HookPoint? = { null },
     private val resolve: (ClassLoader?) -> PlayerEndPageRecommendLocator.Access? = PlayerEndPageRecommendLocator::resolve
 ) : FeatureInstaller {
     override val id = ID
+    private val registered = linkedSetOf<Method>()
+    @Volatile var requiresAdaptationRetry = false
+        private set
     override val capabilityIds: List<String> get() = if (enabled) listOf(ID) else emptyList()
 
+    @Synchronized
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         fun skipped(reason: String): FeatureInstallResult.Skipped {
             environment.reportStatus(STATUS, reason)
@@ -20,7 +26,10 @@ internal class PlayerEndPageRecommendFeatureInstaller(
         }
         if (!enabled) return skipped("disabled")
         if (environment.processName != "tv.danmaku.bili") return skipped("non-main-process")
-        val access = resolve(environment.classLoader) ?: return skipped("missing-host-structure")
+        val direct = resolve(environment.classLoader) ?: return skipped("missing-host-structure")
+        val access = if (direct.mergedList != null) direct else direct.copy(
+            mergedList = PlayerEndPageRecommendLocator.cachedMerger(environment.classLoader, cachedPoints()))
+        requiresAdaptationRetry = access.mergedList == null
         val policy = PlayerEndPageRecommendPolicy(access)
         val errorLogged = AtomicBoolean(false)
         var installed = 0
@@ -40,8 +49,10 @@ internal class PlayerEndPageRecommendFeatureInstaller(
         }
         fun register(path: String, method: Method?, block: com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator.() -> Unit) {
             if (method == null) return
+            if (method in registered) { installed++; return }
             runCatching {
                 environment.registrar.exact("$ID.$path", method.declaringClass, method.name, *method.parameterTypes, block = block)
+                registered += method
                 installed++
             }.onFailure { environment.logError("${ID}_$path", "[BIL] 结束页推荐入口注册失败") }
         }

@@ -3,7 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.highcapable.kavaref.extension.classOf
 import com.highcapable.kavaref.extension.isAbstract
-import com.highcapable.kavaref.extension.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 
@@ -14,6 +14,7 @@ internal object PlayerEndPageRecommendLocator {
     const val REQUEST = "com.bapis.bilibili.app.viewunite.v1.ViewEndPageReq"
     const val HANDLER = "com.bilibili.lib.moss.api.MossResponseHandler"
     const val SERVICE = "com.bilibili.ship.theseus.ugc.endpage.relatedrecommand.UGCEndPageRelatedRecommendService"
+    const val PACKAGE = "com.bilibili.ship.theseus.ugc.endpage.relatedrecommand."
     const val EXPECTED_PATHS = 5
 
     data class Access(val reply: Class<*>, val sync: Method?, val async: Method?, val handler: Class<*>?,
@@ -22,11 +23,14 @@ internal object PlayerEndPageRecommendLocator {
         val canCopy: Boolean get() = list != null && count != null && defaultInstance != null && plan != null && clear != null
     }
 
-    fun resolve(loader: ClassLoader?): Access? {
+    fun resolve(loader: ClassLoader?): Access? = resolve(loader, null)
+
+    fun resolve(loader: ClassLoader?, cached: HookPoint?): Access? {
         val reply = KavaMemberLookup.classOrNull(loader, REPLY) ?: return null
-        return resolve(reply, KavaMemberLookup.classOrNull(loader, MOSS),
+        val direct = resolve(reply, KavaMemberLookup.classOrNull(loader, MOSS),
             KavaMemberLookup.classOrNull(loader, REQUEST), KavaMemberLookup.classOrNull(loader, HANDLER),
             KavaMemberLookup.classOrNull(loader, SERVICE))
+        return if (direct.mergedList != null) direct else direct.copy(mergedList = cachedMerger(loader, cached))
     }
 
     internal fun resolve(reply: Class<*>, moss: Class<*>?, request: Class<*>?, handler: Class<*>?,
@@ -72,21 +76,28 @@ internal object PlayerEndPageRecommendLocator {
      * 调用、产出结束页 UI 的卡片列表。不挂它时，协议层清掉结束页卡片后详情页卡片仍会被合并进来
      * （9.14.0 真机回执 `partial:4/5`）。
      *
-     * 同包 `'a'..'z'` 字母表 + 精确形状（非 static、`(List, List) -> List`）+ 全包唯一；纯 ClassLoader 查找。
+     * 同包 `'a'..'z'` 字母表 + 精确形状（具体方法、`(List, List) -> List`）+ 全包唯一；纯 ClassLoader 查找。
      * 31 个本地宿主离线核对：9.12.0–9.14.0 恰好一个，9.11.0 及更早为 0（那时走 service 自己的入口）。
      */
     private fun packageMerger(service: Class<*>): Method? {
         val pkg = service.name.substringBeforeLast('.', "").ifEmpty { return null }
-        val listType = classOf<List<*>>()
         return ('a'..'z').mapNotNull { KavaMemberLookup.classOrNull(service.classLoader, "$pkg.$it") }
             .flatMap { owner ->
-                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
-                    it.returnType == listType &&
-                        it.parameterTypes.contentEquals(arrayOf(listType, listType)) &&
-                        !it.isStatic && !it.isAbstract && !it.isBridge && !it.isSynthetic
-                }
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true, predicate = ::mergerShape)
             }
             .singleOrNull()
+    }
+
+    internal fun mergerAbi(method: Method): Boolean = method.declaringClass.name.startsWith(PACKAGE) && mergerShape(method)
+
+    private fun mergerShape(method: Method): Boolean = method.returnType == classOf<List<*>>() && method.parameterTypes.contentEquals(arrayOf(classOf<List<*>>(), classOf<List<*>>())) &&
+        !method.isAbstract && !method.isBridge && !method.isSynthetic
+
+    internal fun cachedMerger(loader: ClassLoader?, point: HookPoint?): Method? {
+        point ?: return null
+        if (point.viewField != null || point.paramClassNames != listOf("java.util.List", "java.util.List")) return null
+        val owner = KavaMemberLookup.classOrNull(loader, point.className) ?: return null
+        return KavaMemberLookup.declaredMethods(owner, true) { it.name == point.methodName && mergerAbi(it) }.singleOrNull()
     }
 
     private fun exact(owner: Class<*>, name: String, returns: Class<*>, vararg params: Class<*>): Method? =

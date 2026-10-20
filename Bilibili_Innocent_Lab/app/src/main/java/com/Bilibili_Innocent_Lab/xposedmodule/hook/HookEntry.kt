@@ -2653,6 +2653,13 @@ class HookEntry : XposedModule() {
             val featureInstallCoordinator = FeatureInstallCoordinator(hookEnvironment)
             val sponsorClassesRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.sponsorPlayer)
             val classicPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.commentClassicStyle)
+            val pagePointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.pageBoundaries)
+            val searchHomeInstaller = SearchHomeRecommendFeatureInstaller(
+                enabled = hookConfig.getBoolean(FeaturePreferences.HIDE_SEARCH_HOME_RECOMMEND, false),
+                cachedPoints = { pagePointsRef.get() })
+            val endPageInstaller = PlayerEndPageRecommendFeatureInstaller(
+                enabled = hookConfig.getBoolean(FeaturePreferences.HIDE_PLAYER_END_PAGE_RECOMMEND, false),
+                cachedPoints = { pagePointsRef.get()?.endPageMerger })
             val popupPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.playerPopupPromotion)
             val popupInstaller = PlayerPopupPromotionFeatureInstaller(
                 enabled = hookConfig.getBoolean(FeaturePreferences.HIDE_PLAYER_POPUP_PROMOTION, false),
@@ -2933,7 +2940,7 @@ class HookEntry : XposedModule() {
                         ),
                         semanticLogDir = semanticLogDir
                     ),
-                    SearchHomeRecommendFeatureInstaller(prefs.getBoolean(FeaturePreferences.HIDE_SEARCH_HOME_RECOMMEND, false)),
+                    searchHomeInstaller,
                     SearchPurifyFeatureInstaller(
                         removeCommercial = prefs.getBoolean(
                             FeaturePreferences.REMOVE_SEARCH_COMMERCIAL,
@@ -3157,6 +3164,7 @@ class HookEntry : XposedModule() {
                         )
                     ),
                     *HostVideoCardStyleFeatureInstaller.shared(
+                        cardSurfaces = hostAdaptResult?.pageBoundaries?.cardSurfaces.orEmpty(),
                         enabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
                         material = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial.parse(prefs.getString(FeaturePreferences.HOST_CARD_MATERIAL, "original")),
                         radiusDp = prefs.getInt(FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP, -1),
@@ -3267,9 +3275,7 @@ class HookEntry : XposedModule() {
                         ),
                         points = hostAdaptResult?.playerInteractiveOverlays
                     ),
-                    PlayerEndPageRecommendFeatureInstaller(
-                        enabled = prefs.getBoolean(FeaturePreferences.HIDE_PLAYER_END_PAGE_RECOMMEND, false)
-                    ),
+                    endPageInstaller,
                     popupInstaller
                 )
             )
@@ -4844,6 +4850,16 @@ class HookEntry : XposedModule() {
                                             }
                                         }
                                     }
+                                    if (searchHomeInstaller.requiresAdaptationRetry || endPageInstaller.requiresAdaptationRetry) {
+                                        pagePointsRef.set(VersionAdapter.loadCached(attachedContext,
+                                            versionAdapterResetTimestamp)?.pageBoundaries)
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (searchHomeInstaller.requiresAdaptationRetry)
+                                                featureInstallCoordinator.installAll(listOf(searchHomeInstaller))
+                                            if (endPageInstaller.requiresAdaptationRetry)
+                                                featureInstallCoordinator.installAll(listOf(endPageInstaller))
+                                        }
+                                    }
                                     retryFreeCopyHooksAfterAdapt()
                                     VersionAdapter.showAdaptToast(
                                         attachedContext,
@@ -4867,6 +4883,8 @@ class HookEntry : XposedModule() {
                         followFeedStyleEnabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
                         playerQualityEnabled = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig.normalize(
                             prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_QUALITY_QN, 0)) != 0,
+                        searchHomeRecommendEnabled = prefs.getBoolean(FeaturePreferences.HIDE_SEARCH_HOME_RECOMMEND, false),
+                        playerEndPageRecommendEnabled = prefs.getBoolean(FeaturePreferences.HIDE_PLAYER_END_PAGE_RECOMMEND, false),
                         playerSpeedMenuEnabled = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig.effectiveMenuPercents(
                             prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT, 0),
                             prefs.getString(FeaturePreferences.PLAYER_SPEED_MENU_PERCENTS, "")

@@ -1,5 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SearchHomeRecommendLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerEndPageRecommendLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HostCardSemanticAdapter
 import org.luckypray.dexkit.DexKitBridge
 import org.luckypray.dexkit.query.enums.MatchType
 import org.luckypray.dexkit.query.enums.StringMatchType
@@ -132,6 +135,9 @@ internal object DexKitAssistEngine : DexAssistEngine {
                                         } else if (query == DexAssistQuery.SPONSOR_CONTAINER_SCOPE) {
                                             runCatching { data.getConstructorInstance(classLoader).declaringClass }
                                                 .getOrNull()?.let { classes.getValue(query) += it }
+                                        } else if (query == DexAssistQuery.SEARCH_HOME_STATE) {
+                                            runCatching { data.getConstructorInstance(classLoader).declaringClass }
+                                                .getOrNull()?.let { classes.getValue(query) += it }
                                         } else {
                                             val method = runCatching { data.getMethodInstance(classLoader) }.getOrNull()
                                                 ?: return@forEach
@@ -215,6 +221,29 @@ internal object DexKitAssistEngine : DexAssistEngine {
     }
 
     private fun find(bridge: DexKitBridge, query: DexAssistQuery) = when (query) {
+        DexAssistQuery.OGV_TRENDING_CARD, DexAssistQuery.OGV_DOUBLE_CARD, DexAssistQuery.OGV_UPCOMING_CARD -> bridge.findMethod {
+            matcher {
+                modifiers(Modifier.STATIC, MatchType.Contains); returnType = "void"; paramCount(5..6)
+                usingStrings(listOf(HostCardSemanticAdapter.marks.getValue(query)), StringMatchType.Contains)
+            }
+        }
+        DexAssistQuery.PEGASUS_DIVIDER -> bridge.findMethod {
+            searchPackages("com.bilibili.pegasus.widget")
+            matcher { name = "onDrawOver"; returnType = "void"
+                paramTypes("android.graphics.Canvas", "androidx.recyclerview.widget.RecyclerView", "androidx.recyclerview.widget.RecyclerView\$State") }
+        }
+        DexAssistQuery.SEARCH_HOME_DELIVERY -> bridge.findMethod {
+            searchPackages(SearchHomeRecommendLocator.DISCOVER.removeSuffix("."))
+            matcher { name = "getHistoryList"; paramCount(0); returnType = "java.util.List" }
+        }
+        DexAssistQuery.SEARCH_HOME_STATE -> bridge.findMethod {
+            searchPackages(SearchHomeRecommendLocator.STATE.removeSuffix("."))
+            matcher { name = "<init>"; paramTypes("java.util.List") }
+        }
+        DexAssistQuery.PLAYER_END_PAGE_MERGER -> bridge.findMethod {
+            searchPackages(PlayerEndPageRecommendLocator.PACKAGE.removeSuffix("."))
+            matcher { paramTypes("java.util.List", "java.util.List"); returnType = "java.util.List" }
+        }
         DexAssistQuery.PLAYER_SPEED_MENU -> listOf("java.util.List", "java.util.ArrayList").flatMap { clearOwner ->
             bridge.findMethod {
                 searchPackages(PlayerSpeedLocator.SPEED_WIDGET_PKG)

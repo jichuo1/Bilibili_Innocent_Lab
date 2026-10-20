@@ -3,6 +3,15 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook
 import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PageBoundaryAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HostVideoCardDividerHooks
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityHostAccess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityResourceAccess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerBufferLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SearchHomeRecommendLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerEndPageRecommendLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostOgvCardAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PgcAutoActivityPopupLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashDecoderAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStyleLocator
@@ -177,7 +186,9 @@ class HostApkCompatibilityInstrumentedTest {
         val followPlanned = FollowFeedAdapter.needsQuery(loader, null, true, false)
         val words = KotlinDefaultWordsLocator.direct(loader)
         val sponsor = SponsorPlayerLocator.direct(loader)
+        val pagePlan = PageBoundaryAdapter.planned(loader, null, true, true, emptySet(), styleEnabled = true)
         val queries = buildSet {
+            addAll(pagePlan)
             addAll(storyPlan)
             addAll(popupPlan.map { it.query })
             addAll(classicPlan.map { it.query })
@@ -188,6 +199,8 @@ class HostApkCompatibilityInstrumentedTest {
             if (sponsor == null && SponsorPlayerLocator.applicable(loader)) addAll(SponsorPlayerLocator.queries)
         }
         val session = DexAssistSession(DexKitAssistEngine, listOf(apk.path), loader, queries)
+        val pagePoints = PageBoundaryAdapter.locate(loader, null, session, pagePlan)
+        report.put("page_boundaries", pagePoints?.toJson())
         val entries = JSONObject()
         val missing = ArrayList<String>()
         fun check(id: String, test: () -> Boolean) {
@@ -238,6 +251,39 @@ class HostApkCompatibilityInstrumentedTest {
         check("player.speed_menu") {
             val points = PlayerSpeedMenuAdapter.locate(loader, session, null, true, speedPlanned)
             PlayerSpeedMenuAdapter.complete(loader, PlayerSpeedMenuAdapter.resolve(loader, points))
+        }
+        // 安装期运行访问器也必须接通；描述符或语义角色存在不等于整个对象关系可用。
+        check("player.story_runtime") {
+            val points = StoryQualityLocator.locate(loader, session, null, storyPlan)
+            val roles = StoryQualityLocator.resolve(loader, points)
+            val access = roles?.let { StoryQualityHostAccess.resolve(loader, it) }
+            report.put("story_reparse_ready", access?.reparseReady == true)
+            access != null && access.reparseReady
+        }
+        check("player.story_resource") { StoryQualityResourceAccess.resolve(loader) != null }
+        check("player.buffer_runtime") { PlayerBufferLocator.resolve(loader) != null }
+        check("player.long_press") { PlayerSpeedLocator.longPress(loader) != null }
+        check("player.long_press_speed") { PlayerSpeedLocator.longPressSpeed(loader) != null }
+        check("player.default_speed") { PlayerSpeedLocator.defaultSpeed(loader) != null }
+        check("search.home_recommend") {
+            val points = SearchHomeRecommendLocator.locate(loader, pagePoints)
+            report.put("search_home_delivery_candidates", points?.deliveryCandidateCount)
+            points != null && points.delivery != null && (!points.stateExpected || points.state != null)
+        }
+        check("player.end_page_recommend") {
+            val points = PlayerEndPageRecommendLocator.resolve(loader, pagePoints?.endPageMerger)
+            points != null && points.canCopy && points.sync != null && points.async != null && points.mergedList != null
+        }
+        check("appearance.ogv_cards") {
+            val resolution = HostOgvCardAdapter.resolve(loader, pagePoints?.cardSurfaces.orEmpty())
+            report.put("ogv_families", JSONArray(resolution.families.map { family ->
+                JSONObject().put("id", family.id).put("applicable", family.applicable)
+                    .put("points", family.points.size).put("reason", family.reason)
+            }))
+            resolution.families.filter { it.applicable }.all { it.points.isNotEmpty() }
+        }
+        check("appearance.pegasus_divider") {
+            HostVideoCardDividerHooks.pegasusBoundary(loader, pagePoints?.cardSurfaces?.get("pegasus_divider")) != null
         }
         val dexResults = JSONObject()
         queries.forEach { query ->

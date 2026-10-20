@@ -68,6 +68,18 @@ class HostCardHookAdapterTest {
             Helper::class.java, CardModifier::class.java, CardComposer::class.java))
     }
 
+    @Test fun `following helper rename is resolved through complete single card ABI`() {
+        val names = mapOf("androidx.compose.ui.Modifier" to CardModifier::class.java,
+            "androidx.compose.runtime.Composer" to CardComposer::class.java,
+            "com.bilibili.ogv.kmm.operation.following.BangumiFollowing\$b" to CardItem::class.java,
+            "com.bilibili.ogv.kmm.operation.following.c" to FollowingUi::class.java)
+        val family = HostOgvCardAdapter.resolve(names::get).families.single { it.id == "following" }
+        assertTrue(family.applicable)
+        assertEquals("card", family.points.single().method.name)
+        assertNull(HostOgvCardAdapter.following(AmbiguousFollowing::class.java, CardItem::class.java,
+            null, CardModifier::class.java, CardComposer::class.java))
+    }
+
     @Test fun `legacy defaults clear only card modifier bits and allow a default null modifier`() {
         val point = requireNotNull(HostOgvCardAdapter.following(LegacyFollowing::class.java, CardItem::class.java,
             Helper::class.java, CardModifier::class.java, CardComposer::class.java))

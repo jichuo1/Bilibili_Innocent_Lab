@@ -1,5 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HostCardSemanticAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PageBoundaryAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PageBoundaryPoints
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Bundle
@@ -1854,7 +1857,8 @@ object VersionAdapter {
         val playerPopupPromotion: PlayerPopupPromotionPoints? = null,
         val brandSplashDecoder: HookPoint? = null,
         val followFeedStyle: FollowFeedPoints? = null,
-        val playerSpeedMenu: PlayerSpeedMenuPoints? = null
+        val playerSpeedMenu: PlayerSpeedMenuPoints? = null,
+        val pageBoundaries: PageBoundaryPoints? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("sv", SCHEMA_VERSION)
@@ -1895,6 +1899,7 @@ object VersionAdapter {
             brandSplashDecoder?.let { put("brand_splash_decoder", it.toJson()) }
             followFeedStyle?.let { put("follow_feed_style", it.toJson()) }
             playerSpeedMenu?.let { put("player_speed_menu", it.toJson()) }
+            pageBoundaries?.let { put("page_boundaries", it.toJson()) }
             put("fp", hostFingerprint)
             put("protocol_fp", protocolFingerprint)
             put("dex_fp", dexSourceFingerprint)
@@ -2216,6 +2221,7 @@ object VersionAdapter {
                 brandSplashDecoder?.let { it.isValid() && it.viewField == null &&
                     it.paramClassNames == listOf(BrandSplashDecoderAdapter.INFO) } != false &&
                 playerSpeedMenu?.isStructurallyValid() != false &&
+                pageBoundaries?.isValid() != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
         companion object {
@@ -2289,7 +2295,9 @@ object VersionAdapter {
                     followFeedStyle = if (o.has("follow_feed_style"))
                         FollowFeedPoints.fromJson(o.getJSONObject("follow_feed_style")) ?: return null else null,
                     playerSpeedMenu = if (o.has("player_speed_menu"))
-                        PlayerSpeedMenuPoints.fromJson(o.getJSONObject("player_speed_menu")) ?: return null else null
+                        PlayerSpeedMenuPoints.fromJson(o.getJSONObject("player_speed_menu")) ?: return null else null,
+                    pageBoundaries = if (o.has("page_boundaries"))
+                        PageBoundaryPoints.fromJson(o.getJSONObject("page_boundaries")) ?: return null else null
                 ).takeIf { it.isStructurallyValid() }
             }
         }
@@ -2959,7 +2967,7 @@ object VersionAdapter {
                     id == KotlinDefaultWordsLocator.DIAGNOSTIC &&
                         runtime.homeTopBar?.kotlinDefaultWords == null &&
                         stored.state == AdaptState.MISSING -> stored
-                    (id in PlayerPopupPromotionAdapter.Family.entries.map { it.diagnostic } || id == BrandSplashDecoderAdapter.DIAGNOSTIC || id == FollowFeedAdapter.DIAGNOSTIC || id == StoryQualityLocator.DIAGNOSTIC || id == PlayerSpeedMenuAdapter.DIAGNOSTIC) &&
+                    (id in PlayerPopupPromotionAdapter.Family.entries.map { it.diagnostic } || id == BrandSplashDecoderAdapter.DIAGNOSTIC || id == FollowFeedAdapter.DIAGNOSTIC || id == StoryQualityLocator.DIAGNOSTIC || id == PlayerSpeedMenuAdapter.DIAGNOSTIC || id in PageBoundaryAdapter.queries.map(PageBoundaryAdapter::diagnostic)) &&
                         stored.state == AdaptState.MISSING && live.state == AdaptState.NOT_APPLICABLE &&
                         live.detail == "quick-locate" -> stored
                     else -> live
@@ -3015,7 +3023,8 @@ object VersionAdapter {
             playerPopupPromotion = PlayerPopupPromotionAdapter.merge(runtime.playerPopupPromotion, cached.playerPopupPromotion),
             brandSplashDecoder = runtime.brandSplashDecoder ?: cached.brandSplashDecoder,
             followFeedStyle = runtime.followFeedStyle ?: cached.followFeedStyle,
-            playerSpeedMenu = runtime.playerSpeedMenu ?: cached.playerSpeedMenu
+            playerSpeedMenu = runtime.playerSpeedMenu ?: cached.playerSpeedMenu,
+            pageBoundaries = runtime.pageBoundaries ?: cached.pageBoundaries,
         )
     }
 
@@ -3125,9 +3134,11 @@ object VersionAdapter {
         brandSplashCustomEnabled: Boolean = false,
         followFeedStyleEnabled: Boolean = false,
         playerQualityEnabled: Boolean = false,
-        playerSpeedMenuEnabled: Boolean = false
+        playerSpeedMenuEnabled: Boolean = false,
+        searchHomeRecommendEnabled: Boolean = false,
+        playerEndPageRecommendEnabled: Boolean = false
     ) = ensureAdapted(
-        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled
+        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled
     )
 
     internal fun ensureAdapted(
@@ -3143,7 +3154,9 @@ object VersionAdapter {
         brandSplashCustomEnabled: Boolean = false,
         followFeedStyleEnabled: Boolean = false,
         playerQualityEnabled: Boolean = false,
-        playerSpeedMenuEnabled: Boolean = false
+        playerSpeedMenuEnabled: Boolean = false,
+        searchHomeRecommendEnabled: Boolean = false,
+        playerEndPageRecommendEnabled: Boolean = false
     ) {
         // reset 不同意味着不是同一次安装快照，必须重新读取而不能复用已缓存的 null/旧结果。
         val startup = if (startupCache.resetTimestamp == resetTimestamp.coerceAtLeast(0L)) {
@@ -3162,6 +3175,12 @@ object VersionAdapter {
         val usable = startup.usableCache(highCandidateExists)
         // 评论 high 点缺失只影响整轮快路径，不能使播放器已经完成的兜底每次启动重扫。
         val popupHistory = startup.usableCache(highCandidateExists = false)
+        val previousPages = popupHistory?.pageBoundaries
+        val pageAttempted = PageBoundaryAdapter.queries.filterTo(linkedSetOf()) { query ->
+            popupHistory?.diagnostics.orEmpty().any {
+                it.id == PageBoundaryAdapter.diagnostic(query) && it.state in setOf(AdaptState.FOUND, AdaptState.MISSING)
+            }
+        }
         val previousFollow = popupHistory?.followFeedStyle
         val previousSpeedMenu = popupHistory?.playerSpeedMenu
         val speedMenuAttempted = popupHistory?.diagnostics.orEmpty().any {
@@ -3183,6 +3202,8 @@ object VersionAdapter {
             popupHistory?.diagnostics.orEmpty().any { it.id == family.diagnostic && it.state == AdaptState.MISSING }
         }
         val cached = usable?.takeUnless { value ->
+            val pageRefresh = PageBoundaryAdapter.planned(classLoader, value.pageBoundaries,
+                searchHomeRecommendEnabled, playerEndPageRecommendEnabled, pageAttempted, styleEnabled = followFeedStyleEnabled).isNotEmpty()
             val popupRefresh = playerPopupPromotionEnabled &&
                 PlayerPopupPromotionAdapter.missing(classLoader, value.playerPopupPromotion).any { family ->
                     value.diagnostics.none { it.id == family.diagnostic && it.state == AdaptState.MISSING }
@@ -3202,7 +3223,7 @@ object VersionAdapter {
                 value.diagnostics.any { it.id == FollowFeedAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING }) ||
                 BrandSplashDecoderAdapter.needsQuery(classLoader, value.brandSplashDecoder, brandSplashCustomEnabled,
                 value.diagnostics.any { it.id == BrandSplashDecoderAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING }) ||
-                popupRefresh || classicRefresh || sponsorRefresh || kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache(
+                pageRefresh || popupRefresh || classicRefresh || sponsorRefresh || kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache(
                 enabled = true,
                 applicable = KotlinDefaultWordsLocator.applicable(classLoader),
                 directFound = KotlinDefaultWordsLocator.direct(classLoader) != null,
@@ -3236,7 +3257,8 @@ object VersionAdapter {
                         brandSplashCustomEnabled, previousBrand, previouslyMissingBrand,
                         followFeedStyleEnabled, previousFollow, previouslyMissingFollow,
                         playerQualityEnabled, previousStoryQuality, previouslyMissingStoryQuality,
-                        playerSpeedMenuEnabled, previousSpeedMenu, speedMenuAttempted) }.getOrNull()
+                        playerSpeedMenuEnabled, previousSpeedMenu, speedMenuAttempted,
+                        searchHomeRecommendEnabled, playerEndPageRecommendEnabled, previousPages, pageAttempted) }.getOrNull()
                     result?.let { adapted ->
                         // 写文件缓存（loadApp 快路径载体）；校验后原子替换，旧缓存不会被半截 JSON 覆盖。
                         if (!writeCache(adapted)) {
@@ -3424,7 +3446,9 @@ object VersionAdapter {
                       brandSplashCustomEnabled: Boolean, previousBrand: HookPoint?, previouslyMissingBrand: Boolean,
                       followFeedStyleEnabled: Boolean, previousFollow: FollowFeedPoints?, previouslyMissingFollow: Boolean,
                       playerQualityEnabled: Boolean, previousStoryQuality: StoryQualityPoints?, previouslyMissingStoryQuality: Boolean,
-                      playerSpeedMenuEnabled: Boolean, previousSpeedMenu: PlayerSpeedMenuPoints?, speedMenuAttempted: Boolean): AdaptResult? {
+                      playerSpeedMenuEnabled: Boolean, previousSpeedMenu: PlayerSpeedMenuPoints?, speedMenuAttempted: Boolean,
+                      searchHomeRecommendEnabled: Boolean, playerEndPageRecommendEnabled: Boolean,
+                      previousPages: PageBoundaryPoints?, pageAttempted: Set<DexAssistQuery>): AdaptResult? {
         val vc = biliVersionCode(context)
         val dexSource = runCatching {
             context.packageManager.getPackageInfo("tv.danmaku.bili", 0).applicationInfo
@@ -3441,6 +3465,8 @@ object VersionAdapter {
         val sponsorNeedsAssist = sponsorBlockEnabled && SponsorPlayerLocator.needsQuery(sponsorBlockEnabled, SponsorPlayerLocator.applicable(loader), directSponsor != null)
         val classicMissing = if (commentClassicStyleEnabled) CommentClassicStyleLocator.missing(loader) else emptySet()
         val followPlanned = FollowFeedAdapter.needsQuery(loader, previousFollow, followFeedStyleEnabled, previouslyMissingFollow)
+        val pagePlanned = PageBoundaryAdapter.planned(loader, previousPages, searchHomeRecommendEnabled,
+            playerEndPageRecommendEnabled, pageAttempted, styleEnabled = followFeedStyleEnabled)
         val speedMenuPlanned = PlayerSpeedMenuAdapter.needsQuery(loader, previousSpeedMenu, playerSpeedMenuEnabled, speedMenuAttempted)
         val storyQualityPlanned = StoryQualityLocator.planned(loader, previousStoryQuality, playerQualityEnabled, previouslyMissingStoryQuality)
         val brandPlanned = BrandSplashDecoderAdapter.needsQuery(loader, previousBrand, brandSplashCustomEnabled, previouslyMissingBrand)
@@ -3466,6 +3492,7 @@ object VersionAdapter {
                     if (directBlockUpdate == null) add(DexAssistQuery.BLOCK_UPDATE)
                     if (playerQualityNeedsAssist) add(DexAssistQuery.PLAYER_DEFAULT_QUALITY)
                     addAll(storyQualityPlanned)
+                    addAll(pagePlanned)
                     if (directTopologyOutcome.points == null) add(DexAssistQuery.COMMENT_REPLY_MAPPER)
                     if (defaultWordsNeedsAssist) add(DexAssistQuery.SEARCH_DEFAULT_WORDS_KOTLIN)
                     if (sponsorNeedsAssist) addAll(SponsorPlayerLocator.queries)
@@ -3476,6 +3503,26 @@ object VersionAdapter {
                     if (speedMenuPlanned) add(PlayerSpeedMenuAdapter.query)
                 }
             )
+        }
+        val pages = PageBoundaryAdapter.locate(loader, previousPages, dexAssist, pagePlanned)
+        val pageDiagnostics = PageBoundaryAdapter.queries.map { query ->
+            val enabled = when (query) {
+                in HostCardSemanticAdapter.queries -> followFeedStyleEnabled
+                DexAssistQuery.PLAYER_END_PAGE_MERGER -> playerEndPageRecommendEnabled
+                else -> searchHomeRecommendEnabled
+            }
+            val ready = enabled && PageBoundaryAdapter.ready(loader, pages, query)
+            AdaptDiagnostic(PageBoundaryAdapter.diagnostic(query), when {
+                !enabled -> AdaptState.NOT_APPLICABLE
+                ready -> AdaptState.FOUND
+                else -> AdaptState.MISSING
+            }, when { !enabled -> "disabled"; ready -> "verified-boundary"; query in pageAttempted -> "previously-missing"
+                query !in pagePlanned -> "not-applicable-host"
+                else -> when (val outcome = dexAssist?.result(query)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    else -> "missing-or-ambiguous"
+                }
+            })
         }
         val sponsor = directSponsor ?: if (sponsorNeedsAssist) SponsorPlayerLocator.assisted(loader, dexAssist) else null
         val speedMenu = PlayerSpeedMenuAdapter.locate(loader, dexAssist, previousSpeedMenu, playerSpeedMenuEnabled, speedMenuPlanned)
@@ -3733,14 +3780,15 @@ object VersionAdapter {
                 commentTopologyOutcome.failureDetail, commentSection,
                 splashAds
             ) + protocolFingerprint.toDiagnostic() + blockUpdateAssist.diagnostic +
-                topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic,
+                topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic + pageDiagnostics,
             dexSourceFingerprint = dexSource?.value ?: DEX_SOURCE_UNAVAILABLE,
             sponsorPlayer = sponsor?.classes,
             commentClassicStyle = classic,
             playerPopupPromotion = popup,
             brandSplashDecoder = brand,
             followFeedStyle = follow,
-            playerSpeedMenu = speedMenu
+            playerSpeedMenu = speedMenu,
+            pageBoundaries = pages
         )
     }
 

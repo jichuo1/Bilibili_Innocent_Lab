@@ -28,6 +28,17 @@ class SearchHomeRecommendTest {
         }
     }
 
+    @Test fun backgroundRetryKeepsEstablishedHooksAndCoverageCounts() {
+        val registrar = PlayerPortTestRegistrar()
+        val env = Harness(registrar = registrar).env
+        val installer = SearchHomeRecommendFeatureInstaller(true)
+        assertEquals(FeatureInstallResult.Installed(4), installer.install(env))
+        val count = registrar.hooks.size
+        assertEquals(FeatureInstallResult.Installed(4), installer.install(env))
+        assertEquals(count, registrar.hooks.size)
+        assertFalse(installer.requiresAdaptationRetry)
+    }
+
     @Test fun fullLocatorFindsTypedDeliveryRefreshAndStateWithoutHardcodedMemberNames() {
         val point = requireNotNull(SearchHomeRecommendLocator.locate(defaultLocateLoader()))
         assertNotNull(point.delivery); assertNotNull(point.delivery?.refresh); assertNotNull(point.state)

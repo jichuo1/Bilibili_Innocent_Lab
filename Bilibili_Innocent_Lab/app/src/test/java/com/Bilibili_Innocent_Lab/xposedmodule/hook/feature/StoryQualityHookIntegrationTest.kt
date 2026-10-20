@@ -28,6 +28,7 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.After
 import org.junit.Test
+import tv.danmaku.biliplayerv2.service.FixturePlayableParams
 import tv.danmaku.biliplayerv2.service.Video
 import tv.danmaku.biliplayerv2.service.resolve.AbsMediaResourceResolveTask
 import tv.danmaku.videoplayer.coreV2.VideoBizType
@@ -52,7 +53,7 @@ class StoryQualityHookIntegrationTest {
     private fun point(method: Method) = VersionAdapter.HookPoint(method.declaringClass.name, method.name,
         method.parameterTypes.map(Class<*>::getName))
     private fun parameters(aid: Long = 123, cid: Long = 456, from: String = "vupload") =
-        Video.PlayableParams(Video.DisplayParams(aid, cid, from))
+        FixturePlayableParams(Video.DisplayParams(aid, cid, from))
 
     private inner class Harness(failId: String? = null, private val useClaims: Boolean = false) {
         val port = PlayerPortTestRegistrar(failId)
@@ -197,6 +198,8 @@ class StoryQualityHookIntegrationTest {
     }
 
     @Test fun `actual host graph requires display bridge and resolves account and resource contracts`() {
+        assertTrue(java.lang.reflect.Modifier.isAbstract(
+            Video.PlayableParams::class.java.getDeclaredMethod("getDisplayParams").modifiers))
         val h = Harness()
         assertFalse(Video.DisplayParams::class.java.isAssignableFrom(Video.PlayableParams::class.java))
         assertFalse(Video.PlayableParams::class.java.declaredMethods.any { it.name in setOf("getAvid", "getCid") })

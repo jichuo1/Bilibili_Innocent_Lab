@@ -1,18 +1,26 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PageBoundaryPoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SearchHomeRecommendLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookParam
 
 /** Search landing-page sections only; historical provider, search results and default words stay independent. */
-internal class SearchHomeRecommendFeatureInstaller(private val enabled: Boolean) : FeatureInstaller {
+internal class SearchHomeRecommendFeatureInstaller(private val enabled: Boolean,
+    private val cachedPoints: () -> PageBoundaryPoints? = { null }
+) : FeatureInstaller {
     override val id = ID
+    private val registered = linkedMapOf<String, Int>()
+    @Volatile var requiresAdaptationRetry = false
+        private set
 
+    @Synchronized
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!enabled) return FeatureInstallResult.Skipped("disabled")
         if (environment.processName != "tv.danmaku.bili") return FeatureInstallResult.Skipped("non-main-process")
-        val points = environment.classLoader?.let(SearchHomeRecommendLocator::locate)
+        val points = environment.classLoader?.let { SearchHomeRecommendLocator.locate(it, cachedPoints()) }
             ?: return FeatureInstallResult.Skipped("missing-search-home-model")
+        requiresAdaptationRetry = points.delivery == null || points.stateExpected && points.state == null
         var installed = 0
         // 分母按这个宿主上确实存在的落点算：delivery/cache/refresh 各自存在才计 1。
         // 固定 3 会把 cache 或 refresh 本就不存在的宿主永远钉在 partial 上，
@@ -22,10 +30,15 @@ internal class SearchHomeRecommendFeatureInstaller(private val enabled: Boolean)
             (if (points.delivery?.refresh != null) 1 else 0) +
             (if (points.state != null || points.stateExpected) 1 else 0)
         fun attempt(name: String, register: () -> Boolean) {
+            registered[name]?.let { installed += it; return }
+            val before = installed
             if (runCatching(register).getOrElse {
                 environment.logError("search_home_register_$name", "[BIL] 搜索首页推荐边界安装失败($name): $it")
                 false
-            }) installed++
+            }) {
+                installed++
+                registered[name] = installed - before
+            }
         }
         points.delivery?.let { delivery ->
             attempt("delivery") {

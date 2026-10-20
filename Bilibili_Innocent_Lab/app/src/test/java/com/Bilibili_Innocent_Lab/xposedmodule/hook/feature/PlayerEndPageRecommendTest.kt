@@ -174,8 +174,8 @@ class PlayerEndPageRecommendTest {
     @Test fun `disabled other process absent and incorrect structures install no unsafe hook`() {
         val registrar=PlayerPortTestRegistrar();val environment=environment(registrar)
         val never:(ClassLoader?)->PlayerEndPageRecommendLocator.Access?={error("must not resolve")}
-        assertEquals(FeatureInstallResult.Skipped("disabled"),PlayerEndPageRecommendFeatureInstaller(false,never).install(environment))
-        assertEquals(FeatureInstallResult.Skipped("non-main-process"),PlayerEndPageRecommendFeatureInstaller(true,never).install(environment.copy(processName="tv.danmaku.bili:web")))
+        assertEquals(FeatureInstallResult.Skipped("disabled"),PlayerEndPageRecommendFeatureInstaller(false,resolve = never).install(environment))
+        assertEquals(FeatureInstallResult.Skipped("non-main-process"),PlayerEndPageRecommendFeatureInstaller(true,resolve = never).install(environment.copy(processName="tv.danmaku.bili:web")))
         assertEquals(FeatureInstallResult.Skipped("missing-host-structure"),PlayerEndPageRecommendFeatureInstaller(true){null}.install(environment))
         val wrong=PlayerEndPageRecommendLocator.resolve(WrongReply::class.java,null,null,null)
         assertNull(wrong.list);assertNull(wrong.count)
