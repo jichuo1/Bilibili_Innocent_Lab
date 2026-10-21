@@ -520,7 +520,7 @@ cd Bilibili_Innocent_Lab
 .\gradlew.bat :app:lintFast --console=plain --no-daemon
 ```
 
-快速检查仅跳过明确列出的 32 条 BetterAndroid / KavaRef API 替换建议，仍检查测试源码并保留 Android 正确性、权限、API 兼容性和 Hikage 规则。它不是完整门禁；提交前和 CI 使用完整检查：
+快速检查仅跳过明确列出的 32 条 BetterAndroid / KavaRef API 替换建议，生产源码的 Android 正确性、权限、API 兼容性和 Hikage 规则保持启用；测试源码由编译与测试任务验证，不纳入 Lint。它不是完整门禁；提交前和 CI 使用完整检查：
 
 ```powershell
 .\gradlew.bat :app:lintDebug --console=plain --no-daemon
@@ -538,7 +538,7 @@ cd Bilibili_Innocent_Lab
 Bilibili_Innocent_Lab/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-构建完成后，请确认 APK 修改时间晚于源码修改时间。安装到设备后，建议对比本地 APK 与设备端已安装 `base.apk` 的校验值，避免 Gradle 缓存或旧产物导致测试结果失真。
+构建完成后，确认 Gradle 任务成功，并使用该次构建的 APK；`UP-TO-DATE` 或 `FROM-CACHE` 是有效的增量结果，不能仅凭 APK 修改时间判断产物是否包含最新输入。安装到设备后，建议对比本地 APK 与设备端已安装 `base.apk` 的 SHA-256，避免安装到旧产物。
 
 **延伸文档**
 

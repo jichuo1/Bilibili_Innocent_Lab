@@ -29,6 +29,23 @@ class ReleaseWorkflowSigningTest(unittest.TestCase):
                     self.assertIn("uses: ./.github/actions/gradle-cache", publish)
                     self.assertNotIn("actions/cache/save@", publish)
 
+    def test_all_build_workflows_use_the_complete_gate_and_one_cache_owner(self) -> None:
+        self.assertTrue({"assembleDebug", "testDebugUnitTest", "lintDebug", "minifyReleaseWithR8"}.issubset(TASKS))
+        for name in ("canary-build.yml", "alpha-release.yml", "stable-release.yml", "advanced-verify.yml"):
+            with self.subTest(workflow=name):
+                verify = (WORKFLOW_DIRECTORY / name).read_text(encoding="utf-8").split("\n  publish:", 1)[0]
+                gate = verify.split("run_gradle_gates.py", 1)[1].split("- name:", 1)[0]
+                self.assertIn("--compile-sdk", gate)
+                self.assertIn("--jvmargs=", gate)
+                self.assertNotIn("testLayer=", verify)
+                self.assertNotIn("lintFast", verify)
+                self.assertIn("uses: ./.github/actions/gradle-cache", verify)
+                self.assertLess(verify.index("run_gradle_gates.py"), verify.index("Collect complete verification evidence"))
+        cache = (REPOSITORY_ROOT / ".github/actions/gradle-cache/action.yml").read_text(encoding="utf-8")
+        self.assertIn("cache-provider: external", cache)
+        self.assertIn("actions/cache/restore@", cache)
+        self.assertIn("restore-keys:", cache)
+
     def test_oversized_announcements_are_published_with_checksum(self) -> None:
         for name in ("alpha-release.yml", "stable-release.yml"):
             with self.subTest(workflow=name):

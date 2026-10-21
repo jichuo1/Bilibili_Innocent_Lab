@@ -105,6 +105,18 @@ class RunGradleGatesTest(unittest.TestCase):
         self.assertNotEqual(0, result)
         self.assertEqual(["example.SourceContractTest"], receipt["reports"]["layers"]["contract"]["missing_classes"])
 
+    def test_java_test_classes_are_required_in_full_report_coverage(self) -> None:
+        self.write_reports()
+        self.write("src/test/java/example/JavaBehaviorTest.java", "package example;\npublic final class JavaBehaviorTest {\n @org.junit.Test public void checks() {}\n}\n")
+        self.write("src/test/java/example/FixtureTest.java", "package example;\npublic class FixtureTest {}\n")
+        result, receipt, _ = self.run_fake()
+        self.assertNotEqual(0, result)
+        self.assertEqual(["example.JavaBehaviorTest"], receipt["reports"]["layers"]["unit"]["missing_classes"])
+        self.write("build/test-results/testDebugUnitTest/TEST-example.JavaBehaviorTest.xml", '<testsuite tests="1"><testcase classname="example.JavaBehaviorTest"/></testsuite>')
+        result, receipt, _ = self.run_fake()
+        self.assertEqual(0, result)
+        self.assertEqual(2, receipt["reports"]["layers"]["unit"]["reported_classes"])
+
     def test_empty_or_malformed_test_reports_fail(self) -> None:
         for xml in ("", "<testsuite", '<testsuite tests="0"/>', '<testsuite tests="2"><testcase classname="example.BehaviorTest"/></testsuite>'):
             with self.subTest(xml=xml):

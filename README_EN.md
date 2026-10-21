@@ -569,7 +569,7 @@ Use the fast check during local iteration:
 .\gradlew.bat :app:lintFast --console=plain --no-daemon
 ```
 
-The fast check skips only an explicit list of 32 BetterAndroid / KavaRef API replacement suggestions. Test-source analysis and Android correctness, permission, API compatibility, and Hikage checks remain enabled. It does not replace the full gate. Before committing and in CI, run:
+The fast check skips only an explicit list of 32 BetterAndroid / KavaRef API replacement suggestions. Android correctness, permission, API compatibility, and Hikage checks remain enabled for production sources. Test sources are verified by compilation and tests, and are excluded from Lint. It does not replace the full gate. Before committing and in CI, run:
 
 ```powershell
 .\gradlew.bat :app:lintDebug --console=plain --no-daemon
@@ -587,7 +587,7 @@ The debug APK is written to:
 Bilibili_Innocent_Lab/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-After a build, make sure the APK's modification time is later than the source modification time. After installing it on a device, comparing the checksum of the local APK with the installed `base.apk` on the device is recommended, so that a Gradle cache or a stale artifact does not distort your testing.
+Confirm that Gradle completed successfully and use the APK from that build. `UP-TO-DATE` and `FROM-CACHE` are valid incremental results; APK modification time alone does not prove whether an artifact includes the current inputs. After installation, compare the SHA-256 of the local APK with the installed `base.apk` to confirm that the intended artifact was installed.
 
 **Further documentation**
 

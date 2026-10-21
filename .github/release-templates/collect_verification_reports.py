@@ -50,7 +50,8 @@ def collect(repository: Path, build_outcome: str, environment: dict[str, str]) -
         raise ValueError("invalid source commit")
     if environment.get("GITHUB_SHA") != source_commit:
         errors.append("source_commit_does_not_match_event")
-    reports = gates.collect_reports(project)
+    expected = gates.source_test_inventory(project)
+    reports = gates.collect_reports(project, expected)
     errors.extend(reports["errors"])
     gate_path = project / "app/build/reports/gradle-gates.json"
     try:
@@ -99,8 +100,7 @@ def collect(repository: Path, build_outcome: str, environment: dict[str, str]) -
             errors.append(f"missing_required_report:{required}")
     if not any(p.startswith("build/reports/profile/") and p.endswith(".html") and (output / p).stat().st_size for p in paths):
         errors.append("missing_gradle_profile")
-    inventory = {layer: sorted(gates.source_test_classes(project / "app/src" / folder))
-                 for layer, folder in (("unit", "test"), ("contract", "contractTest"))}
+    inventory = {layer: sorted(classes) for layer, classes in expected.items()}
     outputs = {}
     for name, item in reports["files"].items():
         path = project / item["path"]

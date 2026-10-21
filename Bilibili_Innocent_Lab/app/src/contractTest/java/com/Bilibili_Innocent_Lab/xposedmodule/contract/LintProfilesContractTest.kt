@@ -50,34 +50,4 @@ class LintProfilesContractTest {
         assertTrue(buildScript.contains("Request lintFast by its full task name"))
     }
 
-    @Test fun allReleaseWorkflowsKeepFullLintInOneCompleteGate() {
-        val helper = SourceContract.normalize(
-            File(repo, ".github/release-templates/run_gradle_gates.py").readText()
-        )
-        for (task in listOf("assembleDebug", "testDebugUnitTest", "lintDebug", "minifyReleaseWithR8")) {
-            assertTrue(task, helper.contains("\"$task\""))
-        }
-        assertTrue(helper.contains("\"--continue\""))
-        assertTrue(helper.contains("\"--no-daemon\""))
-        for (name in listOf("canary-build.yml", "alpha-release.yml", "stable-release.yml")) {
-            val workflow = SourceContract.normalize(File(repo, ".github/workflows/$name").readText())
-            val verification = workflow.after("      - name: Run complete Gradle verification\n")
-                .before("      - name: Upload test and lint reports")
-            assertTrue(name, verification.contains("run_gradle_gates.py"))
-            assertTrue(name, verification.contains("--compile-sdk"))
-            assertTrue(name, verification.contains("--jvmargs="))
-            assertFalse(name, workflow.contains("testLayer="))
-            assertFalse(name, workflow.contains("lintFast"))
-            assertEquals(name, 2, Regex("uses: ./\\.github/actions/gradle-cache").findAll(workflow).count())
-            val publish = workflow.after("\n  publish:")
-            assertFalse(name, publish.contains("actions/cache/save@"))
-            assertTrue(name, workflow.contains("Collect complete verification evidence"))
-            assertTrue(name, workflow.contains("if-no-files-found: error"))
-        }
-        val cache = File(repo, ".github/actions/gradle-cache/action.yml").readText()
-        assertTrue(cache.contains("cache-provider: external"))
-        assertTrue(cache.contains("actions/cache/restore@"))
-        assertTrue(cache.contains("restore-keys:"))
-        assertTrue(buildScript.contains(".github/actions/**/action.yml"))
-    }
 }

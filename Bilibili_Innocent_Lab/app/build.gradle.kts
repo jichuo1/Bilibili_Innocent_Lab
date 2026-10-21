@@ -466,7 +466,7 @@ tasks.register("contractsFor") {
             val process = ProcessBuilder("git", "diff", "--name-only", "HEAD")
                 .directory(repoDir).redirectErrorStream(true).start()
             val output = process.inputStream.bufferedReader().readText()
-            process.waitFor()
+            check(process.waitFor() == 0) { "Cannot inspect changed files: git diff failed." }
             output.lines()
                 .filter { it.contains("/src/main/") && it.endsWith(".kt") }
                 .map { it.substringAfterLast('/').removeSuffix(".kt") }
@@ -477,12 +477,14 @@ tasks.register("contractsFor") {
             println("No changed production Kotlin files.")
             return@doLast
         }
-        val contracts = root.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
-        for (symbol in symbols) {
+        // Read each contract once even when a change touches many production files.
+        val contracts = root.walkTopDown().filter { it.isFile && it.extension == "kt" }
+            .map { it.relativeTo(root).invariantSeparatorsPath to it.readText() }.toList()
+        for (symbol in symbols.distinct()) {
             val pattern = Regex("\\b" + Regex.escape(symbol) + "\\b")
-            val hits = contracts.mapNotNull { file ->
-                val count = pattern.findAll(file.readText()).count()
-                if (count > 0) file.relativeTo(root).path.replace('\\', '/') to count else null
+            val hits = contracts.mapNotNull { (path, text) ->
+                val count = pattern.findAll(text).count()
+                if (count > 0) path to count else null
             }.sortedByDescending { it.second }
             println("== $symbol: ${hits.size} contract file(s)")
             hits.forEach { (path, count) -> println("   $count  $path") }

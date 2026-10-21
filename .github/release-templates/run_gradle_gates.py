@@ -21,9 +21,8 @@ import xml.etree.ElementTree as ET
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PROJECT_DIRECTORY = "Bilibili_Innocent_Lab"
-# Gradle schedules ready work in command-line order. Full lint (Kotlin/Java compile, then
-# ~8 minutes of single-threaded analysis) is the critical path, so it goes first; the release
-# chain and debug packaging (including CMake) fill the remaining workers alongside it.
+# Put full lint first so its compile dependencies can start early. The independent release
+# chain and debug packaging (including CMake) can use other available Gradle workers.
 TASKS = (
     "lintDebug",
     "compileDebugUnitTestKotlin",
@@ -72,12 +71,12 @@ def build_command(project: Path, options: argparse.Namespace) -> list[str]:
 def source_test_classes(directory: Path) -> set[str]:
     """Match the existing Gradle contract class convention, excluding fixtures."""
     classes: set[str] = set()
-    for source in sorted(directory.rglob("*.kt")):
+    for source in sorted(path for path in directory.rglob("*") if path.suffix in (".kt", ".java")):
         text = source.read_text(encoding="utf-8")
         package = re.search(r"^package ([\w.]+)", text, re.MULTILINE)
         if not package or not re.search(r"@(?:org\.junit\.)?Test\b", text):
             continue
-        for name in re.findall(r"^(?:internal |public )?class (\w+)", text, re.MULTILINE):
+        for name in re.findall(r"^(?:(?:internal|public|final|open)\s+)*class (\w+)", text, re.MULTILINE):
             if name.endswith("Test"):
                 classes.add(f"{package[1]}.{name}")
     return classes
@@ -89,10 +88,16 @@ def read_xml(path: Path) -> ET.Element:
     return ET.parse(path).getroot()
 
 
-def collect_reports(project: Path) -> dict:
+def source_test_inventory(project: Path) -> dict[str, set[str]]:
+    return {layer: source_test_classes(project / "app/src" / folder)
+            for layer, folder in (("unit", "test"), ("contract", "contractTest"))}
+
+
+def collect_reports(project: Path, expected: dict[str, set[str]] | None = None) -> dict:
     app = project / "app"
     errors: list[str] = []
-    expected = {layer: source_test_classes(app / "src" / folder) for layer, folder in (("unit", "test"), ("contract", "contractTest"))}
+    if expected is None:
+        expected = source_test_inventory(project)
     totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0, "time_seconds": 0.0}
     classes: set[str] = set()
     report_files = sorted((app / "build/test-results/testDebugUnitTest").glob("TEST-*.xml"))

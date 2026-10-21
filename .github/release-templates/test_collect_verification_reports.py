@@ -68,6 +68,13 @@ class CollectVerificationReportsTest(unittest.TestCase):
         self.assertTrue((output / "app/build/reports/tests/testDebugUnitTest/css/base-style.css").is_file())
         self.assertIn("r8_mapping", manifest["verified_outputs"])
 
+    def test_report_validation_and_manifest_share_one_source_inventory(self):
+        self.prepare()
+        with patch.object(gates, "source_test_inventory", wraps=gates.source_test_inventory) as inventory:
+            _, manifest = self.collect()
+        self.assertEqual("complete", manifest["status"])
+        inventory.assert_called_once_with(self.project)
+
     def test_missing_raw_contract_report_cannot_be_complete(self):
         self.prepare()
         (self.project / "app/build/test-results/testDebugUnitTest/TEST-ContractTest.xml").unlink()

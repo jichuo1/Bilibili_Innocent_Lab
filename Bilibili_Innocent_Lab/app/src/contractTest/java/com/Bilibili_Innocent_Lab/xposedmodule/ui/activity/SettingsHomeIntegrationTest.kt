@@ -36,8 +36,13 @@ class SettingsHomeIntegrationTest {
 
     @Test fun favoritesReuseTheOriginalListenerAndConfirmationSwitchRemainsNavigationOnly() {
         val home = SettingsUiSource.file("SettingsHomePresenter")
-        assertTrue(home.contains("if (source.isEnabled) source.isChecked = checked"))
-        assertTrue(home.after("peer.setOnCheckedChangeListener").before("card.addView(peer").contains("sync()"))
+        val callback = SettingsUiSource.functions(home, "renderFavorites").single()
+            .after("peer.setOnCheckedChangeListener").before("card.addView(peer")
+        // Preserve the enabled guard without fixing whitespace, line breaks or optional braces.
+        val guardedWrite = Regex("""if\s*\(\s*source\.isEnabled\s*\)\s*(?:\{\s*)?source\.isChecked\s*=\s*checked\b""")
+        val write = guardedWrite.find(SettingsUiSource.code(callback))
+        assertNotNull("Favorites must route enabled writes through the original switch", write)
+        assertTrue(callback.indexOf("sync()") > requireNotNull(write).range.last)
         assertTrue(home.contains("peer.alpha = source.alpha"))
         assertTrue(home.contains("peer.isEnabled = source.isEnabled"))
         assertTrue(home.contains("source.observeState(::sync)"))
