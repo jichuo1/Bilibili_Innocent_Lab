@@ -36,7 +36,10 @@ class SettingsHomeIntegrationTest {
 
     @Test fun favoritesReuseTheOriginalListenerAndConfirmationSwitchRemainsNavigationOnly() {
         val home = SettingsUiSource.file("SettingsHomePresenter")
-        assertTrue(home.contains("source.isChecked = checked; sync()"))
+        assertTrue(home.contains("if (source.isEnabled) source.isChecked = checked"))
+        assertTrue(home.after("peer.setOnCheckedChangeListener").before("card.addView(peer").contains("sync()"))
+        assertTrue(home.contains("peer.alpha = source.alpha"))
+        assertTrue(home.contains("peer.isEnabled = source.isEnabled"))
         assertTrue(home.contains("source.observeState(::sync)"))
         assertFalse(home.contains("putBoolean("))
         assertFalse(home.contains("prefs()"))

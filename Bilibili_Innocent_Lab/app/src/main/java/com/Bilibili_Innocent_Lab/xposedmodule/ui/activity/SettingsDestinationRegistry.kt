@@ -13,5 +13,8 @@ internal class SettingsDestinationRegistry<T : Any> {
     fun idsFor(target: T): Set<String> = targets.filterValues { refs -> refs.any { it.get() === target } }.keys
     fun resolve(id: String, available: (T) -> Boolean): T? =
         targets[id]?.mapNotNull { it.get() }?.filter(available)?.singleOrNull()
+    fun forEachTarget(action: (String, T) -> Unit) {
+        targets.forEach { (id, refs) -> refs.mapNotNull { it.get() }.forEach { action(id, it) } }
+    }
     fun clear() = targets.clear()
 }

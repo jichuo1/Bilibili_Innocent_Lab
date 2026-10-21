@@ -699,7 +699,8 @@ internal fun MainActivity.enhancePlaybackCategory(
                 isClickable = true
                 isFocusable = true
                 setOnClickListener { showPlayerSpeedDialog(longPress, it) }
-                if (!longPress) settingsDestinations.bind(SettingsCatalog.ID_PLAYER_DEFAULT_SPEED,this)
+                bindSettingDestination(this, if (longPress) FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT
+                    else FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT)
             }
         ) {
             TextView(lparams = LayoutParams(widthMatchParent = true)) {

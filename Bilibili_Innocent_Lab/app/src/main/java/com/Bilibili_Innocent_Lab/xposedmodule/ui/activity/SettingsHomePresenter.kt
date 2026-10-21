@@ -449,13 +449,20 @@ internal class SettingsHomePresenter(
                 var syncing = false
                 fun sync() {
                     syncing = true
-                    try { peer.isChecked = source.isChecked; peer.isEnabled = source.isEnabled }
+                    try {
+                        peer.isChecked = source.isChecked
+                        peer.alpha = source.alpha
+                        peer.isEnabled = source.isEnabled
+                    }
                     finally { syncing = false }
                 }
                 sync()
                 peerDisposers += source.observeState(::sync)
                 peer.setOnCheckedChangeListener { _, checked ->
-                    if (!syncing) { source.isChecked = checked; sync() }
+                    if (!syncing) {
+                        if (source.isEnabled) source.isChecked = checked
+                        sync()
+                    }
                 }
                 card.addView(peer, LinearLayout.LayoutParams(-1, -2))
             } else {

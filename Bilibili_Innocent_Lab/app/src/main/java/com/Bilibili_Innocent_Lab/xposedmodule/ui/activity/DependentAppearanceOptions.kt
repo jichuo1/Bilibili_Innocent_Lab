@@ -17,7 +17,8 @@ internal class DependentAppearanceOptions(private val available: () -> Boolean) 
     }
 
     private fun apply(view: View, normalAlpha: Float, enabled: Boolean) {
-        view.isEnabled = enabled
         view.alpha = normalAlpha * if (enabled) 1f else .45f
+        // Enabled-state observers (favorites) must see the final visual state too.
+        view.isEnabled = enabled
     }
 }

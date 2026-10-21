@@ -735,6 +735,7 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
     TextView(
         lparams = LayoutParams(widthMatchParent = true)
     ) {
+        bindSettingDestination(this, FeaturePreferences.COMMENT_FILTER_KEYWORDS)
         commentKeywordSummaryView = this
         text = stringResource(R.string.comment_keyword_rules) + "\n" +
             if (commentFilterKeywords.isBlank()) {
@@ -824,6 +825,7 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
     TextView(
         lparams = LayoutParams(widthMatchParent = true)
     ) {
+        bindSettingDestination(this, FeaturePreferences.COMMENT_MIN_LEVEL)
         commentLevelSummaryView = this
         text = stringResource(R.string.comment_min_level_current, commentMinLevel)
         textColor = colorResource(R.color.colorTextGray)
@@ -916,6 +918,7 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
     TextView(
         lparams = LayoutParams(widthMatchParent = true)
     ) {
+        bindSettingDestination(this, FeaturePreferences.COMMENT_USER_FILTER_RULES)
         commentUserFilterSummaryView = this
         text = commentUserFilterSummaryText(commentUserFilterRules)
         textColor = colorResource(R.color.colorTextGray)
@@ -1776,6 +1779,7 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
     TextView(
         lparams = LayoutParams(widthMatchParent = true)
     ) {
+        bindSettingDestination(this, FeaturePreferences.DANMAKU_WEIGHT_FILTER_MINIMUM)
         danmakuWeightSummaryView = this
         text = stringResource(
             R.string.danmaku_weight_current,
@@ -2161,6 +2165,7 @@ internal fun MainActivity.purifySearchCategory(scope: Hikage.Performer<NativeLin
     TextView(
         lparams = LayoutParams(widthMatchParent = true)
     ) {
+        bindSettingDestination(this, FeaturePreferences.SEARCH_FILTER_KEYWORDS)
         searchKeywordSummaryView = this
         text = ruleEntryText(
             R.string.search_keyword_rules,
@@ -2242,6 +2247,7 @@ internal fun MainActivity.purifySearchCategory(scope: Hikage.Performer<NativeLin
     TextView(
         lparams = LayoutParams(widthMatchParent = true)
     ) {
+        bindSettingDestination(this, FeaturePreferences.SEARCH_AUTHOR_FILTER_RULES)
         searchAuthorSummaryView = this
         text = ruleEntryText(
             R.string.search_author_filter_rules,
@@ -2484,6 +2490,7 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
     TextView(
         lparams = LayoutParams(widthMatchParent = true)
     ) {
+        bindSettingDestination(this, FeaturePreferences.DYNAMIC_FILTER_KEYWORDS)
         dynamicKeywordSummaryView = this
         text = ruleEntryText(
             R.string.dynamic_keyword_rules,
@@ -2565,6 +2572,7 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
     TextView(
         lparams = LayoutParams(widthMatchParent = true)
     ) {
+        bindSettingDestination(this, FeaturePreferences.DYNAMIC_AUTHOR_FILTER_RULES)
         dynamicAuthorSummaryView = this
         text = ruleEntryText(
             R.string.dynamic_author_filter_rules,
@@ -3133,6 +3141,7 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
     TextView(
         lparams = LayoutParams(widthMatchParent = true)
     ) {
+        bindSettingDestination(this, FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_KEYWORDS)
         homeRecommendTitleSummaryView = this
         text = stringResource(R.string.home_recommend_title_rules) + "\n" +
             if (homeRecommendTitleKeywords.isBlank()) {

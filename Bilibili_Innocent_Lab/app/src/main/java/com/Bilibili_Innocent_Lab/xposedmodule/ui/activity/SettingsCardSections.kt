@@ -1739,6 +1739,7 @@ internal fun MainActivity.logSettingsCard(scope: Hikage.Performer<NativeLinearLa
         LogSegmentScrubBar(
             lparams = LayoutParams(widthMatchParent = true),
             init = {
+                bindSettingDestination(this, HookEntry.PREF_LOG_LEVEL)
                 // 控件整体接管触摸（轻点/拖动/回弹），与全局长按弹性手势互斥，
                 // 打上排除标记（底栏 dock 同款处理）。
                 tag = com.Bilibili_Innocent_Lab.xposedmodule.ui.interaction.ElasticInteractionController.EXCLUDED_TAG

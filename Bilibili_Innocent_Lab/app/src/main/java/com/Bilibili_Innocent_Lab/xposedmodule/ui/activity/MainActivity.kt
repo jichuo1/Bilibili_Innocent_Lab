@@ -684,6 +684,7 @@ class MainActivity : SkinnedActivity() {
 
     /** 当前活动的确认弹窗：Activity 销毁时主动 dismiss，避免 WindowLeaked */
     internal var activeConfirmDialog: Dialog? = null
+    private val settingDependencies = SettingsDependencyBindings()
     internal val settingsDestinations = SettingsDestinationRegistry<View>()
     internal var pendingHighlightsFrom: Int? = null
     private var pendingHighlightsAutomatic = true
@@ -4138,6 +4139,7 @@ class MainActivity : SkinnedActivity() {
     }
 
     override fun onDestroy() {
+        settingDependencies.dispose()
         settingsHome?.dispose()
         settingsHome = null
         cancelSettingsReveal()
@@ -4935,6 +4937,8 @@ class MainActivity : SkinnedActivity() {
         )
         // 两个进阶菜单已在各自大类末尾；首帧前只整理区域分组，不移动顶层卡片。
         installAdvancedCategorySections()
+        settingsDestinations.forEachTarget { id, view -> settingDependencies.bind(view, id) }
+        settingDependencies.start(modulePrefs)
         renderNoRootUi()
         // 首次连续前台停留十秒后，每进程至多一次自动检查；不在布局重建时重复启动。
         scheduleColdStartUpdate()
@@ -4982,12 +4986,15 @@ class MainActivity : SkinnedActivity() {
     ) {
         val id = SettingsCatalog.byStorageKey[storageKey]?.id ?: return
         view.settingId = id
+        settingDependencies.bind(view, id)
         view.supportsFavoriteToggle = directToggle
     }
 
     internal fun bindSettingDestination(view: View, storageKey: String) {
         SettingsCatalog.byStorageKey[storageKey]?.id?.let { settingsDestinations.bind(it, view) }
     }
+
+    internal fun bindSettingDependency(view: View, id: String) = settingDependencies.bind(view, id)
 
     /**
      * 高级材质开关：液态玻璃材质已并入柔光美学，开关只决定是否加装这层材质。

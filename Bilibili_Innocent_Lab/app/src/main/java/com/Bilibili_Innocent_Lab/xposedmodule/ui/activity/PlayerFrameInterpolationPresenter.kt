@@ -139,7 +139,9 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
                 updatePadding(horizontal = 0.dp, vertical = 9.dp)
                 isClickable = true
                 isFocusable = true
+                bindSettingDependency(this, SettingsDependencies.FRAME_MODEL)
                 setOnClickListener {
+                    if (!isEnabled) return@setOnClickListener
                     runInBackground("frame-model-download") {
                         if (FrameModelDownloader.state() == FrameModelDownloader.State.READY) {
                             showState(FrameModelDownloader.State.READY); return@runInBackground
