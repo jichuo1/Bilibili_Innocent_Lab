@@ -9,6 +9,45 @@ import org.junit.Test
 
 class KavaMemberLookupTest {
 
+    private open class OverloadedBase {
+        private fun inherited() = "zero"
+        private fun inherited(value: Int) = value
+        private fun onlyWithArgument(value: Int) = value
+    }
+
+    private class Overloaded : OverloadedBase {
+        constructor() : super()
+        constructor(@Suppress("UNUSED_PARAMETER") value: Int) : super()
+        private fun read() = "zero"
+        private fun read(value: Int) = value
+        private fun onlyWithArgument(value: Int) = value
+    }
+
+    @Test fun `zero parameter constructor lookup is exact even with overloaded constructors`() {
+        val constructor = requireNotNull(KavaMemberLookup.constructorOrNull(Overloaded::class.java))
+        assertEquals(0, constructor.parameterCount)
+        assertTrue(constructor.newInstance() is Overloaded)
+        assertNull(KavaMemberLookup.constructorOrNull(HiddenMethods::class.java))
+        assertEquals(1, KavaMemberLookup.constructorOrNull(Overloaded::class.java, Integer.TYPE)?.parameterCount)
+    }
+
+    @Test fun `zero parameter method lookup rejects argument only overloads`() {
+        val method = requireNotNull(KavaMemberLookup.methodOrNull(Overloaded::class.java, "read"))
+        assertEquals(0, method.parameterCount)
+        assertEquals("zero", method.invoke(Overloaded()))
+        assertNull(KavaMemberLookup.methodOrNull(Overloaded::class.java, "onlyWithArgument"))
+        assertEquals(1, KavaMemberLookup.methodOrNull(Overloaded::class.java, "read", Integer.TYPE)?.parameterCount)
+    }
+
+    @Test fun `inherited zero parameter lookup stays exact and caches absent overloads`() {
+        repeat(2) {
+            val method = requireNotNull(KavaMemberLookup.inheritedMethodOrNull(Overloaded::class.java, "inherited"))
+            assertEquals(0, method.parameterCount)
+            assertEquals("zero", method.invoke(Overloaded()))
+            assertNull(KavaMemberLookup.inheritedMethodOrNull(Overloaded::class.java, "onlyWithArgument"))
+        }
+    }
+
     @Before
     fun resetLookupCaches() {
         KavaMemberLookup.resetForTests()

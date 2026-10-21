@@ -2768,6 +2768,58 @@ class HookEntry : XposedModule() {
                 )
             )
 
+            fun createTopBarFx(chromePoints: Map<String, VersionAdapter.HookPoint> = hostAdaptResult?.homeChrome.orEmpty()) =
+                HostTopBarFxFeatureInstaller(
+                    liquidGlass = prefs.getBoolean(
+                        FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS,
+                        false
+                    ),
+                    touchGlow = prefs.getBoolean(
+                        FeaturePreferences.HOST_TOP_BAR_TOUCH_GLOW,
+                        false
+                    ),
+                    points = hostAdaptResult?.homeTopBar,
+                    backgroundPreset = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset.read(
+                        prefs.getString(FeaturePreferences.HOST_BACKGROUND_PRESET, "off")),
+                    appearance = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance.read(
+                        prefs.getString(FeaturePreferences.HOST_TOP_BAR_GLASS_MATERIAL, "soft"),
+                        prefs.getString(FeaturePreferences.HOST_TOP_BAR_GLASS_RENDERER, "legacy"),
+                        bottom = false,
+                        enabled = prefs.getBoolean(FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS, false)
+                    ),
+                    chromePoints = chromePoints
+                )
+
+            fun createBottomBarFx(chromePoints: Map<String, VersionAdapter.HookPoint> = hostAdaptResult?.homeChrome.orEmpty(),
+                semanticsPoint: com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HomeChromeSemanticsPoint? = hostAdaptResult?.homeChromeSemantics) =
+                HostBottomBarFxFeatureInstaller(
+                    liquidGlass = prefs.getBoolean(
+                        FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS,
+                        false
+                    ),
+                    touchGlow = prefs.getBoolean(
+                        FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW,
+                        false
+                    ),
+                    points = hostAdaptResult?.bottomBar,
+                    compact = prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_COMPACT, false),
+                    iconOnly = prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY, false),
+                    appearance = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance.read(
+                        prefs.getString(FeaturePreferences.HOST_BOTTOM_BAR_GLASS_MATERIAL, "soft"),
+                        prefs.getString(FeaturePreferences.HOST_BOTTOM_BAR_GLASS_RENDERER, "legacy"),
+                        bottom = true,
+                        enabled = prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS, false)
+                    ),
+                    chromePoints = chromePoints,
+                    semanticsPoint = semanticsPoint
+                )
+
+            val homeChromeEnabled = listOf(FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS,
+                FeaturePreferences.HOST_TOP_BAR_TOUCH_GLOW, FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS,
+                FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW).any { prefs.getBoolean(it, false) }
+            val topBarFxInstaller = createTopBarFx()
+            val bottomBarFxInstaller = createBottomBarFx()
+
             featureInstallCoordinator.installAll(
                 listOf(
                     HomeTopBarFeatureInstaller(
@@ -2787,25 +2839,7 @@ class HookEntry : XposedModule() {
                             (!prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS, false) &&
                                 prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW, false))
                     ),
-                    HostTopBarFxFeatureInstaller(
-                        liquidGlass = prefs.getBoolean(
-                            FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS,
-                            false
-                        ),
-                        touchGlow = prefs.getBoolean(
-                            FeaturePreferences.HOST_TOP_BAR_TOUCH_GLOW,
-                            false
-                        ),
-                        points = hostAdaptResult?.homeTopBar,
-                        backgroundPreset = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset.read(
-                            prefs.getString(FeaturePreferences.HOST_BACKGROUND_PRESET, "off")),
-                        appearance = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance.read(
-                            prefs.getString(FeaturePreferences.HOST_TOP_BAR_GLASS_MATERIAL, "soft"),
-                            prefs.getString(FeaturePreferences.HOST_TOP_BAR_GLASS_RENDERER, "legacy"),
-                            bottom = false,
-                            enabled = prefs.getBoolean(FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS, false)
-                        )
-                    )
+                    topBarFxInstaller
                 )
             )
 
@@ -3144,25 +3178,7 @@ class HookEntry : XposedModule() {
                         ).orEmpty(),
                         points = hostAdaptResult?.bottomBar
                     ),
-                    HostBottomBarFxFeatureInstaller(
-                        liquidGlass = prefs.getBoolean(
-                            FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS,
-                            false
-                        ),
-                        touchGlow = prefs.getBoolean(
-                            FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW,
-                            false
-                        ),
-                        points = hostAdaptResult?.bottomBar,
-                        compact = prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_COMPACT, false),
-                        iconOnly = prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY, false),
-                        appearance = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance.read(
-                            prefs.getString(FeaturePreferences.HOST_BOTTOM_BAR_GLASS_MATERIAL, "soft"),
-                            prefs.getString(FeaturePreferences.HOST_BOTTOM_BAR_GLASS_RENDERER, "legacy"),
-                            bottom = true,
-                            enabled = prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS, false)
-                        )
-                    ),
+                    bottomBarFxInstaller,
                     *HostVideoCardStyleFeatureInstaller.shared(
                         cardSurfaces = hostAdaptResult?.pageBoundaries?.cardSurfaces.orEmpty(),
                         enabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
@@ -4860,6 +4876,17 @@ class HookEntry : XposedModule() {
                                                 featureInstallCoordinator.installAll(listOf(endPageInstaller))
                                         }
                                     }
+                                    if (homeChromeEnabled) {
+                                        val adaptedChrome = VersionAdapter.loadCached(attachedContext, versionAdapterResetTimestamp)
+                                        val chrome = adaptedChrome?.homeChrome.orEmpty()
+                                        hookEnvironment.postToMain?.invoke {
+                                            val pending = buildList {
+                                                if (topBarFxInstaller.updateChromePoints(chrome)) add(topBarFxInstaller)
+                                                if (bottomBarFxInstaller.updateChromePoints(chrome, adaptedChrome?.homeChromeSemantics)) add(bottomBarFxInstaller)
+                                            }
+                                            if (pending.isNotEmpty()) featureInstallCoordinator.installAll(pending)
+                                        }
+                                    }
                                     retryFreeCopyHooksAfterAdapt()
                                     VersionAdapter.showAdaptToast(
                                         attachedContext,
@@ -4881,6 +4908,9 @@ class HookEntry : XposedModule() {
                         brandSplashCustomEnabled = prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_CUSTOM, false) &&
                             !prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_SKIP, false),
                         followFeedStyleEnabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
+                        homeChromeEnabled = homeChromeEnabled,
+                        homeChromeIconOnly = prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS, false) &&
+                            prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY, false),
                         playerQualityEnabled = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig.normalize(
                             prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_QUALITY_QN, 0)) != 0,
                         searchHomeRecommendEnabled = prefs.getBoolean(FeaturePreferences.HIDE_SEARCH_HOME_RECOMMEND, false),

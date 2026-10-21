@@ -130,7 +130,7 @@ internal object KavaMemberLookup {
             .optional(silent = true)
             .firstMethodOrNull {
                 this.name = name
-                parameters(*parameterTypes)
+                if (parameterTypes.isEmpty()) emptyParameters() else parameters(*parameterTypes)
             }
             ?.self
             ?.takeIf { it.makeAccessible() }
@@ -149,7 +149,7 @@ internal object KavaMemberLookup {
             .optional(silent = true)
             .firstMethodOrNull {
                 this.name = name
-                parameters(*parameterTypes)
+                if (parameterTypes.isEmpty()) emptyParameters() else parameters(*parameterTypes)
                 superclass()
             }
             ?.self
@@ -265,7 +265,7 @@ internal object KavaMemberLookup {
         declaringClass.resolve()
             .optional(silent = true)
             .firstConstructorOrNull {
-                parameters(*parameterTypes)
+                if (parameterTypes.isEmpty()) emptyParameters() else parameters(*parameterTypes)
             }
             ?.self
             ?.takeIf { it.makeAccessible() }

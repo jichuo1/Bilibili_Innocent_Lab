@@ -3,6 +3,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SearchHomeRecommendLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerEndPageRecommendLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HostCardSemanticAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeChromeAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import org.luckypray.dexkit.DexKitBridge
 import org.luckypray.dexkit.query.enums.MatchType
 import org.luckypray.dexkit.query.enums.StringMatchType
@@ -135,6 +137,11 @@ internal object DexKitAssistEngine : DexAssistEngine {
                                         } else if (query == DexAssistQuery.SPONSOR_CONTAINER_SCOPE) {
                                             runCatching { data.getConstructorInstance(classLoader).declaringClass }
                                                 .getOrNull()?.let { classes.getValue(query) += it }
+                                        } else if (query == DexAssistQuery.HOME_CHROME_SEMANTICS) {
+                                            // Initializers cannot become java.lang.reflect.Method. Resolve only
+                                            // their owner; the caller validates the canonical key and receiver ABI.
+                                            KavaMemberLookup.classOrNull(classLoader, data.declaredClassName)
+                                                ?.let { classes.getValue(query) += it }
                                         } else if (query == DexAssistQuery.SEARCH_HOME_STATE) {
                                             runCatching { data.getConstructorInstance(classLoader).declaringClass }
                                                 .getOrNull()?.let { classes.getValue(query) += it }
@@ -225,6 +232,27 @@ internal object DexKitAssistEngine : DexAssistEngine {
             matcher {
                 modifiers(Modifier.STATIC, MatchType.Contains); returnType = "void"; paramCount(5..6)
                 usingStrings(listOf(HostCardSemanticAdapter.marks.getValue(query)), StringMatchType.Contains)
+            }
+        }
+        DexAssistQuery.HOME_CHROME_SEMANTICS -> bridge.findMethod {
+            matcher {
+                name = "<clinit>"; modifiers = Modifier.STATIC; returnType = "void"; paramCount = 0
+                usingStrings(HomeChromeAdapter.SEMANTICS_MARKS, StringMatchType.Equals)
+            }
+        }
+        DexAssistQuery.HOME_CHROME_BOTTOM_CONTENT -> bridge.findMethod {
+            searchPackages("tv.danmaku.bili.khome.widget.bottomtab")
+            matcher {
+                paramCount(2..12)
+                usingStrings(listOf(HomeChromeAdapter.marks.getValue(query)), StringMatchType.Contains)
+            }
+        }
+        DexAssistQuery.HOME_CHROME_TOP, DexAssistQuery.HOME_CHROME_BOTTOM, DexAssistQuery.HOME_CHROME_BOTTOM_ITEM -> bridge.findMethod {
+            searchPackages(if (query == DexAssistQuery.HOME_CHROME_TOP)
+                "tv.danmaku.bili.khome.widget.topbar" else "tv.danmaku.bili.khome.widget.bottomtab")
+            matcher {
+                modifiers(Modifier.STATIC, MatchType.Contains); returnType = "void"; paramCount(4..20)
+                usingStrings(listOf(HomeChromeAdapter.marks.getValue(query)), StringMatchType.Contains)
             }
         }
         DexAssistQuery.PEGASUS_DIVIDER -> bridge.findMethod {

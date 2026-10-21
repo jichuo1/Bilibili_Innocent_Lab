@@ -1,6 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HostCardSemanticAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeChromeAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HomeChromeSemanticsPoint
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HostComposeSemanticsAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PageBoundaryAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PageBoundaryPoints
 import android.content.Context
@@ -1144,8 +1147,8 @@ object VersionAdapter {
     /**
      * “我的”页菜单组过滤边界。
      *
-     * 8.92.1+ 优先使用公开 getter；8.84.0–8.91.0 的同名模型只有公开字段，
-     * 因此回退到“菜单构建方法 + 精确字段链”，仍不扫描 View 树或缓存宿主实例。
+     * 公开 getter 与“菜单构建方法 + 精确字段链”独立保留。同一 APK 可同时携带新旧
+     * 模型，存在 getter 不代表当前布局消费它；仍不扫描 View 树或缓存宿主实例。
      */
     data class MineComponentPoints(
         val itemListGetters: List<HookPoint>,
@@ -1858,7 +1861,9 @@ object VersionAdapter {
         val brandSplashDecoder: HookPoint? = null,
         val followFeedStyle: FollowFeedPoints? = null,
         val playerSpeedMenu: PlayerSpeedMenuPoints? = null,
-        val pageBoundaries: PageBoundaryPoints? = null
+        val pageBoundaries: PageBoundaryPoints? = null,
+        val homeChrome: Map<String, HookPoint> = emptyMap(),
+        val homeChromeSemantics: HomeChromeSemanticsPoint? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("sv", SCHEMA_VERSION)
@@ -1900,6 +1905,8 @@ object VersionAdapter {
             followFeedStyle?.let { put("follow_feed_style", it.toJson()) }
             playerSpeedMenu?.let { put("player_speed_menu", it.toJson()) }
             pageBoundaries?.let { put("page_boundaries", it.toJson()) }
+            if (homeChrome.isNotEmpty()) put("home_chrome", HomeChromeAdapter.toJson(homeChrome))
+            homeChromeSemantics?.let { put("home_chrome_semantics", it.toJson()) }
             put("fp", hostFingerprint)
             put("protocol_fp", protocolFingerprint)
             put("dex_fp", dexSourceFingerprint)
@@ -2222,6 +2229,8 @@ object VersionAdapter {
                     it.paramClassNames == listOf(BrandSplashDecoderAdapter.INFO) } != false &&
                 playerSpeedMenu?.isStructurallyValid() != false &&
                 pageBoundaries?.isValid() != false &&
+                HomeChromeAdapter.validCache(homeChrome) &&
+                homeChromeSemantics?.isStructurallyValid() != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
         companion object {
@@ -2297,7 +2306,11 @@ object VersionAdapter {
                     playerSpeedMenu = if (o.has("player_speed_menu"))
                         PlayerSpeedMenuPoints.fromJson(o.getJSONObject("player_speed_menu")) ?: return null else null,
                     pageBoundaries = if (o.has("page_boundaries"))
-                        PageBoundaryPoints.fromJson(o.getJSONObject("page_boundaries")) ?: return null else null
+                        PageBoundaryPoints.fromJson(o.getJSONObject("page_boundaries")) ?: return null else null,
+                    homeChrome = if (o.has("home_chrome"))
+                        HomeChromeAdapter.fromJson(o.getJSONObject("home_chrome")) ?: return null else emptyMap(),
+                    homeChromeSemantics = if (o.has("home_chrome_semantics"))
+                        HomeChromeSemanticsPoint.fromJson(o.getJSONObject("home_chrome_semantics")) ?: return null else null
                 ).takeIf { it.isStructurallyValid() }
             }
         }
@@ -3025,6 +3038,8 @@ object VersionAdapter {
             followFeedStyle = runtime.followFeedStyle ?: cached.followFeedStyle,
             playerSpeedMenu = runtime.playerSpeedMenu ?: cached.playerSpeedMenu,
             pageBoundaries = runtime.pageBoundaries ?: cached.pageBoundaries,
+            homeChrome = cached.homeChrome + runtime.homeChrome,
+            homeChromeSemantics = runtime.homeChromeSemantics ?: cached.homeChromeSemantics,
         )
     }
 
@@ -3136,9 +3151,11 @@ object VersionAdapter {
         playerQualityEnabled: Boolean = false,
         playerSpeedMenuEnabled: Boolean = false,
         searchHomeRecommendEnabled: Boolean = false,
-        playerEndPageRecommendEnabled: Boolean = false
+        playerEndPageRecommendEnabled: Boolean = false,
+        homeChromeEnabled: Boolean = false,
+        homeChromeIconOnly: Boolean = false
     ) = ensureAdapted(
-        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled
+        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled, homeChromeEnabled, homeChromeIconOnly
     )
 
     internal fun ensureAdapted(
@@ -3156,7 +3173,9 @@ object VersionAdapter {
         playerQualityEnabled: Boolean = false,
         playerSpeedMenuEnabled: Boolean = false,
         searchHomeRecommendEnabled: Boolean = false,
-        playerEndPageRecommendEnabled: Boolean = false
+        playerEndPageRecommendEnabled: Boolean = false,
+        homeChromeEnabled: Boolean = false,
+        homeChromeIconOnly: Boolean = false
     ) {
         // reset 不同意味着不是同一次安装快照，必须重新读取而不能复用已缓存的 null/旧结果。
         val startup = if (startupCache.resetTimestamp == resetTimestamp.coerceAtLeast(0L)) {
@@ -3176,6 +3195,16 @@ object VersionAdapter {
         // 评论 high 点缺失只影响整轮快路径，不能使播放器已经完成的兜底每次启动重扫。
         val popupHistory = startup.usableCache(highCandidateExists = false)
         val previousPages = popupHistory?.pageBoundaries
+        val previousChrome = popupHistory?.homeChrome.orEmpty()
+        val previousChromeSemantics = popupHistory?.homeChromeSemantics
+        val semanticsAttempted = popupHistory?.diagnostics.orEmpty().any {
+            it.id == HomeChromeAdapter.SEMANTICS_DIAGNOSTIC && it.state == AdaptState.MISSING
+        }
+        val chromeAttempted = HomeChromeAdapter.families.keys.filterTo(linkedSetOf()) { query ->
+            popupHistory?.diagnostics.orEmpty().any {
+                it.id == HomeChromeAdapter.diagnostic(query) && it.state == AdaptState.MISSING
+            }
+        }
         val pageAttempted = PageBoundaryAdapter.queries.filterTo(linkedSetOf()) { query ->
             popupHistory?.diagnostics.orEmpty().any {
                 it.id == PageBoundaryAdapter.diagnostic(query) && it.state in setOf(AdaptState.FOUND, AdaptState.MISSING)
@@ -3223,6 +3252,8 @@ object VersionAdapter {
                 value.diagnostics.any { it.id == FollowFeedAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING }) ||
                 BrandSplashDecoderAdapter.needsQuery(classLoader, value.brandSplashDecoder, brandSplashCustomEnabled,
                 value.diagnostics.any { it.id == BrandSplashDecoderAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING }) ||
+                HomeChromeAdapter.planned(classLoader, value.homeChrome, homeChromeEnabled, chromeAttempted, homeChromeIconOnly).isNotEmpty() ||
+                HomeChromeAdapter.semanticsNeedsQuery(classLoader, value.homeChromeSemantics, homeChromeEnabled, semanticsAttempted, homeChromeIconOnly) ||
                 pageRefresh || popupRefresh || classicRefresh || sponsorRefresh || kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache(
                 enabled = true,
                 applicable = KotlinDefaultWordsLocator.applicable(classLoader),
@@ -3258,7 +3289,9 @@ object VersionAdapter {
                         followFeedStyleEnabled, previousFollow, previouslyMissingFollow,
                         playerQualityEnabled, previousStoryQuality, previouslyMissingStoryQuality,
                         playerSpeedMenuEnabled, previousSpeedMenu, speedMenuAttempted,
-                        searchHomeRecommendEnabled, playerEndPageRecommendEnabled, previousPages, pageAttempted) }.getOrNull()
+                        searchHomeRecommendEnabled, playerEndPageRecommendEnabled, previousPages, pageAttempted,
+                        homeChromeEnabled, previousChrome, chromeAttempted, homeChromeIconOnly,
+                        previousChromeSemantics, semanticsAttempted) }.getOrNull()
                     result?.let { adapted ->
                         // 写文件缓存（loadApp 快路径载体）；校验后原子替换，旧缓存不会被半截 JSON 覆盖。
                         if (!writeCache(adapted)) {
@@ -3448,7 +3481,10 @@ object VersionAdapter {
                       playerQualityEnabled: Boolean, previousStoryQuality: StoryQualityPoints?, previouslyMissingStoryQuality: Boolean,
                       playerSpeedMenuEnabled: Boolean, previousSpeedMenu: PlayerSpeedMenuPoints?, speedMenuAttempted: Boolean,
                       searchHomeRecommendEnabled: Boolean, playerEndPageRecommendEnabled: Boolean,
-                      previousPages: PageBoundaryPoints?, pageAttempted: Set<DexAssistQuery>): AdaptResult? {
+                      previousPages: PageBoundaryPoints?, pageAttempted: Set<DexAssistQuery>,
+                      homeChromeEnabled: Boolean, previousChrome: Map<String, HookPoint>,
+                      chromeAttempted: Set<DexAssistQuery>, homeChromeIconOnly: Boolean,
+                      previousChromeSemantics: HomeChromeSemanticsPoint?, semanticsAttempted: Boolean): AdaptResult? {
         val vc = biliVersionCode(context)
         val dexSource = runCatching {
             context.packageManager.getPackageInfo("tv.danmaku.bili", 0).applicationInfo
@@ -3473,6 +3509,9 @@ object VersionAdapter {
         val popupMissing = if (playerPopupPromotionEnabled) PlayerPopupPromotionAdapter.missing(loader) else emptySet()
         val popupPlanned = PlayerPopupPromotionAdapter.planned(loader, previousPopup, previouslyMissingPopup, playerPopupPromotionEnabled)
         val mineVip = locateMineVip(loader)
+        val chromePlanned = HomeChromeAdapter.planned(loader, previousChrome, homeChromeEnabled, chromeAttempted, homeChromeIconOnly)
+        val semanticsPlanned = HomeChromeAdapter.semanticsNeedsQuery(loader, previousChromeSemantics,
+            homeChromeEnabled, semanticsAttempted, homeChromeIconOnly)
         val directBlockUpdate = locateBlockUpdate(loader)
         val directPlayerQuality = locateDefaultVideoQuality(loader)
         val directTopologyOutcome = locateCommentTopologyWithDiagnostic(loader)
@@ -3493,6 +3532,8 @@ object VersionAdapter {
                     if (playerQualityNeedsAssist) add(DexAssistQuery.PLAYER_DEFAULT_QUALITY)
                     addAll(storyQualityPlanned)
                     addAll(pagePlanned)
+                    addAll(chromePlanned)
+                    if (semanticsPlanned) add(DexAssistQuery.HOME_CHROME_SEMANTICS)
                     if (directTopologyOutcome.points == null) add(DexAssistQuery.COMMENT_REPLY_MAPPER)
                     if (defaultWordsNeedsAssist) add(DexAssistQuery.SEARCH_DEFAULT_WORDS_KOTLIN)
                     if (sponsorNeedsAssist) addAll(SponsorPlayerLocator.queries)
@@ -3505,6 +3546,41 @@ object VersionAdapter {
             )
         }
         val pages = PageBoundaryAdapter.locate(loader, previousPages, dexAssist, pagePlanned)
+        val chrome = HomeChromeAdapter.locate(loader, previousChrome, dexAssist, chromePlanned)
+        val semanticsOutcome = if (semanticsPlanned) dexAssist?.result(DexAssistQuery.HOME_CHROME_SEMANTICS) else null
+        val chromeSemantics = HomeChromeAdapter.locateSemantics(loader, previousChromeSemantics, semanticsOutcome)
+        val semanticsReady = homeChromeEnabled && homeChromeIconOnly && HomeChromeAdapter.applicable(loader) &&
+            HostComposeSemanticsAccess.resolve(loader, chromeSemantics) != null
+        val semanticsConclusive = semanticsAttempted || HomeChromeAdapter.conclusive(semanticsOutcome)
+        val semanticsDiagnostic = AdaptDiagnostic(HomeChromeAdapter.SEMANTICS_DIAGNOSTIC, when {
+            !homeChromeEnabled || !homeChromeIconOnly || !HomeChromeAdapter.applicable(loader) -> AdaptState.NOT_APPLICABLE
+            semanticsReady -> AdaptState.FOUND
+            semanticsConclusive -> AdaptState.MISSING
+            else -> AdaptState.NOT_APPLICABLE
+        }, when {
+            semanticsReady -> "verified-canonical-content-description"
+            semanticsConclusive -> "no-safe-semantics-key"
+            semanticsOutcome is DexAssistResult.Unavailable -> semanticsOutcome.reason.name.lowercase()
+            else -> "disabled-or-absent"
+        })
+        val chromeDiagnostics = HomeChromeAdapter.families.map { (query, family) ->
+            val found = family in chrome
+            val outcome = if (query in chromePlanned) dexAssist?.result(query) else null
+            val attempted = query in chromeAttempted || HomeChromeAdapter.conclusive(outcome)
+            val state = when {
+                !homeChromeEnabled || family == "bottom_item" && !homeChromeIconOnly || !HomeChromeAdapter.applicable(loader) -> AdaptState.NOT_APPLICABLE
+                found -> AdaptState.FOUND
+                attempted -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            }
+            AdaptDiagnostic(HomeChromeAdapter.diagnostic(query), state,
+                when {
+                    found -> "verified-local-compose-boundary"
+                    attempted -> "no-safe-boundary"
+                    outcome is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    else -> "disabled-or-absent"
+                })
+        }
         val pageDiagnostics = PageBoundaryAdapter.queries.map { query ->
             val enabled = when (query) {
                 in HostCardSemanticAdapter.queries -> followFeedStyleEnabled
@@ -3780,7 +3856,7 @@ object VersionAdapter {
                 commentTopologyOutcome.failureDetail, commentSection,
                 splashAds
             ) + protocolFingerprint.toDiagnostic() + blockUpdateAssist.diagnostic +
-                topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic + pageDiagnostics,
+                topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic + pageDiagnostics + chromeDiagnostics + semanticsDiagnostic,
             dexSourceFingerprint = dexSource?.value ?: DEX_SOURCE_UNAVAILABLE,
             sponsorPlayer = sponsor?.classes,
             commentClassicStyle = classic,
@@ -3788,7 +3864,9 @@ object VersionAdapter {
             brandSplashDecoder = brand,
             followFeedStyle = follow,
             playerSpeedMenu = speedMenu,
-            pageBoundaries = pages
+            pageBoundaries = pages,
+            homeChrome = chrome,
+            homeChromeSemantics = chromeSemantics
         )
     }
 
@@ -5847,8 +5925,8 @@ object VersionAdapter {
     }.getOrNull()
 
     /**
-     * “我的”页优先在 MenuGroup(V2) 的公开 getter 返回边界过滤；旧模型没有 getter 时，
-     * 复用已定位的菜单构建方法，并缓存唯一 List<Item> 字段和语义稳定的 title 字段。
+     * “我的”页保留 MenuGroup(V2) 公开 getter 边界，同时保留可验证的旧菜单构建字段链。
+     * 新旧模型可并存，不能因闲置 getter 存在而丢弃实际消费路径。
      */
     fun locateMineComponents(
         loader: ClassLoader,
@@ -5918,8 +5996,9 @@ object VersionAdapter {
             .distinctBy(Method::toGenericString)
             .map { it.toHookPoint() }
             .toList()
+        val legacy = locateLegacyMineComponents(loader, mineEntry ?: locateMineEntry(loader))
         if (lists.isNotEmpty() && titles.isNotEmpty()) {
-            return@runCatching MineComponentPoints(
+            return@runCatching (legacy ?: MineComponentPoints(emptyList(), emptyList())).copy(
                 itemListGetters = lists,
                 itemTitleGetters = titles,
                 itemIdGetters = ids,
@@ -5927,7 +6006,7 @@ object VersionAdapter {
                 groupTitleGetters = groupTitles
             )
         }
-        locateLegacyMineComponents(loader, mineEntry ?: locateMineEntry(loader))
+        legacy
     }.getOrNull()
 
     /** 仅供旧公开字段模型与单元测试使用；字段链在适配期确定，运行期直接 Field#get/set。 */

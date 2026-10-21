@@ -1,10 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshotCodec
 
-/** 仅归并勾选 selector；复用宿主实际匹配的键，不根据标题猜测不同组件等价。 */
+/** 勾选面的存储键目录。扫描只证明已观察到的条目，不能以未观察到为由删除用户选择。 */
 internal object ComponentSelectionReconciler {
     /**
      * 勾选面 → 勾选存储键。**新增一个勾选面就必须在这里加一行**。
@@ -31,18 +30,4 @@ internal object ComponentSelectionReconciler {
 
     fun selectorsKey(surface: String): String =
         SELECTOR_KEYS[surface] ?: error("Unsupported scan surface: $surface")
-
-    fun retain(
-        selected: Set<String>,
-        previousVersion: Long?,
-        currentVersion: Long,
-        snapshot: MineComponentSnapshot
-    ): Set<String> {
-        if (previousVersion == null || previousVersion <= 0L || currentVersion <= 0L ||
-            previousVersion == currentVersion || snapshot.entries.isEmpty()
-        ) return selected
-        // showing=false 仍是扫描到的组件；不可勾选也不等于不存在。
-        val present = snapshot.entries.mapTo(HashSet()) { it.key }
-        return selected.intersect(present)
-    }
 }

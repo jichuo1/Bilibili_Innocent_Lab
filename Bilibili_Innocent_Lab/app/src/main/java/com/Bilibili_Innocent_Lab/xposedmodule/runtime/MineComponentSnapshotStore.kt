@@ -8,7 +8,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshotCodec
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSelectionCodec
 
 /** 仅在模块 uid 内落盘经查询协议校验过的有界快照。 */
 internal object MineComponentSnapshotStore {
@@ -34,7 +33,7 @@ internal object MineComponentSnapshotStore {
         write(context.getSharedPreferences(prefsName, Context.MODE_PRIVATE), payload, source)
     }.getOrDefault(false)
 
-    /** 主动提交只缓存，不触碰用户勾选；必须等用户发起的实时查询才能进行选择协调。 */
+    /** 主动提交与实时查询都只缓存；用户勾选仅由面板明确确认时修改。 */
     fun cache(context: Context, payload: String, source: MineComponentSnapshotSource): Boolean =
         cache(context.getSharedPreferences("host_receipt_scans", Context.MODE_PRIVATE), payload, source)
 
@@ -50,7 +49,7 @@ internal object MineComponentSnapshotStore {
             .putLong(sourceKey(KEY_MODULE_VERSION, decoded.surface), source.moduleVersionCode).commit()
     }.getOrDefault(false)
 
-    /** 只由用户发起的、已验真查询调用；来源与勾选一起保存，手填键不参与清理。 */
+    /** 已验真查询仅原子保存快照与来源；非空快照也可能只含一个分组，不能据此清理勾选。 */
     internal fun write(
         prefs: SharedPreferences,
         payload: String,
@@ -58,25 +57,17 @@ internal object MineComponentSnapshotStore {
     ): Boolean {
         val decoded = MineComponentSnapshotCodec.decodeOrNull(payload, allowLegacy = false)
             ?: return false
-        if (!source.isComplete || decoded.entries.isEmpty()) return false
+        if (!source.isComplete || decoded.entries.isEmpty() ||
+            decoded.surface !in ComponentSelectionReconciler.SELECTOR_KEYS
+        ) return false
         return runCatching {
-            val previous = storedSource(prefs, decoded.surface)
-            val selectorsKey = ComponentSelectionReconciler.selectorsKey(decoded.surface)
-            val raw = prefs.getString(selectorsKey, "").orEmpty()
-            val selected = MineComponentSelectionCodec.decode(raw)
-            val retained = ComponentSelectionReconciler.retain(
-                selected, previous?.targetVersionCode, source.targetVersionCode, decoded
-            )
-            val editor = prefs.edit()
+            prefs.edit()
                 .putString(snapshotKey(decoded.surface), payload)
                 .putBoolean(sourceKey(KEY_SOURCE_PRESENT, decoded.surface), true)
                 .putLong(sourceKey(KEY_TARGET_VERSION, decoded.surface), source.targetVersionCode)
                 .putLong(sourceKey(KEY_TARGET_UPDATE_TIME, decoded.surface), source.targetUpdateTime)
                 .putLong(sourceKey(KEY_MODULE_VERSION, decoded.surface), source.moduleVersionCode)
-            if (retained != selected) {
-                editor.putString(selectorsKey, MineComponentSelectionCodec.encode(retained))
-            }
-            editor.commit()
+                .commit()
         }.getOrDefault(false)
     }
 

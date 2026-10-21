@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.runtime
 
 import android.content.SharedPreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ComponentPickerSelection
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentScanEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSelectionCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshotCodec
@@ -75,7 +76,7 @@ class ComponentSelectionReconciliationTest {
     }
 
     @Test
-    fun `downgrade from three components to two releases only the missing selection on every surface`() {
+    fun `cross version partial scans keep unseen selections until their components are observed`() {
         kinds.forEach { (surface, kind) ->
             val prefs = MemoryPreferences()
             val first = entry(kind, "first")
@@ -96,7 +97,11 @@ class ComponentSelectionReconciliationTest {
             assertTrue(write(prefs, surface, 909L, listOf(
                 first.copy(title = "renamed", showing = false, selectable = false), second
             )))
-            assertEquals(setOf(first.key), selected(prefs, key))
+            assertEquals(setOf(first.key, removed.key), selected(prefs, key))
+            // The next group arrives separately. It must still be selected when it becomes visible.
+            assertTrue(write(prefs, surface, 909L, listOf(removed)))
+            assertTrue(ComponentPickerSelection.isSelected(removed, selected(prefs, key)))
+            assertEquals(setOf(first.key, removed.key), selected(prefs, key))
             manual.forEach { (manualKey, value) -> assertEquals(value, prefs.values[manualKey]) }
         }
     }
@@ -128,7 +133,7 @@ class ComponentSelectionReconciliationTest {
         }
         kinds.entries.reversed().forEach { (surface, kind) ->
             assertTrue(write(prefs, surface, 910L, listOf(entry(kind, "present"))))
-            assertEquals(emptySet<String>(), selected(prefs, ComponentSelectionReconciler.selectorsKey(surface)))
+            assertEquals(setOf("missing"), selected(prefs, ComponentSelectionReconciler.selectorsKey(surface)))
         }
         assertEquals(909L, prefs.values["mine_component_scan_target_version"])
         // 后续一个面的版本再次改变，不影响其他面的来源。
@@ -136,7 +141,7 @@ class ComponentSelectionReconciliationTest {
         prefs.values[key] = "[\"missing-again\"]"
         assertTrue(write(prefs, "home_tabs", 911L, listOf(entry("home_tab", "present"))))
         assertTrue(write(prefs, "mine", 911L, listOf(entry("item", "present"))))
-        assertEquals(emptySet<String>(), selected(prefs, key))
+        assertEquals(setOf("missing-again"), selected(prefs, key))
     }
 
     @Test
@@ -151,7 +156,7 @@ class ComponentSelectionReconciliationTest {
         assertFalse(MineComponentSnapshotStore.write(prefs.instance, payload("home_components", listOf(entry)), MineComponentSnapshotSource(909L, 0L, 14L)))
         assertEquals(before, prefs.values)
         assertTrue(write(prefs, "home_components", 909L, listOf(entry)))
-        assertEquals(emptySet<String>(), selected(prefs, ComponentSelectionReconciler.selectorsKey("home_components")))
+        assertEquals(setOf("missing"), selected(prefs, ComponentSelectionReconciler.selectorsKey("home_components")))
     }
 
     @Test
@@ -177,6 +182,57 @@ class ComponentSelectionReconciliationTest {
         assertEquals(before, cache.values)
     }
 
+    @Test fun `cross version scans preserve aliases until explicit selection confirmation or cancellation`() {
+        val prefs = MemoryPreferences()
+        val legacy = entry("bottom_tab", "legacy-icon")
+        assertTrue(write(prefs, "bottom_bar", 915L, listOf(legacy)))
+        val key = ComponentSelectionReconciler.selectorsKey("bottom_bar")
+        prefs.values[key] = MineComponentSelectionCodec.encode(setOf(legacy.key))
+        val current = requireNotNull(MineComponentScanEntry.create(
+            "bottom_tab", "route", "route", null, true, aliases = setOf(legacy.key)
+        ))
+        assertTrue(write(prefs, "bottom_bar", 916L, listOf(current)))
+        assertEquals(setOf(legacy.key), selected(prefs, key))
+        assertTrue(ComponentPickerSelection.isSelected(current, selected(prefs, key)))
+        // Existing picker confirmation migrates exact aliases, rather than a scan guessing identity.
+        prefs.values[key] = MineComponentSelectionCodec.encode(ComponentPickerSelection.merge(
+            selected(prefs, key), listOf(current to true)
+        ))
+        assertEquals(setOf(current.key), selected(prefs, key))
+        assertTrue(write(prefs, "bottom_bar", 917L, listOf(current)))
+        assertEquals(setOf(current.key), selected(prefs, key))
+        // Unchecking clears both the primary key and aliases. Later scans cannot resurrect either.
+        prefs.values[key] = MineComponentSelectionCodec.encode(setOf(current.key, legacy.key))
+        prefs.values[key] = MineComponentSelectionCodec.encode(ComponentPickerSelection.merge(
+            selected(prefs, key), listOf(current to false)
+        ))
+        assertTrue(write(prefs, "bottom_bar", 915L, listOf(current)))
+        assertEquals(emptySet<String>(), selected(prefs, key))
+        assertFalse(ComponentPickerSelection.isSelected(current, selected(prefs, key)))
+    }
+
+    @Test fun `partial scan never reads or rewrites selector values or other surfaces`() {
+        val prefs = MemoryPreferences()
+        val first = entry("item", "A")
+        val second = entry("item", "B")
+        assertTrue(write(prefs, "mine", 915L, listOf(first, second)))
+        val mineKey = ComponentSelectionReconciler.selectorsKey("mine")
+        val bottomKey = ComponentSelectionReconciler.selectorsKey("bottom_bar")
+        prefs.values[mineKey] = MineComponentSelectionCodec.encode(setOf(second.key))
+        prefs.values[bottomKey] = "[\"untouched-bottom\"]"
+        prefs.readKeys.clear()
+        prefs.writtenKeys.clear()
+        assertTrue(write(prefs, "mine", 916L, listOf(first)))
+        assertFalse(mineKey in prefs.readKeys || mineKey in prefs.writtenKeys)
+        assertFalse(bottomKey in prefs.readKeys || bottomKey in prefs.writtenKeys)
+        assertEquals(setOf(second.key), selected(prefs, mineKey))
+        assertEquals("[\"untouched-bottom\"]", prefs.values[bottomKey])
+        // Reject draft-only surfaces as before; preserving selections must not broaden write scope.
+        val before = prefs.values.toMap()
+        assertFalse(write(prefs, "section_picks", 916L, listOf(entry("section", "1"))))
+        assertEquals(before, prefs.values)
+    }
+
     private fun entry(kind: String, id: String) = requireNotNull(
         MineComponentScanEntry.create(kind, id, id, null, true)
     )
@@ -190,14 +246,19 @@ class ComponentSelectionReconciliationTest {
     private fun selected(prefs: MemoryPreferences, key: String) =
         MineComponentSelectionCodec.decode(prefs.values[key] as String)
 
-    /** 用真实 Store 路径验证事务写入键，避免只测试集合交集而漏掉跨面/手填误写。 */
+    /** 用真实 Store 路径验证事务及访问键，防止扫描重写勾选、其他面或手填规则。 */
     private class MemoryPreferences {
         val values = mutableMapOf<String, Any>()
+        val readKeys = mutableSetOf<String>()
+        val writtenKeys = mutableSetOf<String>()
         val instance = Proxy.newProxyInstance(
             SharedPreferences::class.java.classLoader, arrayOf(SharedPreferences::class.java)
         ) { _, method, args ->
             when (method.name) {
-                "getString", "getLong", "getBoolean" -> values[args!![0]] ?: args[1]
+                "getString", "getLong", "getBoolean" -> {
+                    readKeys += args!![0] as String
+                    values[args[0]] ?: args[1]
+                }
                 "edit" -> editor()
                 else -> error("Unexpected preference operation: ${method.name}")
             }
@@ -210,7 +271,8 @@ class ComponentSelectionReconciliationTest {
             ) { proxy, method, args ->
                 when (method.name) {
                     "putString", "putLong", "putBoolean" -> {
-                        pending[args!![0] as String] = args[1]
+                        writtenKeys += args!![0] as String
+                        pending[args[0] as String] = args[1]
                         proxy
                     }
                     "commit" -> { values.putAll(pending); true }

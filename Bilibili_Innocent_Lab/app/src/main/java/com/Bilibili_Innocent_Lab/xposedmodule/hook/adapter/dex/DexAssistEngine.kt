@@ -77,7 +77,15 @@ internal enum class DexAssistQuery {
     OGV_TRENDING_CARD,
     OGV_DOUBLE_CARD,
     OGV_UPCOMING_CARD,
-    PEGASUS_DIVIDER
+    PEGASUS_DIVIDER,
+    /** khome local chrome trace markers; the full Compose ABI is revalidated before installation. */
+    HOME_CHROME_TOP,
+    HOME_CHROME_BOTTOM,
+    HOME_CHROME_BOTTOM_ITEM,
+    /** Native bottom content scope, before the full-size row and its tabs are composed. */
+    HOME_CHROME_BOTTOM_CONTENT,
+    /** Canonical Compose semantics keys: initializer constants plus runtime key-name verification. */
+    HOME_CHROME_SEMANTICS
 }
 
 internal sealed interface DexAssistResult {

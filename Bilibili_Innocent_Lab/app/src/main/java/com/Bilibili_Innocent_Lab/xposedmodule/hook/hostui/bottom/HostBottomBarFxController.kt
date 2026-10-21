@@ -8,6 +8,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceScop
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceStyle
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostTouchGlowBinding
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HostChromeAttachments
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import android.graphics.Outline
 import android.os.Build
 import android.view.Gravity
@@ -26,17 +28,19 @@ import kotlin.math.roundToInt
 /** 宿主底栏装配与原生图标适配；材质交给 HostSurfaceScope，交互交给 DockLayer。 */
 internal object HostBottomBarFxController {
 
+    private val attachments = HostChromeAttachments()
     private val attachedHosts = Collections.newSetFromMap(WeakHashMap<ViewGroup, Boolean>())
 
-    fun attach(tabHost: ViewGroup, config: HostBottomBarFxConfig) {
+    fun attach(tabHost: ViewGroup, config: HostBottomBarFxConfig,
+        onApplied: () -> Unit = {}, onMissing: () -> Unit = {},
+        onError: (Throwable) -> Unit = { ModernHookLog.error("[BIL] 底栏装配失败", it) }) {
         if (!config.liquidGlass && !config.touchGlow) return
-        tabHost.post {
-            attachInternal(tabHost, config)
-        }
+        attachments.post(tabHost, { attachInternal(tabHost, config) }, onApplied, onMissing, onError)
     }
 
-    private fun attachInternal(tabHost: ViewGroup, config: HostBottomBarFxConfig) {
-        if (!attachedHosts.add(tabHost)) return
+    private fun attachInternal(tabHost: ViewGroup, config: HostBottomBarFxConfig): Boolean {
+        if (tabHost in attachedHosts) return true
+        if (!tabHost.isAttachedToWindow || tabHost.width <= 0 || tabHost.height <= 0) return false
 
         val context = tabHost.context
         val density = tabHost.resources.displayMetrics.density
@@ -57,9 +61,11 @@ internal object HostBottomBarFxController {
         // 小底栏和无字模式仅调整模块胶囊，不能把胶囊几何套到官方底栏。
         if (!config.liquidGlass) {
             if (config.touchGlow) HostTouchGlowBinding.attach(tabHost)
-            return
+            attachedHosts.add(tabHost)
+            return true
         }
 
+        if (container == null || container.childCount == 0) return false
         val barHeight = (config.heightDp * density).roundToInt()
         val marginH = horizontalMarginPx(tabHost, container, config, density)
         val marginB = (12f * density).roundToInt()
@@ -173,6 +179,8 @@ internal object HostBottomBarFxController {
                 }
             })
         }
+        attachedHosts.add(tabHost)
+        return true
     }
 
     /** 材质接管时建立完整合成层；之后的宿主显示/隐藏动画仍由宿主管理。 */

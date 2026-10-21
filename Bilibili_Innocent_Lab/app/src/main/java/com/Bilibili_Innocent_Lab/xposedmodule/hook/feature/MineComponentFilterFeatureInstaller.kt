@@ -5,12 +5,13 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.highcapable.kavaref.extension.classOf
 import java.lang.reflect.Field
 import java.lang.reflect.Method
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * “我的”页组件扫描与隐藏。
  *
- * 9.9.x 在 HomeUserCenterFragment 消费 AccountMine 之前剪枝 sectionListV2；其他版本
- * 同时注册 MenuGroup(V2)#getItemList 返回边界和旧字段边界。所有链路都在空配置时保留
+ * 新版在 AccountMineV2 构造完成后按序列化语义剪枝，旧版在 HomeUserCenterFragment
+ * 消费 AccountMine 之前剪枝；独立保留 getItemList 返回边界和旧字段边界。空配置保留
  * 扫描能力，配置仅决定是否过滤。运行期只保存字符串快照，不缓存宿主模型实例。
  */
 internal class MineComponentFilterFeatureInstaller(
@@ -34,18 +35,38 @@ internal class MineComponentFilterFeatureInstaller(
             return FeatureInstallResult.Skipped("non-main-process")
         }
         val snapshots = SnapshotAccumulator(environment)
+        val modelInstalled = installSerializedModelPath(environment, snapshots)
         val accountInstalled = installMineAccountMinePath(environment, snapshots)
         val getterInstalled = installGetterPath(environment, snapshots)
-        var installed = accountInstalled + getterInstalled
-        if (installed == 0) {
-            val legacy = installLegacyFieldPath(environment, snapshots, points)
-            if (legacy is FeatureInstallResult.Installed) installed += legacy.hookCount
-        }
+        // Old and new menu classes coexist. An idle modern getter must not suppress the verified
+        // legacy consumer path used by a different layout in the same APK.
+        val legacy = installLegacyFieldPath(environment, snapshots, points)
+        val legacyInstalled = (legacy as? FeatureInstallResult.Installed)?.hookCount ?: 0
+        val installed = modelInstalled + accountInstalled + getterInstalled + legacyInstalled
         if (installed == 0) return missing(environment, "registration-failed")
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         val mode = if (hasHiddenConfiguration()) "filter+scan" else "scan"
-        environment.reportStatus(CHANNEL_STATUS, "success:$mode")
+        environment.reportStatus(CHANNEL_STATUS,
+            "installed:mode=$mode,model=$modelInstalled,account=$accountInstalled,getter=$getterInstalled,legacy=$legacyInstalled")
         return FeatureInstallResult.Installed(installed)
+    }
+
+    private fun installSerializedModelPath(environment: HookEnvironment, snapshots: SnapshotAccumulator): Int {
+        val owner = KavaMemberLookup.classOrNull(environment.classLoader, MineModelFilter.OWNER) ?: return 0
+        val filter = MineModelFilter(owner, ::matchesHidden, snapshots::merge, environment)
+        var installed = 0
+        KavaMemberLookup.declaredConstructors(owner, makeAccessible = true).forEachIndexed { index, constructor ->
+            runCatching {
+                environment.registrar.constructor("mine.model.$index", constructor) {
+                    before { filter.enter() }
+                    after { filter.exit(if (hasThrowable) null else instance) }
+                }
+                installed++
+            }.onFailure {
+                environment.logError("mine_model_$index", "[BIL] “我的”页模型构造 Hook 注册失败: $it")
+            }
+        }
+        return installed
     }
 
     private fun installMineAccountMinePath(
@@ -58,41 +79,9 @@ internal class MineComponentFilterFeatureInstaller(
             environment.classLoader,
             adapted.accountMineClass
         ) ?: return 0
-        val groupClass = KavaMemberLookup.classOrNull(environment.classLoader, adapted.groupClass)
-            ?: return 0
-        val itemClass = KavaMemberLookup.classOrNull(environment.classLoader, adapted.itemClass)
-            ?: return 0
-        val sectionsField = KavaMemberLookup.fieldOrNull(
-            accountMineClass,
-            adapted.sectionListV2Field
-        ) ?: return 0
-        val groupItemsField = KavaMemberLookup.fieldOrNull(
-            groupClass,
-            adapted.groupItemListField
-        ) ?: return 0
-        val itemTitleField = KavaMemberLookup.fieldOrNull(itemClass, adapted.itemTitleField)
-            ?: return 0
-        val groupTitleField = adapted.groupTitleField?.let {
-            KavaMemberLookup.fieldOrNull(groupClass, it)
-        }
-        val itemIdField = adapted.itemIdField?.let {
-            KavaMemberLookup.fieldOrNull(itemClass, it)
-        }
-        val itemUriField = adapted.itemUriField?.let {
-            KavaMemberLookup.fieldOrNull(itemClass, it)
-        }
-        val itemVisibleField = adapted.itemVisibleField?.let {
-            KavaMemberLookup.fieldOrNull(itemClass, it)
-        }
-        val itemLocalShowField = adapted.itemLocalShowField?.let {
-            KavaMemberLookup.fieldOrNull(itemClass, it)
-        }
-        val liveTipField = adapted.liveTipField?.let {
-            KavaMemberLookup.fieldOrNull(accountMineClass, it)
-        }
-        val sectionButtonField = adapted.sectionButtonField?.let {
-            KavaMemberLookup.fieldOrNull(groupClass, it)
-        }
+        val sectionsField = KavaMemberLookup.fieldOrNull(accountMineClass, adapted.sectionListV2Field) ?: return 0
+        val liveTipField = adapted.liveTipField?.let { KavaMemberLookup.fieldOrNull(accountMineClass, it) }
+        val filter = MineModelFilter(accountMineClass, ::matchesHidden, snapshots::merge, environment, path = "account")
 
         var installed = 0
         adapted.buildMethods.forEachIndexed { index, point ->
@@ -101,24 +90,7 @@ internal class MineComponentFilterFeatureInstaller(
                     before {
                         val accountMine = args.getOrNull(1) ?: return@before
                         if (!accountMineClass.isInstance(accountMine)) return@before
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                        pruneAccountMine(
-                            accountMine = accountMine,
-                            sectionsField = sectionsField,
-                            groupClass = groupClass,
-                            groupTitleField = groupTitleField,
-                            groupItemsField = groupItemsField,
-                            itemClass = itemClass,
-                            itemTitleField = itemTitleField,
-                            itemIdField = itemIdField,
-                            itemUriField = itemUriField,
-                            itemVisibleField = itemVisibleField,
-                            itemLocalShowField = itemLocalShowField,
-                            sectionButtonField = sectionButtonField,
-                            liveTipField = liveTipField,
-                            snapshots = snapshots,
-                            environment = environment
-                        )
+                        filter.processNamed(accountMine, sectionsField, liveTipField)
                     }
                 }
                 installed += 1
@@ -130,156 +102,6 @@ internal class MineComponentFilterFeatureInstaller(
             }
         }
         return installed
-    }
-
-    private fun pruneAccountMine(
-        accountMine: Any,
-        sectionsField: Field,
-        groupClass: Class<*>,
-        groupTitleField: Field?,
-        groupItemsField: Field,
-        itemClass: Class<*>,
-        itemTitleField: Field,
-        itemIdField: Field?,
-        itemUriField: Field?,
-        itemVisibleField: Field?,
-        itemLocalShowField: Field?,
-        sectionButtonField: Field?,
-        liveTipField: Field?,
-        snapshots: SnapshotAccumulator,
-        environment: HookEnvironment
-    ) {
-        runCatching {
-            val sourceSections = sectionsField.get(accountMine) as? List<*> ?: return
-            val entries = ArrayList<MineComponentScanEntry>()
-            var itemHidden = 0
-            var groupHidden = 0
-            var changed = false
-
-            sourceSections.forEach { group ->
-                if (group == null || !groupClass.isInstance(group)) return@forEach
-                val groupTitle = readString(group, groupTitleField)
-                val sourceItems = runCatching { groupItemsField.get(group) as? List<*> }
-                    .getOrNull()
-                if (sourceItems != null) {
-                    val filtered = CopyOnFilter.list(sourceItems) { item ->
-                        if (!itemClass.isInstance(item)) return@list false
-                        val title = readString(item, itemTitleField)
-                        val itemId = readValue(item, itemIdField)
-                        val uri = readString(item, itemUriField)
-                        val protected = MineSettingsEntryGuard.isSettingsEntry(uri)
-                        val hidden = !protected && matchesHidden("item", title, itemId, uri)
-                        MineComponentScanEntry.create(
-                            kind = "item",
-                            title = title,
-                            id = itemId,
-                            uri = uri,
-                            showing = !hidden,
-                            selectable = !protected
-                        )?.let(entries::add)
-                        if (hidden) {
-                            itemHidden += 1
-                            setHiddenFlags(item, itemVisibleField, itemLocalShowField)
-                        }
-                        hidden
-                    }
-                    if (filtered !== sourceItems && runCatching {
-                            groupItemsField.set(group, filtered)
-                        }.isSuccess
-                    ) changed = true
-                }
-
-                sectionButtonField?.let { field ->
-                    val button = runCatching { field.get(group) }.getOrNull()
-                    if (button != null) {
-                        val title = readNamedString(button, "text") ?: readNamedString(button, "title")
-                        val id = readNamedValue(button, "id")
-                        val uri = readNamedString(button, "uri")
-                        val hidden = matchesHidden("button", title, id, uri)
-                        MineComponentScanEntry.create(
-                            "button",
-                            title,
-                            id,
-                            uri,
-                            showing = !hidden
-                        )?.let(entries::add)
-                        if (hidden && runCatching { field.set(group, null) }.isSuccess) changed = true
-                    }
-                }
-
-                if (groupTitle != null) {
-                    val hidden = matchesHidden("group", groupTitle, null, null)
-                    MineComponentScanEntry.create(
-                        "group",
-                        groupTitle,
-                        null,
-                        null,
-                        showing = !hidden
-                    )?.let(entries::add)
-                }
-            }
-
-            val filteredSections = CopyOnFilter.list(sourceSections) { group ->
-                if (!groupClass.isInstance(group)) return@list false
-                val title = readString(group, groupTitleField)
-                val hidden = matchesHidden("group", title, null, null)
-                if (!hidden) return@list false
-                // 整组隐藏但组里有「设置」：保留这一组、只留「设置」。整组删掉会让宿主
-                // 找不到设置入口，而它补回设置时取的是"最后一个分组"——一个分组都不剩就崩。
-                val items = runCatching { groupItemsField.get(group) as? List<*> }.getOrNull()
-                val kept = items?.let {
-                    MineSettingsEntryGuard.settingsOnly(it) { item ->
-                        item?.takeIf(itemClass::isInstance)?.let { entry -> readString(entry, itemUriField) }
-                    }
-                }
-                if (kept != null && runCatching { groupItemsField.set(group, kept) }.isSuccess) {
-                    changed = true
-                    groupHidden += 1
-                    return@list false
-                }
-                groupHidden += 1
-                true
-            }
-            if (filteredSections !== sourceSections && runCatching {
-                    sectionsField.set(accountMine, filteredSections)
-                }.isSuccess
-            ) changed = true
-
-            liveTipField?.let { field ->
-                val tip = runCatching { field.get(accountMine) }.getOrNull()
-                if (tip != null) {
-                    val title = readNamedString(tip, "text") ?: readNamedString(tip, "title")
-                    val id = readNamedValue(tip, "id")
-                    val hidden = matchesHidden("live_tip", title, id, null)
-                    MineComponentScanEntry.create(
-                        "live_tip",
-                        title,
-                        id,
-                        null,
-                        showing = !hidden
-                    )?.let(entries::add)
-                    if (hidden && runCatching { field.set(accountMine, null) }.isSuccess) changed = true
-                }
-            }
-
-            snapshots.replace(
-                capabilities = setOf("item_filter", "group_filter", "button_filter", "live_tip_filter"),
-                entries = entries
-            )
-            if (changed) {
-                environment.reportRuntimeEvidence(
-                    ID,
-                    FeatureRuntimeStage.APPLIED,
-                    (itemHidden + groupHidden).coerceAtLeast(1)
-                )
-                environment.logInfo(
-                    "mine_account_mine_hit",
-                    "[BIL] 已按数据层剪枝隐藏“我的”页组件 item=$itemHidden group=$groupHidden"
-                )
-            }
-        }.onFailure { throwable ->
-            environment.logError("mine_account_mine_runtime", "[BIL] “我的”页数据剪枝失败，已放行: $throwable")
-        }
     }
 
     /** MenuGroup(V2)#getItemList 返回边界：兼容新动态页面，并产出项目级扫描快照。 */
@@ -294,6 +116,8 @@ internal class MineComponentFilterFeatureInstaller(
         val idMethods = resolveMethods(environment, "id", adapted.itemIdGetters)
         val uriMethods = resolveMethods(environment, "uri", adapted.itemUriGetters)
         val groupTitleMethods = resolveMethods(environment, "group_title", adapted.groupTitleGetters)
+        val observed = AtomicBoolean()
+        val applied = AtomicBoolean()
 
         var installed = 0
         adapted.itemListGetters.forEachIndexed { index, point ->
@@ -302,6 +126,11 @@ internal class MineComponentFilterFeatureInstaller(
                     after {
                         val source = result as? List<*> ?: return@after
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                        if (observed.compareAndSet(false, true)) {
+                            environment.reportStatus(CHANNEL_STATUS, "observed:path=getter,count=${source.size}")
+                            environment.logInfo("mine_getter_observed",
+                                "[BIL] mine_components path=getter stage=OBSERVED count=${source.size}")
+                        }
                         val scanned = ArrayList<MineComponentScanEntry>()
                         val filtered = CopyOnFilter.list(source) { item ->
                             val title = invokeString(item, titleMethods)
@@ -336,6 +165,11 @@ internal class MineComponentFilterFeatureInstaller(
                                 FeatureRuntimeStage.APPLIED,
                                 source.size - filtered.size
                             )
+                            if (applied.compareAndSet(false, true)) {
+                                environment.reportStatus(CHANNEL_STATUS, "applied:path=getter,count=${source.size - filtered.size}")
+                                environment.logInfo("mine_getter_applied",
+                                    "[BIL] mine_components path=getter stage=APPLIED count=${source.size - filtered.size}")
+                            }
                         }
                     }
                 }
@@ -372,10 +206,10 @@ internal class MineComponentFilterFeatureInstaller(
             ?: return FeatureInstallResult.Skipped("missing-legacy-group-class")
         val itemClass = KavaMemberLookup.classOrNull(environment.classLoader, itemClassName)
             ?: return FeatureInstallResult.Skipped("missing-legacy-item-class")
-        val itemListField = KavaMemberLookup.fieldOrNull(groupClass, itemListName)
-            ?: return FeatureInstallResult.Skipped("missing-legacy-item-list")
-        val titleField = KavaMemberLookup.fieldOrNull(itemClass, titleName)
-            ?: return FeatureInstallResult.Skipped("missing-legacy-title")
+        if (KavaMemberLookup.fieldOrNull(groupClass, itemListName) == null)
+            return FeatureInstallResult.Skipped("missing-legacy-item-list")
+        if (KavaMemberLookup.fieldOrNull(itemClass, titleName) == null)
+            return FeatureInstallResult.Skipped("missing-legacy-title")
 
         var installed = 0
         points.legacyBuildMethods.forEachIndexed { index, point ->
@@ -387,49 +221,15 @@ internal class MineComponentFilterFeatureInstaller(
             val notifyChanged = adapterField?.type?.let {
                 KavaMemberLookup.inheritedMethodOrNull(it, "notifyDataSetChanged")
             }
+            val filter = MineModelFilter(owner, ::matchesHidden, snapshots::merge, environment, path = "legacy")
             runCatching {
                 environment.registrar.adapted("mine.components.legacy.$index", point) {
                     after {
                         val fragment = instance ?: return@after
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                        val groups = runCatching { groupListField.get(fragment) as? List<*> }
-                            .getOrNull() ?: return@after
-                        val scanned = ArrayList<MineComponentScanEntry>()
-                        var changed = false
-                        groups.forEach { group ->
-                            if (group == null || !groupClass.isInstance(group)) return@forEach
-                            val source = runCatching { itemListField.get(group) as? List<*> }
-                                .getOrNull() ?: return@forEach
-                            val filtered = CopyOnFilter.list(source) { item ->
-                                if (!itemClass.isInstance(item)) return@list false
-                                val title = readString(item, titleField)
-                                val id = readNamedValue(item, "id")
-                                val uri = readNamedString(item, "uri")
-                                val protected = MineSettingsEntryGuard.isSettingsEntry(uri)
-                                val hidden = !protected && matchesHidden("item", title, id, uri)
-                                MineComponentScanEntry.create(
-                                    "item",
-                                    title,
-                                    id,
-                                    uri,
-                                    showing = !hidden,
-                                    selectable = !protected
-                                )?.let(scanned::add)
-                                hidden
-                            }
-                            if (filtered !== source && runCatching {
-                                    itemListField.set(group, filtered)
-                                }.isSuccess
-                            ) changed = true
-                        }
-                        snapshots.merge(setOf("item_filter"), scanned)
-                        if (changed) runCatching {
+                        val changed = filter.processNamed(fragment, groupListField, null)
+                        if (changed > 0) runCatching {
                             adapterField?.get(fragment)?.let { notifyChanged?.invoke(it) }
                         }
-                        if (changed) environment.reportRuntimeEvidence(
-                            ID,
-                            FeatureRuntimeStage.APPLIED
-                        )
                     }
                 }
                 installed += 1
@@ -482,12 +282,6 @@ internal class MineComponentFilterFeatureInstaller(
             else runCatching { method.invoke(instance)?.toString() }.getOrNull()
         }
 
-    private fun readString(instance: Any, field: Field?): String? =
-        field?.let { runCatching { it.get(instance) as? String }.getOrNull() }
-
-    private fun readValue(instance: Any, field: Field?): String? =
-        field?.let { runCatching { it.get(instance)?.toString() }.getOrNull() }
-
     private fun readNamedString(instance: Any, name: String): String? =
         readNamedField(instance, name) as? String
 
@@ -504,11 +298,6 @@ internal class MineComponentFilterFeatureInstaller(
         return null
     }
 
-    private fun setHiddenFlags(instance: Any, visible: Field?, localShow: Field?) {
-        MineComponentHiddenFlagWriter.apply(instance, visible)
-        MineComponentHiddenFlagWriter.apply(instance, localShow)
-    }
-
     private fun missing(environment: HookEnvironment, reason: String): FeatureInstallResult.Skipped {
         environment.reportStatus(CHANNEL_STATUS, reason)
         environment.logError(
@@ -523,24 +312,15 @@ internal class MineComponentFilterFeatureInstaller(
         private val capabilities = linkedSetOf<String>()
 
         @Synchronized
-        fun replace(capabilities: Set<String>, entries: Collection<MineComponentScanEntry>) {
-            publishIfChanged(
-                capabilities,
-                entries.associateByTo(LinkedHashMap(), MineComponentScanEntry::key)
-            )
-        }
-
-        @Synchronized
         fun merge(capabilities: Set<String>, newEntries: Collection<MineComponentScanEntry>) {
             if (newEntries.isEmpty()) return
             val mergedEntries = LinkedHashMap(entries)
             newEntries.forEach { entry ->
                 val previous = mergedEntries[entry.key]
-                mergedEntries[entry.key] = if (previous?.selectable == true && !entry.selectable) {
-                    entry.copy(selectable = true)
-                } else {
-                    entry
-                }
+                // A getter only observes the item list; it cannot prove that its owning group
+                // survived root pruning. Keep the stronger model observation for that one case.
+                mergedEntries[entry.key] = if (entry.kind == "group" && !entry.selectable &&
+                    previous?.selectable == true) previous else entry
             }
             publishIfChanged(this.capabilities + capabilities, mergedEntries)
         }
@@ -569,7 +349,7 @@ internal class MineComponentFilterFeatureInstaller(
     companion object {
         const val ID = "mine_component_filter"
         private const val TARGET_PACKAGE = MineComponentSnapshotCodec.TARGET_PACKAGE
-        private const val CHANNEL_STATUS = "mine_component_filter_status"
+        const val CHANNEL_STATUS = "mine_component_filter_status"
     }
 }
 

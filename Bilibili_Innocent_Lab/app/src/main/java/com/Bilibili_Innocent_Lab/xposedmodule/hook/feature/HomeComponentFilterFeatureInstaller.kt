@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import android.view.View
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import java.lang.reflect.Method
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** 仅对父 Fragment 链属于首页容器的子 Fragment 按类名规则隐藏根 View。 */
 internal class HomeComponentFilterFeatureInstaller(
@@ -36,6 +37,8 @@ internal class HomeComponentFilterFeatureInstaller(
             MineComponentSnapshotCodec.SURFACE_HOME_COMPONENTS,
             setOf("home_component_filter")
         )
+        val firstObserved = AtomicBoolean(false)
+        val firstApplied = AtomicBoolean(false)
         return runCatching {
             environment.registrar.adapted("home.components.view", adapted.onViewCreated) {
                 after {
@@ -44,6 +47,10 @@ internal class HomeComponentFilterFeatureInstaller(
                     val className = fragment.javaClass.name
                     if (!isCandidate(className) || !isHomeChild(fragment, parentGetter)) {
                         return@after
+                    }
+                    if (firstObserved.compareAndSet(false, true)) {
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED, 1)
+                        environment.reportStatus(CHANNEL_STATUS, "observed:path=component,count=1")
                     }
                     val hide = matches(className)
                     // 标识只有混淆类名，另外摸一个可读标题当副标题；摸不到就只显示类名。
@@ -56,11 +63,18 @@ internal class HomeComponentFilterFeatureInstaller(
                             showing = !hide
                         )
                     )
-                    if (hide) root.visibility = View.GONE
+                    if (hide) {
+                        val changed = root.visibility != View.GONE
+                        root.visibility = View.GONE
+                        if (changed && firstApplied.compareAndSet(false, true)) {
+                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED, 1)
+                            environment.reportStatus(CHANNEL_STATUS, "applied:path=component,count=1")
+                        }
+                    }
                 }
             }
             val mode = if (hasHiddenConfiguration()) "filter+scan" else "scan"
-            environment.reportStatus(CHANNEL_STATUS, "success:$mode")
+            environment.reportStatus(CHANNEL_STATUS, "installed:mode=$mode")
             environment.logInfo("home_components_ok", "[BIL] 首页组件自定义隐藏已安装($mode)")
             FeatureInstallResult.Installed()
         }.getOrElse { throwable ->

@@ -30,15 +30,18 @@ class HostTopBarFxFeatureInstallerTest {
     private fun createEnv(
         processName: String = "tv.danmaku.bili",
         recorder: HookRegistrar = TestHookRegistrar,
-        statusReporter: (String, String) -> Unit = { _, _ -> }
+        statusReporter: (String, String) -> Unit = { _, _ -> },
+        loader: ClassLoader = javaClass.classLoader!!,
+        evidence: ((String, FeatureRuntimeStage, Int) -> Unit)? = null
     ): HookEnvironment = HookEnvironment(
         processName = processName,
-        classLoader = javaClass.classLoader,
-        hookPoints = HookPointRegistry(javaClass.classLoader!!),
+        classLoader = loader,
+        hookPoints = HookPointRegistry(loader),
         registrar = recorder,
         logInfo = { _, _ -> },
         logError = { _, _ -> },
-        reportStatus = statusReporter
+        reportStatus = statusReporter,
+        runtimeEvidence = evidence
     )
 
     @Test
@@ -66,7 +69,7 @@ class HostTopBarFxFeatureInstallerTest {
     }
 
     @Test
-    fun `reports missing point when baseOnViewCreated is absent`() {
+    fun `fragment dispatcher remains usable when direct callback point is absent`() {
         var channel = ""
         var status = ""
         val installer = HostTopBarFxFeatureInstaller(
@@ -75,15 +78,30 @@ class HostTopBarFxFeatureInstallerTest {
             points = null
         )
         val result = installer.install(createEnv(statusReporter = { c, s -> channel = c; status = s }))
-        assertTrue(result is FeatureInstallResult.Skipped)
-        assertEquals("missing-view-created-point", (result as FeatureInstallResult.Skipped).reason)
+        assertEquals(FeatureInstallResult.Installed(2), result)
         assertEquals(HostTopBarFxFeatureInstaller.CHANNEL_STATUS, channel)
+        assertEquals("installed:legacy=2,compose=false", status)
+    }
+
+    @Test
+    fun `missing direct callback and missing dispatcher report no safe entry`() {
+        val unavailable = object : ClassLoader(javaClass.classLoader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if (name.startsWith("tv.danmaku.") || name.startsWith("androidx.")) throw ClassNotFoundException(name)
+                return super.loadClass(name, resolve)
+            }
+        }
+        var status = ""
+        val result = HostTopBarFxFeatureInstaller(true, true, null).install(createEnv(
+            loader = unavailable, statusReporter = { _, value -> status = value }))
+        assertEquals(FeatureInstallResult.Skipped("missing-view-created-point"), result)
         assertEquals("missing:missing-view-created-point", status)
     }
 
     @Test
     fun `successfully installs hook when baseOnViewCreated point is present`() {
         val recorder = Recorder()
+        val stages = mutableListOf<FeatureRuntimeStage>()
         var reportedStatus = ""
         val point = VersionAdapter.HookPoint(
             className = "tv.danmaku.bili.ui.main2.basic.BaseMainFrameFragment",
@@ -103,12 +121,14 @@ class HostTopBarFxFeatureInstallerTest {
             points = points
         )
         val result = installer.install(
-            createEnv(recorder = recorder, statusReporter = { _, s -> reportedStatus = s })
+            createEnv(recorder = recorder, statusReporter = { _, s -> reportedStatus = s },
+                evidence = { _, stage, _ -> stages += stage })
         )
         assertTrue(result is FeatureInstallResult.Installed)
-        assertEquals(1, (result as FeatureInstallResult.Installed).hookCount)
+        assertEquals(3, (result as FeatureInstallResult.Installed).hookCount)
         assertEquals(listOf("host_top_bar_fx.view_created"), recorder.ids)
-        assertEquals("success:active", reportedStatus)
+        assertEquals("installed:legacy=3,compose=false", reportedStatus)
+        assertTrue("Registration must not report a controller attachment or material draw", stages.isEmpty())
     }
 
     @Test

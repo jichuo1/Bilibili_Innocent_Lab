@@ -18,15 +18,20 @@ internal class HostComposeCardPositionAccess private constructor(
         fun invalidate() { version++; writeState.invoke(state, version) }
     }
     fun signal() = Signal()
-    fun attach(modifier: Any, callback: (Float, Float) -> Unit): Any {
+    fun attach(modifier: Any, callback: (Float, Float) -> Unit, onError: ((Throwable) -> Unit)? = null): Any {
         val observer = Proxy.newProxyInstance(function.classLoader, arrayOf(function)) { proxy, method, args ->
             when (method.name) {
                 "invoke" -> {
-                    args?.firstOrNull()?.let {
-                        val packed = inWindow.invoke(null, it) as Long
-                        val x = Float.fromBits((packed ushr 32).toInt())
-                        val y = Float.fromBits(packed.toInt())
-                        if (x.isFinite() && y.isFinite()) callback(x, y)
+                    try {
+                        args?.firstOrNull()?.let {
+                            val packed = inWindow.invoke(null, it) as Long
+                            val x = Float.fromBits((packed ushr 32).toInt())
+                            val y = Float.fromBits(packed.toInt())
+                            if (x.isFinite() && y.isFinite()) callback(x, y)
+                        }
+                    } catch (failure: Throwable) {
+                        if (onError == null) throw failure
+                        runCatching { onError(failure) }
                     }
                     unit
                 }

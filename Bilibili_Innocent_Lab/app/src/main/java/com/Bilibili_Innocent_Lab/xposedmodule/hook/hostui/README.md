@@ -1,6 +1,10 @@
 # 宿主 UI 接入
 
-宿主视觉使用固定标签凝光 1.4.6 的公开 API，`lumen-engine` 与 `lumen-motion` 由同一正式标签的复合构建提供。`hook/feature` 只负责能力发现、Hook 安装和运行时诊断，具体 UI 装配放在本目录。模块自己的设置界面仍在 `ui/activity`；宿主视觉代码不再依赖那里的材质或导航实现。
+宿主视觉使用凝光 1.5.1 的公开 API，`lumen-engine` 与 `lumen-motion` 使用同一正式版本的发布产物。`hook/feature` 只负责能力发现、Hook 安装和运行时诊断，具体 UI 装配放在本目录。模块自己的设置界面仍在 `ui/activity`；宿主视觉代码不再依赖那里的材质或导航实现。
+
+旧原生首页与 khome Compose 首页独立接入。`chrome` 目录在已验证的业务 Composable 作用域内装饰最终 LayoutNode Modifier，绕过 R8 在方法体内覆盖默认入参的情况；只处理局部顶底栏，保留宿主测量、点击、指针与无障碍。作用域异常时释放，延迟 ApplyChanges 按装饰 Modifier 的身份关联节点；材质失败只恢复仍由本模块持有的原 Modifier。找不到独立取样内容层时使用窗口基色与祖先背景的安全回退，不递归取样整屏 ComposeView。
+
+原生 root 在实际装配成功后才去重，布局未就绪有限重试。原生路径装配完成、新版路径真正绘制后才记 APPLIED；注册、观察与应用分开报告。组件过滤、扫描选择保留和相关验证边界见 [宿主组件兼容](../../../../../../../../../../docs/host-component-compatibility.md)。
 
 | 模块 | 宿主职责 | 引擎接口 |
 | --- | --- | --- |
@@ -10,6 +14,20 @@
 | `cards` | 列表识别、播放器排除、封面轮廓、信息区间距与坐标裁剪 | `LumenFluentControl` 共享亚克力场、CARD 层级与静态表面 |
 | `follow` | 关注页标题、卡片排布、选中项、复用与状态栏位置 | 局部表面会话、`LumenSlidingSelection`、线性渐隐扩展 |
 | `overlays` | 复制气泡的定位、独立文字层与选择时机、回复脉络的背景透明度和关闭释放 | `BubbleDrawable`、`LumenEasing`、静态表面会话 |
+
+## 首页旧新框架接线
+
+8.92.1 起同一 APK 可以同时含原生首页与 khome Compose 首页，入口是否存在不能代表当前路由实际命中。原生顶栏除旧 `onViewCreated` 点外，使用已验证首页 Fragment 的 `performViewCreated` / `performResume` 分发兜底；底栏只查找已验证 TabHost 类型。布局未附着、尺寸为零或子项未生成时有限重试，实际装配后才记入去重集合。注册状态使用 `installed`，进入业务回调使用 `OBSERVED`；原生 controller 完成装配或 Compose 真实绘制后才上报 `APPLIED`，异步异常单独上报。
+
+`chrome/HomeChromeComposeLocator` 按稳定源码 facade、语义 trace 和完整 ABI 验证顶栏、底栏与标签项。顶栏同时保留有/无 boolean 及末尾 Compose mask 的两种 ABI；底栏与标签项允许一或两个 mask。后台 DexKit 查询复用共享适配会话，缓存只在再次通过 ABI 验证后使用；不能依赖 R8 方法字母或只保留在旧样本中的 lambda EnclosingMethod 注解。
+
+Compose 入口的 Modifier 入参可能被 R8 覆写，因此以业务方法作用域和 `ComposeUiNode` 的标准 Modifier setter 身份限定最终布局节点。顶栏作用域只装配首个根节点。底栏外根只负责胶囊裁剪与用户启用的布局；独立内容作用域在主 Row 才装配材质与柔光，使其位于原生底图之上、图标与角标之下。原生底图与图片请求保留。主 Row 通过已验证 rowMeasurePolicy 方法名锚点之后的直接内容调用者确认，最多检查 48 帧，不依赖 Hook 框架的随机包名；图片内部的 Row 不会取得此资格。嵌套有独立栈，原方法抛异常也释放作用域。无作用域的 Updater Hook 立即返回。原生背景元素只在当前根的不可变副本中替换；以已验证的四/五项字段及构造结构预筛，再调用宿主背景工厂生成不绘制的 probe 认证真实类，避开 R8 私有类改名。保留其它布局、裁剪、点击、滑动与装扮前景元素；整个 AndroidComposeView 不缩放、不重排。
+
+Compose 绘制使用凝光公开会话与材质入口。一个透明、不可交互的局部 overlay View 仅提供真实坐标和生命周期，自动绘制为空；材质由同一根的 draw modifier 绘制一次。实际内容来源优先选择与栏附近相交的独立原生列表，找不到时仅取窗口与祖先背景，绝不采样包含注入栏的整个 ComposeView。detach 释放所有绑定、视口代理和会话，再 attach 后按需重建。材质异常会停止该绑定，并在主队列分别恢复外根与前景 Row 上仍由本会话持有的确切原 Modifier；宿主后来的替换优先保留。
+
+“小底栏”和“仅图标”只在用户启用时给底栏根添加原生高度与水平留白，使 BoxWithConstraints、原图标和点击区域一起重新测量。仅图标以独立标签项作用域移除标题 Text 整个叶子，不留布局占位，标题补入父项 contentDescription；发布入口和后续角标仍归宿主。触控柔光直接观察 AndroidComposeView 自身的 dispatchTouchEvent，仅在已登记的局部栏命中，绝不消费或改写事件。顶栏跟随宿主已有的折叠和位置变化，不另建全屏手势层。
+
+跨版本结构证据与软件回归不能替代真实宿主像素或触摸验收；诊断也不能把结构覆盖率解释为运行命中率。
 
 ## 表面与生命周期
 

@@ -11,6 +11,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostTouchGlowBi
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HostChromeAttachments
 import android.annotation.SuppressLint
 import android.graphics.Outline
 import android.os.Build
@@ -47,6 +48,7 @@ internal object HostTopBarFxController {
     private const val MARGIN_V_DP = 6f
     private const val PADDING_H_DP = 8f
 
+    private val attachments = HostChromeAttachments()
     private val attachedRoots = Collections.newSetFromMap(WeakHashMap<ViewGroup, Boolean>())
     private val resourceNames = HashMap<Int, String>()
 
@@ -61,12 +63,14 @@ internal object HostTopBarFxController {
         root: ViewGroup,
         fragment: Any?,
         config: HostTopBarFxConfig,
-        searchFieldName: String? = null
+        searchFieldName: String? = null,
+        onApplied: () -> Unit = {},
+        onMissing: () -> Unit = {},
+        onError: (Throwable) -> Unit = { ModernHookLog.error("[BIL] 顶栏装配失败", it) }
     ) {
         if (!config.liquidGlass && !config.touchGlow) return
-        root.post {
-            attachInternal(root, fragment, config, searchFieldName)
-        }
+        attachments.post(root, { attachInternal(root, fragment, config, searchFieldName) },
+            onApplied, onMissing, onError)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -75,14 +79,15 @@ internal object HostTopBarFxController {
         fragment: Any?,
         config: HostTopBarFxConfig,
         searchFieldName: String?
-    ) {
-        if (!attachedRoots.add(root)) return
-
-        val hierarchy = locateTopBarHierarchy(root, fragment, searchFieldName) ?: return
+    ): Boolean {
+        if (root in attachedRoots) return true
+        val hierarchy = locateTopBarHierarchy(root, fragment, searchFieldName) ?: return false
         val topBarDock = hierarchy.topBarDock
+        if (!topBarDock.isAttachedToWindow || topBarDock.width <= 0 || topBarDock.height <= 0) return false
         if (!config.liquidGlass) {
             if (config.touchGlow) HostTouchGlowBinding.attach(topBarDock)
-            return
+            attachedRoots.add(root)
+            return true
         }
         val context = topBarDock.context
         val density = topBarDock.resources.displayMetrics.density
@@ -313,6 +318,8 @@ internal object HostTopBarFxController {
             backdrop?.attach(topBarDock, viewPager)
             observeMaterial()
         }
+        attachedRoots.add(root)
+        return true
     }
 
     /** 剥离官方分割线与背景 View，但严格保留原版下划线指示器和文字 */

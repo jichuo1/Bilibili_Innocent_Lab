@@ -45,7 +45,7 @@ internal class BottomBarFeatureInstaller(
             return missing(environment, tabHost.reason ?: frame.reason ?: "missing-adapter-point")
         }
         val mode = if (hasHiddenConfiguration()) "filter+scan" else "scan"
-        environment.reportStatus(CHANNEL_STATUS, "success:$mode")
+        environment.reportStatus(CHANNEL_STATUS, "installed:mode=$mode")
         environment.logInfo(
             "bottom_bar_ok",
             "[BIL] 底栏自定义隐藏已安装($mode, tabhost=${tabHost.label}, frame=${frame.label})"
@@ -73,6 +73,7 @@ internal class BottomBarFeatureInstaller(
             adapted.tabsGetter.paramClassNames
         ) ?: return LayerState.failed("missing-tabs-getter")
         val firstHit = AtomicBoolean(false)
+        val firstObserved = AtomicBoolean(false)
         return runCatching {
             environment.registrar.adapted("bottom.bind", adapted.bindTabMethod) {
                 after {
@@ -80,6 +81,10 @@ internal class BottomBarFeatureInstaller(
                     val index = (args.getOrNull(0) as? Number)?.toInt() ?: return@after
                     val view = args.getOrNull(1) as? View ?: return@after
                     val tabs = readTabs(tabsGetter, host) ?: return@after
+                    if (firstObserved.compareAndSet(false, true)) {
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                        environment.reportStatus(CHANNEL_STATUS, "observed:path=tabhost,count=${tabs.size}")
+                    }
                     publisher.publish(
                         tabs.mapNotNull { candidate ->
                             if (candidate == null || !itemClass.isInstance(candidate)) {
@@ -103,12 +108,14 @@ internal class BottomBarFeatureInstaller(
                     ) {
                         return@after
                     }
+                    val changed = view.visibility != View.GONE || view.isClickable || view.isEnabled || view.alpha != 0f
                     view.visibility = View.GONE
                     view.isClickable = false
                     view.isEnabled = false
                     view.alpha = 0f
-                    if (firstHit.compareAndSet(false, true)) {
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                    if (changed && firstHit.compareAndSet(false, true)) {
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED, 1)
+                        environment.reportStatus(CHANNEL_STATUS, "applied:path=tabhost,count=1")
                         environment.logInfo("bottom_bar_tabhost_hit", "[BIL] 底栏自定义隐藏已生效（TabHost 层）")
                     }
                 }
@@ -139,10 +146,15 @@ internal class BottomBarFeatureInstaller(
             ?: return LayerState.failed("frame-missing-bottom-slot")
         val item = model.item
         val firstHit = AtomicBoolean(false)
+        val firstObserved = AtomicBoolean(false)
         val hook = HomeFrameListHook(
             slot = slot,
             item = item,
             onScan = { source ->
+                if (firstObserved.compareAndSet(false, true)) {
+                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                    environment.reportStatus(CHANNEL_STATUS, "observed:path=frame,count=${source.size}")
+                }
                 publisher.accumulateAll(
                     source.mapNotNull { candidate ->
                         if (candidate == null || !item.itemClass.isInstance(candidate)) return@mapNotNull null
@@ -155,7 +167,8 @@ internal class BottomBarFeatureInstaller(
             } else null,
             onApplied = { before, after ->
                 if (firstHit.compareAndSet(false, true)) {
-                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED, before - after)
+                    environment.reportStatus(CHANNEL_STATUS, "applied:path=frame,count=${before - after}")
                     environment.logInfo(
                         "bottom_bar_frame_hit",
                         "[BIL] 底栏自定义隐藏已生效（新首页框架层，$before → $after）"
