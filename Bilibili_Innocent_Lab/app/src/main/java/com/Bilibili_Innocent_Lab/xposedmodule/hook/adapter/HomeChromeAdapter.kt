@@ -14,10 +14,13 @@ import org.json.JSONObject
 internal object HomeChromeAdapter {
     val SEMANTICS_MARKS = listOf("ContentDescription", "StateDescription", "TestTag")
     const val SEMANTICS_DIAGNOSTIC = "home.chrome.semantics"
-    val families = linkedMapOf(DexAssistQuery.HOME_CHROME_TOP to "top", DexAssistQuery.HOME_CHROME_BOTTOM to "bottom",
+    val families = linkedMapOf(DexAssistQuery.HOME_CHROME_TOP to "top", DexAssistQuery.HOME_CHROME_TOP_CONTENT to "top_content",
+        DexAssistQuery.HOME_CHROME_TOP_RIGHT_ACTIONS to "top_right_actions", DexAssistQuery.HOME_CHROME_BOTTOM to "bottom",
         DexAssistQuery.HOME_CHROME_BOTTOM_ITEM to "bottom_item", DexAssistQuery.HOME_CHROME_BOTTOM_CONTENT to "bottom_content")
     val marks = mapOf(
         DexAssistQuery.HOME_CHROME_TOP to "tv.danmaku.bili.khome.widget.topbar.HomeTopTabRow (",
+        DexAssistQuery.HOME_CHROME_TOP_CONTENT to "tv.danmaku.bili.khome.widget.topbar.CustomScrollableTabRow.<anonymous>",
+        DexAssistQuery.HOME_CHROME_TOP_RIGHT_ACTIONS to "tv.danmaku.bili.khome.widget.topbar.RightActionButtons (",
         DexAssistQuery.HOME_CHROME_BOTTOM to "tv.danmaku.bili.khome.widget.bottomtab.HomeBottomTabContainer (",
         DexAssistQuery.HOME_CHROME_BOTTOM_ITEM to "tv.danmaku.bili.khome.widget.bottomtab.HomeBottomTabItemView (",
         DexAssistQuery.HOME_CHROME_BOTTOM_CONTENT to "tv.danmaku.bili.khome.widget.bottomtab.HomeBottomTabContainer."
@@ -27,9 +30,9 @@ internal object HomeChromeAdapter {
         "tv.danmaku.bili.khome.vm.HomeFrameViewModel") != null
 
     fun validCache(points: Map<String, HookPoint>): Boolean = points.all { (family, point) ->
-        family in families.values && point.className.startsWith("tv.danmaku.bili.khome.widget.${if (family == "top") "topbar" else "bottomtab"}.") && point.methodName.isNotBlank() &&
+        family in families.values && point.className.startsWith("tv.danmaku.bili.khome.widget.${if (family.startsWith("top")) "topbar" else "bottomtab"}.") && point.methodName.isNotBlank() &&
             point.viewField == null && point.paramClassNames?.let {
-                (if (family == "bottom_content") it.size in setOf(2, 3, 12) else it.size in 4..20) && it.all(String::isNotBlank)
+                (when (family) { "top_content" -> it.size in setOf(2, 11); "bottom_content" -> it.size in setOf(2, 3, 12); else -> it.size in 4..20 }) && it.all(String::isNotBlank)
             } == true
     }
 
@@ -48,11 +51,18 @@ internal object HomeChromeAdapter {
     }
 
     fun planned(loader: ClassLoader, previous: Map<String, HookPoint>, enabled: Boolean,
-        attempted: Set<DexAssistQuery>, iconOnly: Boolean = false): Set<DexAssistQuery> {
-        if (!enabled || !applicable(loader)) return emptySet()
+        attempted: Set<DexAssistQuery>, iconOnly: Boolean = false, topTabCentering: Boolean = false): Set<DexAssistQuery> {
+        if ((!enabled && !topTabCentering) || !applicable(loader)) return emptySet()
         val available = HomeChromeComposeLocator.resolve(loader, previous)
-        return families.filter { (query, family) -> (family != "bottom_item" || iconOnly) &&
+        return families.filter { (query, family) -> enabled(family, enabled, iconOnly, topTabCentering) &&
             family !in available && query !in attempted }.keys
+    }
+
+    fun enabled(family: String, chrome: Boolean, iconOnly: Boolean, topTabCentering: Boolean): Boolean = when (family) {
+        "top_content", "top_right_actions" -> topTabCentering
+        "top" -> chrome || topTabCentering
+        "bottom_item" -> chrome && iconOnly
+        else -> chrome
     }
 
     fun locate(loader: ClassLoader, previous: Map<String, HookPoint>, session: DexAssistSession?,

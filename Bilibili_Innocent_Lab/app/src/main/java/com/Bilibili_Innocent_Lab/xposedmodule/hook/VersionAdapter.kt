@@ -3153,9 +3153,10 @@ object VersionAdapter {
         searchHomeRecommendEnabled: Boolean = false,
         playerEndPageRecommendEnabled: Boolean = false,
         homeChromeEnabled: Boolean = false,
-        homeChromeIconOnly: Boolean = false
+        homeChromeIconOnly: Boolean = false,
+        homeTopTabCenteringEnabled: Boolean = false
     ) = ensureAdapted(
-        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled, homeChromeEnabled, homeChromeIconOnly
+        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled, homeChromeEnabled, homeChromeIconOnly, homeTopTabCenteringEnabled
     )
 
     internal fun ensureAdapted(
@@ -3175,7 +3176,8 @@ object VersionAdapter {
         searchHomeRecommendEnabled: Boolean = false,
         playerEndPageRecommendEnabled: Boolean = false,
         homeChromeEnabled: Boolean = false,
-        homeChromeIconOnly: Boolean = false
+        homeChromeIconOnly: Boolean = false,
+        homeTopTabCenteringEnabled: Boolean = false
     ) {
         // reset 不同意味着不是同一次安装快照，必须重新读取而不能复用已缓存的 null/旧结果。
         val startup = if (startupCache.resetTimestamp == resetTimestamp.coerceAtLeast(0L)) {
@@ -3252,7 +3254,7 @@ object VersionAdapter {
                 value.diagnostics.any { it.id == FollowFeedAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING }) ||
                 BrandSplashDecoderAdapter.needsQuery(classLoader, value.brandSplashDecoder, brandSplashCustomEnabled,
                 value.diagnostics.any { it.id == BrandSplashDecoderAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING }) ||
-                HomeChromeAdapter.planned(classLoader, value.homeChrome, homeChromeEnabled, chromeAttempted, homeChromeIconOnly).isNotEmpty() ||
+                HomeChromeAdapter.planned(classLoader, value.homeChrome, homeChromeEnabled, chromeAttempted, homeChromeIconOnly, homeTopTabCenteringEnabled).isNotEmpty() ||
                 HomeChromeAdapter.semanticsNeedsQuery(classLoader, value.homeChromeSemantics, homeChromeEnabled, semanticsAttempted, homeChromeIconOnly) ||
                 pageRefresh || popupRefresh || classicRefresh || sponsorRefresh || kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache(
                 enabled = true,
@@ -3291,7 +3293,7 @@ object VersionAdapter {
                         playerSpeedMenuEnabled, previousSpeedMenu, speedMenuAttempted,
                         searchHomeRecommendEnabled, playerEndPageRecommendEnabled, previousPages, pageAttempted,
                         homeChromeEnabled, previousChrome, chromeAttempted, homeChromeIconOnly,
-                        previousChromeSemantics, semanticsAttempted) }.getOrNull()
+                        previousChromeSemantics, semanticsAttempted, homeTopTabCenteringEnabled) }.getOrNull()
                     result?.let { adapted ->
                         // 写文件缓存（loadApp 快路径载体）；校验后原子替换，旧缓存不会被半截 JSON 覆盖。
                         if (!writeCache(adapted)) {
@@ -3484,7 +3486,8 @@ object VersionAdapter {
                       previousPages: PageBoundaryPoints?, pageAttempted: Set<DexAssistQuery>,
                       homeChromeEnabled: Boolean, previousChrome: Map<String, HookPoint>,
                       chromeAttempted: Set<DexAssistQuery>, homeChromeIconOnly: Boolean,
-                      previousChromeSemantics: HomeChromeSemanticsPoint?, semanticsAttempted: Boolean): AdaptResult? {
+                      previousChromeSemantics: HomeChromeSemanticsPoint?, semanticsAttempted: Boolean,
+                      homeTopTabCenteringEnabled: Boolean): AdaptResult? {
         val vc = biliVersionCode(context)
         val dexSource = runCatching {
             context.packageManager.getPackageInfo("tv.danmaku.bili", 0).applicationInfo
@@ -3509,7 +3512,7 @@ object VersionAdapter {
         val popupMissing = if (playerPopupPromotionEnabled) PlayerPopupPromotionAdapter.missing(loader) else emptySet()
         val popupPlanned = PlayerPopupPromotionAdapter.planned(loader, previousPopup, previouslyMissingPopup, playerPopupPromotionEnabled)
         val mineVip = locateMineVip(loader)
-        val chromePlanned = HomeChromeAdapter.planned(loader, previousChrome, homeChromeEnabled, chromeAttempted, homeChromeIconOnly)
+        val chromePlanned = HomeChromeAdapter.planned(loader, previousChrome, homeChromeEnabled, chromeAttempted, homeChromeIconOnly, homeTopTabCenteringEnabled)
         val semanticsPlanned = HomeChromeAdapter.semanticsNeedsQuery(loader, previousChromeSemantics,
             homeChromeEnabled, semanticsAttempted, homeChromeIconOnly)
         val directBlockUpdate = locateBlockUpdate(loader)
@@ -3568,7 +3571,8 @@ object VersionAdapter {
             val outcome = if (query in chromePlanned) dexAssist?.result(query) else null
             val attempted = query in chromeAttempted || HomeChromeAdapter.conclusive(outcome)
             val state = when {
-                !homeChromeEnabled || family == "bottom_item" && !homeChromeIconOnly || !HomeChromeAdapter.applicable(loader) -> AdaptState.NOT_APPLICABLE
+                !HomeChromeAdapter.enabled(family, homeChromeEnabled, homeChromeIconOnly, homeTopTabCenteringEnabled) ||
+                    !HomeChromeAdapter.applicable(loader) -> AdaptState.NOT_APPLICABLE
                 found -> AdaptState.FOUND
                 attempted -> AdaptState.MISSING
                 else -> AdaptState.NOT_APPLICABLE

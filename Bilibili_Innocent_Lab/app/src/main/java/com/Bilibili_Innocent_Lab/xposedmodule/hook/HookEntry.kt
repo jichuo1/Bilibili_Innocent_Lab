@@ -2819,6 +2819,8 @@ class HookEntry : XposedModule() {
                 FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW).any { prefs.getBoolean(it, false) }
             val topBarFxInstaller = createTopBarFx()
             val bottomBarFxInstaller = createBottomBarFx()
+            val homeTopTabCentering = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top.HomeTopTabCenteringHooks(
+                hostAdaptResult?.homeTopBar, hostAdaptResult?.homeChrome.orEmpty())
 
             featureInstallCoordinator.installAll(
                 listOf(
@@ -3154,7 +3156,8 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.HOME_TAB_HIDDEN_SELECTORS,
                             ""
                         ).orEmpty(),
-                        points = hostAdaptResult?.homeTabs
+                        points = hostAdaptResult?.homeTabs,
+                        centering = homeTopTabCentering
                     ),
                     HomeComponentFilterFeatureInstaller(
                         rules = prefs.getString(
@@ -4876,15 +4879,18 @@ class HookEntry : XposedModule() {
                                                 featureInstallCoordinator.installAll(listOf(endPageInstaller))
                                         }
                                     }
-                                    if (homeChromeEnabled) {
+                                    run {
                                         val adaptedChrome = VersionAdapter.loadCached(attachedContext, versionAdapterResetTimestamp)
                                         val chrome = adaptedChrome?.homeChrome.orEmpty()
                                         hookEnvironment.postToMain?.invoke {
                                             val pending = buildList {
-                                                if (topBarFxInstaller.updateChromePoints(chrome)) add(topBarFxInstaller)
-                                                if (bottomBarFxInstaller.updateChromePoints(chrome, adaptedChrome?.homeChromeSemantics)) add(bottomBarFxInstaller)
+                                                if (homeChromeEnabled) {
+                                                    if (topBarFxInstaller.updateChromePoints(chrome)) add(topBarFxInstaller)
+                                                    if (bottomBarFxInstaller.updateChromePoints(chrome, adaptedChrome?.homeChromeSemantics)) add(bottomBarFxInstaller)
+                                                }
                                             }
                                             if (pending.isNotEmpty()) featureInstallCoordinator.installAll(pending)
+                                            if (homeTopTabCentering.updateChromePoints(chrome)) homeTopTabCentering.install(hookEnvironment)
                                         }
                                     }
                                     retryFreeCopyHooksAfterAdapt()
@@ -4909,6 +4915,7 @@ class HookEntry : XposedModule() {
                             !prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_SKIP, false),
                         followFeedStyleEnabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
                         homeChromeEnabled = homeChromeEnabled,
+                        homeTopTabCenteringEnabled = true,
                         homeChromeIconOnly = prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS, false) &&
                             prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY, false),
                         playerQualityEnabled = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig.normalize(

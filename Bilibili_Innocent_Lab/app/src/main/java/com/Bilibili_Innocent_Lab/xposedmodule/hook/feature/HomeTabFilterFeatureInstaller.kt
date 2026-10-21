@@ -16,7 +16,8 @@ internal class HomeTabFilterFeatureInstaller(
     rules: String,
     selectors: String = "",
     private val points: VersionAdapter.HomeTabPoints?,
-    private val frameResolver: (ClassLoader?) -> HomeFrameTabLocator.Resolution = HomeFrameTabLocator::resolve
+    private val frameResolver: (ClassLoader?) -> HomeFrameTabLocator.Resolution = HomeFrameTabLocator::resolve,
+    private val centering: com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top.HomeTopTabCenteringHooks? = null
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -30,6 +31,9 @@ internal class HomeTabFilterFeatureInstaller(
         // 即使一项都没勾也要装：不扫描就永远产不出勾选列表（沿用"我的"页的 scan / filter+scan 口径）。
         if (environment.processName != TARGET_PACKAGE) {
             return FeatureInstallResult.Skipped("non-main-process")
+        }
+        runCatching { centering?.install(environment) }.onFailure {
+            environment.logError("home_tabs_centering_install", "[BIL] 首页标签居中注册失败: $it")
         }
         val publisher = ScanSnapshotPublisher(
             environment,

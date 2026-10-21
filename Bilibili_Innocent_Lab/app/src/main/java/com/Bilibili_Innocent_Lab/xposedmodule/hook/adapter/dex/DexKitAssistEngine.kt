@@ -240,15 +240,16 @@ internal object DexKitAssistEngine : DexAssistEngine {
                 usingStrings(HomeChromeAdapter.SEMANTICS_MARKS, StringMatchType.Equals)
             }
         }
-        DexAssistQuery.HOME_CHROME_BOTTOM_CONTENT -> bridge.findMethod {
-            searchPackages("tv.danmaku.bili.khome.widget.bottomtab")
+        DexAssistQuery.HOME_CHROME_TOP_CONTENT, DexAssistQuery.HOME_CHROME_BOTTOM_CONTENT -> bridge.findMethod {
+            searchPackages("tv.danmaku.bili.khome.widget.${if (query == DexAssistQuery.HOME_CHROME_TOP_CONTENT) "topbar" else "bottomtab"}")
             matcher {
                 paramCount(2..12)
                 usingStrings(listOf(HomeChromeAdapter.marks.getValue(query)), StringMatchType.Contains)
             }
         }
-        DexAssistQuery.HOME_CHROME_TOP, DexAssistQuery.HOME_CHROME_BOTTOM, DexAssistQuery.HOME_CHROME_BOTTOM_ITEM -> bridge.findMethod {
-            searchPackages(if (query == DexAssistQuery.HOME_CHROME_TOP)
+        DexAssistQuery.HOME_CHROME_TOP, DexAssistQuery.HOME_CHROME_TOP_RIGHT_ACTIONS,
+        DexAssistQuery.HOME_CHROME_BOTTOM, DexAssistQuery.HOME_CHROME_BOTTOM_ITEM -> bridge.findMethod {
+            searchPackages(if (query == DexAssistQuery.HOME_CHROME_TOP || query == DexAssistQuery.HOME_CHROME_TOP_RIGHT_ACTIONS)
                 "tv.danmaku.bili.khome.widget.topbar" else "tv.danmaku.bili.khome.widget.bottomtab")
             matcher {
                 modifiers(Modifier.STATIC, MatchType.Contains); returnType = "void"; paramCount(4..20)

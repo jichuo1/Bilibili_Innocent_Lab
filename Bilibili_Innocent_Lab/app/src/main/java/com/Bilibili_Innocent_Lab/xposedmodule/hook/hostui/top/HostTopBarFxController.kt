@@ -179,6 +179,10 @@ internal object HostTopBarFxController {
         // 3. 将顶栏配置为浮动在视频流上方的 Overlay 图层，视频流撑满整页不被挤压
         configureOverlayConstraints(topBarDock, barHeight, marginH, marginV, density)
 
+        // A short native strip centers against the whole capsule, including its action area.
+        // Standard measurement keeps the native tab hit boxes and underline in the same coordinates.
+        val tabCentering = NativeTopTabsCentering.attach(topBarDock, hierarchy.tabContainer)
+
         // 4. 周期性清理与对齐调度
         val topPadding = barHeight + marginV * 2
         val parent = topBarDock.parent as? ViewGroup
@@ -260,6 +264,7 @@ internal object HostTopBarFxController {
             configureOverlayConstraints(topBarDock, barHeight, marginH, marginV, density)
             stripTopBarArtifacts(topBarDock, isRoot = true)
             alignTopBarContent(topBarDock, density)
+            tabCentering?.sync()
             refreshTheme()
             island?.sync()
             fusion?.sync()

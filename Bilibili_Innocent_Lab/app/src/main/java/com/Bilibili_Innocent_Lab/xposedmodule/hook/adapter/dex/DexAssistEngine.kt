@@ -80,6 +80,8 @@ internal enum class DexAssistQuery {
     PEGASUS_DIVIDER,
     /** khome local chrome trace markers; the full Compose ABI is revalidated before installation. */
     HOME_CHROME_TOP,
+    HOME_CHROME_TOP_CONTENT,
+    HOME_CHROME_TOP_RIGHT_ACTIONS,
     HOME_CHROME_BOTTOM,
     HOME_CHROME_BOTTOM_ITEM,
     /** Native bottom content scope, before the full-size row and its tabs are composed. */

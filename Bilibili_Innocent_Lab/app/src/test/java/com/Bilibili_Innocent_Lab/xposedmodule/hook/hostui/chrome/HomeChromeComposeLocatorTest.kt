@@ -32,4 +32,38 @@ class HomeChromeComposeLocatorTest {
         assertFalse(HomeChromeComposeLocator.accepts("bottom", "tv.danmaku.bili.khome.widget.bottomtab.i\$1", bottom))
         assertFalse(HomeChromeComposeLocator.accepts("bottom", "tv.danmaku.bili.khome.widget.bottomtab.i", bottom.dropLast(1) + "boolean"))
     }
+
+    @Test fun `top content accepts old static helper but rejects the list leaf sharing its trace prefix`() {
+        val p = listOf("androidx.compose.foundation.ScrollState", "float", "kotlin.jvm.functions.Function2", "float",
+            "androidx.compose.runtime.State", "kotlin.jvm.functions.Function2", "kotlin.jvm.functions.Function3", "int",
+            "androidx.compose.runtime.MutableIntState", composer, "int")
+        assertTrue(HomeChromeComposeLocator.acceptsTopContent(topOwner, true, "kotlin.Unit", p, emptyList()))
+        assertFalse(HomeChromeComposeLocator.acceptsTopContent(topOwner, true, "kotlin.Unit",
+            listOf("int", "java.util.List", composer, "int"), emptyList()))
+        assertFalse(HomeChromeComposeLocator.acceptsTopContent(topOwner, true, "kotlin.Unit", p.dropLast(1), emptyList()))
+    }
+
+    @Test fun `top content accepts bridge and typed lambda only with native tab captures`() {
+        val fields = listOf("androidx.compose.foundation.ScrollState", "androidx.compose.runtime.internal.ComposableLambda", "kotlin.jvm.functions.Function3")
+        assertTrue(HomeChromeComposeLocator.acceptsTopContent(topOwner, false, "java.lang.Object", List(2) { "java.lang.Object" }, fields))
+        assertTrue(HomeChromeComposeLocator.acceptsTopContent(topOwner, false, "void", listOf(composer, "int"), fields))
+        assertFalse(HomeChromeComposeLocator.acceptsTopContent(topOwner, false, "void", listOf(composer, "int"), fields.drop(1)))
+        assertFalse(HomeChromeComposeLocator.acceptsTopContent("foreign.page.Row", false, "java.lang.Object", List(2) { "java.lang.Object" }, fields))
+    }
+
+    @Test fun `old static content allows null divider while requiring native tabs and captures`() {
+        val types = Array<Class<*>>(11) { Any::class.java }.apply {
+            this[2] = Function2::class.java; this[5] = Function2::class.java; this[6] = Function3::class.java
+        }
+        val tabs: (Any?, Any?) -> Any? = { _, _ -> Unit }
+        val indicator: (Any?, Any?, Any?) -> Any? = { _, _, _ -> Unit }
+        val args = Array<Any?>(11) { Any() }.apply { this[2] = null; this[5] = tabs; this[6] = indicator }
+        assertTrue(HomeChromeComposeLocator.topContentStaticValues(types) { args[it] })
+        args[2] = tabs
+        assertTrue(HomeChromeComposeLocator.topContentStaticValues(types) { args[it] })
+        args[2] = Any()
+        assertFalse(HomeChromeComposeLocator.topContentStaticValues(types) { args[it] })
+        args[2] = null; args[5] = null
+        assertFalse(HomeChromeComposeLocator.topContentStaticValues(types) { args[it] })
+    }
 }

@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -46,5 +47,29 @@ class HomeChromeAdapterTest {
         assertTrue(HomeChromeAdapter.conclusive(DexAssistResult.Candidates(emptyList())))
         assertTrue(HomeChromeAdapter.conclusive(DexAssistResult.Unavailable(DexAssistResult.Reason.NO_MATCH)))
         assertTrue(HomeChromeAdapter.conclusive(DexAssistResult.Unavailable(DexAssistResult.Reason.TOO_MANY_MATCHES)))
+    }
+
+    @Test fun centeringWithoutGlassPlansOnlyItsThreeSemanticBoundaries() {
+        val loader = object : ClassLoader(null) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if (name == "tv.danmaku.bili.khome.vm.HomeFrameViewModel") return Any::class.java
+                throw ClassNotFoundException(name)
+            }
+        }
+        val expected = setOf(DexAssistQuery.HOME_CHROME_TOP, DexAssistQuery.HOME_CHROME_TOP_CONTENT,
+            DexAssistQuery.HOME_CHROME_TOP_RIGHT_ACTIONS)
+        assertEquals(expected, HomeChromeAdapter.planned(loader, emptyMap(), false, emptySet(), topTabCentering = true))
+        assertEquals(expected - DexAssistQuery.HOME_CHROME_TOP_CONTENT, HomeChromeAdapter.planned(loader, emptyMap(), false,
+            setOf(DexAssistQuery.HOME_CHROME_TOP_CONTENT), topTabCentering = true))
+        assertFalse(HomeChromeAdapter.enabled("top_content", true, false, false))
+        assertFalse(HomeChromeAdapter.enabled("top_right_actions", true, false, false))
+    }
+
+    @Test fun contentBridgeCacheRetainsItsTwoParameterAbi() {
+        val point = HookPoint("tv.danmaku.bili.khome.widget.topbar.RenamedLambda", "invoke",
+            listOf("java.lang.Object", "java.lang.Object"))
+        val points = mapOf("top_content" to point)
+        assertEquals(points, HomeChromeAdapter.fromJson(HomeChromeAdapter.toJson(points)))
+        assertFalse(HomeChromeAdapter.validCache(mapOf("top_content" to point.copy(paramClassNames = listOf("java.lang.Object")))))
     }
 }
