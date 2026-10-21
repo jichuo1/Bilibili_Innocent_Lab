@@ -273,7 +273,11 @@
     <string name="recommend_video_publish_time_point_end">終點（含當天）</string>
     <string name="recommend_video_publish_time_kind_date">指定日期</string>
     <string name="recommend_video_publish_time_kind_relative">相對現在</string>
-    <string name="recommend_video_publish_time_pick_date">選擇日期</string>
+    <string name="recommend_video_publish_time_date_year">年</string>
+    <string name="recommend_video_publish_time_date_month">月</string>
+    <string name="recommend_video_publish_time_date_day">日</string>
+    <string name="recommend_video_publish_time_date_fields_hint">年份範圍：%1$d–%2$d</string>
+    <string name="recommend_video_publish_time_today">今天</string>
     <string name="recommend_video_publish_time_amount_hint">數字</string>
     <string name="recommend_video_publish_time_unit_hour">小時前</string>
     <string name="recommend_video_publish_time_unit_day">天前</string>
@@ -286,10 +290,10 @@
     <string name="recommend_video_publish_time_ago_month">%1$d 個月前</string>
     <string name="recommend_video_publish_time_ago_year">%1$d 年前</string>
     <string name="recommend_video_publish_time_invalid_amount">請輸入 1 至 9,999 的整數。</string>
-    <string name="recommend_video_publish_time_invalid_date">請為每個時間點選擇日期。</string>
+    <string name="recommend_video_publish_time_invalid_date">請為每個日期節點填寫有效的年、月、日。</string>
     <string name="recommend_video_publish_time_invalid_range">區間終點必須晚於起點。</string>
-    <string name="recommend_video_publish_time_preview_label">依目前時間，這條規則表示：</string>
-    <string name="recommend_video_publish_time_tip">選擇在首頁推薦及影片詳細頁下方的推薦中保留時間點哪一側、或區間內外的影片。指定日期表示當天 00:00；區間的終點日期包含當天全天。「3 個月前」這類相對時間點會隨目前時間移動。Bilibili 的推薦卡片不帶發布時間戳，發布時間取自卡片描述文字（如「3天前」「06-04」）；只有當卡片可能的發布時間範圍整體落在保留範圍之外才會移除，讀不到時間的卡片一律保留。重新啟動 Bilibili 後生效。</string>
+    <string name="recommend_video_publish_time_preview_label">目前範圍</string>
+    <string name="recommend_video_publish_time_tip">篩選首頁和詳細頁推薦，時間不明的影片保留。重新啟動 Bilibili 後生效。</string>
     <string name="mine_page_settings">「我的」頁面</string>
     <string name="hide_mine_vip">隱藏大會員卡片</string>
     <string name="hide_mine_vip_tip">啟用後，隱藏「我的」頁面中的大會員卡片，其他入口不受影響。重新啟動 Bilibili 後生效。</string>

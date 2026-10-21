@@ -2,10 +2,8 @@
 
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
-import android.app.DatePickerDialog
 import android.app.Dialog
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.text.Editable
 import android.text.InputFilter
 import android.text.InputType
@@ -28,6 +26,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoPublishTimeRule
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.MaxHeightScrollView
 import com.highcapable.betterandroid.ui.extension.view.textColor
+import com.lumen.coacervation.engine.widget.LumenSlidingSelection
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -39,7 +38,7 @@ import android.widget.TextView as NativeTextView
 /** 发布时间面板里一个时间节点的草稿；确认前不落盘。 */
 private class PublishTimePointDraft(point: PublishTimePoint?) {
     var relative: Boolean = point is PublishTimePoint.Relative
-    var date: LocalDate? = (point as? PublishTimePoint.Absolute)?.date
+    val date = PublishTimeDateDraft((point as? PublishTimePoint.Absolute)?.date)
     var amountText: String = (point as? PublishTimePoint.Relative)?.amount?.toString().orEmpty()
     var unit: PublishTimeUnit = (point as? PublishTimePoint.Relative)?.unit ?: PublishTimeUnit.DAY
 
@@ -49,8 +48,7 @@ private class PublishTimePointDraft(point: PublishTimePoint?) {
             ?.takeIf { it in 1..PublishTimePoint.MAX_RELATIVE_AMOUNT }
             ?.let { PublishTimePoint.Relative(it, unit) }
     } else {
-        // 越界年份由 Absolute 自己拒绝；这里吞成"不完整"，交给调用方提示。
-        date?.let { runCatching { PublishTimePoint.Absolute(it) }.getOrNull() }
+        date.toDate()?.let { PublishTimePoint.Absolute(it) }
     }
 }
 
@@ -70,6 +68,7 @@ internal fun MainActivity.showRecommendVideoPublishTimeDialog(anchor: View? = nu
             text = getString(R.string.recommend_video_publish_time_range)
             textColor = getColor(R.color.colorTextDark)
             textSize = 17f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             setLineSpacing(4 * density, 1f)
         },
         NativeLinearLayout.LayoutParams(
@@ -78,40 +77,39 @@ internal fun MainActivity.showRecommendVideoPublishTimeDialog(anchor: View? = nu
         )
     )
 
-    fun styleChoice(view: NativeTextView, selected: Boolean) {
-        view.textColor = if (selected) monetColors.primary else getColor(R.color.colorTextDark)
-        view.typeface = Typeface.create(
-            Typeface.DEFAULT,
-            if (selected) Typeface.BOLD else Typeface.NORMAL
-        )
-        view.background = GradientDrawable().apply {
-            cornerRadius = 12 * density
-            setColor(
-                if (selected) {
-                    ColorUtils.setAlphaComponent(monetColors.primary, 0x24)
-                } else {
-                    monetColors.surfaceVariant
-                }
-            )
-            if (selected) setStroke(density.toInt().coerceAtLeast(1), monetColors.primary)
+    fun choiceGroup(labels: List<String>, selected: Int, horizontal: Boolean = false,
+                    equalWidth: Boolean = false): LumenSlidingSelection {
+        val choice = createSkinSlidingSelection()
+        choice.options.orientation = if (horizontal) NativeLinearLayout.HORIZONTAL else NativeLinearLayout.VERTICAL
+        labels.forEachIndexed { index, label ->
+            val option = if (horizontal) NativeTextView(this).apply {
+                text = label
+                textSize = 13f
+                gravity = Gravity.CENTER
+                minimumHeight = dp(44)
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                background = selfRippleBackground(14f)
+                isFocusable = true
+            } else createGitHubMenuRow(label, "", highlight = false) {}
+            choice.addOption(option, NativeLinearLayout.LayoutParams(
+                if (equalWidth) 0 else if (horizontal) ViewGroup.LayoutParams.WRAP_CONTENT else ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, if (equalWidth) 1f else 0f
+            ).apply { if (horizontal && index > 0) marginStart = dp(6) })
         }
-        view.isSelected = selected
+        val normalColor = getColor(R.color.colorTextGray)
+        val selectedColor = monetColors.primary
+        choice.setOnHighlightListener { index, weight ->
+            val option = choice.options.getChildAt(index)
+            val title = if (option is NativeTextView) option else (option as? ViewGroup)?.getChildAt(0) as? NativeTextView
+            title?.textColor = ColorUtils.blendARGB(normalColor, selectedColor, weight)
+        }
+        choice.select(selected, animate = false)
+        return choice
     }
 
-    fun choiceView(label: String, compact: Boolean = false): NativeTextView =
-        NativeTextView(this).apply {
-            text = label
-            textSize = if (compact) 13f else 14f
-            gravity = if (compact) Gravity.CENTER else Gravity.CENTER_VERTICAL or Gravity.START
-            setPadding(
-                dp(if (compact) 12 else 14),
-                dp(if (compact) 8 else 10),
-                dp(if (compact) 12 else 14),
-                dp(if (compact) 8 else 10)
-            )
-            isClickable = true
-            isFocusable = true
-        }
+    fun selectIfChanged(choice: LumenSlidingSelection, index: Int) {
+        if (choice.selectedIndex != index) choice.select(index, animate = false)
+    }
 
     val modeOptions = listOf(
         null to R.string.recommend_video_publish_time_mode_off,
@@ -120,27 +118,15 @@ internal fun MainActivity.showRecommendVideoPublishTimeDialog(anchor: View? = nu
         PublishTimeMode.BETWEEN to R.string.recommend_video_publish_time_mode_between,
         PublishTimeMode.OUTSIDE to R.string.recommend_video_publish_time_mode_outside
     )
-    val modeViews = modeOptions.map { (option, labelRes) ->
-        option to choiceView(getString(labelRes)).also { view ->
-            body.addView(
-                view,
-                NativeLinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(6) }
-            )
-        }
-    }
+    val modeChoice = choiceGroup(modeOptions.map { getString(it.second) }, modeOptions.indexOfFirst { it.first == mode })
+    body.addView(modeChoice, NativeLinearLayout.LayoutParams(-1, -2))
 
     val previewView = NativeTextView(this).apply {
         textColor = getColor(R.color.colorTextDark)
         textSize = 13f
         setLineSpacing(4 * density, 1f)
         setPadding(dp(12), dp(10), dp(12), dp(10))
-        background = GradientDrawable().apply {
-            cornerRadius = 12 * density
-            setColor(monetColors.surfaceVariant)
-        }
+        background = skinCardBackground(monetColors.surfaceVariant, 14f)
     }
     val errorView = NativeTextView(this).apply {
         visibility = View.GONE
@@ -170,6 +156,30 @@ internal fun MainActivity.showRecommendVideoPublishTimeDialog(anchor: View? = nu
             }
     }
 
+    fun numberEditor(raw: String, maxLength: Int, hintText: String, action: Int,
+                     onChanged: (String) -> Unit): NativeEditText = NativeEditText(this).apply {
+        setText(raw)
+        hint = hintText
+        textColor = getColor(R.color.colorTextDark)
+        setHintTextColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x99))
+        textSize = 14f
+        inputType = InputType.TYPE_CLASS_NUMBER
+        imeOptions = action
+        isSingleLine = true
+        filters = arrayOf(InputFilter.LengthFilter(maxLength))
+        minimumHeight = dp(44)
+        setPadding(dp(14), dp(12), dp(14), dp(12))
+        // presentModalDialog applies the shared engine input surface and outline.
+        addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                onChanged(s?.toString().orEmpty())
+                refreshPreview()
+            }
+        })
+    }
+
     val pointSections = drafts.mapIndexed { index, draft ->
         val section = NativeLinearLayout(this).apply { orientation = NativeLinearLayout.VERTICAL }
         val label = NativeTextView(this).apply {
@@ -178,73 +188,75 @@ internal fun MainActivity.showRecommendVideoPublishTimeDialog(anchor: View? = nu
         }
         section.addView(label)
 
-        val kindRow = NativeLinearLayout(this).apply { orientation = NativeLinearLayout.HORIZONTAL }
-        val dateKind = choiceView(getString(R.string.recommend_video_publish_time_kind_date), compact = true)
-        val relativeKind = choiceView(
-            getString(R.string.recommend_video_publish_time_kind_relative),
-            compact = true
-        )
-        kindRow.addView(dateKind, NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        kindRow.addView(
-            relativeKind,
-            NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                .apply { marginStart = dp(8) }
+        val kindChoice = choiceGroup(
+            listOf(
+                getString(R.string.recommend_video_publish_time_kind_date),
+                getString(R.string.recommend_video_publish_time_kind_relative)
+            ),
+            if (draft.relative) 1 else 0,
+            horizontal = true,
+            equalWidth = true
         )
         section.addView(
-            kindRow,
+            kindChoice,
             NativeLinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(6) }
         )
 
-        val dateButton = choiceView("").apply {
-            background = GradientDrawable().apply {
-                cornerRadius = 14 * density
-                setColor(monetColors.surfaceVariant)
-                setStroke(
-                    density.toInt().coerceAtLeast(1),
-                    ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x38)
-                )
+        val dateGroup = NativeLinearLayout(this).apply { orientation = NativeLinearLayout.VERTICAL }
+        val dateRow = NativeLinearLayout(this).apply { orientation = NativeLinearLayout.HORIZONTAL }
+        fun dateField(@StringRes labelRes: Int, raw: String, maxLength: Int, weight: Float,
+                      action: Int, onChanged: (String) -> Unit): NativeEditText {
+            val fieldLabel = NativeTextView(this).apply {
+                text = getString(labelRes)
+                textColor = getColor(R.color.colorTextGray)
+                textSize = 12f
             }
+            val editor = numberEditor(raw, maxLength, getString(labelRes), action, onChanged)
+            val column = NativeLinearLayout(this).apply {
+                orientation = NativeLinearLayout.VERTICAL
+                addView(fieldLabel)
+                addView(editor, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+            }
+            dateRow.addView(column, NativeLinearLayout.LayoutParams(0, -2, weight).apply {
+                if (dateRow.childCount > 0) marginStart = dp(8)
+            })
+            return editor
         }
+        val yearEditor = dateField(R.string.recommend_video_publish_time_date_year,
+            draft.date.yearText, 4, 1.4f, EditorInfo.IME_ACTION_NEXT) { draft.date.yearText = it }
+        val monthEditor = dateField(R.string.recommend_video_publish_time_date_month,
+            draft.date.monthText, 2, 1f, EditorInfo.IME_ACTION_NEXT) { draft.date.monthText = it }
+        val dayEditor = dateField(R.string.recommend_video_publish_time_date_day,
+            draft.date.dayText, 2, 1f, EditorInfo.IME_ACTION_DONE) { draft.date.dayText = it }
+        dateGroup.addView(dateRow, NativeLinearLayout.LayoutParams(-1, -2))
+        dateGroup.addView(NativeTextView(this).apply {
+            text = getString(R.string.recommend_video_publish_time_date_fields_hint,
+                PublishTimePoint.MIN_YEAR, PublishTimePoint.MAX_YEAR)
+            textColor = getColor(R.color.colorTextGray)
+            textSize = 12f
+            setLineSpacing(3 * density, 1f)
+        }, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        dateGroup.addView(createTermsActionButton(getString(R.string.recommend_video_publish_time_today), filled = false) {
+            draft.date.setDate(LocalDate.now(ZoneId.systemDefault()))
+            yearEditor.setText(draft.date.yearText)
+            monthEditor.setText(draft.date.monthText)
+            dayEditor.setText(draft.date.dayText)
+        }, NativeLinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.END; topMargin = dp(4) })
         section.addView(
-            dateButton,
+            dateGroup,
             NativeLinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(6) }
+            ).apply { topMargin = dp(10) }
         )
 
         val relativeGroup = NativeLinearLayout(this).apply { orientation = NativeLinearLayout.VERTICAL }
-        val amountEditor = NativeEditText(this).apply {
-            setText(draft.amountText)
-            hint = getString(R.string.recommend_video_publish_time_amount_hint)
-            textColor = getColor(R.color.colorTextDark)
-            setHintTextColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x99))
-            textSize = 14f
-            inputType = InputType.TYPE_CLASS_NUMBER
-            imeOptions = EditorInfo.IME_ACTION_DONE
-            isSingleLine = true
-            filters = arrayOf(InputFilter.LengthFilter(4))
-            contentDescription = getString(R.string.recommend_video_publish_time_amount_hint)
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            background = GradientDrawable().apply {
-                cornerRadius = 14 * density
-                setColor(monetColors.surfaceVariant)
-                setStroke(
-                    density.toInt().coerceAtLeast(1),
-                    ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x38)
-                )
-            }
-            addTextChangedListener(object : TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-                override fun afterTextChanged(s: Editable?) {
-                    draft.amountText = s?.toString().orEmpty()
-                    refreshPreview()
-                }
-            })
+        val amountEditor = numberEditor(draft.amountText, 4,
+            getString(R.string.recommend_video_publish_time_amount_hint), EditorInfo.IME_ACTION_DONE) {
+            draft.amountText = it
         }
         relativeGroup.addView(
             amountEditor,
@@ -253,7 +265,6 @@ internal fun MainActivity.showRecommendVideoPublishTimeDialog(anchor: View? = nu
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(6) }
         )
-        val unitRow = NativeLinearLayout(this).apply { orientation = NativeLinearLayout.HORIZONTAL }
         val unitLabels = mapOf(
             PublishTimeUnit.HOUR to R.string.recommend_video_publish_time_unit_hour,
             PublishTimeUnit.DAY to R.string.recommend_video_publish_time_unit_day,
@@ -261,21 +272,12 @@ internal fun MainActivity.showRecommendVideoPublishTimeDialog(anchor: View? = nu
             PublishTimeUnit.MONTH to R.string.recommend_video_publish_time_unit_month,
             PublishTimeUnit.YEAR to R.string.recommend_video_publish_time_unit_year
         )
-        val unitViews = unitLabels.map { (unit, labelRes) ->
-            unit to choiceView(getString(labelRes), compact = true).also { view ->
-                unitRow.addView(
-                    view,
-                    NativeLinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    ).apply { if (unitRow.childCount > 0) marginStart = dp(6) }
-                )
-            }
-        }
+        val units = unitLabels.keys.toList()
+        val unitChoice = choiceGroup(unitLabels.values.map { getString(it) }, units.indexOf(draft.unit), horizontal = true)
         relativeGroup.addView(
             NativeHorizontalScrollView(this).apply {
                 isHorizontalScrollBarEnabled = false
-                addView(unitRow)
+                addView(unitChoice, FrameLayout.LayoutParams(-2, -2))
             },
             NativeLinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -292,57 +294,24 @@ internal fun MainActivity.showRecommendVideoPublishTimeDialog(anchor: View? = nu
                     else -> R.string.recommend_video_publish_time_point_end
                 }
             )
-            styleChoice(dateKind, !draft.relative)
-            styleChoice(relativeKind, draft.relative)
-            dateButton.visibility = if (draft.relative) View.GONE else View.VISIBLE
+            selectIfChanged(kindChoice, if (draft.relative) 1 else 0)
+            dateGroup.visibility = if (draft.relative) View.GONE else View.VISIBLE
             relativeGroup.visibility = if (draft.relative) View.VISIBLE else View.GONE
-            dateButton.text = draft.date?.toString()
-                ?: getString(R.string.recommend_video_publish_time_pick_date)
-            dateButton.textColor = if (draft.date == null) {
-                getColor(R.color.colorTextGray)
-            } else {
-                getColor(R.color.colorTextDark)
-            }
-            unitViews.forEach { (unit, view) -> styleChoice(view, unit == draft.unit) }
+            selectIfChanged(unitChoice, units.indexOf(draft.unit))
+            yearEditor.contentDescription = "${label.text} ${getString(R.string.recommend_video_publish_time_date_year)}"
+            monthEditor.contentDescription = "${label.text} ${getString(R.string.recommend_video_publish_time_date_month)}"
+            dayEditor.contentDescription = "${label.text} ${getString(R.string.recommend_video_publish_time_date_day)}"
+            amountEditor.contentDescription = "${label.text} ${getString(R.string.recommend_video_publish_time_amount_hint)}"
         }
 
-        dateKind.setOnClickListener {
-            draft.relative = false
+        kindChoice.onSelect = {
+            draft.relative = it == 1
             render()
             refreshPreview()
         }
-        relativeKind.setOnClickListener {
-            draft.relative = true
-            render()
+        unitChoice.onSelect = {
+            draft.unit = units[it]
             refreshPreview()
-        }
-        unitViews.forEach { (unit, view) ->
-            view.setOnClickListener {
-                draft.unit = unit
-                render()
-                refreshPreview()
-            }
-        }
-        dateButton.setOnClickListener {
-            val initial = draft.date ?: LocalDate.now(ZoneId.systemDefault())
-            DatePickerDialog(
-                this,
-                { _, year, month, dayOfMonth ->
-                    draft.date = LocalDate.of(year, month + 1, dayOfMonth)
-                    render()
-                    refreshPreview()
-                },
-                initial.year,
-                initial.monthValue - 1,
-                initial.dayOfMonth
-            ).apply {
-                // 与 PublishTimePoint 的可解析年份一致，否则选得出、存得进、却读不回来。
-                val zone = ZoneId.systemDefault()
-                datePicker.minDate = LocalDate.of(PublishTimePoint.MIN_YEAR, 1, 1)
-                    .atStartOfDay(zone).toInstant().toEpochMilli()
-                datePicker.maxDate = LocalDate.of(PublishTimePoint.MAX_YEAR, 12, 31)
-                    .atStartOfDay(zone).toInstant().toEpochMilli()
-            }.show()
         }
         render()
         body.addView(
@@ -356,18 +325,16 @@ internal fun MainActivity.showRecommendVideoPublishTimeDialog(anchor: View? = nu
     }
 
     fun renderMode() {
-        modeViews.forEach { (option, view) -> styleChoice(view, option == mode) }
+        selectIfChanged(modeChoice, modeOptions.indexOfFirst { it.first == mode })
         pointSections[0].first.visibility = if (mode == null) View.GONE else View.VISIBLE
         pointSections[1].first.visibility = if (mode?.pointCount == 2) View.VISIBLE else View.GONE
         pointSections.forEach { (_, render) -> render() }
         errorView.visibility = View.GONE
         refreshPreview()
     }
-    modeViews.forEach { (option, view) ->
-        view.setOnClickListener {
-            mode = option
-            renderMode()
-        }
+    modeChoice.onSelect = {
+        mode = modeOptions[it].first
+        renderMode()
     }
 
     body.addView(

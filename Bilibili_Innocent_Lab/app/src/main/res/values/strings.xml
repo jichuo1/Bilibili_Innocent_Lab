@@ -250,7 +250,11 @@
     <string name="recommend_video_publish_time_point_end">To (inclusive)</string>
     <string name="recommend_video_publish_time_kind_date">Date</string>
     <string name="recommend_video_publish_time_kind_relative">Relative to now</string>
-    <string name="recommend_video_publish_time_pick_date">Pick a date</string>
+    <string name="recommend_video_publish_time_date_year">Year</string>
+    <string name="recommend_video_publish_time_date_month">Month</string>
+    <string name="recommend_video_publish_time_date_day">Day</string>
+    <string name="recommend_video_publish_time_date_fields_hint">Year range: %1$d–%2$d</string>
+    <string name="recommend_video_publish_time_today">Today</string>
     <string name="recommend_video_publish_time_amount_hint">Number</string>
     <string name="recommend_video_publish_time_unit_hour">hours ago</string>
     <string name="recommend_video_publish_time_unit_day">days ago</string>
@@ -263,10 +267,10 @@
     <string name="recommend_video_publish_time_ago_month">%1$d mo ago</string>
     <string name="recommend_video_publish_time_ago_year">%1$d yr ago</string>
     <string name="recommend_video_publish_time_invalid_amount">Enter a whole number from 1 to 9,999.</string>
-    <string name="recommend_video_publish_time_invalid_date">Pick a date for every time point.</string>
+    <string name="recommend_video_publish_time_invalid_date">Enter a valid year, month and day for every date point.</string>
     <string name="recommend_video_publish_time_invalid_range">The end of the range must be later than the start.</string>
-    <string name="recommend_video_publish_time_preview_label">Right now this rule means:</string>
-    <string name="recommend_video_publish_time_tip">Choose which side of a time point, or of a range, to keep in Home recommendations and the recommendations below video details. A date means 00:00 on that day; in a range, the end date counts the whole day. Relative points such as “3 months ago” move with the current time. Bilibili cards don\'t carry a publish timestamp, so the time is read from the card\'s description text (for example “3 days ago” or “06-04”). A card is only removed when its whole possible time span is outside what you keep; cards without readable time are always kept. Restart Bilibili to apply.</string>
+    <string name="recommend_video_publish_time_preview_label">Current range</string>
+    <string name="recommend_video_publish_time_tip">Applies to Home and video-detail recommendations. Videos with unknown publish times are kept. Restart Bilibili to apply.</string>
     <string name="mine_page_settings">Mine page</string>
     <string name="hide_mine_vip">Hide the VIP card</string>
     <string name="hide_mine_vip_tip">When enabled, hides the VIP card on the Mine page. Other entries remain available. Restart Bilibili to apply.</string>

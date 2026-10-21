@@ -273,7 +273,11 @@
     <string name="recommend_video_publish_time_point_end">终点（含当天）</string>
     <string name="recommend_video_publish_time_kind_date">指定日期</string>
     <string name="recommend_video_publish_time_kind_relative">相对现在</string>
-    <string name="recommend_video_publish_time_pick_date">选择日期</string>
+    <string name="recommend_video_publish_time_date_year">年</string>
+    <string name="recommend_video_publish_time_date_month">月</string>
+    <string name="recommend_video_publish_time_date_day">日</string>
+    <string name="recommend_video_publish_time_date_fields_hint">年份范围：%1$d–%2$d</string>
+    <string name="recommend_video_publish_time_today">今天</string>
     <string name="recommend_video_publish_time_amount_hint">数字</string>
     <string name="recommend_video_publish_time_unit_hour">小时前</string>
     <string name="recommend_video_publish_time_unit_day">天前</string>
@@ -286,10 +290,10 @@
     <string name="recommend_video_publish_time_ago_month">%1$d 个月前</string>
     <string name="recommend_video_publish_time_ago_year">%1$d 年前</string>
     <string name="recommend_video_publish_time_invalid_amount">请输入 1 至 9,999 的整数。</string>
-    <string name="recommend_video_publish_time_invalid_date">请为每个时间点选择日期。</string>
+    <string name="recommend_video_publish_time_invalid_date">请为每个日期节点填写有效的年、月、日。</string>
     <string name="recommend_video_publish_time_invalid_range">区间终点必须晚于起点。</string>
-    <string name="recommend_video_publish_time_preview_label">按当前时间，这条规则表示：</string>
-    <string name="recommend_video_publish_time_tip">选择在首页推荐和视频详情页底部推荐中保留时间点哪一侧、或区间内外的视频。指定日期表示当天 00:00；区间的终点日期包含当天全天。“3 个月前”这类相对时间点会随当前时间移动。哔哩哔哩的推荐卡片不带发布时间戳，发布时间取自卡片描述文案（如“3天前”“06-04”）；只有当卡片可能的发布时间范围整体落在保留范围之外才会移除，读不到时间的卡片一律保留。重启哔哩哔哩后生效。</string>
+    <string name="recommend_video_publish_time_preview_label">当前范围</string>
+    <string name="recommend_video_publish_time_tip">筛选首页和详情页推荐，时间不明的视频保留。重启哔哩哔哩后生效。</string>
     <string name="mine_page_settings">“我的”页</string>
     <string name="hide_mine_vip">隐藏大会员卡片</string>
     <string name="hide_mine_vip_tip">开启后，隐藏“我的”页大会员卡片，其他入口不受影响。重启哔哩哔哩后生效。</string>
