@@ -182,6 +182,45 @@ class ModernHookRuntimeTest {
     }
 
     @Test
+    fun `constant replacements avoid argument reads and a later dynamic replacement still executes`() {
+        val chain = TestChain(method, arguments = arrayOf(5, 6))
+        val creator = ModernMemberHookCreator(method).apply { replaceTo(null) }
+        assertNull(creator.invoke(chain))
+        assertEquals(0, chain.argumentReads)
+        assertEquals(0, chain.calls)
+
+        creator.replaceAny { argOrNull(0) }
+        assertEquals(5, creator.invoke(chain))
+        assertEquals(1, chain.argumentReads)
+        assertEquals(0, chain.calls)
+
+        val failure = IllegalStateException("dynamic replacement failure")
+        creator.replaceAny { throw failure }
+        try {
+            creator.invoke(chain)
+            fail("dynamic failures must reach the framework")
+        } catch (actual: IllegalStateException) {
+            assertSame(failure, actual)
+        }
+    }
+
+    @Test
+    fun `default interception returns correctly boxed zero values without reading arguments`() {
+        val expected = mapOf(
+            "booleanValue" to false, "byteValue" to 0.toByte(), "charValue" to 0.toChar(),
+            "shortValue" to 0.toShort(), "intValue" to 0, "longValue" to 0L,
+            "floatValue" to 0f, "doubleValue" to 0.0, "objectValue" to null, "voidValue" to null
+        )
+        for ((name, value) in expected) {
+            val member = ReturnFixture::class.java.getDeclaredMethod(name)
+            val chain = TestChain(member)
+            assertEquals(name, value, ModernMemberHookCreator(member).apply { intercept() }.invoke(chain))
+            assertEquals(name, 0, chain.argumentReads)
+            assertEquals(name, 0, chain.calls)
+        }
+    }
+
+    @Test
     fun `constructor callbacks see the same receiver before and after downstream`() {
         val constructor = Fixture::class.java.getDeclaredConstructor()
         val instance = Fixture()
@@ -396,10 +435,14 @@ class ModernHookRuntimeTest {
         private val original: (Any?, Array<Any?>) -> Any? = { _, _ -> 3 }
     ) : XposedInterface.Chain {
         var calls = 0
+        var argumentReads = 0
         var argumentOverrideCalls = 0
         override fun getExecutable(): Executable = member
         override fun getThisObject(): Any? = receiver
-        override fun getArgs(): List<Any?> = arguments.toList()
+        override fun getArgs(): List<Any?> {
+            argumentReads++
+            return arguments.toList()
+        }
         override fun getArg(index: Int): Any? = arguments[index]
         override fun proceed(): Any? {
             calls++
@@ -415,6 +458,19 @@ class ModernHookRuntimeTest {
             calls++
             return original(thisObject, args)
         }
+    }
+
+    class ReturnFixture {
+        fun booleanValue(): Boolean = true
+        fun byteValue(): Byte = 1
+        fun charValue(): Char = 'a'
+        fun shortValue(): Short = 1
+        fun intValue(): Int = 1
+        fun longValue(): Long = 1L
+        fun floatValue(): Float = 1f
+        fun doubleValue(): Double = 1.0
+        fun objectValue(): Any = this
+        fun voidValue() = Unit
     }
 
     class Fixture {

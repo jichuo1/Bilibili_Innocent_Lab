@@ -76,8 +76,4 @@ internal object PublicationAuthorityStore {
 
     fun matches(context: Context, publication: AuthorityPublication): Boolean =
         current(context)?.identity == publication.identity
-
-    /** 现有管理器发布器也从同一份当前内容取样，禁止发布旧的接受意图。 */
-    fun forPublication(context: Context, decision: UserTermsDecision, values: Map<String, Any>): AuthorityPublication? =
-        current(context)?.takeIf { it.decision == decision && it.values == values }
 }

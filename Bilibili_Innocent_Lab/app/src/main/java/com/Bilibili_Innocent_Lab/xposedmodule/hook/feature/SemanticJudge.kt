@@ -1270,7 +1270,7 @@ internal class SemanticJudge(
             learnedBatchLimits.clear()
             learnedTrust.clear()
             livePools.clear()
-            learnedFile = null
+            learnedStore = createLearnedStore()
         }
 
         /**
@@ -1290,10 +1290,7 @@ internal class SemanticJudge(
         private fun applyTrust(pool: SemanticSourcePool) {
             pool.slotsFor(pool.sources).forEach { slot ->
                 learnedTrust[slot.source.learnKey]?.let { (agree, dispute) ->
-                    if (slot.checks == 0.0) {
-                        slot.agreements = agree
-                        slot.disputes = dispute
-                    }
+                    slot.restoreTrust(agree, dispute)
                 }
             }
         }
@@ -1303,7 +1300,8 @@ internal class SemanticJudge(
             synchronized(livePools) {
                 livePools.forEach { pool ->
                     pool.slotsFor(pool.sources).forEach { slot ->
-                        if (slot.checks > 0) out[slot.source.learnKey] = slot.agreements to slot.disputes
+                        val trust = slot.trustSnapshot()
+                        if (trust.first + trust.second > 0) out[slot.source.learnKey] = trust
                     }
                 }
             }
@@ -1318,65 +1316,66 @@ internal class SemanticJudge(
          * 以前每次重启都要重新试错（Respan 那种只收 noul+文本的来源，每次要先被拒 3 次）；现在试出来一次就一直用。
          * 只存摘要与整数，不存 Key、地址与任何文本。读盘在后台，读到之前照常探测，结果按"只进不退 / 只缩不放"合并。
          */
-        @Volatile private var learnedFile: File? = null
-
         fun attachLearnedStore(root: File) {
-            loadLearned(root)
-            // 读盘在后台，可能晚于来源池创建：读完后给已登记的来源池补套可信度。
-            synchronized(livePools) { livePools.toList() }.forEach(::applyTrust)
-        }
-
-        private fun loadLearned(root: File) {
             val file = File(File(root, "bil_semantic"), LEARNED_FILE)
-            learnedFile = file
-            runCatching {
-                if (!file.isFile || file.length() > MAX_LEARNED_BYTES) return@runCatching
-                file.readLines(StandardCharsets.UTF_8).forEach { line ->
-                    val parts = line.trim().split(' ')
-                    if (parts.size != 3 || parts[1].length != 32) return@forEach
-                    val value = parts[2].toIntOrNull() ?: return@forEach
-                    when (parts[0]) {
-                        "v" -> if (value in 0..16) learnedVariants.merge(parts[1], value) { old, new -> maxOf(old, new) }
-                        "b" -> if (value in 1..MAX_BATCH_LIMIT) learnedBatchLimits.merge(parts[1], value) { old, new -> minOf(old, new) }
-                    }
-                }
-                // 可信度：`t <键> <一致×100> <推翻×100>`（上面的循环按 3 段解析，这里单独读 4 段的行）。
-                file.readLines(StandardCharsets.UTF_8).forEach { line ->
-                    val parts = line.trim().split(' ')
-                    if (parts.size != 4 || parts[0] != "t" || parts[1].length != 32) return@forEach
-                    val agree = parts[2].toIntOrNull() ?: return@forEach
-                    val dispute = parts[3].toIntOrNull() ?: return@forEach
-                    if (agree in 0..100_000 && dispute in 0..100_000) learnedTrust[parts[1]] = agree / 100.0 to dispute / 100.0
+            learnedStore.attach(file) { target ->
+                if (!loadLearned(target)) false else {
+                    // Complete the merge, including pools created before this background load,
+                    // before initialization releases any queued saves.
+                    synchronized(livePools) { livePools.toList() }.forEach(::applyTrust)
+                    true
                 }
             }
         }
 
-        private val learnedDirty = java.util.concurrent.atomic.AtomicBoolean(false)
-
-        private fun persistLearned() {
-            val file = learnedFile ?: return
-            if (!learnedDirty.compareAndSet(false, true)) return
-            val accepted = submitBackground(Runnable {
-                HostThreadGuard.run("semantic_learned_save") {
-                    learnedDirty.set(false)
-                    val text = buildString {
-                        learnedVariants.forEach { (key, value) -> append("v ").append(key).append(' ').append(value).append('\n') }
-                        learnedBatchLimits.forEach { (key, value) -> append("b ").append(key).append(' ').append(value).append('\n') }
-                        trustSnapshot().forEach { (key, value) ->
-                            append("t ").append(key).append(' ').append((value.first * 100).toInt()).append(' ')
-                                .append((value.second * 100).toInt()).append('\n')
+        private fun loadLearned(file: File): Boolean = runCatching {
+            if (!file.exists()) return@runCatching true
+            if (!file.isFile) return@runCatching false
+            // Oversized caches were already ignored; permit fresh learning to rebuild them.
+            if (file.length() > MAX_LEARNED_BYTES) return@runCatching true
+            // One immutable disk snapshot for variants, batch limits and trust. A concurrent
+            // learner may update memory, but cannot replace the file until this merge completes.
+            val lines = file.readLines(StandardCharsets.UTF_8)
+            lines.forEach { line ->
+                val parts = line.trim().split(' ')
+                if (parts.size !in 3..4 || parts[1].length != 32) return@forEach
+                val value = parts[2].toIntOrNull() ?: return@forEach
+                when (parts[0]) {
+                    "v" -> if (parts.size == 3 && value in 0..16) {
+                        learnedVariants.merge(parts[1], value) { old, new -> maxOf(old, new) }
+                    }
+                    "b" -> if (parts.size == 3 && value in 1..MAX_BATCH_LIMIT) {
+                        learnedBatchLimits.merge(parts[1], value) { old, new -> minOf(old, new) }
+                    }
+                    "t" -> if (parts.size == 4) {
+                        val dispute = parts[3].toIntOrNull() ?: return@forEach
+                        if (value in 0..100_000 && dispute in 0..100_000) {
+                            learnedTrust[parts[1]] = value / 100.0 to dispute / 100.0
                         }
                     }
-                    file.parentFile?.mkdirs()
-                    val tmp = File(file.path + ".tmp")
-                    tmp.writeText(text, StandardCharsets.UTF_8)
-                    if (!tmp.renameTo(file)) {
-                        file.delete()
-                        tmp.renameTo(file)
+                }
+            }
+            true
+        }.getOrDefault(false)
+
+        @Volatile private var learnedStore = createLearnedStore()
+
+        private fun createLearnedStore() = SemanticLearnedStore(
+            schedule = ::submitBackground,
+            snapshot = {
+                buildString {
+                    learnedVariants.forEach { (key, value) -> append("v ").append(key).append(' ').append(value).append('\n') }
+                    learnedBatchLimits.forEach { (key, value) -> append("b ").append(key).append(' ').append(value).append('\n') }
+                    trustSnapshot().forEach { (key, value) ->
+                        append("t ").append(key).append(' ').append((value.first * 100).toInt()).append(' ')
+                            .append((value.second * 100).toInt()).append('\n')
                     }
                 }
-            })
-            if (!accepted) learnedDirty.set(false)
+            }
+        )
+
+        private fun persistLearned() {
+            learnedStore.save()
         }
 
         const val LEARNED_FILE = "learned.txt"
@@ -1525,8 +1524,7 @@ internal class SemanticJudge(
                 connection.setRequestProperty("Authorization", "Bearer $apiKey")
                 connection.outputStream.use { it.write(body) }
                 val status = connection.responseCode
-                val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-                val text = stream?.use { it.readBytes().toString(StandardCharsets.UTF_8) }.orEmpty()
+                val text = SemanticHttpResponseReader.read(connection, status)
                 // 限流：把重置相关的响应头并进返回体（`_headers`），冷却逻辑据此等到重置时刻。
                 if (status == 429) status to withRateLimitHeaders(text, connection) else status to text
             } catch (_: Exception) {

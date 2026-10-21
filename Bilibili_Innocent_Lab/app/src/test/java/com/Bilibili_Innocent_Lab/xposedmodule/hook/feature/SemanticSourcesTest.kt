@@ -512,6 +512,50 @@ class SemanticSourcesTest {
     }
 
     @Test
+    fun `late trust restoration matches restoring before reviews and is applied only once`() {
+        val early = SemanticSourcePool.Slot(source(1))
+        val late = SemanticSourcePool.Slot(source(1))
+        early.restoreTrust(20.0, 8.0)
+        listOf(true, false).forEach { agreed ->
+            early.recordReview(agreed)
+            late.recordReview(agreed)
+        }
+        late.restoreTrust(20.0, 8.0)
+        assertEquals(early.agreements, late.agreements, 1e-12)
+        assertEquals(early.disputes, late.disputes, 1e-12)
+        val restored = late.trustSnapshot()
+        late.restoreTrust(20.0, 8.0)
+        assertEquals(restored, late.trustSnapshot())
+        early.recordReview(agreed = true)
+        late.recordReview(agreed = true)
+        assertEquals(early.agreements, late.agreements, 1e-12)
+        assertEquals(early.disputes, late.disputes, 1e-12)
+    }
+
+    @Test
+    fun `loading old trust after live reviews merges history without repeated attach inflation`() {
+        val root = temp.newFolder("late-host-files")
+        val configured = source(1)
+        val file = File(File(root, "bil_semantic"), SemanticJudge.LEARNED_FILE)
+        file.parentFile!!.mkdirs()
+        val original = "v ${configured.learnKey} 3\nb ${configured.learnKey} 7\nt ${configured.learnKey} 2000 800\n"
+        file.writeText(original)
+        val pool = SemanticSourcePool(listOf(configured))
+        val slot = pool.slotsFor(pool.sources).single()
+        slot.recordReview(agreed = true)
+        slot.recordReview(agreed = false)
+        SemanticJudge.attachLearnedStore(root)
+        val decay = SemanticSourcePool.TRUST_DECAY
+        assertEquals(20.0 * decay * decay + decay, slot.agreements, 1e-12)
+        assertEquals(8.0 * decay * decay + 1.0, slot.disputes, 1e-12)
+        val restored = slot.trustSnapshot()
+        SemanticJudge.attachLearnedStore(root)
+        SemanticJudge.registerPool(pool)
+        assertEquals(restored, slot.trustSnapshot())
+        assertEquals(original, file.readText())
+    }
+
+    @Test
     fun `source trust survives a restart`() {
         val root = temp.newFolder("host-files")
         SemanticJudge.attachLearnedStore(root)

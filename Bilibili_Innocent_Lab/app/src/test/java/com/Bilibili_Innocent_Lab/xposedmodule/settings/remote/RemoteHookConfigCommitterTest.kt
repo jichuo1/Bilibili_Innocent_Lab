@@ -138,6 +138,47 @@ class RemoteHookConfigCommitterTest {
         assertEquals(0, backend.commits)
     }
 
+    @Test
+    fun `every altered readback fails even when commit returned true`() {
+        val mutations: List<(Map<String, Any>) -> Map<String, Any>> = listOf(
+            { it - RemoteHookConfigContract.KEY_DIGEST },
+            { it + (RemoteHookConfigContract.KEY_READY to false) },
+            { it + (RemoteHookConfigContract.KEY_GENERATION to "100") },
+            { it + (RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP to 77L) },
+            { it + (RemoteHookConfigContract.KEY_DIGEST to "altered") },
+            { it + ("unrecognized_key" to true) }
+        )
+        mutations.forEach { mutate ->
+            val writer = RemoteHookConfigCommitter()
+            val target = CachedBackend().apply { mutateReadback = mutate }
+            val failed = writer.publish(1L, BuildConfig.VERSION_CODE.toLong(),
+                UserTermsDecision.ACCEPTED, values, 100L, target)
+            assertFalse(failed.succeeded)
+            assertEquals(1, target.commits)
+            target.mutateReadback = { it }
+            val retry = writer.publish(1L, BuildConfig.VERSION_CODE.toLong(),
+                UserTermsDecision.ACCEPTED, values, 101L, target)
+            assertTrue(retry.succeeded)
+            assertEquals(2, target.commits)
+        }
+    }
+
+    @Test
+    fun `an invalid source or foreign module version cannot reach the remote commit`() {
+        val invalidSources = listOf(
+            values - RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP,
+            values + (RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP to "wrong-type")
+        )
+        invalidSources.forEach { source ->
+            val result = committer.publish(1L, BuildConfig.VERSION_CODE.toLong(),
+                UserTermsDecision.ACCEPTED, source, 100L, backend)
+            assertFalse(result.succeeded)
+        }
+        assertFalse(committer.publish(1L, BuildConfig.VERSION_CODE.toLong() + 1L,
+            UserTermsDecision.ACCEPTED, values, 100L, backend).succeeded)
+        assertEquals(0, backend.commits)
+    }
+
     /** Reproduces Service 102's cache-before-IPC behavior, including its failure case. */
     private class CachedBackend : RemoteHookConfigBackend {
         var cached: Map<String, Any> = emptyMap()
@@ -146,6 +187,7 @@ class RemoteHookConfigCommitterTest {
         var failCommit = false
         var failRead = false
         var corruptAfterCommit = false
+        var mutateReadback: (Map<String, Any>) -> Map<String, Any> = { it }
         val removals = mutableListOf<Set<String>>()
 
         override fun readCached(): Map<String, *> {
@@ -160,6 +202,7 @@ class RemoteHookConfigCommitterTest {
             if (failCommit) return false
             remote = (remote - removedKeys) + document
             if (corruptAfterCommit) cached = cached - RemoteHookConfigContract.KEY_DIGEST
+            cached = mutateReadback(cached)
             return true
         }
     }

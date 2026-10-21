@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.settings.remote
 
+import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
 import kotlin.math.max
 
@@ -42,6 +43,7 @@ internal class RemoteHookConfigCommitter {
     ): RemoteHookConfigPublishResult = runCatching {
         check(stillCurrent()) { "stale_publication" }
         check(connectionId > 0L) { "remote service connection is unavailable" }
+        check(moduleVersionCode == BuildConfig.VERSION_CODE.toLong()) { "remote module version mismatch" }
         if (cleanupConnectionId != connectionId) {
             cleanupConnectionId = connectionId
             pendingRemovals.clear()
@@ -88,8 +90,9 @@ internal class RemoteHookConfigCommitter {
             "remote preferences commit returned false"
         }
         val localCopy = backend.readCached()
-        val decoded = RemoteHookConfigContract.decode(localCopy)
-        check(decoded is RemoteHookConfigDecodeResult.Ready && localCopy == document) {
+        // The version check above and encode validate the complete protocol. Exact equality
+        // rejects missing, extra or altered values without re-decoding and hashing the document.
+        check(localCopy == document) {
             "remote client cache verification failed"
         }
         check(stillCurrent()) { "stale_publication" }

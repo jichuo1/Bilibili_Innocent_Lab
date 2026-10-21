@@ -16,11 +16,13 @@ internal class SettingsDependencyBindings {
         val ids = linkedSetOf<String>()
         var normalAlpha = 1f
         var nodes = emptyList<Node>()
+        var available: Boolean? = null
     }
     private val rows = linkedMapOf<View, Row>()
     private val handler = Handler(Looper.getMainLooper())
     private var preferences: SharedPreferences? = null
     private var disposed = false
+    private var started = false
     private val refresh = Runnable { if (!disposed) apply(ModuleUiSettings.read(preferences)) }
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == null || key in SettingsDependencies.parentKeys) {
@@ -36,24 +38,35 @@ internal class SettingsDependencyBindings {
 
     /** Called after inflation/styling, so normal emphasis and child states are authoritative. */
     fun start(source: SharedPreferences?) {
-        preferences = source
-        rows.values.forEach { row ->
-            row.normalAlpha = row.view.alpha
-            val nodes = mutableListOf<Node>()
-            fun collect(view: View) {
-                nodes += Node(view, view.isEnabled, view.isFocusable, view.isFocusableInTouchMode)
-                if (view is ViewGroup) for (i in 0 until view.childCount) collect(view.child(i))
+        if (disposed) return
+        // Capture normal states once. A repeated start must not promote disabled/dimmed states
+        // from the previous application to the new baseline.
+        if (!started) {
+            rows.values.forEach { row ->
+                row.normalAlpha = row.view.alpha
+                val nodes = mutableListOf<Node>()
+                fun collect(view: View) {
+                    nodes += Node(view, view.isEnabled, view.isFocusable, view.isFocusableInTouchMode)
+                    if (view is ViewGroup) for (i in 0 until view.childCount) collect(view.child(i))
+                }
+                collect(row.view)
+                row.nodes = nodes
             }
-            collect(row.view)
-            row.nodes = nodes
+            started = true
         }
-        source?.registerOnSharedPreferenceChangeListener(listener)
+        if (preferences !== source) {
+            preferences?.unregisterOnSharedPreferenceChangeListener(listener)
+            preferences = source
+            source?.registerOnSharedPreferenceChangeListener(listener)
+        }
         refresh.run()
     }
 
     private fun apply(settings: ModuleUiSettings) {
         rows.values.forEach { row ->
             val available = row.ids.all { SettingsDependencies.available(it, settings) }
+            if (row.available == available) return@forEach
+            row.available = available
             row.view.alpha = row.normalAlpha * if (available) 1f else .45f
             row.nodes.forEach { node ->
                 node.view.isEnabled = available && node.enabled

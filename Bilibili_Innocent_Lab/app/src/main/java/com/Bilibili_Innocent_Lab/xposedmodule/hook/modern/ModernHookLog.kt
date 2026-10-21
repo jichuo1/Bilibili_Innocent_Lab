@@ -8,7 +8,7 @@ import android.util.Log
  * **记日志绝不能抛**：全仓日志都汇到这里，调用方常在 Hook 链之外（宿主主线程的 post、
  * 模块后台线程、代理回调）。框架 binder 断开时 `module.log` 会抛，未绑定 sink 时
  * `android.util.Log` 在 JVM 单测里也会抛；任何一种逃逸到宿主栈都会杀进程。
- * 所以框架通道失败退到 `android.util.Log`，再失败就静默丢弃这一条。
+ * Logcat 与框架日志分别尝试、分别保护；任一通道失败都不妨碍另一通道，均不可用时丢弃这一条。
  */
 internal object ModernHookLog {
     private const val TAG = "BilibiliInnocentLab"

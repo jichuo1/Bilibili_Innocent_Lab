@@ -162,7 +162,7 @@ internal class FrameInterpolationFeatureInstaller(
         hook("surface") {
             registrar.exact("$ID.surface", player, "setSurface", Surface::class.java) {
                 before {
-                    val surface = args[0] as? Surface ?: return@before
+                    val surface = argOrNull(0) as? Surface ?: return@before
                     if ((playerProcess || inMainDisplay.get() == true) && activate(apk)) mainSurfaces[surface] = true
                 }
             }
@@ -180,11 +180,11 @@ internal class FrameInterpolationFeatureInstaller(
                 }
                 registrar.all("$ID.clock.event", CLIENT, "eventHandlerForClient") {
                     before {
-                        if (args[0] == 300 || args[0] == 1300) {
+                        if (argOrNull(0) == 300 || argOrNull(0) == 1300) {
                             if (!clockProbeEnabled()) return@before
                             instance?.let(playerClocks::attach)
-                            log("clock.event", "client=${System.identityHashCode(instance)} what=${args[0]} rate=${args[1]} position=${args[2]} " +
-                                "stamp=${args[3]} elapsed=${android.os.SystemClock.elapsedRealtime()} " +
+                            log("clock.event", "client=${System.identityHashCode(instance)} what=${argOrNull(0)} rate=${argOrNull(1)} position=${argOrNull(2)} " +
+                                "stamp=${argOrNull(3)} elapsed=${android.os.SystemClock.elapsedRealtime()} " +
                                 "uptime=${android.os.SystemClock.uptimeMillis()} nanoMs=${System.nanoTime() / 1_000_000}")
                         }
                     }
@@ -194,7 +194,7 @@ internal class FrameInterpolationFeatureInstaller(
             for (method in listOf("setSurface", "_setVideoSurface")) hook("client.$method") {
                 registrar.all("$ID.client.$method", CLIENT, method) {
                     before {
-                        val surface = args.getOrNull(0) as? Surface ?: return@before
+                        val surface = argOrNull(0) as? Surface ?: return@before
                         if (activate(apk)) mainSurfaces[surface] = true
                     }
                 }
@@ -203,7 +203,7 @@ internal class FrameInterpolationFeatureInstaller(
             runCatching {
                 registrar.all("$ID.client.speed", CLIENT, "setSpeed") {
                     before {
-                        val value = (args.getOrNull(0) as? Float)?.toDouble() ?: return@before
+                        val value = (argOrNull(0) as? Float)?.toDouble() ?: return@before
                         if (value.isFinite() && value > 0.0) speed = value
                     }
                 }
@@ -213,7 +213,7 @@ internal class FrameInterpolationFeatureInstaller(
         hook("speed") {
             registrar.exact("$ID.speed", player, "setSpeed", Float::class.javaPrimitiveType!!) {
                 before {
-                    val value = (args[0] as? Float)?.toDouble() ?: return@before
+                    val value = (argOrNull(0) as? Float)?.toDouble() ?: return@before
                     if ((playerProcess || inMainOp.get() == true) && value.isFinite() && value > 0.0) speed = value
                 }
             }
@@ -223,8 +223,8 @@ internal class FrameInterpolationFeatureInstaller(
                 Surface::class.java, MediaCrypto::class.java, Int::class.javaPrimitiveType!!) {
                 before {
                     val codec = instance as? MediaCodec ?: return@before
-                    val display = args[1] as? Surface ?: return@before
-                    val format = args[0] as? MediaFormat ?: return@before
+                    val display = argOrNull(1) as? Surface ?: return@before
+                    val format = argOrNull(0) as? MediaFormat ?: return@before
                     if (verificationAllowed && ReflectAccess.currentApplication()?.getExternalFilesDir(null)?.let {
                             File(it, "$VERIFY_DIR/native-only").isFile
                         } == true) return@before
@@ -238,15 +238,15 @@ internal class FrameInterpolationFeatureInstaller(
                         // 启动时能力测量因 GPU 被短暂占满而失败的，到期在此重测，成功后同样迟接管。
                         holder.retryIfDue()
                         if (holder.state != FrameInterpolationEngineHolder.State.FAILED) {
-                            pending[codec] = PendingDecoder(format, display, args[2])
+                            pending[codec] = PendingDecoder(format, display, argOrNull(2))
                             showStatus(FrameStatus.Inactive(FrameStatus.Reason.LOADING))
                         } else showStatus(FrameStatus.Inactive(FrameStatus.Reason.ENGINE))
                         return@before
                     }
-                    val bridge = FrameCaptureBridge.create(FrameCaptureBridge.Config(), codec, format, display, args[2],
+                    val bridge = FrameCaptureBridge.create(FrameCaptureBridge.Config(), codec, format, display, argOrNull(2),
                         holder, bridgeHost, requestedTargetFps = verificationTarget()) ?: return@before
                     bridges[codec] = bridge
-                    configured[codec] = PendingDecoder(format, display, args[2])
+                    configured[codec] = PendingDecoder(format, display, argOrNull(2))
                     args[1] = bridge.captureSurface
                 }
                 after {
@@ -283,9 +283,9 @@ internal class FrameInterpolationFeatureInstaller(
             after {
                 if (hasThrowable) return@after
                 val track = instance as? AudioTrack ?: return@after
-                val bytes = when (args[3] as? Int) { 2 -> 2; 3 -> 1; 4 -> 4; else -> return@after }
-                val channels = Integer.bitCount((args[2] as? Int) ?: return@after)
-                val rate = (args[1] as? Int) ?: return@after
+                val bytes = when (argOrNull(3) as? Int) { 2 -> 2; 3 -> 1; 4 -> 4; else -> return@after }
+                val channels = Integer.bitCount((argOrNull(2) as? Int) ?: return@after)
+                val rate = (argOrNull(1) as? Int) ?: return@after
                 runCatching { FrameAudioDelay(rate, channels, bytes) }.getOrNull()?.let { audioTracks[track] = it }
                 audioRates[track] = rate
             }
@@ -301,7 +301,7 @@ internal class FrameInterpolationFeatureInstaller(
                     val track = instance as? AudioTrack ?: return@before
                     val delay = audioTracks[track] ?: return@before
                     delay.setTargetDelayUs(audioDelayUs)
-                    val size = (args[2] as? Int) ?: return@before
+                    val size = (argOrNull(2) as? Int) ?: return@before
                     val plan = delay.onWrite(size)
                     if (plan.silenceBytes > 0) {
                         writingSilence.set(true)
@@ -312,7 +312,7 @@ internal class FrameInterpolationFeatureInstaller(
                         // 整段被追回：不调用原方法，向宿主报告全部写入，宿主自身的计数保持不变。
                         if (plan.dropBytes >= size) { result = size; return@before }
                         setObjectExtra(DROPPED, plan.dropBytes)
-                        args[1] = (args[1] as Int) + plan.dropBytes
+                        args[1] = (argOrNull(1) as Int) + plan.dropBytes
                         args[2] = size - plan.dropBytes
                     }
                 }
@@ -340,11 +340,11 @@ internal class FrameInterpolationFeatureInstaller(
                     val track = instance as? AudioTrack ?: return@after
                     val rate = audioRates[track] ?: return@after
                     timestampCalls.incrementAndGet()
-                    if (result == true) (args[0] as? AudioTimestamp)?.let {
+                    if (result == true) (argOrNull(0) as? AudioTimestamp)?.let {
                         if (it.framePosition > 0L && it.nanoTime > 0L) timestampSuccesses.incrementAndGet()
                     }
                     if (audioMode == AudioMode.TIMESTAMP && result == true)
-                        (args[0] as? AudioTimestamp)?.let { it.framePosition += shiftFrames(rate) }
+                        (argOrNull(0) as? AudioTimestamp)?.let { it.framePosition += shiftFrames(rate) }
                 }
             }
         }.onFailure { log("hook.missing", "audio.getTimestamp") }

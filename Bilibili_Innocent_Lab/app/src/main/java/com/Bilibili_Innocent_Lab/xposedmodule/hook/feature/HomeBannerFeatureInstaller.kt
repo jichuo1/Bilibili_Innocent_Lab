@@ -39,7 +39,7 @@ internal class HomeBannerFeatureInstaller(
                             if (bannerClass?.isInstance(banner) != true) return@after
                             if (
                                 lifecyclePoint.methodName == "onVisibilityChanged" &&
-                                (args.getOrNull(1) as? Int) != View.VISIBLE
+                                (argOrNull(1) as? Int) != View.VISIBLE
                             ) return@after
                             viewEnvironment.reportRuntimeEvidence("home_banner_view", FeatureRuntimeStage.OBSERVED)
                             if (collapseBanner(banner)) {

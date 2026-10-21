@@ -5,7 +5,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ModernApiSupport
 import io.github.libxposed.api.XposedInterface
 import java.lang.reflect.Executable
 import java.lang.reflect.Method
-import java.util.concurrent.CopyOnWriteArrayList
+import java.util.Collections
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -48,7 +48,8 @@ internal enum class HookExceptionPolicy {
 internal class ModernHookRuntime(
     private val module: XposedInterface
 ) {
-    private val handles = CopyOnWriteArrayList<XposedInterface.HookHandle>()
+    // Only appended during installation; readers never need a copied snapshot.
+    private val handles = Collections.synchronizedList(ArrayList<XposedInterface.HookHandle>())
     // HookEntry 构造时还没 attachFramework，必须等首次安装再查询。
     private val apiVersion by lazy { module.apiVersion }
     private data class CompatibilityKey(val executable: Executable, val id: String)
@@ -202,6 +203,8 @@ internal class ModernMemberHookCreator(
     private var beforeCallback: (ModernHookParam.() -> Unit)? = null
     private var afterCallback: (ModernHookParam.() -> Unit)? = null
     private var replacement: (ModernHookParam.() -> Any?)? = null
+    private var constantReplacement = false
+    private var constantResult: Any? = null
 
     fun before(callback: ModernHookParam.() -> Unit) {
         check(replacement == null) { "before and replacement cannot be combined" }
@@ -218,18 +221,26 @@ internal class ModernMemberHookCreator(
             "replacement cannot be combined with before/after"
         }
         replacement = callback
+        constantResult = null
+        constantReplacement = false
     }
 
-    fun replaceTo(value: Any?) = replaceAny { value }
+    fun replaceTo(value: Any?) {
+        replaceAny { value }
+        constantResult = value
+        constantReplacement = true
+    }
 
     fun replaceToTrue() = replaceTo(true)
 
     fun replaceToFalse() = replaceTo(false)
 
     /** 跳过原方法并按返回类型给出安全零值。 */
-    fun intercept() = replaceAny { defaultReturnValue(executable) }
+    fun intercept() = replaceTo(defaultReturnValue(executable))
 
     internal fun invoke(chain: XposedInterface.Chain): Any? {
+        // A constant replacement neither inspects arguments nor runs downstream callbacks.
+        if (constantReplacement) return constantResult
         val param = ModernHookParam(
             method = chain.executable,
             instance = chain.thisObject,

@@ -26,7 +26,7 @@ internal class FullNumberFeatureInstaller(
             runCatching {
                 environment.registrar.adapted("number.full.format.$index", point) {
                     before {
-                        rawNumberText(args.firstOrNull())?.let { result = it }
+                        rawNumberText(argOrNull(0))?.let { result = it }
                     }
                 }
                 installedCount += 1

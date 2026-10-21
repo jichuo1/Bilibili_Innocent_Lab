@@ -15,7 +15,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
 import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
 import java.util.concurrent.CopyOnWriteArraySet
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal sealed interface RemoteHookConfigPublishResult {
@@ -131,7 +130,8 @@ internal object RemoteHookConfigStore {
             if (observedPreferences == null) {
                 val source = appContext.modulePreferences()
                 val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-                    if (key == null || key !in observedKeys) return@OnSharedPreferenceChangeListener
+                    // Android R+ reports clear() with a null key; republish defaults and invalidate old intent.
+                    if (key != null && key !in observedKeys) return@OnSharedPreferenceChangeListener
                     intentEpoch.incrementAndGet()
                     requestPublish(appContext)
                     // NPatch 选中时上面的标准发布会被 publishSnapshot 短路，设置变更就没人发布了；
@@ -292,9 +292,11 @@ internal object RemoteHookConfigStore {
         force: Boolean,
         stillCurrent: () -> Boolean
     ): RemoteHookConfigPublishResult = runCatching {
-        val values = RemoteHookConfigContract.resolveSourceValues(appContext.modulePreferences().all)
-        val publication = PublicationAuthorityStore.forPublication(appContext, decision, values)
+        // Authority captures and normalizes the complete source under its authorization lock.
+        // Reuse that snapshot; stillCurrent below rechecks authority before and after IPC.
+        val publication = PublicationAuthorityStore.current(appContext)?.takeIf { it.decision == decision }
             ?: return@runCatching RemoteHookConfigPublishResult.Failure("stale_publication")
+        val values = publication.values
         val preferences = activeService.getRemotePreferences(RemoteHookConfigContract.GROUP)
         val result = committer.publish(
             connectionId = capturedConnection,

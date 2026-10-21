@@ -72,7 +72,11 @@ internal class SemanticSourcePool(val sources: List<SemanticSource>) {
          * [disputes] 复核明确判保留。可信度 = (一致 + 1) / (一致 + 推翻 + 2)。
          */
         @Volatile var agreements = 0.0
+            private set
         @Volatile var disputes = 0.0
+            private set
+        private var baselineRestored = false
+        private var pendingBaselineWeight = 1.0
 
         val checks: Double get() = agreements + disputes
         val trust: Double get() = (agreements + 1) / (checks + 2)
@@ -84,8 +88,22 @@ internal class SemanticSourcePool(val sources: List<SemanticSource>) {
         fun recordReview(agreed: Boolean) {
             agreements *= TRUST_DECAY
             disputes *= TRUST_DECAY
+            if (!baselineRestored) pendingBaselineWeight *= TRUST_DECAY
             if (agreed) agreements += 1 else disputes += 1
         }
+
+        /** Late disk loading must replay the old baseline through reviews already recorded. */
+        @Synchronized
+        fun restoreTrust(agree: Double, dispute: Double) {
+            if (baselineRestored) return
+            agreements += agree * pendingBaselineWeight
+            disputes += dispute * pendingBaselineWeight
+            baselineRestored = true
+        }
+
+        /** Persistence needs both decayed counters from the same review revision. */
+        @Synchronized
+        fun trustSnapshot(): Pair<Double, Double> = agreements to disputes
 
         fun available(now: Long) = now >= cooldownUntil
 
