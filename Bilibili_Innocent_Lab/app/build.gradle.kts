@@ -530,13 +530,13 @@ dependencies {
     implementation(libs.meguviz.android.runtime)
     implementation(libs.meguviz.android.window)
     constraints {
-        implementation("androidx.activity:activity:1.13.0")
-        implementation("androidx.collection:collection:1.6.0")
-        implementation("androidx.collection:collection-jvm:1.6.0")
-        implementation("androidx.fragment:fragment:1.9.0")
-        implementation("androidx.tracing:tracing:2.0.0")
-        implementation("androidx.viewpager2:viewpager2:1.1.0")
-        implementation("androidx.viewpager:viewpager:1.1.0")
+        implementation(libs.androidx.activity)
+        implementation(libs.androidx.collection)
+        implementation(libs.androidx.collection.jvm)
+        implementation(libs.androidx.fragment)
+        implementation(libs.androidx.tracing)
+        implementation(libs.androidx.viewpager2)
+        implementation(libs.androidx.viewpager)
     }
 
     implementation(libs.drawabletoolbox)

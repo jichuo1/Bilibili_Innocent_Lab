@@ -13,6 +13,13 @@ androidx-appcompat = "1.8.0"
 material = "1.14.0"
 androidx-constraintlayout = "2.2.2"
 androidx-recyclerview = "1.4.0"
+# Pins for versions BetterAndroid used to select transitively; keep unchanged.
+androidx-activity = "1.13.0"
+androidx-collection = "1.6.0"
+androidx-fragment = "1.9.0"
+androidx-tracing = "2.0.0"
+androidx-viewpager2 = "1.1.0"
+androidx-viewpager = "1.1.0"
 # Keep all Lumen modules on the same stable release.
 lumen-engine = "1.5.6"
 markwon = "4.6.2"
@@ -41,6 +48,13 @@ androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "androidx-constraintlayout" }
 androidx-recyclerview = { group = "androidx.recyclerview", name = "recyclerview", version.ref = "androidx-recyclerview" }
+androidx-activity = { group = "androidx.activity", name = "activity", version.ref = "androidx-activity" }
+androidx-collection = { group = "androidx.collection", name = "collection", version.ref = "androidx-collection" }
+androidx-collection-jvm = { group = "androidx.collection", name = "collection-jvm", version.ref = "androidx-collection" }
+androidx-fragment = { group = "androidx.fragment", name = "fragment", version.ref = "androidx-fragment" }
+androidx-tracing = { group = "androidx.tracing", name = "tracing", version.ref = "androidx-tracing" }
+androidx-viewpager2 = { group = "androidx.viewpager2", name = "viewpager2", version.ref = "androidx-viewpager2" }
+androidx-viewpager = { group = "androidx.viewpager", name = "viewpager", version.ref = "androidx-viewpager" }
 lumen-engine = { group = "com.github.jichuo1.LumenCoacervationEngine", name = "lumen-engine", version.ref = "lumen-engine" }
 lumen-motion = { group = "com.github.jichuo1.LumenCoacervationEngine", name = "lumen-motion", version.ref = "lumen-engine" }
 markwon-core = { group = "io.noties.markwon", name = "core", version.ref = "markwon" }
