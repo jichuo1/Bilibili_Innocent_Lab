@@ -13,7 +13,7 @@ dependencyResolutionManagement {
             forRepository {
                 maven {
                     name = "MeguvizAndroidLocal"
-                    url = uri(providers.gradleProperty("meguviz.android.repo").get())
+                    url = uri(providers.gradleProperty("meguviz.android.repo").orElse("https://raw.githubusercontent.com/jichuo1/MeguvizAndroid/153d929511c6dee37bab90ce39c6e08c0f355e7e").get())
                 }
             }
             filter {
