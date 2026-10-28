@@ -9,7 +9,6 @@ betterandroid-ui-component-adapter = "1.1.6"
 betterandroid-ui-extension = "1.1.6"
 betterandroid-system-extension = "1.1.6"
 dexkit = "2.3.0"
-drawabletoolbox = "1.0.7"
 m3color = "2026.1"
 androidx-core-ktx = "1.19.1"
 androidx-appcompat = "1.8.0"
@@ -39,7 +38,6 @@ betterandroid-ui-component = { group = "com.highcapable.betterandroid", name = "
 betterandroid-ui-component-adapter = { group = "com.highcapable.betterandroid", name = "ui-component-adapter", version.ref = "betterandroid-ui-component-adapter" }
 betterandroid-ui-extension = { group = "com.highcapable.betterandroid", name = "ui-extension", version.ref = "betterandroid-ui-extension" }
 betterandroid-system-extension = { group = "com.highcapable.betterandroid", name = "system-extension", version.ref = "betterandroid-system-extension" }
-drawabletoolbox = { group = "com.github.duanhong169", name = "drawabletoolbox", version.ref = "drawabletoolbox" }
 m3color = { group = "com.github.Kyant0", name = "m3color", version.ref = "m3color" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "androidx-core-ktx" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "androidx-appcompat" }
