@@ -17,8 +17,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigPu
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.isLspatch
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinSessionDiagnostics
-import com.highcapable.betterandroid.system.extension.component.versionCodeCompat
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 
 internal object ModuleDiagnosticsCollector {
     @SuppressLint("UseKtx")

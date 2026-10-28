@@ -4,10 +4,7 @@ kotlin = "2.4.21"
 libxposed = "102.0.0"
 meguviz-ref = "1.0.0"
 meguviz-ui = "1.0.0"
-betterandroid-ui-component = "1.1.6"
-betterandroid-ui-component-adapter = "1.1.6"
-betterandroid-ui-extension = "1.1.6"
-betterandroid-system-extension = "1.1.6"
+meguviz-android = "0.1.0-SNAPSHOT"
 dexkit = "2.3.0"
 drawabletoolbox = "1.0.7"
 m3color = "2026.1"
@@ -34,11 +31,9 @@ libxposed-service = { group = "io.github.libxposed", name = "service", version.r
 meguviz-ref-core = { group = "io.github.jichuo1.meguviz", name = "meguviz-ref-core", version.ref = "meguviz-ref" }
 meguviz-ui-core = { group = "io.github.jichuo1.meguviz", name = "meguviz-ui-core", version.ref = "meguviz-ui" }
 meguviz-ui-prewarm = { group = "io.github.jichuo1.meguviz", name = "meguviz-ui-prewarm", version.ref = "meguviz-ui" }
+meguviz-android-runtime = { group = "io.github.jichuo1.meguviz", name = "meguviz-android-runtime", version.ref = "meguviz-android" }
+meguviz-android-window = { group = "io.github.jichuo1.meguviz", name = "meguviz-android-window", version.ref = "meguviz-android" }
 dexkit = { group = "org.luckypray", name = "dexkit", version.ref = "dexkit" }
-betterandroid-ui-component = { group = "com.highcapable.betterandroid", name = "ui-component", version.ref = "betterandroid-ui-component" }
-betterandroid-ui-component-adapter = { group = "com.highcapable.betterandroid", name = "ui-component-adapter", version.ref = "betterandroid-ui-component-adapter" }
-betterandroid-ui-extension = { group = "com.highcapable.betterandroid", name = "ui-extension", version.ref = "betterandroid-ui-extension" }
-betterandroid-system-extension = { group = "com.highcapable.betterandroid", name = "system-extension", version.ref = "betterandroid-system-extension" }
 drawabletoolbox = { group = "com.github.duanhong169", name = "drawabletoolbox", version.ref = "drawabletoolbox" }
 m3color = { group = "com.github.Kyant0", name = "m3color", version.ref = "m3color" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "androidx-core-ktx" }

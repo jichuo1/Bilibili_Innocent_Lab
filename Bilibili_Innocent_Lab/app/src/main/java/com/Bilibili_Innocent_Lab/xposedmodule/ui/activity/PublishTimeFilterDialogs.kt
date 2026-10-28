@@ -25,7 +25,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PublishTimeUnit
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoPublishTimeRule
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.MaxHeightScrollView
-import com.highcapable.betterandroid.ui.extension.view.textColor
+import io.github.jichuo1.meguviz.android.extensions.textColor
 import com.lumen.coacervation.engine.widget.LumenSlidingSelection
 import java.time.Instant
 import java.time.LocalDate

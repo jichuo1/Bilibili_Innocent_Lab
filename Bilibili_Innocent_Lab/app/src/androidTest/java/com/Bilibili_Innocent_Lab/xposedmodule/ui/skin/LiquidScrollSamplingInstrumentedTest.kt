@@ -23,7 +23,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.SettingsHomeScrollView
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidActivityRenderer
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SurfaceRole
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
-import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
+import android.app.Activity
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
@@ -81,7 +81,7 @@ private class LiquidScrollTrace {
 }
 
 /** The real Activity supplies only its window; all renderer preference reads use a test-owned namespace. */
-private class LiquidRendererFixtureContext(owner: AppViewsActivity) : AppViewsActivity() {
+private class LiquidRendererFixtureContext(owner: Activity) : Activity() {
     private val fixtureWindow = owner.window
     private val isolatedApplication = object : ContextWrapper(InstrumentationRegistry.getInstrumentation().context) {
         override fun getApplicationContext(): Context = this

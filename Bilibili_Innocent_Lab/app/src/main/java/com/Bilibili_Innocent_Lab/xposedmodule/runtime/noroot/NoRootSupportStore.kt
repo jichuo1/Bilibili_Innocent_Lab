@@ -9,7 +9,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingValue
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ModuleSettingsStore
-import com.highcapable.betterandroid.system.extension.component.versionCodeCompat
+import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 import java.io.File
 import kotlin.math.max
 

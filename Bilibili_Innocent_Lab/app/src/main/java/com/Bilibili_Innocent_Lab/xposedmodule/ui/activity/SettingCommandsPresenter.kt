@@ -9,7 +9,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.RoamingCompatHook
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
-import com.highcapable.betterandroid.ui.extension.view.toast
+import io.github.jichuo1.meguviz.android.extensions.toast
 
 /** Extracted business operations; no source View or source setter is captured. */
 internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Boolean): Boolean {

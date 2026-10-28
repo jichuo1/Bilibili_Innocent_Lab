@@ -22,7 +22,7 @@ import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 import androidx.core.view.updatePadding
-import com.highcapable.betterandroid.ui.extension.view.textColor
+import io.github.jichuo1.meguviz.android.extensions.textColor
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore

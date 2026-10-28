@@ -1,7 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 
 /**

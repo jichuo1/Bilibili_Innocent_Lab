@@ -3,7 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background
 import android.graphics.drawable.Drawable
 import android.view.View
 import android.view.ViewGroup
-import com.highcapable.betterandroid.ui.extension.view.setMargins
+import io.github.jichuo1.meguviz.android.extensions.setMargins
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import com.lumen.coacervation.engine.host.LumenSurfaceMaterial
 import com.lumen.coacervation.engine.host.LumenSurfaceOptions

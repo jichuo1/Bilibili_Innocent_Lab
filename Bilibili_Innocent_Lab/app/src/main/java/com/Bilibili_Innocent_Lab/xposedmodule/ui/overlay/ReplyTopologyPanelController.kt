@@ -8,7 +8,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import com.highcapable.betterandroid.ui.extension.view.child
+import io.github.jichuo1.meguviz.android.extensions.child
 import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong

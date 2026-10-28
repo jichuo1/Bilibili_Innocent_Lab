@@ -29,8 +29,8 @@ import androidx.annotation.AnyThread
 import androidx.annotation.MainThread
 import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.createBitmap
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
-import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
+import android.app.Activity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundMode
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundConfig
 import com.lumen.coacervation.engine.host.LumenPreparedBackdropCache
@@ -120,7 +120,7 @@ private fun postProcessRealtimeCapture(
  * 和 uniform。
  */
 internal class LiquidActivityRenderer(
-    private val activity: AppViewsActivity,
+    private val activity: Activity,
     private val palette: MonetColors
 ) : GlowEngine {
     override val skin: SkinId get() = SkinId.LIQUID

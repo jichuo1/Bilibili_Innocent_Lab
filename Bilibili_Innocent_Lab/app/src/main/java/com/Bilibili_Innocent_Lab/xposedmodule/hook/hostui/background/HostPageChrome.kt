@@ -8,7 +8,7 @@ import android.view.Gravity
 import android.widget.FrameLayout
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeContentSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top.HostTopStatusFusionView
-import com.highcapable.betterandroid.ui.extension.insets.factory.createRootWindowInsetsWrapper
+import io.github.jichuo1.meguviz.android.extensions.rootStatusBarInsetTopOrNull
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import com.lumen.coacervation.engine.host.LumenSurfaceMaterial
 import com.lumen.coacervation.engine.host.LumenSurfaceOptions
@@ -120,7 +120,7 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
         val root = root.get() ?: return
         // 只有窗口根能够绘制系统图标背后的区域；子 Fragment 不能重复加一层。
         if (root !== root.rootView || root !is FrameLayout) return
-        val inset = root.createRootWindowInsetsWrapper()?.statusBars()?.top ?: 0
+        val inset = root.rootStatusBarInsetTopOrNull() ?: 0
         if (inset <= 0) { hideStatusBar(); return }
         val tolerance = root.resources.displayMetrics.density * 2f
         val role = targets.entries.firstOrNull { (view, _) ->

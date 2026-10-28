@@ -6,8 +6,8 @@ import android.widget.LinearLayout as NativeLinearLayout
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerBufferMode
-import com.highcapable.betterandroid.ui.extension.view.textColor
-import com.highcapable.betterandroid.ui.extension.view.updatePadding
+import io.github.jichuo1.meguviz.android.extensions.textColor
+import io.github.jichuo1.meguviz.android.extensions.updatePadding
 
 internal fun MainActivity.playerBufferModeLabel(value: Int): String = getString(when (PlayerBufferMode.fromValue(value)) {
     PlayerBufferMode.FOLLOW_HOST -> R.string.player_buffer_follow_host

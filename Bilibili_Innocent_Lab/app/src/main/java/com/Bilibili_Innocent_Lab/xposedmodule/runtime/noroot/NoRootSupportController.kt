@@ -6,8 +6,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsAuthorizat
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsPendingCompletion
-import com.highcapable.betterandroid.system.extension.component.versionCodeCompat
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ScheduledFuture

@@ -11,6 +11,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.TextView
 import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.StateListDrawable
 import androidx.appcompat.widget.SwitchCompat
@@ -18,7 +19,7 @@ import androidx.core.graphics.ColorUtils
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidChoiceDrawable
 import androidx.annotation.MainThread
-import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
+import androidx.appcompat.app.AppCompatActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowEngine
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.ActivitySkinSession
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinSessionDiagnostics
@@ -32,10 +33,45 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.material.ModernMaterialDra
 /**
  * 只管理 Activity 级皮肤会话的薄基类。
  *
- * 它故意不接管 onCreate、Window、contentView、系统栏、语言或重建时机，避免改变三个现有
- * Activity 的条款门禁和转场顺序。
+ * onCreate、语言、授权和重建时机由业务 Activity 决定；原父类的窗口初始化由组合委托保留。
  */
-abstract class SkinnedActivity : AppViewsActivity() {
+abstract class SkinnedActivity : AppCompatActivity() {
+
+    private var windowDelegate: BilWindowDelegate? = null
+    private var windowStarted = false
+
+    private fun bindModuleWindow(root: View?) {
+        if (windowDelegate != null || lifecycleEnded) return
+        val content = root ?: findViewById<ViewGroup>(android.R.id.content)
+        windowDelegate = BilWindowDelegate(this, content).also { it.setStarted(windowStarted) }
+    }
+
+    override fun setContentView(layoutResID: Int) {
+        super.setContentView(layoutResID)
+        bindModuleWindow(findViewById<ViewGroup>(android.R.id.content).getChildAt(0))
+    }
+
+    override fun setContentView(view: View?) {
+        super.setContentView(view)
+        bindModuleWindow(view)
+    }
+
+    override fun setContentView(view: View?, params: ViewGroup.LayoutParams?) {
+        super.setContentView(view, params)
+        bindModuleWindow(view)
+    }
+
+    internal fun handOffModuleInsets(root: View) { windowDelegate?.handOffInsets(root) }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        windowDelegate?.refreshConfiguration()
+    }
+
+    override fun setTheme(resId: Int) {
+        super.setTheme(resId)
+        windowDelegate?.invalidateTheme()
+    }
 
     private var skinSessionOrNull: ActivitySkinSession? = null
     private var materialPaletteOrNull: MonetColors? = null
@@ -404,10 +440,14 @@ abstract class SkinnedActivity : AppViewsActivity() {
 
     override fun onStart() {
         super.onStart()
+        windowStarted = true
+        windowDelegate?.setStarted(true)
         skinSessionOrNull?.onActivityStarted()
     }
 
     override fun onStop() {
+        windowStarted = false
+        windowDelegate?.setStarted(false)
         clearElasticInteractions()
         skinSessionOrNull?.onActivityStopped()
         super.onStop()
@@ -438,7 +478,13 @@ abstract class SkinnedActivity : AppViewsActivity() {
         try {
             session?.close()
         } finally {
-            super.onDestroy()
+            try {
+                val delegate = windowDelegate
+                windowDelegate = null
+                delegate?.close()
+            } finally {
+                super.onDestroy()
+            }
         }
     }
 }

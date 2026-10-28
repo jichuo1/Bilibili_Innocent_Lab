@@ -1,6 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
-import com.highcapable.betterandroid.ui.extension.view.childOrNull
+import io.github.jichuo1.meguviz.android.extensions.childOrNull
 import android.app.Dialog
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -27,9 +27,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSurface
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.MaxHeightScrollView
-import com.highcapable.betterandroid.ui.extension.view.textColor
-import com.highcapable.betterandroid.ui.extension.view.textToString
-import com.highcapable.betterandroid.ui.extension.view.toast
+import io.github.jichuo1.meguviz.android.extensions.textColor
+import io.github.jichuo1.meguviz.android.extensions.textToString
+import io.github.jichuo1.meguviz.android.extensions.toast
 import android.widget.CheckBox as NativeCheckBox
 import android.widget.EditText as NativeEditText
 import android.widget.FrameLayout as NativeFrameLayout

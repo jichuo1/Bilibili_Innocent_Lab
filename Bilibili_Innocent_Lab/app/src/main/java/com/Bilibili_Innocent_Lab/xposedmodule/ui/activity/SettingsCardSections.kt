@@ -21,11 +21,11 @@ import androidx.core.view.updateMargins
 import androidx.core.view.updatePadding
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
-import com.highcapable.betterandroid.ui.extension.view.textColor
-import com.highcapable.betterandroid.ui.extension.view.toast
-import com.highcapable.betterandroid.ui.extension.view.updateMargins
-import com.highcapable.betterandroid.ui.extension.view.updatePadding
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.textColor
+import io.github.jichuo1.meguviz.android.extensions.toast
+import io.github.jichuo1.meguviz.android.extensions.updateMargins
+import io.github.jichuo1.meguviz.android.extensions.updatePadding
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.ModuleUiSettings
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry

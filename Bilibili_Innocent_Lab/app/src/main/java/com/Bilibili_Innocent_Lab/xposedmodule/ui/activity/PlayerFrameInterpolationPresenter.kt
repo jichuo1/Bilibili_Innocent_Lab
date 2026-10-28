@@ -19,8 +19,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.frame.FrameModelCheckGate
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatusListener
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
-import com.highcapable.betterandroid.ui.extension.view.textColor
-import com.highcapable.betterandroid.ui.extension.view.updatePadding
+import io.github.jichuo1.meguviz.android.extensions.textColor
+import io.github.jichuo1.meguviz.android.extensions.updatePadding
 
 /**
  * 播放页「视频插帧」：开关 + 模型下载行。入口只在 [FrameInterpolationEntryGate.entryOpen] 时渲染；

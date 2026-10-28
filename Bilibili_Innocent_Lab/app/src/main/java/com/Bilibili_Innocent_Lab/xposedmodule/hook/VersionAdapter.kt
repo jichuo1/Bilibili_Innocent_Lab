@@ -41,7 +41,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetAppStorage
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
-import com.highcapable.betterandroid.system.extension.component.versionCodeCompat
+import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isAbstract
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isFinal

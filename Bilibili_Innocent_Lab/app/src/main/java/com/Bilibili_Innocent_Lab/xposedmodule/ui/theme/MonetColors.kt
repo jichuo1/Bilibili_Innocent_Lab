@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.res.Configuration
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpec
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpecStore
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import com.kyant.m3color.dynamiccolor.ColorSpec
 import com.kyant.m3color.dynamiccolor.DynamicScheme
 import com.kyant.m3color.dynamiccolor.MaterialDynamicColors

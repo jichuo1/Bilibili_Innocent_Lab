@@ -568,11 +568,18 @@ dependencies {
     // 设置页空闲分帧预建；仅主线程有界调度，不把 View 构造挪到后台。
     implementation(libs.meguviz.ui.prewarm)
 
-    // Optional: BetterAndroid (https://github.com/BetterAndroid/BetterAndroid)
-    implementation(libs.betterandroid.ui.component)
-    implementation(libs.betterandroid.ui.component.adapter)
-    implementation(libs.betterandroid.ui.extension)
-    implementation(libs.betterandroid.system.extension)
+    // Use the isolated current candidate and preserve versions previously selected by the retired dependencies.
+    implementation(libs.meguviz.android.runtime)
+    implementation(libs.meguviz.android.window)
+    constraints {
+        implementation("androidx.activity:activity:1.13.0")
+        implementation("androidx.collection:collection:1.6.0")
+        implementation("androidx.collection:collection-jvm:1.6.0")
+        implementation("androidx.fragment:fragment:1.9.0")
+        implementation("androidx.tracing:tracing:2.0.0")
+        implementation("androidx.viewpager2:viewpager2:1.1.0")
+        implementation("androidx.viewpager:viewpager:1.1.0")
+    }
 
     implementation(libs.drawabletoolbox)
 

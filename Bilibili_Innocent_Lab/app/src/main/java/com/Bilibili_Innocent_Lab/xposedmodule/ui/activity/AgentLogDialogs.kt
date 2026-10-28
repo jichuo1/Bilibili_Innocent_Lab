@@ -7,7 +7,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.ui.AgentLogView
-import com.highcapable.betterandroid.ui.extension.view.textColor
+import io.github.jichuo1.meguviz.android.extensions.textColor
 
 /** 完整模块内日志入口供任务结束后查看；运行中的岛使用自己的非聚焦日志窗口。 */
 internal fun MainActivity.showAgentLogsDialog(anchor: View? = null) {

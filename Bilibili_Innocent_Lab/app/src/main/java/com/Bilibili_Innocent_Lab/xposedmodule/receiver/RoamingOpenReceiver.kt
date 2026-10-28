@@ -15,7 +15,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.RoamingSettingsLauncher
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootUpgradeRecoveryCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 
 /**

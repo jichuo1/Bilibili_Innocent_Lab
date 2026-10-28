@@ -2,7 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import android.content.Context
 import android.graphics.fonts.SystemFonts
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import android.util.AtomicFile
 import java.io.File
 import org.json.JSONObject

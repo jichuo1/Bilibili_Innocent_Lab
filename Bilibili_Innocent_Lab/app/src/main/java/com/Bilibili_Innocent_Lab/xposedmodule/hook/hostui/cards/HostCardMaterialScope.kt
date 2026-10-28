@@ -19,7 +19,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeConte
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.ViewSamplingMatrix
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import com.lumen.coacervation.engine.host.LumenAcrylicOptions
 import com.lumen.coacervation.engine.host.LumenFluentControl
 import com.lumen.coacervation.engine.host.LumenFluentControlOptions

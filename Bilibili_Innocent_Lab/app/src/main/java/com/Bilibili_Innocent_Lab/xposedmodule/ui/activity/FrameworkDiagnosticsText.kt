@@ -2,7 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import android.content.Context
 import com.Bilibili_Innocent_Lab.xposedmodule.R
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import io.github.libxposed.service.XposedService
 
 /** 只格式化已经采集的状态；不做 Binder 或 PackageManager 查询。 */

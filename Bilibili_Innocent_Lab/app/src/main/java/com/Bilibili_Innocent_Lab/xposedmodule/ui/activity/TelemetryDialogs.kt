@@ -14,8 +14,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.telemetry.TelemetryActionResult
 import com.Bilibili_Innocent_Lab.xposedmodule.telemetry.TelemetryActionStatus
 import com.Bilibili_Innocent_Lab.xposedmodule.telemetry.TelemetryCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.telemetry.TelemetryStore
-import com.highcapable.betterandroid.ui.extension.view.textColor
-import com.highcapable.betterandroid.ui.extension.view.toast
+import io.github.jichuo1.meguviz.android.extensions.textColor
+import io.github.jichuo1.meguviz.android.extensions.toast
 import android.widget.FrameLayout as NativeFrameLayout
 import android.widget.LinearLayout as NativeLinearLayout
 import android.widget.ScrollView as NativeScrollView

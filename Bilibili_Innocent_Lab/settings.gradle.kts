@@ -9,6 +9,18 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = "MeguvizAndroidLocal"
+                    url = uri(providers.gradleProperty("meguviz.android.repo").get())
+                }
+            }
+            filter {
+                includeModule("io.github.jichuo1.meguviz", "meguviz-android-runtime")
+                includeModule("io.github.jichuo1.meguviz", "meguviz-android-window")
+            }
+        }
         google()
         mavenCentral()
         maven("https://api.xposed.info/")
@@ -43,13 +55,3 @@ providers.gradleProperty("lumen.sourceDir").orNull?.let { sourceDir ->
         }
     }
 }
-
-// Isolated full-replacement migration; source provenance is recorded alongside each fork.
-include(":migration-system-extension")
-project(":migration-system-extension").projectDir = file("migration-forks/system-extension")
-include(":migration-ui-component")
-project(":migration-ui-component").projectDir = file("migration-forks/ui-component")
-include(":migration-ui-extension")
-project(":migration-ui-extension").projectDir = file("migration-forks/ui-extension")
-include(":migration-ref-compat")
-project(":migration-ref-compat").projectDir = file("migration-forks/ref-compat")

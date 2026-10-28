@@ -7,11 +7,7 @@ plugins {
 }
 subprojects {
     configurations.configureEach {
-        resolutionStrategy.dependencySubstitution {
-            substitute(module("com.highcapable.betterandroid:system-extension")).using(project(":migration-system-extension"))
-            substitute(module("com.highcapable.betterandroid:ui-component")).using(project(":migration-ui-component"))
-            substitute(module("com.highcapable.betterandroid:ui-extension")).using(project(":migration-ui-extension"))
-        }
+        // Preserve the existing mainline Ref compatibility rule; this does not exclude BetterAndroid.
         exclude(group = "com.highcapable.kavaref")
     }
 }

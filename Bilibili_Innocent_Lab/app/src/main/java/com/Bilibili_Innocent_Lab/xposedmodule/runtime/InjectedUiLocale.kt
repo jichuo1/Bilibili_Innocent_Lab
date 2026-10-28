@@ -9,7 +9,7 @@ import android.content.res.Resources
 import androidx.core.content.edit
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean

@@ -22,8 +22,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.SimpleItemAnimator
 import com.Bilibili_Innocent_Lab.xposedmodule.R
-import com.highcapable.betterandroid.ui.extension.view.textColor
-import com.highcapable.betterandroid.ui.extension.view.textToString
+import io.github.jichuo1.meguviz.android.extensions.textColor
+import io.github.jichuo1.meguviz.android.extensions.textToString
 import kotlin.math.hypot
 
 /** 拖拽拾起/放下的缓出曲线：快起缓落，落位末尾是减速而不是匀速急停。 */

@@ -4,7 +4,7 @@ import android.content.res.Configuration
 import android.graphics.drawable.Drawable
 import android.view.View
 import androidx.annotation.MainThread
-import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
+import android.app.Activity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowEngine
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowEngineCallbacks
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.installStretchViewport
@@ -47,7 +47,7 @@ internal class ActivitySkinSession private constructor(
     val materialPalette: MonetColors,
     val tokens: UiTokens,
     val configuration: SkinConfigurationSnapshot,
-    private val activity: AppViewsActivity,
+    private val activity: Activity,
     private val liquidOwner: LiquidRenderSessionOwner?,
     private val liquidRenderer: LiquidActivityRenderer?,
     private val materialRenderer: FrostedMaterialRenderer,
@@ -275,7 +275,7 @@ internal class ActivitySkinSession private constructor(
     companion object {
         @MainThread
         fun create(
-            activity: AppViewsActivity,
+            activity: Activity,
             materialPalette: MonetColors
         ): ActivitySkinSession {
             val requestedSkin = SkinRepository.resolveRequestedSkin(activity)

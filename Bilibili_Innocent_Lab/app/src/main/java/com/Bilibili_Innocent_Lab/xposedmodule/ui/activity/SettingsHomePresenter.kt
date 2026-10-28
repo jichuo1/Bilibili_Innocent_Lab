@@ -25,17 +25,17 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowScrollEdge
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowScrollEdgePolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.interaction.ElasticInteractionController
-import com.highcapable.betterandroid.ui.extension.view.child
-import com.highcapable.betterandroid.ui.extension.view.firstChildOrNull
-import com.highcapable.betterandroid.ui.extension.view.removeSelf
-import com.highcapable.betterandroid.ui.extension.view.textColor
-import com.highcapable.betterandroid.ui.extension.view.textToString
+import io.github.jichuo1.meguviz.android.extensions.child
+import io.github.jichuo1.meguviz.android.extensions.firstChildOrNull
+import io.github.jichuo1.meguviz.android.extensions.removeSelf
+import io.github.jichuo1.meguviz.android.extensions.textColor
+import io.github.jichuo1.meguviz.android.extensions.textToString
 import io.github.jichuo1.meguviz.ui.UiSession
 import io.github.jichuo1.meguviz.ui.prewarm.PrewarmStop
 import io.github.jichuo1.meguviz.ui.prewarm.PrewarmSubmission
 import io.github.jichuo1.meguviz.ui.prewarm.PrewarmWork
 import io.github.jichuo1.meguviz.ui.prewarm.UiPrewarmer
-import com.highcapable.betterandroid.ui.extension.view.toast
+import io.github.jichuo1.meguviz.android.extensions.toast
 import kotlin.math.roundToInt
 
 /** Owns final page construction and arrangement; setting identity and state exist before Views. */
@@ -370,6 +370,7 @@ internal class SettingsHomePresenter(
      * 根的 clipToPadding 把内容裁在状态栏下沿）。左、右、下照旧缩进，底栏与导航栏行为不变。
      */
     private fun installTopInset() {
+        activity.handOffModuleInsets(shell)
         ViewCompat.setOnApplyWindowInsetsListener(shell) { view, insets ->
             val safe = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
