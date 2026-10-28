@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 import java.io.File
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -13,11 +14,12 @@ import org.junit.Test
  * `NewApi` 也只建模未保护的调用、不管类型引用。2026-09-11 就是这两个盲区叠在一起，
  * 让一个"关闭弹窗必崩 Android 12 及以下"的缺陷走完四道门禁发了版。
  *
- * 这里换一条能在 JVM 上验证的等价不变量：源码里 `android.window.` 的出现位置。
+ * 这里换一条能在 JVM 上验证的不变量：源码里平台 `android.window.` 的出现位置。
  * 只要它不跑出隔离层，调用方的字节码里就不会有 API 33 的类型引用。
  */
 class PredictiveBackApi33IsolationTest {
     private val isolationFile = "PredictiveBackApi33.kt"
+    private val platformWindowReference = Regex("""(?<![\p{L}\p{N}_$.])android\.window\.""")
 
     private fun mainSources(): List<File> {
         // Gradle 可把 class 输出移到模块外；从已验证的源码锚点定位，保持完整扫描范围。
@@ -44,7 +46,7 @@ class PredictiveBackApi33IsolationTest {
     @Test fun apiThirtyThreeWindowTypesStayInsideTheIsolationLayer() {
         val offenders = mainSources()
             .filter { it.name != isolationFile }
-            .filter { it.readText().contains("android.window.") }
+            .filter { platformWindowReference.containsMatchIn(it.readText()) }
             .map { it.name }
         assertEquals(
             "android.window.* is API 33+; referencing it outside $isolationFile puts an " +
@@ -54,6 +56,25 @@ class PredictiveBackApi33IsolationTest {
             emptyList<String>(),
             offenders
         )
+    }
+
+    @Test fun platformWindowReferencesAreDistinguishedFromOtherPackageNames() {
+        listOf(
+            "import android.window.OnBackInvokedCallback",
+            "import android.window.OnBackInvokedCallback as BackCallback",
+            "import android.window.*",
+            "fun f(callback: android.window.OnBackInvokedCallback) = callback",
+            "callback as android.window.OnBackInvokedCallback"
+        ).forEach { source ->
+            assertTrue("Platform reference was missed: $source", platformWindowReference.containsMatchIn(source))
+        }
+        listOf(
+            "import io.github.jichuo1.meguviz.android.window.InsetsSlot",
+            "import io.github.jichuo1.meguviz.android.window.WindowSession",
+            "val x: customandroid.window.Foo? = null"
+        ).forEach { source ->
+            assertFalse("Non-platform package was treated as platform: $source", platformWindowReference.containsMatchIn(source))
+        }
     }
 
     @Test fun theIsolationLayerKeepsApiThirtyThreeTypesOutOfItsOwnSignatures() {
