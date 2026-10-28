@@ -1,3 +1,0 @@
-# Local migration forks
-
-BetterAndroid sources are copyright HighCapable and licensed under Apache License 2.0. Original notices remain in every source. Source and resource hashes are recorded in PROVENANCE.json. These are unpublished local migration forks, not upstream releases. Only the reflection integration and necessary build configuration are changed. The compatibility adapter is authored here under the new io.github.jichuo1.meguviz.compat namespace and contains no copied KavaRef implementation. Where the upstream AAR shipped a lint.jar, that file is kept unchanged under lint/ and its hash is recorded in PROVENANCE.json.
