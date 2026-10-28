@@ -574,7 +574,6 @@ dependencies {
     implementation(libs.betterandroid.ui.extension)
     implementation(libs.betterandroid.system.extension)
 
-    implementation(libs.drawabletoolbox)
 
     // Material You / Monet 动态取色（GitHub: Kyant0/m3color，material-color-utilities 的 Java 端口）
     implementation(libs.m3color)
