@@ -1,6 +1,5 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid
 
-import android.annotation.SuppressLint
 import android.os.Build
 import androidx.annotation.MainThread
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.LiquidParameters
@@ -219,7 +218,6 @@ internal class LiquidBackendSet(
      * 失败一次就永久记不可用，不在绘制路径上反复重试编译 shader；稳定底图被替换（换自定义图/
      * 尺寸变化）时按 source 身份重绑。
      */
-    @SuppressLint("ReplaceWithAndroidVersion")
     fun foreignRefractionDriver(stableBackdrop: LiquidBackdropSource?): LiquidBackendDriver? {
         if (closed || foreignDriverUnavailable) return null
         if (current?.backend != LiquidRenderBackend.REFRACTION) return null
@@ -257,7 +255,6 @@ internal class LiquidBackendSet(
     }
 
     /** 直接 SDK guard 让 Android Lint 能静态证明下面两个 @RequiresApi 构造调用。 */
-    @SuppressLint("ReplaceWithAndroidVersion")
     private fun createBackend(backend: LiquidRenderBackend): LiquidBackendDriver = when (backend) {
         LiquidRenderBackend.REFRACTION -> if (Build.VERSION.SDK_INT >= 33) {
             LiquidRefractionBackendApi33(parameters, density)

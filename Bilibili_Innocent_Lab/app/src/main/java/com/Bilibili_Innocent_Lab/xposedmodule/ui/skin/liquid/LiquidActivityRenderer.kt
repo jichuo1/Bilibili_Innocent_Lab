@@ -1,6 +1,5 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid
 
-import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.ViewSamplingMatrix
@@ -445,11 +444,9 @@ internal class LiquidActivityRenderer(
         get() = supportsSurfaceBackdrop && chromeBackdrops.isNotEmpty()
 
     override val supportsSurfaceBackdrop: Boolean
-        @SuppressLint("ReplaceWithAndroidVersion")
         get() = !closed && !fatalPosted && !chromeBackdropBroken && hardwareAccelerated &&
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
-    @SuppressLint("ReplaceWithAndroidVersion")
     override fun setSurfaceBackdrop(host: View, target: GlowBackdropTarget?) {
         if (closed) return
         if (target == null || !supportsSurfaceBackdrop || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
@@ -474,7 +471,6 @@ internal class LiquidActivityRenderer(
         host.invalidate()
     }
 
-    @SuppressLint("ReplaceWithAndroidVersion")
     private fun closeChromeBackdrop(entry: ChromeBackdrop) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) (entry.drawer as GlowChromeGlassApi31).close()
     }
@@ -484,7 +480,6 @@ internal class LiquidActivityRenderer(
      * 调用方照常走窗口玻璃。出错时永久停用节点路径并自行吞掉异常——不能让
      * `drawWithFallback` 把它算成主后端失败、把全窗口的玻璃一起降级。
      */
-    @SuppressLint("ReplaceWithAndroidVersion")
     private fun drawChromeBackdrop(
         entry: ChromeBackdrop,
         canvas: Canvas,
@@ -626,7 +621,6 @@ internal class LiquidActivityRenderer(
      * 时没有 stretch，保持原层级。安装本身见 `GlowEngine.installStretchViewport`。
      */
     override val wantsStretchViewport: Boolean
-        @SuppressLint("ReplaceWithAndroidVersion")
         get() = !closed && Build.VERSION.SDK_INT >= 31 && hardwareAccelerated
 
     override fun onStretchDistance(distance: Float, edge: LiquidStretchEdge) {
@@ -686,7 +680,6 @@ internal class LiquidActivityRenderer(
         releaseGraphicsForMemoryPressure()
     }
 
-    @SuppressLint("ReplaceWithAndroidVersion")
     private fun releaseGraphicsForMemoryPressure() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             chromeBackdrops.values.forEach { (it.drawer as GlowChromeGlassApi31).releaseDisplayList() }

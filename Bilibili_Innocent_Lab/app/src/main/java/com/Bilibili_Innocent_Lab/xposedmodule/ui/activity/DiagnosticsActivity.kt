@@ -1,15 +1,4 @@
-@file:Suppress(
-    "SetTextI18n",
-    // 本页刻意使用 Android 原生 View/Handler/Toast，避免为只读诊断 UI 引入另一套调用范式。
-    "ReplaceWithCoroutinesExtension",
-    "ReplaceWithKavaRefExtension",
-    "ReplaceWithTextViewExtension",
-    "ReplaceWithToastExtension",
-    // 诊断页需要完整接收 predictive back 的 start/progress/cancel/commit 生命周期。
-    "ReplaceWithBackPressedExtension",
-    // API 34 的公开 transition override 需要显式版本守卫，便于 Android Lint 识别。
-    "ReplaceWithAndroidVersion"
-)
+@file:Suppress("SetTextI18n")
 
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 

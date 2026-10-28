@@ -366,7 +366,7 @@ internal class SettingsHomePresenter(
     }
 
     /**
-     * 接管根布局的顶部安全边距（BetterAndroid 默认把 systemBars + 刘海整体写成根 padding，
+     * 接管根布局的顶部安全边距（BilWindowDelegate 默认把 systemBars + 刘海整体写成根 padding，
      * 根的 clipToPadding 把内容裁在状态栏下沿）。左、右、下照旧缩进，底栏与导航栏行为不变。
      */
     private fun installTopInset() {

@@ -569,7 +569,7 @@ Use the fast check during local iteration:
 .\gradlew.bat :app:lintFast --console=plain --no-daemon
 ```
 
-The fast check skips only an explicit list of 32 BetterAndroid / KavaRef API replacement suggestions. Android correctness, permission, and API compatibility checks remain enabled for production sources. Test sources are verified by compilation and tests, and are excluded from Lint. It does not replace the full gate. Before committing and in CI, run:
+The fast check enables the same rules as the full check; it differs only in its report directory and the tasks it may run alongside. Test sources are verified by compilation and tests, and are excluded from Lint. Before committing and in CI, run:
 
 ```powershell
 .\gradlew.bat :app:lintDebug --console=plain --no-daemon

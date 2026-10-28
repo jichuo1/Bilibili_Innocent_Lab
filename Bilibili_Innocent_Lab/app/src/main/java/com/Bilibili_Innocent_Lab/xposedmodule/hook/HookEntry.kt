@@ -861,7 +861,6 @@ class HookEntry : XposedModule() {
             val dueAt = commentTouchObservedAtMs + 400L
             val delay = (dueAt - android.os.SystemClock.uptimeMillis()).coerceAtLeast(0L)
             // 保留同一 Runnable，以便手势取消时由 removeCallbacks 精确撤销。
-            //noinspection ReplaceWithCoroutinesExtension
             handler.postDelayed(commentLongPressRunnable, delay)
         }
 
@@ -1326,7 +1325,6 @@ class HookEntry : XposedModule() {
             bindDrainScheduled = true
             handler.removeCallbacks(commentBindRetryRunnable)
             // 绑定重试与固定 Runnable 的撤销状态共享，不能改成独立协程 Job。
-            //noinspection ReplaceWithCoroutinesExtension
             handler.postDelayed(commentBindRetryRunnable, delayMs.coerceAtLeast(0L))
         }
 
@@ -1763,7 +1761,6 @@ class HookEntry : XposedModule() {
                         popupClipboardWriteInProgress.set(true)
                         try {
                             // 显式保留 ThreadLocal 豁免区间内的原生剪贴板写入边界。
-                            //noinspection ReplaceWithClipboardExtension
                             clipboard.setPrimaryClip(android.content.ClipData.newPlainText(null, selected))
                         } finally {
                             popupClipboardWriteInProgress.remove()
@@ -4427,7 +4424,6 @@ class HookEntry : XposedModule() {
                                                     DescriptionCopyGesture.LONG_PRESS_MILLIS -
                                                     android.os.SystemClock.uptimeMillis()).coerceAtLeast(0L)
                                                 // 描述长按与固定 Runnable 的 removeCallbacks 必须保持配对。
-                                                //noinspection ReplaceWithCoroutinesExtension
                                                 handler.postDelayed(descLongPressRunnable, delay)
                                             }
                                         }

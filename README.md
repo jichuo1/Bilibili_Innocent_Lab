@@ -520,7 +520,7 @@ cd Bilibili_Innocent_Lab
 .\gradlew.bat :app:lintFast --console=plain --no-daemon
 ```
 
-快速检查仅跳过明确列出的 32 条 BetterAndroid / KavaRef API 替换建议，生产源码的 Android 正确性、权限和 API 兼容性规则保持启用；测试源码由编译与测试任务验证，不纳入 Lint。它不是完整门禁；提交前和 CI 使用完整检查：
+快速检查与完整检查启用相同规则，区别仅在于报告目录和可同时运行的任务；测试源码由编译与测试任务验证，不纳入 Lint。提交前和 CI 使用完整检查：
 
 ```powershell
 .\gradlew.bat :app:lintDebug --console=plain --no-daemon

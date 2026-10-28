@@ -60,12 +60,9 @@ internal class PlayerStatusBarFeatureInstaller(
         val window = activity.window ?: return
         window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
         // 仅改目标状态栏，不让控制器接管宿主导航栏与 Insets 生命周期。
-        //noinspection ReplaceWithSystemBarsController
         window.statusBarColor = Color.TRANSPARENT
         if (AndroidVersion.isAtLeast(AndroidVersion.R)) {
-            //noinspection ReplaceWithSystemBarsController
             window.setDecorFitsSystemWindows(false)
-            //noinspection ReplaceWithSystemBarsController
             window.insetsController?.setSystemBarsAppearance(
                 0,
                 WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS

@@ -7187,14 +7187,12 @@ object VersionAdapter {
         runCatching {
             android.os.Looper.getMainLooper().let { looper ->
                 if (android.os.Looper.myLooper() == looper) {
-                    // 保留主线程显式分支；BetterAndroid 默认禁止后台线程直接弹 Toast。
-                    //noinspection ReplaceWithToastExtension
+                    // 保留主线程显式分支；MeguvizAndroid 的 toast 扩展只允许主线程调用。
                     Toast.makeText(context, text, Toast.LENGTH_LONG).show()
                 } else {
                     // 保留 Handler 切换主线程的既有行为，不交由扩展创建后台 Looper。
                     // 外层 runCatching 只覆盖 post 本身；Runnable 稍后跑在宿主主线程上，
                     // 必须自带防波堤。
-                    //noinspection ReplaceWithToastExtension
                     android.os.Handler(looper).post(
                         HostThreadGuard.runnable("adapter.toast") {
                             Toast.makeText(context, text, Toast.LENGTH_LONG).show()

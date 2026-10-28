@@ -1,10 +1,4 @@
-@file:Suppress(
-    "SetTextI18n",
-    // BetterAndroid 的简写 callback 不暴露 predictive progress/cancel 生命周期。
-    "ReplaceWithBackPressedExtension",
-    // 这里直接守卫 API 34 的公开 Activity transition，便于 Android Lint 识别 NewApi 边界。
-    "ReplaceWithAndroidVersion"
-)
+@file:Suppress("SetTextI18n")
 
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 

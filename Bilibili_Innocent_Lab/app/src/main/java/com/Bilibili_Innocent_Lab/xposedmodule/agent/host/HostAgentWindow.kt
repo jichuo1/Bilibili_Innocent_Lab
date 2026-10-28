@@ -1,6 +1,3 @@
-// Handler 回调与 removeCallbacks/任务 generation 共用回收语义，保留原生调度以免改变取消边界。
-@file:Suppress("ReplaceWithCoroutinesExtension")
-
 package com.Bilibili_Innocent_Lab.xposedmodule.agent.host
 
 import android.app.Activity
