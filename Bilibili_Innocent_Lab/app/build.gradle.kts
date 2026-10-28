@@ -568,7 +568,7 @@ dependencies {
     // 设置页空闲分帧预建；仅主线程有界调度，不把 View 构造挪到后台。
     implementation(libs.meguviz.ui.prewarm)
 
-    // Use the isolated current candidate and preserve versions previously selected by the retired dependencies.
+    // MeguvizAndroid（Maven Central）：替代已退役的 BetterAndroid；约束保留其原先传递选中的 AndroidX 版本。
     implementation(libs.meguviz.android.runtime)
     implementation(libs.meguviz.android.window)
     constraints {

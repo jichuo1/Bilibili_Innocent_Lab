@@ -7,7 +7,7 @@ plugins {
 }
 subprojects {
     configurations.configureEach {
-        // Preserve the existing mainline Ref compatibility rule; this does not exclude BetterAndroid.
+        // 主线已移除 KavaRef；保留排除，防止其经传递依赖回流。
         exclude(group = "com.highcapable.kavaref")
     }
 }

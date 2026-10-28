@@ -9,18 +9,6 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        exclusiveContent {
-            forRepository {
-                maven {
-                    name = "MeguvizAndroidLocal"
-                    url = uri(providers.gradleProperty("meguviz.android.repo").orElse("https://raw.githubusercontent.com/jichuo1/MeguvizAndroid/153d929511c6dee37bab90ce39c6e08c0f355e7e").get())
-                }
-            }
-            filter {
-                includeModule("io.github.jichuo1.meguviz", "meguviz-android-runtime")
-                includeModule("io.github.jichuo1.meguviz", "meguviz-android-window")
-            }
-        }
         google()
         mavenCentral()
         maven("https://api.xposed.info/")
