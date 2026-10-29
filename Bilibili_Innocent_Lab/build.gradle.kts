@@ -1,3 +1,17 @@
+buildscript {
+    // P2-07 opt-in: the androidx.baselineprofile plugin (and its protobuf/proto transitives) joins the
+    // build classpath only for -PinnocentLab.baselineProfile=true runs; default builds stay unchanged.
+    if (providers.gradleProperty("innocentLab.baselineProfile").orNull == "true") {
+        repositories {
+            google()
+            mavenCentral()
+        }
+        dependencies {
+            classpath(libs.androidx.baselineprofile.plugin)
+        }
+    }
+}
+
 plugins {
     alias(libs.plugins.android.application) apply false
     // Keep KGP on the classpath as AGP's built-in Kotlin compiler version anchor.
