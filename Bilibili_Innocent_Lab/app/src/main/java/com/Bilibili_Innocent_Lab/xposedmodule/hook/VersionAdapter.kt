@@ -19,6 +19,12 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStyleLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStylePoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptAssistGate
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptCoverage
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlan
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlanner
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LocateObserver
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PointFamily
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SyncLocatorRun
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedPoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuAdapter
@@ -190,6 +196,9 @@ object VersionAdapter {
     private const val DEX_ASSIST_COMMENT_TOPOLOGY_ID = AdaptAssistGate.COMMENT_TOPOLOGY_ID
     private const val DEX_ASSIST_PLAYER_QUALITY_ID = AdaptAssistGate.PLAYER_QUALITY_ID
     private const val DEX_SOURCE_UNAVAILABLE = "unavailable"
+
+    /** 计划没有要求该家族：诊断里的「未请求」，既不是 FOUND 也不是 MISSING，更不是为了补全诊断而重新探测。 */
+    internal const val PLAN_NOT_REQUESTED = "plan:not-requested"
     private val DEX_SOURCE_FINGERPRINT_PATTERN =
         Regex("^dex-v1:[1-9][0-9]*:[0-9a-f]{64}$")
 
@@ -258,6 +267,10 @@ object VersionAdapter {
         val panelShow: HookPoint?,
         val countdown: HookPoint?
     ) {
+        /** 四个子点都没有定位到；被计划裁剪的暂停页家族就是这个值。 */
+        fun isEmpty(): Boolean = requestMethods.isEmpty() && legacyCallback == null &&
+            panelShow == null && countdown == null
+
         fun toJson(): JSONObject = JSONObject().apply {
             put("requests", JSONArray().apply { requestMethods.forEach { put(it.toJson()) } })
             legacyCallback?.let { put("legacy", it.toJson()) }
@@ -1864,8 +1877,46 @@ object VersionAdapter {
         val playerSpeedMenu: PlayerSpeedMenuPoints? = null,
         val pageBoundaries: PageBoundaryPoints? = null,
         val homeChrome: Map<String, HookPoint> = emptyMap(),
-        val homeChromeSemantics: HomeChromeSemanticsPoint? = null
+        val homeChromeSemantics: HomeChromeSemanticsPoint? = null,
+        /**
+         * 同步定位家族的覆盖范围与尝试状态；`null` = 旧缓存（没有 `cov` 键），覆盖范围未知，**不等于**覆盖完整。
+         * 只描述「这一轮尝试过什么」，不描述数据是否有效：被计划裁剪的家族即使带着此前缓存的点，也要看这里。
+         */
+        val coverage: AdaptCoverage? = null
     ) {
+        /** 该家族此刻是否带有定位结果（暂停页含四个子点，任一有值即算）。 */
+        internal fun hasPoint(family: PointFamily): Boolean = when (family) {
+            PointFamily.COMMENT_LOW -> commentLow != null
+            PointFamily.COMMENT_HIGH -> commentHigh != null
+            PointFamily.MINE_ENTRY -> mineEntry != null
+            PointFamily.PAUSE -> !pause.isEmpty()
+            PointFamily.BANNER -> banner != null
+            PointFamily.HOME_TOP_BAR -> homeTopBar != null
+            PointFamily.MINE_VIP -> mineVip != null
+            PointFamily.BLOCK_UPDATE -> blockUpdate != null
+            PointFamily.DYNAMIC_TABS -> dynamicTabs != null
+            PointFamily.FULL_NUMBERS -> fullNumbers != null
+            PointFamily.PLAYER_PORTRAIT -> playerPortrait != null
+            PointFamily.PLAYER_INTERACTIVE_OVERLAYS -> playerInteractiveOverlays != null
+            PointFamily.PGC_AUTO_ACTIVITY_POPUP -> pgcAutoActivityPopup != null
+            PointFamily.PLAYER_STATUS_BAR -> playerStatusBar != null
+            PointFamily.HOME_RECOMMEND_FEED -> homeRecommendFeed != null
+            PointFamily.VIDEO_RELATE -> videoRelate != null
+            PointFamily.HOME_TABS -> homeTabs != null
+            PointFamily.HOME_COMPONENTS -> homeComponents != null
+            PointFamily.MINE_COMPONENTS -> mineComponents != null
+            PointFamily.MINE_ACCOUNT_MINE -> mineAccountMine != null
+            PointFamily.STORY_FEED -> storyFeed != null
+            PointFamily.BOTTOM_BAR -> bottomBar != null
+            PointFamily.PLAYER_QUALITY -> playerQuality != null
+            PointFamily.TEENAGERS_MODE -> teenagersMode != null
+            PointFamily.COMMENT_PURIFY -> commentPurify != null
+            PointFamily.COMMENT_FILTER -> commentFilter != null
+            PointFamily.COMMENT_TOPOLOGY -> commentTopology != null
+            PointFamily.COMMENT_SECTION -> commentSection != null
+            PointFamily.SPLASH_ADS -> splashAds != null
+        }
+
         fun toJson(): JSONObject = JSONObject().apply {
             put("sv", SCHEMA_VERSION)
             put("v", biliVersionCode)
@@ -1908,6 +1959,7 @@ object VersionAdapter {
             pageBoundaries?.let { put("page_boundaries", it.toJson()) }
             if (homeChrome.isNotEmpty()) put("home_chrome", HomeChromeAdapter.toJson(homeChrome))
             homeChromeSemantics?.let { put("home_chrome_semantics", it.toJson()) }
+            coverage?.let { put("cov", it.toJson()) }
             put("fp", hostFingerprint)
             put("protocol_fp", protocolFingerprint)
             put("dex_fp", dexSourceFingerprint)
@@ -2232,6 +2284,10 @@ object VersionAdapter {
                 pageBoundaries?.isValid() != false &&
                 HomeChromeAdapter.validCache(homeChrome) &&
                 homeChromeSemantics?.isStructurallyValid() != false &&
+                // 声称「找到」的家族必须真的带着点；否则这份覆盖范围不可信，整份缓存按无效处理（重新适配）。
+                coverage?.let { cov ->
+                    cov.attempted.all { cov.attempt(it) != AdaptAssistGate.Attempt.FOUND || hasPoint(it) }
+                } != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
         companion object {
@@ -2311,7 +2367,9 @@ object VersionAdapter {
                     homeChrome = if (o.has("home_chrome"))
                         HomeChromeAdapter.fromJson(o.getJSONObject("home_chrome")) ?: return null else emptyMap(),
                     homeChromeSemantics = if (o.has("home_chrome_semantics"))
-                        HomeChromeSemanticsPoint.fromJson(o.getJSONObject("home_chrome_semantics")) ?: return null else null
+                        HomeChromeSemanticsPoint.fromJson(o.getJSONObject("home_chrome_semantics")) ?: return null else null,
+                    // 旧缓存没有 cov：覆盖范围未知（null），不会被当成覆盖完整。
+                    coverage = o.optJSONObject("cov")?.let(AdaptCoverage::fromJson)
                 ).takeIf { it.isStructurallyValid() }
             }
         }
@@ -2805,6 +2863,12 @@ object VersionAdapter {
     )
     private val PROTOCOL_FINGERPRINT_PATTERN =
         Regex("protocol-v1:[0-9]+:[0-9a-f]{24}")
+
+    /** [buildProtocolStructureFingerprint] 的六个证据来源，对应的定位家族。 */
+    private val PROTOCOL_FINGERPRINT_FAMILIES = listOf(
+        PointFamily.HOME_RECOMMEND_FEED, PointFamily.VIDEO_RELATE, PointFamily.COMMENT_FILTER,
+        PointFamily.PLAYER_QUALITY, PointFamily.SPLASH_ADS, PointFamily.MINE_ACCOUNT_MINE
+    )
     private const val COMMENT_ITEM_CLASS = "com.bilibili.app.comment3.data.model.CommentItem"
     private const val COMMENT_REPLY_MAPPER_PACKAGE =
         "com.bilibili.app.comment3.data.source.v1"
@@ -2850,17 +2914,42 @@ object VersionAdapter {
 
     internal data class HostIdentity(val versionCode: Int, val fingerprint: String)
 
+    /** 启动时对适配缓存的处置：沿用 / 只因计划新增家族而静默补一轮 / 完整适配（缓存缺失、失效或有功能需要补扫）。 */
+    internal enum class AdaptDecision { REUSE, SUPPLEMENT_SILENTLY, ADAPT }
+
+    internal fun adaptDecision(
+        usable: AdaptResult?,
+        refreshRequested: Boolean,
+        coverageMissing: Set<PointFamily>
+    ): AdaptDecision = when {
+        usable == null || refreshRequested -> AdaptDecision.ADAPT
+        coverageMissing.isNotEmpty() -> AdaptDecision.SUPPLEMENT_SILENTLY
+        else -> AdaptDecision.REUSE
+    }
+
     /** 只在同一次 attach 安装栈内复用；不持有 Context，不作为进程级永久缓存。 */
     internal data class StartupCacheSnapshot(
         val identity: HostIdentity,
         val resetTimestamp: Long,
         val cached: AdaptResult?
     ) {
+        /** 身份、手动重置、宿主指纹和结构都有效的缓存；不看覆盖范围，其它功能的补适配历史也从这里取。 */
         fun usableCache(highCandidateExists: Boolean): AdaptResult? = cached?.takeIf {
             it.ts >= resetTimestamp && it.biliVersionCode == identity.versionCode &&
                 it.isUsableWith(identity.fingerprint) &&
                 (it.commentHigh != null || !highCandidateExists)
         }
+
+        /**
+         * 缓存有效，且尝试过 [plan] 要求的每个家族才算「按当前计划完整」。
+         * 局部缓存（上次计划更小）或旧缓存（没有覆盖范围）返回 null，由调用方决定补适配。
+         */
+        fun usableCache(highCandidateExists: Boolean, plan: AdaptPlan): AdaptResult? =
+            usableCache(highCandidateExists)?.takeIf { AdaptPlanner.missing(it.coverage, plan).isEmpty() }
+
+        /** 有效缓存里计划要求、却从未尝试过的家族；缓存本身无效时返回 null（整轮重新适配，不是补扫）。 */
+        fun missingCoverage(highCandidateExists: Boolean, plan: AdaptPlan): Set<PointFamily>? =
+            usableCache(highCandidateExists)?.let { AdaptPlanner.missing(it.coverage, plan) }
     }
 
     @Suppress("DEPRECATION")
@@ -2979,6 +3068,8 @@ object VersionAdapter {
                 when {
                     live == null -> stored
                     stored == null -> live
+                    // 本进程的计划没有要求该家族：不能用「未请求」盖掉缓存里真实尝试过的结论（找到/确认缺失）。
+                    live.state == AdaptState.NOT_APPLICABLE && live.detail == PLAN_NOT_REQUESTED -> stored
                     stored.state == AdaptState.FOUND && live.state != AdaptState.FOUND -> stored
                     id.startsWith(DEX_ASSIST_ID_PREFIX) &&
                         stored.state == AdaptState.FOUND -> stored
@@ -3045,6 +3136,7 @@ object VersionAdapter {
             pageBoundaries = runtime.pageBoundaries ?: cached.pageBoundaries,
             homeChrome = cached.homeChrome + runtime.homeChrome,
             homeChromeSemantics = runtime.homeChromeSemantics ?: cached.homeChromeSemantics,
+            coverage = AdaptCoverage.merge(runtime.coverage, cached.coverage),
         )
     }
 
@@ -3186,8 +3278,16 @@ object VersionAdapter {
         homeChromeIconOnly: Boolean = false,
         homeTopTabCenteringEnabled: Boolean = false,
         blockUpdateEnabled: Boolean = false,
-        commentTopologyEnabled: Boolean = false
+        commentTopologyEnabled: Boolean = false,
+        /** 安装链从已接受的配置快照生成的定位计划；缺省 = 全量（原始行为）。 */
+        plan: AdaptPlan = AdaptPlan.full()
     ) {
+        // 带 DEX 兜底的三类家族，其显式开关本身就是需求：计划与开关不一致时以多要为准（失效安全）。
+        val adaptPlan = plan.including(buildSet {
+            if (blockUpdateEnabled) add(PointFamily.BLOCK_UPDATE)
+            if (playerQualityEnabled) add(PointFamily.PLAYER_QUALITY)
+            if (commentTopologyEnabled) add(PointFamily.COMMENT_TOPOLOGY)
+        })
         // reset 不同意味着不是同一次安装快照，必须重新读取而不能复用已缓存的 null/旧结果。
         val startup = if (startupCache.resetTimestamp == resetTimestamp.coerceAtLeast(0L)) {
             startupCache
@@ -3243,6 +3343,9 @@ object VersionAdapter {
         val previouslyMissingPopup = PlayerPopupPromotionAdapter.Family.entries.filterTo(linkedSetOf()) { family ->
             popupHistory?.diagnostics.orEmpty().any { it.id == family.diagnostic && it.state == AdaptState.MISSING }
         }
+        // 有效缓存里计划要求、却从未尝试过的家族（旧缓存没有覆盖范围 = 全部待补）。
+        val coverageMissing = if (usable != null) AdaptPlanner.missing(usable.coverage, adaptPlan) else emptySet()
+        var refreshRequested = false
         val cached = usable?.takeUnless { value ->
             val pageRefresh = PageBoundaryAdapter.planned(classLoader, value.pageBoundaries,
                 searchHomeRecommendEnabled, playerEndPageRecommendEnabled, pageAttempted, styleEnabled = followFeedStyleEnabled).isNotEmpty()
@@ -3257,7 +3360,7 @@ object VersionAdapter {
                 SponsorPlayerLocator.direct(classLoader) != null,
                 value.sponsorPlayer?.let { SponsorPlayerLocator.resolve(classLoader, it) } != null,
                 value.diagnostics.any { it.id == SponsorPlayerLocator.DIAGNOSTIC && it.state == AdaptState.MISSING })
-            PlayerSpeedMenuAdapter.needsQuery(classLoader, value.playerSpeedMenu, playerSpeedMenuEnabled,
+            val refresh = PlayerSpeedMenuAdapter.needsQuery(classLoader, value.playerSpeedMenu, playerSpeedMenuEnabled,
                 value.diagnostics.any { it.id == PlayerSpeedMenuAdapter.DIAGNOSTIC && it.state in setOf(AdaptState.FOUND, AdaptState.MISSING) }) ||
             StoryQualityLocator.planned(classLoader, value.playerQuality?.story, playerQualityEnabled,
                 value.diagnostics.any { it.id == StoryQualityLocator.DIAGNOSTIC && it.state == AdaptState.MISSING }).isNotEmpty() ||
@@ -3275,6 +3378,8 @@ object VersionAdapter {
                 cachedFound = value.homeTopBar?.kotlinDefaultWords != null,
                 attempted = value.diagnostics.any { it.id == KotlinDefaultWordsLocator.DIAGNOSTIC && it.state == AdaptState.MISSING }
             )
+            refreshRequested = refresh
+            refresh || coverageMissing.isNotEmpty()
         }
         if (cached != null) {
             // 缓存命中后的文件维护和 DEX 内容比对一并下沉；不一致只作废缓存。
@@ -3285,12 +3390,16 @@ object VersionAdapter {
             ModernHookLog.info("[BIL] 版本适配已在本进程运行，跳过重复请求")
             return
         }
+        // 只因为计划新增了从未尝试的同步家族而补适配：实时 quickLocate 已经为本进程定位过它们，
+        // 这一轮只是把结果和覆盖范围写进缓存，没有用户可见的等待，不弹适配提示、不触发安装重试。
+        val silentSupplement = adaptDecision(usable, refreshRequested, coverageMissing) == AdaptDecision.SUPPLEMENT_SILENTLY
         ModernHookLog.info(
             "[BIL] 版本适配启动 vc=$vc cached=${startup.cached != null} " +
-                "cacheStatus=$lastCacheStatus"
+                "cacheStatus=$lastCacheStatus plan=$adaptPlan " +
+                "missing=${coverageMissing.size} silent=$silentSupplement"
         )
         // 后台执行（不阻塞启动；toast 提示用户等待）
-        runCatching { callback?.onAdaptStarted() }
+        if (!silentSupplement) runCatching { callback?.onAdaptStarted() }
         val worker = Thread({
             var result: AdaptResult? = null
             try {
@@ -3306,7 +3415,7 @@ object VersionAdapter {
                         searchHomeRecommendEnabled, playerEndPageRecommendEnabled, previousPages, pageAttempted,
                         homeChromeEnabled, previousChrome, chromeAttempted, homeChromeIconOnly,
                         previousChromeSemantics, semanticsAttempted, homeTopTabCenteringEnabled,
-                        blockUpdateEnabled, commentTopologyEnabled, assistHistory) }.getOrNull()
+                        blockUpdateEnabled, commentTopologyEnabled, assistHistory, adaptPlan, popupHistory) }.getOrNull()
                     result?.let { adapted ->
                         // 写文件缓存（loadApp 快路径载体）；校验后原子替换，旧缓存不会被半截 JSON 覆盖。
                         if (!writeCache(adapted)) {
@@ -3323,7 +3432,7 @@ object VersionAdapter {
                 }
             } finally {
                 adaptationRunning.set(false)
-                runCatching { callback?.onAdaptFinished(result != null) }
+                if (!silentSupplement) runCatching { callback?.onAdaptFinished(result != null) }
                 ModernHookLog.info(
                     "[BIL] 版本适配${if (result != null) "完成" else "失败"} " +
                         "v=${result?.biliVersionCode} low=${result?.commentLow} high=${result?.commentHigh} " +
@@ -3362,40 +3471,55 @@ object VersionAdapter {
     }
 
     /**
-     * 即时快速定位（loadApp 阶段用，不依赖缓存/attach 适配时序）：
-     * 纯内存反射 ~1ms，返回 low/high 定位结果（无版本/时间戳）。
+     * 即时快速定位（loadApp 阶段用，不依赖缓存/attach 适配时序）：纯内存反射，返回 low/high 等定位结果
+     * （无版本/时间戳）。这个重载是原始行为：全量计划，所有家族都定位。
+     *
+     * 耗时没有实测结论：同步定位段与冷启动 P50/P95 需要设备另行测量，不要引用「约 1 ms」。
      */
-    fun quickLocate(loader: ClassLoader): AdaptResult? {
-        val low = locateCommentLow(loader)
-        val high = locateCommentHigh(loader)
-        val mine = locateMineEntry(loader)
-        val pause = locatePausePoints(loader)
-        val banner = locateBanner(loader)
-        val homeTopBar = locateHomeTopBar(loader)
-        val mineVip = locateMineVip(loader)
-        val blockUpdate = locateBlockUpdate(loader)
-        val dynamicTabs = locateDynamicTabs(loader)
-        val fullNumbers = locateFullNumbers(loader)
-        val playerPortrait = locatePlayerPortrait(loader)
-        val playerInteractiveOverlays = locatePlayerInteractiveOverlays(loader)
-        val pgcAutoActivityPopup = locatePgcAutoActivityPopup(loader)
-        val playerStatusBar = locatePlayerStatusBar(loader)
-        val homeRecommendFeed = locateHomeRecommendFeed(loader)
-        val videoRelate = locateVideoRelate(loader)
-        val homeTabs = locateHomeTabs(loader)
-        val homeComponents = locateHomeComponents(loader)
-        val mineComponents = locateMineComponents(loader, mine)
-        val mineAccountMine = locateMineAccountMinePoints(loader)
-        val storyFeed = locateStoryFeed(loader)
-        val bottomBar = locateBottomBar(loader)
-        val playerQuality = locateDefaultVideoQuality(loader)
-        val teenagersMode = locateTeenagersMode(loader)
-        val commentPurify = locateCommentPurify(loader)
-        val commentFilter = locateCommentFilter(loader)
-        val commentTopologyOutcome = locateCommentTopologyWithDiagnostic(loader)
-        val commentTopology = commentTopologyOutcome.points
-        val commentSection = locateCommentSection(loader)
-        val splashAds = locateSplashAds(loader)
+    fun quickLocate(loader: ClassLoader): AdaptResult? = quickLocate(loader, AdaptPlan.full())
+
+    /**
+     * 按 [plan] 定位：只对计划内家族调用定位器，计划外的结果为 null、诊断为「未请求」、覆盖范围记为
+     * NOT_REQUESTED，不会为了凑齐诊断去求值。[observer] 给测试和 A/B 对照计数、计时用，正式路径传 null。
+     * 结果不持久化，覆盖范围只描述本轮尝试过什么。
+     */
+    internal fun quickLocate(loader: ClassLoader, plan: AdaptPlan, observer: LocateObserver? = null): AdaptResult? {
+        val locators = SyncLocatorRun(plan, observer)
+        val low = locators.locate(PointFamily.COMMENT_LOW) { locateCommentLow(loader) }
+        val high = locators.locate(PointFamily.COMMENT_HIGH) { locateCommentHigh(loader) }
+        val mine = locators.locate(PointFamily.MINE_ENTRY) { locateMineEntry(loader) }
+        val pause = locators.locate<PausePoints>(PointFamily.PAUSE, found = { !it.isEmpty() }) { locatePausePoints(loader) }
+            ?: EMPTY_PAUSE_POINTS
+        val banner = locators.locate(PointFamily.BANNER) { locateBanner(loader) }
+        val homeTopBar = locators.locate(PointFamily.HOME_TOP_BAR) { locateHomeTopBar(loader) }
+        val mineVip = locators.locate(PointFamily.MINE_VIP) { locateMineVip(loader) }
+        val blockUpdate = locators.locate(PointFamily.BLOCK_UPDATE) { locateBlockUpdate(loader) }
+        val dynamicTabs = locators.locate(PointFamily.DYNAMIC_TABS) { locateDynamicTabs(loader) }
+        val fullNumbers = locators.locate(PointFamily.FULL_NUMBERS) { locateFullNumbers(loader) }
+        val playerPortrait = locators.locate(PointFamily.PLAYER_PORTRAIT) { locatePlayerPortrait(loader) }
+        val playerInteractiveOverlays = locators.locate(PointFamily.PLAYER_INTERACTIVE_OVERLAYS) {
+            locatePlayerInteractiveOverlays(loader)
+        }
+        val pgcAutoActivityPopup = locators.locate(PointFamily.PGC_AUTO_ACTIVITY_POPUP) { locatePgcAutoActivityPopup(loader) }
+        val playerStatusBar = locators.locate(PointFamily.PLAYER_STATUS_BAR) { locatePlayerStatusBar(loader) }
+        val homeRecommendFeed = locators.locate(PointFamily.HOME_RECOMMEND_FEED) { locateHomeRecommendFeed(loader) }
+        val videoRelate = locators.locate(PointFamily.VIDEO_RELATE) { locateVideoRelate(loader) }
+        val homeTabs = locators.locate(PointFamily.HOME_TABS) { locateHomeTabs(loader) }
+        val homeComponents = locators.locate(PointFamily.HOME_COMPONENTS) { locateHomeComponents(loader) }
+        val mineComponents = locators.locate(PointFamily.MINE_COMPONENTS) { locateMineComponents(loader, mine) }
+        val mineAccountMine = locators.locate(PointFamily.MINE_ACCOUNT_MINE) { locateMineAccountMinePoints(loader) }
+        val storyFeed = locators.locate(PointFamily.STORY_FEED) { locateStoryFeed(loader) }
+        val bottomBar = locators.locate(PointFamily.BOTTOM_BAR) { locateBottomBar(loader) }
+        val playerQuality = locators.locate(PointFamily.PLAYER_QUALITY) { locateDefaultVideoQuality(loader) }
+        val teenagersMode = locators.locate(PointFamily.TEENAGERS_MODE) { locateTeenagersMode(loader) }
+        val commentPurify = locators.locate(PointFamily.COMMENT_PURIFY) { locateCommentPurify(loader) }
+        val commentFilter = locators.locate(PointFamily.COMMENT_FILTER) { locateCommentFilter(loader) }
+        val commentTopologyOutcome = locators.locate<CommentTopologyLocateOutcome>(
+            PointFamily.COMMENT_TOPOLOGY, found = { it.points != null }
+        ) { locateCommentTopologyWithDiagnostic(loader) }
+        val commentTopology = commentTopologyOutcome?.points
+        val commentSection = locators.locate(PointFamily.COMMENT_SECTION) { locateCommentSection(loader) }
+        val splashAds = locators.locate(PointFamily.SPLASH_ADS) { locateSplashAds(loader) }
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
@@ -3412,7 +3536,7 @@ object VersionAdapter {
             loader, homeRecommendFeed, videoRelate, commentFilter, playerQuality,
             splashAds, mineAccountMine
         )
-        return AdaptResult(
+        val located = AdaptResult(
             biliVersionCode = 0,
             ts = 0L,
             commentLow = low,
@@ -3446,17 +3570,13 @@ object VersionAdapter {
             splashAds = splashAds,
             hostFingerprint = "runtime-no-context|rules=$ADAPTER_RULE_VERSION",
             protocolFingerprint = protocolFingerprint.value,
+            diagnostics = emptyList(),
+            coverage = locators.coverage()
+        )
+        return located.copy(
             diagnostics = buildDiagnostics(
-                loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
-                dynamicTabs, fullNumbers, playerPortrait, playerInteractiveOverlays,
-                pgcAutoActivityPopup,
-                playerStatusBar, homeRecommendFeed,
-                videoRelate, homeTabs, homeComponents, mineComponents, storyFeed, bottomBar,
-                playerQuality,
-                teenagersMode, commentPurify, commentFilter, commentTopology,
-                commentTopologyOutcome.failureDetail, commentSection,
-                splashAds
-            ) + protocolFingerprint.toDiagnostic() + listOf(
+                loader, plan, null, located, commentTopologyOutcome?.failureDetail.orEmpty()
+            ) + protocolFingerprint.toDiagnostic(plan) + listOf(
                 AdaptDiagnostic(
                     id = DEX_ASSIST_BLOCK_UPDATE_ID,
                     state = AdaptState.NOT_APPLICABLE,
@@ -3482,6 +3602,8 @@ object VersionAdapter {
         )
     }
 
+    private val EMPTY_PAUSE_POINTS = PausePoints(emptyList(), null, null, null)
+
     /** 智能定位核心：对内置候选类做存在性验证 + 方法签名特征匹配。
      * 全部在内存中完成（MeguvizRef ClassLoader/成员解析），无任何反编译/文件解压开销。
      * 成功标准放宽：任一候选类存在即算成功——运行期注册有 classExists 双路径回退，
@@ -3502,17 +3624,25 @@ object VersionAdapter {
                       previousChromeSemantics: HomeChromeSemanticsPoint?, semanticsAttempted: Boolean,
                       homeTopTabCenteringEnabled: Boolean,
                       blockUpdateEnabled: Boolean = false, commentTopologyEnabled: Boolean = false,
-                      assistHistory: AssistHistory = AssistHistory.EMPTY): AdaptResult? {
+                      assistHistory: AssistHistory = AssistHistory.EMPTY,
+                      plan: AdaptPlan = AdaptPlan.full(), previous: AdaptResult? = null): AdaptResult? {
         val vc = biliVersionCode(context)
         val dexSource = runCatching {
             context.packageManager.getPackageInfo("tv.danmaku.bili", 0).applicationInfo
         }.getOrNull()?.let(DexSourceFingerprint::inspect)
-        val low = locateCommentLow(loader)
-        val high = locateCommentHigh(loader)
-        val mine = locateMineEntry(loader)
-        val pause = locatePausePoints(loader)
-        val banner = locateBanner(loader)
-        var homeTopBar = locateHomeTopBar(loader)
+        // 只对计划内家族调用定位器；计划外的家族沿用此前有覆盖证明的缓存点，没有证明就是未请求（null）。
+        val locators = SyncLocatorRun(plan)
+        val previousCoverage = previous?.coverage ?: AdaptCoverage.EMPTY
+        fun <T> sync(family: PointFamily, prior: T?, found: (T) -> Boolean = { true }, block: () -> T?): T? =
+            locators.locateOrCarry(family, prior, previousCoverage, found, block)
+        val low = sync(PointFamily.COMMENT_LOW, previous?.commentLow) { locateCommentLow(loader) }
+        val high = sync(PointFamily.COMMENT_HIGH, previous?.commentHigh) { locateCommentHigh(loader) }
+        val mine = sync(PointFamily.MINE_ENTRY, previous?.mineEntry) { locateMineEntry(loader) }
+        val pause = sync<PausePoints>(PointFamily.PAUSE, previous?.pause, found = { !it.isEmpty() }) {
+            locatePausePoints(loader)
+        } ?: EMPTY_PAUSE_POINTS
+        val banner = sync(PointFamily.BANNER, previous?.banner) { locateBanner(loader) }
+        var homeTopBar = sync(PointFamily.HOME_TOP_BAR, previous?.homeTopBar) { locateHomeTopBar(loader) }
         val defaultWordsNeedsAssist = KotlinDefaultWordsLocator.needsQuery(kotlinDefaultWordsEnabled,
             KotlinDefaultWordsLocator.applicable(loader), homeTopBar?.kotlinDefaultWords != null)
         val directSponsor = if (sponsorBlockEnabled) SponsorPlayerLocator.direct(loader) else null
@@ -3526,13 +3656,16 @@ object VersionAdapter {
         val brandPlanned = BrandSplashDecoderAdapter.needsQuery(loader, previousBrand, brandSplashCustomEnabled, previouslyMissingBrand)
         val popupMissing = if (playerPopupPromotionEnabled) PlayerPopupPromotionAdapter.missing(loader) else emptySet()
         val popupPlanned = PlayerPopupPromotionAdapter.planned(loader, previousPopup, previouslyMissingPopup, playerPopupPromotionEnabled)
-        val mineVip = locateMineVip(loader)
+        val mineVip = sync(PointFamily.MINE_VIP, previous?.mineVip) { locateMineVip(loader) }
         val chromePlanned = HomeChromeAdapter.planned(loader, previousChrome, homeChromeEnabled, chromeAttempted, homeChromeIconOnly, homeTopTabCenteringEnabled)
         val semanticsPlanned = HomeChromeAdapter.semanticsNeedsQuery(loader, previousChromeSemantics,
             homeChromeEnabled, semanticsAttempted, homeChromeIconOnly)
-        val directBlockUpdate = locateBlockUpdate(loader)
-        val directPlayerQuality = locateDefaultVideoQuality(loader)
-        val directTopologyOutcome = locateCommentTopologyWithDiagnostic(loader)
+        // 这三类带 DEX 兜底：计划外时不直接定位，缓存里已有的点由 AssistHistory 原样带入。
+        val directBlockUpdate = locators.locate(PointFamily.BLOCK_UPDATE) { locateBlockUpdate(loader) }
+        val directPlayerQuality = locators.locate(PointFamily.PLAYER_QUALITY) { locateDefaultVideoQuality(loader) }
+        val directTopologyOutcome = locators.locate<CommentTopologyLocateOutcome>(
+            PointFamily.COMMENT_TOPOLOGY, found = { it.points != null }
+        ) { locateCommentTopologyWithDiagnostic(loader) } ?: CommentTopologyLocateOutcome(null, PLAN_NOT_REQUESTED)
         val playerQualityNeedsAssist = directPlayerQuality?.defaultQualityMethod == null ||
             directPlayerQuality.usesLegacyQualityHelper()
         // 三类兜底只在功能开启、直接定位未满足、缓存没有可复用的点、且历史没有确认缺失时入队。
@@ -3728,20 +3861,28 @@ object VersionAdapter {
                 ?: HomeTopBarPoints(null, null, null, emptyList(), point)
         }
         val blockUpdate = directBlockUpdate ?: blockUpdateAssist.point
-        val dynamicTabs = locateDynamicTabs(loader)
-        val fullNumbers = locateFullNumbers(loader)
-        val playerPortrait = locatePlayerPortrait(loader)
-        val playerInteractiveOverlays = locatePlayerInteractiveOverlays(loader)
-        val pgcAutoActivityPopup = locatePgcAutoActivityPopup(loader)
-        val playerStatusBar = locatePlayerStatusBar(loader)
-        val homeRecommendFeed = locateHomeRecommendFeed(loader)
-        val videoRelate = locateVideoRelate(loader)
-        val homeTabs = locateHomeTabs(loader)
-        val homeComponents = locateHomeComponents(loader)
-        val mineComponents = locateMineComponents(loader, mine)
-        val mineAccountMine = locateMineAccountMinePoints(loader)
-        val storyFeed = locateStoryFeed(loader)
-        val bottomBar = locateBottomBar(loader)
+        val dynamicTabs = sync(PointFamily.DYNAMIC_TABS, previous?.dynamicTabs) { locateDynamicTabs(loader) }
+        val fullNumbers = sync(PointFamily.FULL_NUMBERS, previous?.fullNumbers) { locateFullNumbers(loader) }
+        val playerPortrait = sync(PointFamily.PLAYER_PORTRAIT, previous?.playerPortrait) { locatePlayerPortrait(loader) }
+        val playerInteractiveOverlays = sync(PointFamily.PLAYER_INTERACTIVE_OVERLAYS, previous?.playerInteractiveOverlays) {
+            locatePlayerInteractiveOverlays(loader)
+        }
+        val pgcAutoActivityPopup = sync(PointFamily.PGC_AUTO_ACTIVITY_POPUP, previous?.pgcAutoActivityPopup) {
+            locatePgcAutoActivityPopup(loader)
+        }
+        val playerStatusBar = sync(PointFamily.PLAYER_STATUS_BAR, previous?.playerStatusBar) { locatePlayerStatusBar(loader) }
+        val homeRecommendFeed = sync(PointFamily.HOME_RECOMMEND_FEED, previous?.homeRecommendFeed) {
+            locateHomeRecommendFeed(loader)
+        }
+        val videoRelate = sync(PointFamily.VIDEO_RELATE, previous?.videoRelate) { locateVideoRelate(loader) }
+        val homeTabs = sync(PointFamily.HOME_TABS, previous?.homeTabs) { locateHomeTabs(loader) }
+        val homeComponents = sync(PointFamily.HOME_COMPONENTS, previous?.homeComponents) { locateHomeComponents(loader) }
+        val mineComponents = sync(PointFamily.MINE_COMPONENTS, previous?.mineComponents) { locateMineComponents(loader, mine) }
+        val mineAccountMine = sync(PointFamily.MINE_ACCOUNT_MINE, previous?.mineAccountMine) {
+            locateMineAccountMinePoints(loader)
+        }
+        val storyFeed = sync(PointFamily.STORY_FEED, previous?.storyFeed) { locateStoryFeed(loader) }
+        val bottomBar = sync(PointFamily.BOTTOM_BAR, previous?.bottomBar) { locateBottomBar(loader) }
         val playerQualityAssist = when {
             playerQualityPlanned -> locatePlayerQualityByDex(loader, dexAssist)
             !playerQualityNeedsAssist -> PlayerQualityDexAssist(
@@ -3773,9 +3914,9 @@ object VersionAdapter {
                 storyQuality.semanticComplete -> "semantic-roles-complete;runtime-requires-session-admission"
                 else -> "partial:policy=${storyQuality.policyMethod != null},resource=${storyQuality.resourceSelectionMethod != null},match=${storyQuality.matchPreferenceMethod != null}"
             })
-        val teenagersMode = locateTeenagersMode(loader)
-        val commentPurify = locateCommentPurify(loader)
-        val commentFilter = locateCommentFilter(loader)
+        val teenagersMode = sync(PointFamily.TEENAGERS_MODE, previous?.teenagersMode) { locateTeenagersMode(loader) }
+        val commentPurify = sync(PointFamily.COMMENT_PURIFY, previous?.commentPurify) { locateCommentPurify(loader) }
+        val commentFilter = sync(PointFamily.COMMENT_FILTER, previous?.commentFilter) { locateCommentFilter(loader) }
         val topologyAssist = when {
             topologyPlanned -> locateCommentTopologyMapperByDex(loader, dexAssist)
             directTopologyOutcome.points != null -> CommentTopologyDexAssist(
@@ -3799,9 +3940,10 @@ object VersionAdapter {
         }
         val commentTopology = commentTopologyOutcome.points
             ?: if (topologyPlanned) null else assistHistory.commentTopology
-        val commentSection = locateCommentSection(loader)
-        val splashAds = locateSplashAds(loader)
-        val anyClassExists = COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+        val commentSection = sync(PointFamily.COMMENT_SECTION, previous?.commentSection) { locateCommentSection(loader) }
+        val splashAds = sync(PointFamily.SPLASH_ADS, previous?.splashAds) { locateSplashAds(loader) }
+        // 只有所有点都落空时才需要；改成惰性求值，避免每轮适配白白探测上百个候选类。
+        val anyClassExists by lazy { COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || HOME_TOP_BAR_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || KavaMemberLookup.hasClass(loader, MINE_FRAGMENT_CLASS)
@@ -3839,7 +3981,7 @@ object VersionAdapter {
                 KavaMemberLookup.hasClass(loader, it)
             }
             || SPLASH_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-            || BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            || BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) } }
         if (low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
@@ -3857,7 +3999,7 @@ object VersionAdapter {
             loader, homeRecommendFeed, videoRelate, commentFilter, playerQuality,
             splashAds, mineAccountMine
         )
-        return AdaptResult(
+        val located = AdaptResult(
             biliVersionCode = vc,
             ts = System.currentTimeMillis(),
             commentLow = low,
@@ -3891,18 +4033,7 @@ object VersionAdapter {
             splashAds = splashAds,
             hostFingerprint = buildHostFingerprint(context),
             protocolFingerprint = protocolFingerprint.value,
-            diagnostics = buildDiagnostics(
-                loader, low, high, mine, pause, banner, homeTopBar, mineVip, blockUpdate,
-                dynamicTabs, fullNumbers, playerPortrait, playerInteractiveOverlays,
-                pgcAutoActivityPopup,
-                playerStatusBar, homeRecommendFeed,
-                videoRelate, homeTabs, homeComponents, mineComponents, storyFeed, bottomBar,
-                playerQuality,
-                teenagersMode, commentPurify, commentFilter, commentTopology,
-                commentTopologyOutcome.failureDetail, commentSection,
-                splashAds
-            ) + protocolFingerprint.toDiagnostic() + blockUpdateAssist.diagnostic +
-                topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic + pageDiagnostics + chromeDiagnostics + semanticsDiagnostic,
+            diagnostics = emptyList(),
             dexSourceFingerprint = dexSource?.value ?: DEX_SOURCE_UNAVAILABLE,
             sponsorPlayer = sponsor?.classes,
             commentClassicStyle = classic,
@@ -3914,15 +4045,55 @@ object VersionAdapter {
             homeChrome = chrome,
             homeChromeSemantics = chromeSemantics
         )
+        val diagnostics = buildDiagnostics(loader, plan, previous, located, commentTopologyOutcome.failureDetail) +
+            protocolFingerprint.toDiagnostic(plan) + blockUpdateAssist.diagnostic +
+            topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic + pageDiagnostics + chromeDiagnostics + semanticsDiagnostic
+        return located.copy(
+            diagnostics = diagnostics,
+            coverage = coverageOf(located, locators, plan, previous?.coverage)
+        )
     }
+
+    /**
+     * 一轮适配之后各家族的尝试状态。计划内：带点即 FOUND，定位器抛异常且没点为 RETRYABLE，否则确认缺失；
+     * 计划外：沿用此前的结论，但只在这份结果里还带着对应的点、或此前是缺失/可重试时才沿用——
+     * 点已经丢了就不能再说「找到」，只能退回未请求。局部结果因此永远不会被标成全量完成。
+     */
+    internal fun coverageOf(
+        result: AdaptResult,
+        locators: SyncLocatorRun,
+        plan: AdaptPlan,
+        previous: AdaptCoverage?
+    ): AdaptCoverage = AdaptCoverage(PointFamily.entries.associateWith { family ->
+        val prior = previous?.attempt(family) ?: AdaptAssistGate.Attempt.NOT_REQUESTED
+        when {
+            plan.needs(family) -> when {
+                result.hasPoint(family) -> AdaptAssistGate.Attempt.FOUND
+                locators.attemptOf(family) == AdaptAssistGate.Attempt.RETRYABLE -> AdaptAssistGate.Attempt.RETRYABLE
+                else -> AdaptAssistGate.Attempt.CONCLUSIVE_MISSING
+            }
+            result.hasPoint(family) ->
+                if (prior == AdaptAssistGate.Attempt.NOT_REQUESTED) prior else AdaptAssistGate.Attempt.FOUND
+            prior == AdaptAssistGate.Attempt.CONCLUSIVE_MISSING || prior == AdaptAssistGate.Attempt.RETRYABLE -> prior
+            else -> AdaptAssistGate.Attempt.NOT_REQUESTED
+        }
+    })
 
     private data class ProtocolFingerprint(
         val value: String,
         val evidenceCount: Int
     ) {
-        fun toDiagnostic(): AdaptDiagnostic = AdaptDiagnostic(
+        /**
+         * 摘要只覆盖计划内的协议家族。计划没有覆盖全部六个来源时，没有证据不是「缺失」而是未请求，
+         * 摘要也只是局部摘要，不能和全量摘要比较。
+         */
+        fun toDiagnostic(plan: AdaptPlan): AdaptDiagnostic = AdaptDiagnostic(
             id = "protocol.structure",
-            state = if (evidenceCount > 0) AdaptState.FOUND else AdaptState.MISSING,
+            state = when {
+                evidenceCount > 0 -> AdaptState.FOUND
+                PROTOCOL_FINGERPRINT_FAMILIES.all(plan::needs) -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
             detail = value
         )
     }
@@ -4106,249 +4277,248 @@ object VersionAdapter {
         }
     }
 
-    private fun buildDiagnostics(
+    /**
+     * 每个逻辑 Hook 点的定位诊断。计划外（[plan] 没有要求）的家族不探测候选类，直接记为
+     * 「未请求」：沿用 [previous] 里已有的诊断（此前真的尝试过），否则写 `NOT_APPLICABLE` + [PLAN_NOT_REQUESTED]。
+     * 未请求不是缺失，也不为了凑齐诊断去重新探测关闭的功能。
+     */
+    internal fun buildDiagnostics(
         loader: ClassLoader,
-        low: HookPoint?,
-        high: HookPoint?,
-        mine: MineEntryPoint?,
-        pause: PausePoints,
-        banner: BannerPoint?,
-        homeTopBar: HomeTopBarPoints?,
-        mineVip: MineVipPoint?,
-        blockUpdate: HookPoint?,
-        dynamicTabs: DynamicTabsPoint?,
-        fullNumbers: FullNumberPoints?,
-        playerPortrait: PlayerPortraitPoints?,
-        playerInteractiveOverlays: PlayerInteractiveOverlayPoints?,
-        pgcAutoActivityPopup: PgcAutoActivityPopupPoints?,
-        playerStatusBar: PlayerStatusBarPoints?,
-        homeRecommendFeed: HomeRecommendFeedPoints?,
-        videoRelate: VideoRelatePoints?,
-        homeTabs: HomeTabPoints?,
-        homeComponents: HomeComponentPoints?,
-        mineComponents: MineComponentPoints?,
-        storyFeed: StoryFeedPoints?,
-        bottomBar: BottomBarPoints?,
-        playerQuality: PlayerQualityPoints?,
-        teenagersMode: TeenagersModePoints?,
-        commentPurify: CommentPurifyPoints?,
-        commentFilter: CommentFilterPoints?,
-        commentTopology: CommentTopologyPoints?,
-        commentTopologyFailureDetail: String,
-        commentSection: CommentSectionPoints?,
-        splashAds: SplashAdPoints?
+        plan: AdaptPlan,
+        previous: AdaptResult?,
+        r: AdaptResult,
+        commentTopologyFailureDetail: String
     ): List<AdaptDiagnostic> {
+        val low = r.commentLow
+        val high = r.commentHigh
+        val mine = r.mineEntry
+        val pause = r.pause
+        val banner = r.banner
+        val homeTopBar = r.homeTopBar
+        val mineVip = r.mineVip
+        val blockUpdate = r.blockUpdate
+        val dynamicTabs = r.dynamicTabs
+        val fullNumbers = r.fullNumbers
+        val playerPortrait = r.playerPortrait
+        val playerInteractiveOverlays = r.playerInteractiveOverlays
+        val pgcAutoActivityPopup = r.pgcAutoActivityPopup
+        val playerStatusBar = r.playerStatusBar
+        val homeRecommendFeed = r.homeRecommendFeed
+        val videoRelate = r.videoRelate
+        val homeTabs = r.homeTabs
+        val homeComponents = r.homeComponents
+        val mineComponents = r.mineComponents
+        val storyFeed = r.storyFeed
+        val bottomBar = r.bottomBar
+        val playerQuality = r.playerQuality
+        val teenagersMode = r.teenagersMode
+        val commentPurify = r.commentPurify
+        val commentFilter = r.commentFilter
+        val commentTopology = r.commentTopology
+        val commentSection = r.commentSection
+        val splashAds = r.splashAds
         fun stateFor(pointFound: Boolean, candidateExists: Boolean): AdaptState = when {
             pointFound -> AdaptState.FOUND
             candidateExists -> AdaptState.MISSING
             else -> AdaptState.NOT_APPLICABLE
         }
 
-        val lowCandidateExists = COMMENT_LOW_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val previousCoverage = previous?.coverage
+        val previousDiagnostics = if (previousCoverage != null) {
+            previous.diagnostics.associateBy { it.id }
+        } else {
+            emptyMap()
         }
-        val highCandidateExists = COMMENT_HIGH_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+
+        /** 计划内才求值状态与详情；计划外直接写未请求（或沿用此前真实尝试过的诊断）。 */
+        fun item(family: PointFamily, id: String, state: () -> AdaptState, detail: () -> String): AdaptDiagnostic =
+            if (plan.needs(family)) {
+                AdaptDiagnostic(id, state(), detail())
+            } else {
+                previousDiagnostics[id]?.takeIf {
+                    previousCoverage?.attempt(family) != AdaptAssistGate.Attempt.NOT_REQUESTED
+                } ?: AdaptDiagnostic(id, AdaptState.NOT_APPLICABLE, PLAN_NOT_REQUESTED)
+            }
+
+        val lowCandidateExists by lazy {
+            COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val mineCandidateExists = KavaMemberLookup.hasClass(loader, MINE_FRAGMENT_CLASS)
-        val mineVipCandidateExists = mineCandidateExists &&
-            KavaMemberLookup.hasClass(loader, MINE_VIP_MANAGER_CLASS)
-        val blockUpdateCandidateExists = BLOCK_UPDATE_OWNER_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val highCandidateExists by lazy {
+            COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val dynamicTabsCandidateExists =
+        val mineCandidateExists by lazy { KavaMemberLookup.hasClass(loader, MINE_FRAGMENT_CLASS) }
+        val mineVipCandidateExists by lazy {
+            mineCandidateExists && KavaMemberLookup.hasClass(loader, MINE_VIP_MANAGER_CLASS)
+        }
+        val blockUpdateCandidateExists by lazy {
+            BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+        }
+        val dynamicTabsCandidateExists by lazy {
             KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS) &&
                 KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_TAB_CLASS)
-        val fullNumbersCandidateExists = FULL_NUMBER_CLASS_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
         }
-        val playerPortraitCandidateExists = PLAYER_PORTRAIT_CLASS_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val fullNumbersCandidateExists by lazy {
+            FULL_NUMBER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val playerInteractiveCandidateExists = PLAYER_INTERACTIVE_CANDIDATE_CLASSES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val playerPortraitCandidateExists by lazy {
+            PLAYER_PORTRAIT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val playerStatusBarCandidateExists = PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val playerInteractiveCandidateExists by lazy {
+            PLAYER_INTERACTIVE_CANDIDATE_CLASSES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val homeRecommendFeedCandidateExists =
+        val playerStatusBarCandidateExists by lazy {
+            PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+        }
+        val homeRecommendFeedCandidateExists by lazy {
             KavaMemberLookup.hasClass(loader, PEGASUS_HOLDER_DATA_CLASS) &&
-                PEGASUS_RESPONSE_CLASS_CANDIDATES.any {
-                    KavaMemberLookup.hasClass(loader, it)
-                }
-        val videoRelateCandidateExists = VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+                PEGASUS_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val homeTabsCandidateExists = HOME_FRAGMENT_V2_CLASS_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val videoRelateCandidateExists by lazy {
+            VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val homeComponentsCandidateExists = KavaMemberLookup.hasClass(loader, HOST_FRAGMENT_CLASS)
-        val mineComponentsCandidateExists = MINE_MENU_GROUP_CLASS_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val homeTabsCandidateExists by lazy {
+            HOME_FRAGMENT_V2_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val storyFeedCandidateExists = KavaMemberLookup.hasClass(loader, STORY_DETAIL_CLASS) &&
-            (KavaMemberLookup.hasClass(loader, STORY_FEED_RESPONSE_CLASS) ||
-                KavaMemberLookup.hasClass(loader, STORY_PAGER_PLAYER_CLASS))
-        val bottomBarCandidateExists = BOTTOM_TAB_HOST_CLASS_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val homeComponentsCandidateExists by lazy { KavaMemberLookup.hasClass(loader, HOST_FRAGMENT_CLASS) }
+        val mineComponentsCandidateExists by lazy {
+            MINE_MENU_GROUP_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val playerQualityCandidateExists = PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val storyFeedCandidateExists by lazy {
+            KavaMemberLookup.hasClass(loader, STORY_DETAIL_CLASS) &&
+                (KavaMemberLookup.hasClass(loader, STORY_FEED_RESPONSE_CLASS) ||
+                    KavaMemberLookup.hasClass(loader, STORY_PAGER_PLAYER_CLASS))
         }
-        val teenagersModeCandidateExists = TEENAGERS_MODE_ACTIVITY_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val bottomBarCandidateExists by lazy {
+            BOTTOM_TAB_HOST_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val commentPurifyCandidateExists = COMMENT_CONTENT_CLASS_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val playerQualityCandidateExists by lazy {
+            PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val commentEmptyPageCandidateExists = COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val teenagersModeCandidateExists by lazy {
+            TEENAGERS_MODE_ACTIVITY_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val commentVoteCandidateExists = COMMENT_VOTE_WIDGET_CLASS_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val commentPurifyCandidateExists by lazy {
+            COMMENT_CONTENT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val commentFollowCandidateExists = COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
-        } || COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val commentEmptyPageCandidateExists by lazy {
+            COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val commentMainListCandidateExists = COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val commentVoteCandidateExists by lazy {
+            COMMENT_VOTE_WIDGET_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val commentQuickReplyCandidateExists = COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val commentFollowCandidateExists by lazy {
+            COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) } ||
+                COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val commentFilterCandidateExists = COMMENT_REPLY_INFO_CLASS_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val commentMainListCandidateExists by lazy {
+            COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val commentTopologyCandidateExists = commentFilterCandidateExists &&
-            KavaMemberLookup.hasClass(loader, COMMENT_ITEM_CLASS) &&
-            COMMENT_REPLY_MAPPER_CLASS_CANDIDATES.any {
-                KavaMemberLookup.hasClass(loader, it)
-            }
-        val commentSectionCandidateExists = THESEUS_TAB_PAGER_SERVICE_CLASS_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val commentQuickReplyCandidateExists by lazy {
+            COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val splashCandidateExists = SPLASH_RESPONSE_CLASS_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val commentFilterCandidateExists by lazy {
+            COMMENT_REPLY_INFO_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val pauseCandidateClasses = listOf(
-            "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$2",
-            "com.bilibili.ship.theseus.united.page.pausedpage." +
-                "PausedPageService\$requestPausedPageData\$2"
-        )
-        val pauseCandidateExists = pauseCandidateClasses.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val commentTopologyCandidateExists by lazy {
+            commentFilterCandidateExists &&
+                KavaMemberLookup.hasClass(loader, COMMENT_ITEM_CLASS) &&
+                COMMENT_REPLY_MAPPER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val panelCandidateExists = KavaMemberLookup.hasClass(
-            loader,
-            "com.bilibili.ship.theseus.united.page.ad.AdPanelRepository"
-        )
-        val countdownCandidateExists = KavaMemberLookup.hasClass(
-            loader,
-            "com.bilibili.ship.theseus.united.page.pausedpage." +
-                "PausedPageService\$showPauseBarCountdownToast\$3"
-        )
-        val bannerCandidateExists = KavaMemberLookup.hasClass(
-            loader,
-            "com.bilibili.pegasus.holders.bannerv8.V8Banner"
-        )
-        val gameMenuCandidateExists = KavaMemberLookup.hasClass(loader, HOME_MENU_ITEM_CLASS)
-        val composeGameCandidateExists =
-            KavaMemberLookup.hasClass(loader, HOME_TOP_RIGHT_LAMBDA_CLASS)
-        val searchCandidateExists = HOME_MAIN_FRAGMENT_CANDIDATES.any {
-            KavaMemberLookup.hasClass(loader, it)
+        val commentSectionCandidateExists by lazy {
+            THESEUS_TAB_PAGER_SERVICE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+        }
+        val splashCandidateExists by lazy {
+            SPLASH_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+        }
+        val pauseCandidateExists by lazy {
+            listOf(
+                "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$2",
+                "com.bilibili.ship.theseus.united.page.pausedpage." +
+                    "PausedPageService\$requestPausedPageData\$2"
+            ).any { KavaMemberLookup.hasClass(loader, it) }
+        }
+        val panelCandidateExists by lazy {
+            KavaMemberLookup.hasClass(loader, "com.bilibili.ship.theseus.united.page.ad.AdPanelRepository")
+        }
+        val countdownCandidateExists by lazy {
+            KavaMemberLookup.hasClass(
+                loader,
+                "com.bilibili.ship.theseus.united.page.pausedpage." +
+                    "PausedPageService\$showPauseBarCountdownToast\$3"
+            )
+        }
+        val bannerCandidateExists by lazy {
+            KavaMemberLookup.hasClass(loader, "com.bilibili.pegasus.holders.bannerv8.V8Banner")
+        }
+        val gameMenuCandidateExists by lazy { KavaMemberLookup.hasClass(loader, HOME_MENU_ITEM_CLASS) }
+        val composeGameCandidateExists by lazy { KavaMemberLookup.hasClass(loader, HOME_TOP_RIGHT_LAMBDA_CLASS) }
+        val searchCandidateExists by lazy {
+            HOME_MAIN_FRAGMENT_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val searchReady = homeTopBar?.baseOnViewCreated != null &&
             homeTopBar.defaultWordMethods.isNotEmpty()
         return listOf(
-            AdaptDiagnostic(
-                "comment.low",
-                stateFor(low != null, lowCandidateExists),
-                low?.label().orEmpty()
-            ),
-            AdaptDiagnostic(
-                "comment.high",
-                stateFor(high != null, highCandidateExists),
-                high?.label().orEmpty()
-            ),
-            AdaptDiagnostic(
-                "mine.entry",
-                stateFor(mine != null, mineCandidateExists),
+            item(PointFamily.COMMENT_LOW, "comment.low",
+                { stateFor(low != null, lowCandidateExists) }) { low?.label().orEmpty() },
+            item(PointFamily.COMMENT_HIGH, "comment.high",
+                { stateFor(high != null, highCandidateExists) }) { high?.label().orEmpty() },
+            item(PointFamily.MINE_ENTRY, "mine.entry",
+                { stateFor(mine != null, mineCandidateExists) }) {
                 mine?.let { "build=${it.buildMethods.size},groups=${it.groupListField}" }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "paused.request",
-                stateFor(pause.requestMethods.isNotEmpty(), pauseCandidateExists),
+            },
+            item(PointFamily.PAUSE, "paused.request",
+                { stateFor(pause.requestMethods.isNotEmpty(), pauseCandidateExists) }) {
                 pause.requestMethods.joinToString("|") { it.label() }
-            ),
-            AdaptDiagnostic(
-                "paused.panel",
-                stateFor(pause.panelShow != null, panelCandidateExists),
-                pause.panelShow?.label().orEmpty()
-            ),
-            AdaptDiagnostic(
-                "paused.countdown",
-                stateFor(pause.countdown != null, countdownCandidateExists),
-                pause.countdown?.label().orEmpty()
-            ),
-            AdaptDiagnostic(
-                "home.banner",
-                stateFor(banner != null, bannerCandidateExists),
+            },
+            item(PointFamily.PAUSE, "paused.panel",
+                { stateFor(pause.panelShow != null, panelCandidateExists) }) { pause.panelShow?.label().orEmpty() },
+            item(PointFamily.PAUSE, "paused.countdown",
+                { stateFor(pause.countdown != null, countdownCandidateExists) }) { pause.countdown?.label().orEmpty() },
+            item(PointFamily.BANNER, "home.banner",
+                { stateFor(banner != null, bannerCandidateExists) }) {
                 banner?.let { "${it.bannerClassName},hooks=${it.lifecycleMethods.size}" }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "home.top_bar.game",
-                stateFor(homeTopBar?.gameMenu != null, gameMenuCandidateExists),
+            },
+            item(PointFamily.HOME_TOP_BAR, "home.top_bar.game",
+                { stateFor(homeTopBar?.gameMenu != null, gameMenuCandidateExists) }) {
                 homeTopBar?.gameMenu?.label().orEmpty()
-            ),
+            },
             // 两条路径分开上报：合并成一条就没法在 Compose 顶栏放量时分因。
-            AdaptDiagnostic(
-                "home.top_bar.game_compose",
-                stateFor(homeTopBar?.composeGameMenu != null, composeGameCandidateExists),
+            item(PointFamily.HOME_TOP_BAR, "home.top_bar.game_compose",
+                { stateFor(homeTopBar?.composeGameMenu != null, composeGameCandidateExists) }) {
                 homeTopBar?.composeGameMenu?.label().orEmpty()
-            ),
-            AdaptDiagnostic(
-                "home.top_bar.search",
-                stateFor(searchReady, searchCandidateExists),
+            },
+            item(PointFamily.HOME_TOP_BAR, "home.top_bar.search",
+                { stateFor(searchReady, searchCandidateExists) }) {
                 homeTopBar?.let {
                     "view=${it.baseOnViewCreated?.label().orEmpty()},words=${it.defaultWordMethods.size}"
                 }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "mine.vip",
-                stateFor(mineVip != null, mineVipCandidateExists),
+            },
+            item(PointFamily.MINE_VIP, "mine.vip",
+                { stateFor(mineVip != null, mineVipCandidateExists) }) {
                 mineVip?.let {
                     "resume=${it.onResume.label()},binding=${it.bindingField}," +
                         "root=${it.rootGetter.label()}"
                 }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "update.block",
-                stateFor(blockUpdate != null, blockUpdateCandidateExists),
-                blockUpdate?.label().orEmpty()
-            ),
-            AdaptDiagnostic(
-                "dynamic.tabs",
-                stateFor(dynamicTabs != null, dynamicTabsCandidateExists),
+            },
+            item(PointFamily.BLOCK_UPDATE, "update.block",
+                { stateFor(blockUpdate != null, blockUpdateCandidateExists) }) { blockUpdate?.label().orEmpty() },
+            item(PointFamily.DYNAMIC_TABS, "dynamic.tabs",
+                { stateFor(dynamicTabs != null, dynamicTabsCandidateExists) }) {
                 dynamicTabs?.let {
                     "list=${it.listGetter.label()},item=${it.itemClassName}#" +
                         "${it.itemTitleField}/${it.itemNameField}"
                 }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "number.full",
-                stateFor(fullNumbers != null, fullNumbersCandidateExists),
+            },
+            item(PointFamily.FULL_NUMBERS, "number.full",
+                { stateFor(fullNumbers != null, fullNumbersCandidateExists) }) {
                 fullNumbers?.formatterMethods?.joinToString("|") { it.label() }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "player.portrait",
-                stateFor(playerPortrait != null, playerPortraitCandidateExists),
+            },
+            item(PointFamily.PLAYER_PORTRAIT, "player.portrait",
+                { stateFor(playerPortrait != null, playerPortraitCandidateExists) }) {
                 playerPortrait?.visibilityMethods?.joinToString("|") { it.label() }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "player.interactive_overlay",
-                stateFor(playerInteractiveOverlays != null, playerInteractiveCandidateExists),
+            },
+            item(PointFamily.PLAYER_INTERACTIVE_OVERLAYS, "player.interactive_overlay",
+                { stateFor(playerInteractiveOverlays != null, playerInteractiveCandidateExists) }) {
                 playerInteractiveOverlays?.let { points ->
                     "families=${points.families.size}," +
                         "clears=${points.families.sumOf { it.guideClears.size }}," +
@@ -4357,33 +4527,31 @@ object VersionAdapter {
                         "command=${points.commandClear != null}," +
                         "activity=${points.commandActivityMetaClear != null}"
                 }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "pgc.auto_activity_popup",
-                stateFor(
-                    pgcAutoActivityPopup != null,
-                    KavaMemberLookup.hasClass(loader, PgcAutoActivityPopupLocator.MODEL_CLASS)
-                ),
+            },
+            item(PointFamily.PGC_AUTO_ACTIVITY_POPUP, "pgc.auto_activity_popup",
+                {
+                    stateFor(
+                        pgcAutoActivityPopup != null,
+                        KavaMemberLookup.hasClass(loader, PgcAutoActivityPopupLocator.MODEL_CLASS)
+                    )
+                }) {
                 pgcAutoActivityPopup?.let { "construct:slot=${it.popupIndex}" }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "player.status_bar",
-                stateFor(playerStatusBar != null, playerStatusBarCandidateExists),
+            },
+            item(PointFamily.PLAYER_STATUS_BAR, "player.status_bar",
+                { stateFor(playerStatusBar != null, playerStatusBarCandidateExists) }) {
                 playerStatusBar?.onCreateMethods?.joinToString("|") { it.label() }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "home.recommend_feed",
-                stateFor(homeRecommendFeed != null, homeRecommendFeedCandidateExists),
+            },
+            item(PointFamily.HOME_RECOMMEND_FEED, "home.recommend_feed",
+                { stateFor(homeRecommendFeed != null, homeRecommendFeedCandidateExists) }) {
                 homeRecommendFeed?.let {
                     "contract=app-card-v1,responses=${it.responseItemGetters.size}," +
                         "signals=${listOfNotNull(it.cardTypeGetter, it.cardGotoGetter, it.goToGetter, it.adInfoGetter).size}," +
                         "duration=${it.playerArgsDurationGetter != null || !it.playerArgsDurationField.isNullOrBlank()}," +
                         "intent=${it.intentHandlerOnCreate != null}"
                 }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "video.relate",
-                stateFor(videoRelate != null, videoRelateCandidateExists),
+            },
+            item(PointFamily.VIDEO_RELATE, "video.relate",
+                { stateFor(videoRelate != null, videoRelateCandidateExists) }) {
                 videoRelate?.let {
                     "contract=viewunite-relate,responses=${it.responseItemGetters.size},types=" +
                         (it.cardCaseGetters.size + it.gotoGetters.size +
@@ -4395,29 +4563,25 @@ object VersionAdapter {
                         ",writeback=${it.responseItemGetters.count { point -> !point.viewField.isNullOrBlank() }}" +
                         ",service=${it.detailRelateService != null}"
                 }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "home.tabs",
-                stateFor(homeTabs != null, homeTabsCandidateExists),
+            },
+            item(PointFamily.HOME_TABS, "home.tabs",
+                { stateFor(homeTabs != null, homeTabsCandidateExists) }) {
                 homeTabs?.let { "${it.buildMethod.label()},resource=${it.resourceClassName}" }
                     .orEmpty()
-            ),
-            AdaptDiagnostic(
-                "home.components",
-                stateFor(homeComponents != null, homeComponentsCandidateExists),
+            },
+            item(PointFamily.HOME_COMPONENTS, "home.components",
+                { stateFor(homeComponents != null, homeComponentsCandidateExists) }) {
                 homeComponents?.onViewCreated?.label().orEmpty()
-            ),
-            AdaptDiagnostic(
-                "mine.components",
-                stateFor(mineComponents != null, mineComponentsCandidateExists),
+            },
+            item(PointFamily.MINE_COMPONENTS, "mine.components",
+                { stateFor(mineComponents != null, mineComponentsCandidateExists) }) {
                 mineComponents?.let {
                     "lists=${it.itemListGetters.size},titles=${it.itemTitleGetters.size}," +
                         "legacy=${it.legacyBuildMethods.size}"
                 }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "story.feed",
-                stateFor(storyFeed != null, storyFeedCandidateExists),
+            },
+            item(PointFamily.STORY_FEED, "story.feed",
+                { stateFor(storyFeed != null, storyFeedCandidateExists) }) {
                 storyFeed?.let {
                     "responses=${it.responseItemGetters.size},pager=${it.pagerListMethods.size}," +
                         "ad=${it.adGetter != null},live=${it.liveGetter != null}," +
@@ -4426,96 +4590,70 @@ object VersionAdapter {
                         "cart=${it.cartInfoGetter != null},drama=${it.dramaPromptGetter != null}," +
                         "season=${it.seasonInfoGetter != null && it.seasonTypeGetter != null}"
                 }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "home.bottom_bar",
-                stateFor(bottomBar != null, bottomBarCandidateExists),
+            },
+            item(PointFamily.BOTTOM_BAR, "home.bottom_bar",
+                { stateFor(bottomBar != null, bottomBarCandidateExists) }) {
                 bottomBar?.let {
                     "tabs=${it.tabsGetter.label()},bind=${it.bindTabMethod.label()}," +
                         "strings=${it.itemStringFields.size}"
                 }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "player.default_quality",
-                stateFor(playerQuality?.defaultQualityMethod != null, playerQualityCandidateExists),
+            },
+            item(PointFamily.PLAYER_QUALITY, "player.default_quality",
+                { stateFor(playerQuality?.defaultQualityMethod != null, playerQualityCandidateExists) }) {
                 playerQuality?.let {
                     "global-default=${it.defaultQualityMethod != null},story-semantic=${it.story?.semanticComplete == true},capabilities=" +
                         it.capabilitySignals.joinToString("+").ifBlank { "unobserved" }
                 }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "teenagers.mode",
-                stateFor(teenagersMode != null, teenagersModeCandidateExists),
+            },
+            item(PointFamily.TEENAGERS_MODE, "teenagers.mode",
+                { stateFor(teenagersMode != null, teenagersModeCandidateExists) }) {
                 teenagersMode?.onCreateMethods?.joinToString("|") { it.label() }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "comment.purify.search",
-                stateFor(
-                    commentPurify?.urlMapGetters?.isNotEmpty() == true,
-                    commentPurifyCandidateExists
-                ),
+            },
+            item(PointFamily.COMMENT_PURIFY, "comment.purify.search",
+                { stateFor(commentPurify?.urlMapGetters?.isNotEmpty() == true, commentPurifyCandidateExists) }) {
                 commentPurify?.urlMapGetters?.joinToString("|") { it.label() }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "comment.purify.empty_page",
-                stateFor(
-                    commentPurify?.emptyPageGetters?.isNotEmpty() == true,
-                    commentEmptyPageCandidateExists
-                ),
+            },
+            item(PointFamily.COMMENT_PURIFY, "comment.purify.empty_page",
+                { stateFor(commentPurify?.emptyPageGetters?.isNotEmpty() == true, commentEmptyPageCandidateExists) }) {
                 commentPurify?.emptyPageGetters?.joinToString("|") {
                     "${it.contentGetter.label()}->${it.defaultInstanceGetter.label()}"
                 }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "comment.purify.vote",
-                stateFor(
-                    commentPurify?.voteWidgetMethods?.isNotEmpty() == true,
-                    commentVoteCandidateExists
-                ),
+            },
+            item(PointFamily.COMMENT_PURIFY, "comment.purify.vote",
+                { stateFor(commentPurify?.voteWidgetMethods?.isNotEmpty() == true, commentVoteCandidateExists) }) {
                 commentPurify?.voteWidgetMethods?.joinToString("|") { it.label() }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "comment.purify.follow",
-                stateFor(commentPurify?.follow != null, commentFollowCandidateExists),
+            },
+            item(PointFamily.COMMENT_PURIFY, "comment.purify.follow",
+                { stateFor(commentPurify?.follow != null, commentFollowCandidateExists) }) {
                 commentPurify?.follow?.let { follow ->
                     "widget=${follow.widgetStateMethods.joinToString("|") { it.label() }};" +
                         "header=${follow.headerBindMethods.joinToString("|") { it.label() }};" +
                         "button=${follow.followButtonClassName.orEmpty()}"
                 }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "comment.purify.qoe",
-                stateFor(commentPurify?.qoe != null, commentMainListCandidateExists),
+            },
+            item(PointFamily.COMMENT_PURIFY, "comment.purify.qoe",
+                { stateFor(commentPurify?.qoe != null, commentMainListCandidateExists) }) {
                 commentPurify?.qoe?.let { qoe ->
                     "has=${qoe.presenceGetter.label()},get=${qoe.contentGetter.label()}," +
                         "default=${qoe.defaultInstanceGetter.label()}"
                 }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "comment.purify.operation",
-                stateFor(
-                    commentPurify?.operations?.size == 2,
-                    commentMainListCandidateExists
-                ),
+            },
+            item(PointFamily.COMMENT_PURIFY, "comment.purify.operation",
+                { stateFor(commentPurify?.operations?.size == 2, commentMainListCandidateExists) }) {
                 commentPurify?.operations?.joinToString("|") { operation ->
                     "${operation.presenceGetter.methodName}/" +
                         "${operation.contentGetter.methodName}->" +
                         operation.defaultInstanceGetter.className
                 }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "comment.quick_reply",
-                stateFor(
-                    commentPurify?.quickReplyDialogMethods?.isNotEmpty() == true,
-                    commentQuickReplyCandidateExists
-                ),
+            },
+            item(PointFamily.COMMENT_PURIFY, "comment.quick_reply",
+                { stateFor(commentPurify?.quickReplyDialogMethods?.isNotEmpty() == true, commentQuickReplyCandidateExists) }) {
                 commentPurify?.quickReplyDialogMethods
                     ?.joinToString("|") { it.label() }
                     .orEmpty()
-            ),
-            AdaptDiagnostic(
-                "comment.filter",
-                stateFor(commentFilter != null, commentFilterCandidateExists),
+            },
+            item(PointFamily.COMMENT_FILTER, "comment.filter",
+                { stateFor(commentFilter != null, commentFilterCandidateExists) }) {
                 commentFilter?.let { points ->
                     "contract=reply-v1,lists=${points.replyListGetters.size}," +
                         "top=${points.topReplyGetters.size}," +
@@ -4530,32 +4668,29 @@ object VersionAdapter {
                             ).size
                         }"
                 }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "comment.topology",
-                stateFor(commentTopology != null, commentTopologyCandidateExists),
+            },
+            item(PointFamily.COMMENT_TOPOLOGY, "comment.topology",
+                { stateFor(commentTopology != null, commentTopologyCandidateExists) }) {
                 commentTopology?.let { points ->
                     "mappers=${points.mapperMethods.size}[" +
                         points.mapperMethods.joinToString("|") { it.label() } +
                         "],methods=${points.methods.size}"
                 } ?: commentTopologyFailureDetail
-            ),
-            AdaptDiagnostic(
-                "comment.section",
-                stateFor(commentSection != null, commentSectionCandidateExists),
+            },
+            item(PointFamily.COMMENT_SECTION, "comment.section",
+                { stateFor(commentSection != null, commentSectionCandidateExists) }) {
                 commentSection?.let { points ->
                     "constructors=${points.listConstructors.size}," +
                         "tag=${points.locatableTagGetter.label()}"
                 }.orEmpty()
-            ),
-            AdaptDiagnostic(
-                "splash.ads",
-                stateFor(splashAds != null, splashCandidateExists),
+            },
+            item(PointFamily.SPLASH_ADS, "splash.ads",
+                { stateFor(splashAds != null, splashCandidateExists) }) {
                 splashAds?.let {
                     "contract=splash-v1,lists=${it.listGetters.size}," +
                         "signals=${it.itemSignalGetters.map(SplashItemSignalPoint::role).distinct().size}"
                 }.orEmpty()
-            )
+            }
         )
     }
 

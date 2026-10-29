@@ -32,6 +32,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotHostBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootTargetConfigBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlanner
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LocateTimings
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.HookConfigSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.SnapshotHookConfigSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
@@ -2535,11 +2537,18 @@ class HookEntry : XposedModule() {
             // 通过结构校验的缓存补位，使后台 DEX 适配结果在下次冷启动生效。
             // 不能用"更新拦截已定位"当整份合并的开关：那会让实时候选表命中的宿主永远
             // 拿不到缓存里的画质/脉络兜底实现（DexKit 自 ecc63f5 起兜底三个点）。
+            // 同步定位计划：由本次安装链已接受的配置快照（hookConfig）生成，只让当前启用的功能需要的
+            // 定位器执行；定位阶段不再另读一份可能不同步的 prefs。入口、扫描面和运行期可翻转的
+            // 常驻能力在 AdaptPlanCatalog 里标为始终需要，永远不裁剪。
+            val adaptPlan = AdaptPlanner.build(hookConfig)
             val startupCache by lazy(LazyThreadSafetyMode.NONE) {
                 VersionAdapter.readStartupCache(authorizationContext, versionAdapterResetTimestamp)
             }
             val hostAdaptResult by lazy(LazyThreadSafetyMode.NONE) {
-                val runtime = VersionAdapter.quickLocate(biliClassLoader)
+                // 仅 debug 构建记录同步定位段耗时（逐家族），给设备上的 A/B 对照用；release 不计时。
+                val locateTimings = if (com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG) LocateTimings() else null
+                val runtime = VersionAdapter.quickLocate(biliClassLoader, adaptPlan, locateTimings)
+                locateTimings?.let { logInfo("adapt_locate_timing", "[BIL] 同步定位 plan=$adaptPlan ${it.summary()}") }
                 VersionAdapter.mergeRuntimeWithCached(
                     runtime = runtime,
                     cached = startupCache.cached
@@ -3763,7 +3772,7 @@ class HookEntry : XposedModule() {
                 // 注：quickLocate 结果不持久化（AdaptResult 无真实 vc，写文件会被
                 // loadCached 拒绝）；attach 阶段 ensureAdapted 会重跑适配线程写正确缓存
                 val adaptResult = hostAdaptResult
-                    ?: VersionAdapter.quickLocate(biliClassLoader)
+                    ?: VersionAdapter.quickLocate(biliClassLoader, adaptPlan)
                 // 性能：全局维护「列表滚动中」标志——快速滑动/惯性滚动期间暂缓评论绑定，
                 // 滑停（SCROLL_STATE_IDLE）后由 drainCommentBinds 统一批量绑定可见评论，
                 // 避免滚动中逐条全树绑定的卡顿（滚动状态回调本身低频，开销可忽略）。
@@ -4934,7 +4943,8 @@ class HookEntry : XposedModule() {
                             prefs.getString(FeaturePreferences.PLAYER_SPEED_MENU_PERCENTS, "")
                         ).isNotEmpty(),
                         blockUpdateEnabled = prefs.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false),
-                        commentTopologyEnabled = prefs.getBoolean(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, false)
+                        commentTopologyEnabled = prefs.getBoolean(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, false),
+                        plan = adaptPlan
                     )
                 }.onFailure { throwable ->
                     logError(
@@ -4947,7 +4957,7 @@ class HookEntry : XposedModule() {
             logInfo(
                 "hook_registry_summary",
                 "[BIL] Hook 点诊断: ${hookPointRegistry.summary()}; " +
-                    "Adapter=${hostAdaptResult?.diagnosticSummary() ?: "unavailable"}, " +
+                    "Adapter=${hostAdaptResult?.diagnosticSummary() ?: "unavailable"}, plan=$adaptPlan, " +
                     "cache=${VersionAdapter.cacheStatus()}; " +
                     "Kava cache hit=${kavaDiagnostics.cacheHits}, " +
                     "miss=${kavaDiagnostics.cacheMisses}, " +
@@ -5017,7 +5027,7 @@ class HookEntry : XposedModule() {
                     frameworkLog("[BIL] Hook 授权未确认，当前宿主进程不安装任何功能")
                     return
                 }
-                activeHookConfig.set(SnapshotHookConfigSource(config.values))
+                activeHookConfig.set(SnapshotHookConfigSource(config.values, config.generation))
                 if (!authorizedInstallStarted.compareAndSet(false, true)) {
                     authorizedInstallerRef.set(null)
                     return

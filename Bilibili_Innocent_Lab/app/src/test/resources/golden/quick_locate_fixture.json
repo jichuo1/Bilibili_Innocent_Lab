@@ -1,0 +1,1832 @@
+{
+ "block_update": {
+  "cls": "Dr1.c",
+  "m": "a",
+  "params": [
+   "android.content.Context"
+  ]
+ },
+ "bottom_bar": {
+  "bind": {
+   "cls": "com.bilibili.lib.homepage.widget.TabHost",
+   "m": "bind",
+   "params": [
+    "int",
+    "android.view.View"
+   ]
+  },
+  "item": "com.bilibili.lib.homepage.widget.TabHost$h",
+  "strings": [
+   "name",
+   "uri"
+  ],
+  "tabs": {
+   "cls": "com.bilibili.lib.homepage.widget.TabHost",
+   "m": "getTabs",
+   "params": []
+  }
+ },
+ "comment_filter": {
+  "content": {
+   "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+   "m": "getContent",
+   "params": []
+  },
+  "level": {
+   "cls": "com.bapis.bilibili.main.community.reply.v1.Member",
+   "m": "getLevel",
+   "params": []
+  },
+  "lists": [
+   {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+    "m": "getTopRepliesList",
+    "params": []
+   },
+   {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+    "m": "getRepliesList",
+    "params": []
+   },
+   {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+    "m": "getRepliesList",
+    "params": []
+   }
+  ],
+  "member": {
+   "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+   "m": "getMember",
+   "params": []
+  },
+  "member_name": {
+   "cls": "com.bapis.bilibili.main.community.reply.v1.Member",
+   "m": "getName",
+   "params": []
+  },
+  "member_v2": {
+   "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+   "m": "getMemberV2",
+   "params": []
+  },
+  "member_v2_basic": {
+   "cls": "com.bapis.bilibili.main.community.reply.v1.MemberV2",
+   "m": "getBasic",
+   "params": []
+  },
+  "member_v2_level": {
+   "cls": "com.bapis.bilibili.main.community.reply.v1.MemberV2$Basic",
+   "m": "getLevel",
+   "params": []
+  },
+  "member_v2_name": {
+   "cls": "com.bapis.bilibili.main.community.reply.v1.MemberV2$Basic",
+   "m": "getName",
+   "params": []
+  },
+  "message": {
+   "cls": "com.bapis.bilibili.main.community.reply.v1.Content",
+   "m": "getMessage",
+   "params": []
+  },
+  "reply_default": {
+   "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+   "m": "getDefaultInstance",
+   "params": []
+  },
+  "top_replies": [
+   {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+    "m": "getUpTop",
+    "params": []
+   },
+   {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+    "m": "getAdminTop",
+    "params": []
+   },
+   {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+    "m": "getVoteTop",
+    "params": []
+   }
+  ]
+ },
+ "comment_purify": {
+  "empty_pages": [
+   {
+    "content": {
+     "cls": "com.bapis.bilibili.main.community.reply.v1.SubjectControl",
+     "m": "getEmptyPage",
+     "params": []
+    },
+    "default": {
+     "cls": "com.bapis.bilibili.main.community.reply.v1.EmptyPage",
+     "m": "getDefaultInstance",
+     "params": []
+    }
+   },
+   {
+    "content": {
+     "cls": "com.bapis.bilibili.main.community.reply.v2.SubjectDescriptionReply",
+     "m": "getEmptyPage",
+     "params": []
+    },
+    "default": {
+     "cls": "com.bapis.bilibili.main.community.reply.v2.EmptyPage",
+     "m": "getDefaultInstance",
+     "params": []
+    }
+   }
+  ],
+  "follow": {
+   "button": "com.bilibili.relation.widget.FollowButton",
+   "header": [
+    {
+     "cls": "com.bilibili.app.comment3.ui.widget.CommentHeaderDecorativeView",
+     "m": "renamedBind",
+     "params": [
+      "java.util.List",
+      "com.bilibili.app.comment3.ui.widget.CommentHeaderDecorativeView$HeaderContext"
+     ]
+    }
+   ],
+   "widget": [
+    {
+     "cls": "com.bilibili.app.comm.comment2.phoenix.view.CommentFollowWidget",
+     "m": "renamedBind",
+     "params": [
+      "com.bilibili.app.comm.comment2.phoenix.view.CommentFollowWidget$FollowData"
+     ]
+    },
+    {
+     "cls": "com.bilibili.app.comm.comment2.phoenix.view.CommentFollowWidget",
+     "m": "hiddenState",
+     "params": []
+    },
+    {
+     "cls": "com.bilibili.app.comm.comment2.phoenix.view.CommentFollowWidget",
+     "m": "visibleState",
+     "params": []
+    },
+    {
+     "cls": "com.bilibili.app.comm.comment2.phoenix.view.CommentFollowWidget$VisibilityCallback",
+     "m": "renamedPropertyChanged",
+     "params": [
+      "java.lang.Object",
+      "int"
+     ],
+     "vf": "this$0"
+    }
+   ]
+  },
+  "operations": [
+   {
+    "content": {
+     "cls": "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+     "m": "getOperation",
+     "params": []
+    },
+    "default": {
+     "cls": "com.bapis.bilibili.main.community.reply.v1.Operation",
+     "m": "getDefaultInstance",
+     "params": []
+    },
+    "presence": {
+     "cls": "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+     "m": "hasOperation",
+     "params": []
+    }
+   },
+   {
+    "content": {
+     "cls": "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+     "m": "getOperationV2",
+     "params": []
+    },
+    "default": {
+     "cls": "com.bapis.bilibili.main.community.reply.v1.OperationV2",
+     "m": "getDefaultInstance",
+     "params": []
+    },
+    "presence": {
+     "cls": "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+     "m": "hasOperationV2",
+     "params": []
+    }
+   }
+  ],
+  "qoe": {
+   "content": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+    "m": "getQoe",
+    "params": []
+   },
+   "default": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.QoeInfo",
+    "m": "getDefaultInstance",
+    "params": []
+   },
+   "presence": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.MainListReply",
+    "m": "hasQoe",
+    "params": []
+   }
+  },
+  "quick_reply": [
+   {
+    "cls": "com.bilibili.app.comment3.ui.CommentContainerImpl$attachRepository$5",
+    "m": "emit",
+    "params": [
+     "com.bilibili.app.comment3.data.state.PublishDialogIntent",
+     "kotlin.coroutines.Continuation"
+    ]
+   }
+  ],
+  "url_schemas": [
+   {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.Url",
+    "m": "getAppUrlSchema",
+    "params": []
+   }
+  ],
+  "urls": [
+   {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.Content",
+    "m": "getUrls",
+    "params": []
+   },
+   {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.Content",
+    "m": "getUrlsMap",
+    "params": []
+   }
+  ],
+  "vote": [
+   {
+    "cls": "com.bilibili.app.comment.ext.widgets.CmtVoteWidget",
+    "m": "renamedBind",
+    "params": [
+     "com.bilibili.app.comment.ext.widgets.CmtVoteWidget$VoteData",
+     "com.bilibili.app.comment.ext.widgets.CmtThemeStrategy",
+     "kotlin.jvm.functions.Function1",
+     "kotlin.jvm.functions.Function0"
+    ]
+   },
+   {
+    "cls": "com.bilibili.app.comment.ext.widgets.CmtMountWidget",
+    "m": "renamedBind",
+    "params": [
+     "com.bilibili.app.comment.ext.widgets.CmtThemeStrategy",
+     "com.bilibili.app.comment.ext.widgets.CmtMountWidget$MountData"
+    ]
+   },
+   {
+    "cls": "com.bilibili.app.comment3.ui.widget.CommentVoteView",
+    "m": "setVoteData$module",
+    "params": [
+     "com.bilibili.app.comment3.ui.widget.CommentVoteView$CommentVoteData"
+    ]
+   }
+  ]
+ },
+ "comment_section": {
+  "constructors": [
+   {
+    "cls": "com.bilibili.ship.theseus.united.page.tab.TabConfig",
+    "list_index": 0,
+    "params": [
+     "java.util.List",
+     "java.lang.String",
+     "java.lang.String"
+    ]
+   }
+  ],
+  "tag": {
+   "cls": "com.bilibili.ship.theseus.united.page.tab.TabPage",
+   "m": "getLocatableTag",
+   "params": []
+  }
+ },
+ "comment_topology": {
+  "mappers": [
+   {
+    "cls": "com.bilibili.app.comment3.data.source.v1.b",
+    "m": "B",
+    "params": [
+     "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+     "com.bapis.bilibili.main.community.reply.v1.SubjectControl",
+     "boolean",
+     "java.lang.String",
+     "java.lang.Object"
+    ]
+   },
+   {
+    "cls": "com.bilibili.app.comment3.data.source.v1.c",
+    "m": "B",
+    "params": [
+     "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+     "com.bapis.bilibili.main.community.reply.v1.SubjectControl",
+     "boolean",
+     "java.lang.String",
+     "java.lang.Object"
+    ]
+   }
+  ],
+  "methods": {
+   "comment_item.id": {
+    "cls": "com.bilibili.app.comment3.data.model.CommentItem",
+    "m": "getId",
+    "params": []
+   },
+   "content.message": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.Content",
+    "m": "getMessage",
+    "params": []
+   },
+   "detail.build": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.DetailListReq$Builder",
+    "m": "build",
+    "params": []
+   },
+   "detail.new_builder": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.DetailListReq",
+    "m": "newBuilder",
+    "params": []
+   },
+   "detail.set_mode": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.DetailListReq$Builder",
+    "m": "setModeValue",
+    "params": [
+     "int"
+    ]
+   },
+   "detail.set_oid": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.DetailListReq$Builder",
+    "m": "setOid",
+    "params": [
+     "long"
+    ]
+   },
+   "detail.set_pagination": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.DetailListReq$Builder",
+    "m": "setPagination",
+    "params": [
+     "com.bapis.bilibili.pagination.FeedPagination"
+    ]
+   },
+   "detail.set_root": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.DetailListReq$Builder",
+    "m": "setRoot",
+    "params": [
+     "long"
+    ]
+   },
+   "detail.set_rpid": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.DetailListReq$Builder",
+    "m": "setRpid",
+    "params": [
+     "long"
+    ]
+   },
+   "detail.set_type": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.DetailListReq$Builder",
+    "m": "setType",
+    "params": [
+     "long"
+    ]
+   },
+   "detail_reply.pagination": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.DetailListReply",
+    "m": "getPaginationReply",
+    "params": []
+   },
+   "detail_reply.root": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.DetailListReply",
+    "m": "getRoot",
+    "params": []
+   },
+   "member.name": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.Member",
+    "m": "getName",
+    "params": []
+   },
+   "member_basic.name": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.MemberV2$Basic",
+    "m": "getName",
+    "params": []
+   },
+   "member_v2.basic": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.MemberV2",
+    "m": "getBasic",
+    "params": []
+   },
+   "moss.detail": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyMoss",
+    "m": "detailList",
+    "params": [
+     "com.bapis.bilibili.main.community.reply.v1.DetailListReq",
+     "java.lang.Object"
+    ]
+   },
+   "pagination.build": {
+    "cls": "com.bapis.bilibili.pagination.FeedPagination$Builder",
+    "m": "build",
+    "params": []
+   },
+   "pagination.new_builder": {
+    "cls": "com.bapis.bilibili.pagination.FeedPagination",
+    "m": "newBuilder",
+    "params": []
+   },
+   "pagination.set_offset": {
+    "cls": "com.bapis.bilibili.pagination.FeedPagination$Builder",
+    "m": "setOffset",
+    "params": [
+     "java.lang.String"
+    ]
+   },
+   "pagination_reply.next_offset": {
+    "cls": "com.bapis.bilibili.pagination.FeedPaginationReply",
+    "m": "getNextOffset",
+    "params": []
+   },
+   "parent_member.name": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.ParentReplyMember",
+    "m": "getName",
+    "params": []
+   },
+   "reply.children": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+    "m": "getRepliesList",
+    "params": []
+   },
+   "reply.content": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+    "m": "getContent",
+    "params": []
+   },
+   "reply.count": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+    "m": "getCount",
+    "params": []
+   },
+   "reply.ctime": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+    "m": "getCtime",
+    "params": []
+   },
+   "reply.dialog": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+    "m": "getDialog",
+    "params": []
+   },
+   "reply.id": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+    "m": "getId",
+    "params": []
+   },
+   "reply.member": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+    "m": "getMember",
+    "params": []
+   },
+   "reply.member_v2": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+    "m": "getMemberV2",
+    "params": []
+   },
+   "reply.mid": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+    "m": "getMid",
+    "params": []
+   },
+   "reply.oid": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+    "m": "getOid",
+    "params": []
+   },
+   "reply.parent": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+    "m": "getParent",
+    "params": []
+   },
+   "reply.parent_member": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+    "m": "getParentReplyMember",
+    "params": []
+   },
+   "reply.root": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+    "m": "getRoot",
+    "params": []
+   },
+   "reply.type": {
+    "cls": "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
+    "m": "getType",
+    "params": []
+   }
+  },
+  "moss": "com.bapis.bilibili.main.community.reply.v1.ReplyMoss"
+ },
+ "dex_fp": "unavailable",
+ "diag": [
+  {
+   "id": "comment.low",
+   "state": "NOT_APPLICABLE"
+  },
+  {
+   "id": "comment.high",
+   "state": "NOT_APPLICABLE"
+  },
+  {
+   "id": "mine.entry",
+   "state": "MISSING"
+  },
+  {
+   "id": "paused.request",
+   "state": "NOT_APPLICABLE"
+  },
+  {
+   "id": "paused.panel",
+   "state": "NOT_APPLICABLE"
+  },
+  {
+   "id": "paused.countdown",
+   "state": "NOT_APPLICABLE"
+  },
+  {
+   "id": "home.banner",
+   "state": "NOT_APPLICABLE"
+  },
+  {
+   "detail": "com.bilibili.lib.homepage.startdust.menu.a#c(android.view.Menu,android.view.MenuInflater)",
+   "id": "home.top_bar.game",
+   "state": "FOUND"
+  },
+  {
+   "detail": "tv.danmaku.bili.home.components.topbar.TopRightComponent$initTopRight$1$1#invoke(java.util.List,kotlin.coroutines.Continuation)",
+   "id": "home.top_bar.game_compose",
+   "state": "FOUND"
+  },
+  {
+   "detail": "view=tv.danmaku.bili.ui.main2.basic.BaseMainFrameFragment#onViewCreated(android.view.View,android.os.Bundle),words=2",
+   "id": "home.top_bar.search",
+   "state": "FOUND"
+  },
+  {
+   "detail": "resume=tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment#onResume(),binding=stableBinding,root=tv.danmaku.bili.ui.main2.mine.modularvip.TestVipBinding#getRoot()",
+   "id": "mine.vip",
+   "state": "FOUND"
+  },
+  {
+   "detail": "Dr1.c#a(android.content.Context)",
+   "id": "update.block",
+   "state": "FOUND"
+  },
+  {
+   "id": "dynamic.tabs",
+   "state": "NOT_APPLICABLE"
+  },
+  {
+   "detail": "kntr.base.localization.NumberFormat_androidKt#format(java.lang.String)|kntr.base.localization.NumberFormat_androidKt#format(java.lang.Long)|kntr.base.localization.NumberFormat_androidKt#formatNumber(long,java.lang.String)|kntr.base.localization.NumberFormat_androidKt#format$default(java.lang.Long,java.lang.String,int,java.lang.Object)",
+   "id": "number.full",
+   "state": "FOUND"
+  },
+  {
+   "detail": "com.bilibili.app.gemini.player.widget.story.GeminiPlayerFullStoryWidget#setVisibility(int)",
+   "id": "player.portrait",
+   "state": "FOUND"
+  },
+  {
+   "detail": "families=2,clears=9,dm=3,moss=3,command=true,activity=true",
+   "id": "player.interactive_overlay",
+   "state": "FOUND"
+  },
+  {
+   "detail": "construct:slot=7",
+   "id": "pgc.auto_activity_popup",
+   "state": "FOUND"
+  },
+  {
+   "detail": "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity#onCreate(android.os.Bundle)",
+   "id": "player.status_bar",
+   "state": "FOUND"
+  },
+  {
+   "detail": "contract=app-card-v1,responses=1,signals=4,duration=true,intent=false",
+   "id": "home.recommend_feed",
+   "state": "FOUND"
+  },
+  {
+   "detail": "contract=viewunite-relate,responses=5,types=6,reasons=8,commercial=3,writeback=5,service=true",
+   "id": "video.relate",
+   "state": "FOUND"
+  },
+  {
+   "detail": "tv.danmaku.bili.ui.main2.HomeFragmentV2#build(java.util.List),resource=tv.danmaku.bili.ui.main2.resource.z",
+   "id": "home.tabs",
+   "state": "FOUND"
+  },
+  {
+   "detail": "androidx.fragment.app.Fragment#onViewCreated(android.view.View,android.os.Bundle)",
+   "id": "home.components",
+   "state": "FOUND"
+  },
+  {
+   "detail": "lists=1,titles=1,legacy=0",
+   "id": "mine.components",
+   "state": "FOUND"
+  },
+  {
+   "detail": "responses=1,pager=2,ad=true,live=true,game=true,bangumi=true,course=true,music=true,cart=true,drama=true,season=true",
+   "id": "story.feed",
+   "state": "FOUND"
+  },
+  {
+   "detail": "tabs=com.bilibili.lib.homepage.widget.TabHost#getTabs(),bind=com.bilibili.lib.homepage.widget.TabHost#bind(int,android.view.View),strings=2",
+   "id": "home.bottom_bar",
+   "state": "FOUND"
+  },
+  {
+   "detail": "global-default=true,story-semantic=false,capabilities=stream_quality+vip_entitlement+codec",
+   "id": "player.default_quality",
+   "state": "FOUND"
+  },
+  {
+   "detail": "com.bilibili.teenagersmode.ui.TeenagersModeDialogActivity#onCreate(android.os.Bundle)",
+   "id": "teenagers.mode",
+   "state": "FOUND"
+  },
+  {
+   "detail": "com.bapis.bilibili.main.community.reply.v1.Content#getUrls()|com.bapis.bilibili.main.community.reply.v1.Content#getUrlsMap()",
+   "id": "comment.purify.search",
+   "state": "FOUND"
+  },
+  {
+   "detail": "com.bapis.bilibili.main.community.reply.v1.SubjectControl#getEmptyPage()->com.bapis.bilibili.main.community.reply.v1.EmptyPage#getDefaultInstance()|com.bapis.bilibili.main.community.reply.v2.SubjectDescriptionReply#getEmptyPage()->com.bapis.bilibili.main.community.reply.v2.EmptyPage#getDefaultInstance()",
+   "id": "comment.purify.empty_page",
+   "state": "FOUND"
+  },
+  {
+   "detail": "com.bilibili.app.comment.ext.widgets.CmtVoteWidget#renamedBind(com.bilibili.app.comment.ext.widgets.CmtVoteWidget$VoteData,com.bilibili.app.comment.ext.widgets.CmtThemeStrategy,kotlin.jvm.functions.Function1,kotlin.jvm.functions.Function0)|com.bilibili.app.comment.ext.widgets.CmtMountWidget#renamedBind(com.bilibili.app.comment.ext.widgets.CmtThemeStrategy,com.bilibili.app.comment.ext.widgets.CmtMountWidget$MountData)|com.bilibili.app.comment3.ui.widget.CommentVoteView#setVoteData$module(com.bilibili.app.comment3.ui.widget.CommentVoteView$CommentVoteData)",
+   "id": "comment.purify.vote",
+   "state": "FOUND"
+  },
+  {
+   "detail": "widget=com.bilibili.app.comm.comment2.phoenix.view.CommentFollowWidget#renamedBind(com.bilibili.app.comm.comment2.phoenix.view.CommentFollowWidget$FollowData)|com.bilibili.app.comm.comment2.phoenix.view.CommentFollowWidget#hiddenState()|com.bilibili.app.comm.comment2.phoenix.view.CommentFollowWidget#visibleState()|com.bilibili.app.comm.comment2.phoenix.view.CommentFollowWidget$VisibilityCallback#renamedPropertyChanged(java.lang.Object,int);header=com.bilibili.app.comment3.ui.widget.CommentHeaderDecorativeView#renamedBind(java.util.List,com.bilibili.app.comment3.ui.widget.CommentHeaderDecorativeView$HeaderContext);button=com.bilibili.relation.widget.FollowButton",
+   "id": "comment.purify.follow",
+   "state": "FOUND"
+  },
+  {
+   "detail": "has=com.bapis.bilibili.main.community.reply.v1.MainListReply#hasQoe(),get=com.bapis.bilibili.main.community.reply.v1.MainListReply#getQoe(),default=com.bapis.bilibili.main.community.reply.v1.QoeInfo#getDefaultInstance()",
+   "id": "comment.purify.qoe",
+   "state": "FOUND"
+  },
+  {
+   "detail": "hasOperation/getOperation->com.bapis.bilibili.main.community.reply.v1.Operation|hasOperationV2/getOperationV2->com.bapis.bilibili.main.community.reply.v1.OperationV2",
+   "id": "comment.purify.operation",
+   "state": "FOUND"
+  },
+  {
+   "detail": "com.bilibili.app.comment3.ui.CommentContainerImpl$attachRepository$5#emit(com.bilibili.app.comment3.data.state.PublishDialogIntent,kotlin.coroutines.Continuation)",
+   "id": "comment.quick_reply",
+   "state": "FOUND"
+  },
+  {
+   "detail": "contract=reply-v1,lists=3,top=3,level_paths=2,at=false,author_paths=2",
+   "id": "comment.filter",
+   "state": "FOUND"
+  },
+  {
+   "detail": "mappers=2[com.bilibili.app.comment3.data.source.v1.b#B(com.bapis.bilibili.main.community.reply.v1.ReplyInfo,com.bapis.bilibili.main.community.reply.v1.SubjectControl,boolean,java.lang.String,java.lang.Object)|com.bilibili.app.comment3.data.source.v1.c#B(com.bapis.bilibili.main.community.reply.v1.ReplyInfo,com.bapis.bilibili.main.community.reply.v1.SubjectControl,boolean,java.lang.String,java.lang.Object)],methods=35",
+   "id": "comment.topology",
+   "state": "FOUND"
+  },
+  {
+   "detail": "constructors=1,tag=com.bilibili.ship.theseus.united.page.tab.TabPage#getLocatableTag()",
+   "id": "comment.section",
+   "state": "FOUND"
+  },
+  {
+   "detail": "contract=splash-v1,lists=3,signals=7",
+   "id": "splash.ads",
+   "state": "FOUND"
+  },
+  {
+   "detail": "protocol-v1:92:352473c3b735f3e9814e5c31",
+   "id": "protocol.structure",
+   "state": "FOUND"
+  },
+  {
+   "detail": "quick-locate",
+   "id": "dex.assist",
+   "state": "NOT_APPLICABLE"
+  },
+  {
+   "detail": "quick-locate",
+   "id": "dex.assist.comment_topology",
+   "state": "NOT_APPLICABLE"
+  },
+  {
+   "detail": "quick-locate",
+   "id": "dex.assist.player_quality",
+   "state": "NOT_APPLICABLE"
+  },
+  {
+   "detail": "quick-locate",
+   "id": "dex.assist.search_default_words",
+   "state": "NOT_APPLICABLE"
+  },
+  {
+   "detail": "quick-locate",
+   "id": "dex.assist.brand_splash_decoder",
+   "state": "NOT_APPLICABLE"
+  },
+  {
+   "detail": "quick-locate",
+   "id": "dex.assist.follow_feed_style",
+   "state": "NOT_APPLICABLE"
+  },
+  {
+   "detail": "quick-locate",
+   "id": "dex.assist.story_quality",
+   "state": "NOT_APPLICABLE"
+  },
+  {
+   "detail": "quick-locate",
+   "id": "dex.assist.player_popup_guide",
+   "state": "NOT_APPLICABLE"
+  },
+  {
+   "detail": "quick-locate",
+   "id": "dex.assist.player_popup_advert",
+   "state": "NOT_APPLICABLE"
+  }
+ ],
+ "fp": "runtime-no-context|rules=80",
+ "full_numbers": {
+  "methods": [
+   {
+    "cls": "kntr.base.localization.NumberFormat_androidKt",
+    "m": "format",
+    "params": [
+     "java.lang.String"
+    ]
+   },
+   {
+    "cls": "kntr.base.localization.NumberFormat_androidKt",
+    "m": "format",
+    "params": [
+     "java.lang.Long"
+    ]
+   },
+   {
+    "cls": "kntr.base.localization.NumberFormat_androidKt",
+    "m": "formatNumber",
+    "params": [
+     "long",
+     "java.lang.String"
+    ]
+   },
+   {
+    "cls": "kntr.base.localization.NumberFormat_androidKt",
+    "m": "format$default",
+    "params": [
+     "java.lang.Long",
+     "java.lang.String",
+     "int",
+     "java.lang.Object"
+    ]
+   }
+  ]
+ },
+ "home_components": {
+  "parent": {
+   "cls": "androidx.fragment.app.Fragment",
+   "m": "getParentFragment",
+   "params": []
+  },
+  "view": {
+   "cls": "androidx.fragment.app.Fragment",
+   "m": "onViewCreated",
+   "params": [
+    "android.view.View",
+    "android.os.Bundle"
+   ]
+  }
+ },
+ "home_recommend_feed": {
+  "ad_info": {
+   "cls": "com.bilibili.pegasus.data.base.BasePegasusData",
+   "m": "getAdInfo",
+   "params": []
+  },
+  "biz": {
+   "cls": "com.bilibili.pegasus.data.base.BasePegasusData",
+   "m": "getBizType",
+   "params": []
+  },
+  "card_goto": {
+   "cls": "com.bilibili.pegasus.data.base.BasePegasusData",
+   "m": "getCardGoto",
+   "params": []
+  },
+  "card_type": {
+   "cls": "com.bilibili.pegasus.data.base.BasePegasusData",
+   "m": "getCardType",
+   "params": []
+  },
+  "desc": {
+   "cls": "com.bilibili.pegasus.data.base.BasePegasusData",
+   "m": "getDesc",
+   "params": []
+  },
+  "goto": {
+   "cls": "com.bilibili.pegasus.data.base.BasePegasusData",
+   "m": "getGoTo",
+   "params": []
+  },
+  "holder": {
+   "cls": "com.bilibili.pegasus.PegasusHolderData",
+   "m": "getHolderType",
+   "params": []
+  },
+  "param": {
+   "cls": "com.bilibili.pegasus.data.base.BasePegasusData",
+   "m": "getParam",
+   "params": []
+  },
+  "player_args": {
+   "cls": "com.bilibili.pegasus.data.base.BasePegasusData",
+   "m": "getPlayerArgs",
+   "params": []
+  },
+  "player_args_duration": "fakeDuration",
+  "player_args_duration_getter": {
+   "cls": "com.bilibili.app.comm.list.common.api.model.PlayerArgs",
+   "m": "getDuration",
+   "params": []
+  },
+  "responses": [
+   {
+    "cls": "com.bilibili.pegasus.data.base.PegasusResponse",
+    "m": "getItems",
+    "params": []
+   }
+  ],
+  "subtitle": {
+   "cls": "com.bilibili.pegasus.data.base.BasePegasusData",
+   "m": "getSubtitle",
+   "params": []
+  },
+  "title": {
+   "cls": "com.bilibili.pegasus.data.base.BasePegasusData",
+   "m": "getTitle",
+   "params": []
+  },
+  "uri": {
+   "cls": "com.bilibili.pegasus.data.base.BasePegasusData",
+   "m": "getUri",
+   "params": []
+  }
+ },
+ "home_tabs": {
+  "build": {
+   "cls": "tv.danmaku.bili.ui.main2.HomeFragmentV2",
+   "m": "build",
+   "params": [
+    "java.util.List"
+   ]
+  },
+  "id": "id",
+  "reporter": "reporterId",
+  "resource": "tv.danmaku.bili.ui.main2.resource.z",
+  "title": "title",
+  "uri": "uri"
+ },
+ "home_top": {
+  "game": {
+   "cls": "com.bilibili.lib.homepage.startdust.menu.a",
+   "m": "c",
+   "params": [
+    "android.view.Menu",
+    "android.view.MenuInflater"
+   ],
+   "vf": "config"
+  },
+  "game_compose": {
+   "cls": "tv.danmaku.bili.home.components.topbar.TopRightComponent$initTopRight$1$1",
+   "m": "invoke",
+   "params": [
+    "java.util.List",
+    "kotlin.coroutines.Continuation"
+   ]
+  },
+  "view": {
+   "cls": "tv.danmaku.bili.ui.main2.basic.BaseMainFrameFragment",
+   "m": "onViewCreated",
+   "params": [
+    "android.view.View",
+    "android.os.Bundle"
+   ],
+   "vf": "searchText"
+  },
+  "words": [
+   {
+    "cls": "tv.danmaku.bili.ui.main2.MainFragment",
+    "m": "firstWord",
+    "params": [
+     "com.bilibili.app.comm.list.common.api.b"
+    ]
+   },
+   {
+    "cls": "tv.danmaku.bili.ui.main2.MainFragment",
+    "m": "secondWord",
+    "params": [
+     "com.bilibili.app.comm.list.common.api.b"
+    ]
+   }
+  ]
+ },
+ "mine_account_mine": {
+  "account_mine": "tv.danmaku.bili.ui.main2.api.AccountMine",
+  "build": [
+   {
+    "cls": "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment",
+    "m": "bind",
+    "params": [
+     "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment",
+     "tv.danmaku.bili.ui.main2.api.AccountMine"
+    ]
+   }
+  ],
+  "group": "com.bilibili.lib.homepage.mine.MenuGroup",
+  "group_items": "itemList",
+  "group_title": "title",
+  "item": "com.bilibili.lib.homepage.mine.MenuGroup$Item",
+  "item_id": "id",
+  "item_local_show": "localShow",
+  "item_title": "title",
+  "item_uri": "uri",
+  "item_visible": "visible",
+  "live_tip": "liveTip",
+  "section_button": "button",
+  "sections": "sectionListV2",
+  "vip_section_right": "vipSectionRight"
+ },
+ "mine_components": {
+  "group_titles": [
+   {
+    "cls": "com.bilibili.lib.homepage.mine.MenuGroupV2",
+    "m": "getTitle",
+    "params": []
+   }
+  ],
+  "ids": [
+   {
+    "cls": "com.bilibili.lib.homepage.mine.MenuGroupV2$Item",
+    "m": "getId",
+    "params": []
+   }
+  ],
+  "lists": [
+   {
+    "cls": "com.bilibili.lib.homepage.mine.MenuGroupV2",
+    "m": "getItemList",
+    "params": []
+   }
+  ],
+  "titles": [
+   {
+    "cls": "com.bilibili.lib.homepage.mine.MenuGroupV2$Item",
+    "m": "getTitle",
+    "params": []
+   }
+  ],
+  "uris": [
+   {
+    "cls": "com.bilibili.lib.homepage.mine.MenuGroupV2$Item",
+    "m": "getUri",
+    "params": []
+   }
+  ]
+ },
+ "mine_vip": {
+  "binding": "stableBinding",
+  "resume": {
+   "cls": "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment",
+   "m": "onResume",
+   "params": [],
+   "vf": "vipManager"
+  },
+  "root": {
+   "cls": "tv.danmaku.bili.ui.main2.mine.modularvip.TestVipBinding",
+   "m": "getRoot",
+   "params": []
+  }
+ },
+ "pause": {
+  "requests": []
+ },
+ "pgc_auto_activity_popup": {
+  "construct": {
+   "cls": "com.bilibili.ship.theseus.ogv.activity.OgvActivityVo_JsonDescriptor",
+   "m": "constructWith",
+   "params": [
+    "[Ljava.lang.Object;"
+   ]
+  },
+  "index": 7,
+  "params": [
+   "int",
+   "com.bilibili.ship.theseus.ogv.activity.OgvActivityVo$InviteDrawer",
+   "com.bilibili.ship.theseus.ogv.activity.OgvActivityVo$InviteWin",
+   "java.util.List",
+   "com.bilibili.ship.theseus.ogv.activity.OgvActivityVo$Countdown",
+   "com.bilibili.ship.theseus.ogv.activity.OgvActivityVo$IndependentWin",
+   "com.bilibili.ship.theseus.ogv.activity.OgvActivityVo$FloatLayer",
+   "com.bilibili.ship.theseus.ogv.activity.OgvActivityHalfScreenPopup",
+   "com.bilibili.ship.theseus.ogv.activity.OgvActivityVo$FloatBall"
+  ],
+  "properties": "shiftedName"
+ },
+ "player_interactive_overlays": {
+  "activity_meta_clear": {
+   "cls": "com.bapis.bilibili.community.service.dm.v1.DmViewReply",
+   "m": "clearActivityMeta",
+   "params": []
+  },
+  "command_clear": {
+   "cls": "com.bapis.bilibili.community.service.dm.v1.DmViewReply",
+   "m": "clearCommand",
+   "params": []
+  },
+  "command_default": {
+   "cls": "com.bapis.bilibili.community.service.dm.v1.Command",
+   "m": "getDefaultInstance",
+   "params": []
+  },
+  "command_getter": {
+   "cls": "com.bapis.bilibili.community.service.dm.v1.DmViewReply",
+   "m": "getCommand",
+   "params": []
+  },
+  "families": [
+   {
+    "clears": [
+     {
+      "cls": "com.bapis.bilibili.app.view.v1.VideoGuide",
+      "m": "clearAttention",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.view.v1.VideoGuide",
+      "m": "clearCommandDms",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.view.v1.VideoGuide",
+      "m": "clearContractCard",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.view.v1.VideoGuide",
+      "m": "clearOperationCard",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.view.v1.VideoGuide",
+      "m": "clearOperationCardNew",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.view.v1.VideoGuide",
+      "m": "clearCardsSecond",
+      "params": []
+     }
+    ],
+    "default": {
+     "cls": "com.bapis.bilibili.app.view.v1.VideoGuide",
+     "m": "getDefaultInstance",
+     "params": []
+    },
+    "getter": {
+     "cls": "com.bapis.bilibili.app.view.v1.ViewProgressReply",
+     "m": "getVideoGuide",
+     "params": []
+    },
+    "reply": "com.bapis.bilibili.app.view.v1.ViewProgressReply"
+   },
+   {
+    "clears": [
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.v1.VideoGuide",
+      "m": "clearContractCard",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.v1.VideoGuide",
+      "m": "clearMaterial",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.v1.VideoGuide",
+      "m": "clearRightMaterial",
+      "params": []
+     }
+    ],
+    "default": {
+     "cls": "com.bapis.bilibili.app.viewunite.v1.VideoGuide",
+     "m": "getDefaultInstance",
+     "params": []
+    },
+    "dm_clears": [
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.v1.DmResource",
+      "m": "clearAttention",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.v1.DmResource",
+      "m": "clearCards",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.v1.DmResource",
+      "m": "clearCommandDms",
+      "params": []
+     }
+    ],
+    "dm_default": {
+     "cls": "com.bapis.bilibili.app.viewunite.v1.DmResource",
+     "m": "getDefaultInstance",
+     "params": []
+    },
+    "dm_getter": {
+     "cls": "com.bapis.bilibili.app.viewunite.v1.ViewProgressReply",
+     "m": "getDm",
+     "params": []
+    },
+    "getter": {
+     "cls": "com.bapis.bilibili.app.viewunite.v1.ViewProgressReply",
+     "m": "getVideoGuide",
+     "params": []
+    },
+    "reply": "com.bapis.bilibili.app.viewunite.v1.ViewProgressReply"
+   }
+  ],
+  "moss": [
+   {
+    "cls": "com.bapis.bilibili.app.view.v1.ViewMoss",
+    "m": "executeViewProgress",
+    "params": [
+     "com.bapis.bilibili.app.view.v1.ViewProgressReq"
+    ]
+   },
+   {
+    "cls": "com.bapis.bilibili.app.viewunite.v1.ViewMoss",
+    "m": "executeViewProgress",
+    "params": [
+     "com.bapis.bilibili.app.viewunite.v1.ViewProgressReq"
+    ]
+   },
+   {
+    "cls": "com.bapis.bilibili.community.service.dm.v1.DMMoss",
+    "m": "executeDmView",
+    "params": [
+     "com.bapis.bilibili.community.service.dm.v1.DmViewReq"
+    ]
+   }
+  ],
+  "moss_async": [
+   {
+    "cls": "com.bapis.bilibili.app.view.v1.ViewMoss",
+    "m": "viewProgress",
+    "params": [
+     "com.bapis.bilibili.app.view.v1.ViewProgressReq",
+     "com.bilibili.lib.moss.api.MossResponseHandler"
+    ]
+   },
+   {
+    "cls": "com.bapis.bilibili.app.viewunite.v1.ViewMoss",
+    "m": "viewProgress",
+    "params": [
+     "com.bapis.bilibili.app.viewunite.v1.ViewProgressReq",
+     "com.bilibili.lib.moss.api.MossResponseHandler"
+    ]
+   },
+   {
+    "cls": "com.bapis.bilibili.community.service.dm.v1.DMMoss",
+    "m": "dmView",
+    "params": [
+     "com.bapis.bilibili.community.service.dm.v1.DmViewReq",
+     "com.bilibili.lib.moss.api.MossResponseHandler"
+    ]
+   }
+  ]
+ },
+ "player_portrait": {
+  "methods": [
+   {
+    "cls": "com.bilibili.app.gemini.player.widget.story.GeminiPlayerFullStoryWidget",
+    "m": "setVisibility",
+    "params": [
+     "int"
+    ]
+   }
+  ]
+ },
+ "player_quality": {
+  "capabilities": [
+   "stream_quality",
+   "vip_entitlement",
+   "codec"
+  ],
+  "default": {
+   "cls": "ut1.h",
+   "m": "a",
+   "params": []
+  },
+  "story": {
+   "create": {
+    "cls": "com.bilibili.video.story.player.StoryPlayer",
+    "m": "onCreate",
+    "params": [
+     "androidx.lifecycle.LifecycleOwner"
+    ]
+   },
+   "destroy": {
+    "cls": "com.bilibili.video.story.player.StoryPlayer",
+    "m": "onDestroy",
+    "params": [
+     "androidx.lifecycle.LifecycleOwner"
+    ]
+   },
+   "manual": {
+    "cls": "com.bilibili.video.story.player.quality.StoryQualityService",
+    "m": "manual",
+    "params": [
+     "com.bilibili.player.tangram.basic.StoryPreferenceFixture",
+     "kotlin.coroutines.Continuation"
+    ]
+   },
+   "preference": "com.bilibili.player.tangram.basic.StoryPreferenceFixture",
+   "release": {
+    "cls": "com.bilibili.video.story.player.StoryPlayer",
+    "m": "release",
+    "params": []
+   },
+   "service_field": "quality"
+  }
+ },
+ "player_status_bar": {
+  "create": [
+   {
+    "cls": "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity",
+    "m": "onCreate",
+    "params": [
+     "android.os.Bundle"
+    ]
+   }
+  ]
+ },
+ "protocol_fp": "protocol-v1:92:352473c3b735f3e9814e5c31",
+ "splash_ads": {
+  "getters": [
+   {
+    "cls": "tv.danmaku.bili.splash.ad.model.SplashListResponse",
+    "m": "getSplashList",
+    "params": []
+   },
+   {
+    "cls": "tv.danmaku.bili.splash.ad.model.SplashListResponse",
+    "m": "getStrategyList",
+    "params": []
+   },
+   {
+    "cls": "tv.danmaku.bili.splash.ad.model.SplashShowResponse",
+    "m": "getStrategyList",
+    "params": []
+   }
+  ],
+  "signals": [
+   {
+    "getter": {
+     "cls": "tv.danmaku.bili.splash.ad.model.SplashItem",
+     "m": "isAd",
+     "params": []
+    },
+    "role": "is_ad"
+   },
+   {
+    "getter": {
+     "cls": "tv.danmaku.bili.splash.ad.model.SplashItem",
+     "m": "isAdLoc",
+     "params": []
+    },
+    "role": "is_ad_loc"
+   },
+   {
+    "getter": {
+     "cls": "tv.danmaku.bili.splash.ad.model.SplashItem",
+     "m": "getCmMark",
+     "params": []
+    },
+    "role": "cm_mark"
+   },
+   {
+    "getter": {
+     "cls": "tv.danmaku.bili.splash.ad.model.SplashItem",
+     "m": "getAdCb",
+     "params": []
+    },
+    "role": "ad_cb"
+   },
+   {
+    "getter": {
+     "cls": "tv.danmaku.bili.splash.ad.model.SplashItem",
+     "m": "getUri",
+     "params": []
+    },
+    "role": "uri"
+   },
+   {
+    "getter": {
+     "cls": "tv.danmaku.bili.splash.ad.model.SplashItem",
+     "m": "getCardType",
+     "params": []
+    },
+    "role": "card_type"
+   },
+   {
+    "getter": {
+     "cls": "tv.danmaku.bili.splash.ad.model.SplashItem",
+     "m": "getServerType",
+     "params": []
+    },
+    "role": "server_type"
+   }
+  ]
+ },
+ "story_feed": {
+  "ad": {
+   "cls": "com.bilibili.video.story.StoryDetail",
+   "m": "isAd",
+   "params": []
+  },
+  "bangumi": {
+   "cls": "com.bilibili.video.story.StoryDetail",
+   "m": "isBangumi",
+   "params": []
+  },
+  "cart_info": {
+   "cls": "com.bilibili.video.story.StoryDetail",
+   "m": "getCartIconInfo",
+   "params": []
+  },
+  "course": {
+   "cls": "com.bilibili.video.story.StoryDetail",
+   "m": "isCheese",
+   "params": []
+  },
+  "drama_prompt": {
+   "cls": "com.bilibili.video.story.StoryDetail",
+   "m": "getDramaPromptBar",
+   "params": []
+  },
+  "game": {
+   "cls": "com.bilibili.video.story.StoryDetail",
+   "m": "isGame",
+   "params": []
+  },
+  "live": {
+   "cls": "com.bilibili.video.story.StoryDetail",
+   "m": "isLive",
+   "params": []
+  },
+  "music": {
+   "cls": "com.bilibili.video.story.StoryDetail",
+   "m": "isMusic",
+   "params": []
+  },
+  "pager": [
+   {
+    "cls": "com.bilibili.video.story.player.StoryPagerPlayer",
+    "m": "append",
+    "params": [
+     "java.util.List"
+    ]
+   },
+   {
+    "cls": "com.bilibili.video.story.player.StoryPagerPlayer",
+    "m": "insert",
+    "params": [
+     "java.util.List"
+    ]
+   }
+  ],
+  "responses": [
+   {
+    "cls": "com.bilibili.video.story.api.StoryFeedResponse",
+    "m": "getItems",
+    "params": []
+   }
+  ],
+  "season_info": {
+   "cls": "com.bilibili.video.story.StoryDetail",
+   "m": "getSeasonInfo",
+   "params": []
+  },
+  "season_type": {
+   "cls": "com.bilibili.video.story.StoryDetail$SeasonCardInfo",
+   "m": "getSeasonType",
+   "params": []
+  }
+ },
+ "sv": 62,
+ "teenagers_mode": {
+  "methods": [
+   {
+    "cls": "com.bilibili.teenagersmode.ui.TeenagersModeDialogActivity",
+    "m": "onCreate",
+    "params": [
+     "android.os.Bundle"
+    ]
+   }
+  ]
+ },
+ "ts": 0,
+ "v": 0,
+ "video_relate": {
+  "author_mid_chains": [],
+  "author_name_chains": [],
+  "case": [
+   {
+    "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+    "m": "getCardCase",
+    "params": []
+   }
+  ],
+  "commercial_evidence_chains": [
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+      "m": "hasCm",
+      "params": []
+     }
+    ]
+   },
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+      "m": "hasCmStock",
+      "params": []
+     }
+    ]
+   },
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+      "m": "getThreePoint",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateThreePoint",
+      "m": "hasFeedback",
+      "params": []
+     }
+    ]
+   }
+  ],
+  "detail_relate_service": {
+   "factory": {
+    "cls": "com.bilibili.ship.theseus.united.page.intro.module.relate.DetailRelateService",
+    "m": "d",
+    "params": [
+     "com.bilibili.ship.theseus.united.page.intro.module.relate.D0"
+    ]
+   },
+   "title_getter": {
+    "cls": "com.bilibili.ship.theseus.united.page.intro.module.relate.D0",
+    "m": "d",
+    "params": []
+   },
+   "type_field": "type",
+   "type_getter": {
+    "cls": "com.bilibili.ship.theseus.united.page.intro.module.relate.D0",
+    "m": "getType",
+    "params": []
+   }
+  },
+  "direct_duration": [
+   {
+    "cls": "com.bapis.bilibili.app.view.v1.Relate",
+    "m": "getDuration",
+    "params": []
+   }
+  ],
+  "duration_chains": [
+   {
+    "duration": {
+     "cls": "com.bapis.bilibili.app.viewunite.common.RelateAVCard",
+     "m": "getDuration",
+     "params": []
+    },
+    "item": {
+     "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+     "m": "getAv",
+     "params": []
+    }
+   },
+   {
+    "duration": {
+     "cls": "com.bapis.bilibili.app.viewunite.common.RelateHistoryAVCard",
+     "m": "getDuration",
+     "params": []
+    },
+    "item": {
+     "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+     "m": "getHistoryAv",
+     "params": []
+    }
+   },
+   {
+    "duration": {
+     "cls": "com.bapis.bilibili.app.viewunite.common.RelatedAICard",
+     "m": "getDuration",
+     "params": []
+    },
+    "item": {
+     "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+     "m": "getAiCard",
+     "params": []
+    }
+   }
+  ],
+  "goto": [
+   {
+    "cls": "com.bapis.bilibili.app.view.v1.Relate",
+    "m": "getGoto",
+    "params": []
+   }
+  ],
+  "play_count_chains": [
+   {
+    "item": {
+     "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+     "m": "getAv",
+     "params": []
+    },
+    "stat": {
+     "cls": "com.bapis.bilibili.app.viewunite.common.RelateAVCard",
+     "m": "getStat",
+     "params": []
+    },
+    "value": {
+     "cls": "com.bapis.bilibili.app.viewunite.common.StatInfo",
+     "m": "getValue",
+     "params": []
+    },
+    "vt": {
+     "cls": "com.bapis.bilibili.app.viewunite.common.Stat",
+     "m": "getVt",
+     "params": []
+    }
+   },
+   {
+    "item": {
+     "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+     "m": "getAiCard",
+     "params": []
+    },
+    "stat": {
+     "cls": "com.bapis.bilibili.app.viewunite.common.RelatedAICard",
+     "m": "getStat",
+     "params": []
+    },
+    "value": {
+     "cls": "com.bapis.bilibili.app.viewunite.common.StatInfo",
+     "m": "getValue",
+     "params": []
+    },
+    "vt": {
+     "cls": "com.bapis.bilibili.app.viewunite.common.Stat",
+     "m": "getVt",
+     "params": []
+    }
+   }
+  ],
+  "publish_text_chains": [
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.view.v1.Relate",
+      "m": "getDesc",
+      "params": []
+     }
+    ]
+   },
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+      "m": "getBasicInfo",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.CardBasicInfo",
+      "m": "getDesc",
+      "params": []
+     }
+    ]
+   }
+  ],
+  "reason_chains": [
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.view.v1.Relate",
+      "m": "getRcmdReason",
+      "params": []
+     }
+    ]
+   },
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.view.v1.Relate",
+      "m": "getRcmdReasonExtra",
+      "params": []
+     }
+    ]
+   },
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.view.v1.Relate",
+      "m": "getRcmdReasonStyle",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.view.v1.ReasonStyle",
+      "m": "getText",
+      "params": []
+     }
+    ]
+   },
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+      "m": "getAv",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateAVCard",
+      "m": "getRcmdReason",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.BadgeInfo",
+      "m": "getText",
+      "params": []
+     }
+    ]
+   },
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+      "m": "getBangumi",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateBangumiCard",
+      "m": "getRcmdReason",
+      "params": []
+     }
+    ]
+   },
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+      "m": "getResource",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateBangumiResourceCard",
+      "m": "getRcmdReason",
+      "params": []
+     }
+    ]
+   },
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+      "m": "getGame",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateGameCard",
+      "m": "getGameRcmdReason",
+      "params": []
+     }
+    ]
+   },
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+      "m": "getSpecial",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateSpecial",
+      "m": "getRcmdReason",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.BadgeInfo",
+      "m": "getText",
+      "params": []
+     }
+    ]
+   }
+  ],
+  "relate_type": [
+   {
+    "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+    "m": "getRelateCardType",
+    "params": []
+   }
+  ],
+  "relate_type_value": [
+   {
+    "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+    "m": "getRelateCardTypeValue",
+    "params": []
+   }
+  ],
+  "responses": [
+   {
+    "cls": "com.bapis.bilibili.app.viewunite.common.Relates",
+    "m": "getCardsList",
+    "params": [],
+    "vf": "cards"
+   },
+   {
+    "cls": "com.bapis.bilibili.app.viewunite.v1.Relates",
+    "m": "getCardsList",
+    "params": [],
+    "vf": "cards"
+   },
+   {
+    "cls": "com.bapis.bilibili.app.viewunite.v1.RelatesFeedReply",
+    "m": "getRelatesList",
+    "params": [],
+    "vf": "relates"
+   },
+   {
+    "cls": "com.bapis.bilibili.app.view.v1.RelatesFeedReply",
+    "m": "getListList",
+    "params": [],
+    "vf": "list"
+   },
+   {
+    "cls": "com.bapis.bilibili.app.view.v1.ViewReply",
+    "m": "getRelatesList",
+    "params": [],
+    "vf": "relates"
+   }
+  ],
+  "source_type": [
+   {
+    "cls": "com.bapis.bilibili.app.view.v1.Relate",
+    "m": "getFromSourceType",
+    "params": []
+   }
+  ],
+  "source_type_chains": [
+   {
+    "item": {
+     "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+     "m": "getBasicInfo",
+     "params": []
+    },
+    "source": {
+     "cls": "com.bapis.bilibili.app.viewunite.common.CardBasicInfo",
+     "m": "getFromSourceType",
+     "params": []
+    }
+   }
+  ],
+  "tag_name_chains": [],
+  "type": []
+ }
+}
