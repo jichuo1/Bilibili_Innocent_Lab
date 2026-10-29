@@ -1,4 +1,5 @@
 import com.android.build.api.artifact.SingleArtifact
+import org.gradle.kotlin.dsl.withGroovyBuilder
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.compile.JavaCompile
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -28,11 +29,18 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
-// P2-07 opt-in: Baseline Profile / Macrobenchmark tooling for the module's own app UI. Absent from
-// default builds; enabled with -PinnocentLab.baselineProfile=true (see baselineprofile/README.md).
+// P2-07 opt-in: Baseline Profile / Macrobenchmark tooling for the module's own app UI. Default builds
+// never apply the plugin or evaluate its extension; generation is always an explicit device-only task.
 val baselineProfileTooling = providers.gradleProperty("innocentLab.baselineProfile").orNull == "true"
 if (baselineProfileTooling) {
-    apply(from = "baselineprofile.gradle.kts")
+    apply(plugin = "androidx.baselineprofile")
+    extensions.getByName("baselineProfile").withGroovyBuilder {
+        setProperty("automaticGenerationDuringBuild", false)
+        setProperty("saveInSrc", true)
+        setProperty("baselineProfileOutputDir", "baselineProfiles")
+        setProperty("dexLayoutOptimization", true)
+    }
+    dependencies.add("baselineProfile", project(":baselineprofile"))
 }
 
 /** Build-owned stripped payloads and trusted specifications. No host/runtime input supplies hashes. */
