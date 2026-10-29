@@ -32,7 +32,7 @@ class AgentScreenshotThreadingContractTest {
             ".compress(Bitmap.CompressFormat.JPEG", "Base64.encodeToString")) {
             assertTrue("worker 函数应包含 $heavy", encode.contains(heavy))
         }
-        for (forbidden in listOf("scan()", "windows", "hostRoot", "getChild", "performAction", "visualSnapshot", "snapshot")) {
+        for (forbidden in listOf("scan()", "windows", "hostRoot", "getChild", "performAction", "visualGate", "snapshot")) {
             assertFalse("worker 函数不应访问 $forbidden", encode.contains(forbidden))
         }
     }
@@ -50,8 +50,20 @@ class AgentScreenshotThreadingContractTest {
     @Test fun staleResultsAreDroppedOnTheMainThread() {
         assertTrue(callback.contains("main.post { deliverScreenshot("))
         assertTrue(deliver.contains("if (result.isDone) return"))
-        assertTrue(deliver.contains("check(snapshot === shot)"))
-        assertTrue(deliver.indexOf("admit()") < deliver.indexOf("visualSnapshot = shot.id"))
+        assertTrue(deliver.contains("check(snapshot === shot && visualGate.isCurrent(windowToken))"))
+        assertTrue(deliver.indexOf("admit()") < deliver.indexOf("visualGate.commit("))
+    }
+
+    @Test fun aWindowChangeDuringEncodingCannotBeOverwrittenByTheDelivery() {
+        // 窗口代次在主线程回调里、交出 worker 之前记下；事件使它前进；交付时代次变了就不写回、返回 ui_snapshot_stale。
+        assertTrue(callback.indexOf("ready(task)") < callback.indexOf("val windowToken = visualGate.token()"))
+        assertTrue(callback.indexOf("val windowToken = visualGate.token()") < callback.indexOf("screenshotWorker.trySubmit"))
+        assertTrue(callback.contains("deliverScreenshot(shot, state, outcome, windowToken, result, admit)"))
+        val event = service.after("override fun onAccessibilityEvent(").before("override fun onInterrupt()")
+        assertTrue(event.contains("TYPE_WINDOW_STATE_CHANGED) visualGate.invalidate()"))
+        assertTrue(deliver.contains("check(visualGate.commit(windowToken, shot.id, capturedAt)) { \"ui_snapshot_stale\" }"))
+        assertFalse("旧的无条件写回不得复活", service.contains("visualSnapshot = shot.id"))
+        assertFalse(service.contains("visualSnapshot"))
     }
 
     @Test fun workerNeverFallsBackToTheCallerThread() {

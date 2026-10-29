@@ -39,20 +39,19 @@ class AgentAccessibilityService : AccessibilityService() {
     private data class Snapshot(val id: String, val task: String, val at: Long, val tree: Tree)
     private val main = Handler(Looper.getMainLooper())
     private var snapshot: Snapshot? = null
-    private var visualSnapshot: String? = null
-    private var visualAt = 0L
+    private val visualGate = AgentVisualSnapshotGate()
 
     override fun onServiceConnected() { super.onServiceConnected(); instance = this }
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         // 不扫描事件流；只有实际工具调用才扫描当前窗口。
-        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) visualSnapshot = null
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) visualGate.invalidate()
     }
     override fun onInterrupt() { revoke() }
     override fun onUnbind(intent: android.content.Intent?): Boolean { revoke(); return super.onUnbind(intent) }
     override fun onDestroy() { revoke(); super.onDestroy() }
     private fun revoke() {
         if (instance === this) instance = null
-        snapshot = null; visualSnapshot = null
+        snapshot = null; visualGate.invalidate()
         if (AgentController.usesAccessibility()) AgentController.cancel(this, "accessibility_disconnected")
     }
 
@@ -152,7 +151,7 @@ class AgentAccessibilityService : AccessibilityService() {
         ready(task)
         val tree = scan()
         val current = Snapshot(UUID.randomUUID().toString(), task, SystemClock.elapsedRealtime(), tree)
-        snapshot = current; visualSnapshot = null
+        snapshot = current; visualGate.invalidate()
         val nodes = JSONArray()
         val sorted = tree.targets.sortedByDescending { it.clickable || it.scrollable || it.editable }
         val visible = sorted.drop(offset).take(64)
@@ -207,7 +206,7 @@ class AgentAccessibilityService : AccessibilityService() {
         } finally { release(node) }
     }
     private fun changed(task: String, admit: () -> Unit, result: CompletableFuture<JSONObject>) {
-        snapshot = null; visualSnapshot = null
+        snapshot = null; visualGate.invalidate()
         val dispatched = JSONObject().put("action", "dispatched").put("verification_required", true)
         fun observeAfter(attempt: Int) {
             if (result.isDone) return
@@ -301,7 +300,7 @@ class AgentAccessibilityService : AccessibilityService() {
             }
             "tap_ui" -> {
                 val (old, tree) = current(task, args)
-                check(visualSnapshot == old.id && SystemClock.elapsedRealtime() - visualAt in 0..60_000) { "visual_snapshot_required" }
+                check(visualGate.allows(old.id, SystemClock.elapsedRealtime())) { "visual_snapshot_required" }
                 check(!AgentUiPolicy.sensitiveControl(tree.text) && tree.targets.none { it.editable }) { "sensitive_action_blocked" }
                 val x = tree.bounds.left + tree.bounds.width() * args.optString("x").toInt() / 1000f
                 val y = tree.bounds.top + tree.bounds.height() * args.optString("y").toInt() / 1000f
@@ -345,6 +344,8 @@ class AgentAccessibilityService : AccessibilityService() {
                 try {
                     check(!result.isDone) { "task_inactive" }
                     ready(task)
+                    // 窗口代次：编码期间到达的窗口变化事件会使它前进，交付时据此拒绝写回（见 AgentVisualSnapshotGate）。
+                    val windowToken = visualGate.token()
                     val tree = scan()
                     check(tree.window == shot.tree.window && tree.bounds == shot.tree.bounds && tree.complete &&
                         !tree.privateInput && !AgentUiPolicy.sensitiveControl(tree.text)) { "ui_snapshot_stale" }
@@ -356,7 +357,7 @@ class AgentAccessibilityService : AccessibilityService() {
                     // 队列满不回落到调用线程（不用 CallerRuns），直接拒绝。
                     handedOff = screenshotWorker.trySubmit {
                         val outcome = encodeScreenshot(buffer, colorSpace, bounds, frame, result)
-                        main.post { deliverScreenshot(shot, state, outcome, result, admit) }
+                        main.post { deliverScreenshot(shot, state, outcome, windowToken, result, admit) }
                     }
                     check(handedOff) { "screen_busy" }
                 } catch (_: OutOfMemoryError) { result.complete(error("screen_memory_unavailable")) }
@@ -400,15 +401,16 @@ class AgentAccessibilityService : AccessibilityService() {
     }
 
     /** 主线程：核对任务仍有效、快照未被替换后才发布；过期结果丢弃。 */
-    private fun deliverScreenshot(shot: Snapshot, state: JSONObject, outcome: ScreenshotOutcome,
+    private fun deliverScreenshot(shot: Snapshot, state: JSONObject, outcome: ScreenshotOutcome, windowToken: Long,
                                   result: CompletableFuture<JSONObject>, admit: () -> Unit) {
         if (result.isDone) return
         try {
             outcome.error?.let { result.complete(error(it)); return }
-            check(snapshot === shot) { "ui_snapshot_stale" }
+            check(snapshot === shot && visualGate.isCurrent(windowToken)) { "ui_snapshot_stale" }
             admit()
-            visualSnapshot = shot.id; visualAt = SystemClock.elapsedRealtime()
-            result.complete(ok(state.put("image_data_url", outcome.image).put("capture_elapsed", visualAt)))
+            val capturedAt = SystemClock.elapsedRealtime()
+            check(visualGate.commit(windowToken, shot.id, capturedAt)) { "ui_snapshot_stale" }
+            result.complete(ok(state.put("image_data_url", outcome.image).put("capture_elapsed", capturedAt)))
         } catch (failure: Exception) { result.complete(error(reason(failure))) }
     }
 
@@ -436,7 +438,7 @@ class AgentAccessibilityService : AccessibilityService() {
         }
         internal fun clear(task: String) {
             instance?.let { service -> service.main.post {
-                if (service.snapshot?.task == task) { service.snapshot = null; service.visualSnapshot = null }
+                if (service.snapshot?.task == task) { service.snapshot = null; service.visualGate.invalidate() }
             } }
         }
         internal fun request(task: String, operation: String, args: JSONObject, cancelled: () -> Boolean): JSONObject {
