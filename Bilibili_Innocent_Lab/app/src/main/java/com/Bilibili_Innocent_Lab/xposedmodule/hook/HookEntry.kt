@@ -17,6 +17,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import io.github.libxposed.api.XposedModule
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentLongPressTimer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationEntryGate
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameRateTarget
@@ -31,6 +32,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotHostBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootTargetConfigBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlanner
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LocateTimings
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.HookConfigSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.SnapshotHookConfigSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
@@ -823,7 +826,7 @@ class HookEntry : XposedModule() {
         }
 
         private fun clearCommentTouchSession(resetHandled: Boolean = true) {
-            mainHandlerRef?.removeCallbacks(commentLongPressRunnable)
+            commentLongPressTimer.cancel(mainHandlerRef?.let { commentLongPressPoster(it) })
             activeCommentTouchSessionId = 0L
             commentTouchDownEventTime = 0L
             commentTouchObservedAtMs = 0L
@@ -855,13 +858,13 @@ class HookEntry : XposedModule() {
             // session/root/target 会保留到真正的 UP/CANCEL，以便可靠消费终止事件。
             commentTouchedView = v
             val handler = mainHandlerOrNull() ?: return
-            handler.removeCallbacks(commentLongPressRunnable)
             // Handler 延时从模块真正看到 DOWN 的时刻计算；若输入事件已在主线程积压，
             // 短点的 UP 会先得到处理并撤销任务，不会被 delay=0 的旧事件时间误弹气泡。
             val dueAt = commentTouchObservedAtMs + 400L
             val delay = (dueAt - android.os.SystemClock.uptimeMillis()).coerceAtLeast(0L)
+            // 同一会话只投递一次：到期时刻由会话起点固定，后续分发层只更新上面的目标与根引用。
             // 保留同一 Runnable，以便手势取消时由 removeCallbacks 精确撤销。
-            handler.postDelayed(commentLongPressRunnable, delay)
+            commentLongPressTimer.schedule(activeCommentTouchSessionId, delay, commentLongPressPoster(handler))
         }
 
         private fun activeCommentTouchTarget(sessionId: Long): View? {
@@ -907,13 +910,21 @@ class HookEntry : XposedModule() {
             return true
         }
 
-        private val commentLongPressRunnable =
+        private val commentLongPressRunnable: Runnable =
             HostThreadGuard.runnable("free_copy.comment_long_press") {
+                commentLongPressTimer.onFired()
                 val sessionId = activeCommentTouchSessionId
                 if (!tryHandleActiveCommentLongPress(sessionId)) {
                     clearCommentTouchSession(resetHandled = true)
                 }
             }
+
+        private val commentLongPressTimer: CommentLongPressTimer by lazy { CommentLongPressTimer(commentLongPressRunnable) }
+
+        private fun commentLongPressPoster(handler: android.os.Handler) = object : CommentLongPressTimer.Poster {
+            override fun remove(runnable: Runnable) = handler.removeCallbacks(runnable)
+            override fun post(runnable: Runnable, delayMillis: Long): Boolean = handler.postDelayed(runnable, delayMillis)
+        }
 
         /** 当前气泡的显示文本，以及每个绘制 Span 已确认的剪贴板语义文本。 */
         private data class EmojiCopyValue(
@@ -2526,11 +2537,18 @@ class HookEntry : XposedModule() {
             // 通过结构校验的缓存补位，使后台 DEX 适配结果在下次冷启动生效。
             // 不能用"更新拦截已定位"当整份合并的开关：那会让实时候选表命中的宿主永远
             // 拿不到缓存里的画质/脉络兜底实现（DexKit 自 ecc63f5 起兜底三个点）。
+            // 同步定位计划：由本次安装链已接受的配置快照（hookConfig）生成，只让当前启用的功能需要的
+            // 定位器执行；定位阶段不再另读一份可能不同步的 prefs。入口、扫描面和运行期可翻转的
+            // 常驻能力在 AdaptPlanCatalog 里标为始终需要，永远不裁剪。
+            val adaptPlan = AdaptPlanner.build(hookConfig)
             val startupCache by lazy(LazyThreadSafetyMode.NONE) {
                 VersionAdapter.readStartupCache(authorizationContext, versionAdapterResetTimestamp)
             }
             val hostAdaptResult by lazy(LazyThreadSafetyMode.NONE) {
-                val runtime = VersionAdapter.quickLocate(biliClassLoader)
+                // 仅 debug 构建记录同步定位段耗时（逐家族），给设备上的 A/B 对照用；release 不计时。
+                val locateTimings = if (com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG) LocateTimings() else null
+                val runtime = VersionAdapter.quickLocate(biliClassLoader, adaptPlan, locateTimings)
+                locateTimings?.let { logInfo("adapt_locate_timing", "[BIL] 同步定位 plan=$adaptPlan ${it.summary()}") }
                 VersionAdapter.mergeRuntimeWithCached(
                     runtime = runtime,
                     cached = startupCache.cached
@@ -3754,7 +3772,7 @@ class HookEntry : XposedModule() {
                 // 注：quickLocate 结果不持久化（AdaptResult 无真实 vc，写文件会被
                 // loadCached 拒绝）；attach 阶段 ensureAdapted 会重跑适配线程写正确缓存
                 val adaptResult = hostAdaptResult
-                    ?: VersionAdapter.quickLocate(biliClassLoader)
+                    ?: VersionAdapter.quickLocate(biliClassLoader, adaptPlan)
                 // 性能：全局维护「列表滚动中」标志——快速滑动/惯性滚动期间暂缓评论绑定，
                 // 滑停（SCROLL_STATE_IDLE）后由 drainCommentBinds 统一批量绑定可见评论，
                 // 避免滚动中逐条全树绑定的卡顿（滚动状态回调本身低频，开销可忽略）。
@@ -4331,6 +4349,9 @@ class HookEntry : XposedModule() {
                                             ) {
                                                 clearCommentTouchSession(resetHandled = true)
                                             }
+                                            // 尚无任何评论根登记（评论区未进入前的全 App 触摸）：没有可命中的根，
+                                            // 不必为每个 DOWN 遍历祖先链；旧会话已在上面清理。
+                                            if (synchronized(commentRootLock) { commentRootRefs.isEmpty() }) return@before
                                             // 祖先链查找仅在 DOWN 执行；MOVE 热路径不加锁、不遍历。
                                             var root: View? = null
                                             var cur: View? = v
@@ -4831,17 +4852,18 @@ class HookEntry : XposedModule() {
 
                             override fun onAdaptFinished(ok: Boolean) {
                                 if (ok) {
+                                    // 成功回调只读一次缓存，各 installer 共用同一份不可变结果；
+                                    // requiresAdaptationRetry 与主线程二次状态检查仍按各自分支判断。
+                                    val adapted = VersionAdapter.loadCached(attachedContext, versionAdapterResetTimestamp)
                                     if (qualityInstaller.requiresAdaptationRetry) {
-                                        qualityPointsRef.set(VersionAdapter.loadCached(attachedContext,
-                                            versionAdapterResetTimestamp)?.playerQuality)
+                                        qualityPointsRef.set(adapted?.playerQuality)
                                         hookEnvironment.postToMain?.invoke {
                                             if (qualityInstaller.requiresAdaptationRetry)
                                                 featureInstallCoordinator.installAll(listOf(qualityInstaller))
                                         }
                                     }
                                     if (popupInstaller.requiresAdaptationRetry) {
-                                        popupPointsRef.set(VersionAdapter.loadCached(attachedContext,
-                                            versionAdapterResetTimestamp)?.playerPopupPromotion)
+                                        popupPointsRef.set(adapted?.playerPopupPromotion)
                                         hookEnvironment.postToMain?.invoke {
                                             if (popupInstaller.requiresAdaptationRetry) {
                                                 featureInstallCoordinator.installAll(listOf(popupInstaller))
@@ -4849,8 +4871,7 @@ class HookEntry : XposedModule() {
                                         }
                                     }
                                     if (classicInstaller.requiresAdaptationRetry) {
-                                        classicPointsRef.set(VersionAdapter.loadCached(attachedContext,
-                                            versionAdapterResetTimestamp)?.commentClassicStyle)
+                                        classicPointsRef.set(adapted?.commentClassicStyle)
                                         hookEnvironment.postToMain?.invoke {
                                             if (classicInstaller.requiresAdaptationRetry) {
                                                 featureInstallCoordinator.installAll(listOf(classicInstaller))
@@ -4859,8 +4880,7 @@ class HookEntry : XposedModule() {
                                         }
                                     }
                                     if (sponsorInstaller.requiresAdaptationRetry) {
-                                        sponsorClassesRef.set(VersionAdapter.loadCached(attachedContext,
-                                            versionAdapterResetTimestamp)?.sponsorPlayer)
+                                        sponsorClassesRef.set(adapted?.sponsorPlayer)
                                         hookEnvironment.postToMain?.invoke {
                                             if (sponsorInstaller.requiresAdaptationRetry) {
                                                 featureInstallCoordinator.installAll(listOf(sponsorInstaller))
@@ -4868,8 +4888,7 @@ class HookEntry : XposedModule() {
                                         }
                                     }
                                     if (searchHomeInstaller.requiresAdaptationRetry || endPageInstaller.requiresAdaptationRetry) {
-                                        pagePointsRef.set(VersionAdapter.loadCached(attachedContext,
-                                            versionAdapterResetTimestamp)?.pageBoundaries)
+                                        pagePointsRef.set(adapted?.pageBoundaries)
                                         hookEnvironment.postToMain?.invoke {
                                             if (searchHomeInstaller.requiresAdaptationRetry)
                                                 featureInstallCoordinator.installAll(listOf(searchHomeInstaller))
@@ -4878,13 +4897,12 @@ class HookEntry : XposedModule() {
                                         }
                                     }
                                     run {
-                                        val adaptedChrome = VersionAdapter.loadCached(attachedContext, versionAdapterResetTimestamp)
-                                        val chrome = adaptedChrome?.homeChrome.orEmpty()
+                                        val chrome = adapted?.homeChrome.orEmpty()
                                         hookEnvironment.postToMain?.invoke {
                                             val pending = buildList {
                                                 if (homeChromeEnabled) {
                                                     if (topBarFxInstaller.updateChromePoints(chrome)) add(topBarFxInstaller)
-                                                    if (bottomBarFxInstaller.updateChromePoints(chrome, adaptedChrome?.homeChromeSemantics)) add(bottomBarFxInstaller)
+                                                    if (bottomBarFxInstaller.updateChromePoints(chrome, adapted?.homeChromeSemantics)) add(bottomBarFxInstaller)
                                                 }
                                             }
                                             if (pending.isNotEmpty()) featureInstallCoordinator.installAll(pending)
@@ -4923,7 +4941,10 @@ class HookEntry : XposedModule() {
                         playerSpeedMenuEnabled = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig.effectiveMenuPercents(
                             prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT, 0),
                             prefs.getString(FeaturePreferences.PLAYER_SPEED_MENU_PERCENTS, "")
-                        ).isNotEmpty()
+                        ).isNotEmpty(),
+                        blockUpdateEnabled = prefs.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false),
+                        commentTopologyEnabled = prefs.getBoolean(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, false),
+                        plan = adaptPlan
                     )
                 }.onFailure { throwable ->
                     logError(
@@ -4936,7 +4957,7 @@ class HookEntry : XposedModule() {
             logInfo(
                 "hook_registry_summary",
                 "[BIL] Hook 点诊断: ${hookPointRegistry.summary()}; " +
-                    "Adapter=${hostAdaptResult?.diagnosticSummary() ?: "unavailable"}, " +
+                    "Adapter=${hostAdaptResult?.diagnosticSummary() ?: "unavailable"}, plan=$adaptPlan, " +
                     "cache=${VersionAdapter.cacheStatus()}; " +
                     "Kava cache hit=${kavaDiagnostics.cacheHits}, " +
                     "miss=${kavaDiagnostics.cacheMisses}, " +
@@ -5006,7 +5027,7 @@ class HookEntry : XposedModule() {
                     frameworkLog("[BIL] Hook 授权未确认，当前宿主进程不安装任何功能")
                     return
                 }
-                activeHookConfig.set(SnapshotHookConfigSource(config.values))
+                activeHookConfig.set(SnapshotHookConfigSource(config.values, config.generation))
                 if (!authorizedInstallStarted.compareAndSet(false, true)) {
                     authorizedInstallerRef.set(null)
                     return

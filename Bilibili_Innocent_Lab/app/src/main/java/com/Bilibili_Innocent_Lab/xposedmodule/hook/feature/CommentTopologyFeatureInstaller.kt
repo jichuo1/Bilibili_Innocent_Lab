@@ -403,11 +403,11 @@ internal class CommentTopologyFeatureInstaller(
             return runCatching { field.get(owner) }.getOrNull()
         }
         if (owner.javaClass in noCommentItemFieldClasses) return null
-        val field = KavaMemberLookup.fields(
+        val field = KavaMemberLookup.firstFieldOrNull(
             owner.javaClass,
             includeSuperclasses = true,
             makeAccessible = true
-        ) { candidate -> candidate.type isSubclassOf commentItemClass }.firstOrNull()
+        ) { candidate -> candidate.type isSubclassOf commentItemClass }
         if (field == null) {
             noCommentItemFieldClasses += owner.javaClass
             return null

@@ -297,7 +297,7 @@ class VersionAdapterTest {
         assertEquals("c", point?.methodName)
     }
 
-    private fun result(): VersionAdapter.AdaptResult = VersionAdapter.AdaptResult(
+    internal fun result(): VersionAdapter.AdaptResult = VersionAdapter.AdaptResult(
         biliVersionCode = 9090300,
         ts = 1234L,
         commentLow = VersionAdapter.HookPoint("comment.Low", "bind"),

@@ -385,37 +385,16 @@ internal class HostBackgroundPages(
             is ColorDrawable -> if (HostBackgroundPagePolicy.neutral(drawable.color)) view.background = null
             is LayerDrawable -> {
                 if (!nativeContainers || name(view) !in chromeNames || view.width < page.width * .9f) return
+                // 先在原件上只读扫描；没有要改的层就不复制（宿主常把已处理或本就透明的 Drawable 留在 View 上）。
+                val plan = layerReads.bind(drawable).let { reads ->
+                    try {
+                        HostLayerNeutralPlan.of(reads, view.width, view.height, (view.resources.displayMetrics.density * 4f).toInt())
+                    } finally { reads.release() }
+                } ?: return
                 // 使用原状态的密度；重新传 Resources 会缩放程序创建的像素级分隔线。
                 val copy = drawable.constantState?.newDrawable()?.mutate() as? LayerDrawable ?: return
-                var changed = false
-                val line = if (copy.numberOfLayers == 2) copy.getLayerInsetTop(1) else 0
-                val borderedInput = line in 1..(view.resources.displayMetrics.density * 4f).toInt() &&
-                    (0 until 2).all { i ->
-                        copy.getLayerHeight(i) <= 0 && copy.getLayerInsetLeft(i) == 0 && copy.getLayerInsetRight(i) == 0 &&
-                            copy.getLayerInsetBottom(i) == 0 && (copy.getDrawable(i) as? GradientDrawable)?.let(::plainGradient) == true
-                    } && copy.getLayerInsetTop(0) == 0
-                if (borderedInput) {
-                    // 宿主用两块全宽矩形模拟顶边线：保留露出的细线，把底层限制在线高而非整栏。
-                    copy.setLayerHeight(0, line)
-                    (copy.getDrawable(1) as GradientDrawable).setColor(android.graphics.Color.TRANSPARENT)
-                    changed = true
-                }
-                for (i in 0 until copy.numberOfLayers) {
-                    if (borderedInput) break
-                    // 输入栏底色与顶边分隔线共享 LayerDrawable，只移除覆盖整块栏位的纯色层。
-                    val height = copy.getLayerHeight(i)
-                    val width = copy.getLayerWidth(i)
-                    if (height > 0 && height < view.height * .9f || width > 0 && width < view.width * .9f) continue
-                    val layer = copy.getDrawable(i)
-                    if (layer is ColorDrawable && HostBackgroundPagePolicy.neutral(layer.color)) {
-                        layer.color = android.graphics.Color.TRANSPARENT
-                        changed = true
-                    } else if (layer is GradientDrawable && plainGradient(layer)) {
-                        layer.setColor(android.graphics.Color.TRANSPARENT)
-                        changed = true
-                    }
-                }
-                if (changed) view.background = copy
+                applyNeutralPlan(copy, plan)
+                view.background = copy
             }
             is GradientDrawable -> {
                 // 宿主的纯色矩形入口保留轮廓/描边；有渐变、圆角或业务色的材质不改。
@@ -452,6 +431,42 @@ internal class HostBackgroundPages(
         }
         if (view.paddingLeft != left || view.paddingTop != top || view.paddingRight != right || view.paddingBottom != bottom)
             view.setPadding(left, top, right, bottom)
+    }
+
+    private val layerReads = LayerReads()
+
+    /** 把 [HostLayerNeutralPlan] 应用到已复制并 mutate 的 LayerDrawable；层结构与原件相同，下标直接对应。 */
+    private fun applyNeutralPlan(copy: LayerDrawable, plan: HostLayerNeutralPlan) {
+        if (plan.isBorderedInput) {
+            // 宿主用两块全宽矩形模拟顶边线：保留露出的细线，把底层限制在线高而非整栏。
+            copy.setLayerHeight(0, plan.borderLine)
+            (copy.getDrawable(1) as GradientDrawable).setColor(android.graphics.Color.TRANSPARENT)
+            return
+        }
+        for (index in plan.cleared) when (val layer = copy.getDrawable(index)) {
+            is ColorDrawable -> layer.color = android.graphics.Color.TRANSPARENT
+            is GradientDrawable -> layer.setColor(android.graphics.Color.TRANSPARENT)
+        }
+    }
+
+    /** 复用的只读视图：每次判定前 [bind]，判定后立即 [release]，不持有宿主 Drawable。主线程使用。 */
+    private inner class LayerReads : HostLayerSnapshot {
+        private var layers: LayerDrawable? = null
+        fun bind(value: LayerDrawable): LayerReads = apply { layers = value }
+        fun release() { layers = null }
+        private fun layers(): LayerDrawable = checkNotNull(layers)
+        override val count: Int get() = layers().numberOfLayers
+        override fun insetLeft(index: Int) = layers().getLayerInsetLeft(index)
+        override fun insetTop(index: Int) = layers().getLayerInsetTop(index)
+        override fun insetRight(index: Int) = layers().getLayerInsetRight(index)
+        override fun insetBottom(index: Int) = layers().getLayerInsetBottom(index)
+        override fun width(index: Int) = layers().getLayerWidth(index)
+        override fun height(index: Int) = layers().getLayerHeight(index)
+        override fun kind(index: Int): HostLayerKind = when (val layer = layers().getDrawable(index)) {
+            is ColorDrawable -> if (HostBackgroundPagePolicy.neutral(layer.color)) HostLayerKind.NEUTRAL_COLOR else HostLayerKind.OTHER
+            is GradientDrawable -> if (plainGradient(layer)) HostLayerKind.NEUTRAL_PLAIN_GRADIENT else HostLayerKind.OTHER
+            else -> HostLayerKind.OTHER
+        }
     }
 
     private fun plainGradient(drawable: GradientDrawable): Boolean = drawable.shape == GradientDrawable.RECTANGLE &&

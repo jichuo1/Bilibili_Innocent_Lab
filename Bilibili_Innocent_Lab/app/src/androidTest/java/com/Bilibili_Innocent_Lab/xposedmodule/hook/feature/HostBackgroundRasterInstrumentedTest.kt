@@ -93,6 +93,10 @@ class HostBackgroundRasterInstrumentedTest {
         val rows = mutableListOf<String>()
         try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                // 条款门禁下 MainActivity 上方是模块的条款对话框（独立窗口，截图里一并出现）：它的滚动条在刚出现时可见、
+                // 随后淡出。第一个用例（index 0）的“前”截图若落在淡出之前，就会得到一条 11x242 像素、误差约 40–90 的竖条差异，
+                // 与背景绘制无关（未改动的 a89a6956 上同样出现）。先等滚动条淡出再逐用例比较。
+                SystemClock.sleep(1500)
                 lateinit var surface: View
                 scenario.onActivity { activity ->
                     surface = View(activity)

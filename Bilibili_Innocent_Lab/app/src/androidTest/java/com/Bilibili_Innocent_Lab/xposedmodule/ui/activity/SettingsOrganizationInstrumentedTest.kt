@@ -64,6 +64,7 @@ class SettingsOrganizationInstrumentedTest {
             requireNotNull(activity.settingsHome).saveState(it)
         }.getInt("settings_home_page")
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitSettingsPrewarm(scenario)
             SystemClock.sleep(900L)
             var before = emptyMap<String, Pair<Boolean, Any>>()
             scenario.onActivity { activity ->
@@ -123,6 +124,23 @@ class SettingsOrganizationInstrumentedTest {
         yield(root)
         if (root is ViewGroup) {
             for (index in 0 until root.childCount) yieldAll(descendants(root.getChildAt(index)))
+        }
+    }
+
+    /**
+     * 性能报告 P1-02：设置页按步骤预建，固定睡眠不再保证每一页都已建好（旧实现一页一个预建单元）。
+     * 轮询到四页的收尾都完成再检查；设置页被用户条款门禁挡住（settingsHome 为空）时不等待，后续断言照旧失败。
+     */
+    private fun awaitSettingsPrewarm(scenario: ActivityScenario<MainActivity>) {
+        val deadline = SystemClock.elapsedRealtime() + 90_000L
+        var complete = false
+        while (!complete) {
+            check(SystemClock.elapsedRealtime() < deadline) { "idle prewarm never completed every settings page" }
+            SystemClock.sleep(100L)
+            scenario.onActivity { activity ->
+                val home = activity.settingsHome
+                complete = home == null || (1..4).all { page -> home.pageUnitNanos(page).isNotEmpty() }
+            }
         }
     }
 
@@ -229,6 +247,7 @@ class SettingsOrganizationInstrumentedTest {
             R.string.player_speed_title
         )
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitSettingsPrewarm(scenario)
             SystemClock.sleep(900L)
             var before = emptyMap<String, Pair<Boolean, Any>>()
             scenario.onActivity { activity ->
@@ -282,6 +301,7 @@ class SettingsOrganizationInstrumentedTest {
     @Test
     fun enhancementAndCompatibilityUseTheSameControlInsetsAsPurification() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitSettingsPrewarm(scenario)
             SystemClock.sleep(900L)
             var before = emptyMap<String, Pair<Boolean, Any>>()
             scenario.onActivity { activity ->
@@ -343,6 +363,7 @@ class SettingsOrganizationInstrumentedTest {
     @Test
     fun menusAndExistingControlsBelongToTheirPurposeWithoutChangingSettings() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitSettingsPrewarm(scenario)
             SystemClock.sleep(900L)
             var before = emptyMap<String, Pair<Boolean, Any>>()
             scenario.onActivity { activity ->
@@ -416,6 +437,7 @@ class SettingsOrganizationInstrumentedTest {
     @Test
     fun searchRevealsTheCorrectPurposeAndRegionWhileOtherMenusStayIndependent() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitSettingsPrewarm(scenario)
             SystemClock.sleep(900L)
             var query = ""
             var before = emptyMap<String, Pair<Boolean, Any>>()
@@ -456,6 +478,7 @@ class SettingsOrganizationInstrumentedTest {
     @Test
     fun appearanceAndCompatibilityAreIndependentAndSearchCanOpenEitherMenu() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitSettingsPrewarm(scenario)
             SystemClock.sleep(900L)
             var before = emptyMap<String, Pair<Boolean, Any>>()
             var query = ""

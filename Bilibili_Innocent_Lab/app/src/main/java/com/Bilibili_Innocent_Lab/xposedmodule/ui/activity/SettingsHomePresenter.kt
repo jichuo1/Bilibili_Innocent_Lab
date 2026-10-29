@@ -44,7 +44,8 @@ internal class SettingsHomePresenter(
     private val shell: LinearLayout,
     private val originalScroll: NestedScrollView,
     private val store: SettingStore,
-    private val buildPage: (Int, LinearLayout) -> Unit,
+    /** 每页的构建计划：最小工作单元是一个步骤（一张卡、一个进阶分类），而不是整页。 */
+    private val planPage: (Int, LinearLayout) -> SettingsPagePlan,
     private val floatingToolbar: View?,
     private val savedState: Bundle?,
     private val installStretch: (View, () -> Boolean) -> View?,
@@ -80,6 +81,9 @@ internal class SettingsHomePresenter(
     private val builtPages = BooleanArray(pageCount).apply { this[0] = true }
     private val buildingPages = BooleanArray(pageCount)
     private val failedPages = arrayOfNulls<String>(pageCount)
+    // 已开始但未完成的页面保留各自的计划（游标），预建被打断后从原处继续；完成后释放。
+    private val plans = arrayOfNulls<SettingsPagePlan>(pageCount)
+    private val unitNanos = arrayOfNulls<List<Long>>(pageCount)
     private val scrollRestore = SettingsPageScrollRestore(List(pageCount) {
         savedState?.getInt("settings_home_scroll_$it", 0) ?: 0
     })
@@ -309,7 +313,8 @@ internal class SettingsHomePresenter(
     /**
      * 首次切页不再在点击帧里现场构建整页：首帧画完、主线程空闲后，由 UiPrewarmer 每帧最多
      * 预建一个未建页面（相邻页优先）。用户一开始拖动或点选就整体取消，等下一次空闲再续。
-     * 单页是最小单元，无法在页内切分；超出帧预算的页仍保留（已建好），但本轮剩余页让到下次空闲。
+     * 最小单元是页面计划里的一个步骤（见 [SettingsPagePlan]）：超出帧预算时本轮剩余工作让到下次空闲，
+     * 已建好的部分保留，下次从游标继续。
      */
     private fun schedulePrewarm(delayMillis: Long = 0) {
         if (disposed || prewarmIdleQueued || builtPages.all { it }) return
@@ -329,27 +334,32 @@ internal class SettingsHomePresenter(
         val session = prewarmSession() ?: return
         // 分页动画/回弹期间主线程在帧间也会空闲；只在静止时预建，否则稍后再看。
         if (!pager.isSettled) { schedulePrewarm(PREWARM_RETRY_MILLIS); return }
-        val queue = prewarmer ?: UiPrewarmer.attach(session, capacity = pageCount, maxUnitsPerWork = 1,
+        // maxUnitsPerWork 是一个 work 的累计单元上限：页面计划最多 MAX_STEPS 个步骤加一个收尾单元，
+        // 取这个有界规模；放成 1 会在第一个单元未完成时就按 UNIT_LIMIT 误丢弃。
+        val queue = prewarmer ?: UiPrewarmer.attach(session, capacity = pageCount, maxUnitsPerWork = SettingsPagePlan.MAX_UNITS,
             maxUnitNanos = PREWARM_UNIT_BUDGET_NANOS).also { prewarmer = it }
         if (queue.pendingCount > 0) return
         val current = pager.selectedPage
         val order = (0 until pageCount).filter { !builtPages[it] }.sortedBy { kotlin.math.abs(it - current) }
         for (index in order) {
-            // 本单元刚建好的页面仍是“当前”结果：否则调度器会把完成的单元当作过期丢弃，预算判断失效。
-            var built = false
+            // 本单元刚推进过的页面仍是“当前”结果：否则调度器会把刚完成的单元当作过期丢弃，预算判断失效。
+            var ran = false
             val submission = queue.submit(PrewarmWork(
-                isCurrent = { !disposed && failedPages[index] == null && (built || !builtPages[index]) },
+                isCurrent = { !disposed && failedPages[index] == null && (ran || !builtPages[index]) },
                 step = {
-                    built = true
-                    try { ensurePage(index) } catch (failure: Throwable) {
+                    ran = true
+                    try {
+                        // 每次只推进一个单元；false 表示这一页还有后续步骤，调度器下一帧再来。
+                        builtPages[index] || buildingPages[index] || advancePage(index, untilComplete = false)
+                    } catch (failure: Throwable) {
                         // 不让预建失败拖垮会话调度器；用户真正切到该页时由 ensurePage 的检查报告。
                         Log.e(TAG, "Settings page $index prewarm failed", failure)
+                        true
                     }
-                    true
                 },
                 ready = {},
                 discard = { reason ->
-                    // 慢设备上一页就超过预算：本轮剩余页让出，等下一次空闲。
+                    // 单个单元超过预算：本轮剩余工作让出，等下一次空闲；未完成的页面保留计划游标，下次从原处继续。
                     if (reason == PrewarmStop.OVER_BUDGET) { queue.cancel(); schedulePrewarm(PREWARM_RETRY_MILLIS) }
                 },
             ))
@@ -544,13 +554,29 @@ internal class SettingsHomePresenter(
 
     internal fun ensurePage(index: Int) {
         if (disposed || builtPages[index] || buildingPages[index]) return
+        advancePage(index, untilComplete = true)
+    }
+
+    /** 已开始页面的每个单元耗时（纳秒，最后一项是收尾）；页面未完成时为空。仅供验收。 */
+    internal fun pageUnitNanos(index: Int): List<Long> = unitNanos[index].orEmpty()
+
+    /**
+     * 推进一页的构建。预建每次只推进一个单元；切页、搜索定位、收藏跳转需要整页时补完剩余步骤并收尾，
+     * 与未拆分前顺序一致。页面只有完成收尾后才记为 built（对用户可见的页面总是完整的）。
+     */
+    private fun advancePage(index: Int, untilComplete: Boolean): Boolean {
         check(failedPages[index] == null) { "Page construction failed; recreate its session before retrying" }
         buildingPages[index] = true
         try {
-            buildPage(index, contents[index])
+            val plan = plans[index] ?: planPage(index, contents[index]).also { plans[index] = it }
+            if (untilComplete) plan.complete() else plan.advance()
+            if (!plan.isComplete) return false
             builtPages[index] = true
+            unitNanos[index] = plan.stepNanos.toList()
+            plans[index] = null
             schedulePageRestore(index)
             skinPositionChanged()
+            return true
         } catch (failure: Throwable) {
             failedPages[index] = failure.javaClass.name
             throw failure
@@ -605,6 +631,7 @@ internal class SettingsHomePresenter(
         disposed = true
         prewarmer?.let { queue -> runCatching { queue.close() } }
         prewarmer = null
+        plans.fill(null)
         restoreListeners.indices.forEach { index ->
             restoreListeners[index]?.let(scrolls[index]::removeOnLayoutChangeListener)
             restoreListeners[index] = null

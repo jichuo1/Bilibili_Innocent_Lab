@@ -4962,38 +4962,60 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
-    private fun buildSettingsPage(index: Int, parent: NativeLinearLayout) {
+    /**
+     * 一页设置的构建计划。最小工作单元是步骤（一张卡、一个进阶分类），不是整页：
+     * 预建每帧推进一个步骤，切页/搜索/收藏跳转时同步补完；全部步骤完成后才统一收尾（展开状态、样式、依赖、可用性）。
+     * 卡片里用 [deferStep] 推迟的进阶分类按登记顺序紧随壳步骤之后执行，同步补完的顺序与拆分前逐语句一致。
+     * 每个步骤在执行时才读偏好快照与镜像字段：推迟的步骤不能用壳构建时的过期快照。
+     */
+    private fun settingsPagePlan(index: Int, parent: NativeLinearLayout): SettingsPagePlan {
         val session = checkNotNull(meguvizSession)
-        val uiSettings = ModuleUiSettings.read(runCatching { prefs() }.getOrNull())
-        val scope = com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.SettingsScope(
+        fun page() = com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.SettingsScope(
             session, parent, object : io.github.jichuo1.meguviz.ui.ParentPolicy<NativeLinearLayout, NativeLinearLayout.LayoutParams> {}
         ) { width, height -> NativeLinearLayout.LayoutParams(width, height) }
-        with(scope) {
-            when (index) {
-                1 -> purifySettingsCard(this)
-                2 -> enhancementSettingsCard(this, uiSettings)
-                3 -> beautificationSettingsCard(this)
-                4 -> {
-                    activationPageCard(this)
-                    settingsBackupEntryCard(this)
-                    space(key = "module:backup-gap", lparams = params(height = 10.dp))
-                    experimentalFeaturesCard(this, uiSettings)
-                    space(key = "module:experimental-gap", lparams = params(height = 10.dp))
-                    logSettingsCard(this)
-                    space(key = "module:log-gap", lparams = params(height = 10.dp))
-                    component(createPromotionItem("about-module", R.string.about_module, R.mipmap.ic_yukihookapi))
-                    space(key = "module:about-gap", lparams = params(height = 10.dp))
-                    component(createPromotionItem("about-module-extension", R.string.about_module_extension, R.mipmap.ic_kavaref))
+        fun uiSettings() = ModuleUiSettings.read(runCatching { prefs() }.getOrNull())
+        val steps: List<() -> Unit> = when (index) {
+            1 -> listOf({ purifySettingsCard(page()) })
+            2 -> listOf({ enhancementSettingsCard(page(), ::uiSettings) })
+            3 -> listOf({ beautificationSettingsCard(page()) })
+            4 -> listOf(
+                {
+                    with(page()) {
+                        activationPageCard(this)
+                        settingsBackupEntryCard(this)
+                        space(key = "module:backup-gap", lparams = params(height = 10.dp))
+                    }
+                },
+                {
+                    with(page()) {
+                        experimentalFeaturesCard(this, uiSettings())
+                        space(key = "module:experimental-gap", lparams = params(height = 10.dp))
+                    }
+                },
+                {
+                    with(page()) {
+                        logSettingsCard(this)
+                        space(key = "module:log-gap", lparams = params(height = 10.dp))
+                    }
+                },
+                {
+                    with(page()) {
+                        component(createPromotionItem("about-module", R.string.about_module, R.mipmap.ic_yukihookapi))
+                        space(key = "module:about-gap", lparams = params(height = 10.dp))
+                        component(createPromotionItem("about-module-extension", R.string.about_module_extension, R.mipmap.ic_kavaref))
+                    }
                 }
-                else -> error("Unknown settings page: $index")
-            }
+            )
+            else -> error("Unknown settings page: $index")
         }
-        applyRestoredSettingsExpansion(index)
-        styleHomeControls(parent)
-        settingsDestinations.forEachTarget { id, view -> settingDependencies.bind(view, id) }
-        settingDependencies.start(settingModelPreferences)
-        refreshSettingAvailability()
-        if (index == 4) { renderActivationUi(); renderNoRootUi() }
+        return SettingsPagePlan(steps) {
+            applyRestoredSettingsExpansion(index)
+            styleHomeControls(parent)
+            settingsDestinations.forEachTarget { id, view -> settingDependencies.bind(view, id) }
+            settingDependencies.start(settingModelPreferences)
+            refreshSettingAvailability()
+            if (index == 4) { renderActivationUi(); renderNoRootUi() }
+        }
     }
 
     private fun installSettingsHome(savedState: Bundle?) {
@@ -5005,7 +5027,7 @@ class MainActivity : SkinnedActivity() {
             shell = shell,
             originalScroll = scroll,
             store = checkNotNull(settingStore),
-            buildPage = ::buildSettingsPage,
+            planPage = ::settingsPagePlan,
             floatingToolbar = settingsFloatingToolbar,
             savedState = savedState,
             installStretch = { target, allowed -> installPreparedLiquidStretch(target, allowed) },
