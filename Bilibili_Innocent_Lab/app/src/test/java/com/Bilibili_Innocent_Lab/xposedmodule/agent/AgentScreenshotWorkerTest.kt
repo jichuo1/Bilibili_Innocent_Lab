@@ -5,8 +5,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executor
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -45,6 +48,33 @@ class AgentScreenshotWorkerTest {
         assertTrue(worker.trySubmit { ranAfter.countDown() })
         assertTrue(ranAfter.await(5, TimeUnit.SECONDS))
         awaitFree(worker)
+    }
+
+    @Test fun anErrorThrownWhileSubmittingResetsTheSlotAndPropagates() {
+        // 例如建线程时的 OutOfMemoryError：不是 RejectedExecutionException，旧实现不会复位在途标志。
+        val failing = AgentScreenshotWorker(Executor { throw OutOfMemoryError("unable to create native thread") })
+        var thrown: Throwable? = null
+        try { failing.trySubmit { fail("job must not run") } } catch (error: Throwable) { thrown = error }
+        assertTrue("the original Error keeps propagating: $thrown", thrown is OutOfMemoryError)
+        assertFalse("in-flight must be reset when submission did not succeed", failing.busy)
+        // 之后仍然可以再次提交（不是永久 screen_busy）。
+        val ok = AtomicInteger()
+        val recovering = AgentScreenshotWorker(object : Executor {
+            var first = true
+            override fun execute(command: Runnable) { if (first) { first = false; throw IllegalStateException("boom") }; command.run() }
+        })
+        try { recovering.trySubmit { ok.incrementAndGet() } } catch (_: IllegalStateException) {}
+        assertFalse(recovering.busy)
+        assertTrue(recovering.trySubmit { ok.incrementAndGet() })
+        assertEquals(1, ok.get())
+        assertFalse(recovering.busy)
+    }
+
+    @Test fun rejectionStillReturnsFalseAndResetsTheSlot() {
+        val rejecting = AgentScreenshotWorker(Executor { throw RejectedExecutionException("saturated") })
+        assertFalse(rejecting.trySubmit { fail("job must not run") })
+        assertFalse(rejecting.busy)
+        assertFalse(rejecting.trySubmit { fail("job must not run") })
     }
 
     @Test fun failingJobStillReleasesTheSlot() {

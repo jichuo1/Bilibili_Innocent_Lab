@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.agent
 
 import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.Executor
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
@@ -13,22 +14,30 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 在途已满或线程池拒绝时 [trySubmit] 返回 false，任务**不会**在调用线程上运行（不用 CallerRuns），
  * 资源仍归调用方释放。接受之后 [job] 自己负责释放它拿到的缓冲与位图（成功、取消、异常各分支）。
  */
-internal class AgentScreenshotWorker(threadName: String = "BIL-AgentShot") {
+internal class AgentScreenshotWorker internal constructor(private val executor: Executor) {
     private val inFlight = AtomicBoolean(false)
-    private val executor = ThreadPoolExecutor(1, 1, 30L, TimeUnit.SECONDS, ArrayBlockingQueue<Runnable>(1),
-        { task -> Thread(task, threadName).apply { isDaemon = true } }, ThreadPoolExecutor.AbortPolicy())
-        .apply { allowCoreThreadTimeOut(true) }
+
+    constructor(threadName: String = "BIL-AgentShot") : this(
+        ThreadPoolExecutor(1, 1, 30L, TimeUnit.SECONDS, ArrayBlockingQueue<Runnable>(1),
+            { task -> Thread(task, threadName).apply { isDaemon = true } }, ThreadPoolExecutor.AbortPolicy())
+            .apply { allowCoreThreadTimeOut(true) }
+    )
 
     fun trySubmit(job: Runnable): Boolean {
         if (!inFlight.compareAndSet(false, true)) return false
-        return try {
+        var accepted = false
+        try {
             executor.execute {
                 try { job.run() } finally { inFlight.set(false) }
             }
-            true
+            accepted = true
+            return true
         } catch (_: RejectedExecutionException) {
-            inFlight.set(false)
-            false
+            return false
+        } finally {
+            // 任何没有成功交给执行器的路径（拒绝、建线程时的 OutOfMemoryError 等）都复位，否则之后全部 inspect_screen 都是 screen_busy；
+            // 非拒绝类的异常 / Error 照常向上抛，由调用方的 finally 关闭缓冲。
+            if (!accepted) inFlight.set(false)
         }
     }
 

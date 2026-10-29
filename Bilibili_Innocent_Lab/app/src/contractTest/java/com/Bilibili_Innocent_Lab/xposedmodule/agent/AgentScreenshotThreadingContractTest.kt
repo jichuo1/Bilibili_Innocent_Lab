@@ -59,5 +59,10 @@ class AgentScreenshotThreadingContractTest {
         assertFalse(worker.contains("CallerRunsPolicy"))
         assertTrue(worker.contains("ThreadPoolExecutor.AbortPolicy()"))
         assertTrue(worker.contains("ArrayBlockingQueue<Runnable>(1)"))
+        // 提交没有成功交给执行器就复位在途标志：成功标志 + finally。
+        val submit = worker.after("fun trySubmit(").before("/** 测试与诊断用")
+        assertTrue(submit.contains("var accepted = false"))
+        assertTrue(submit.contains("finally {"))
+        assertTrue(submit.contains("if (!accepted) inFlight.set(false)"))
     }
 }
