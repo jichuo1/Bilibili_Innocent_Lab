@@ -5970,8 +5970,7 @@ object VersionAdapter {
         if (builds.isEmpty()) return@runCatching null
 
         fun fieldName(owner: Class<*>, predicate: (java.lang.reflect.Field) -> Boolean): String? =
-            KavaMemberLookup.declaredFields(owner, makeAccessible = true) { predicate(it) }
-                .firstOrNull()
+            KavaMemberLookup.firstDeclaredFieldOrNull(owner, makeAccessible = true) { predicate(it) }
                 ?.name
 
         val sectionsField = fieldName(accountMine) {

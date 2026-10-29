@@ -67,9 +67,9 @@ internal class HookPointRegistry(
 
     fun resolveFirst(id: String, className: String, methodName: String): Method? {
         val owner = resolveOwner(id, className) ?: return null
-        val method = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+        val method = KavaMemberLookup.firstDeclaredMethodOrNull(owner, makeAccessible = true) {
             it.name == methodName
-        }.firstOrNull()
+        }
         if (method == null) {
             record(Diagnostic(id, State.MISSING_METHOD, detail = "$className#$methodName"))
             return null

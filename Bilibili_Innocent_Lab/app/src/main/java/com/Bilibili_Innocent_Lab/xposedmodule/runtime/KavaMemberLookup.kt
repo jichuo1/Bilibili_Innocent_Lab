@@ -176,7 +176,36 @@ internal object KavaMemberLookup {
         includeSuperclasses: Boolean,
         makeAccessible: Boolean = false,
         predicate: (Method) -> Boolean = { true }
-    ): List<Method> = cachedList(
+    ): List<Method> = methodCollection(declaringClass, includeSuperclasses).asSequence()
+        .filter(predicate)
+        .filter { !makeAccessible || it.makeAccessible() }
+        .toList()
+
+    /**
+     * 只要第一个满足条件的方法：在已缓存的成员集合上短路，不为只用 firstOrNull 的调用方物化整份过滤结果。
+     * 返回的就是 [methods] 结果的第一项（顺序、可访问性跳过规则一致）；只对找到之前的候选调用 makeAccessible。
+     */
+    fun firstMethodOrNull(
+        declaringClass: Class<*>,
+        includeSuperclasses: Boolean,
+        makeAccessible: Boolean = false,
+        predicate: (Method) -> Boolean = { true }
+    ): Method? {
+        val all = methodCollection(declaringClass, includeSuperclasses)
+        for (index in all.indices) {
+            val candidate = all[index]
+            if (predicate(candidate) && (!makeAccessible || candidate.makeAccessible())) return candidate
+        }
+        return null
+    }
+
+    fun firstDeclaredMethodOrNull(
+        declaringClass: Class<*>,
+        makeAccessible: Boolean = false,
+        predicate: (Method) -> Boolean = { true }
+    ): Method? = firstMethodOrNull(declaringClass, includeSuperclasses = false, makeAccessible = makeAccessible, predicate = predicate)
+
+    private fun methodCollection(declaringClass: Class<*>, includeSuperclasses: Boolean): List<Method> = cachedList(
         methodCollectionCache,
         MethodCollectionKey(declaringClass, includeSuperclasses)
     ) {
@@ -188,10 +217,7 @@ internal object KavaMemberLookup {
         owners.flatMap { owner ->
             rawMembers(owner, MemberKind.METHOD).map { it as Method }
         }
-    }.asSequence()
-        .filter(predicate)
-        .filter { !makeAccessible || it.makeAccessible() }
-        .toList()
+    }
 
     /** 精确定位字段；可选择向父类查找，缺失或不可访问时返回 null。 */
     fun fieldOrNull(
@@ -223,7 +249,33 @@ internal object KavaMemberLookup {
         includeSuperclasses: Boolean,
         makeAccessible: Boolean = false,
         predicate: (Field) -> Boolean = { true }
-    ): List<Field> = cachedList(
+    ): List<Field> = fieldCollection(declaringClass, includeSuperclasses).asSequence()
+        .filter(predicate)
+        .filter { !makeAccessible || it.makeAccessible() }
+        .toList()
+
+    /** 字段版 [firstMethodOrNull]：在已缓存的集合上短路，只对找到之前的候选调用 makeAccessible。 */
+    fun firstFieldOrNull(
+        declaringClass: Class<*>,
+        includeSuperclasses: Boolean,
+        makeAccessible: Boolean = false,
+        predicate: (Field) -> Boolean = { true }
+    ): Field? {
+        val all = fieldCollection(declaringClass, includeSuperclasses)
+        for (index in all.indices) {
+            val candidate = all[index]
+            if (predicate(candidate) && (!makeAccessible || candidate.makeAccessible())) return candidate
+        }
+        return null
+    }
+
+    fun firstDeclaredFieldOrNull(
+        declaringClass: Class<*>,
+        makeAccessible: Boolean = false,
+        predicate: (Field) -> Boolean = { true }
+    ): Field? = firstFieldOrNull(declaringClass, includeSuperclasses = false, makeAccessible = makeAccessible, predicate = predicate)
+
+    private fun fieldCollection(declaringClass: Class<*>, includeSuperclasses: Boolean): List<Field> = cachedList(
         fieldCollectionCache,
         FieldCollectionKey(declaringClass, includeSuperclasses)
     ) {
@@ -235,10 +287,7 @@ internal object KavaMemberLookup {
         owners.flatMap { owner ->
             rawMembers(owner, MemberKind.FIELD).map { it as Field }
         }
-    }.asSequence()
-        .filter(predicate)
-        .filter { !makeAccessible || it.makeAccessible() }
-        .toList()
+    }
 
     /** 精确定位当前类声明的构造器；调用方继续缓存并直接 newInstance。 */
     fun constructorOrNull(
