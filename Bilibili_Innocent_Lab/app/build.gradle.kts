@@ -28,6 +28,13 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
+// P2-07 opt-in: Baseline Profile / Macrobenchmark tooling for the module's own app UI. Absent from
+// default builds; enabled with -PinnocentLab.baselineProfile=true (see baselineprofile/README.md).
+val baselineProfileTooling = providers.gradleProperty("innocentLab.baselineProfile").orNull == "true"
+if (baselineProfileTooling) {
+    apply(from = "baselineprofile.gradle.kts")
+}
+
 /** Build-owned stripped payloads and trusted specifications. No host/runtime input supplies hashes. */
 abstract class PackFrameNativePayload : DefaultTask() {
     @get:InputDirectory @get:org.gradle.api.tasks.PathSensitive(PathSensitivity.NONE)
@@ -473,6 +480,8 @@ gradle.taskGraph.whenReady {
     }
     val releasePackagingRequested = allTasks.any { task ->
         task.project == project &&
+            // The opt-in profiling build types (P2-07) are debug-signed, profileable and never distributed.
+            !(baselineProfileTooling && task.name.contains(Regex("(?i)benchmark|nonMinified"))) &&
             (
                 task.name.matches(Regex("(?i)^(assemble|bundle|sign).*release.*$")) ||
                     task.name.equals("packageRelease", ignoreCase = true)
