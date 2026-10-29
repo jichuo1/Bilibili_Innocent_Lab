@@ -9,8 +9,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 性能报告 P2-04「依据实际工作量分批绑定」：探针只测量，不改变 drainCommentBinds 的批大小、LIFO、
- * 队列上限、generation 与脱离窗口检查。没有真实宿主数据之前不引入 deadline 或游标。
+ * 性能报告 P2-04「依据实际工作量分批绑定」：探针保持默认关闭；预算组件保留 LIFO、
+ * 队列上限、generation 与脱离窗口检查。单项游标仍需真实宿主数据证明必要性。
  */
 class CommentBindProbeContractTest {
     private val source = SourceContract.read("hook/HookEntry.kt")
@@ -62,7 +62,7 @@ class CommentBindProbeContractTest {
         assertTrue("timing starts after every deferral gate", gates in 0 until begin)
         assertTrue(drain.indexOf("DEFER_QUIET") < begin)
         val end = drain.indexOf("commentBindProbe.endDrain(drainToken, queueBefore, batch.size, queueAfter)")
-        assertTrue(end > drain.indexOf("for ((v, raw, checkReply, rawTrusted, commentItem, generation, enqueuedAtNanos) in batch)"))
+        assertTrue(end > drain.indexOf("CommentBindBudget.run("))
         // 汇总日志在计时区间之外，且逐 item 不打日志。
         val report = drain.indexOf("commentBindProbe.takeReportIfDue(")
         assertTrue(report > end)
@@ -71,9 +71,9 @@ class CommentBindProbeContractTest {
     }
 
     @Test fun itemTimingCoversTheTreeWorkAndDroppedItemsAreCountedNotTimed() {
-        val loop = drain.after("in batch) {").before("// 剩余排队")
+        val loop = drain.after("CommentBindBudget.run(").before("// 提前结束的项")
         val stale = loop.before("// 仅绑定仍挂载的 view")
-        assertTrue(stale.contains("commentBindProbe.noteStale()") && stale.contains("continue"))
+        assertTrue(stale.contains("commentBindProbe.noteStale()") && stale.contains("return@run"))
         assertTrue(loop.indexOf("commentBindProbe.beginItem()") < loop.indexOf("applyFreeCopyListener(v, raw, checkReply)"))
         assertTrue(loop.indexOf("applyFreeCopyListener(v, raw, checkReply)") < loop.indexOf("commentBindProbe.endItem(itemToken, enqueuedAtNanos, validComment)"))
         val detached = loop.after("} else {\n                    commentBindProbe.noteDetached()")
@@ -82,21 +82,20 @@ class CommentBindProbeContractTest {
 
     @Test fun enqueueStampsAndCountsInsideTheExistingQueueLock() {
         val enqueue = source.after("private fun scheduleCommentBind(").before("/** 主线程分帧批量绑定")
-        assertTrue(enqueue.contains("val enqueuedAtNanos = commentBindProbe.stamp()"))
-        assertTrue(enqueue.contains("view, rawText, checkReply, rawTrusted, commentItem, generation, enqueuedAtNanos"))
-        assertTrue(enqueue.contains("replacedBinds++") && enqueue.contains("overflowBinds++"))
+        assertTrue(enqueue.contains("val enqueuedAtNanos = commentBindClock.nanoTime()"))
+        assertTrue(enqueue.contains("PendingCommentBind(view, rawText, checkReply, rawTrusted, commentItem)"))
+        assertTrue(enqueue.contains("replacedBinds = queued.replaced") && enqueue.contains("overflowBinds = queued.overflowDropped"))
         assertTrue("probe is notified after the queue lock is released",
             enqueue.indexOf("commentBindProbe.onEnqueue(replacedBinds, overflowBinds, queuedAfter)") > enqueue.indexOf("queuedAfter = pendingCommentBinds.size"))
     }
 
-    @Test fun measurementDidNotChangeTheExistingBindProtections() {
-        // 单次树收集、共享 listener、滚动暂停、LIFO、96 项上限、generation 检查、批大小、脱离窗口检查。
+    @Test fun budgetIntegrationKeepsTheExistingBindProtections() {
+        // 单次树收集、共享 listener、滚动暂停、LIFO、96 项上限、generation 与脱离窗口检查保持不变。
         assertTrue(drain.contains("if (isAnyRecyclerViewScrolling()) {"))
-        assertTrue(drain.contains("val take = minOf(pendingCommentBinds.size, 6)"))
-        assertTrue(drain.contains("val start = pendingCommentBinds.size - take"))
+        assertTrue(source.contains("private val pendingCommentBinds = CommentBindQueue<PendingCommentBind>()"))
+        assertTrue(drain.contains("pendingCommentBinds.takeBatch(drainStartedNs, commentBindBudgetPolicy.starvationLimitNs)"))
         assertTrue(drain.contains("latestCommentBindingGeneration[v] == generation"))
         assertTrue(drain.contains("if (v.isAttachedToWindow) {"))
-        assertTrue(source.contains("while (pendingCommentBinds.size > 96) {"))
-        assertFalse("no deadline or cursor without measured evidence", drain.contains("uptimeMillis() - drainStart") || drain.contains("deadline") || drain.contains("cursor"))
+        assertFalse("no item cursor without measured evidence", drain.contains("uptimeMillis() - drainStart") || drain.contains("deadline") || drain.contains("cursor"))
     }
 }

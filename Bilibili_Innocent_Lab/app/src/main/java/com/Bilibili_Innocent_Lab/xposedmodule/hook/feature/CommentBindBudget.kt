@@ -1,12 +1,10 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 /**
- * 评论绑定「按时间预算分批」的纯逻辑（假时钟、假队列可测）。**没有接入生产路径。**
+ * 评论绑定「按时间预算分批」的纯逻辑（假时钟、假队列可测），由 `drainCommentBinds` 使用。
  *
- * 为什么暂不接入：性能报告 P2-04 要求先测量每次 drain、每个 item 的耗时与节点数，再决定是否 deadline
- * 分批；[CommentBindProbe] 已就位，但还没有来自真实宿主（需要 root / LSPosed 注入的 Bilibili 进程）的数据。
- * 没有数据就不知道耗时主要来自多项累加（deadline 有用）还是单项过大（deadline 无用，需要可续跑游标），
- * 因此这里只固化「如果要做，边界应当是什么」，让将来的接入只剩接线。
+ * [CommentBindProbe] 继续记录每次 drain、每个 item 的耗时与节点数。时间预算只限制多项累加；
+ * 单项是否仍超预算必须由真实宿主数据判断，不能在无设备证据时引入可续跑游标或宣称帧时收益。
  *
  * 与现有 `drainCommentBinds` 的对应关系（保持不变的部分）：
  * - 队列按入队先后排列，同一 View 只保留最新任务，超过 [capacity] 从最旧一端淘汰；
@@ -70,8 +68,26 @@ internal class CommentBindQueue<T : Any>(
     }
 
     /** 取出最新的至多 [batchSize] 项；返回值按入队先后排列（与现有 drain 的处理顺序一致）。 */
-    fun takeBatch(): List<Entry<T>> {
-        val take = minOf(entries.size, batchSize)
+    fun takeBatch(): List<Entry<T>> = takeLatest(batchSize)
+
+    /**
+     * 正常仍取最新一批；若整个队列里已有等待超过 [starvationLimitNanos] 的项，把最老的一项
+     * 一并取出，保证它不会被持续到来的新任务永久压在 LIFO 窗口之外。
+     */
+    fun takeBatch(nowNanos: Long, starvationLimitNanos: Long): List<Entry<T>> {
+        val starvedIndex = entries.indexOfFirst {
+            it.enqueuedAtNanos != 0L && nowNanos - it.enqueuedAtNanos >= starvationLimitNanos
+        }
+        if (starvedIndex < 0) return takeBatch()
+        val starved = entries.removeAt(starvedIndex)
+        return ArrayList<Entry<T>>(batchSize).also { batch ->
+            batch += starved
+            batch += takeLatest(batchSize - 1)
+        }
+    }
+
+    private fun takeLatest(limit: Int): List<Entry<T>> {
+        val take = minOf(entries.size, limit)
         val start = entries.size - take
         val batch = ArrayList<Entry<T>>(take)
         for (i in start until entries.size) batch.add(entries[i])

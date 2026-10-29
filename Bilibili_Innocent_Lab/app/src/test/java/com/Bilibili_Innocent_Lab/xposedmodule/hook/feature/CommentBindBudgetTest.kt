@@ -10,7 +10,7 @@ import org.junit.Test
 
 /**
  * 预算分批的纯逻辑。假时钟的纳秒数是手工推进的，只验证调度与归还语义，不是设备耗时；
- * 组件尚未接入生产路径（见 [CommentBindBudget] 的说明）。
+ * 生产 drain 与这里共用同一实现；这里不构造 View，也不把假时钟数值当作设备性能。
  */
 class CommentBindBudgetTest {
     private class FakeClock(var now: Long = 0L) : CommentBindProbe.Clock {
@@ -226,5 +226,32 @@ class CommentBindBudgetTest {
         val out = CommentBindBudget.run(batch, clock.now, CommentBindBudget.Policy(0L, ms(1)), clock) { }
         assertFalse(out.starvationOverride)
         assertEquals(1, out.processed)
+    }
+
+    @Test fun starvationPriorityLooksBeyondTheNewestSixAndCompletesTheOldestItem() {
+        val queue = CommentBindQueue<String>()
+        queue.enqueue(entry(View("old"), enqueuedAt = ms(100)))
+        List(10) { View("f$it") }.forEach { queue.enqueue(entry(it, enqueuedAt = ms(999))) }
+
+        val batch = queue.takeBatch(nowNanos = ms(1_000), starvationLimitNanos = ms(500))
+        assertEquals(listOf("old", "f5", "f6", "f7", "f8", "f9"), batch.map { it.payload })
+        assertEquals(listOf("f0", "f1", "f2", "f3", "f4"), queue.names())
+
+        val clock = FakeClock(now = ms(1_000))
+        val processed = ArrayList<String>()
+        val out = CommentBindBudget.run(batch, clock.now, CommentBindBudget.Policy(0L, ms(500)), clock) {
+            processed += it.payload
+            clock.now += ms(1)
+        }
+        assertTrue(out.starvationOverride)
+        assertEquals(batch.map { it.payload }, processed)
+        assertFalse(out.stoppedEarly)
+    }
+
+    @Test fun prioritizedSelectionWithoutAStarvedItemMatchesTheOriginalLifoBatch() {
+        val queue = CommentBindQueue<String>()
+        List(10) { View("v$it") }.forEach { queue.enqueue(entry(it, enqueuedAt = ms(999))) }
+        val batch = queue.takeBatch(nowNanos = ms(1_000), starvationLimitNanos = ms(500))
+        assertEquals(listOf("v4", "v5", "v6", "v7", "v8", "v9"), batch.map { it.payload })
     }
 }
