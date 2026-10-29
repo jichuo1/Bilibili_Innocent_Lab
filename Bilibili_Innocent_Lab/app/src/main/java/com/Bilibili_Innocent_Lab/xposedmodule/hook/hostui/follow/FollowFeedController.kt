@@ -475,7 +475,9 @@ internal class FollowFeedController(
             private val originalTopPadding = list.paddingTop
             private var appliedTopPadding = originalTopPadding
             private val panels = LinkedHashMap<Long, Panel>()
-            private val references = LinkedHashMap<ReferenceKey, Panel>()
+            private val references = LinkedHashMap<FollowFeedReferenceKey, Panel>()
+            // 每次 update 的行 / 引用键快照，各遍复用（见 FollowFeedUpdateIndex）。
+            private val updateIndex = FollowFeedUpdateIndex()
             private var referenceOptions = FollowFeedStyle.reference(palette)
             private val location = IntArray(2)
             private var dock: WeakReference<View>? = null
@@ -577,20 +579,19 @@ internal class FollowFeedController(
                 }
                 generation++
                 var surfacesChanged = false
+                // 行与引用键每次 update 只收集一次：之后各遍复用，清理离屏引用也不再为每个存量引用重扫全部子 View。
+                updateIndex.rebuild(list.childCount) { rows[list.getChildAt(it)]?.row }
                 // 先回收离屏引用，不能让上一屏的内层表面占住新动态的配额。
                 val staleReferences = references.iterator()
                 while (staleReferences.hasNext()) {
                     val entry = staleReferences.next()
-                    if ((0 until list.childCount).none { index ->
-                        rows[list.getChildAt(index)]?.row?.let { referenceKey(it) } == entry.key
-                    }) {
+                    if (!updateIndex.hasReference(entry.key)) {
                         entry.value.close(); staleReferences.remove(); surfacesChanged = true
                     }
                 }
                 for (i in 0 until list.childCount) {
                     val child = list.getChildAt(i)
-                    val state = rows[child] ?: continue
-                    val row = state.row ?: continue
+                    val row = updateIndex.rowAt(i) ?: continue
                     val panel = panels[row.identity] ?: run {
                         // 配额优先保证外层承托；内层不足时退回宿主引用底色。
                         if (lists.values.sumOf { it.panelCount } >= FollowFeedStyle.MAX_CARD_SURFACES)
@@ -611,9 +612,9 @@ internal class FollowFeedController(
                 }
                 for (i in 0 until list.childCount) {
                     val child = list.getChildAt(i)
-                    val row = rows[child]?.row ?: continue
+                    val row = updateIndex.rowAt(i) ?: continue
                     val reference = row.reference ?: continue
-                    val key = referenceKey(row) ?: continue
+                    val key = updateIndex.keyAt(i) ?: continue
                     if (panels[row.identity]?.valid != true) continue
                     val panel = references[key] ?: if (lists.values.sumOf { it.panelCount } < FollowFeedStyle.MAX_CARD_SURFACES) {
                         Panel(reference = true).also { references[key] = it; surfacesChanged = true }
@@ -636,7 +637,9 @@ internal class FollowFeedController(
                     val state = rows[child] ?: continue
                     val panel = state.row?.let { panels[it.identity] }
                     val decorate = panel?.let { it.valid && it.generation == generation } == true
-                    val referenceDecorate = state.row?.let(::referenceKey)?.let { references[it]?.bound } == true
+                    // 行未变时复用本次 update 已建好的键，否则按当前行重算（装饰遍之前的回调可能改过 state.row）。
+                    val rowKey = if (state.row === updateIndex.rowAt(i)) updateIndex.keyAt(i) else state.row?.referenceKey()
+                    val referenceDecorate = rowKey?.let { references[it]?.bound } == true
                     if (state.decorated != decorate || state.referenceDecorated != referenceDecorate) {
                         state.edits.restore(); state.palette = null; state.decorated = decorate
                         state.referenceDecorated = referenceDecorate
@@ -691,6 +694,4 @@ internal class FollowFeedController(
         }
     }
 
-    private data class ReferenceKey(val owner: Long, val reference: Long)
-    private fun referenceKey(row: FollowFeedRow) = row.reference?.let { ReferenceKey(row.identity, it.identity) }
 }
