@@ -63,7 +63,8 @@ internal class HostBackgroundDrawable(
             state = state * 31 + drawableAlpha
             state = state * 31 + System.identityHashCode(paint.colorFilter)
             state = state * 31 + System.identityHashCode(raster)
-            return state * 31 + if (isRasterReady) 1L else 0L
+            // 场景背景每发布一个 tile 就推进版本：采样方据此重新取样，而不是只看「全部就绪」布尔。
+            return state * 31 + (scene?.contentVersion ?: if (raster != null) 1L else 0L)
         }
     private var requestScheduled = false
     private var requestedKey: HostBackgroundRasterCache.Key? = null
@@ -128,8 +129,10 @@ internal class HostBackgroundDrawable(
 
     override fun draw(canvas: Canvas) {
         scene?.let {
+            // 只有离屏精确生成（cacheEnabled = false，运行在工作线程）才就地同步生成；软件 Canvas 的交互绘制
+            // （例如主线程上的 Picture 采样录制）不再阻塞：缺失的 tile 画降级底色，就绪后推进版本并刷新。
             it.draw(canvas, bounds, scrollOffset, night, drawableAlpha, paint.colorFilter,
-                synchronous = !cacheEnabled || !canvas.isHardwareAccelerated)
+                synchronous = !cacheEnabled)
             return
         }
         if (shaderNight != night) rebuild()
