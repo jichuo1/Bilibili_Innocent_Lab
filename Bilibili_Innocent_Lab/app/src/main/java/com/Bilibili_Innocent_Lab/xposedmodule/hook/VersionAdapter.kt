@@ -18,6 +18,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerClasses
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStyleLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStylePoints
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptAssistGate
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedPoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuAdapter
@@ -184,10 +185,10 @@ object VersionAdapter {
      * 结论是什么"；缓存合并按前缀识别，见 [mergeRuntimeWithCached]。
      * `dex.assist` 保持为 block-update 的历史 id，不改名以兼容既有缓存。
      */
-    private const val DEX_ASSIST_ID_PREFIX = "dex.assist"
-    private const val DEX_ASSIST_BLOCK_UPDATE_ID = DEX_ASSIST_ID_PREFIX
-    private const val DEX_ASSIST_COMMENT_TOPOLOGY_ID = "$DEX_ASSIST_ID_PREFIX.comment_topology"
-    private const val DEX_ASSIST_PLAYER_QUALITY_ID = "$DEX_ASSIST_ID_PREFIX.player_quality"
+    private const val DEX_ASSIST_ID_PREFIX = AdaptAssistGate.ID_PREFIX
+    private const val DEX_ASSIST_BLOCK_UPDATE_ID = AdaptAssistGate.BLOCK_UPDATE_ID
+    private const val DEX_ASSIST_COMMENT_TOPOLOGY_ID = AdaptAssistGate.COMMENT_TOPOLOGY_ID
+    private const val DEX_ASSIST_PLAYER_QUALITY_ID = AdaptAssistGate.PLAYER_QUALITY_ID
     private const val DEX_SOURCE_UNAVAILABLE = "unavailable"
     private val DEX_SOURCE_FINGERPRINT_PATTERN =
         Regex("^dex-v1:[1-9][0-9]*:[0-9a-f]{64}$")
@@ -3158,9 +3159,11 @@ object VersionAdapter {
         playerEndPageRecommendEnabled: Boolean = false,
         homeChromeEnabled: Boolean = false,
         homeChromeIconOnly: Boolean = false,
-        homeTopTabCenteringEnabled: Boolean = false
+        homeTopTabCenteringEnabled: Boolean = false,
+        blockUpdateEnabled: Boolean = false,
+        commentTopologyEnabled: Boolean = false
     ) = ensureAdapted(
-        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled, homeChromeEnabled, homeChromeIconOnly, homeTopTabCenteringEnabled
+        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled, homeChromeEnabled, homeChromeIconOnly, homeTopTabCenteringEnabled, blockUpdateEnabled, commentTopologyEnabled
     )
 
     internal fun ensureAdapted(
@@ -3181,7 +3184,9 @@ object VersionAdapter {
         playerEndPageRecommendEnabled: Boolean = false,
         homeChromeEnabled: Boolean = false,
         homeChromeIconOnly: Boolean = false,
-        homeTopTabCenteringEnabled: Boolean = false
+        homeTopTabCenteringEnabled: Boolean = false,
+        blockUpdateEnabled: Boolean = false,
+        commentTopologyEnabled: Boolean = false
     ) {
         // reset 不同意味着不是同一次安装快照，必须重新读取而不能复用已缓存的 null/旧结果。
         val startup = if (startupCache.resetTimestamp == resetTimestamp.coerceAtLeast(0L)) {
@@ -3233,6 +3238,8 @@ object VersionAdapter {
             it.id == BrandSplashDecoderAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING
         }
         val previousPopup = popupHistory?.playerPopupPromotion
+        // 更新检查、默认画质、评论脉络三类兜底：按功能需求与历史结论门控（见 AdaptAssistGate）。
+        val assistHistory = AssistHistory.of(popupHistory)
         val previouslyMissingPopup = PlayerPopupPromotionAdapter.Family.entries.filterTo(linkedSetOf()) { family ->
             popupHistory?.diagnostics.orEmpty().any { it.id == family.diagnostic && it.state == AdaptState.MISSING }
         }
@@ -3260,6 +3267,7 @@ object VersionAdapter {
                 value.diagnostics.any { it.id == BrandSplashDecoderAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING }) ||
                 HomeChromeAdapter.planned(classLoader, value.homeChrome, homeChromeEnabled, chromeAttempted, homeChromeIconOnly, homeTopTabCenteringEnabled).isNotEmpty() ||
                 HomeChromeAdapter.semanticsNeedsQuery(classLoader, value.homeChromeSemantics, homeChromeEnabled, semanticsAttempted, homeChromeIconOnly) ||
+                assistRefreshNeeded(classLoader, value, blockUpdateEnabled, playerQualityEnabled, commentTopologyEnabled) ||
                 pageRefresh || popupRefresh || classicRefresh || sponsorRefresh || kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache(
                 enabled = true,
                 applicable = KotlinDefaultWordsLocator.applicable(classLoader),
@@ -3297,7 +3305,8 @@ object VersionAdapter {
                         playerSpeedMenuEnabled, previousSpeedMenu, speedMenuAttempted,
                         searchHomeRecommendEnabled, playerEndPageRecommendEnabled, previousPages, pageAttempted,
                         homeChromeEnabled, previousChrome, chromeAttempted, homeChromeIconOnly,
-                        previousChromeSemantics, semanticsAttempted, homeTopTabCenteringEnabled) }.getOrNull()
+                        previousChromeSemantics, semanticsAttempted, homeTopTabCenteringEnabled,
+                        blockUpdateEnabled, commentTopologyEnabled, assistHistory) }.getOrNull()
                     result?.let { adapted ->
                         // 写文件缓存（loadApp 快路径载体）；校验后原子替换，旧缓存不会被半截 JSON 覆盖。
                         if (!writeCache(adapted)) {
@@ -3491,7 +3500,9 @@ object VersionAdapter {
                       homeChromeEnabled: Boolean, previousChrome: Map<String, HookPoint>,
                       chromeAttempted: Set<DexAssistQuery>, homeChromeIconOnly: Boolean,
                       previousChromeSemantics: HomeChromeSemanticsPoint?, semanticsAttempted: Boolean,
-                      homeTopTabCenteringEnabled: Boolean): AdaptResult? {
+                      homeTopTabCenteringEnabled: Boolean,
+                      blockUpdateEnabled: Boolean = false, commentTopologyEnabled: Boolean = false,
+                      assistHistory: AssistHistory = AssistHistory.EMPTY): AdaptResult? {
         val vc = biliVersionCode(context)
         val dexSource = runCatching {
             context.packageManager.getPackageInfo("tv.danmaku.bili", 0).applicationInfo
@@ -3524,6 +3535,13 @@ object VersionAdapter {
         val directTopologyOutcome = locateCommentTopologyWithDiagnostic(loader)
         val playerQualityNeedsAssist = directPlayerQuality?.defaultQualityMethod == null ||
             directPlayerQuality.usesLegacyQualityHelper()
+        // 三类兜底只在功能开启、直接定位未满足、缓存没有可复用的点、且历史没有确认缺失时入队。
+        val blockUpdatePlanned = AdaptAssistGate.needsQuery(blockUpdateEnabled, assistHistory.blockUpdate != null,
+            assistHistory.attempt(AdaptAssistGate.Family.BLOCK_UPDATE)) { directBlockUpdate != null }
+        val playerQualityPlanned = AdaptAssistGate.needsQuery(playerQualityEnabled, assistHistory.hasAssistedQuality,
+            assistHistory.attempt(AdaptAssistGate.Family.PLAYER_QUALITY)) { !playerQualityNeedsAssist }
+        val topologyPlanned = AdaptAssistGate.needsQuery(commentTopologyEnabled, assistHistory.commentTopology != null,
+            assistHistory.attempt(AdaptAssistGate.Family.COMMENT_TOPOLOGY)) { directTopologyOutcome.points != null }
         // 本轮要兜底的点合并成一趟 DEX 查询：每个代码归档只建一次 DexKit 桥。
         val dexAssist = dexSource?.let { source ->
             DexAssistSession(
@@ -3535,13 +3553,13 @@ object VersionAdapter {
                 codePaths = source.codePaths,
                 classLoader = loader,
                 planned = buildSet {
-                    if (directBlockUpdate == null) add(DexAssistQuery.BLOCK_UPDATE)
-                    if (playerQualityNeedsAssist) add(DexAssistQuery.PLAYER_DEFAULT_QUALITY)
+                    if (blockUpdatePlanned) add(DexAssistQuery.BLOCK_UPDATE)
+                    if (playerQualityPlanned) add(DexAssistQuery.PLAYER_DEFAULT_QUALITY)
                     addAll(storyQualityPlanned)
                     addAll(pagePlanned)
                     addAll(chromePlanned)
                     if (semanticsPlanned) add(DexAssistQuery.HOME_CHROME_SEMANTICS)
-                    if (directTopologyOutcome.points == null) add(DexAssistQuery.COMMENT_REPLY_MAPPER)
+                    if (topologyPlanned) add(DexAssistQuery.COMMENT_REPLY_MAPPER)
                     if (defaultWordsNeedsAssist) add(DexAssistQuery.SEARCH_DEFAULT_WORDS_KOTLIN)
                     if (sponsorNeedsAssist) addAll(SponsorPlayerLocator.queries)
                     classicMissing.forEach { add(it.query) }
@@ -3683,16 +3701,22 @@ object VersionAdapter {
         val sponsorDiagnostic = AdaptDiagnostic(SponsorPlayerLocator.DIAGNOSTIC,
             if (sponsor != null) AdaptState.FOUND else if (sponsorNeedsAssist) AdaptState.MISSING else AdaptState.NOT_APPLICABLE,
             if (!sponsorBlockEnabled) "feature-disabled" else if (directSponsor != null) "direct" else if (sponsor != null) "verified" else "unavailable-or-ambiguous")
-        val blockUpdateAssist = if (directBlockUpdate == null) {
-            locateBlockUpdateByDex(loader, dexAssist)
-        } else {
-            BlockUpdateDexAssist(
+        val blockUpdateAssist = when {
+            blockUpdatePlanned -> locateBlockUpdateByDex(loader, dexAssist)
+            directBlockUpdate != null -> BlockUpdateDexAssist(
                 point = null,
                 diagnostic = AdaptDiagnostic(
                     id = DEX_ASSIST_BLOCK_UPDATE_ID,
                     state = AdaptState.NOT_APPLICABLE,
                     detail = "block-update:not-required"
                 )
+            )
+            // 未请求（功能关闭）或历史已有结论：不查询，缓存里已有的点原样带入，诊断保留既有结论。
+            else -> BlockUpdateDexAssist(
+                point = assistHistory.blockUpdate,
+                diagnostic = AdaptAssistGate.skippedDiagnostic(AdaptAssistGate.Family.BLOCK_UPDATE, blockUpdateEnabled,
+                    assistHistory.diagnostic(AdaptAssistGate.Family.BLOCK_UPDATE),
+                    assistHistory.attempt(AdaptAssistGate.Family.BLOCK_UPDATE))
             )
         }
         val defaultWordsAssist = if (defaultWordsNeedsAssist) locateKotlinDefaultWordsByDex(dexAssist) else {
@@ -3718,16 +3742,24 @@ object VersionAdapter {
         val mineAccountMine = locateMineAccountMinePoints(loader)
         val storyFeed = locateStoryFeed(loader)
         val bottomBar = locateBottomBar(loader)
-        val playerQualityAssist = if (playerQualityNeedsAssist) {
-            locatePlayerQualityByDex(loader, dexAssist)
-        } else {
-            PlayerQualityDexAssist(
+        val playerQualityAssist = when {
+            playerQualityPlanned -> locatePlayerQualityByDex(loader, dexAssist)
+            !playerQualityNeedsAssist -> PlayerQualityDexAssist(
                 method = null,
                 diagnostic = playerQualityAssistDiagnostic(AdaptState.NOT_APPLICABLE, "not-required")
             )
+            else -> PlayerQualityDexAssist(
+                method = null,
+                diagnostic = AdaptAssistGate.skippedDiagnostic(AdaptAssistGate.Family.PLAYER_QUALITY, playerQualityEnabled,
+                    assistHistory.diagnostic(AdaptAssistGate.Family.PLAYER_QUALITY),
+                    assistHistory.attempt(AdaptAssistGate.Family.PLAYER_QUALITY))
+            )
         }
+        // 兜底实现优先于直接命中的旧包装层；跳过查询时沿用缓存里已验证的兜底实现。
+        val carriedQuality = if (playerQualityNeedsAssist && !playerQualityPlanned) assistHistory.assistedQuality else null
         val globalPlayerQuality = playerQualityAssist.method
             ?.let { locateDefaultVideoQuality(loader, assisted = it) }
+            ?: carriedQuality
             ?: directPlayerQuality
         val storyQuality = StoryQualityLocator.locate(loader, dexAssist, previousStoryQuality, storyQualityPlanned)
         val playerQuality = globalPlayerQuality?.copy(story = storyQuality)
@@ -3744,15 +3776,20 @@ object VersionAdapter {
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
         val commentFilter = locateCommentFilter(loader)
-        val topologyAssist = if (directTopologyOutcome.points == null) {
-            locateCommentTopologyMapperByDex(loader, dexAssist)
-        } else {
-            CommentTopologyDexAssist(
+        val topologyAssist = when {
+            topologyPlanned -> locateCommentTopologyMapperByDex(loader, dexAssist)
+            directTopologyOutcome.points != null -> CommentTopologyDexAssist(
                 mapperOwners = emptyList(),
                 diagnostic = commentTopologyAssistDiagnostic(
                     AdaptState.NOT_APPLICABLE,
                     "not-required"
                 )
+            )
+            else -> CommentTopologyDexAssist(
+                mapperOwners = emptyList(),
+                diagnostic = AdaptAssistGate.skippedDiagnostic(AdaptAssistGate.Family.COMMENT_TOPOLOGY, commentTopologyEnabled,
+                    assistHistory.diagnostic(AdaptAssistGate.Family.COMMENT_TOPOLOGY),
+                    assistHistory.attempt(AdaptAssistGate.Family.COMMENT_TOPOLOGY))
             )
         }
         val commentTopologyOutcome = if (topologyAssist.mapperOwners.isEmpty()) {
@@ -3761,6 +3798,7 @@ object VersionAdapter {
             locateCommentTopologyWithDiagnostic(loader, topologyAssist.mapperOwners)
         }
         val commentTopology = commentTopologyOutcome.points
+            ?: if (topologyPlanned) null else assistHistory.commentTopology
         val commentSection = locateCommentSection(loader)
         val splashAds = locateSplashAds(loader)
         val anyClassExists = COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
@@ -4683,6 +4721,56 @@ object VersionAdapter {
         return KotlinDefaultWordsDexAssist(selected?.let(KotlinDefaultWordsLocator::point),
             AdaptDiagnostic(KotlinDefaultWordsLocator.DIAGNOSTIC,
                 if (selected == null) AdaptState.MISSING else AdaptState.FOUND, reason))
+    }
+
+    /**
+     * 同宿主、同规则版本、未被重置的有效缓存里，三类兜底的既有结果与诊断。
+     * 缺缓存（宿主升级、手动重置、规则版本变化）时为 [EMPTY]，即全部视为未请求。
+     */
+    internal class AssistHistory(
+        val blockUpdate: HookPoint?,
+        val playerQuality: PlayerQualityPoints?,
+        val commentTopology: CommentTopologyPoints?,
+        private val diagnostics: List<AdaptDiagnostic>
+    ) {
+        fun attempt(family: AdaptAssistGate.Family): AdaptAssistGate.Attempt = AdaptAssistGate.attempt(diagnostics, family)
+        fun diagnostic(family: AdaptAssistGate.Family): AdaptDiagnostic? = diagnostics.lastOrNull { it.id == family.diagnosticId }
+
+        /** 缓存里已有「兜底实现」级别的默认画质点（不是旧包装层）。 */
+        val assistedQuality: PlayerQualityPoints? = playerQuality
+            ?.takeIf { it.defaultQualityMethod != null && !it.usesLegacyQualityHelper() }
+            ?.copy(story = null)
+        val hasAssistedQuality: Boolean get() = assistedQuality != null
+
+        companion object {
+            val EMPTY = AssistHistory(null, null, null, emptyList())
+            fun of(result: AdaptResult?): AssistHistory = result?.let {
+                AssistHistory(it.blockUpdate, it.playerQuality, it.commentTopology, it.diagnostics)
+            } ?: EMPTY
+        }
+    }
+
+    /**
+     * 缓存快路径：这三类兜底中，只要有一个「功能已开启、直接定位未满足、缓存没有可复用的点、且从未请求过」，
+     * 就不能走快路径，需要补扫一次（补扫之后诊断为 FOUND 或 MISSING，不再是未请求，不会逐次启动重扫）。
+     * 功能关闭时一个也不会求值，零成本。
+     */
+    internal fun assistRefreshNeeded(
+        loader: ClassLoader,
+        cached: AdaptResult,
+        blockUpdateEnabled: Boolean,
+        playerQualityEnabled: Boolean,
+        commentTopologyEnabled: Boolean
+    ): Boolean {
+        val history = AssistHistory.of(cached)
+        return AdaptAssistGate.needsSupplementalScan(blockUpdateEnabled, history.blockUpdate != null,
+            history.attempt(AdaptAssistGate.Family.BLOCK_UPDATE)) { locateBlockUpdate(loader) != null } ||
+            AdaptAssistGate.needsSupplementalScan(playerQualityEnabled, history.hasAssistedQuality,
+                history.attempt(AdaptAssistGate.Family.PLAYER_QUALITY)) {
+                locateDefaultVideoQuality(loader)?.let { it.defaultQualityMethod != null && !it.usesLegacyQualityHelper() } == true
+            } ||
+            AdaptAssistGate.needsSupplementalScan(commentTopologyEnabled, history.commentTopology != null,
+                history.attempt(AdaptAssistGate.Family.COMMENT_TOPOLOGY)) { locateCommentTopology(loader) != null }
     }
 
     private data class BlockUpdateDexAssist(

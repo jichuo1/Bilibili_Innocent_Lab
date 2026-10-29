@@ -4920,7 +4920,9 @@ class HookEntry : XposedModule() {
                         playerSpeedMenuEnabled = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig.effectiveMenuPercents(
                             prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT, 0),
                             prefs.getString(FeaturePreferences.PLAYER_SPEED_MENU_PERCENTS, "")
-                        ).isNotEmpty()
+                        ).isNotEmpty(),
+                        blockUpdateEnabled = prefs.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false),
+                        commentTopologyEnabled = prefs.getBoolean(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, false)
                     )
                 }.onFailure { throwable ->
                     logError(
