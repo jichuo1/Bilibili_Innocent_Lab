@@ -5,8 +5,6 @@ import android.opengl.EGLConfig
 import android.opengl.EGLContext
 import android.opengl.EGLDisplay
 import android.opengl.GLES20
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.nio.FloatBuffer
 
 /** 捕获与呈现线程共用的最小 GLES2/EGL 工具；每个线程各有自己的显示连接与上下文。 */
@@ -76,21 +74,15 @@ internal object FrameGl {
         return program.takeIf { status[0] != 0 }
     }
 
-    fun bindQuad(program: Int, quad: FloatBuffer) {
-        val position = GLES20.glGetAttribLocation(program, "aPosition")
-        val coordinate = GLES20.glGetAttribLocation(program, "aCoordinate")
-        GLES20.glEnableVertexAttribArray(position)
-        GLES20.glVertexAttribPointer(position, 2, GLES20.GL_FLOAT, false, 16, quad.duplicate().also { it.position(0) })
-        GLES20.glEnableVertexAttribArray(coordinate)
-        GLES20.glVertexAttribPointer(coordinate, 2, GLES20.GL_FLOAT, false, 16, quad.duplicate().also { it.position(2) })
-    }
-
     private const val CONTEXT_PRIORITY_LEVEL_IMG = 0x3100
     private const val CONTEXT_PRIORITY_HIGH_IMG = 0x3101
+}
 
-    private fun quad(vararg values: Float): FloatBuffer =
-        ByteBuffer.allocateDirect(values.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().put(values)
-
-    /** 显示：RGB8 首行（纹理 v = 0）画到屏幕顶部；捕获：OES 画面顶部画到帧缓冲首行，读回首行即画面顶部。 */
-    val FLIPPED_QUAD: FloatBuffer = quad(-1f, -1f, 0f, 1f, 1f, -1f, 1f, 1f, -1f, 1f, 0f, 0f, 1f, 1f, 1f, 0f)
+/** [FrameGlApi] 的真实实现：转调当前线程的 GLES20 上下文；无状态，可在各 GL 线程间共用。 */
+internal object FrameGlEs2 : FrameGlApi {
+    override fun attribLocation(program: Int, name: String): Int = GLES20.glGetAttribLocation(program, name)
+    override fun uniformLocation(program: Int, name: String): Int = GLES20.glGetUniformLocation(program, name)
+    override fun enableAttribute(location: Int) = GLES20.glEnableVertexAttribArray(location)
+    override fun attributePointer(location: Int, size: Int, stride: Int, data: FloatBuffer) =
+        GLES20.glVertexAttribPointer(location, size, GLES20.GL_FLOAT, false, stride, data)
 }

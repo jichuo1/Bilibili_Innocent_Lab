@@ -33,6 +33,17 @@ internal class FrameGlPresenter(
     private val timestampLeadNs = 1_000_000_000L / targetFps.coerceAtLeast(1) / 2
     /** 跟随真实 vsync 交付的网格（见 [onVsync]）；须在呈现线程启动前初始化。 */
     private val vsync = FrameVsyncGrid(1_000_000_000L / targetFps.coerceAtLeast(1))
+    /**
+     * program 句柄缓存、quad 视图与尺寸数组，归本呈现线程的 GL 上下文独占（legacy 过渡补丁，见 FrameGlHandles.kt）。
+     * 同样须在呈现线程启动前初始化；只由呈现线程的 setUp / draw / tearDown 使用。
+     */
+    private val handles = FrameGlProgramHandles(FrameGlEs2)
+    private val surfaceSize = FrameGlSurfaceSize()
+    private val windowExtent = FrameGlSurfaceSize.Source { into ->
+        val display = egl!!.display
+        EGL14.eglQuerySurface(display, window, EGL14.EGL_WIDTH, into, 0)
+        EGL14.eglQuerySurface(display, window, EGL14.EGL_HEIGHT, into, 1)
+    }
     @Volatile private var running = true
     private val thread = Thread({ loop() }, "innocent-frame-present").apply {
         priority = Thread.MAX_PRIORITY
@@ -196,6 +207,7 @@ internal class FrameGlPresenter(
                 Surface.CHANGE_FRAME_RATE_ALWAYS)
         }
         rgbProgram = FrameGl.program(VERTEX, RGB_FRAGMENT) ?: return false
+        handles.link(rgbProgram)
         rgbTexture = FrameGl.texture(GLES20.GL_TEXTURE_2D)
         GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
         return GLES20.glGetError() == GLES20.GL_NO_ERROR
@@ -222,12 +234,11 @@ internal class FrameGlPresenter(
         if (!connected) return false
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, rgbTexture)
-        val size = IntArray(2)
-        EGL14.eglQuerySurface(egl!!.display, window, EGL14.EGL_WIDTH, size, 0)
-        EGL14.eglQuerySurface(egl!!.display, window, EGL14.EGL_HEIGHT, size, 1)
-        GLES20.glViewport(0, 0, size[0], size[1])
+        // 每次绘制仍查询窗口尺寸：没有覆盖旋转/全屏/画中画/布局变化的可靠 resize 通知（见 FrameGlSurfaceSize）。
+        surfaceSize.refresh(windowExtent)
+        GLES20.glViewport(0, 0, surfaceSize.width, surfaceSize.height)
         GLES20.glUseProgram(rgbProgram)
-        FrameGl.bindQuad(rgbProgram, FrameGl.FLIPPED_QUAD)
+        handles.bindQuad(rgbProgram)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         if (GLES20.glGetError() != GLES20.GL_NO_ERROR) return false
         if (!EGLExt.eglPresentationTimeANDROID(egl!!.display, window, dueNs)) timestampRejected++
@@ -315,6 +326,8 @@ internal class FrameGlPresenter(
         if (window != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(current.display, window)
         window = EGL14.EGL_NO_SURFACE
         connected = false
+        // 上下文随之销毁：program 名可能被新上下文复用，缓存的句柄不能留到下一个上下文。
+        handles.invalidate()
         FrameGl.release(current)
         egl = null
     }
