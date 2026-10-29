@@ -57,107 +57,110 @@ internal fun MainActivity.hostBottomBarAppearanceRows(
             textSize = 12f
         }
         refreshGlassSettings = hostGlassConfigurationRows(this, bottom = true)
-        materialSwitch(key = "HostAppearancePresenter:82",
-            lparams = params(widthMatchParent = true) {
-                marginStart = 16.dp
-                topMargin = 12.dp
-                bottomMargin = 5.dp
+        // 步骤：胶囊底栏选项与触摸光效；紧随玻璃设置行，保持原构建顺序
+        deferStep {
+            materialSwitch(key = "HostAppearancePresenter:82",
+                lparams = params(widthMatchParent = true) {
+                    marginStart = 16.dp
+                    topMargin = 12.dp
+                    bottomMargin = 5.dp
+                }
+            ) {
+                capsuleOptions.add(this)
+                bindFavoriteSwitch(this, FeaturePreferences.HOST_BOTTOM_BAR_COMPACT, directToggle = true)
+                text = stringResource(R.string.host_bottom_bar_compact)
+                isAllCaps = false
+                textColor = colorResource(R.color.colorTextGray)
+                textSize = 15f
+                isChecked = hostBottomBarCompact
+                setOnCheckedChangeListener { button, checked ->
+                applyModeledToggle(FeaturePreferences.HOST_BOTTOM_BAR_COMPACT, checked, button)
             }
-        ) {
-            capsuleOptions.add(this)
-            bindFavoriteSwitch(this, FeaturePreferences.HOST_BOTTOM_BAR_COMPACT, directToggle = true)
-            text = stringResource(R.string.host_bottom_bar_compact)
-            isAllCaps = false
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 15f
-            isChecked = hostBottomBarCompact
-            setOnCheckedChangeListener { button, checked ->
-            applyModeledToggle(FeaturePreferences.HOST_BOTTOM_BAR_COMPACT, checked, button)
-        }
-        }
-        textView(key = "HostAppearancePresenter:118", lparams = params(widthMatchParent = true) { marginStart = 16.dp }) {
-            alpha = 0.6f
-            text = stringResource(R.string.host_bottom_bar_compact_tip)
-            textColor = colorResource(R.color.colorTextDark)
-            textSize = 12f
-            capsuleOptions.add(this)
-        }
-        materialSwitch(key = "HostAppearancePresenter:125",
-            lparams = params(widthMatchParent = true) {
-                marginStart = 16.dp
-                topMargin = 12.dp
-                bottomMargin = 5.dp
             }
-        ) {
-            capsuleOptions.add(this)
-            bindFavoriteSwitch(this, FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY, directToggle = true)
-            text = stringResource(R.string.host_bottom_bar_icon_only)
-            isAllCaps = false
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 15f
-            isChecked = hostBottomBarIconOnly
-            setOnCheckedChangeListener { button, checked ->
-            applyModeledToggle(FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY, checked, button)
-        }
-        }
-        textView(key = "HostAppearancePresenter:161", lparams = params(widthMatchParent = true) { marginStart = 16.dp }) {
-            alpha = 0.6f
-            text = stringResource(R.string.host_bottom_bar_icon_only_tip)
-            textColor = colorResource(R.color.colorTextDark)
-            textSize = 12f
-            capsuleOptions.add(this)
-        }
-        materialSwitch(key = "HostAppearancePresenter:168",
-            lparams = params(widthMatchParent = true) {
-                marginStart = 16.dp
-                topMargin = 12.dp
-                bottomMargin = 5.dp
+            textView(key = "HostAppearancePresenter:118", lparams = params(widthMatchParent = true) { marginStart = 16.dp }) {
+                alpha = 0.6f
+                text = stringResource(R.string.host_bottom_bar_compact_tip)
+                textColor = colorResource(R.color.colorTextDark)
+                textSize = 12f
+                capsuleOptions.add(this)
             }
-        ) {
-            capsuleOptions.add(this)
-            bindFavoriteSwitch(this, FeaturePreferences.HOST_MINE_GARB_DIM, directToggle = true)
-            bindSettingDestination(this, FeaturePreferences.HOST_MINE_GARB_DIM)
-            text = stringResource(R.string.host_mine_garb_dim)
-            isAllCaps = false
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 15f
-            isChecked = hostMineGarbDim
-            setOnCheckedChangeListener { button, checked ->
-            applyModeledToggle(FeaturePreferences.HOST_MINE_GARB_DIM, checked, button)
-        }
-        }
-        textView(key = "HostAppearancePresenter:196", lparams = params(widthMatchParent = true) { marginStart = 16.dp }) {
-            alpha = 0.6f
-            text = stringResource(R.string.host_mine_garb_dim_tip)
-            textColor = colorResource(R.color.colorTextDark)
-            textSize = 12f
-            capsuleOptions.add(this)
-        }
-        capsuleOptions.refresh()
-        materialSwitch(key = "HostAppearancePresenter:204",
-            lparams = params(widthMatchParent = true) {
-                topMargin = 12.dp
-                bottomMargin = 5.dp
+            materialSwitch(key = "HostAppearancePresenter:125",
+                lparams = params(widthMatchParent = true) {
+                    marginStart = 16.dp
+                    topMargin = 12.dp
+                    bottomMargin = 5.dp
+                }
+            ) {
+                capsuleOptions.add(this)
+                bindFavoriteSwitch(this, FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY, directToggle = true)
+                text = stringResource(R.string.host_bottom_bar_icon_only)
+                isAllCaps = false
+                textColor = colorResource(R.color.colorTextGray)
+                textSize = 15f
+                isChecked = hostBottomBarIconOnly
+                setOnCheckedChangeListener { button, checked ->
+                applyModeledToggle(FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY, checked, button)
             }
-        ) {
-            bindFavoriteSwitch(this, FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW, directToggle = true)
-            text = stringResource(R.string.host_bottom_bar_touch_glow)
-            isAllCaps = false
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 15f
-            isChecked = hostBottomBarTouchGlow
-            setOnCheckedChangeListener { button, checked ->
-            applyModeledToggle(FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW, checked, button)
-        }
-        }
-        textView(key = "HostAppearancePresenter:234",
-            lparams = params(widthMatchParent = true)
-        ) {
-            alpha = 0.6f
-            setLineSpacing(6f, 1f)
-            text = stringResource(R.string.host_bottom_bar_touch_glow_tip)
-            textColor = colorResource(R.color.colorTextDark)
-            textSize = 12f
+            }
+            textView(key = "HostAppearancePresenter:161", lparams = params(widthMatchParent = true) { marginStart = 16.dp }) {
+                alpha = 0.6f
+                text = stringResource(R.string.host_bottom_bar_icon_only_tip)
+                textColor = colorResource(R.color.colorTextDark)
+                textSize = 12f
+                capsuleOptions.add(this)
+            }
+            materialSwitch(key = "HostAppearancePresenter:168",
+                lparams = params(widthMatchParent = true) {
+                    marginStart = 16.dp
+                    topMargin = 12.dp
+                    bottomMargin = 5.dp
+                }
+            ) {
+                capsuleOptions.add(this)
+                bindFavoriteSwitch(this, FeaturePreferences.HOST_MINE_GARB_DIM, directToggle = true)
+                bindSettingDestination(this, FeaturePreferences.HOST_MINE_GARB_DIM)
+                text = stringResource(R.string.host_mine_garb_dim)
+                isAllCaps = false
+                textColor = colorResource(R.color.colorTextGray)
+                textSize = 15f
+                isChecked = hostMineGarbDim
+                setOnCheckedChangeListener { button, checked ->
+                applyModeledToggle(FeaturePreferences.HOST_MINE_GARB_DIM, checked, button)
+            }
+            }
+            textView(key = "HostAppearancePresenter:196", lparams = params(widthMatchParent = true) { marginStart = 16.dp }) {
+                alpha = 0.6f
+                text = stringResource(R.string.host_mine_garb_dim_tip)
+                textColor = colorResource(R.color.colorTextDark)
+                textSize = 12f
+                capsuleOptions.add(this)
+            }
+            capsuleOptions.refresh()
+            materialSwitch(key = "HostAppearancePresenter:204",
+                lparams = params(widthMatchParent = true) {
+                    topMargin = 12.dp
+                    bottomMargin = 5.dp
+                }
+            ) {
+                bindFavoriteSwitch(this, FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW, directToggle = true)
+                text = stringResource(R.string.host_bottom_bar_touch_glow)
+                isAllCaps = false
+                textColor = colorResource(R.color.colorTextGray)
+                textSize = 15f
+                isChecked = hostBottomBarTouchGlow
+                setOnCheckedChangeListener { button, checked ->
+                applyModeledToggle(FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW, checked, button)
+            }
+            }
+            textView(key = "HostAppearancePresenter:234",
+                lparams = params(widthMatchParent = true)
+            ) {
+                alpha = 0.6f
+                setLineSpacing(6f, 1f)
+                text = stringResource(R.string.host_bottom_bar_touch_glow_tip)
+                textColor = colorResource(R.color.colorTextDark)
+                textSize = 12f
+            }
         }
     }
 }

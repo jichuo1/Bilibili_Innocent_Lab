@@ -170,6 +170,12 @@ internal object SettingsUiSource {
      */
     fun code(source: String): String = scan(source, blankStrings = false)
 
+    /**
+     * 注释与字符串都抹成等量空白的结构视图，长度与 [source] 逐字符对齐；
+     * 括号 / 花括号配对与调用点扫描只能在这份副本上做，读字符串内容仍回原文取同一下标。
+     */
+    fun masked(source: String): String = mask(source)
+
     /** [source] 里所有名为 [name] 的函数声明（含签名），按出现顺序。 */
     fun functions(source: String, name: String): List<String> {
         val masked = mask(source)
