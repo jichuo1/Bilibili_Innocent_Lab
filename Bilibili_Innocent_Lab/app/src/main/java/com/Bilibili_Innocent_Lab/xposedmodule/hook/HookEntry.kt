@@ -17,6 +17,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import io.github.libxposed.api.XposedModule
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindBudget
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindProbe
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindQueue
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentLongPressTimer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationEntryGate
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationFeatureInstaller
@@ -1300,8 +1303,16 @@ class HookEntry : XposedModule() {
             val rawText: String?,
             val checkReply: Boolean,
             val rawTrusted: Boolean,
-            val commentItem: Any?,
-            val generation: Long
+            val commentItem: Any?
+        )
+
+        private val commentBindClock = CommentBindProbe.Clock { System.nanoTime() }
+
+        /** 评论绑定批处理的有界诊断，默认关闭；安装评论 Hook 时按 Log.isLoggable 决定是否打开。 */
+        private val commentBindProbe = CommentBindProbe(commentBindClock)
+        private val commentBindBudgetPolicy = CommentBindBudget.Policy(
+            budgetNs = 2_000_000L,
+            starvationLimitNs = 500_000_000L
         )
 
         private val commentBindingGenerationSerial = java.util.concurrent.atomic.AtomicLong(0L)
@@ -1310,7 +1321,7 @@ class HookEntry : XposedModule() {
         private val latestCommentBindingGeneration = java.util.WeakHashMap<View, Long>()
 
         /** 待绑定评论队列，主线程 drain。 */
-        private val pendingCommentBinds = java.util.ArrayList<PendingCommentBind>()
+        private val pendingCommentBinds = CommentBindQueue<PendingCommentBind>()
         private val pendingBindLock = Any()
 
         /** drain 是否已调度（避免重复 post） */
@@ -1322,7 +1333,7 @@ class HookEntry : XposedModule() {
             HostThreadGuard.runnable("free_copy.bind_drain_retry") { drainCommentBinds() }
 
         private fun scheduleCommentBindRetry(delayMs: Long) {
-            val hasPending = synchronized(pendingBindLock) { pendingCommentBinds.isNotEmpty() }
+            val hasPending = synchronized(pendingBindLock) { pendingCommentBinds.size > 0 }
             if (!hasPending) {
                 bindDrainScheduled = false
                 mainHandlerRef?.removeCallbacks(commentBindRetryRunnable)
@@ -1926,7 +1937,9 @@ class HookEntry : XposedModule() {
             val views = java.util.ArrayList<View>(32)
             var hasReply = false
             var hasDate = false
+            val probing = commentBindProbe.enabled
             fun collect(v: View): Boolean {
+                if (probing) commentBindProbe.countNode()
                 val subtreeStart = views.size
                 val isRecyclerView = hostRecyclerViewClass?.isInstance(v) == true
                 if (v is android.widget.TextView) {
@@ -1976,6 +1989,7 @@ class HookEntry : XposedModule() {
                 return containsImage
             }
             collect(root)
+            if (probing) commentBindProbe.noteBindable(views.size)
             // 评论判定：有「回复」按钮或有日期文本任一即可；两者皆无 → 视为视频卡片
             // 等非评论 holder，跳过（t0 基类混排的过滤初衷保持不变）
             if (checkReply && !hasReply && !hasDate) {
@@ -2205,20 +2219,25 @@ class HookEntry : XposedModule() {
                     preserveGeneration = true
                 )
             }
+            val enqueuedAtNanos = commentBindClock.nanoTime()
+            var replacedBinds = 0
+            var overflowBinds = 0
+            var queuedAfter = 0
             synchronized(pendingBindLock) {
-                // RecyclerView 会复用同一个 itemView；同一 View 的旧任务若留在队列，可能
-                // 在“评论 → 热门评论头部”重绑后又把旧 raw 写回来。按身份只保留最新任务，
-                // 同时限制队列长度，避免快速滚动积累已经离开视口的无效全树遍历。
-                for (i in pendingCommentBinds.lastIndex downTo 0) {
-                    if (pendingCommentBinds[i].view === view) pendingCommentBinds.removeAt(i)
-                }
-                pendingCommentBinds.add(
-                    PendingCommentBind(
-                        view, rawText, checkReply, rawTrusted, commentItem, generation
+                // RecyclerView 会复用同一个 itemView；同一 View 只保留最新任务，队列容量固定为 96。
+                val queued = pendingCommentBinds.enqueue(
+                    CommentBindQueue.Entry(
+                        key = view,
+                        generation = generation,
+                        enqueuedAtNanos = enqueuedAtNanos,
+                        payload = PendingCommentBind(view, rawText, checkReply, rawTrusted, commentItem)
                     )
                 )
-                while (pendingCommentBinds.size > 96) pendingCommentBinds.removeAt(0)
+                replacedBinds = queued.replaced
+                overflowBinds = queued.overflowDropped
+                queuedAfter = pendingCommentBinds.size
             }
+            commentBindProbe.onEnqueue(replacedBinds, overflowBinds, queuedAfter)
             if (!bindDrainScheduled) {
                 scheduleCommentBindIdle()
             }
@@ -2230,6 +2249,7 @@ class HookEntry : XposedModule() {
          *  当前视口的评论，缩短「滑停→绑定完成」窗口——否则视口内评论长按会落到官方行为。 */
         private fun drainCommentBinds() {
             if (isAnyRecyclerViewScrolling()) {
+                commentBindProbe.onDeferred(CommentBindProbe.DEFER_SCROLL)
                 scheduleCommentBindRetry(120L)
                 return
             }
@@ -2243,6 +2263,7 @@ class HookEntry : XposedModule() {
             if (commentTouchedView != null || descTouchedView != null ||
                 (bubbleShownAtMs > 0L && android.os.SystemClock.uptimeMillis() - bubbleShownAtMs < 500L)
             ) {
+                commentBindProbe.onDeferred(CommentBindProbe.DEFER_TOUCH)
                 scheduleCommentBindRetry(80L)
                 return
             }
@@ -2253,29 +2274,35 @@ class HookEntry : XposedModule() {
             if (rvIdleSinceMs > 0L) {
                 val quiet = android.os.SystemClock.uptimeMillis() - rvIdleSinceMs
                 if (quiet < 120L) {
+                    commentBindProbe.onDeferred(CommentBindProbe.DEFER_QUIET)
                     scheduleCommentBindRetry(120L - quiet + 20L)
                     return
                 }
             }
             bindDrainScheduled = false
-            // 用户选择功能即时性优先：每批从 3 提升到 6 条，缩短初次进入/滑停后完整
-            // 监听器覆盖窗口；触摸层与正文 id 直绑已先可用，本批处理负责补齐整棵评论树。
+            val drainStartedNs = commentBindClock.nanoTime()
+            val drainToken = commentBindProbe.beginDrain()
+            var queueBefore = 0
             val batch = synchronized(pendingBindLock) {
-                val take = minOf(pendingCommentBinds.size, 6)
-                val b = java.util.ArrayList<PendingCommentBind>(take)
-                // 从尾部取：最近入队的评论（当前视口/滚动刚加载的）优先绑定
-                val start = pendingCommentBinds.size - take
-                for (i in start until pendingCommentBinds.size) b.add(pendingCommentBinds[i])
-                pendingCommentBinds.subList(start, pendingCommentBinds.size).clear()
-                b
+                queueBefore = pendingCommentBinds.size
+                pendingCommentBinds.takeBatch(drainStartedNs, commentBindBudgetPolicy.starvationLimitNs)
             }
-            for ((v, raw, checkReply, rawTrusted, commentItem, generation) in batch) {
+            val outcome = CommentBindBudget.run(
+                batch, drainStartedNs, commentBindBudgetPolicy, commentBindClock
+            ) { entry ->
+                val generation = entry.generation
+                val enqueuedAtNanos = entry.enqueuedAtNanos
+                val (v, raw, checkReply, rawTrusted, commentItem) = entry.payload
                 val stillLatest = synchronized(commentRootLock) {
                     latestCommentBindingGeneration[v] == generation
                 }
-                if (!stillLatest) continue
+                if (!stillLatest) {
+                    commentBindProbe.noteStale()
+                    return@run
+                }
                 // 仅绑定仍挂载的 view（已滚出回收/销毁的跳过）
                 if (v.isAttachedToWindow) {
+                    val itemToken = commentBindProbe.beginItem()
                     val validComment = applyFreeCopyListener(v, raw, checkReply)
                     if (validComment) {
                         registerCommentRoot(
@@ -2284,15 +2311,25 @@ class HookEntry : XposedModule() {
                     } else {
                         unregisterCommentRoot(v, expectedGeneration = generation)
                     }
+                    commentBindProbe.endItem(itemToken, enqueuedAtNanos, validComment)
                 } else {
+                    commentBindProbe.noteDetached()
                     unregisterCommentRoot(v, expectedGeneration = generation)
                 }
             }
-            // 剩余排队 → 下一空闲间隙继续（分帧分摊，动画期间每批只多 2-6ms）
-            val hasMore = synchronized(pendingBindLock) { pendingCommentBinds.isNotEmpty() }
+            // 提前结束的项按代次归还，不覆盖处理期间入队的更新任务；剩余项在下一空闲间隙继续。
+            var queueAfter = 0
+            val hasMore = synchronized(pendingBindLock) {
+                pendingCommentBinds.giveBack(outcome.unprocessed)
+                queueAfter = pendingCommentBinds.size
+                pendingCommentBinds.size > 0
+            }
+            commentBindProbe.endDrain(drainToken, queueBefore, batch.size, queueAfter)
             if (hasMore) {
                 scheduleCommentBindIdle()
             }
+            // 汇总日志放在计时区间之外；限频，且逐 item 不打日志。
+            commentBindProbe.takeReportIfDue(queueEmpty = !hasMore)?.let { frameworkLog(it) }
         }
     }
 
@@ -3765,6 +3802,10 @@ class HookEntry : XposedModule() {
                     return@installCommentHooks
                 }
                 if (!commentFreeCopyHooksInstalled.compareAndSet(false, true)) return@installCommentHooks
+                // 评论绑定诊断探针：默认关闭，只在安装时读一次系统日志标签开关，绑定路径不再查询。
+                commentBindProbe.enabled = runCatching {
+                    android.util.Log.isLoggable(CommentBindProbe.LOG_TAG, android.util.Log.DEBUG)
+                }.getOrDefault(false)
                 try {
                 // 读版本适配缓存（loadApp 阶段读 B 站 cache 文件，快路径零开销）；
                 // 缓存缺失（首次启动/版本变化后 attach 适配尚未写入）时即时快速定位
