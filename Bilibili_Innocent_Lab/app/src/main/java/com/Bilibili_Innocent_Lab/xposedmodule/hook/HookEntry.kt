@@ -4831,17 +4831,18 @@ class HookEntry : XposedModule() {
 
                             override fun onAdaptFinished(ok: Boolean) {
                                 if (ok) {
+                                    // 成功回调只读一次缓存，各 installer 共用同一份不可变结果；
+                                    // requiresAdaptationRetry 与主线程二次状态检查仍按各自分支判断。
+                                    val adapted = VersionAdapter.loadCached(attachedContext, versionAdapterResetTimestamp)
                                     if (qualityInstaller.requiresAdaptationRetry) {
-                                        qualityPointsRef.set(VersionAdapter.loadCached(attachedContext,
-                                            versionAdapterResetTimestamp)?.playerQuality)
+                                        qualityPointsRef.set(adapted?.playerQuality)
                                         hookEnvironment.postToMain?.invoke {
                                             if (qualityInstaller.requiresAdaptationRetry)
                                                 featureInstallCoordinator.installAll(listOf(qualityInstaller))
                                         }
                                     }
                                     if (popupInstaller.requiresAdaptationRetry) {
-                                        popupPointsRef.set(VersionAdapter.loadCached(attachedContext,
-                                            versionAdapterResetTimestamp)?.playerPopupPromotion)
+                                        popupPointsRef.set(adapted?.playerPopupPromotion)
                                         hookEnvironment.postToMain?.invoke {
                                             if (popupInstaller.requiresAdaptationRetry) {
                                                 featureInstallCoordinator.installAll(listOf(popupInstaller))
@@ -4849,8 +4850,7 @@ class HookEntry : XposedModule() {
                                         }
                                     }
                                     if (classicInstaller.requiresAdaptationRetry) {
-                                        classicPointsRef.set(VersionAdapter.loadCached(attachedContext,
-                                            versionAdapterResetTimestamp)?.commentClassicStyle)
+                                        classicPointsRef.set(adapted?.commentClassicStyle)
                                         hookEnvironment.postToMain?.invoke {
                                             if (classicInstaller.requiresAdaptationRetry) {
                                                 featureInstallCoordinator.installAll(listOf(classicInstaller))
@@ -4859,8 +4859,7 @@ class HookEntry : XposedModule() {
                                         }
                                     }
                                     if (sponsorInstaller.requiresAdaptationRetry) {
-                                        sponsorClassesRef.set(VersionAdapter.loadCached(attachedContext,
-                                            versionAdapterResetTimestamp)?.sponsorPlayer)
+                                        sponsorClassesRef.set(adapted?.sponsorPlayer)
                                         hookEnvironment.postToMain?.invoke {
                                             if (sponsorInstaller.requiresAdaptationRetry) {
                                                 featureInstallCoordinator.installAll(listOf(sponsorInstaller))
@@ -4868,8 +4867,7 @@ class HookEntry : XposedModule() {
                                         }
                                     }
                                     if (searchHomeInstaller.requiresAdaptationRetry || endPageInstaller.requiresAdaptationRetry) {
-                                        pagePointsRef.set(VersionAdapter.loadCached(attachedContext,
-                                            versionAdapterResetTimestamp)?.pageBoundaries)
+                                        pagePointsRef.set(adapted?.pageBoundaries)
                                         hookEnvironment.postToMain?.invoke {
                                             if (searchHomeInstaller.requiresAdaptationRetry)
                                                 featureInstallCoordinator.installAll(listOf(searchHomeInstaller))
@@ -4878,13 +4876,12 @@ class HookEntry : XposedModule() {
                                         }
                                     }
                                     run {
-                                        val adaptedChrome = VersionAdapter.loadCached(attachedContext, versionAdapterResetTimestamp)
-                                        val chrome = adaptedChrome?.homeChrome.orEmpty()
+                                        val chrome = adapted?.homeChrome.orEmpty()
                                         hookEnvironment.postToMain?.invoke {
                                             val pending = buildList {
                                                 if (homeChromeEnabled) {
                                                     if (topBarFxInstaller.updateChromePoints(chrome)) add(topBarFxInstaller)
-                                                    if (bottomBarFxInstaller.updateChromePoints(chrome, adaptedChrome?.homeChromeSemantics)) add(bottomBarFxInstaller)
+                                                    if (bottomBarFxInstaller.updateChromePoints(chrome, adapted?.homeChromeSemantics)) add(bottomBarFxInstaller)
                                                 }
                                             }
                                             if (pending.isNotEmpty()) featureInstallCoordinator.installAll(pending)
