@@ -394,15 +394,15 @@ internal fun MainActivity.purifySettingsCard(scope: LinearSettingsScope) = with(
                     updatePadding(bottom = 10.dp)
                 }
             ) {
-                purifyHomeCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_HOME))
-                purifyNavigationCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_NAVIGATION))
-                purifySearchCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_SEARCH))
-                purifyMineCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_MINE))
-                purifyPlaybackCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_PLAYBACK))
-                purifyCommentsCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_COMMENTS))
-                purifyStartupCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_STARTUP))
-                purifyShareCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_SHARE))
-                purifySharedCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_SHARED))
+                deferStep { purifyHomeCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_HOME)) }
+                deferStep { purifyNavigationCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_NAVIGATION)) }
+                deferStep { purifySearchCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_SEARCH)) }
+                deferStep { purifyMineCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_MINE)) }
+                deferStep { purifyPlaybackCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_PLAYBACK)) }
+                deferStep { purifyCommentsCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_COMMENTS)) }
+                deferStep { purifyStartupCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_STARTUP)) }
+                deferStep { purifyShareCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_SHARE)) }
+                deferStep { purifySharedCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_SHARED)) }
             }
         }
     }
@@ -411,12 +411,13 @@ internal fun MainActivity.purifySettingsCard(scope: LinearSettingsScope) = with(
 /** 增强设置卡片；进阶子分区的分类标题在此注册 marker，顺序必须与 AdvancedSettingsCategory 一致。 */
 /**
  * @param uiSettings 只有播放能力那一组是**按动态 key 循环**建开关的，拿不到对应的镜像字段，
- *   所以要把启动快照传进来。刻意用参数而不是字段：快照只在 `onCreate` 构建期有效，
- *   写回偏好之后它就是过期的（见 AGENTS.md 里 `uiSettings` 那条红线）。
+ *   所以要有偏好快照。刻意用参数而不是字段：快照只在构建期有效，写回偏好之后它就是过期的
+ *   （见 AGENTS.md 里 `uiSettings` 那条红线）。进阶分类被推迟成独立步骤（见 [SettingsPagePlan]），
+ *   所以传的是读取函数，由播放分类的步骤在**执行时**才读，而不是壳构建时就读一份。
  */
 internal fun MainActivity.enhancementSettingsCard(
     scope: LinearSettingsScope,
-    uiSettings: ModuleUiSettings
+    uiSettings: () -> ModuleUiSettings
 ) = with(scope) {
     linearLayout(key = "SettingsCardSections:462",
         lparams = params(widthMatchParent = true) {
@@ -582,12 +583,12 @@ internal fun MainActivity.enhancementSettingsCard(
                     updatePadding(bottom = 10.dp)
                 }
             ) {
-                enhanceBrowsingCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_BROWSING))
-                enhancePlaybackCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_PLAYBACK), uiSettings)
-                enhanceLiveCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_LIVE))
-                enhanceCommentsCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_COMMENTS))
-                enhanceDisplayCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_DISPLAY))
-                enhanceSystemCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_SYSTEM))
+                deferStep { enhanceBrowsingCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_BROWSING)) }
+                deferStep { enhancePlaybackCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_PLAYBACK), uiSettings()) }
+                deferStep { enhanceLiveCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_LIVE)) }
+                deferStep { enhanceCommentsCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_COMMENTS)) }
+                deferStep { enhanceDisplayCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_DISPLAY)) }
+                deferStep { enhanceSystemCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_SYSTEM)) }
             }
         }
     }

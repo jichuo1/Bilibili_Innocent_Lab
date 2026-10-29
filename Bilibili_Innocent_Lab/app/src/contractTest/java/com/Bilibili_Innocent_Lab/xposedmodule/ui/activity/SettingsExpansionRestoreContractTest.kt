@@ -28,13 +28,19 @@ class SettingsExpansionRestoreContractTest {
         val decode = create.indexOf("restoreSettingsExpansionState(savedInstanceState)")
         val mount = create.indexOf("setMeguvizContentView")
         assertTrue(decode >= 0 && mount > decode)
-        val page = SettingsUiSource.function("buildSettingsPage")
-        val apply = page.indexOf("applyRestoredSettingsExpansion(index)")
-        assertTrue(apply > page.indexOf("with(scope)"))
-        assertTrue(page.indexOf("styleHomeControls(parent)") > apply)
+        // 页面构建拆成步骤；展开状态恢复与样式作为收尾单元，在全部步骤之后统一执行一次。
+        val page = SettingsUiSource.function("settingsPagePlan")
+        val finish = page.after("return SettingsPagePlan(steps) {")
+        val apply = finish.indexOf("applyRestoredSettingsExpansion(index)")
+        assertTrue(apply >= 0)
+        assertTrue(finish.indexOf("styleHomeControls(parent)") > apply)
+        assertTrue(page.indexOf("val steps") in 0 until page.indexOf("return SettingsPagePlan(steps)"))
+        val advance = SettingsUiSource.functions(SettingsUiSource.file("SettingsHomePresenter"), "advancePage").single()
+        assertTrue(advance.indexOf("planPage(index, contents[index])") >= 0)
+        assertTrue(advance.indexOf("schedulePageRestore(index)") > advance.indexOf("planPage(index, contents[index])"))
+        assertTrue(advance.indexOf("builtPages[index] = true") > advance.indexOf("plan.isComplete"))
         val ensure = SettingsUiSource.functions(SettingsUiSource.file("SettingsHomePresenter"), "ensurePage").single()
-        assertTrue(ensure.indexOf("buildPage(index, contents[index])") >= 0)
-        assertTrue(ensure.indexOf("schedulePageRestore(index)") > ensure.indexOf("buildPage(index, contents[index])"))
+        assertTrue(ensure.contains("advancePage(index, untilComplete = true)"))
     }
 
     @Test fun restoreUsesTheRealMotionSnapProtocolOnlyForTheNewPage() {

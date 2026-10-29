@@ -43,6 +43,13 @@ class AdvancedCategoryTreeTest {
         }
     }
 
+    /**
+     * 进阶分类在卡片里写成 `deferStep { builder(advancedCategoryScope(...)) }`：它们被推迟成紧随壳之后的独立步骤，
+     * 但顺序仍由这里的源码顺序决定。解析顺序时先把单行包装还原成直接调用。
+     */
+    private fun unwrapDeferred(block: String): String =
+        Regex("""^(\s*)deferStep \{ (.+) }\s*$""", RegexOption.MULTILINE).replace(block) { "${it.groupValues[1]}${it.groupValues[2]}" }
+
     /** 取 [anchor] 所在控件的子控件块（`) {` 之后那一段，花括号配对）。 */
     private fun childrenBlockAfter(anchor: String): String {
         val at = main.indexOf(anchor)
@@ -57,7 +64,7 @@ class AdvancedCategoryTreeTest {
                 '{' -> depth++
                 '}' -> {
                     depth--
-                    if (depth == 0) return main.substring(start, i)
+                    if (depth == 0) return unwrapDeferred(main.substring(start, i))
                 }
             }
             i++
