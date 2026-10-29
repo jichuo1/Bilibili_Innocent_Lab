@@ -1,5 +1,6 @@
 #include "frame_engine.h"
 
+#include "frame_guard_geometry.h"
 #include "upstream/rife_warp.h"
 #if NCNN_VULKAN
 #include "frame_preproc.comp.hex.h"
@@ -116,12 +117,7 @@ ncnn::Mat inputTensor(ImageView image, int paddedWidth, int paddedHeight) {
 // 再把光流（数值 ×scale）与遮罩上采样到全分辨率，用全分辨率原帧做 Warp 与融合。
 // 末段与 flownet.param 的 warp_6/warp_7/mul_76/mul_77/add_78 同构：blob 327 为 4 通道光流，332 为遮罩。
 // 运动置信度分块：与 frame_fused*.comp 的 GUARD_TILES_X/Y 一致。
-constexpr int GuardTilesX = 16, GuardTilesY = 9, GuardTiles = GuardTilesX * GuardTilesY;
-// 分块不可靠像素千分比：达到前者直接换成最近原帧；达到后者且与已换分块相邻时一并替换。
-constexpr int TilePatchPermille = 300, TileNeighbourPermille = 50;
-
-// 静止分块：抽样平均每通道绝对差不超过此值（0..255）。
-constexpr double StaticTileDiff = 3.0;
+// 分块常量与抽样几何见 frame_guard_geometry.h（过渡补丁，归 MeguvizRIFE）。
 
 // 每个 16×9 分块在两帧间的抽样平均通道绝对差（约 320×180 网格）。
 void tileMotion(const ImageView& a, const ImageView& b, std::array<double, GuardTiles>& out) {
@@ -228,6 +224,8 @@ public:
     std::atomic<int> unreliablePermille{0};
     std::atomic<int> patchedTiles{0};
     std::atomic<int> histogramPermille{0};
+    // 抽样几何只取决于处理尺寸；processRgb8 持有 mutex，单尺寸缓存无需额外同步。
+    GuardGeometryCache guardGeometry;
     std::unique_ptr<ncnn::Net> network;
     std::unique_ptr<ncnn::Net> downscale;
     std::unique_ptr<ncnn::Net> upscale;
@@ -696,52 +694,14 @@ Status Engine::processRgb8(ImageView left, ImageView right, float timestep, Muta
                         return {Code::InvalidOutput};
                     std::array<bool, GuardTiles> patch{};
                     if (impl_->fusedWarp && impl_->motionGuard) {
-                        // 抽样：每 8 组（每组 4 像素）计一组，按组首像素归入分块，与着色器一致。
+                        // 抽样归属只由尺寸决定：按尺寸缓存，同尺寸连续帧不再逐帧重算；
+                        // 没有 patch 时不计算 tileMotion（决策见 frame_guard_geometry.h）。
                         const auto* counts = static_cast<const std::uint32_t*>(flagged.data);
-                        std::array<std::int64_t, GuardTiles> sampledTiles{};
-                        const std::int64_t pixels = static_cast<std::int64_t>(left.width) * left.height;
-                        std::int64_t sampled = 0;
-                        for (std::int64_t first = 0; first < pixels; first += 32) {
-                            const std::int64_t ty = first / left.width, tx = first - ty * left.width;
-                            const auto n = std::min<std::int64_t>(4, pixels - first);
-                            sampledTiles[static_cast<std::size_t>((ty * GuardTilesY / left.height) * GuardTilesX + tx * GuardTilesX / left.width)] += n;
-                            sampled += n;
-                        }
-                        impl_->unreliablePermille.store(static_cast<int>(std::min<std::int64_t>(1000, counts[1] * 1000 / std::max<std::int64_t>(1, sampled))));
-                        // 局部转场（画中画、分屏切换、局部字幕卡）：多数像素不可靠的分块换成最近原帧；
-                        // 与之相邻、也有相当比例不可靠的分块一并替换，避免接缝处残留拉扯。
-                        std::array<int, GuardTiles> permille{};
-                        for (int t = 0; t < GuardTiles; ++t)
-                            permille[t] = sampledTiles[t] ? static_cast<int>(counts[2 + t] * 1000 / sampledTiles[t]) : 0;
-                        for (int t = 0; t < GuardTiles; ++t) patch[t] = permille[t] >= TilePatchPermille;
-                        std::array<bool, GuardTiles> core = patch;
-                        for (int t = 0; t < GuardTiles; ++t) {
-                            if (core[t] || permille[t] < TileNeighbourPermille) continue;
-                            const int x = t % GuardTilesX, y = t / GuardTilesX;
-                            for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
-                                const int nx = x + dx, ny = y + dy;
-                                if (nx >= 0 && ny >= 0 && nx < GuardTilesX && ny < GuardTilesY && core[ny * GuardTilesX + nx]) patch[t] = true;
-                            }
-                        }
-                        // 分块回填只在周围静止时才不可见（分屏切换、静止画面上的画中画）。运动画面里（快速摇镜、
-                        // 运动模糊）原帧方块与周围补帧对不上，形成拼贴方块并让该区域退回 30 fps——宿主真机抓帧所见。
-                        // 已选分块周围的未选邻块里运动的超过三分之一时（摇镜：几乎全部在动），整帧都不回填；
-                        // 局部切换（分屏、画中画）只有边界上部分变化的少数邻块在动。
-                        std::array<double, GuardTiles> motion{};
-                        tileMotion(left, right, motion);
-                        std::array<bool, GuardTiles> ring{};
-                        for (int t = 0; t < GuardTiles; ++t) {
-                            if (!patch[t]) continue;
-                            const int x = t % GuardTilesX, y = t / GuardTilesX;
-                            for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
-                                const int nx = x + dx, ny = y + dy;
-                                if (nx < 0 || ny < 0 || nx >= GuardTilesX || ny >= GuardTilesY) continue;
-                                if (!patch[ny * GuardTilesX + nx]) ring[ny * GuardTilesX + nx] = true;
-                            }
-                        }
-                        int ringTiles = 0, movingRing = 0;
-                        for (int t = 0; t < GuardTiles; ++t) if (ring[t]) { ++ringTiles; if (motion[t] > StaticTileDiff) ++movingRing; }
-                        if (movingRing * 3 > ringTiles) patch.fill(false);
+                        const auto& geometry = impl_->guardGeometry.get(left.width, left.height);
+                        const TileDecision decision = decideTilePatches(counts, geometry,
+                            [&](std::array<double, GuardTiles>& motion) { tileMotion(left, right, motion); });
+                        impl_->unreliablePermille.store(decision.unreliablePermille);
+                        patch = decision.patch;
                         impl_->histogramPermille.store(histogramDistancePermille(left, right));
                     }
                     // No output writes until fence completion and the finite-value flag are validated.
