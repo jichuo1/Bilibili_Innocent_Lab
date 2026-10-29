@@ -180,10 +180,28 @@ internal class FrameInterpolationEngineHolder(
         }
         backend = engine
         // 真机：首次推理某分辨率时分配显存与编译着色器，远超槽位预算；先在各尺寸上各跑一次。
-        for ((width, height) in WARM_SIZES + capabilitySizes) warm(engine, width, height)
-        modelName = modelDirectory.name
-        measureCapability(engine)
+        // 准备会话内共用一套 scratch（warm 与能力测量），会话结束释放引用。
+        withScratch(WARM_SIZES + capabilitySizes) { arena ->
+            val hint = scratchHint(WARM_SIZES + capabilitySizes)
+            for ((width, height) in WARM_SIZES + capabilitySizes) warm(engine, width, height, arena, hint)
+            modelName = modelDirectory.name
+            measureCapability(engine, arena)
+        }
     }
+
+    /** 以 [sizes] 中最大的一帧为容量提示开一个准备会话；无论结果如何都释放引用。 */
+    private inline fun <T> withScratch(sizes: List<Pair<Int, Int>>, block: (FrameScratchArena) -> T): T {
+        val arena = FrameScratchArena()
+        try {
+            return block(arena)
+        } finally {
+            log("engine.scratch", "allocations=${arena.allocations} bytes=${arena.allocatedBytes} zeroed=${arena.zeroedBytes} sizes=${sizes.size}")
+            arena.close()
+        }
+    }
+
+    private fun scratchHint(sizes: List<Pair<Int, Int>>): Int =
+        sizes.maxOfOrNull { (width, height) -> (width.toLong() * height * 3).coerceAtMost(FrameScratchArena.MAX_BYTES.toLong()).toInt() } ?: 1
 
     @Volatile private var modelName = ""
 
@@ -191,15 +209,24 @@ internal class FrameInterpolationEngineHolder(
      * 能力测量。启动时 GPU 可能被短暂占满（宿主冷启动、另一插帧实例），测得的耗时远高于平时而判为不可用；
      * 后台有限重试保持 ≥ [CAPABILITY_RETRY_NS] 的间隔；耗尽后，仅较晚的新播放可重启恢复窗口。
      */
-    private fun measureCapability(engine: FrameInterpolationBackend) {
+    private fun measureCapability(engine: FrameInterpolationBackend, arena: FrameScratchArena? = null) {
+        if (arena == null) {
+            withScratch(capabilitySizes) { measureCapability(engine, it) }
+            return
+        }
         measuredMs.clear()
+        val probe = FrameCapabilityProbe(arena, scratchHint(capabilitySizes)) { left, right, output, width, height, leftId, rightId, flowScale ->
+            engine.process(left, right, output, width, height, 0.5f, leftId = leftId, rightId = rightId, flowScale = flowScale)
+        }
         val passing = capabilitySizes.filter { (width, height) ->
             val pixels = width.toLong() * height
             val tiers = if (pixels > 1280L * 720L && pixels <= FrameProcessingSize.STANDARD_FLOW_PIXELS) STANDARD_TIERS
                 else listOf(flowScaleFor(pixels))
             var chosenMs = 0.0
             val tier = tiers.firstOrNull { scale ->
-                medianMs(engine, width, height, scale).also { chosenMs = it } <= tierLimitMs(scale, tiers.size > 1) }
+                // 预运行或任一计时样本失败（非 OK）的档位不可用，失败样本不进入耗时分布。
+                val measured = robustMs(probe, width, height, scale)
+                measured != null && measured.also { chosenMs = it } <= tierLimitMs(scale, tiers.size > 1) }
             if (tier != null && tiers.size > 1) standardFlowScale = tier
             if (tier != null) measuredMs[pixels] = chosenMs
             tier != null
@@ -219,41 +246,40 @@ internal class FrameInterpolationEngineHolder(
     fun prewarm(width: Int, height: Int) {
         val engine = backend ?: return
         if (!warmed.add(width to height)) return
-        runCatching { executor.execute { warm(engine, width, height) } }
+        runCatching { executor.execute { withScratch(listOf(width to height)) { warm(engine, width, height, it) } } }
     }
 
-    private fun warm(engine: FrameInterpolationBackend, width: Int, height: Int) {
+    private fun warm(engine: FrameInterpolationBackend, width: Int, height: Int, arena: FrameScratchArena,
+                     capacityHint: Int = width * height * 3) {
         warmed += width to height
         val bytes = width * height * 3
         val started = System.nanoTime()
         val status = runCatching {
-            engine.process(ByteBuffer.allocateDirect(bytes), ByteBuffer.allocateDirect(bytes),
-                ByteBuffer.allocateDirect(bytes), width, height, 0.5f, flowScale = flowScaleFor(width.toLong() * height))
+            // 三份独立缓冲：两份零内容输入 + 一份输出（与逐次 allocateDirect 的内容一致）。
+            engine.process(arena.zeroed(0, bytes, capacityHint), arena.zeroed(1, bytes, capacityHint), arena.scratch(2, bytes, capacityHint),
+                width, height, 0.5f, flowScale = flowScaleFor(width.toLong() * height))
         }.getOrDefault(FrameInterpolationBackend.Status.INFERENCE_FAILED)
         log("engine.warm", "${width}x$height $status ${(System.nanoTime() - started) / 1_000_000}ms")
     }
 
-    private fun medianMs(engine: FrameInterpolationBackend, width: Int, height: Int, flowScale: Int): Double {
-        val bytes = width * height * 3
-        val frames = List(4) { ByteBuffer.allocateDirect(bytes) }
-        val out = ByteBuffer.allocateDirect(bytes)
-        // 宿主稳态：每次插帧只有后一帧是新上传的，前一帧按 ID 命中显存缓存。ID 取在账本永远达不到的区间。
-        val base = CAPABILITY_ID_BASE + (width.toLong() * 65_536L + height) * 16L + flowScale
-        fun step(i: Int) = engine.process(frames[i % 4], frames[(i + 1) % 4], out, width, height, 0.5f,
-            leftId = base + i * 0x1_0000_0000L, rightId = base + (i + 1) * 0x1_0000_0000L, flowScale = flowScale)
-        step(0)
-        // 测本机固有速度：5 次取第二快。启动时宿主 UI 或其他 GPU 负载的短暂争用会把 3 次中位数推过上限（真机：1080p
-        // 一次测得 1/4 与 1/6 档全部超限、整个进程退到 720p，另一次 1/4 档 24.8 ms 通过）。播放中的实际负载由
-        // observeLoad 按推理占用降档或缩小处理尺寸，两者分工：启动看能力，运行看负载。
-        val times = List(5) { index ->
-            val started = System.nanoTime()
-            step(index + 1)
-            (System.nanoTime() - started) / 1e6
-        }.sorted()
-        log("engine.capability", "${width}x$height flow=1/$flowScale robust=%.1fms all=%s".format(times[1],
-            times.joinToString("/") { "%.1f".format(it) }))
-        return times[1]
-    }
+    /**
+     * 本机固有速度：预运行一次后计时 5 次取第二快（启动时宿主 UI 或其他 GPU 负载的短暂争用会把 3 次中位数推过上限；
+     * 真机：1080p 一次测得 1/4 与 1/6 档全部超限、整个进程退到 720p，另一次 1/4 档 24.8 ms 通过）。
+     * 播放中的实际负载由 observeLoad 按推理占用降档或缩小处理尺寸，两者分工：启动看能力，运行看负载。
+     * 预运行或任一样本返回非 OK 时本档作废并返回 null，不产生耗时。
+     */
+    private fun robustMs(probe: FrameCapabilityProbe, width: Int, height: Int, flowScale: Int): Double? =
+        when (val result = probe.measure(width, height, flowScale)) {
+            is FrameCapabilityProbe.Result.Measured -> {
+                log("engine.capability", "${width}x$height flow=1/$flowScale robust=%.1fms all=%s".format(result.robustMs,
+                    result.allMs.joinToString("/") { "%.1f".format(it) }))
+                result.robustMs
+            }
+            is FrameCapabilityProbe.Result.Failed -> {
+                log("engine.capability.failed", "${width}x$height flow=1/$flowScale step=${result.step} status=${result.status}")
+                null
+            }
+        }
 
     @Synchronized private fun fail(reason: String, work: FramePreparationRetry.Work? = FramePreparationRetry.Work.LOAD) {
         preparationRetry.failed(work, System.nanoTime())
