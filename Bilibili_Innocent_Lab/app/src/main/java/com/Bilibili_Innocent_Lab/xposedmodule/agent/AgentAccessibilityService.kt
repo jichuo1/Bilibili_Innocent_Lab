@@ -4,9 +4,11 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.app.KeyguardManager
 import android.graphics.Bitmap
+import android.graphics.ColorSpace
 import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
+import android.hardware.HardwareBuffer
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -323,6 +325,9 @@ class AgentAccessibilityService : AccessibilityService() {
         }
     }
 
+    private val screenshotWorker = AgentScreenshotWorker()
+    private class ScreenshotOutcome(val image: String?, val error: String?)
+
     @RequiresApi(34)
     private fun screenshot(task: String, result: CompletableFuture<JSONObject>, admit: () -> Unit) {
         val state = observe(task).getJSONObject("data")
@@ -333,47 +338,78 @@ class AgentAccessibilityService : AccessibilityService() {
         takeScreenshotOfWindow(shot.tree.window, mainExecutor, object : TakeScreenshotCallback {
             override fun onFailure(errorCode: Int) { result.complete(error("screen_unavailable")) }
             override fun onSuccess(screenshot: ScreenshotResult) {
+                // 回调在主线程：只做准入、窗口/任务身份核对，把像素处理整体交给有界 worker。
+                // HardwareBuffer 在交出前归本回调释放；交出后唯一所有者是 worker 任务。
                 val buffer = screenshot.hardwareBuffer
-                var bitmap: Bitmap? = null
-                var scaled: Bitmap? = null
+                var handedOff = false
                 try {
                     check(!result.isDone) { "task_inactive" }
                     ready(task)
                     val tree = scan()
                     check(tree.window == shot.tree.window && tree.bounds == shot.tree.bounds && tree.complete &&
                         !tree.privateInput && !AgentUiPolicy.sensitiveControl(tree.text)) { "ui_snapshot_stale" }
-                    val hardware = Bitmap.wrapHardwareBuffer(buffer, screenshot.colorSpace) ?: throw IllegalStateException("screen_unavailable")
-                    bitmap = try {
-                        check(hardware.width.toLong() * hardware.height <= 8_500_000) { "screen_too_large" }
-                        hardware.copy(Bitmap.Config.ARGB_8888, false)
-                    } finally { hardware.recycle() }
-                    val source = bitmap ?: throw IllegalStateException("screen_unavailable")
                     val window = windows.firstOrNull { it.id == tree.window } ?: throw IllegalStateException("ui_snapshot_stale")
                     val frame = Rect().also(window::getBoundsInScreen)
                     check(frame.contains(tree.bounds) && !frame.isEmpty) { "screen_unavailable" }
-                    val left = ((tree.bounds.left - frame.left).toLong() * source.width / frame.width()).toInt()
-                    val top = ((tree.bounds.top - frame.top).toLong() * source.height / frame.height()).toInt()
-                    val right = ((tree.bounds.right - frame.left).toLong() * source.width / frame.width()).toInt()
-                    val bottom = ((tree.bounds.bottom - frame.top).toLong() * source.height / frame.height()).toInt()
-                    val cropped = Bitmap.createBitmap(source, left, top, maxOf(1, right - left), maxOf(1, bottom - top))
-                    val ratio = minOf(1f, 960f / maxOf(cropped.width, cropped.height))
-                    scaled = Bitmap.createScaledBitmap(cropped, maxOf(1, (cropped.width * ratio).toInt()), maxOf(1, (cropped.height * ratio).toInt()), true)
-                    if (cropped !== scaled && cropped !== source) cropped.recycle()
-                    val bytes = ByteArrayOutputStream()
-                    for (quality in listOf(70, 50, 30)) {
-                        bytes.reset(); scaled.compress(Bitmap.CompressFormat.JPEG, quality, bytes)
-                        if (bytes.size() <= 130_000) break
+                    val bounds = Rect(tree.bounds)
+                    val colorSpace = screenshot.colorSpace
+                    // 队列满不回落到调用线程（不用 CallerRuns），直接拒绝。
+                    handedOff = screenshotWorker.trySubmit {
+                        val outcome = encodeScreenshot(buffer, colorSpace, bounds, frame, result)
+                        main.post { deliverScreenshot(shot, state, outcome, result, admit) }
                     }
-                    check(bytes.size() <= 130_000) { "screen_too_large" }
-                    val image = "data:image/jpeg;base64," + Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP)
-                    visualSnapshot = shot.id; visualAt = SystemClock.elapsedRealtime()
-                    admit()
-                    result.complete(ok(state.put("image_data_url", image).put("capture_elapsed", visualAt)))
+                    check(handedOff) { "screen_busy" }
                 } catch (_: OutOfMemoryError) { result.complete(error("screen_memory_unavailable")) }
                 catch (failure: Exception) { result.complete(error(reason(failure))) }
-                finally { if (scaled !== bitmap) scaled?.recycle(); bitmap?.recycle(); buffer.close() }
+                finally { if (!handedOff) buffer.close() }
             }
         })
+    }
+
+    /** worker 线程：独占 [buffer]，结束时一定关闭；不读取任何 View 或无障碍节点。 */
+    @RequiresApi(34)
+    private fun encodeScreenshot(buffer: HardwareBuffer, colorSpace: ColorSpace, bounds: Rect, frame: Rect,
+                                 result: CompletableFuture<JSONObject>): ScreenshotOutcome {
+        var bitmap: Bitmap? = null
+        var scaled: Bitmap? = null
+        try {
+            // 请求已超时或被取消：不再做重活。
+            if (result.isDone) return ScreenshotOutcome(null, "task_inactive")
+            val hardware = Bitmap.wrapHardwareBuffer(buffer, colorSpace) ?: throw IllegalStateException("screen_unavailable")
+            bitmap = try {
+                check(hardware.width.toLong() * hardware.height <= AgentScreenshotGeometry.MAX_SOURCE_PIXELS) { "screen_too_large" }
+                hardware.copy(Bitmap.Config.ARGB_8888, false)
+            } finally { hardware.recycle() }
+            val source = bitmap ?: throw IllegalStateException("screen_unavailable")
+            val region = AgentScreenshotGeometry.cropRegion(bounds.left, bounds.top, bounds.right, bounds.bottom,
+                frame.left, frame.top, frame.width(), frame.height(), source.width, source.height)
+            val cropped = Bitmap.createBitmap(source, region[0], region[1], region[2], region[3])
+            val size = AgentScreenshotGeometry.scaledSize(cropped.width, cropped.height)
+            scaled = Bitmap.createScaledBitmap(cropped, size[0], size[1], true)
+            if (cropped !== scaled && cropped !== source) cropped.recycle()
+            val bytes = ByteArrayOutputStream()
+            for (quality in listOf(70, 50, 30)) {
+                bytes.reset(); scaled.compress(Bitmap.CompressFormat.JPEG, quality, bytes)
+                if (bytes.size() <= AgentScreenshotGeometry.MAX_ENCODED_BYTES) break
+            }
+            check(bytes.size() <= AgentScreenshotGeometry.MAX_ENCODED_BYTES) { "screen_too_large" }
+            return ScreenshotOutcome("data:image/jpeg;base64," + Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP), null)
+        } catch (_: OutOfMemoryError) { return ScreenshotOutcome(null, "screen_memory_unavailable") }
+        catch (failure: Exception) { return ScreenshotOutcome(null, reason(failure)) }
+        finally { if (scaled !== bitmap) scaled?.recycle(); bitmap?.recycle(); buffer.close() }
+    }
+
+    /** 主线程：核对任务仍有效、快照未被替换后才发布；过期结果丢弃。 */
+    private fun deliverScreenshot(shot: Snapshot, state: JSONObject, outcome: ScreenshotOutcome,
+                                  result: CompletableFuture<JSONObject>, admit: () -> Unit) {
+        if (result.isDone) return
+        try {
+            outcome.error?.let { result.complete(error(it)); return }
+            check(snapshot === shot) { "ui_snapshot_stale" }
+            admit()
+            visualSnapshot = shot.id; visualAt = SystemClock.elapsedRealtime()
+            result.complete(ok(state.put("image_data_url", outcome.image).put("capture_elapsed", visualAt)))
+        } catch (failure: Exception) { result.complete(error(reason(failure))) }
     }
 
     companion object {
