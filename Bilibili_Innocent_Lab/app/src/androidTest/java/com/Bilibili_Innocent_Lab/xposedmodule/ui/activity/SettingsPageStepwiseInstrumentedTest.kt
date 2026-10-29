@@ -8,6 +8,7 @@ import android.widget.CompoundButton
 import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.Bilibili_Innocent_Lab.xposedmodule.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -24,17 +25,22 @@ import org.junit.runner.RunWith
 class SettingsPageStepwiseInstrumentedTest {
     private class Capture(val signatures: List<List<String>>, val units: List<List<Long>>)
 
-    private fun signature(view: View, depth: Int, withText: Boolean, out: MutableList<String>) {
-        val text = if (withText && view is TextView) view.text.toString() else ""
+    private fun signature(view: View, depth: Int, masked: Set<String>, out: MutableList<String>) {
+        // 异步的 RIFE 模型状态行（“检查中…”→ 解析后的状态）两次采样时刻不同，只遮蔽这一类文案，其余文本照常逐节点比较。
+        val text = if (view is TextView) view.text.toString().let { if (it in masked) "<frame-model-status>" else it } else ""
         val checked = if (view is CompoundButton) "|checked=${view.isChecked}" else ""
         out += "${"  ".repeat(depth)}${view.javaClass.simpleName}|vis=${view.visibility}|enabled=${view.isEnabled}$checked|$text"
-        if (view is ViewGroup) for (index in 0 until view.childCount) signature(view.getChildAt(index), depth + 1, withText, out)
+        if (view is ViewGroup) for (index in 0 until view.childCount) signature(view.getChildAt(index), depth + 1, masked, out)
     }
 
     private fun capture(activity: MainActivity): Capture {
         val home = requireNotNull(activity.settingsHome) { "settings home is installed" }
-        // 第 4 页（模块页）含异步状态文案，只比较结构。
-        val signatures = (1..4).map { page -> ArrayList<String>().also { signature(home.pageRoot(page), 0, page != 4, it) } }
+        val masked = listOf(R.string.player_frame_model_checking, R.string.player_frame_model_ready, R.string.player_frame_model_missing,
+            R.string.player_frame_model_framework_unavailable, R.string.player_frame_model_framework_pending,
+            R.string.player_frame_model_framework_unsupported, R.string.player_frame_model_invalid,
+            R.string.player_frame_model_remote_failed, R.string.player_frame_model_local_failed,
+            R.string.player_frame_model_publishing, R.string.player_frame_model_download_failed).map(activity::getString).toSet()
+        val signatures = (1..4).map { page -> ArrayList<String>().also { signature(home.pageRoot(page), 0, masked, it) } }
         return Capture(signatures, (1..4).map(home::pageUnitNanos))
     }
 
