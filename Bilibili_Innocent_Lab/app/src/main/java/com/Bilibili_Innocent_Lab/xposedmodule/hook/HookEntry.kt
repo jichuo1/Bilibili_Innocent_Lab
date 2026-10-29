@@ -17,6 +17,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import io.github.libxposed.api.XposedModule
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentLongPressTimer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationEntryGate
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameRateTarget
@@ -823,7 +824,7 @@ class HookEntry : XposedModule() {
         }
 
         private fun clearCommentTouchSession(resetHandled: Boolean = true) {
-            mainHandlerRef?.removeCallbacks(commentLongPressRunnable)
+            commentLongPressTimer.cancel(mainHandlerRef?.let { commentLongPressPoster(it) })
             activeCommentTouchSessionId = 0L
             commentTouchDownEventTime = 0L
             commentTouchObservedAtMs = 0L
@@ -855,13 +856,13 @@ class HookEntry : XposedModule() {
             // session/root/target 会保留到真正的 UP/CANCEL，以便可靠消费终止事件。
             commentTouchedView = v
             val handler = mainHandlerOrNull() ?: return
-            handler.removeCallbacks(commentLongPressRunnable)
             // Handler 延时从模块真正看到 DOWN 的时刻计算；若输入事件已在主线程积压，
             // 短点的 UP 会先得到处理并撤销任务，不会被 delay=0 的旧事件时间误弹气泡。
             val dueAt = commentTouchObservedAtMs + 400L
             val delay = (dueAt - android.os.SystemClock.uptimeMillis()).coerceAtLeast(0L)
+            // 同一会话只投递一次：到期时刻由会话起点固定，后续分发层只更新上面的目标与根引用。
             // 保留同一 Runnable，以便手势取消时由 removeCallbacks 精确撤销。
-            handler.postDelayed(commentLongPressRunnable, delay)
+            commentLongPressTimer.schedule(activeCommentTouchSessionId, delay, commentLongPressPoster(handler))
         }
 
         private fun activeCommentTouchTarget(sessionId: Long): View? {
@@ -907,13 +908,21 @@ class HookEntry : XposedModule() {
             return true
         }
 
-        private val commentLongPressRunnable =
+        private val commentLongPressRunnable: Runnable =
             HostThreadGuard.runnable("free_copy.comment_long_press") {
+                commentLongPressTimer.onFired()
                 val sessionId = activeCommentTouchSessionId
                 if (!tryHandleActiveCommentLongPress(sessionId)) {
                     clearCommentTouchSession(resetHandled = true)
                 }
             }
+
+        private val commentLongPressTimer: CommentLongPressTimer by lazy { CommentLongPressTimer(commentLongPressRunnable) }
+
+        private fun commentLongPressPoster(handler: android.os.Handler) = object : CommentLongPressTimer.Poster {
+            override fun remove(runnable: Runnable) = handler.removeCallbacks(runnable)
+            override fun post(runnable: Runnable, delayMillis: Long): Boolean = handler.postDelayed(runnable, delayMillis)
+        }
 
         /** 当前气泡的显示文本，以及每个绘制 Span 已确认的剪贴板语义文本。 */
         private data class EmojiCopyValue(
@@ -4331,6 +4340,9 @@ class HookEntry : XposedModule() {
                                             ) {
                                                 clearCommentTouchSession(resetHandled = true)
                                             }
+                                            // 尚无任何评论根登记（评论区未进入前的全 App 触摸）：没有可命中的根，
+                                            // 不必为每个 DOWN 遍历祖先链；旧会话已在上面清理。
+                                            if (synchronized(commentRootLock) { commentRootRefs.isEmpty() }) return@before
                                             // 祖先链查找仅在 DOWN 执行；MOVE 热路径不加锁、不遍历。
                                             var root: View? = null
                                             var cur: View? = v
