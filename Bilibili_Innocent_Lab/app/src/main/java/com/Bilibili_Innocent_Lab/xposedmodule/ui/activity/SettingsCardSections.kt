@@ -594,7 +594,12 @@ internal fun MainActivity.enhancementSettingsCard(
     }
 }
 
-/** 宿主外观统一入口；复用原控件、偏好键及收藏监听器。 */
+/**
+ * 宿主外观统一入口；复用原控件、偏好键及收藏监听器。
+ *
+ * 卡片壳之后，每个外观区段是一个推迟步骤（见 [SettingsPagePlan]），按源码顺序紧随壳执行，
+ * 同步补完的构建顺序与拆分前逐语句一致；每段在**执行时**才读取镜像字段，不使用壳构建时读好的值。
+ */
 internal fun MainActivity.beautificationSettingsCard(scope: LinearSettingsScope) = with(scope) {
     linearLayout(key = "SettingsCardSections:668",
         lparams = params(widthMatchParent = true) {
@@ -608,157 +613,172 @@ internal fun MainActivity.beautificationSettingsCard(scope: LinearSettingsScope)
             updatePadding(left = 15.dp, top = 15.dp, right = 15.dp, bottom = 15.dp)
         }
     ) {
-        hostAppearanceHeading(this, R.string.host_appearance_top_bar)
-        hostTopBarAppearanceRows(this)
-        hostAppearanceHeading(this, R.string.host_appearance_bottom_bar)
-        hostBottomBarAppearanceRows(this)
-        hostAppearanceHeading(this, R.string.host_appearance_video_cards)
-        hostVideoCardAppearanceRows(this)
-        hostBackgroundAppearanceRows(this)
-        hostAppearanceHeading(this, R.string.host_appearance_player)
-        materialSwitch(key = "SettingsCardSections:688",
-            lparams = params(widthMatchParent = true) {
-                topMargin = 12.dp
-                bottomMargin = 5.dp
+        // 步骤：顶栏
+        deferStep {
+            hostAppearanceHeading(this, R.string.host_appearance_top_bar)
+            hostTopBarAppearanceRows(this)
+        }
+        // 步骤：底栏
+        deferStep {
+            hostAppearanceHeading(this, R.string.host_appearance_bottom_bar)
+            hostBottomBarAppearanceRows(this)
+        }
+        // 步骤：视频卡片与背景
+        deferStep {
+            hostAppearanceHeading(this, R.string.host_appearance_video_cards)
+            hostVideoCardAppearanceRows(this)
+            hostBackgroundAppearanceRows(this)
+        }
+        // 步骤：播放器与启动页
+        deferStep {
+            hostAppearanceHeading(this, R.string.host_appearance_player)
+            materialSwitch(key = "SettingsCardSections:688",
+                lparams = params(widthMatchParent = true) {
+                    topMargin = 12.dp
+                    bottomMargin = 5.dp
+                }
+            ) {
+                bindFavoriteSwitch(this, FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR, directToggle = true)
+                text = stringResource(R.string.transparent_player_status_bar)
+                isAllCaps = false
+                textColor = colorResource(R.color.colorTextGray)
+                textSize = 15f
+                isChecked = transparentPlayerStatusBar
+                setOnCheckedChangeListener { button, checked ->
+                applyModeledToggle(FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR, checked, button)
             }
-        ) {
-            bindFavoriteSwitch(this, FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR, directToggle = true)
-            text = stringResource(R.string.transparent_player_status_bar)
-            isAllCaps = false
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 15f
-            isChecked = transparentPlayerStatusBar
-            setOnCheckedChangeListener { button, checked ->
-            applyModeledToggle(FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR, checked, button)
-        }
-        }
-        textView(key = "SettingsCardSections:718",
-            lparams = params(widthMatchParent = true)
-        ) {
-            alpha = 0.6f
-            setLineSpacing(6f, 1f)
-            text = stringResource(R.string.transparent_player_status_bar_tip)
-            textColor = colorResource(R.color.colorTextDark)
-            textSize = 12f
-        }
-        hostAppearanceHeading(this, R.string.host_appearance_splash)
-        materialSwitch(key = "SettingsCardSections:728", lparams = params(widthMatchParent = true) { topMargin = 12.dp; bottomMargin = 5.dp }) {
-            bindFavoriteSwitch(this, FeaturePreferences.BRAND_SPLASH_CUSTOM, directToggle = true)
-            text = stringResource(R.string.brand_splash_custom)
-            isAllCaps = false
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 15f
-            isChecked = brandSplashCustom
-            setOnCheckedChangeListener { button, checked ->
-            applyModeledToggle(FeaturePreferences.BRAND_SPLASH_CUSTOM, checked, button)
-        }
-        }
-        textView(key = "SettingsCardSections:744", lparams = params(widthMatchParent = true)) {
-            alpha = 0.6f
-            setLineSpacing(6f, 1f)
-            text = stringResource(R.string.brand_splash_custom_tip)
-            textColor = colorResource(R.color.colorTextDark)
-            textSize = 12f
-        }
-        materialSwitch(key = "SettingsCardSections:751",
-            lparams = params(widthMatchParent = true) {
-                topMargin = 12.dp
-                bottomMargin = 5.dp
             }
-        ) {
-            bindFavoriteSwitch(this, FeaturePreferences.SPLASH_AUTO_NIGHT, directToggle = true)
-            text = stringResource(R.string.splash_auto_night)
-            isAllCaps = false
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 15f
-            isChecked = splashAutoNight
-            setOnCheckedChangeListener { button, checked ->
-            applyModeledToggle(FeaturePreferences.SPLASH_AUTO_NIGHT, checked, button)
-        }
-        }
-        textView(key = "SettingsCardSections:781",
-            lparams = params(widthMatchParent = true)
-        ) {
-            alpha = 0.6f
-            setLineSpacing(6f, 1f)
-            text = stringResource(R.string.splash_auto_night_tip)
-            textColor = colorResource(R.color.colorTextDark)
-            textSize = 12f
-        }
-        // Either copy feature can display the shared bubble.
-        val copyOptions = DependentAppearanceOptions { freeCopyEnabled || freeCopyDescEnabled }
-        refreshCopyAppearanceOptions = copyOptions::refresh
-        // 复制气泡外观同时控制评论与简介。
-        textView(key = "SettingsCardSections:794",
-            lparams = params(widthMatchParent = true) {
-                topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
-                bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
+            textView(key = "SettingsCardSections:718",
+                lparams = params(widthMatchParent = true)
+            ) {
+                alpha = 0.6f
+                setLineSpacing(6f, 1f)
+                text = stringResource(R.string.transparent_player_status_bar_tip)
+                textColor = colorResource(R.color.colorTextDark)
+                textSize = 12f
             }
-        ) {
-            text = stringResource(R.string.free_copy_appearance_settings)
-            applyAdvancedSubsectionStyle()
-        }
-        materialSwitch(key = "SettingsCardSections:803",
-            lparams = params(widthMatchParent = true) {
-                topMargin = 12.dp
-                bottomMargin = 5.dp
+            hostAppearanceHeading(this, R.string.host_appearance_splash)
+            materialSwitch(key = "SettingsCardSections:728", lparams = params(widthMatchParent = true) { topMargin = 12.dp; bottomMargin = 5.dp }) {
+                bindFavoriteSwitch(this, FeaturePreferences.BRAND_SPLASH_CUSTOM, directToggle = true)
+                text = stringResource(R.string.brand_splash_custom)
+                isAllCaps = false
+                textColor = colorResource(R.color.colorTextGray)
+                textSize = 15f
+                isChecked = brandSplashCustom
+                setOnCheckedChangeListener { button, checked ->
+                applyModeledToggle(FeaturePreferences.BRAND_SPLASH_CUSTOM, checked, button)
             }
-        ) {
-            bindFavoriteSwitch(this, HookEntry.PREF_FREE_COPY_AUTO_LIGHT, directToggle = true)
-            text = stringResource(R.string.free_copy_auto_light)
-            isAllCaps = false
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 15f
-            isChecked = freeCopyAutoLight
-            setOnCheckedChangeListener { button, checked ->
-            applyModeledToggle(HookEntry.PREF_FREE_COPY_AUTO_LIGHT, checked, button)
-        }
-            autoLightSwitch = this
-            copyOptions.add(this)
-        }
-        textView(key = "SettingsCardSections:829",
-            lparams = params(widthMatchParent = true) {
-                topMargin = 0.dp
             }
-        ) {
-            alpha = 0.6f
-            setLineSpacing(6f, 1f)
-            text = stringResource(R.string.free_copy_auto_light_tip)
-            textColor = colorResource(R.color.colorTextDark)
-            textSize = 12f
-            copyOptions.add(this)
-        }
-        materialSwitch(key = "SettingsCardSections:841",
-            lparams = params(widthMatchParent = true) {
-                topMargin = 5.dp
-                bottomMargin = 5.dp
+            textView(key = "SettingsCardSections:744", lparams = params(widthMatchParent = true)) {
+                alpha = 0.6f
+                setLineSpacing(6f, 1f)
+                text = stringResource(R.string.brand_splash_custom_tip)
+                textColor = colorResource(R.color.colorTextDark)
+                textSize = 12f
             }
-        ) {
-            bindFavoriteSwitch(this, HookEntry.PREF_FREE_COPY_LIGHT_MODE, directToggle = false)
-            text = stringResource(R.string.free_copy_light_mode)
-            isAllCaps = false
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 15f
-            isChecked = freeCopyLightMode
-            setOnCheckedChangeListener { button, checked -> applyModeledToggle(HookEntry.PREF_FREE_COPY_LIGHT_MODE, checked, button) }
-            manualLightSwitch = this
-            copyOptions.add(this)
-        }
-        textView(key = "SettingsCardSections:894",
-            lparams = params(widthMatchParent = true) {
-                topMargin = 0.dp
+            materialSwitch(key = "SettingsCardSections:751",
+                lparams = params(widthMatchParent = true) {
+                    topMargin = 12.dp
+                    bottomMargin = 5.dp
+                }
+            ) {
+                bindFavoriteSwitch(this, FeaturePreferences.SPLASH_AUTO_NIGHT, directToggle = true)
+                text = stringResource(R.string.splash_auto_night)
+                isAllCaps = false
+                textColor = colorResource(R.color.colorTextGray)
+                textSize = 15f
+                isChecked = splashAutoNight
+                setOnCheckedChangeListener { button, checked ->
+                applyModeledToggle(FeaturePreferences.SPLASH_AUTO_NIGHT, checked, button)
             }
-        ) {
-            alpha = 0.6f
-            setLineSpacing(6f, 1f)
-            text = stringResource(
-                if (freeCopyAutoLight) R.string.free_copy_light_mode_auto_tip
-                else R.string.free_copy_light_mode_tip
-            )
-            textColor = colorResource(R.color.colorTextDark)
-            textSize = 12f
-            lightModeTipView = this
-            copyOptions.add(this)
+            }
+            textView(key = "SettingsCardSections:781",
+                lparams = params(widthMatchParent = true)
+            ) {
+                alpha = 0.6f
+                setLineSpacing(6f, 1f)
+                text = stringResource(R.string.splash_auto_night_tip)
+                textColor = colorResource(R.color.colorTextDark)
+                textSize = 12f
+            }
+        }
+        // 步骤：复制气泡外观
+        deferStep {
+            // Either copy feature can display the shared bubble.
+            val copyOptions = DependentAppearanceOptions { freeCopyEnabled || freeCopyDescEnabled }
+            refreshCopyAppearanceOptions = copyOptions::refresh
+            // 复制气泡外观同时控制评论与简介。
+            textView(key = "SettingsCardSections:794",
+                lparams = params(widthMatchParent = true) {
+                    topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
+                    bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
+                }
+            ) {
+                text = stringResource(R.string.free_copy_appearance_settings)
+                applyAdvancedSubsectionStyle()
+            }
+            materialSwitch(key = "SettingsCardSections:803",
+                lparams = params(widthMatchParent = true) {
+                    topMargin = 12.dp
+                    bottomMargin = 5.dp
+                }
+            ) {
+                bindFavoriteSwitch(this, HookEntry.PREF_FREE_COPY_AUTO_LIGHT, directToggle = true)
+                text = stringResource(R.string.free_copy_auto_light)
+                isAllCaps = false
+                textColor = colorResource(R.color.colorTextGray)
+                textSize = 15f
+                isChecked = freeCopyAutoLight
+                setOnCheckedChangeListener { button, checked ->
+                applyModeledToggle(HookEntry.PREF_FREE_COPY_AUTO_LIGHT, checked, button)
+            }
+                autoLightSwitch = this
+                copyOptions.add(this)
+            }
+            textView(key = "SettingsCardSections:829",
+                lparams = params(widthMatchParent = true) {
+                    topMargin = 0.dp
+                }
+            ) {
+                alpha = 0.6f
+                setLineSpacing(6f, 1f)
+                text = stringResource(R.string.free_copy_auto_light_tip)
+                textColor = colorResource(R.color.colorTextDark)
+                textSize = 12f
+                copyOptions.add(this)
+            }
+            materialSwitch(key = "SettingsCardSections:841",
+                lparams = params(widthMatchParent = true) {
+                    topMargin = 5.dp
+                    bottomMargin = 5.dp
+                }
+            ) {
+                bindFavoriteSwitch(this, HookEntry.PREF_FREE_COPY_LIGHT_MODE, directToggle = false)
+                text = stringResource(R.string.free_copy_light_mode)
+                isAllCaps = false
+                textColor = colorResource(R.color.colorTextGray)
+                textSize = 15f
+                isChecked = freeCopyLightMode
+                setOnCheckedChangeListener { button, checked -> applyModeledToggle(HookEntry.PREF_FREE_COPY_LIGHT_MODE, checked, button) }
+                manualLightSwitch = this
+                copyOptions.add(this)
+            }
+            textView(key = "SettingsCardSections:894",
+                lparams = params(widthMatchParent = true) {
+                    topMargin = 0.dp
+                }
+            ) {
+                alpha = 0.6f
+                setLineSpacing(6f, 1f)
+                text = stringResource(
+                    if (freeCopyAutoLight) R.string.free_copy_light_mode_auto_tip
+                    else R.string.free_copy_light_mode_tip
+                )
+                textColor = colorResource(R.color.colorTextDark)
+                textSize = 12f
+                lightModeTipView = this
+                copyOptions.add(this)
+            }
         }
     }
 }
@@ -778,10 +798,17 @@ internal fun MainActivity.hostAppearanceHeading(
     }
 }
 
-/** 实验性功能卡片（含外观、风格与配色等子区）。 */
+/**
+ * 实验性功能卡片（含外观、风格与配色等子区）。
+ *
+ * 卡片壳之后，外观子区的两段内容、兼容性子卡及其三段内容各是一个推迟步骤（见 [SettingsPagePlan]）。
+ * 兼容性子卡本身也推迟到外观内容之后，嵌套推迟保持深度优先，同步补完的构建顺序与拆分前逐语句一致。
+ * @param uiSettings 只有兼容性开关按动态 key 读偏好，需要快照；传读取函数，由该步骤在**执行时**才读，
+ *   不使用壳构建时就读好的快照（见 [enhancementSettingsCard] 同名参数的说明）。
+ */
 internal fun MainActivity.experimentalFeaturesCard(
     scope: LinearSettingsScope,
-    uiSettings: ModuleUiSettings
+    uiSettings: () -> ModuleUiSettings
 ) = with(scope) {
     linearLayout(key = "SettingsCardSections:935",
         lparams = params(widthMatchParent = true) {
@@ -895,583 +922,601 @@ internal fun MainActivity.experimentalFeaturesCard(
                     updatePadding(left = 4.dp, right = 4.dp, bottom = 10.dp)
                 }
             ) {
-                textView(key = "SettingsCardSections:1047",
-                    lparams = params(widthMatchParent = true) {
-                        topMargin = 10.dp
-                        bottomMargin = 6.dp
-                    }
-                ) {
-                    text = stringResource(R.string.appearance_style_and_color)
-                    textColor = monetColors.primary
-                    textSize = 12f
-                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                }
-                materialSwitch(key = "SettingsCardSections:1058",
-                    lparams = params(widthMatchParent = true) {
-                        bottomMargin = 5.dp
-                    }
-                ) {
-                    settingsDestinations.bind(RuntimeSettingsNavigationCatalog.ADVANCED_MATERIAL, this)
-                    updatePadding(horizontal = 0.dp)
-                    text = stringResource(R.string.advanced_material_title)
-                    isAllCaps = false
-                    textColor = colorResource(R.color.colorTextGray)
-                    textSize = 15f
-                    isChecked = SkinRepository.resolveRequestedSkin(applicationContext) == SkinId.LIQUID
-                    setOnCheckedChangeListener { button, checked ->
-                        if (advancedMaterialProgrammaticSwitch) {
-                            return@setOnCheckedChangeListener
-                        }
-                        setAdvancedMaterial(button, checked)
-                    }
-                }
-                textView(key = "SettingsCardSections:1076",
-                    lparams = params(widthMatchParent = true) {
-                        bottomMargin = 10.dp
-                    }
-                ) {
-                    alpha = 0.6f
-                    setLineSpacing(6f, 1f)
-                    text = stringResource(R.string.advanced_material_summary)
-                    textColor = colorResource(R.color.colorTextDark)
-                    textSize = 12f
-                }
-                textView(key = "SettingsCardSections:1087",
-                    lparams = params(widthMatchParent = true) {
-                        bottomMargin = 10.dp
-                    }
-                ) {
-                    alpha = 0.6f
-                    setLineSpacing(6f, 1f)
-                    text = stringResource(R.string.skin_setting_tip)
-                    textColor = colorResource(R.color.colorTextDark)
-                    textSize = 12f
-                }
-                linearLayout(key = "SettingsCardSections:1098",
-                    lparams = params(widthMatchParent = true) {
-                        bottomMargin = 10.dp
-                    },
-                    init = {
-                        orientation = LinearLayout.VERTICAL
-                        background = selfRippleBackground(10f)
-                        updatePadding(horizontal = 0.dp, vertical = 9.dp)
-                        isClickable = true
-                        isFocusable = true
-                        setOnClickListener { showLiquidBackgroundDialog(it) }
-                    }
-                ) {
-                    textView(key = "SettingsCardSections:1111",
-                        lparams = params(widthMatchParent = true)
-                    ) {
-                        updatePadding(horizontal = 0.dp)
-                        text = stringResource(R.string.liquid_background_setting_title)
-                        textColor = colorResource(R.color.colorTextGray)
-                        textSize = 15f
-                    }
-                    textView(key = "SettingsCardSections:1119",
+                // 步骤：外观 · 风格与配色
+                deferStep {
+                    textView(key = "SettingsCardSections:1047",
                         lparams = params(widthMatchParent = true) {
-                            topMargin = 4.dp
+                            topMargin = 10.dp
+                            bottomMargin = 6.dp
                         }
                     ) {
-                        alpha = 0.72f
-                        liquidBackgroundSummaryView = this
-                        text = currentLiquidBackgroundSummary()
-                        textColor = colorResource(R.color.colorTextDark)
+                        text = stringResource(R.string.appearance_style_and_color)
+                        textColor = monetColors.primary
                         textSize = 12f
-                    }
-                }
-                materialSwitch(key = "SettingsCardSections:1131",
-                    lparams = params(widthMatchParent = true) {
-                        bottomMargin = 5.dp
-                    }
-                ) {
-                    settingsDestinations.bind(RuntimeSettingsNavigationCatalog.MATERIAL_COLOR_SPEC, this)
-                    updatePadding(horizontal = 0.dp)
-                    text = stringResource(R.string.material_color_spec_title)
-                    isAllCaps = false
-                    textColor = colorResource(R.color.colorTextGray)
-                    textSize = 15f
-                    isChecked = MaterialColorSpecStore.read(applicationContext) ==
-                        MaterialColorSpec.SPEC_2025
-                    setOnCheckedChangeListener { button, checked ->
-                        if (materialColorSpecProgrammaticSwitch) {
-                            return@setOnCheckedChangeListener
-                        }
-                        val target = if (checked) {
-                            MaterialColorSpec.SPEC_2025
-                        } else {
-                            MaterialColorSpec.SPEC_2021
-                        }
-                        if (MaterialColorSpecStore.write(applicationContext, target)) {
-                            button.post {
-                                if (!isFinishing && !isDestroyed) recreate()
-                            }
-                        } else {
-                            materialColorSpecProgrammaticSwitch = true
-                            button.isChecked = !checked
-                            materialColorSpecProgrammaticSwitch = false
-                            toast(stringResource(R.string.material_color_spec_save_failed))
-                        }
-                    }
-                }
-                textView(key = "SettingsCardSections:1164",
-                    lparams = params(widthMatchParent = true) {
-                        bottomMargin = 10.dp
-                    }
-                ) {
-                    alpha = 0.6f
-                    setLineSpacing(6f, 1f)
-                    text = stringResource(R.string.material_color_spec_summary)
-                    textColor = colorResource(R.color.colorTextDark)
-                    textSize = 12f
-                }
-                materialSwitch(key = "SettingsCardSections:1175",
-                    lparams = params(widthMatchParent = true) {
-                        bottomMargin = 5.dp
-                    }
-                ) {
-                    settingsDestinations.bind(RuntimeSettingsNavigationCatalog.MODAL_BACKDROP_BLUR, this)
-                    updatePadding(horizontal = 0.dp)
-                    text = stringResource(R.string.panel_window_blur_title)
-                    isAllCaps = false
-                    textColor = colorResource(R.color.colorTextGray)
-                    textSize = 15f
-                    // 未设置时默认关闭，见 ModalBackdropBlurStore.DEFAULT。
-                    isChecked = ModalBackdropBlurStore.read(applicationContext)
-                    setOnCheckedChangeListener { _, checked ->
-                        prefs().edit {
-                            putBoolean(ModalBackdropBlurStore.PREF_KEY, checked)
-                        }
-                    }
-                }
-                textView(key = "SettingsCardSections:1193",
-                    lparams = params(widthMatchParent = true) {
-                        bottomMargin = 10.dp
-                    }
-                ) {
-                    alpha = 0.6f
-                    setLineSpacing(6f, 1f)
-                    text = stringResource(R.string.panel_window_blur_summary)
-                    textColor = colorResource(R.color.colorTextDark)
-                    textSize = 12f
-                }
-                textView(key = "SettingsCardSections:1204",
-                    lparams = params(widthMatchParent = true) {
-                        topMargin = 10.dp
-                        bottomMargin = 6.dp
-                    }
-                ) {
-                    text = stringResource(R.string.display_settings)
-                    textColor = monetColors.primary
-                    textSize = 12f
-                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                }
-                linearLayout(key = "SettingsCardSections:1215",
-                    lparams = params(widthMatchParent = true) {
-                        topMargin = 8.dp
-                    },
-                    init = {
-                        orientation = LinearLayout.VERTICAL
-                        background = selfRippleBackground(10f)
-                        updatePadding(horizontal = 0.dp, vertical = 9.dp)
-                        isClickable = true
-                        isFocusable = true
-                        setOnClickListener { showAppLanguageDialog(it) }
-                    }
-                ) {
-                    textView(key = "SettingsCardSections:1228",
-                        lparams = params(widthMatchParent = true)
-                    ) {
-                        updatePadding(horizontal = 0.dp)
-                        text = stringResource(R.string.app_language)
-                        textColor = colorResource(R.color.colorTextGray)
-                        textSize = 15f
-                    }
-                    textView(key = "SettingsCardSections:1236",
-                        lparams = params(widthMatchParent = true) {
-                            topMargin = 4.dp
-                        }
-                    ) {
-                        alpha = 0.72f
-                        text = currentAppLanguageSummary()
-                        textColor = colorResource(R.color.colorTextDark)
-                        textSize = 12f
-                    }
-                }
-                textView(key = "SettingsCardSections:1247",
-                    lparams = params(widthMatchParent = true) {
-                        bottomMargin = 5.dp
-                    }
-                ) {
-                    alpha = 0.6f
-                    setLineSpacing(6f, 1f)
-                    text = stringResource(R.string.app_language_tip)
-                    textColor = colorResource(R.color.colorTextDark)
-                    textSize = 12f
-                }
-                materialSwitch(key = "SettingsCardSections:1258",
-                    lparams = params(widthMatchParent = true)
-                ) {
-                    settingsDestinations.bind(RuntimeSettingsNavigationCatalog.LAUNCHER_ICON, this)
-                    updatePadding(horizontal = 0.dp)
-                    text = stringResource(R.string.hide_app_icon_on_launcher)
-                    isAllCaps = false
-                    textColor = colorResource(R.color.colorTextGray)
-                    textSize = 15f
-                    isChecked = !isLauncherIconShowing
-                    setOnCheckedChangeListener { button, isChecked ->
-                        if (button.isPressed) hideOrShowLauncherIcon(!isChecked)
-                    }
-                }
-                textView(key = "SettingsCardSections:1271",
-                    lparams = params(widthMatchParent = true) {
-                        bottomMargin = 10.dp
-                    }
-                ) {
-                    alpha = 0.6f
-                    setLineSpacing(6f, 1f)
-                    text = stringResource(R.string.hide_app_icon_on_launcher_tip)
-                    textColor = colorResource(R.color.colorTextDark)
-                    textSize = 12f
-                }
-                textView(key = "SettingsCardSections:1282",
-                    lparams = params(widthMatchParent = true) {
-                        bottomMargin = 10.dp
-                    }
-                ) {
-                    alpha = 0.6f
-                    setLineSpacing(6f, 1f)
-                    text = stringResource(R.string.hide_app_icon_on_launcher_notice)
-                    textColor = 0xFFFF5722.toInt()
-                    textSize = 12f
-                }
-            }
-        }
-        linearLayout(key = "SettingsCardSections:1295",
-            lparams = params(widthMatchParent = true) {
-                topMargin = 10.dp
-            },
-            init = {
-                orientation = LinearLayout.VERTICAL
-                background = skinCardBackground(monetColors.surface, 12f)
-                updatePadding(horizontal = SettingsMenuSpacing.EXPERIMENTAL_SHELL_DP.dp, vertical = 4.dp)
-            }
-        ) {
-            linearLayout(key = "SettingsCardSections:1305",
-                lparams = params(widthMatchParent = true),
-                init = {
-                    gravity = Gravity.CENTER_VERTICAL
-                    minimumHeight = 52.dp
-                    updatePadding(vertical = 10.dp)
-                    background = selfRippleBackground(10f)
-                    isClickable = true
-                    isFocusable = true
-                    // 可展开标题参与全局长按弹性，同「外观」入口（见上）。
-                    setOnClickListener { toggleSecondaryMenu(SettingsSearchSection.COMPATIBILITY) }
-                }
-            ) {
-                imageView(key = "SettingsCardSections:1318",
-                    lparams = params(20.dp, 20.dp) {
-                        marginEnd = 10.dp
-                    }
-                ) {
-                    setImageResource(R.drawable.ic_extension)
-                    imageTintList = stateColorResource(R.color.colorTextGray)
-                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                }
-                linearLayout(key = "SettingsCardSections:1327",
-                    lparams = params { weight = 1f },
-                    init = { orientation = LinearLayout.VERTICAL }
-                ) {
-                    textView(key = "SettingsCardSections:1331", lparams = params(widthMatchParent = true)) {
-                        text = stringResource(R.string.experimental_compatibility)
-                        textColor = colorResource(R.color.colorTextGray)
-                        textSize = 14f
                         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     }
-                    textView(key = "SettingsCardSections:1337",
-                        lparams = params(widthMatchParent = true) { topMargin = 4.dp }
-                    ) {
-                        text = stringResource(R.string.experimental_compatibility_summary)
-                        textColor = colorResource(R.color.colorTextDark)
-                        textSize = 12f
-                        alpha = 0.68f
-                        maxLines = 2
-                        ellipsize = TextUtils.TruncateAt.END
-                    }
-                }
-                imageView(key = "SettingsCardSections:1348",
-                    lparams = params(18.dp, 18.dp) { marginStart = 8.dp }
-                ) {
-                    compatibilityChevron = this
-                    setImageResource(R.drawable.ic_chevron_down)
-                    imageTintList = stateColorResource(R.color.colorTextGray)
-                    alpha = 0.85f
-                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                }
-            }
-            linearLayout(key = "SettingsCardSections:1358",
-                lparams = params(widthMatchParent = true),
-                init = {
-                    orientation = LinearLayout.VERTICAL
-                    visibility = View.GONE
-                    compatibilityContent = this
-                    val contentPadding = SettingsMenuSpacing.matchingContentPaddingPx(
-                        referenceShellPx = SettingsMenuSpacing.ADVANCED_SHELL_DP.dp,
-                        ownShellPx = SettingsMenuSpacing.EXPERIMENTAL_SHELL_DP.dp,
-                        density = resources.displayMetrics.density
-                    )
-                    updatePadding(left = contentPadding, right = contentPadding, bottom = 10.dp)
-                }
-            ) {
-                materialSwitch(key = "SettingsCardSections:1372", lparams = params(widthMatchParent = true) { bottomMargin = 5.dp }) {
-                    settingsDestinations.bind(RuntimeSettingsNavigationCatalog.COMMUNICATION_COMPATIBILITY, this)
-                    text = stringResource(R.string.communication_compatibility_mode)
-                    textColor = colorResource(R.color.colorTextGray)
-                    textSize = 15f
-                    isAllCaps = false
-                    isChecked = uiSettings.bool(CommunicationCompatibilityStore.KEY) &&
-                        CommunicationCompatibilityStore.warningAccepted(applicationContext)
-                    compatibilityModeSwitch = this
-                    setOnCheckedChangeListener { button, checked ->
-                        if (compatibilityProgrammaticSwitch) return@setOnCheckedChangeListener
-                        compatibilityProgrammaticSwitch = true
-                        button.isChecked = CommunicationCompatibilityStore.isEnabled(applicationContext)
-                        compatibilityProgrammaticSwitch = false
-                        if (checked) showCommunicationCompatibilityConfirmDialog(anchor = button)
-                        else setCommunicationCompatibilityEnabled(false)
-                    }
-                }
-                textView(key = "SettingsCardSections:1389", lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }) {
-                    alpha = 0.6f
-                    setLineSpacing(6f, 1f)
-                    text = stringResource(R.string.communication_compatibility_tip)
-                    textColor = colorResource(R.color.colorTextDark)
-                    textSize = 12f
-                }
-                materialSwitch(key = "SettingsCardSections:1396", lparams = params(widthMatchParent = true) { bottomMargin = 5.dp }) {
-                    text = stringResource(R.string.bili_access_key_authorize)
-                    settingsDestinations.bind(SettingsCatalog.ID_BILI_ACCESS_KEY_AUTHORIZED, this)
-                    textColor = colorResource(R.color.colorTextGray)
-                    textSize = 15f
-                    isAllCaps = false
-                    isChecked = biliAccessKeyAuthorized
-                    biliAccessKeySwitch = this
-                    setOnCheckedChangeListener { button, checked ->
-                        if (biliAccessKeyProgrammaticSwitch) return@setOnCheckedChangeListener
-                        // 打开必须先过风险确认：开关先弹回原状态，确认后才真正写入。
-                        biliAccessKeyProgrammaticSwitch = true
-                        button.isChecked = biliAccessKeyAuthorized
-                        biliAccessKeyProgrammaticSwitch = false
-                        if (checked) showBiliAccessKeyConfirmDialog(anchor = button)
-                        else setBiliAccessKeyAuthorized(false)
-                    }
-                }
-                textView(key = "SettingsCardSections:1414", lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }) {
-                    alpha = 0.6f
-                    setLineSpacing(6f, 1f)
-                    text = stringResource(R.string.bili_access_key_authorize_tip)
-                    textColor = colorResource(R.color.colorTextDark)
-                    textSize = 12f
-                }
-                // JEV 语义判定配置：Key / 地址 / 灵敏度 / 首屏等待，都在同一个面板里保存。
-                textView(key = "SettingsCardSections:1422", lparams = params(widthMatchParent = true) { bottomMargin = 5.dp }) {
-                    semanticJevSummaryView = this
-                    settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_ENDPOINT, this)
-                    settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_SENSITIVITY, this)
-                    settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_WAIT_FIRST_SCREEN, this)
-                    settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_CACHE_DAYS, this)
-                    settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_PROVIDER, this)
-                    settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_MODEL, this)
-                    settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_TIMEOUT_MS, this)
-                    settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_GUIDANCE, this)
-                    (2..SemanticSource.MAX_SOURCES).forEach { index ->
-                        listOf("provider", "endpoint", "model").forEach { field ->
-                            settingsDestinations.bind("compat.semantic_source.$index.$field", this)
-                        }
-                    }
-                    text = semanticJevEntryText()
-                    textColor = colorResource(R.color.colorTextGray)
-                    textSize = 15f
-                    setLineSpacing(5f, 1f)
-                    setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-                    background = selfRippleBackground(10f)
-                    isClickable = true
-                    isFocusable = true
-                    setOnClickListener {
-                        showSemanticJevSettingsDialog(anchor = it) {
-                            semanticJevSummaryView?.text = semanticJevEntryText()
-                        }
-                    }
-                }
-                textView(key = "SettingsCardSections:1451", lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }) {
-                    alpha = 0.6f
-                    setLineSpacing(6f, 1f)
-                    text = stringResource(R.string.semantic_jev_tip)
-                    textColor = colorResource(R.color.colorTextDark)
-                    textSize = 12f
-                }
-                textView(key = "SettingsCardSections:1458", lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }) {
-                    text = stringResource(R.string.agent_title)
-                    textColor = colorResource(R.color.colorTextGray)
-                    textSize = 15f
-                    setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-                    background = selfRippleBackground(10f)
-                    isClickable = true
-                    isFocusable = true
-                    bindSettingDestination(this, com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentPreferences.ENABLED)
-                    setOnClickListener { showAgentDialog(anchor = it) }
-                }
-                materialSwitch(key = "SettingsCardSections:1469",
-                    lparams = params(widthMatchParent = true) {
-                        bottomMargin = 5.dp
-                    }
-                ) {
-                    settingsDestinations.bind(RuntimeSettingsNavigationCatalog.NO_ROOT_SUPPORT, this)
-                    text = stringResource(R.string.no_root_support_enable)
-                    isAllCaps = false
-                    textColor = colorResource(R.color.colorTextGray)
-                    textSize = 15f
-                    isChecked = noRootDesiredEnabled
-                    isEnabled = noRootDesiredEnabled ||
-                        (
-                            AndroidVersion.isAtLeast(AndroidVersion.P) &&
-                                noRootPrefsBridge != null
-                            )
-                    setOnCheckedChangeListener { _, isChecked ->
-                        if (noRootProgrammaticSwitch) return@setOnCheckedChangeListener
-                        noRootDesiredEnabled = isChecked
-                        if (isChecked) enableAndSynchronizeNoRootSupport()
-                        else disableNoRootSupport()
-                    }
-                    noRootSwitch = this
-                }
-                textView(key = "SettingsCardSections:1492",
-                    lparams = params(widthMatchParent = true)
-                ) {
-                    alpha = 0.6f
-                    setLineSpacing(6f, 1f)
-                    text = stringResource(R.string.no_root_support_tip)
-                    textColor = colorResource(R.color.colorTextDark)
-                    textSize = 12f
-                }
-                textView(key = "SettingsCardSections:1501",
-                    lparams = params(widthMatchParent = true) {
-                        topMargin = 4.dp
-                        bottomMargin = 10.dp
-                    }
-                ) {
-                    alpha = 0.8f
-                    setLineSpacing(6f, 1f)
-                    text = stringResource(noRootStatusText(currentNoRootDisplayState()))
-                    textColor = colorResource(R.color.colorTextGray)
-                    textSize = 12f
-                    noRootStatusView = this
-                }
-                materialSwitch(key = "SettingsCardSections:1514",
-                    lparams = params(widthMatchParent = true) {
-                        bottomMargin = 5.dp
-                    }
-                ) {
-                    bindFavoriteSwitch(this, HookEntry.PREF_ROAMING_COMPAT_ENABLED, directToggle = true)
-                    text = stringResource(R.string.roaming_compat_enable)
-                    isAllCaps = false
-                    textColor = colorResource(R.color.colorTextGray)
-                    textSize = 15f
-                    isChecked = roamingCompatEnabled
-                    setOnCheckedChangeListener { button, checked ->
-            applyModeledToggle(HookEntry.PREF_ROAMING_COMPAT_ENABLED, checked, button)
-        }
-                }
-                textView(key = "SettingsCardSections:1545",
-                    lparams = params(widthMatchParent = true) {
-                        topMargin = 5.dp
-                    }
-                ) {
-                    alpha = 0.6f
-                    setLineSpacing(6f, 1f)
-                    text = stringResource(R.string.roaming_compat_tip)
-                    textColor = colorResource(R.color.colorTextDark)
-                    textSize = 12f
-                }
-                // 预见式返回动画（Android 14+）：实验性开关，运行时切换 window 的
-                // OnBackInvokedCallback 体系，返回时显示系统缩放预览动画。
-                // Android 16（API 36）+ 系统对 targetSdk 36+ 的应用强制启用
-                // 预测性返回（隐藏 API 的关闭调用被忽略），开关失去实际效果，
-                // 此时整组隐藏；偏好键与备份 catalog 条目保留以兼容旧备份。
-                if (!PredictiveBack.isSystemEnforced) {
-                    materialSwitch(key = "SettingsCardSections:1562",
+                    materialSwitch(key = "SettingsCardSections:1058",
                         lparams = params(widthMatchParent = true) {
-                            topMargin = 5.dp
                             bottomMargin = 5.dp
                         }
                     ) {
-                        bindFavoriteSwitch(this, HookEntry.PREF_PREDICTIVE_BACK_ENABLED, directToggle = true)
-                        text = stringResource(R.string.predictive_back_enable)
+                        settingsDestinations.bind(RuntimeSettingsNavigationCatalog.ADVANCED_MATERIAL, this)
+                        updatePadding(horizontal = 0.dp)
+                        text = stringResource(R.string.advanced_material_title)
                         isAllCaps = false
                         textColor = colorResource(R.color.colorTextGray)
                         textSize = 15f
-                        isChecked = predictiveBackEnabled
+                        isChecked = SkinRepository.resolveRequestedSkin(applicationContext) == SkinId.LIQUID
                         setOnCheckedChangeListener { button, checked ->
-            applyModeledToggle(HookEntry.PREF_PREDICTIVE_BACK_ENABLED, checked, button)
-        }
+                            if (advancedMaterialProgrammaticSwitch) {
+                                return@setOnCheckedChangeListener
+                            }
+                            setAdvancedMaterial(button, checked)
+                        }
                     }
-                    textView(key = "SettingsCardSections:1585",
+                    textView(key = "SettingsCardSections:1076",
                         lparams = params(widthMatchParent = true) {
-                            topMargin = 0.dp
+                            bottomMargin = 10.dp
                         }
                     ) {
                         alpha = 0.6f
                         setLineSpacing(6f, 1f)
-                        text = stringResource(R.string.predictive_back_tip)
+                        text = stringResource(R.string.advanced_material_summary)
+                        textColor = colorResource(R.color.colorTextDark)
+                        textSize = 12f
+                    }
+                    textView(key = "SettingsCardSections:1087",
+                        lparams = params(widthMatchParent = true) {
+                            bottomMargin = 10.dp
+                        }
+                    ) {
+                        alpha = 0.6f
+                        setLineSpacing(6f, 1f)
+                        text = stringResource(R.string.skin_setting_tip)
+                        textColor = colorResource(R.color.colorTextDark)
+                        textSize = 12f
+                    }
+                    linearLayout(key = "SettingsCardSections:1098",
+                        lparams = params(widthMatchParent = true) {
+                            bottomMargin = 10.dp
+                        },
+                        init = {
+                            orientation = LinearLayout.VERTICAL
+                            background = selfRippleBackground(10f)
+                            updatePadding(horizontal = 0.dp, vertical = 9.dp)
+                            isClickable = true
+                            isFocusable = true
+                            setOnClickListener { showLiquidBackgroundDialog(it) }
+                        }
+                    ) {
+                        textView(key = "SettingsCardSections:1111",
+                            lparams = params(widthMatchParent = true)
+                        ) {
+                            updatePadding(horizontal = 0.dp)
+                            text = stringResource(R.string.liquid_background_setting_title)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                        }
+                        textView(key = "SettingsCardSections:1119",
+                            lparams = params(widthMatchParent = true) {
+                                topMargin = 4.dp
+                            }
+                        ) {
+                            alpha = 0.72f
+                            liquidBackgroundSummaryView = this
+                            text = currentLiquidBackgroundSummary()
+                            textColor = colorResource(R.color.colorTextDark)
+                            textSize = 12f
+                        }
+                    }
+                    materialSwitch(key = "SettingsCardSections:1131",
+                        lparams = params(widthMatchParent = true) {
+                            bottomMargin = 5.dp
+                        }
+                    ) {
+                        settingsDestinations.bind(RuntimeSettingsNavigationCatalog.MATERIAL_COLOR_SPEC, this)
+                        updatePadding(horizontal = 0.dp)
+                        text = stringResource(R.string.material_color_spec_title)
+                        isAllCaps = false
+                        textColor = colorResource(R.color.colorTextGray)
+                        textSize = 15f
+                        isChecked = MaterialColorSpecStore.read(applicationContext) ==
+                            MaterialColorSpec.SPEC_2025
+                        setOnCheckedChangeListener { button, checked ->
+                            if (materialColorSpecProgrammaticSwitch) {
+                                return@setOnCheckedChangeListener
+                            }
+                            val target = if (checked) {
+                                MaterialColorSpec.SPEC_2025
+                            } else {
+                                MaterialColorSpec.SPEC_2021
+                            }
+                            if (MaterialColorSpecStore.write(applicationContext, target)) {
+                                button.post {
+                                    if (!isFinishing && !isDestroyed) recreate()
+                                }
+                            } else {
+                                materialColorSpecProgrammaticSwitch = true
+                                button.isChecked = !checked
+                                materialColorSpecProgrammaticSwitch = false
+                                toast(stringResource(R.string.material_color_spec_save_failed))
+                            }
+                        }
+                    }
+                    textView(key = "SettingsCardSections:1164",
+                        lparams = params(widthMatchParent = true) {
+                            bottomMargin = 10.dp
+                        }
+                    ) {
+                        alpha = 0.6f
+                        setLineSpacing(6f, 1f)
+                        text = stringResource(R.string.material_color_spec_summary)
+                        textColor = colorResource(R.color.colorTextDark)
+                        textSize = 12f
+                    }
+                    materialSwitch(key = "SettingsCardSections:1175",
+                        lparams = params(widthMatchParent = true) {
+                            bottomMargin = 5.dp
+                        }
+                    ) {
+                        settingsDestinations.bind(RuntimeSettingsNavigationCatalog.MODAL_BACKDROP_BLUR, this)
+                        updatePadding(horizontal = 0.dp)
+                        text = stringResource(R.string.panel_window_blur_title)
+                        isAllCaps = false
+                        textColor = colorResource(R.color.colorTextGray)
+                        textSize = 15f
+                        // 未设置时默认关闭，见 ModalBackdropBlurStore.DEFAULT。
+                        isChecked = ModalBackdropBlurStore.read(applicationContext)
+                        setOnCheckedChangeListener { _, checked ->
+                            prefs().edit {
+                                putBoolean(ModalBackdropBlurStore.PREF_KEY, checked)
+                            }
+                        }
+                    }
+                    textView(key = "SettingsCardSections:1193",
+                        lparams = params(widthMatchParent = true) {
+                            bottomMargin = 10.dp
+                        }
+                    ) {
+                        alpha = 0.6f
+                        setLineSpacing(6f, 1f)
+                        text = stringResource(R.string.panel_window_blur_summary)
                         textColor = colorResource(R.color.colorTextDark)
                         textSize = 12f
                     }
                 }
-                // 手动重新适配：清除版本适配缓存，重启哔哩哔哩后自动重新定位 hook 点。
-                // 风格与「实验性功能」分区标题行统一：图标 + 文字 + 水波纹点击反馈；
-                // 点击弹出二级确认菜单（与「重启哔哩哔哩」确认弹窗同规格）
-                linearLayout(key = "SettingsCardSections:1600",
-                    lparams = params(widthMatchParent = true) {
-                        topMargin = 12.dp
-                        bottomMargin = 2.dp
-                    },
+                // 步骤：外观 · 显示（语言与启动器图标）
+                deferStep {
+                    textView(key = "SettingsCardSections:1204",
+                        lparams = params(widthMatchParent = true) {
+                            topMargin = 10.dp
+                            bottomMargin = 6.dp
+                        }
+                    ) {
+                        text = stringResource(R.string.display_settings)
+                        textColor = monetColors.primary
+                        textSize = 12f
+                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    }
+                    linearLayout(key = "SettingsCardSections:1215",
+                        lparams = params(widthMatchParent = true) {
+                            topMargin = 8.dp
+                        },
+                        init = {
+                            orientation = LinearLayout.VERTICAL
+                            background = selfRippleBackground(10f)
+                            updatePadding(horizontal = 0.dp, vertical = 9.dp)
+                            isClickable = true
+                            isFocusable = true
+                            setOnClickListener { showAppLanguageDialog(it) }
+                        }
+                    ) {
+                        textView(key = "SettingsCardSections:1228",
+                            lparams = params(widthMatchParent = true)
+                        ) {
+                            updatePadding(horizontal = 0.dp)
+                            text = stringResource(R.string.app_language)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                        }
+                        textView(key = "SettingsCardSections:1236",
+                            lparams = params(widthMatchParent = true) {
+                                topMargin = 4.dp
+                            }
+                        ) {
+                            alpha = 0.72f
+                            text = currentAppLanguageSummary()
+                            textColor = colorResource(R.color.colorTextDark)
+                            textSize = 12f
+                        }
+                    }
+                    textView(key = "SettingsCardSections:1247",
+                        lparams = params(widthMatchParent = true) {
+                            bottomMargin = 5.dp
+                        }
+                    ) {
+                        alpha = 0.6f
+                        setLineSpacing(6f, 1f)
+                        text = stringResource(R.string.app_language_tip)
+                        textColor = colorResource(R.color.colorTextDark)
+                        textSize = 12f
+                    }
+                    materialSwitch(key = "SettingsCardSections:1258",
+                        lparams = params(widthMatchParent = true)
+                    ) {
+                        settingsDestinations.bind(RuntimeSettingsNavigationCatalog.LAUNCHER_ICON, this)
+                        updatePadding(horizontal = 0.dp)
+                        text = stringResource(R.string.hide_app_icon_on_launcher)
+                        isAllCaps = false
+                        textColor = colorResource(R.color.colorTextGray)
+                        textSize = 15f
+                        isChecked = !isLauncherIconShowing
+                        setOnCheckedChangeListener { button, isChecked ->
+                            if (button.isPressed) hideOrShowLauncherIcon(!isChecked)
+                        }
+                    }
+                    textView(key = "SettingsCardSections:1271",
+                        lparams = params(widthMatchParent = true) {
+                            bottomMargin = 10.dp
+                        }
+                    ) {
+                        alpha = 0.6f
+                        setLineSpacing(6f, 1f)
+                        text = stringResource(R.string.hide_app_icon_on_launcher_tip)
+                        textColor = colorResource(R.color.colorTextDark)
+                        textSize = 12f
+                    }
+                    textView(key = "SettingsCardSections:1282",
+                        lparams = params(widthMatchParent = true) {
+                            bottomMargin = 10.dp
+                        }
+                    ) {
+                        alpha = 0.6f
+                        setLineSpacing(6f, 1f)
+                        text = stringResource(R.string.hide_app_icon_on_launcher_notice)
+                        textColor = 0xFFFF5722.toInt()
+                        textSize = 12f
+                    }
+                }
+            }
+        }
+        // 步骤：兼容性子卡；在外观内容之后创建，保持原构建顺序
+        deferStep {
+            linearLayout(key = "SettingsCardSections:1295",
+                lparams = params(widthMatchParent = true) {
+                    topMargin = 10.dp
+                },
+                init = {
+                    orientation = LinearLayout.VERTICAL
+                    background = skinCardBackground(monetColors.surface, 12f)
+                    updatePadding(horizontal = SettingsMenuSpacing.EXPERIMENTAL_SHELL_DP.dp, vertical = 4.dp)
+                }
+            ) {
+                linearLayout(key = "SettingsCardSections:1305",
+                    lparams = params(widthMatchParent = true),
                     init = {
-                        gravity = Gravity.CENTER or Gravity.START
-                        // 自绘涟漪（不解析主题属性 selectableItemBackground）：
-                        // 客户设备上的全局主题模块（Monet-All 等）可能把该主题属性
-                        // 解析为不透明实心 drawable，整行盖住内容 →「只剩空位但可点击」
+                        gravity = Gravity.CENTER_VERTICAL
+                        minimumHeight = 52.dp
+                        updatePadding(vertical = 10.dp)
                         background = selfRippleBackground(10f)
-                        updatePadding(horizontal = 0.dp, vertical = 9.dp)
-                        setOnClickListener { showAdaptConfirmDialog(it) }
+                        isClickable = true
+                        isFocusable = true
+                        // 可展开标题参与全局长按弹性，同「外观」入口（见上）。
+                        setOnClickListener { toggleSecondaryMenu(SettingsSearchSection.COMPATIBILITY) }
                     }
                 ) {
-                    imageView(key = "SettingsCardSections:1615",
-                        lparams = params(17.dp, 17.dp) {
-                            marginEnd = 9.dp
+                    imageView(key = "SettingsCardSections:1318",
+                        lparams = params(20.dp, 20.dp) {
+                            marginEnd = 10.dp
                         }
                     ) {
-                        setImageResource(R.drawable.ic_restart)
+                        setImageResource(R.drawable.ic_extension)
                         imageTintList = stateColorResource(R.color.colorTextGray)
-                        alpha = 0.8f
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                     }
-                    textView(key = "SettingsCardSections:1624",
-                        lparams = params {
-                            weight = 1f
+                    linearLayout(key = "SettingsCardSections:1327",
+                        lparams = params { weight = 1f },
+                        init = { orientation = LinearLayout.VERTICAL }
+                    ) {
+                        textView(key = "SettingsCardSections:1331", lparams = params(widthMatchParent = true)) {
+                            text = stringResource(R.string.experimental_compatibility)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 14f
+                            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                         }
-                    ) {
-                        isSingleLine = true
-                        text = stringResource(R.string.adapt_manual)
-                        textColor = colorResource(R.color.colorTextGray)
-                        textSize = 14f
+                        textView(key = "SettingsCardSections:1337",
+                            lparams = params(widthMatchParent = true) { topMargin = 4.dp }
+                        ) {
+                            text = stringResource(R.string.experimental_compatibility_summary)
+                            textColor = colorResource(R.color.colorTextDark)
+                            textSize = 12f
+                            alpha = 0.68f
+                            maxLines = 2
+                            ellipsize = TextUtils.TruncateAt.END
+                        }
                     }
-                    imageView(key = "SettingsCardSections:1634",
-                        lparams = params(16.dp, 16.dp)
+                    imageView(key = "SettingsCardSections:1348",
+                        lparams = params(18.dp, 18.dp) { marginStart = 8.dp }
                     ) {
-                        alpha = 0.55f
+                        compatibilityChevron = this
                         setImageResource(R.drawable.ic_chevron_down)
                         imageTintList = stateColorResource(R.color.colorTextGray)
-                        rotation = -90f
+                        alpha = 0.85f
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    }
+                }
+                linearLayout(key = "SettingsCardSections:1358",
+                    lparams = params(widthMatchParent = true),
+                    init = {
+                        orientation = LinearLayout.VERTICAL
+                        visibility = View.GONE
+                        compatibilityContent = this
+                        val contentPadding = SettingsMenuSpacing.matchingContentPaddingPx(
+                            referenceShellPx = SettingsMenuSpacing.ADVANCED_SHELL_DP.dp,
+                            ownShellPx = SettingsMenuSpacing.EXPERIMENTAL_SHELL_DP.dp,
+                            density = resources.displayMetrics.density
+                        )
+                        updatePadding(left = contentPadding, right = contentPadding, bottom = 10.dp)
+                    }
+                ) {
+                    // 步骤：兼容 · 通信兼容、授权、语义判定与 Agent 入口
+                    deferStep {
+                        materialSwitch(key = "SettingsCardSections:1372", lparams = params(widthMatchParent = true) { bottomMargin = 5.dp }) {
+                            settingsDestinations.bind(RuntimeSettingsNavigationCatalog.COMMUNICATION_COMPATIBILITY, this)
+                            text = stringResource(R.string.communication_compatibility_mode)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            isAllCaps = false
+                            isChecked = uiSettings().bool(CommunicationCompatibilityStore.KEY) &&
+                                CommunicationCompatibilityStore.warningAccepted(applicationContext)
+                            compatibilityModeSwitch = this
+                            setOnCheckedChangeListener { button, checked ->
+                                if (compatibilityProgrammaticSwitch) return@setOnCheckedChangeListener
+                                compatibilityProgrammaticSwitch = true
+                                button.isChecked = CommunicationCompatibilityStore.isEnabled(applicationContext)
+                                compatibilityProgrammaticSwitch = false
+                                if (checked) showCommunicationCompatibilityConfirmDialog(anchor = button)
+                                else setCommunicationCompatibilityEnabled(false)
+                            }
+                        }
+                        textView(key = "SettingsCardSections:1389", lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }) {
+                            alpha = 0.6f
+                            setLineSpacing(6f, 1f)
+                            text = stringResource(R.string.communication_compatibility_tip)
+                            textColor = colorResource(R.color.colorTextDark)
+                            textSize = 12f
+                        }
+                        materialSwitch(key = "SettingsCardSections:1396", lparams = params(widthMatchParent = true) { bottomMargin = 5.dp }) {
+                            text = stringResource(R.string.bili_access_key_authorize)
+                            settingsDestinations.bind(SettingsCatalog.ID_BILI_ACCESS_KEY_AUTHORIZED, this)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            isAllCaps = false
+                            isChecked = biliAccessKeyAuthorized
+                            biliAccessKeySwitch = this
+                            setOnCheckedChangeListener { button, checked ->
+                                if (biliAccessKeyProgrammaticSwitch) return@setOnCheckedChangeListener
+                                // 打开必须先过风险确认：开关先弹回原状态，确认后才真正写入。
+                                biliAccessKeyProgrammaticSwitch = true
+                                button.isChecked = biliAccessKeyAuthorized
+                                biliAccessKeyProgrammaticSwitch = false
+                                if (checked) showBiliAccessKeyConfirmDialog(anchor = button)
+                                else setBiliAccessKeyAuthorized(false)
+                            }
+                        }
+                        textView(key = "SettingsCardSections:1414", lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }) {
+                            alpha = 0.6f
+                            setLineSpacing(6f, 1f)
+                            text = stringResource(R.string.bili_access_key_authorize_tip)
+                            textColor = colorResource(R.color.colorTextDark)
+                            textSize = 12f
+                        }
+                        // JEV 语义判定配置：Key / 地址 / 灵敏度 / 首屏等待，都在同一个面板里保存。
+                        textView(key = "SettingsCardSections:1422", lparams = params(widthMatchParent = true) { bottomMargin = 5.dp }) {
+                            semanticJevSummaryView = this
+                            settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_ENDPOINT, this)
+                            settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_SENSITIVITY, this)
+                            settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_WAIT_FIRST_SCREEN, this)
+                            settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_CACHE_DAYS, this)
+                            settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_PROVIDER, this)
+                            settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_MODEL, this)
+                            settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_TIMEOUT_MS, this)
+                            settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_GUIDANCE, this)
+                            (2..SemanticSource.MAX_SOURCES).forEach { index ->
+                                listOf("provider", "endpoint", "model").forEach { field ->
+                                    settingsDestinations.bind("compat.semantic_source.$index.$field", this)
+                                }
+                            }
+                            text = semanticJevEntryText()
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            setLineSpacing(5f, 1f)
+                            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                            background = selfRippleBackground(10f)
+                            isClickable = true
+                            isFocusable = true
+                            setOnClickListener {
+                                showSemanticJevSettingsDialog(anchor = it) {
+                                    semanticJevSummaryView?.text = semanticJevEntryText()
+                                }
+                            }
+                        }
+                        textView(key = "SettingsCardSections:1451", lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }) {
+                            alpha = 0.6f
+                            setLineSpacing(6f, 1f)
+                            text = stringResource(R.string.semantic_jev_tip)
+                            textColor = colorResource(R.color.colorTextDark)
+                            textSize = 12f
+                        }
+                        textView(key = "SettingsCardSections:1458", lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }) {
+                            text = stringResource(R.string.agent_title)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                            background = selfRippleBackground(10f)
+                            isClickable = true
+                            isFocusable = true
+                            bindSettingDestination(this, com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentPreferences.ENABLED)
+                            setOnClickListener { showAgentDialog(anchor = it) }
+                        }
+                    }
+                    // 步骤：兼容 · 免 Root 与漫游兼容
+                    deferStep {
+                        materialSwitch(key = "SettingsCardSections:1469",
+                            lparams = params(widthMatchParent = true) {
+                                bottomMargin = 5.dp
+                            }
+                        ) {
+                            settingsDestinations.bind(RuntimeSettingsNavigationCatalog.NO_ROOT_SUPPORT, this)
+                            text = stringResource(R.string.no_root_support_enable)
+                            isAllCaps = false
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            isChecked = noRootDesiredEnabled
+                            isEnabled = noRootDesiredEnabled ||
+                                (
+                                    AndroidVersion.isAtLeast(AndroidVersion.P) &&
+                                        noRootPrefsBridge != null
+                                    )
+                            setOnCheckedChangeListener { _, isChecked ->
+                                if (noRootProgrammaticSwitch) return@setOnCheckedChangeListener
+                                noRootDesiredEnabled = isChecked
+                                if (isChecked) enableAndSynchronizeNoRootSupport()
+                                else disableNoRootSupport()
+                            }
+                            noRootSwitch = this
+                        }
+                        textView(key = "SettingsCardSections:1492",
+                            lparams = params(widthMatchParent = true)
+                        ) {
+                            alpha = 0.6f
+                            setLineSpacing(6f, 1f)
+                            text = stringResource(R.string.no_root_support_tip)
+                            textColor = colorResource(R.color.colorTextDark)
+                            textSize = 12f
+                        }
+                        textView(key = "SettingsCardSections:1501",
+                            lparams = params(widthMatchParent = true) {
+                                topMargin = 4.dp
+                                bottomMargin = 10.dp
+                            }
+                        ) {
+                            alpha = 0.8f
+                            setLineSpacing(6f, 1f)
+                            text = stringResource(noRootStatusText(currentNoRootDisplayState()))
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 12f
+                            noRootStatusView = this
+                        }
+                        materialSwitch(key = "SettingsCardSections:1514",
+                            lparams = params(widthMatchParent = true) {
+                                bottomMargin = 5.dp
+                            }
+                        ) {
+                            bindFavoriteSwitch(this, HookEntry.PREF_ROAMING_COMPAT_ENABLED, directToggle = true)
+                            text = stringResource(R.string.roaming_compat_enable)
+                            isAllCaps = false
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            isChecked = roamingCompatEnabled
+                            setOnCheckedChangeListener { button, checked ->
+                    applyModeledToggle(HookEntry.PREF_ROAMING_COMPAT_ENABLED, checked, button)
+                }
+                        }
+                        textView(key = "SettingsCardSections:1545",
+                            lparams = params(widthMatchParent = true) {
+                                topMargin = 5.dp
+                            }
+                        ) {
+                            alpha = 0.6f
+                            setLineSpacing(6f, 1f)
+                            text = stringResource(R.string.roaming_compat_tip)
+                            textColor = colorResource(R.color.colorTextDark)
+                            textSize = 12f
+                        }
+                    }
+                    // 步骤：兼容 · 预见式返回与手动重新适配
+                    deferStep {
+                        // 预见式返回动画（Android 14+）：实验性开关，运行时切换 window 的
+                        // OnBackInvokedCallback 体系，返回时显示系统缩放预览动画。
+                        // Android 16（API 36）+ 系统对 targetSdk 36+ 的应用强制启用
+                        // 预测性返回（隐藏 API 的关闭调用被忽略），开关失去实际效果，
+                        // 此时整组隐藏；偏好键与备份 catalog 条目保留以兼容旧备份。
+                        if (!PredictiveBack.isSystemEnforced) {
+                            materialSwitch(key = "SettingsCardSections:1562",
+                                lparams = params(widthMatchParent = true) {
+                                    topMargin = 5.dp
+                                    bottomMargin = 5.dp
+                                }
+                            ) {
+                                bindFavoriteSwitch(this, HookEntry.PREF_PREDICTIVE_BACK_ENABLED, directToggle = true)
+                                text = stringResource(R.string.predictive_back_enable)
+                                isAllCaps = false
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 15f
+                                isChecked = predictiveBackEnabled
+                                setOnCheckedChangeListener { button, checked ->
+                    applyModeledToggle(HookEntry.PREF_PREDICTIVE_BACK_ENABLED, checked, button)
+                }
+                            }
+                            textView(key = "SettingsCardSections:1585",
+                                lparams = params(widthMatchParent = true) {
+                                    topMargin = 0.dp
+                                }
+                            ) {
+                                alpha = 0.6f
+                                setLineSpacing(6f, 1f)
+                                text = stringResource(R.string.predictive_back_tip)
+                                textColor = colorResource(R.color.colorTextDark)
+                                textSize = 12f
+                            }
+                        }
+                        // 手动重新适配：清除版本适配缓存，重启哔哩哔哩后自动重新定位 hook 点。
+                        // 风格与「实验性功能」分区标题行统一：图标 + 文字 + 水波纹点击反馈；
+                        // 点击弹出二级确认菜单（与「重启哔哩哔哩」确认弹窗同规格）
+                        linearLayout(key = "SettingsCardSections:1600",
+                            lparams = params(widthMatchParent = true) {
+                                topMargin = 12.dp
+                                bottomMargin = 2.dp
+                            },
+                            init = {
+                                gravity = Gravity.CENTER or Gravity.START
+                                // 自绘涟漪（不解析主题属性 selectableItemBackground）：
+                                // 客户设备上的全局主题模块（Monet-All 等）可能把该主题属性
+                                // 解析为不透明实心 drawable，整行盖住内容 →「只剩空位但可点击」
+                                background = selfRippleBackground(10f)
+                                updatePadding(horizontal = 0.dp, vertical = 9.dp)
+                                setOnClickListener { showAdaptConfirmDialog(it) }
+                            }
+                        ) {
+                            imageView(key = "SettingsCardSections:1615",
+                                lparams = params(17.dp, 17.dp) {
+                                    marginEnd = 9.dp
+                                }
+                            ) {
+                                setImageResource(R.drawable.ic_restart)
+                                imageTintList = stateColorResource(R.color.colorTextGray)
+                                alpha = 0.8f
+                            }
+                            textView(key = "SettingsCardSections:1624",
+                                lparams = params {
+                                    weight = 1f
+                                }
+                            ) {
+                                isSingleLine = true
+                                text = stringResource(R.string.adapt_manual)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 14f
+                            }
+                            imageView(key = "SettingsCardSections:1634",
+                                lparams = params(16.dp, 16.dp)
+                            ) {
+                                alpha = 0.55f
+                                setImageResource(R.drawable.ic_chevron_down)
+                                imageTintList = stateColorResource(R.color.colorTextGray)
+                                rotation = -90f
+                            }
+                        }
                     }
                 }
             }

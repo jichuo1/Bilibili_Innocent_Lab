@@ -60,14 +60,22 @@ class SettingsPageStepwiseInstrumentedTest {
         // 模块 UI 被用户条款门禁挡住时设置页不会安装；测试不会替用户接受条款，此时跳过（跳过不算通过）。
         assumeTrue("settings UI is gated by the module terms on this device", installed)
         var stepwise: Capture? = null
+        // 每页首次被轮询到「收尾单元已完成」的时刻（启动后毫秒）；轮询间隔 200 ms，所以只是上界粗读数，不是帧级时间。
+        val completedAt = LongArray(4) { -1L }
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            val deadline = SystemClock.elapsedRealtime() + 90_000
+            val launchedAt = SystemClock.elapsedRealtime()
+            val deadline = launchedAt + 90_000
             var complete = false
             while (!complete) {
                 check(SystemClock.elapsedRealtime() < deadline) { "idle prewarm never completed every page" }
                 SystemClock.sleep(200)
                 scenario.onActivity { activity ->
                     val home = requireNotNull(activity.settingsHome)
+                    (1..4).forEach { page ->
+                        if (completedAt[page - 1] < 0 && home.pageUnitNanos(page).isNotEmpty()) {
+                            completedAt[page - 1] = SystemClock.elapsedRealtime() - launchedAt
+                        }
+                    }
                     complete = (1..4).all { home.pageUnitNanos(it).isNotEmpty() }
                     if (complete) stepwise = capture(activity)
                 }
@@ -81,8 +89,9 @@ class SettingsPageStepwiseInstrumentedTest {
             assertTrue("page ${page + 1} differs at node $firstDifference: ${firstDifference?.let { sync.signatures[page][it] }} vs ${firstDifference?.let { idle.signatures[page][it] }}",
                 firstDifference == null)
         }
-        // 单元数：净化 = 壳 + 9 个分类 + 收尾；增强 = 壳 + 6 个 + 收尾；美化 = 1 + 收尾；模块 = 4 + 收尾。
-        val expectedUnits = listOf(11, 8, 2, 5)
+        // 单元数：净化 = 壳 + 9 个分类 + 收尾；增强 = 壳 + 6 个 + 收尾；
+        // 美化 = 壳 + 5 个区段 + 底栏再推迟的 1 段 + 收尾；模块 = 活动与备份 + 实验性（壳 + 外观 2 + 兼容子卡 + 兼容 3）+ 日志 + 关于 + 收尾。
+        val expectedUnits = listOf(11, 8, 8, 11)
         for (page in 0 until 4) {
             assertEquals("page ${page + 1} units (sync)", expectedUnits[page], sync.units[page].size)
             assertEquals("page ${page + 1} units (idle)", expectedUnits[page], idle.units[page].size)
@@ -97,5 +106,7 @@ class SettingsPageStepwiseInstrumentedTest {
         }
         report("sync", sync.units)
         report("idle", idle.units)
+        Log.i("PageSteps", "emulator idle completion ms after launch (200 ms polling): " +
+            completedAt.mapIndexed { index, at -> "page${index + 1}=$at" }.joinToString(" "))
     }
 }

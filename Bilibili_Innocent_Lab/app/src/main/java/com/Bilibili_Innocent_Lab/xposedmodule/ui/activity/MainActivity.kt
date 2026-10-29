@@ -4963,9 +4963,9 @@ class MainActivity : SkinnedActivity() {
     }
 
     /**
-     * 一页设置的构建计划。最小工作单元是步骤（一张卡、一个进阶分类），不是整页：
+     * 一页设置的构建计划。最小工作单元是步骤（一张卡、一个进阶分类、一段外观或实验性内容），不是整页：
      * 预建每帧推进一个步骤，切页/搜索/收藏跳转时同步补完；全部步骤完成后才统一收尾（展开状态、样式、依赖、可用性）。
-     * 卡片里用 [deferStep] 推迟的进阶分类按登记顺序紧随壳步骤之后执行，同步补完的顺序与拆分前逐语句一致。
+     * 卡片里用 [deferStep] 推迟的进阶分类 / 区段按登记顺序紧随壳步骤之后执行（嵌套推迟保持深度优先），同步补完的顺序与拆分前逐语句一致。
      * 每个步骤在执行时才读偏好快照与镜像字段：推迟的步骤不能用壳构建时的过期快照。
      */
     private fun settingsPagePlan(index: Int, parent: NativeLinearLayout): SettingsPagePlan {
@@ -4988,7 +4988,7 @@ class MainActivity : SkinnedActivity() {
                 },
                 {
                     with(page()) {
-                        experimentalFeaturesCard(this, uiSettings())
+                        experimentalFeaturesCard(this, ::uiSettings)
                         space(key = "module:experimental-gap", lparams = params(height = 10.dp))
                     }
                 },
