@@ -14,6 +14,7 @@ import android.graphics.Shader
 import android.graphics.drawable.Drawable
 import android.os.SystemClock
 import androidx.core.graphics.ColorUtils
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSceneBackground
 import java.lang.ref.WeakReference
 
 /** 内置预设使用连续世界坐标；自定义图片保持原有缩放与遮罩缓存。 */
@@ -22,7 +23,7 @@ internal class HostBackgroundDrawable(
     var night: Boolean = false,
     private val image: Bitmap? = null,
     private val cacheEnabled: Boolean = true
-) : Drawable() {
+) : Drawable(), HostSceneBackground {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private var base: Shader? = null
     private var glow: Shader? = null
@@ -57,7 +58,7 @@ internal class HostBackgroundDrawable(
         }
     }
     /** Scene inputs that can change independently of the feed's own invalidation. */
-    internal val samplingState: Long
+    override val samplingState: Long
         get() {
             var state = scrollOffset * 31 + if (night) 1L else 0L
             state = state * 31 + drawableAlpha

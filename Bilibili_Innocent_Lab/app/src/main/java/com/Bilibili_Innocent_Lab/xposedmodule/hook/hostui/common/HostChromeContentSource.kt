@@ -6,10 +6,14 @@ import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.view.View
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundDrawable
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.ViewSamplingMatrix
 import com.lumen.coacervation.engine.host.LumenVersionedContentSource
 import com.lumen.coacervation.engine.host.LumenSourceAvailability
+
+/** A module-owned wallpaper set as a View background; its scene inputs change without invalidating the feed. */
+internal interface HostSceneBackground {
+    val samplingState: Long
+}
 
 /** Supplies the scene behind transparent feed content through the engine's public source API. */
 internal class HostChromeContentSource(override val coordinateView: View, var windowBaseColor: Int,
@@ -43,7 +47,7 @@ internal class HostChromeContentSource(override val coordinateView: View, var wi
                     mix(bounds.left.toLong()); mix(bounds.top.toLong())
                     mix(bounds.right.toLong()); mix(bounds.bottom.toLong())
                     if (background is ColorDrawable) mix(background.color.toLong())
-                    if (background is HostBackgroundDrawable) mix(background.samplingState)
+                    if (background is HostSceneBackground) mix(background.samplingState)
                     if (mapping.sourceToTarget(view, coordinateView, matrix)) {
                         matrix.getValues(values)
                         for (value in values) mix(value.toBits().toLong())
@@ -101,6 +105,6 @@ internal class HostChromeContentSource(override val coordinateView: View, var wi
         // Compose paints the visible page base inside its composition, not View.background.
         // Ordinary ancestor/Window colors are hidden behind that base and must not leak into
         // the glass. A module-owned wallpaper is an explicit scene input and remains live.
-        !composeWindowBase || it is HostBackgroundDrawable
+        !composeWindowBase || it is HostSceneBackground
     }
 }
