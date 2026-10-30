@@ -528,15 +528,13 @@ internal object HostTopBarFxController {
 
     internal fun setConstraintInt(lp: Any, fieldName: String, value: Int) {
         runCatching {
-            val field = lp.javaClass.getField(fieldName)
-            field.setInt(lp, value)
+            KavaMemberLookup.fieldOrNull(lp.javaClass, fieldName, includeSuperclasses = true)?.setInt(lp, value)
         }
     }
 
     private fun getConstraintInt(lp: Any, fieldName: String): Int {
         return runCatching {
-            val field = lp.javaClass.getField(fieldName)
-            field.getInt(lp)
+            KavaMemberLookup.fieldOrNull(lp.javaClass, fieldName, includeSuperclasses = true)?.getInt(lp) ?: -1
         }.getOrDefault(-1)
     }
 
@@ -608,13 +606,13 @@ internal object HostTopBarFxController {
         }
         if (view.javaClass.simpleName.contains("SwipeRefreshLayout")) {
             runCatching {
-                val m = view.javaClass.getMethod(
+                KavaMemberLookup.inheritedMethodOrNull(
+                    view.javaClass,
                     "setProgressViewOffset",
-                    Boolean::class.javaPrimitiveType,
-                    Int::class.javaPrimitiveType,
-                    Int::class.javaPrimitiveType
-                )
-                m.invoke(view, false, topPadding, spinnerTravelBase + (40f * density).roundToInt())
+                    Boolean::class.javaPrimitiveType!!,
+                    Int::class.javaPrimitiveType!!,
+                    Int::class.javaPrimitiveType!!
+                )?.invoke(view, false, topPadding, spinnerTravelBase + (40f * density).roundToInt())
             }
         }
         if (view is ViewGroup) {
@@ -635,8 +633,10 @@ internal object HostTopBarFxController {
         spinnerTravelBase: () -> Int
     ) {
         runCatching {
-            val listenerClass = Class.forName("androidx.viewpager.widget.ViewPager\$OnPageChangeListener", false, viewPager.javaClass.classLoader)
-            val addListenerMethod = viewPager.javaClass.getMethod("addOnPageChangeListener", listenerClass)
+            val listenerClass = KavaMemberLookup.classOrNull(viewPager.javaClass.classLoader, "androidx.viewpager.widget.ViewPager\$OnPageChangeListener")
+                ?: return@runCatching
+            val addListenerMethod = KavaMemberLookup.inheritedMethodOrNull(viewPager.javaClass, "addOnPageChangeListener", listenerClass)
+                ?: return@runCatching
             val handler = java.lang.reflect.InvocationHandler { _, method, _ ->
                 if (method.name == "onPageSelected") {
                     viewPager.post(HostThreadGuard.runnable("host.top.page_padding") {

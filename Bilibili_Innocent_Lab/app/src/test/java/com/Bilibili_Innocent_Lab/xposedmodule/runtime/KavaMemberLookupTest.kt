@@ -110,6 +110,21 @@ class KavaMemberLookupTest {
         )
     }
 
+    private open class OverrideBase {
+        open fun overridden() = "base"
+    }
+
+    private class OverrideChild : OverrideBase() {
+        override fun overridden() = "child"
+    }
+
+    @Test
+    fun `inherited lookup returns the most derived override`() {
+        val method = requireNotNull(KavaMemberLookup.inheritedMethodOrNull(OverrideChild::class.java, "overridden"))
+
+        assertEquals(OverrideChild::class.java, method.declaringClass)
+    }
+
     @Test
     fun `resolves inherited method and field`() {
         val target = HiddenMethods.create()

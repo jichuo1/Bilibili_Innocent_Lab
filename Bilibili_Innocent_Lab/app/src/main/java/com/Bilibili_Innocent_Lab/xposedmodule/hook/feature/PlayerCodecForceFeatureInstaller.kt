@@ -444,8 +444,8 @@ internal class PlayerCodecForceFeatureInstaller(
             }
             return names.firstNotNullOfOrNull { name ->
                 runCatching {
-                    type.getDeclaredField(name).apply { isAccessible = true }.get(null)
-                        .takeIf { value -> type.isEnum && type.isInstance(value) }
+                    KavaMemberLookup.fieldOrNull(type, name)?.get(null)
+                        ?.takeIf { value -> type.isEnum && type.isInstance(value) }
                 }.getOrNull()
             }
         }

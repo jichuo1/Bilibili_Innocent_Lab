@@ -141,8 +141,9 @@ internal object HostBackgroundPageHooks {
         for (name in listOf("CommentMainLayer", "CommentDetailLayer", "CommentDialogLayer")) {
             val layer = KavaMemberLookup.classOrNull(loader, "com.bilibili.app.comment3.ui.view.$name") ?: continue
             // 三种内容层均以无参 View getter 返回 binding 根容器，不依赖混淆字段名。
-            val root = layer.declaredMethods.singleOrNull { it.parameterCount == 0 && it.returnType == View::class.java } ?: continue
-            root.isAccessible = true
+            val root = KavaMemberLookup.declaredMethods(layer, makeAccessible = true) {
+                it.parameterCount == 0 && it.returnType == View::class.java
+            }.singleOrNull() ?: continue
             for (constructor in layer.declaredConstructors) {
                 environment.registrar.constructor("host_background.comment_layer.$name.${constructor.parameterCount}", constructor) {
                     after {
