@@ -94,6 +94,8 @@ internal class HostTopTabCenteringBinding internal constructor(
     }
     private fun restore() { owned?.restore(); owned = null }
     internal fun matches(candidate: ViewGroup): Boolean = !closed && tabs === candidate
+    /** The strip's paddings currently belong to this binding; other writers must wait. */
+    internal val owning: Boolean get() = owned != null
     internal fun updateCallback(callback: (() -> Unit)?) {
         if (callback == null) return // A decoration-only attachment must not erase lifecycle diagnostics.
         val notifyExisting = onApplied == null && owned?.confirmed == true

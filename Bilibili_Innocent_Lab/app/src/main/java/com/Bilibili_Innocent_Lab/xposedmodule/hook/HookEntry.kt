@@ -2873,7 +2873,8 @@ class HookEntry : XposedModule() {
             val topBarFxInstaller = createTopBarFx()
             val bottomBarFxInstaller = createBottomBarFx()
             val homeTopTabCentering = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top.HomeTopTabCenteringHooks(
-                hostAdaptResult?.homeTopBar, hostAdaptResult?.homeChrome.orEmpty())
+                hostAdaptResult?.homeTopBar, hostAdaptResult?.homeChrome.orEmpty(),
+                edgeFade = prefs.getBoolean(FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS, false))
 
             featureInstallCoordinator.installAll(
                 listOf(

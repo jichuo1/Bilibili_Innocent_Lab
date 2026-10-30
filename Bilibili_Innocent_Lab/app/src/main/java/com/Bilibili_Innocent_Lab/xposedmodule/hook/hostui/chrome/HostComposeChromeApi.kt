@@ -37,9 +37,9 @@ internal class HostComposeChromeApi private constructor(
             }
         }
         // Replace only the scoped root's opaque fill. All layout, clip, click and pointer elements survive.
-        val base = (if (layer == HostChromeLayer.BOTTOM_ROW) null else painter.layout())?.let { (heightDp, marginDp) ->
-            val padded = padding.invoke(null, empty, marginDp, 0f, marginDp, 0f)!!
-            then.invoke(height.invoke(null, padded, heightDp), original)!!
+        val base = (if (layer == HostChromeLayer.BOTTOM_ROW) null else painter.layout())?.let { dock ->
+            val padded = padding.invoke(null, empty, dock.marginDp, 0f, dock.marginDp, dock.bottomDp)!!
+            then.invoke(dock.heightDp?.let { height.invoke(null, padded, it) } ?: padded, original)!!
         } ?: original
         if (layer == HostChromeLayer.BOTTOM_OUTER) {
             if (!painter.glass) return base

@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeColors
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockClearanceReader
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeArtwork
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockLayer
@@ -30,6 +31,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.parentOrNull
 import java.util.Collections
 import java.util.WeakHashMap
 import kotlin.math.roundToInt
@@ -99,7 +101,7 @@ internal object HostTopBarFxController {
         val palette = colors.palette()
 
         val barHeight = (BAR_HEIGHT_DP * density).roundToInt()
-        val marginH = (MARGIN_H_DP * density).roundToInt()
+        val marginH = capsuleMarginPx(topBarDock, density)
         val marginV = (MARGIN_V_DP * density).roundToInt()
 
         // 1. 悬浮胶囊几何形态与 Liquid Glass 外壳背景
@@ -181,9 +183,14 @@ internal object HostTopBarFxController {
         // 3. 将顶栏配置为浮动在视频流上方的 Overlay 图层，视频流撑满整页不被挤压
         configureOverlayConstraints(topBarDock, barHeight, marginH, marginV, density)
 
+        // A long strip fades at the action divider (or the capsule end) and keeps native scrolling.
+        // Attached first where this creates the centering: dropping to a short strip should hand the
+        // padding back before the centering reads it as the host's own.
+        var tabCentering: HostTopTabCenteringBinding? = null
+        val tabFade = NativeTopTabsEdgeFade.attach(topBarDock, hierarchy.tabContainer) { tabCentering?.owning == true }
         // A short native strip centers against the whole capsule, including its action area.
         // Standard measurement keeps the native tab hit boxes and underline in the same coordinates.
-        val tabCentering = NativeTopTabsCentering.attach(topBarDock, hierarchy.tabContainer)
+        tabCentering = NativeTopTabsCentering.attach(topBarDock, hierarchy.tabContainer)
 
         // 4. 周期性清理与对齐调度
         val topPadding = barHeight + marginV * 2
@@ -262,9 +269,19 @@ internal object HostTopBarFxController {
         val sanitizeRunnable = Runnable { HostThreadGuard.run("host.top.sanitize") {
             sanitizePosted = false
             if (!topBarDock.isAttachedToWindow) return@Runnable
-            configureOverlayConstraints(topBarDock, barHeight, marginH, marginV, density)
+            // 旋转、分屏或折叠屏展开后重新取边距：超宽窗口限宽，刘海与侧边导航栏避让。
+            val currentMarginH = capsuleMarginPx(topBarDock, density)
+            (topBarDock.layoutParams as? ViewGroup.MarginLayoutParams)?.let { lp ->
+                if (lp.leftMargin != currentMarginH || lp.rightMargin != currentMarginH) {
+                    lp.leftMargin = currentMarginH
+                    lp.rightMargin = currentMarginH
+                    topBarDock.layoutParams = lp
+                }
+            }
+            configureOverlayConstraints(topBarDock, barHeight, currentMarginH, marginV, density)
             stripTopBarArtifacts(topBarDock, isRoot = true)
             alignTopBarContent(topBarDock, density)
+            tabFade?.sync()
             tabCentering?.sync()
             refreshTheme()
             island?.sync()
@@ -326,6 +343,15 @@ internal object HostTopBarFxController {
         }
         attachedRoots.add(root)
         return true
+    }
+
+    /** 胶囊左右边距按父布局宽度取：手机保持 16dp，超宽窗口限宽居中。 */
+    private fun capsuleMarginPx(topBarDock: ViewGroup, density: Float): Int {
+        val parent = topBarDock.parentOrNull()
+        val parentWidth = parent?.width?.takeIf { it > 0 } ?: topBarDock.resources.displayMetrics.widthPixels
+        val available = parentWidth - (parent?.paddingLeft ?: 0) - (parent?.paddingRight ?: 0)
+        val side = parent?.let(HostDockClearanceReader::sideDp) ?: 0f
+        return (HostTopCapsuleWidthPolicy.marginDp(available / density, MARGIN_H_DP, side) * density).roundToInt()
     }
 
     /** 剥离官方分割线与背景 View，但严格保留原版下划线指示器和文字 */

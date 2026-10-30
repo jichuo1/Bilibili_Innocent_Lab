@@ -60,8 +60,11 @@ internal class HostBottomBarDockLayer(
     private val hero = HostGarbHeroBinding(tabHost, dimEnabled = config.mineGarbDim)
     private val heroLayoutListener = ViewTreeObserver.OnGlobalLayoutListener { hero.invalidate() }
     private var materialColors = HostChromeColors(isDark, palette.primary)
+    /** 窄屏适配可能压低胶囊；圆角跟随实际布局高度而不是档位标称高度。 */
+    private val radiusDp: Float
+        get() = (tabHost.layoutParams?.height?.takeIf { it > 0 }?.div(density) ?: config.heightDp) / 2f
     private val shadow = if (config.liquidGlass && config.appearance.material != HostGlassMaterial.PRISM)
-        HostBottomBarShadow(tabHost, config.heightDp / 2f) else null
+        HostBottomBarShadow(tabHost, radiusDp) else null
 
     // 1. 独立大胶囊晶体滑块 (硬件加速子 View)
     val selectionView = View(context).apply {
@@ -141,7 +144,7 @@ internal class HostBottomBarDockLayer(
         val changed = colors != materialColors
         backdrop?.updatePalette(colors)
         if (config.liquidGlass && (changed || backdrop?.owns(tabHost) != true)) {
-            backdrop?.floating(tabHost, colors.dark, config.heightDp / 2f)
+            backdrop?.floating(tabHost, colors.dark, radiusDp)
         }
         if (config.liquidGlass && (changed || backdrop?.owns(selectionView) != true)) {
             backdrop?.surface(selectionView, HostSurfaceStyle.selection(colors.dark))

@@ -460,8 +460,8 @@ internal class HostTopIslandBinding private constructor(
                 event.x + dockLeft >= location[0] + scroll.width
             } else event.x >= dock.width - 48f * density
             nativeScroll = scroll
-            tabsCanScrollLeft = scroll?.canScrollHorizontally(-1) == true
-            tabsCanScrollRight = scroll?.canScrollHorizontally(1) == true
+            tabsCanScrollLeft = canScrollTabs(scroll, -1)
+            tabsCanScrollRight = canScrollTabs(scroll, 1)
             scrollOrigin = scrollPosition(scroll)
             scrollMoved = false
             gesture = HostTopIslandGesture(
@@ -563,6 +563,11 @@ internal class HostTopIslandBinding private constructor(
             for (index in 0 until view.childCount) findScroll(view.getChildAt(index))?.let { return it }
         }
         return null
+    }
+
+    private fun canScrollTabs(scroll: View?, direction: Int): Boolean = when (scroll) {
+        is HorizontalScrollView -> if (direction < 0) scroll.scrollX > 0 else scroll.scrollX < scroll.tabScrollRange()
+        else -> scroll?.canScrollHorizontally(direction) == true
     }
 
     private fun scrollPosition(view: View?): Int =
