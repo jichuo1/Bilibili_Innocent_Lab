@@ -24,17 +24,27 @@ internal class HostTopListPosition(val view: View) {
         KavaMemberLookup.inheritedMethodOrNull(it.javaClass, "getDecoratedMeasuredHeight", View::class.java)
     }
 
-    data class Edge(val distance: Float, val firstRowExtent: Float = Float.POSITIVE_INFINITY)
+    /** 预绘制每帧读取且只在当帧消费：复用同一实例，不逐帧分配。 */
+    class Edge {
+        var distance = 0f
+        var firstRowExtent = Float.POSITIVE_INFINITY
+    }
+    private val reusableEdge = Edge()
+
+    private fun edgeOf(distance: Float, firstRowExtent: Float = Float.POSITIVE_INFINITY) = reusableEdge.also {
+        it.distance = distance
+        it.firstRowExtent = firstRowExtent
+    }
 
     fun edge(): Edge? = runCatching {
-        if (view is ScrollView) return@runCatching Edge(view.scrollY.coerceAtLeast(0).toFloat())
+        if (view is ScrollView) return@runCatching edgeOf(view.scrollY.coerceAtLeast(0).toFloat())
         val children = view as? ViewGroup ?: return@runCatching null
         if (children.childCount == 0) return@runCatching null
         if (view is AbsListView) {
-            if (view.firstVisiblePosition != 0) return@runCatching Edge(Float.POSITIVE_INFINITY)
+            if (view.firstVisiblePosition != 0) return@runCatching edgeOf(Float.POSITIVE_INFINITY)
             val first = view.getChildAt(0)
             val distance = if (view.canScrollVertically(-1)) (view.paddingTop - first.top).coerceAtLeast(0) else 0
-            return@runCatching Edge(distance.toFloat(),
+            return@runCatching edgeOf(distance.toFloat(),
                 (first.height + view.paddingTop).toFloat())
         }
         if (layoutManager == null || position == null || decoratedTop == null) return@runCatching null
@@ -47,10 +57,10 @@ internal class HostTopListPosition(val view: View) {
             val top = decoratedTop.invoke(layoutManager, child) as? Int ?: return@runCatching null
             val height = decoratedHeight?.invoke(layoutManager, child) as? Int ?: child.height
             val distance = if (view.canScrollVertically(-1)) (view.paddingTop - top).coerceAtLeast(0) else 0
-            return@runCatching Edge(distance.toFloat(),
+            return@runCatching edgeOf(distance.toFloat(),
                 (height + view.paddingTop).coerceAtLeast(1).toFloat())
         }
         // 刷新/预测布局尚未分配 adapter 位置时沿用上一帧，不把 NO_POSITION 当成远离顶部。
-        if (pendingLayout) null else Edge(Float.POSITIVE_INFINITY)
+        if (pendingLayout) null else edgeOf(Float.POSITIVE_INFINITY)
     }.getOrNull()
 }

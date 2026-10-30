@@ -213,8 +213,7 @@ internal object HostTopBarFxController {
         }
 
         // 换肤可以不重建、不改变尺寸；在现有绘制帧同步颜色，不依赖布局清理触发。
-        fun refreshTheme() {
-            val current = theme.read()
+        fun refreshTheme(current: HostChromeColors = theme.read()) {
             updateSurfaceDrawable(current = current)
             if (current != materialColors) {
                 glowView?.recolor(current.accent)
@@ -236,7 +235,7 @@ internal object HostTopBarFxController {
                 HostChromeArtwork.clear(it)
                 (it.parent as? View)?.let { head -> if (head.background != null) head.background = null }
             }
-            refreshTheme()
+            refreshTheme(current)
             true
         } }
         var materialObserver: ViewTreeObserver? = null
