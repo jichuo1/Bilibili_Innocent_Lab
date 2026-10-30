@@ -1,6 +1,6 @@
 # 宿主 UI 接入
 
-宿主视觉使用凝光 1.5.4 的公开 API，`lumen-engine` 与 `lumen-motion` 使用同一正式版本的发布产物。`hook/feature` 只负责能力发现、Hook 安装和运行时诊断，具体 UI 装配放在本目录。模块自己的设置界面仍在 `ui/activity`；宿主视觉代码不再依赖那里的材质或导航实现。
+宿主视觉使用凝光的公开 API，`lumen-engine` 与 `lumen-motion` 使用同一正式版本的发布产物，版本号以 `gradle/libs.versions.toml` 为准。`hook/feature` 只负责能力发现、Hook 安装和运行时诊断，具体 UI 装配放在本目录。模块自己的设置界面仍在 `ui/activity`；宿主视觉代码不再依赖那里的材质或导航实现。
 
 旧原生首页与 khome Compose 首页独立接入。`chrome` 目录在已验证的业务 Composable 作用域内装饰最终 LayoutNode Modifier，绕过 R8 在方法体内覆盖默认入参的情况；只处理局部顶底栏，保留宿主测量、点击、指针与无障碍。作用域异常时释放，延迟 ApplyChanges 按装饰 Modifier 的身份关联节点；材质失败只恢复仍由本模块持有的原 Modifier。找不到独立取样内容层时使用窗口基色与祖先背景的安全回退，不递归取样整屏 ComposeView。
 

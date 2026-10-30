@@ -5002,7 +5002,7 @@ class MainActivity : SkinnedActivity() {
                     with(page()) {
                         component(createPromotionItem("about-module", R.string.about_module, R.mipmap.ic_yukihookapi))
                         space(key = "module:about-gap", lparams = params(height = 10.dp))
-                        component(createPromotionItem("about-module-extension", R.string.about_module_extension, R.mipmap.ic_kavaref))
+                        component(createPromotionItem("about-module-extension", R.string.about_module_extension, R.drawable.ic_meguviz_ref))
                     }
                 }
             )
