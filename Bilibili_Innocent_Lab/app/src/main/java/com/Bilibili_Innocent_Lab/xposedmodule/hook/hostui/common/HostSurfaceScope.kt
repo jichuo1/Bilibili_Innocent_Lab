@@ -5,6 +5,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.os.Build
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassRenderer
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassMaterial
@@ -52,7 +53,7 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
     private var closed = false
     private var focusObserver: ViewTreeObserver? = null
     private var backdropVersion: Long? = null
-    private val backdropPreDraw = ViewTreeObserver.OnPreDrawListener {
+    private val backdropPreDraw = ViewTreeObserver.OnPreDrawListener { HostThreadGuard.call("host.surface.backdrop.predraw", true) {
         surfaces.forEach { (_, spec) -> spec.prismSurface?.sync(spec.insetX, spec.insetY) }
         if (viewportSource?.sync() == true) session?.notifyPositionChanged()
         // Snapshot child invalidations before the software legibility probe can draw the
@@ -65,10 +66,10 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
             session?.notifyContentChanged()
         }
         true
-    }
+    } }
     private val focusListener = ViewTreeObserver.OnWindowFocusChangeListener { focused ->
         // Memory pressure can release graphics while backgrounded; restore them on return.
-        if (focused && !closed) session?.resume()
+        HostThreadGuard.run("host.surface.focus") { if (focused && !closed) session?.resume() }
     }
 
     fun attach(surface: View, explicitContent: View? = null) {

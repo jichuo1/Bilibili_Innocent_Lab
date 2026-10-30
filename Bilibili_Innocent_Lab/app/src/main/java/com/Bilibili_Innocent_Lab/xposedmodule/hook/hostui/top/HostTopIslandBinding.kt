@@ -29,6 +29,7 @@ import android.view.ViewTreeObserver
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.HorizontalScrollView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import java.util.WeakHashMap
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -71,7 +72,7 @@ internal class HostTopIslandBinding private constructor(
     private val touchSlop = ViewConfiguration.get(dock.context).scaledTouchSlop.toFloat()
     private var observer: ViewTreeObserver? = null
     private val shell = object : View(dock.context), HostDockLayer {}
-    private val preDraw = ViewTreeObserver.OnPreDrawListener { sync(); true }
+    private val preDraw = ViewTreeObserver.OnPreDrawListener { HostThreadGuard.call("host.top.island.predraw", true) { sync(); true } }
     private val glyphPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = glyphColor
         style = Paint.Style.STROKE
@@ -82,9 +83,9 @@ internal class HostTopIslandBinding private constructor(
     private val pressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = glyphColor }
     private val spinnerBounds = RectF(-7.5f * density, -7.5f * density, 7.5f * density, 7.5f * density)
     private val feedbackFrame = object : Choreographer.FrameCallback {
-        override fun doFrame(frameTimeNanos: Long) {
+        override fun doFrame(frameTimeNanos: Long) = HostThreadGuard.run("host.top.island.feedback") {
             feedbackQueued = false
-            if (!input.isAttachedToWindow || !collapsed) { feedbackFrameNanos = 0L; return }
+            if (!input.isAttachedToWindow || !collapsed) { feedbackFrameNanos = 0L; return@run }
             val previous = feedbackFrameNanos
             feedbackFrameNanos = frameTimeNanos
             feedback.advance(if (previous == 0L) 1f / 60f else (frameTimeNanos - previous) / 1e9f)
@@ -108,22 +109,27 @@ internal class HostTopIslandBinding private constructor(
     }
     private val frameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
-            if (!animating) return
-            if (!input.isAttachedToWindow) {
-                settle()
-                return
+            val continued = HostThreadGuard.call("host.top.island.frame", false) {
+                if (!animating) return
+                if (!input.isAttachedToWindow) {
+                    settle()
+                    return
+                }
+                val previous = lastFrameNanos
+                lastFrameNanos = frameTimeNanos
+                val seconds = if (previous == 0L) 1f / 60f else (frameTimeNanos - previous) / 1e9f
+                val target = if (collapsed) 1f else 0f
+                spring.advance(seconds.coerceAtMost(HostTopIslandMotionSpec.MAX_FRAME_SECONDS), target,
+                    if (collapsed) HostTopIslandMotionSpec.COLLAPSE_STIFFNESS else HostTopIslandMotionSpec.EXPAND_STIFFNESS,
+                    if (collapsed) HostTopIslandMotionSpec.DAMPING_RATIO else HostTopIslandMotionSpec.EXPAND_DAMPING_RATIO)
+                applyProgress(spring.value)
+                val travel = (dock.width - dock.height).coerceAtLeast(1).toFloat()
+                if (spring.atRest(target, .5f / travel)) settle()
+                else Choreographer.getInstance().postFrameCallback(this)
+                true
             }
-            val previous = lastFrameNanos
-            lastFrameNanos = frameTimeNanos
-            val seconds = if (previous == 0L) 1f / 60f else (frameTimeNanos - previous) / 1e9f
-            val target = if (collapsed) 1f else 0f
-            spring.advance(seconds.coerceAtMost(HostTopIslandMotionSpec.MAX_FRAME_SECONDS), target,
-                if (collapsed) HostTopIslandMotionSpec.COLLAPSE_STIFFNESS else HostTopIslandMotionSpec.EXPAND_STIFFNESS,
-                if (collapsed) HostTopIslandMotionSpec.DAMPING_RATIO else HostTopIslandMotionSpec.EXPAND_DAMPING_RATIO)
-            applyProgress(spring.value)
-            val travel = (dock.width - dock.height).coerceAtLeast(1).toFloat()
-            if (spring.atRest(target, .5f / travel)) settle()
-            else Choreographer.getInstance().postFrameCallback(this)
+            // 失败的一帧不再续约；animating 留着的话，之后的 animateTo 以为动画还在跑，岛就卡在半途。
+            if (!continued) animating = false
         }
     }
 

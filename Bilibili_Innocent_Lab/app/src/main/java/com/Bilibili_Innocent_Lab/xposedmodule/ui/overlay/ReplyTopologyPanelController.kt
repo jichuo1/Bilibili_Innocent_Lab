@@ -4,10 +4,12 @@ import android.app.Activity
 import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
+import android.os.Message
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import io.github.jichuo1.meguviz.android.extensions.child
 import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicBoolean
@@ -22,7 +24,12 @@ import kotlin.math.roundToInt
  */
 internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
 
-    private val mainHandler = Handler(Looper.getMainLooper())
+    /** 面板的全部 post/postDelayed 都跑在宿主主线程消息上；覆盖 dispatchMessage，新增调用点自动纳入。 */
+    private val mainHandler = object : Handler(Looper.getMainLooper()) {
+        override fun dispatchMessage(msg: Message) {
+            HostThreadGuard.run("reply_topology.panel_message") { super.dispatchMessage(msg) }
+        }
+    }
     private val generation = AtomicLong(0L)
 
     @Volatile

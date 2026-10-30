@@ -27,6 +27,7 @@ import android.widget.TextView
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.recyclerview.widget.RecyclerView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.util.Collections
 import java.util.WeakHashMap
@@ -227,7 +228,7 @@ internal object HostTopBarFxController {
         // 只在模块背景接管页面时剥离，个人中心 main_top_bg_imageview 始终保留原画。
         val headId = context.resources.getIdentifier("main_top_bg", "id", context.packageName)
         val headArtwork = if (headId != 0) root.rootView.findViewById<View>(headId) else null
-        val materialPreDraw = ViewTreeObserver.OnPreDrawListener {
+        val materialPreDraw = ViewTreeObserver.OnPreDrawListener { HostThreadGuard.call("host.top.material.predraw", true) {
             val current = theme.read()
             artifacts.clear(current)
             if (config.backgroundPreset != HostBackgroundPreset.OFF && current.garbAccent != null) headArtwork?.let {
@@ -236,7 +237,7 @@ internal object HostTopBarFxController {
             }
             refreshTheme()
             true
-        }
+        } }
         var materialObserver: ViewTreeObserver? = null
         fun observeMaterial() {
             val observer = topBarDock.viewTreeObserver
@@ -258,7 +259,7 @@ internal object HostTopBarFxController {
         }
 
         var sanitizePosted = false
-        val sanitizeRunnable = Runnable {
+        val sanitizeRunnable = Runnable { HostThreadGuard.run("host.top.sanitize") {
             sanitizePosted = false
             if (!topBarDock.isAttachedToWindow) return@Runnable
             configureOverlayConstraints(topBarDock, barHeight, marginH, marginV, density)
@@ -278,7 +279,7 @@ internal object HostTopBarFxController {
                 )
             }
             backdrop?.revalidate(vp)
-        }
+        } }
 
         val requestSanitization = {
             if (!sanitizePosted && topBarDock.isAttachedToWindow) {
@@ -302,7 +303,7 @@ internal object HostTopBarFxController {
 
         // 5. 实时透镜生命周期绑定
         topBarDock.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) {
+            override fun onViewAttachedToWindow(v: View) = HostThreadGuard.run("host.top.attach") {
                 val vp = (if (topBarDock.parent != null) findViewPager(topBarDock.parent as ViewGroup) else null) ?: findViewPager(root)
                 backdrop?.attach(topBarDock, vp)
                 updateSurfaceDrawable(force = true)
@@ -310,7 +311,7 @@ internal object HostTopBarFxController {
                 requestSanitization()
             }
 
-            override fun onViewDetachedFromWindow(v: View) {
+            override fun onViewDetachedFromWindow(v: View) = HostThreadGuard.run("host.top.detach") {
                 sanitizePosted = false
                 topBarDock.removeCallbacks(sanitizeRunnable)
                 backdrop?.detach()
@@ -636,9 +637,9 @@ internal object HostTopBarFxController {
             val addListenerMethod = viewPager.javaClass.getMethod("addOnPageChangeListener", listenerClass)
             val handler = java.lang.reflect.InvocationHandler { _, method, _ ->
                 if (method.name == "onPageSelected") {
-                    viewPager.post {
+                    viewPager.post(HostThreadGuard.runnable("host.top.page_padding") {
                         applyScrollPadding(viewPager, scrollPadding(), density, spinnerTravelBase())
-                    }
+                    })
                 }
                 null
             }

@@ -17,6 +17,7 @@ import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeContentSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.ViewSamplingMatrix
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
@@ -110,11 +111,11 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
 
     override fun onViewAttachedToWindow(view: View) = observe()
     override fun onViewDetachedFromWindow(view: View) = close()
-    override fun onPreDraw(): Boolean {
-        if (closed) return true
+    override fun onPreDraw(): Boolean = HostThreadGuard.call("host.card.material.predraw", true) {
+        if (closed) return@call true
         frame++
         refresh(night)
-        if (visible != true) return true
+        if (visible != true) return@call true
         // 先更新一次共享节点，已有 View / Compose 显示列表可继续引用同一个节点。
         record(owner.isHardwareAccelerated)
         for ((view, paint) in cards) {
@@ -124,7 +125,7 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
                 paint.invalidateSelf()
             }
         }
-        return true
+        true
     }
 
     fun refresh(night: Boolean) {

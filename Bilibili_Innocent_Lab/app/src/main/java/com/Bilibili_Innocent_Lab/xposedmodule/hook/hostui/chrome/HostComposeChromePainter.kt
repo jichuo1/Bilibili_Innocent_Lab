@@ -113,27 +113,29 @@ internal class HostComposeChromePainter(
         it.isAttachedToWindow && HostViewVisibility.visible(it, visibleBounds)
     }
     private val locateSource: () -> ViewGroup? = { this.owner.get()?.let(::independentContent) }
+    /** 守卫要看见失败，计数和日志才有效：先按 [failure] 降级，再把异常交还守卫。 */
+    private inline fun guarded(key: String, block: () -> Unit) = HostThreadGuard.run(key) {
+        try { block() } catch (error: Throwable) { failure(error); throw error }
+    }
     private val frameWake = Runnable {
         posted = false
-        HostThreadGuard.run("host.chrome.wake") {
-            runCatching {
-                this.owner.get()?.takeIf { it.isAttachedToWindow }?.let {
-                    if (compositionDirty) { compositionDirty = false; compositionSignal.invalidate() }
-                    signal.invalidate(); it.invalidate()
-                }
-            }.onFailure(::failure)
+        guarded("host.chrome.wake") {
+            this.owner.get()?.takeIf { it.isAttachedToWindow }?.let {
+                if (compositionDirty) { compositionDirty = false; compositionSignal.invalidate() }
+                signal.invalidate(); it.invalidate()
+            }
         }
     }
     private val backdropProbe = Runnable {
         probeAt = null
-        HostThreadGuard.run("host.chrome.backdrop") { runCatching(::wake).onFailure(::failure) }
+        guarded("host.chrome.backdrop") { wake() }
     }
     private val layoutChanged = ViewTreeObserver.OnGlobalLayoutListener {
         float?.markDirty()
-        HostThreadGuard.run("host.chrome.layout") { runCatching(::requestBackdropRefresh).onFailure(::failure) }
+        guarded("host.chrome.layout") { requestBackdropRefresh() }
     }
     private val scrollChanged = ViewTreeObserver.OnScrollChangedListener {
-        HostThreadGuard.run("host.chrome.scroll") { runCatching(::requestBackdropRefresh).onFailure(::failure) }
+        guarded("host.chrome.scroll") { requestBackdropRefresh() }
     }
     private val preDraw = ViewTreeObserver.OnPreDrawListener {
         var proceed = true
@@ -168,11 +170,10 @@ internal class HostComposeChromePainter(
         proceed
     }
     private val attach = object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(v: View) = HostThreadGuard.run("host.chrome.attach") {
-            runCatching(::wake).onFailure(::failure)
-        }
-        override fun onViewDetachedFromWindow(v: View) = HostThreadGuard.run("host.chrome.detach") {
-            backdropRecovery.clear(); release(dispose = true)?.let(::failure); activeTouch = false
+        override fun onViewAttachedToWindow(v: View) = guarded("host.chrome.attach") { wake() }
+        override fun onViewDetachedFromWindow(v: View) = guarded("host.chrome.detach") {
+            backdropRecovery.clear(); activeTouch = false
+            release(dispose = true)?.let { throw it }
         }
     }
 

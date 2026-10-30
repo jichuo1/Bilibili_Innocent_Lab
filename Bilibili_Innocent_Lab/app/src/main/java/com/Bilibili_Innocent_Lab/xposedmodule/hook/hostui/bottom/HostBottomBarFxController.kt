@@ -10,6 +10,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostTouchGlowBi
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HostChromeAttachments
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import android.graphics.Outline
 import android.os.Build
 import android.view.Gravity
@@ -103,14 +104,14 @@ internal object HostBottomBarFxController {
         //    所以保留整树清理，但改成"按需触发 + 合并到一帧一次"。逐帧路径只剩 pre-draw 里的
         //    O(items) 空判与对齐（见 HostBottomBarDockLayer.preDrawListener），不再每帧全树递归。
         var sanitizePosted = false
-        val sanitizeRunnable = Runnable {
+        val sanitizeRunnable = Runnable { HostThreadGuard.run("host.bottom.sanitize") {
             sanitizePosted = false
             if (!tabHost.isAttachedToWindow) return@Runnable
             if (config.liquidGlass) stripAllHostArtifacts(tabHost, isRoot = true)
             alignTabContent(tabHost, container, density, insetH, config, theme.read())
             // 冷启动时底栏还没有尺寸、找不到采样源；布局稳定后每次清理都顺手补一次定位（命中即 O(1)）。
             backdrop?.revalidate()
-        }
+        } }
         val requestSanitization = {
             if (!sanitizePosted && tabHost.isAttachedToWindow) {
                 sanitizePosted = true
@@ -142,10 +143,10 @@ internal object HostBottomBarFxController {
 
         // 5. 挂接统一全域触控手势
         tabHost.setOnTouchListener { _, event ->
-            dockLayer.handleTouch(event, -1)
+            dockLayer.dispatchTouch(event, -1)
         }
         dockLayer.setOnTouchListener { _, event ->
-            dockLayer.handleTouch(event, -1)
+            dockLayer.dispatchTouch(event, -1)
         }
 
         container?.let { c ->
@@ -161,19 +162,19 @@ internal object HostBottomBarFxController {
                     }
                     (tabItem as? FrameLayout)?.foreground = null
                     tabItem.setOnTouchListener { _, event ->
-                        dockLayer.handleTouch(event, i)
+                        dockLayer.dispatchTouch(event, i)
                     }
                 }
             }
             hookTabTouch()
             c.setOnHierarchyChangeListener(object : ViewGroup.OnHierarchyChangeListener {
-                override fun onChildViewAdded(parent: View?, child: View?) {
+                override fun onChildViewAdded(parent: View?, child: View?) = HostThreadGuard.run("host.bottom.hierarchy") {
                     // 宿主重建 tab 时内容层可能整体被替换：重找实时透镜的采样源。
                     backdrop?.revalidate()
                     hookTabTouch()
                 }
 
-                override fun onChildViewRemoved(parent: View?, child: View?) {
+                override fun onChildViewRemoved(parent: View?, child: View?) = HostThreadGuard.run("host.bottom.hierarchy") {
                     backdrop?.revalidate()
                     hookTabTouch()
                 }

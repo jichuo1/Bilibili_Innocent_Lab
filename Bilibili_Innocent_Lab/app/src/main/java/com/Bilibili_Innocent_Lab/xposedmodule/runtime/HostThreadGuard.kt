@@ -32,8 +32,8 @@ internal object HostThreadGuard {
 
     private val failures = ConcurrentHashMap<String, AtomicLong>()
 
-    /** 吞掉 [block] 的任何 Throwable，保证调度它的宿主线程不被终止。成功路径零分配。 */
-    fun run(key: String, block: () -> Unit) {
+    /** 吞掉 [block] 的任何 Throwable，保证调度它的宿主线程不被终止。内联，逐帧路径上也不分配闭包。 */
+    inline fun run(key: String, block: () -> Unit) {
         try {
             block()
         } catch (throwable: Throwable) {
@@ -42,7 +42,7 @@ internal object HostThreadGuard {
     }
 
     /** 有返回值的变体；失败时返回 [fallback]（故障开放由调用方决定语义）。 */
-    fun <T> call(key: String, fallback: T, block: () -> T): T = try {
+    inline fun <T> call(key: String, fallback: T, block: () -> T): T = try {
         block()
     } catch (throwable: Throwable) {
         report(key, throwable)
@@ -66,7 +66,7 @@ internal object HostThreadGuard {
         failures.clear()
     }
 
-    private fun report(key: String, throwable: Throwable) {
+    internal fun report(key: String, throwable: Throwable) {
         val count = failures.computeIfAbsent(key) { AtomicLong() }.incrementAndGet()
         // 记录本身绝不能把异常放回宿主栈：框架 binder 断开时 `module.log` 会抛，
         // 未绑定 sink 时还会退到 `android.util.Log`（JVM 单测里是 Stub! 异常）。
@@ -83,5 +83,28 @@ internal object HostThreadGuard {
         } catch (_: Throwable) {
             // 计数已经记下，日志通道不可用时静默即可。
         }
+    }
+}
+
+/**
+ * 模块入口里夹着宿主业务调用（如替宿主 `performClick`）时用：守卫要兜住模块自己的逻辑，
+ * 但宿主的异常必须保持原样。[host] 记下宿主抛出的异常并让模块收尾，守卫结束后由 [rethrow]
+ * 把同一个异常抛回宿主栈；它不计入 [HostThreadGuard] 的失败计数。
+ */
+internal class HostCallPassthrough {
+    internal var failure: Throwable? = null
+
+    inline fun host(block: () -> Unit) {
+        try {
+            block()
+        } catch (throwable: Throwable) {
+            if (failure == null) failure = throwable
+        }
+    }
+
+    fun rethrow() {
+        val pending = failure ?: return
+        failure = null
+        throw pending
     }
 }

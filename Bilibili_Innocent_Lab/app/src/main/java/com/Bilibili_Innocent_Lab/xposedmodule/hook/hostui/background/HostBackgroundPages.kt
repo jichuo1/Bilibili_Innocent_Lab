@@ -19,6 +19,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardHostAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
@@ -214,8 +215,8 @@ internal class HostBackgroundPages(
             root.get()?.removeOnAttachStateChangeListener(this)
         }
 
-        override fun onViewAttachedToWindow(view: View) = start()
-        override fun onViewDetachedFromWindow(view: View) = stop()
+        override fun onViewAttachedToWindow(view: View) = HostThreadGuard.run("host.background.page.attach") { start() }
+        override fun onViewDetachedFromWindow(view: View) = HostThreadGuard.run("host.background.page.detach") { stop() }
         override fun onGlobalLayout() { dirty = true }
 
         private fun discover(root: ViewGroup) {
