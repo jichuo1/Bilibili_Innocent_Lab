@@ -28,7 +28,10 @@ class HostStackGuardContractTest {
             "top/HostTopIslandBinding.kt" to "host.top.island.predraw",
             "cards/HostCardMaterialScope.kt" to "host.card.material.predraw",
             "cards/HostVideoCardStyle.kt" to "host.card.list.predraw",
-            "common/HostSurfaceScope.kt" to "host.surface.backdrop.predraw"
+            "common/HostSurfaceScope.kt" to "host.surface.backdrop.predraw",
+            "common/HostTouchGlowBinding.kt" to "host.touch_glow.predraw",
+            "overlays/HostOverlaySurfaces.kt" to "host.overlay.surfaces.predraw",
+            "chrome/HostComposeChromePainter.kt" to "host.chrome.predraw"
         )
         for ((path, key) in entries) {
             assertTrue("$path must return true on failure", read(path).contains("HostThreadGuard.call(\"$key\", true)"))
@@ -107,5 +110,78 @@ class HostStackGuardContractTest {
             "host.chrome.scroll", "host.chrome.attach", "host.chrome.detach")
         assertFalse(Regex("""HostThreadGuard\.run\("[^"]+"\) \{\s*runCatching""").containsMatchIn(painter))
         assertFalse(Regex("""guarded\("[^"]+"\) \{\s*runCatching""").containsMatchIn(painter))
+    }
+
+    @Test fun remainingHostViewAndAnimationEntriesAreGuarded() {
+        val entries = mapOf(
+            "bottom/HostBottomBarDockLayer.kt" to listOf(
+                "host.bottom.hero.layout", "host.bottom.dock.measure", "host.bottom.dock.layout",
+                "host.bottom.dock.size", "host.bottom.dock.attach", "host.bottom.dock.detach",
+                "host.bottom.press.frame", "host.bottom.press.end", "host.bottom.rebound.frame", "host.bottom.rebound.end"
+            ),
+            "top/HostTopBarFxController.kt" to listOf("host.top.touch"),
+            "top/HostTopFusionBinding.kt" to listOf("host.top.fusion.attach", "host.top.fusion.detach"),
+            "top/HostTopTabCenteringBinding.kt" to listOf(
+                "host.top.centering.layout", "host.top.centering.attach", "host.top.centering.detach"
+            ),
+            "top/HostTopIslandBinding.kt" to listOf(
+                "host.top.island.draw", "host.top.island.touch", "host.top.island.accessibility",
+                "host.top.island.click", "host.top.island.accessibility_action", "host.top.island.outline",
+                "host.top.island.attach", "host.top.island.detach"
+            ),
+            "common/HostTouchGlowBinding.kt" to listOf("host.touch_glow.attach", "host.touch_glow.detach"),
+            "overlays/HostCopyBubble.kt" to listOf(
+                "host.copy_bubble.frame", "host.copy_bubble.enter_end", "host.copy_bubble.exit_end"
+            ),
+            "cards/HostCardMaterialScope.kt" to listOf(
+                "host.card.material.attach", "host.card.material.detach", "host.card.material.draw"
+            ),
+            "cards/HostVideoCardStyle.kt" to listOf("host.card.detach", "host.card.list.attach", "host.card.list.detach")
+        )
+        for ((path, keys) in entries) assertGuarded(read(path), *keys.toTypedArray())
+
+        val measure = read("bottom/HostBottomBarDockLayer.kt").after("override fun onMeasure(").before("override fun onLayout(")
+        assertTrue("Measurement must always set a dimension before entering the guard",
+            measure.indexOf("setMeasuredDimension(") in 0 until measure.indexOf("HostThreadGuard.run("))
+    }
+
+    @Test fun remainingBackgroundTasksAreGuardedOnBothThreads() {
+        val entries = mapOf(
+            "background/HostBackgroundPageHooks.kt" to listOf(
+                "host.background.page.post", "host.background.list.post",
+                "host.background.comment.post", "host.background.native.post"
+            ),
+            "background/HostBackgroundScene.kt" to listOf(
+                "host.background.scene.worker", "host.background.scene.retry", "host.background.scene.publish"
+            ),
+            "background/HostBackgroundRasterCache.kt" to listOf(
+                "host.background.raster.worker", "host.background.raster.ready"
+            ),
+            "cards/HostCardMicaField.kt" to listOf("host.card.mica.worker", "host.card.mica.publish")
+        )
+        for ((path, keys) in entries) assertGuarded(read(path), *keys.toTypedArray())
+        assertFalse(read("background/HostBackgroundScene.kt").contains("worker.execute {"))
+        assertFalse(read("background/HostBackgroundRasterCache.kt").contains("worker.execute {"))
+    }
+
+    @Test fun islandHostTouchFailuresPassThroughItsGuard() {
+        val island = read("top/HostTopIslandBinding.kt")
+        val touch = island.after("override fun onTouchEvent(").before("override fun onInitializeAccessibilityNodeInfo(")
+        val guard = touch.indexOf("""HostThreadGuard.call("host.top.island.touch", false)""")
+        assertTrue(guard >= 0)
+        assertTrue("Host failures are rethrown outside the guard", touch.indexOf("hostCalls.rethrow()") > guard)
+        val forward = island.after("private fun forward(").before("private fun findScroll(")
+        assertTrue(forward.contains("hostCalls.host { dock.dispatchTouchEvent(copy) }"))
+    }
+
+    @Test fun chromePreDrawAndRestoreKeepTheirControlFlow() {
+        val painter = read("chrome/HostComposeChromePainter.kt")
+        val preDraw = painter.after("private val preDraw =").before("private val attach =")
+        assertTrue(preDraw.contains("proceed"))
+        assertFalse(preDraw.contains("runCatching"))
+        val restore = painter.after("""HostThreadGuard.run("host.chrome.restore")""").before("if (compositionObserved)")
+        assertTrue(restore.contains("owned.forEach"))
+        assertTrue(restore.contains("previous.addSuppressed(error)"))
+        assertTrue(restore.contains("first?.let { throw it }"))
     }
 }

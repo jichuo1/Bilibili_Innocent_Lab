@@ -109,8 +109,8 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         observer = next; next.addOnPreDrawListener(this)
     }
 
-    override fun onViewAttachedToWindow(view: View) = observe()
-    override fun onViewDetachedFromWindow(view: View) = close()
+    override fun onViewAttachedToWindow(view: View) = HostThreadGuard.run("host.card.material.attach") { observe() }
+    override fun onViewDetachedFromWindow(view: View) = HostThreadGuard.run("host.card.material.detach") { close() }
     override fun onPreDraw(): Boolean = HostThreadGuard.call("host.card.material.predraw", true) {
         if (closed) return@call true
         frame++
@@ -260,18 +260,18 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
             clip.reset(); clip.addRoundRect(inner, (radiusPx - inset).coerceAtLeast(0f),
                 (radiusPx - inset).coerceAtLeast(0f), Path.Direction.CW)
         }
-        override fun draw(canvas: Canvas) {
-            if (disposed || composite.alpha == 0) return
+        override fun draw(canvas: Canvas) = HostThreadGuard.run("host.card.material.draw") {
+            if (disposed || composite.alpha == 0) return@run
             // 非默认透明度/滤镜必须作用于整个背景，不能只改变静态描边。
             val layer = if (composite.alpha != 255 || composite.colorFilter != null)
                 canvas.saveLayer(bounds.left.toFloat(), bounds.top.toFloat(), bounds.right.toFloat(),
                     bounds.bottom.toFloat(), composite) else canvas.save()
             try {
                 border.draw(canvas)
-                if (closed || inner.isEmpty) return
+                if (closed || inner.isEmpty) return@run
                 val scene = record(canvas.isHardwareAccelerated)
-                val view = host.get() ?: return
-                if (native) { if (!mapping.sourceToTarget(owner, view, matrix)) return }
+                val view = host.get() ?: return@run
+                if (native) { if (!mapping.sourceToTarget(owner, view, matrix)) return@run }
                 else { owner.getLocationInWindow(location); matrix.setTranslate(location[0] - windowX, location[1] - windowY) }
                 canvas.clipPath(clip); canvas.concat(matrix); scene?.draw(canvas)
             } finally { canvas.restoreToCount(layer) }

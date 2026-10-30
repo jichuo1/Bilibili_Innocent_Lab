@@ -29,6 +29,7 @@ import android.view.ViewTreeObserver
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.HorizontalScrollView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostCallPassthrough
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import java.util.WeakHashMap
 import kotlin.math.abs
@@ -70,6 +71,7 @@ internal class HostTopIslandBinding private constructor(
     private var feedbackFrameNanos = 0L
     private val touchPadding = 8f * density
     private val touchSlop = ViewConfiguration.get(dock.context).scaledTouchSlop.toFloat()
+    private val hostCalls = HostCallPassthrough()
     private var observer: ViewTreeObserver? = null
     private val shell = object : View(dock.context), HostDockLayer {}
     private val preDraw = ViewTreeObserver.OnPreDrawListener { HostThreadGuard.call("host.top.island.predraw", true) { sync(); true } }
@@ -134,53 +136,65 @@ internal class HostTopIslandBinding private constructor(
     }
 
     private val input = object : View(dock.context), HostDockLayer {
-        override fun onDraw(canvas: Canvas) {
+        override fun onDraw(canvas: Canvas) = HostThreadGuard.run("host.top.island.draw") {
             val shellSave = canvas.save()
-            canvas.scale(feedback.scale, feedback.scale, dock.width / 2f, dock.height / 2f + touchPadding)
-            canvas.translate(0f, touchPadding)
-            if (collapsed && feedback.pressure > 0f) {
-                pressPaint.alpha = (24f * feedback.pressure).roundToInt()
-                canvas.drawCircle(dock.width / 2f, dock.height / 2f, dock.height / 2f, pressPaint)
+            try {
+                canvas.scale(feedback.scale, feedback.scale, dock.width / 2f, dock.height / 2f + touchPadding)
+                canvas.translate(0f, touchPadding)
+                if (collapsed && feedback.pressure > 0f) {
+                    pressPaint.alpha = (24f * feedback.pressure).roundToInt()
+                    canvas.drawCircle(dock.width / 2f, dock.height / 2f, dock.height / 2f, pressPaint)
+                }
+                val alpha = HostTopIslandMotionSpec.glyphAlpha(progress)
+                if (alpha <= 0f) return@run
+                glyphPaint.alpha = (220f * alpha).roundToInt()
+                val save = canvas.save()
+                try {
+                    canvas.translate(dock.width / 2f, dock.height / 2f + 1.5f * density * (1f - alpha))
+                    val scale = .9f + .1f * alpha
+                    canvas.scale(scale, scale)
+                    if (feedback.refreshing) {
+                        canvas.rotate((SystemClock.uptimeMillis() % 1000L) * .36f)
+                        canvas.drawArc(spinnerBounds, -90f, 250f, false, glyphPaint)
+                    } else {
+                        canvas.translate(0f, feedback.arrowOffset(SystemClock.uptimeMillis()) * density)
+                        canvas.drawPath(if (atTop && !feedback.showTopArrow(SystemClock.uptimeMillis())) refreshPath else arrowPath, glyphPaint)
+                    }
+                } finally {
+                    canvas.restoreToCount(save)
+                }
+            } finally {
+                canvas.restoreToCount(shellSave)
             }
-            val alpha = HostTopIslandMotionSpec.glyphAlpha(progress)
-            if (alpha <= 0f) { canvas.restoreToCount(shellSave); return }
-            glyphPaint.alpha = (220f * alpha).roundToInt()
-            val save = canvas.save()
-            canvas.translate(dock.width / 2f, dock.height / 2f + 1.5f * density * (1f - alpha))
-            val scale = .9f + .1f * alpha
-            canvas.scale(scale, scale)
-            if (feedback.refreshing) {
-                canvas.rotate((SystemClock.uptimeMillis() % 1000L) * .36f)
-                canvas.drawArc(spinnerBounds, -90f, 250f, false, glyphPaint)
-            } else {
-                canvas.translate(0f, feedback.arrowOffset(SystemClock.uptimeMillis()) * density)
-                canvas.drawPath(if (atTop && !feedback.showTopArrow(SystemClock.uptimeMillis())) refreshPath else arrowPath, glyphPaint)
-            }
-            canvas.restoreToCount(save)
-            canvas.restoreToCount(shellSave)
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
-            val copy = MotionEvent.obtain(event)
-            return try { copy.offsetLocation(0f, -touchPadding); handleTouch(copy) } finally { copy.recycle() }
+            val handled = HostThreadGuard.call("host.top.island.touch", false) {
+                val copy = MotionEvent.obtain(event)
+                try { copy.offsetLocation(0f, -touchPadding); handleTouch(copy) } finally { copy.recycle() }
+            }
+            hostCalls.rethrow()
+            return handled
         }
 
         override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
             super.onInitializeAccessibilityNodeInfo(info)
-            if (!collapsed) return
-            info.className = "android.widget.Button"
-            info.isClickable = !feedback.busy
-            info.addAction(AccessibilityNodeInfo.AccessibilityAction(EXPAND_ACTION, "展开顶栏"))
-            val inset = horizontalInset().roundToInt()
-            @Suppress("DEPRECATION")
-            info.setBoundsInParent(Rect(x.roundToInt() + inset, (y + touchPadding).roundToInt(),
-                x.roundToInt() + width - inset, (y + touchPadding + dock.height).roundToInt()))
-            getLocationOnScreen(location)
-            info.setBoundsInScreen(Rect(location[0] + inset, location[1] + touchPadding.roundToInt(),
-                location[0] + width - inset, location[1] + touchPadding.roundToInt() + dock.height))
+            HostThreadGuard.run("host.top.island.accessibility") {
+                if (!collapsed) return@run
+                info.className = "android.widget.Button"
+                info.isClickable = !feedback.busy
+                info.addAction(AccessibilityNodeInfo.AccessibilityAction(EXPAND_ACTION, "展开顶栏"))
+                val inset = horizontalInset().roundToInt()
+                @Suppress("DEPRECATION")
+                info.setBoundsInParent(Rect(x.roundToInt() + inset, (y + touchPadding).roundToInt(),
+                    x.roundToInt() + width - inset, (y + touchPadding + dock.height).roundToInt()))
+                getLocationOnScreen(location)
+                info.setBoundsInScreen(Rect(location[0] + inset, location[1] + touchPadding.roundToInt(),
+                    location[0] + width - inset, location[1] + touchPadding.roundToInt() + dock.height))
+            }
         }
 
-        override fun performClick(): Boolean {
+        override fun performClick(): Boolean = HostThreadGuard.call("host.top.island.click", true) {
             super.performClick()
             if (collapsed && HostTopIslandMotionSpec.glyphAlpha(progress) > .5f && !feedback.busy) {
                 val action = pageActions.click()
@@ -195,13 +209,14 @@ internal class HostTopIslandBinding private constructor(
                 ensureFeedbackFrames()
                 invalidate()
             }
-            return true
+            true
         }
 
-        override fun performAccessibilityAction(action: Int, arguments: Bundle?): Boolean {
-            if (action == EXPAND_ACTION && collapsed) { animateTo(false); return true }
-            return super.performAccessibilityAction(action, arguments)
-        }
+        override fun performAccessibilityAction(action: Int, arguments: Bundle?): Boolean =
+            HostThreadGuard.call("host.top.island.accessibility_action", false) {
+                if (action == EXPAND_ACTION && collapsed) { animateTo(false); return@call true }
+                super.performAccessibilityAction(action, arguments)
+            }
     }
 
     companion object {
@@ -248,7 +263,7 @@ internal class HostTopIslandBinding private constructor(
         input.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         input.contentDescription = "刷新"
         dock.outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(view: View, outline: Outline) {
+            override fun getOutline(view: View, outline: Outline) = HostThreadGuard.run("host.top.island.outline") {
                 val inset = horizontalInset().roundToInt()
                 val vertical = verticalInset().roundToInt()
                 val radius = minOf(view.width - inset * 2, view.height - vertical * 2) / 2f
@@ -256,8 +271,8 @@ internal class HostTopIslandBinding private constructor(
             }
         }
         input.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) = observe()
-            override fun onViewDetachedFromWindow(v: View) {
+            override fun onViewAttachedToWindow(v: View) = HostThreadGuard.run("host.top.island.attach") { observe() }
+            override fun onViewDetachedFromWindow(v: View) = HostThreadGuard.run("host.top.island.detach") {
                 observer?.takeIf { it.isAlive }?.removeOnPreDrawListener(preDraw)
                 observer = null
                 settle()
@@ -551,7 +566,7 @@ internal class HostTopIslandBinding private constructor(
         val copy = MotionEvent.obtain(event)
         try {
             copy.action = action
-            dock.dispatchTouchEvent(copy)
+            hostCalls.host { dock.dispatchTouchEvent(copy) }
         } finally {
             copy.recycle()
         }

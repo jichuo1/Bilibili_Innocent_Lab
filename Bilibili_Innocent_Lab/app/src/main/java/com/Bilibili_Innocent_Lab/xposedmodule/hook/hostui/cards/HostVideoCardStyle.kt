@@ -112,7 +112,7 @@ internal class HostVideoCardStyle(
     }
     private val attachListener = object : View.OnAttachStateChangeListener {
         override fun onViewAttachedToWindow(view: View) = safelyApply(view)
-        override fun onViewDetachedFromWindow(view: View) {
+        override fun onViewDetachedFromWindow(view: View) = HostThreadGuard.run("host.card.detach") {
             states[view]?.let { state ->
                 state.surfaceScope?.get()?.release(view)
                 state.surfaceScope = null
@@ -151,8 +151,8 @@ internal class HostVideoCardStyle(
             observer = null
         }
 
-        override fun onViewAttachedToWindow(view: View) = start()
-        override fun onViewDetachedFromWindow(view: View) {
+        override fun onViewAttachedToWindow(view: View) = HostThreadGuard.run("host.card.list.attach") { start() }
+        override fun onViewDetachedFromWindow(view: View) = HostThreadGuard.run("host.card.list.detach") {
             stop()
             surfaces?.close()
             surfaces = null

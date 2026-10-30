@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.LruCache
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import java.lang.ref.WeakReference
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
@@ -131,9 +132,9 @@ internal class HostBackgroundScene(private val config: HostBackgroundConfig, pri
         if (hits.isNotEmpty()) synchronized(lock) {
             for ((key, bitmap) in hits) if (key in wanted && ready.put(key, bitmap) == null) version.incrementAndGet()
         }
-        repeat(created) { worker.execute { drain() } }
+        repeat(created) { worker.execute(HostThreadGuard.runnable("host.background.scene.worker") { drain() }) }
         // 任务表满（正常使用不会发生）：稍后再绘制一次重新订阅，而不是丢掉这些 tile。
-        if (rejected) main.postDelayed({ invalidate() }, REJECT_RETRY_MS)
+        if (rejected) main.postDelayed(HostThreadGuard.runnable("host.background.scene.retry") { invalidate() }, REJECT_RETRY_MS)
     }
 
     /** 主线程：一个 tile 生成完成。只发布给仍匹配当前视口的订阅者。 */
@@ -186,7 +187,9 @@ internal class HostBackgroundScene(private val config: HostBackgroundConfig, pri
             }.getOrNull()
             val subscribers = synchronized(cacheLock) { flights.finish(key) }
             if (subscribers.isEmpty()) return // 已无人订阅：结果留在共享缓存，不发布给过期的 Scene
-            main.post { for (subscription in subscribers) subscription.scene.get()?.onTile(key, bitmap) }
+            main.post(HostThreadGuard.runnable("host.background.scene.publish") {
+                for (subscription in subscribers) subscription.scene.get()?.onTile(key, bitmap)
+            })
         }
 
         internal fun render(key: Key): Bitmap {

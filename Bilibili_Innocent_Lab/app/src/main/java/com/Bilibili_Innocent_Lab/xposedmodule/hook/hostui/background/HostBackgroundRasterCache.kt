@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.os.Handler
 import android.os.Looper
 import android.util.LruCache
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import java.util.concurrent.Executors
 
 /** 按实际像素尺寸合成，缓存有界；尺寸动画期间继续用原始绘制，不拉伸旧缓存。 */
@@ -29,14 +30,14 @@ internal object HostBackgroundRasterCache {
             pending[key]?.let { it += ready; return }
             pending[key] = mutableListOf(ready)
         }
-        worker.execute {
+        worker.execute(HostThreadGuard.runnable("host.background.raster.worker") {
             val bitmap = runCatching { render(key) }.getOrNull()
             val callbacks = synchronized(lock) {
                 if (bitmap != null) cache.put(key, bitmap)
                 pending.remove(key).orEmpty()
             }
-            main.post { callbacks.forEach { it(bitmap) } }
-        }
+            main.post(HostThreadGuard.runnable("host.background.raster.ready") { callbacks.forEach { it(bitmap) } })
+        })
     }
 
     internal fun render(key: Key): Bitmap {

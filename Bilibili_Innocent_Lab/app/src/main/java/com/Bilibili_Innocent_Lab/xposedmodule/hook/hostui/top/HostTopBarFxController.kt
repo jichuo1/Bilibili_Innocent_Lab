@@ -156,23 +156,25 @@ internal object HostTopBarFxController {
             )
 
             val touchForwarder = View.OnTouchListener { _, event ->
-                when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-                        glow.updateGesture(
-                            press = 1f,
-                            offsetX = 0f,
-                            offsetY = 0f,
-                            centerX = event.x,
-                            centerY = event.y,
-                            barWidth = topBarDock.width,
-                            barHeight = topBarDock.height
-                        )
+                HostThreadGuard.call("host.top.touch", false) {
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                            glow.updateGesture(
+                                press = 1f,
+                                offsetX = 0f,
+                                offsetY = 0f,
+                                centerX = event.x,
+                                centerY = event.y,
+                                barWidth = topBarDock.width,
+                                barHeight = topBarDock.height
+                            )
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            glow.resetGestureState()
+                        }
                     }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        glow.resetGestureState()
-                    }
+                    false // 绝不拦截事件，完全放行给原生 Tab 与滚动
                 }
-                false // 绝不拦截事件，完全放行给原生 Tab 与滚动
             }
             topBarDock.setOnTouchListener(touchForwarder)
             hierarchy.tabContainer?.setOnTouchListener(touchForwarder)
