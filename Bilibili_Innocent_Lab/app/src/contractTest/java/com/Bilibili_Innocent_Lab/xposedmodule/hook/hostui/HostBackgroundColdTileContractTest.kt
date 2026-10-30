@@ -45,7 +45,7 @@ class HostBackgroundColdTileContractTest {
         assertTrue(drain.contains("flights.take { it.scene.get() != null }"))
         assertTrue(drain.contains("flights.finish(key)"))
         assertTrue(drain.contains("if (subscribers.isEmpty()) return"))
-        assertTrue(drain.contains("main.post {"))
+        assertTrue(drain.contains("""main.post(HostThreadGuard.runnable("host.background.scene.publish")"""))
         // 失败（位图为 null）也走 finish，不残留任务。
         assertTrue(drain.indexOf("}.getOrNull()") < drain.indexOf("flights.finish(key)"))
         val onTile = scene.after("private fun onTile(").before("companion object")
