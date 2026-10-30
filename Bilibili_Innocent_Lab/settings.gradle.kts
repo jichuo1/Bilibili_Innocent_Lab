@@ -44,7 +44,7 @@ providers.gradleProperty("lumen.sourceDir").orNull?.let { sourceDir ->
     includeBuild(file(sourceDir)) {
         dependencySubstitution {
             for (artifact in listOf("lumen-engine", "lumen-motion")) {
-                substitute(module("com.github.jichuo1.LumenCoacervationEngine:$artifact"))
+                substitute(module("io.github.jichuo1:$artifact"))
                     .using(project(":$artifact"))
             }
         }
