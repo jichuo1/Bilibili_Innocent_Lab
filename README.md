@@ -11,7 +11,7 @@
 
 ### 面向 Android 哔哩哔哩客户端的界面净化与交互增强模块
 
-基于 **Xposed / LSPosed、libxposed Modern API 与 KavaRef** 构建，作用于官方 Android 客户端 `tv.danmaku.bili`。
+基于 **Xposed / LSPosed、libxposed Modern API、Meguviz 系列（MeguvizRef、MeguvizUI、MeguvizAndroid）与凝光视效引擎** 构建，作用于官方 Android 客户端 `tv.danmaku.bili`。
 
 [下载 Release](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases) · [提交问题](https://github.com/jichuo1/Bilibili_Innocent_Lab/issues) · [交流群组](https://t.me/Bilibili_Innocent_Lab)
 
@@ -705,7 +705,7 @@ README、Release 说明、已验证版本列表、截图、日志和测试结果
 
 ### 八、第三方项目与外部链接
 
-本项目可能使用或提及 LSPosed、Xposed、Magisk、YukiHookAPI、KavaRef、哔哩漫游、GitHub 及其他第三方软件、框架、服务或网站。相关项目均由各自权利人独立维护，并适用其各自的许可证、隐私政策、服务条款和免责声明。
+本项目可能使用或提及 LSPosed、Xposed、Magisk、YukiHookAPI、MeguvizRef、MeguvizUI、MeguvizAndroid、Lumen Coacervation Engine、哔哩漫游、GitHub 及其他第三方软件、框架、服务或网站。相关项目均由各自权利人独立维护，并适用其各自的许可证、隐私政策、服务条款和免责声明。
 
 项目中出现第三方名称、链接或兼容代码，不代表本项目对其安全性、合法性、稳定性或持续可用性作出保证，也不代表双方存在合作或授权关系。
 
@@ -799,8 +799,10 @@ SPDX-License-Identifier: GPL-3.0-only
 感谢以下项目和社区提供的基础能力与开发参考：
 
 - [YukiHookAPI](https://github.com/HighCapable/YukiHookAPI)
-- [KavaRef](https://github.com/HighCapable/KavaRef)
-- [Lumen Coacervation Engine](https://github.com/jichuo1/LumenCoacervationEngine)（视频卡片柔光材质，Apache-2.0）
+- [MeguvizRef](https://github.com/jichuo1/MeguvizRef)（反射与成员定位，Apache-2.0）
+- [MeguvizUI](https://github.com/jichuo1/MeguvizUI)（原生 View 界面构建，Apache-2.0）
+- [MeguvizAndroid](https://github.com/jichuo1/MeguvizAndroid)（Android 运行时与窗口基础能力，Apache-2.0）
+- [Lumen Coacervation Engine](https://github.com/jichuo1/LumenCoacervationEngine)（宿主与模块界面的视觉材质和动效，Apache-2.0）
 - [BBZQ](https://github.com/HSSkyBoy/BBZQ)
 - Xposed / LSPosed 社区
 - Android 开源项目与相关开发文档

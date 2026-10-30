@@ -11,7 +11,7 @@
 
 ### A UI cleanup and interaction enhancement module for the Android Bilibili client
 
-Built on **Xposed / LSPosed, libxposed Modern API and KavaRef**, targeting the official Android client `tv.danmaku.bili`.
+Built on **Xposed / LSPosed, libxposed Modern API, the Meguviz libraries (MeguvizRef, MeguvizUI, MeguvizAndroid) and Lumen Coacervation Engine**, targeting the official Android client `tv.danmaku.bili`.
 
 [Download releases](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases) · [Report an issue](https://github.com/jichuo1/Bilibili_Innocent_Lab/issues) · [Telegram group](https://t.me/Bilibili_Innocent_Lab)
 
@@ -754,7 +754,7 @@ The above limitation of liability does not apply to liability that applicable la
 
 ### 8. Third-party projects and external links
 
-This project may use or mention LSPosed, Xposed, Magisk, YukiHookAPI, KavaRef, BiliRoaming, GitHub and other third-party software, frameworks, services or websites. Those projects are maintained independently by their respective rights holders and are subject to their own licences, privacy policies, terms of service and disclaimers.
+This project may use or mention LSPosed, Xposed, Magisk, YukiHookAPI, MeguvizRef, MeguvizUI, MeguvizAndroid, Lumen Coacervation Engine, BiliRoaming, GitHub and other third-party software, frameworks, services or websites. Those projects are maintained independently by their respective rights holders and are subject to their own licences, privacy policies, terms of service and disclaimers.
 
 The appearance of a third-party name, link or compatibility code in this project does not mean this project guarantees its safety, legality, stability or continued availability, nor that a cooperation or authorisation relationship exists between the two.
 
@@ -847,8 +847,10 @@ Third-party components, frameworks and code used by or compatible with the proje
 Thanks to the following projects and communities for the foundational capabilities and development references:
 
 - [YukiHookAPI](https://github.com/HighCapable/YukiHookAPI)
-- [KavaRef](https://github.com/HighCapable/KavaRef)
-- [Lumen Coacervation Engine](https://github.com/jichuo1/LumenCoacervationEngine) (video card surfaces, Apache-2.0)
+- [MeguvizRef](https://github.com/jichuo1/MeguvizRef) (reflection and member lookup, Apache-2.0)
+- [MeguvizUI](https://github.com/jichuo1/MeguvizUI) (native View UI construction, Apache-2.0)
+- [MeguvizAndroid](https://github.com/jichuo1/MeguvizAndroid) (Android runtime and window foundations, Apache-2.0)
+- [Lumen Coacervation Engine](https://github.com/jichuo1/LumenCoacervationEngine) (visual materials and motion for host and module surfaces, Apache-2.0)
 - [BBZQ](https://github.com/HSSkyBoy/BBZQ)
 - The Xposed / LSPosed community
 - The Android Open Source Project and related developer documentation
