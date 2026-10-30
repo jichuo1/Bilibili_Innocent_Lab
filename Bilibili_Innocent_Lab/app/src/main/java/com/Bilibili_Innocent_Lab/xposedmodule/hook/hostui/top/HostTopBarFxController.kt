@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top
 
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeColors
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeArtwork
@@ -14,13 +16,11 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppe
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HostChromeAttachments
 import android.annotation.SuppressLint
 import android.graphics.Outline
-import android.os.Build
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.view.ViewTreeObserver
-import android.view.WindowInsets
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
@@ -29,6 +29,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import java.util.Collections
 import java.util.WeakHashMap
 import kotlin.math.roundToInt
@@ -544,10 +545,11 @@ internal object HostTopBarFxController {
      * 两者都没有时按 24dp 兜底，绝不返回 0——融合带的几何全靠它，返回 0 会让带子退化成一条无意义的窄条。
      */
     private fun resolveStatusBarInset(root: View): Int {
-        val insets = root.rootWindowInsets
+        val insets = ViewCompat.getRootWindowInsets(root)
         if (insets != null) {
-            val top = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                insets.getInsets(WindowInsets.Type.statusBars()).top
+            // API 30 以下 Compat 的 statusBars 在全屏标志下读 0，这里要系统窗口 inset 的原值。
+            val top = if (AndroidVersion.isAtLeast(AndroidVersion.R)) {
+                insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
             } else {
                 @Suppress("DEPRECATION")
                 insets.systemWindowInsetTop
