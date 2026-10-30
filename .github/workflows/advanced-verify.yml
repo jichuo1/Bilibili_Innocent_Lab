@@ -25,7 +25,9 @@ env:
 
 jobs:
   verify:
-    if: github.ref == 'refs/heads/Advanced'
+    # Advanced 分支推送自动验证；手动运行（workflow_dispatch）可对任意分支做同一套门禁。
+    # 只读：缓存快照只在 Advanced 上保存（见下方 Save verified Gradle snapshot）。
+    if: github.ref == 'refs/heads/Advanced' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:
