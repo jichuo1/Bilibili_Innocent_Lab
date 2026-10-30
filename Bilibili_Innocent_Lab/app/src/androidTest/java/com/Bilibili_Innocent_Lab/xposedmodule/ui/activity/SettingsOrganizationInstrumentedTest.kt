@@ -167,7 +167,7 @@ class SettingsOrganizationInstrumentedTest {
             R.string.experimental_features -> R.string.experimental_appearance
             else -> error("Unknown settings card: $resource")
         }
-        // Hikage 会折叠无样式的标题容器，用实际菜单壳定位卡片。
+        // 用实际菜单壳定位卡片，不依赖标题容器的层级。
         return menu(activity, menuTitle).parent.parent as ViewGroup
     }
 
