@@ -344,7 +344,7 @@ internal object HostTopBarFxController {
             if (view.background != null) {
                 view.background = null
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && view.foreground != null) {
+            if (view.foreground != null) {
                 view.foreground = null
             }
             (view as? FrameLayout)?.foreground = null

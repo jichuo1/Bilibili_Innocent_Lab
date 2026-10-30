@@ -7,7 +7,6 @@ import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
-import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import io.github.jichuo1.meguviz.android.extensions.child
 import io.github.jichuo1.meguviz.android.extensions.childOrNull
 import io.github.jichuo1.meguviz.android.extensions.parentOrNull
@@ -16,6 +15,7 @@ import io.github.jichuo1.meguviz.android.extensions.textToString
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
+import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 import io.github.libxposed.api.XposedModule
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindBudget
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindProbe
@@ -5032,14 +5032,7 @@ class HookEntry : XposedModule() {
                     val targetInfo = runCatching {
                         appContext.packageManager.getPackageInfo(TARGET_PACKAGE, 0)
                     }.getOrNull()
-                    val targetVersionCode = targetInfo?.let {
-                        @Suppress("DEPRECATION")
-                        if (AndroidVersion.isAtLeast(AndroidVersion.P)) {
-                            it.longVersionCode
-                        } else {
-                            it.versionCode.toLong()
-                        }
-                    } ?: 0L
+                    val targetVersionCode = targetInfo?.versionCodeCompat ?: 0L
                     val dispatched = NoRootTargetConfigBridge.reportRuntimeState(
                         context = appContext,
                         revision = config.noRootRevision,

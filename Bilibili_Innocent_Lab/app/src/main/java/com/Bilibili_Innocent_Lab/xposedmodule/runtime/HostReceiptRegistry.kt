@@ -2,11 +2,11 @@ package com.Bilibili_Innocent_Lab.xposedmodule.runtime
 
 import android.content.Context
 import android.os.Binder
-import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.os.SystemClock
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
+import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 
 /** 模块进程内的唯一宿主会话。磁盘内容从不用于建立会话或证明宿主在线。 */
 internal object HostReceiptRegistry {
@@ -37,7 +37,7 @@ internal object HostReceiptRegistry {
             val source = HostRuntimeDiagnosticsSource(
                 extras.getLong("target_version"), extras.getLong("target_update"), extras.getLong("module_version"))
             val currentSource = HostRuntimeDiagnosticsSource(
-                if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong(),
+                info.versionCodeCompat,
                 info.lastUpdateTime, BuildConfig.VERSION_CODE.toLong())
             if (!source.isComplete || source != currentSource) return@runCatching false
             failure = ReceiptQueryFailure.MALFORMED_RESPONSE

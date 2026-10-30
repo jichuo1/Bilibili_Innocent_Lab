@@ -12,7 +12,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HostChromeAttac
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import android.graphics.Outline
-import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -157,9 +156,7 @@ internal object HostBottomBarFxController {
                 for (i in 0 until c.childCount) {
                     val tabItem = c.getChildAt(i)
                     tabItem.background = null
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        tabItem.foreground = null
-                    }
+                    tabItem.foreground = null
                     (tabItem as? FrameLayout)?.foreground = null
                     tabItem.setOnTouchListener { _, event ->
                         dockLayer.dispatchTouch(event, i)
@@ -334,7 +331,7 @@ internal object HostBottomBarFxController {
             if (tab.visibility == View.GONE) continue
             if (config.liquidGlass) {
                 if (tab.background != null) tab.background = null
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && tab.foreground != null) tab.foreground = null
+                if (tab.foreground != null) tab.foreground = null
                 if (tab is FrameLayout && tab.foreground != null) tab.foreground = null
                 if (tab.isPressed) tab.isPressed = false
             }
@@ -503,7 +500,7 @@ internal object HostBottomBarFxController {
         if (!isRoot && view.background != null) {
             view.background = null
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && view.foreground != null) {
+        if (view.foreground != null) {
             view.foreground = null
         }
         (view as? FrameLayout)?.foreground = null

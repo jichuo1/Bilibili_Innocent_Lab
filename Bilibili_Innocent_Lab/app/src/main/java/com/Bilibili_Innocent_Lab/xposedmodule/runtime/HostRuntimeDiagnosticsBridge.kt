@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageInfo
 import android.os.Build
 import androidx.core.content.ContextCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
@@ -14,6 +13,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallRecord
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureRuntimeStage
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureSkipReason
+import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -431,15 +431,11 @@ internal object HostRuntimeDiagnosticsBridge {
     private fun currentSource(context: Context): HostRuntimeDiagnosticsSource? = runCatching {
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
         HostRuntimeDiagnosticsSource(
-            targetVersionCode = info.versionCodeCompat(),
+            targetVersionCode = info.versionCodeCompat,
             targetUpdateTime = info.lastUpdateTime,
             moduleVersionCode = BuildConfig.VERSION_CODE.toLong()
         ).takeIf { it.isComplete }
     }.getOrNull()
-
-    @Suppress("DEPRECATION")
-    private fun PackageInfo.versionCodeCompat(): Long =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) longVersionCode else versionCode.toLong()
 
     private data class InstallOutcome(
         val state: HostFeatureInstallState,
