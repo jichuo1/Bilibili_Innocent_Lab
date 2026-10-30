@@ -40,6 +40,9 @@ internal class HostChromeValueLedger<K : Any, V>(
     }
 
     fun restoreAll(except: K? = null): Boolean {
+        // 逐帧路径的常态：账本为空或只记着 except 自己，不为此复制键集合。
+        val owned = entries.size
+        if (owned == 0 || (owned == 1 && except != null && entries.containsKey(except))) return false
         var changed = false
         for (key in keys()) if (key !== except) changed = restore(key) || changed
         return changed

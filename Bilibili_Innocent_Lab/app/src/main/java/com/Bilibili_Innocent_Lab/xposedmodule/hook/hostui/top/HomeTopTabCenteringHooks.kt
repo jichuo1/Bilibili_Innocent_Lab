@@ -10,7 +10,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 /** Automatic tab layout refinement; material/glow preferences do not control tab alignment. */
 internal class HomeTopTabCenteringHooks(
     private val viewPoints: VersionAdapter.HomeTopBarPoints?,
-    chromePoints: Map<String, VersionAdapter.HookPoint>
+    chromePoints: Map<String, VersionAdapter.HookPoint>,
+    /** The edge fade shapes tabs to the capsule, so unlike the alignment it follows the capsule's switch. */
+    private val edgeFade: Boolean = false
 ) {
     @Volatile private var chromePoints = relevant(chromePoints)
     private val nativeApplied = AtomicBoolean(false)
@@ -55,7 +57,7 @@ internal class HomeTopTabCenteringHooks(
             }
         }.onSuccess { native++ }.onFailure(::failed)
         native += HostHomeLifecycleHooks.install(environment, "home.top_tabs.centering") { root, fragment -> attach(root, fragment) }
-        val compose = HostComposeTopTabCentering.install(environment, chromePoints,
+        val compose = HostComposeTopTabCentering.install(environment, chromePoints, edgeFade,
             onError = ::failed, onApplied = { applied("compose", composeApplied) })
         if (!nativeApplied.get() && !composeApplied.get()) {
             environment.reportStatus(CHANNEL_STATUS, "installed:legacy=$native,compose=$compose")

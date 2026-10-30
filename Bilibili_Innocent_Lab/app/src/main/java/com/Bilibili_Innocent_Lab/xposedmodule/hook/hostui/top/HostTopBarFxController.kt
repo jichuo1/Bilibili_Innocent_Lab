@@ -1,6 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top
 
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeColors
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockClearanceReader
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeArtwork
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockLayer
@@ -14,20 +17,21 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppe
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HostChromeAttachments
 import android.annotation.SuppressLint
 import android.graphics.Outline
-import android.os.Build
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.view.ViewTreeObserver
-import android.view.WindowInsets
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.recyclerview.widget.RecyclerView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.parentOrNull
 import java.util.Collections
 import java.util.WeakHashMap
 import kotlin.math.roundToInt
@@ -97,7 +101,7 @@ internal object HostTopBarFxController {
         val palette = colors.palette()
 
         val barHeight = (BAR_HEIGHT_DP * density).roundToInt()
-        val marginH = (MARGIN_H_DP * density).roundToInt()
+        val marginH = capsuleMarginPx(topBarDock, density)
         val marginV = (MARGIN_V_DP * density).roundToInt()
 
         // 1. 悬浮胶囊几何形态与 Liquid Glass 外壳背景
@@ -179,9 +183,14 @@ internal object HostTopBarFxController {
         // 3. 将顶栏配置为浮动在视频流上方的 Overlay 图层，视频流撑满整页不被挤压
         configureOverlayConstraints(topBarDock, barHeight, marginH, marginV, density)
 
+        // A long strip fades at the action divider (or the capsule end) and keeps native scrolling.
+        // Attached first where this creates the centering: dropping to a short strip should hand the
+        // padding back before the centering reads it as the host's own.
+        var tabCentering: HostTopTabCenteringBinding? = null
+        val tabFade = NativeTopTabsEdgeFade.attach(topBarDock, hierarchy.tabContainer) { tabCentering?.owning == true }
         // A short native strip centers against the whole capsule, including its action area.
         // Standard measurement keeps the native tab hit boxes and underline in the same coordinates.
-        val tabCentering = NativeTopTabsCentering.attach(topBarDock, hierarchy.tabContainer)
+        tabCentering = NativeTopTabsCentering.attach(topBarDock, hierarchy.tabContainer)
 
         // 4. 周期性清理与对齐调度
         val topPadding = barHeight + marginV * 2
@@ -211,8 +220,7 @@ internal object HostTopBarFxController {
         }
 
         // 换肤可以不重建、不改变尺寸；在现有绘制帧同步颜色，不依赖布局清理触发。
-        fun refreshTheme() {
-            val current = theme.read()
+        fun refreshTheme(current: HostChromeColors = theme.read()) {
             updateSurfaceDrawable(current = current)
             if (current != materialColors) {
                 glowView?.recolor(current.accent)
@@ -227,16 +235,16 @@ internal object HostTopBarFxController {
         // 只在模块背景接管页面时剥离，个人中心 main_top_bg_imageview 始终保留原画。
         val headId = context.resources.getIdentifier("main_top_bg", "id", context.packageName)
         val headArtwork = if (headId != 0) root.rootView.findViewById<View>(headId) else null
-        val materialPreDraw = ViewTreeObserver.OnPreDrawListener {
+        val materialPreDraw = ViewTreeObserver.OnPreDrawListener { HostThreadGuard.call("host.top.material.predraw", true) {
             val current = theme.read()
             artifacts.clear(current)
             if (config.backgroundPreset != HostBackgroundPreset.OFF && current.garbAccent != null) headArtwork?.let {
                 HostChromeArtwork.clear(it)
                 (it.parent as? View)?.let { head -> if (head.background != null) head.background = null }
             }
-            refreshTheme()
+            refreshTheme(current)
             true
-        }
+        } }
         var materialObserver: ViewTreeObserver? = null
         fun observeMaterial() {
             val observer = topBarDock.viewTreeObserver
@@ -258,12 +266,22 @@ internal object HostTopBarFxController {
         }
 
         var sanitizePosted = false
-        val sanitizeRunnable = Runnable {
+        val sanitizeRunnable = Runnable { HostThreadGuard.run("host.top.sanitize") {
             sanitizePosted = false
             if (!topBarDock.isAttachedToWindow) return@Runnable
-            configureOverlayConstraints(topBarDock, barHeight, marginH, marginV, density)
+            // 旋转、分屏或折叠屏展开后重新取边距：超宽窗口限宽，刘海与侧边导航栏避让。
+            val currentMarginH = capsuleMarginPx(topBarDock, density)
+            (topBarDock.layoutParams as? ViewGroup.MarginLayoutParams)?.let { lp ->
+                if (lp.leftMargin != currentMarginH || lp.rightMargin != currentMarginH) {
+                    lp.leftMargin = currentMarginH
+                    lp.rightMargin = currentMarginH
+                    topBarDock.layoutParams = lp
+                }
+            }
+            configureOverlayConstraints(topBarDock, barHeight, currentMarginH, marginV, density)
             stripTopBarArtifacts(topBarDock, isRoot = true)
             alignTopBarContent(topBarDock, density)
+            tabFade?.sync()
             tabCentering?.sync()
             refreshTheme()
             island?.sync()
@@ -278,7 +296,7 @@ internal object HostTopBarFxController {
                 )
             }
             backdrop?.revalidate(vp)
-        }
+        } }
 
         val requestSanitization = {
             if (!sanitizePosted && topBarDock.isAttachedToWindow) {
@@ -302,7 +320,7 @@ internal object HostTopBarFxController {
 
         // 5. 实时透镜生命周期绑定
         topBarDock.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) {
+            override fun onViewAttachedToWindow(v: View) = HostThreadGuard.run("host.top.attach") {
                 val vp = (if (topBarDock.parent != null) findViewPager(topBarDock.parent as ViewGroup) else null) ?: findViewPager(root)
                 backdrop?.attach(topBarDock, vp)
                 updateSurfaceDrawable(force = true)
@@ -310,7 +328,7 @@ internal object HostTopBarFxController {
                 requestSanitization()
             }
 
-            override fun onViewDetachedFromWindow(v: View) {
+            override fun onViewDetachedFromWindow(v: View) = HostThreadGuard.run("host.top.detach") {
                 sanitizePosted = false
                 topBarDock.removeCallbacks(sanitizeRunnable)
                 backdrop?.detach()
@@ -325,6 +343,15 @@ internal object HostTopBarFxController {
         }
         attachedRoots.add(root)
         return true
+    }
+
+    /** 胶囊左右边距按父布局宽度取：手机保持 16dp，超宽窗口限宽居中。 */
+    private fun capsuleMarginPx(topBarDock: ViewGroup, density: Float): Int {
+        val parent = topBarDock.parentOrNull()
+        val parentWidth = parent?.width?.takeIf { it > 0 } ?: topBarDock.resources.displayMetrics.widthPixels
+        val available = parentWidth - (parent?.paddingLeft ?: 0) - (parent?.paddingRight ?: 0)
+        val side = parent?.let(HostDockClearanceReader::sideDp) ?: 0f
+        return (HostTopCapsuleWidthPolicy.marginDp(available / density, MARGIN_H_DP, side) * density).roundToInt()
     }
 
     /** 剥离官方分割线与背景 View，但严格保留原版下划线指示器和文字 */
@@ -343,7 +370,7 @@ internal object HostTopBarFxController {
             if (view.background != null) {
                 view.background = null
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && view.foreground != null) {
+            if (view.foreground != null) {
                 view.foreground = null
             }
             (view as? FrameLayout)?.foreground = null
@@ -526,15 +553,13 @@ internal object HostTopBarFxController {
 
     internal fun setConstraintInt(lp: Any, fieldName: String, value: Int) {
         runCatching {
-            val field = lp.javaClass.getField(fieldName)
-            field.setInt(lp, value)
+            KavaMemberLookup.fieldOrNull(lp.javaClass, fieldName, includeSuperclasses = true)?.setInt(lp, value)
         }
     }
 
     private fun getConstraintInt(lp: Any, fieldName: String): Int {
         return runCatching {
-            val field = lp.javaClass.getField(fieldName)
-            field.getInt(lp)
+            KavaMemberLookup.fieldOrNull(lp.javaClass, fieldName, includeSuperclasses = true)?.getInt(lp) ?: -1
         }.getOrDefault(-1)
     }
 
@@ -543,10 +568,11 @@ internal object HostTopBarFxController {
      * 两者都没有时按 24dp 兜底，绝不返回 0——融合带的几何全靠它，返回 0 会让带子退化成一条无意义的窄条。
      */
     private fun resolveStatusBarInset(root: View): Int {
-        val insets = root.rootWindowInsets
+        val insets = ViewCompat.getRootWindowInsets(root)
         if (insets != null) {
-            val top = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                insets.getInsets(WindowInsets.Type.statusBars()).top
+            // API 30 以下 Compat 的 statusBars 在全屏标志下读 0，这里要系统窗口 inset 的原值。
+            val top = if (AndroidVersion.isAtLeast(AndroidVersion.R)) {
+                insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
             } else {
                 @Suppress("DEPRECATION")
                 insets.systemWindowInsetTop
@@ -605,13 +631,13 @@ internal object HostTopBarFxController {
         }
         if (view.javaClass.simpleName.contains("SwipeRefreshLayout")) {
             runCatching {
-                val m = view.javaClass.getMethod(
+                KavaMemberLookup.inheritedMethodOrNull(
+                    view.javaClass,
                     "setProgressViewOffset",
-                    Boolean::class.javaPrimitiveType,
-                    Int::class.javaPrimitiveType,
-                    Int::class.javaPrimitiveType
-                )
-                m.invoke(view, false, topPadding, spinnerTravelBase + (40f * density).roundToInt())
+                    Boolean::class.javaPrimitiveType!!,
+                    Int::class.javaPrimitiveType!!,
+                    Int::class.javaPrimitiveType!!
+                )?.invoke(view, false, topPadding, spinnerTravelBase + (40f * density).roundToInt())
             }
         }
         if (view is ViewGroup) {
@@ -632,13 +658,15 @@ internal object HostTopBarFxController {
         spinnerTravelBase: () -> Int
     ) {
         runCatching {
-            val listenerClass = Class.forName("androidx.viewpager.widget.ViewPager\$OnPageChangeListener", false, viewPager.javaClass.classLoader)
-            val addListenerMethod = viewPager.javaClass.getMethod("addOnPageChangeListener", listenerClass)
+            val listenerClass = KavaMemberLookup.classOrNull(viewPager.javaClass.classLoader, "androidx.viewpager.widget.ViewPager\$OnPageChangeListener")
+                ?: return@runCatching
+            val addListenerMethod = KavaMemberLookup.inheritedMethodOrNull(viewPager.javaClass, "addOnPageChangeListener", listenerClass)
+                ?: return@runCatching
             val handler = java.lang.reflect.InvocationHandler { _, method, _ ->
                 if (method.name == "onPageSelected") {
-                    viewPager.post {
+                    viewPager.post(HostThreadGuard.runnable("host.top.page_padding") {
                         applyScrollPadding(viewPager, scrollPadding(), density, spinnerTravelBase())
-                    }
+                    })
                 }
                 null
             }

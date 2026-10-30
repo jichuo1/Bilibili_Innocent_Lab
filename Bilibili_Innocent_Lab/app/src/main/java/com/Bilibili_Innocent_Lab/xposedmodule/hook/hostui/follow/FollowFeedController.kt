@@ -468,6 +468,7 @@ internal class FollowFeedController(
                 clipChildren = false
                 clipToPadding = false
             }
+            private val layerClip = Rect()
             private val listEdits = FollowFeedViewEdits()
             private var viewport: FollowFeedViewport? = null
             private val originalPadding = list.paddingBottom
@@ -569,9 +570,9 @@ internal class FollowFeedController(
             fun update() {
                 if (!list.isShown || !list.isAttachedToWindow) { releasePanels(); return }
                 // UP 主页的标题与列表共享 RelativeLayout，卡片层只绘制列表视口。
-                if (personalFeed) {
-                    val bounds = Rect(list.left, list.top, list.right, list.bottom)
-                    if (layer.clipBounds != bounds) layer.clipBounds = bounds
+                if (personalFeed && (!layer.getClipBounds(layerClip) || layerClip.left != list.left ||
+                        layerClip.top != list.top || layerClip.right != list.right || layerClip.bottom != list.bottom)) {
+                    layer.clipBounds = Rect(list.left, list.top, list.right, list.bottom)
                 }
                 if (header != null) {
                     if (viewport == null) viewport = root.get()?.let { FollowFeedViewport(list, it as ViewGroup) }

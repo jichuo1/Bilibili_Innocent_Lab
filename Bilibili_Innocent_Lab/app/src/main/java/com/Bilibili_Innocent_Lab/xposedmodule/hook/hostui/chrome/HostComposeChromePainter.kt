@@ -15,7 +15,10 @@ import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundDrawable
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.bottom.HostBottomBarFxConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.bottom.HostDockFitPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top.HostTopCapsuleWidthPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeContentSource
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockClearanceReader
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeViewportSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockLayer
@@ -34,6 +37,9 @@ import com.lumen.coacervation.engine.host.LumenSurfaceSessionOptions
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import kotlin.math.roundToInt
+
+/** Outer row geometry, top or bottom; [heightDp] is null where the host keeps its native row height. */
+internal data class HostComposeDockLayout(val heightDp: Float?, val marginDp: Float, val bottomDp: Float)
 
 /** A draw-only target: the host ComposeView and its native layout/input never move. */
 internal class HostComposeChromePainter(
@@ -66,6 +72,10 @@ internal class HostComposeChromePainter(
     private var tabCount = 1
     private var layoutWidth = -1
     private var layoutTabs = -1
+    private var dockLayout: HostComposeDockLayout? = null
+    private var dockInsetsSeen = false
+    /** A decorated row has read the layout; a top row may legitimately read null on phones. */
+    private var dockLayoutRead = false
     private var x = 0f
     private var y = 0f
     private var rootX = 0f
@@ -113,32 +123,38 @@ internal class HostComposeChromePainter(
         it.isAttachedToWindow && HostViewVisibility.visible(it, visibleBounds)
     }
     private val locateSource: () -> ViewGroup? = { this.owner.get()?.let(::independentContent) }
+    /** 守卫要看见失败，计数和日志才有效：先按 [failure] 降级，再把异常交还守卫。 */
+    private inline fun guarded(key: String, block: () -> Unit) = HostThreadGuard.run(key) {
+        try { block() } catch (error: Throwable) { failure(error); throw error }
+    }
     private val frameWake = Runnable {
         posted = false
-        HostThreadGuard.run("host.chrome.wake") {
-            runCatching {
-                this.owner.get()?.takeIf { it.isAttachedToWindow }?.let {
-                    if (compositionDirty) { compositionDirty = false; compositionSignal.invalidate() }
-                    signal.invalidate(); it.invalidate()
-                }
-            }.onFailure(::failure)
+        guarded("host.chrome.wake") {
+            this.owner.get()?.takeIf { it.isAttachedToWindow }?.let {
+                if (compositionDirty) { compositionDirty = false; compositionSignal.invalidate() }
+                signal.invalidate(); it.invalidate()
+            }
         }
     }
     private val backdropProbe = Runnable {
         probeAt = null
-        HostThreadGuard.run("host.chrome.backdrop") { runCatching(::wake).onFailure(::failure) }
+        guarded("host.chrome.backdrop") { wake() }
     }
     private val layoutChanged = ViewTreeObserver.OnGlobalLayoutListener {
         float?.markDirty()
-        HostThreadGuard.run("host.chrome.layout") { runCatching(::requestBackdropRefresh).onFailure(::failure) }
+        guarded("host.chrome.dock") { refreshDockLayout() }
+        guarded("host.chrome.layout") { requestBackdropRefresh() }
     }
     private val scrollChanged = ViewTreeObserver.OnScrollChangedListener {
-        HostThreadGuard.run("host.chrome.scroll") { runCatching(::requestBackdropRefresh).onFailure(::failure) }
+        guarded("host.chrome.scroll") { requestBackdropRefresh() }
     }
     private val preDraw = ViewTreeObserver.OnPreDrawListener {
         var proceed = true
         runCatching {
             val currentOwner = this.owner.get() ?: return@runCatching
+            // The first composition can run before insets reach the window; correct it on a later
+            // frame, then leave changes to the layout listener instead of re-measuring every frame.
+            if (!dockInsetsSeen) refreshDockLayout()
             trackOwner(currentOwner)
             // A frame drawn before the relayout would show the feed at its old place; bound the retries.
             if (syncTop(currentOwner) && staleFrames < 2) { staleFrames++; proceed = false } else staleFrames = 0
@@ -168,11 +184,10 @@ internal class HostComposeChromePainter(
         proceed
     }
     private val attach = object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(v: View) = HostThreadGuard.run("host.chrome.attach") {
-            runCatching(::wake).onFailure(::failure)
-        }
-        override fun onViewDetachedFromWindow(v: View) = HostThreadGuard.run("host.chrome.detach") {
-            backdropRecovery.clear(); release(dispose = true)?.let(::failure); activeTouch = false
+        override fun onViewAttachedToWindow(v: View) = guarded("host.chrome.attach") { wake() }
+        override fun onViewDetachedFromWindow(v: View) = guarded("host.chrome.detach") {
+            backdropRecovery.clear(); activeTouch = false
+            release(dispose = true)?.let { throw it }
         }
     }
 
@@ -229,18 +244,43 @@ internal class HostComposeChromePainter(
         }
     }
 
-    fun layout(): Pair<Float, Float>? {
-        val config = bottom?.takeIf { glass && (it.compact || it.iconOnly) } ?: return null
+    fun layout(): HostComposeDockLayout? = computeDockLayout().also { dockLayout = it; dockLayoutRead = true }
+
+    /**
+     * The khome bottom content never consumes navigation insets itself (9.16.11), so the
+     * strip and handle are measured below this ComposeView. Native-height rows keep their
+     * height and only gain margins and lift; compact/icon rows also take the fitted height.
+     */
+    private fun computeDockLayout(): HostComposeDockLayout? {
+        if (!glass) return null
         val owner = owner.get() ?: return null
+        if (owner.rootWindowInsets != null) dockInsetsSeen = true
         val density = owner.resources.displayMetrics.density
         val available = owner.width.takeIf { it > 0 } ?: owner.resources.displayMetrics.widthPixels
-        return config.heightDp to config.horizontalMarginDp(available / density, tabCount)
+        val config = bottom ?: run {
+            // Top row: the host keeps its own width on phones; only wide windows and side cutouts
+            // narrow it, and a null layout leaves the native modifier chain untouched.
+            val margin = HostTopCapsuleWidthPolicy.marginDp(available / density, 0f, HostDockClearanceReader.sideDp(owner))
+            return if (margin > 0f) HostComposeDockLayout(null, margin, 0f) else null
+        }
+        val fit = HostDockFitPolicy.fit(config, available / density, tabCount, HostDockClearanceReader.read(owner, HostDockFitPolicy::bottomDp))
+        return HostComposeDockLayout(fit.heightDp.takeIf { config.compact || config.iconOnly }, fit.marginDp, fit.bottomDp)
+    }
+
+    /** Navigation mode, rotation or a host strip changed: rebuild the outer modifier once. */
+    private fun refreshDockLayout() {
+        if (failed || !dockLayoutRead) return
+        val next = computeDockLayout()
+        if (next == dockLayout) return
+        dockLayout = next
+        modifiers[if (bottom == null) HostChromeLayer.SURFACE else HostChromeLayer.BOTTOM_OUTER]?.clear()
+        if (compositionObserved) { compositionDirty = true; wake() }
     }
 
     fun modifier(supplied: Any, layer: HostChromeLayer): Any {
         // Register in the real row's own restart scope, after native defaults and dirty flags.
         // Sampling/position frames use a separate draw signal and never recompose this row.
-        if (glass && layer == HostChromeLayer.SURFACE) {
+        if (glass && (layer == HostChromeLayer.SURFACE || layer == HostChromeLayer.BOTTOM_OUTER)) {
             compositionObserved = true
             compositionSignal.read()
         }

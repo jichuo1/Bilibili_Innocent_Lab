@@ -8,6 +8,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockLayer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostGlowView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceScope
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceStyle
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostCallPassthrough
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassMaterial
 
 import android.animation.Animator
@@ -58,8 +60,11 @@ internal class HostBottomBarDockLayer(
     private val hero = HostGarbHeroBinding(tabHost, dimEnabled = config.mineGarbDim)
     private val heroLayoutListener = ViewTreeObserver.OnGlobalLayoutListener { hero.invalidate() }
     private var materialColors = HostChromeColors(isDark, palette.primary)
+    /** 窄屏适配可能压低胶囊；圆角跟随实际布局高度而不是档位标称高度。 */
+    private val radiusDp: Float
+        get() = (tabHost.layoutParams?.height?.takeIf { it > 0 }?.div(density) ?: config.heightDp) / 2f
     private val shadow = if (config.liquidGlass && config.appearance.material != HostGlassMaterial.PRISM)
-        HostBottomBarShadow(tabHost, config.heightDp / 2f) else null
+        HostBottomBarShadow(tabHost, radiusDp) else null
 
     // 1. 独立大胶囊晶体滑块 (硬件加速子 View)
     val selectionView = View(context).apply {
@@ -103,6 +108,7 @@ internal class HostBottomBarDockLayer(
     private var glowX = 0f
     private var glowY = 0f
     private val screenLoc = IntArray(2)
+    private val hostClicks = HostCallPassthrough()
 
     private val rtl: Boolean get() = layoutDirection == LAYOUT_DIRECTION_RTL
     private val tabSlots = HostBottomBarTabSlots()
@@ -111,7 +117,7 @@ internal class HostBottomBarDockLayer(
     private val contentWidth: Float get() = (width - inset * 2f).coerceAtLeast(0f)
     private val slotWidth: Float get() = if (count > 0) contentWidth / count else 0f
 
-    private val preDrawListener = ViewTreeObserver.OnPreDrawListener {
+    private val preDrawListener = ViewTreeObserver.OnPreDrawListener { HostThreadGuard.call("host.bottom.dock.predraw", true) {
         if (disposed) return@OnPreDrawListener true
         refreshTabSlots()
         refreshMaterial()
@@ -131,14 +137,14 @@ internal class HostBottomBarDockLayer(
             reboundTo(null, scrubbed = false)
         }
         true
-    }
+    } }
 
     private fun refreshMaterial() {
         val colors = theme.read()
         val changed = colors != materialColors
         backdrop?.updatePalette(colors)
         if (config.liquidGlass && (changed || backdrop?.owns(tabHost) != true)) {
-            backdrop?.floating(tabHost, colors.dark, config.heightDp / 2f)
+            backdrop?.floating(tabHost, colors.dark, radiusDp)
         }
         if (config.liquidGlass && (changed || backdrop?.owns(selectionView) != true)) {
             backdrop?.surface(selectionView, HostSurfaceStyle.selection(colors.dark))
@@ -256,8 +262,18 @@ internal class HostBottomBarDockLayer(
         shadow?.sync(materialColors.dark)
     }
 
+    /**
+     * 宿主 View 触摸监听的入口：手势状态归模块，由守卫兜底；松手时替宿主点击 tab，那段的异常
+     * 属于宿主，手势收尾后原样抛回。
+     */
+    fun dispatchTouch(event: MotionEvent, tabIndex: Int = -1): Boolean {
+        val handled = HostThreadGuard.call("host.bottom.touch", false) { handleTouch(event, tabIndex) }
+        hostClicks.rethrow()
+        return handled
+    }
+
     /** 把点击交还宿主，拖动只预览页面并在松手时决定落点。 */
-    fun handleTouch(event: MotionEvent, tabIndex: Int = -1): Boolean {
+    private fun handleTouch(event: MotionEvent, tabIndex: Int = -1): Boolean {
         if (disposed || !isEnabled || width <= 0) return false
         refreshTabSlots()
         if (tabSlots.count == 0 || tabIndex >= 0 && tabSlots.slotOf(tabIndex) < 0) return false
@@ -515,20 +531,25 @@ internal class HostBottomBarDockLayer(
             val listener = publish as? View.OnTouchListener ?: return false
             val now = SystemClock.uptimeMillis()
             val event = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, publish.width / 2f, publish.height / 2f, 0)
-            try {
-                listener.onTouch(publish, event)
-                event.action = MotionEvent.ACTION_UP
-                listener.onTouch(publish, event)
-            } finally {
-                event.recycle()
+            hostClicks.host {
+                try {
+                    listener.onTouch(publish, event)
+                    event.action = MotionEvent.ACTION_UP
+                    listener.onTouch(publish, event)
+                } finally {
+                    event.recycle()
+                }
             }
             return false
         }
-        if (tab.performClick()) return true
-        (tab as? ViewGroup)?.let { vg ->
-            for (i in 0 until vg.childCount) {
-                val child = vg.getChildAt(i)
-                if (child.isShown && child.isEnabled && child.performClick()) return true
+        // 第一次点击抛异常就停，不再往子 View 补点；异常由 dispatchTouch 抛回。
+        hostClicks.host {
+            if (tab.performClick()) return true
+            (tab as? ViewGroup)?.let { vg ->
+                for (i in 0 until vg.childCount) {
+                    val child = vg.getChildAt(i)
+                    if (child.isShown && child.isEnabled && child.performClick()) return true
+                }
             }
         }
         return false

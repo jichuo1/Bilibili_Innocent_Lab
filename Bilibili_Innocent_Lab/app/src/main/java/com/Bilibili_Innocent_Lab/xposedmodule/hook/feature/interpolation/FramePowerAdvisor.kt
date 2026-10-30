@@ -2,9 +2,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
 
 import android.content.Context
 import android.os.Build
-import android.os.PerformanceHintManager
 import android.os.PowerManager
-import android.os.Process
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 
 /**
  * 功耗与温控：
@@ -17,8 +16,7 @@ import android.os.Process
  */
 internal class FramePowerAdvisor(private val context: Context?, private val targetNs: Long) {
     private val power = context?.getSystemService(PowerManager::class.java)
-    private val hints = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-        runCatching { context?.getSystemService(PerformanceHintManager::class.java) }.getOrNull() else null
+    /** 只留 Any?：API 31 类型一律在 [FramePowerHintApi31] 里，不能进本类的字段和方法体。 */
     private var session: Any? = null
     private var attached = false
     private var lastQueryNs = Long.MIN_VALUE
@@ -29,14 +27,15 @@ internal class FramePowerAdvisor(private val context: Context?, private val targ
 
     /** 在捕获线程上调用一次，之后的回报计入该线程。 */
     fun attachCurrentThread() {
-        if (attached || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        if (attached || !AndroidVersion.isAtLeast(AndroidVersion.S)) return
         attached = true
-        session = runCatching { hints?.createHintSession(intArrayOf(Process.myTid()), targetNs) }.getOrNull()
+        session = runCatching { context?.let { FramePowerHintApi31.createSession(it, targetNs) } }.getOrNull()
     }
 
     fun reportWork(durationNs: Long) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || durationNs <= 0L) return
-        runCatching { (session as? PerformanceHintManager.Session)?.reportActualWorkDuration(durationNs) }
+        if (!AndroidVersion.isAtLeast(AndroidVersion.S) || durationNs <= 0L) return
+        val current = session ?: return
+        runCatching { FramePowerHintApi31.report(current, durationNs) }
     }
 
     /** 距上次查询不足 1 s 时返回 null；不支持时返回 null。 */
@@ -61,8 +60,9 @@ internal class FramePowerAdvisor(private val context: Context?, private val targ
     }.getOrDefault(Float.NaN)
 
     fun close() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) runCatching { (session as? PerformanceHintManager.Session)?.close() }
+        val current = session
         session = null
+        if (current != null && AndroidVersion.isAtLeast(AndroidVersion.S)) runCatching { FramePowerHintApi31.close(current) }
     }
 
     private companion object {

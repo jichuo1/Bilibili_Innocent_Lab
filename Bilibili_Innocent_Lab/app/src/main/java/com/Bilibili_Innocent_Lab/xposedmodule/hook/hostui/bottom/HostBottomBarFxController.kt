@@ -3,15 +3,19 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.bottom
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeArtwork
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeColors
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockClearance
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockClearanceReader
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostGlowView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceScope
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceStyle
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostTouchGlowBinding
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HostChromeAttachments
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HostChromeValueLedger
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import android.graphics.Outline
-import android.os.Build
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -21,6 +25,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.coordinatorlayout.widget.CoordinatorLayout
+import io.github.jichuo1.meguviz.android.extensions.parentOrNull
 import java.util.Collections
 import java.util.WeakHashMap
 import kotlin.math.roundToInt
@@ -66,9 +71,7 @@ internal object HostBottomBarFxController {
         }
 
         if (container == null || container.childCount == 0) return false
-        val barHeight = (config.heightDp * density).roundToInt()
-        val marginH = horizontalMarginPx(tabHost, container, config, density)
-        val marginB = (12f * density).roundToInt()
+        val fit = dockFit(tabHost, container, config, density)
         val inset = HostNavigationMotion.INSET_DP * density
 
         // 2. 悬浮胶囊几何形态与 Liquid Glass 外壳背景
@@ -76,12 +79,6 @@ internal object HostBottomBarFxController {
         if (config.liquidGlass) {
             val lp = tabHost.layoutParams
             if (lp != null) {
-                lp.height = barHeight
-                if ((config.liquidGlass || config.iconOnly) && lp is ViewGroup.MarginLayoutParams) {
-                    lp.leftMargin = marginH
-                    lp.rightMargin = marginH
-                    if (config.liquidGlass) lp.bottomMargin = marginB
-                }
                 if (lp is FrameLayout.LayoutParams) {
                     lp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
                 } else if (lp is CoordinatorLayout.LayoutParams) {
@@ -89,12 +86,13 @@ internal object HostBottomBarFxController {
                 }
                 tabHost.layoutParams = lp
             }
+            applyDockFit(tabHost, fit, density)
         }
         if (config.liquidGlass) {
             prepareGlassContainer(tabHost)
 
             // 应用模块浮动底栏原版 Liquid Glass 材质：常量色罩 + 实时透镜采样（模糊/折射底下的内容）
-            backdrop?.floating(tabHost, isDark, config.heightDp / 2f)
+            backdrop?.floating(tabHost, isDark, fit.heightDp / 2f)
         }
 
         val insetH = inset.roundToInt()
@@ -103,14 +101,14 @@ internal object HostBottomBarFxController {
         //    所以保留整树清理，但改成"按需触发 + 合并到一帧一次"。逐帧路径只剩 pre-draw 里的
         //    O(items) 空判与对齐（见 HostBottomBarDockLayer.preDrawListener），不再每帧全树递归。
         var sanitizePosted = false
-        val sanitizeRunnable = Runnable {
+        val sanitizeRunnable = Runnable { HostThreadGuard.run("host.bottom.sanitize") {
             sanitizePosted = false
             if (!tabHost.isAttachedToWindow) return@Runnable
             if (config.liquidGlass) stripAllHostArtifacts(tabHost, isRoot = true)
             alignTabContent(tabHost, container, density, insetH, config, theme.read())
             // 冷启动时底栏还没有尺寸、找不到采样源；布局稳定后每次清理都顺手补一次定位（命中即 O(1)）。
             backdrop?.revalidate()
-        }
+        } }
         val requestSanitization = {
             if (!sanitizePosted && tabHost.isAttachedToWindow) {
                 sanitizePosted = true
@@ -142,10 +140,10 @@ internal object HostBottomBarFxController {
 
         // 5. 挂接统一全域触控手势
         tabHost.setOnTouchListener { _, event ->
-            dockLayer.handleTouch(event, -1)
+            dockLayer.dispatchTouch(event, -1)
         }
         dockLayer.setOnTouchListener { _, event ->
-            dockLayer.handleTouch(event, -1)
+            dockLayer.dispatchTouch(event, -1)
         }
 
         container?.let { c ->
@@ -156,24 +154,22 @@ internal object HostBottomBarFxController {
                 for (i in 0 until c.childCount) {
                     val tabItem = c.getChildAt(i)
                     tabItem.background = null
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        tabItem.foreground = null
-                    }
+                    tabItem.foreground = null
                     (tabItem as? FrameLayout)?.foreground = null
                     tabItem.setOnTouchListener { _, event ->
-                        dockLayer.handleTouch(event, i)
+                        dockLayer.dispatchTouch(event, i)
                     }
                 }
             }
             hookTabTouch()
             c.setOnHierarchyChangeListener(object : ViewGroup.OnHierarchyChangeListener {
-                override fun onChildViewAdded(parent: View?, child: View?) {
+                override fun onChildViewAdded(parent: View?, child: View?) = HostThreadGuard.run("host.bottom.hierarchy") {
                     // 宿主重建 tab 时内容层可能整体被替换：重找实时透镜的采样源。
                     backdrop?.revalidate()
                     hookTabTouch()
                 }
 
-                override fun onChildViewRemoved(parent: View?, child: View?) {
+                override fun onChildViewRemoved(parent: View?, child: View?) = HostThreadGuard.run("host.bottom.hierarchy") {
                     backdrop?.revalidate()
                     hookTabTouch()
                 }
@@ -211,7 +207,8 @@ internal object HostBottomBarFxController {
     private data class IconSize(var width: Int, var height: Int, var appliedWidth: Int = -1, var appliedHeight: Int = -1)
     private val iconSizes = WeakHashMap<View, IconSize>()
 
-    private fun fitGarbIcons(group: ViewGroup, density: Float, config: HostBottomBarFxConfig, personalized: Boolean) {
+    private fun fitGarbIcons(group: ViewGroup, density: Float, config: HostBottomBarFxConfig, personalized: Boolean,
+                             barHeightDp: Float) {
         for (i in 0 until group.childCount) {
             val child = group.getChildAt(i)
             val name = resourceName(child, child.id)
@@ -230,7 +227,7 @@ internal object HostBottomBarFxController {
                     size.width = lp.width; size.height = lp.height
                 }
                 val maxHeight = minOf(if (config.iconOnly) 36f else 32f,
-                    config.heightDp - if (config.iconOnly) 12f else 26f) * density
+                    barHeightDp - if (config.iconOnly) 12f else 26f) * density
                 val scale = minOf(1f, maxHeight / size.height, 48f * density / size.width)
                 val width = (size.width * scale).roundToInt().coerceAtLeast(1)
                 val height = (size.height * scale).roundToInt().coerceAtLeast(1)
@@ -238,7 +235,7 @@ internal object HostBottomBarFxController {
                 if (lp.width != width || lp.height != height) {
                     lp.width = width; lp.height = height; child.layoutParams = lp
                 }
-            } else if (child is ViewGroup) fitGarbIcons(child, density, config, personalized)
+            } else if (child is ViewGroup) fitGarbIcons(child, density, config, personalized, barHeightDp)
         }
     }
 
@@ -267,16 +264,10 @@ internal object HostBottomBarFxController {
         colors: HostChromeColors? = null
     ) {
         if (container == null || !config.liquidGlass) return
-        if (config.iconOnly) {
-            val lp = tabHost.layoutParams as? ViewGroup.MarginLayoutParams
-            val marginH = horizontalMarginPx(tabHost, container, config, density)
-            if (lp != null && (lp.leftMargin != marginH || lp.rightMargin != marginH)) {
-                lp.leftMargin = marginH
-                lp.rightMargin = marginH
-                tabHost.layoutParams = lp
-            }
-        }
-        val barHeight = tabHost.height.takeIf { it > 0 } ?: (config.heightDp * density).roundToInt()
+        // 逐帧只比较：导航模式、窗口尺寸或宿主白条变化时才写回布局参数。
+        val fit = dockFit(tabHost, container, config, density)
+        applyDockFit(tabHost, fit, density)
+        val barHeight = tabHost.height.takeIf { it > 0 } ?: (fit.heightDp * density).roundToInt()
 
         // 1. 宿主中间层包装容器 (例如包裹 divider 与 container 的 LinearLayout) 铺满并居中
         val contentParent = container.parent as? ViewGroup
@@ -333,7 +324,7 @@ internal object HostBottomBarFxController {
             if (tab.visibility == View.GONE) continue
             if (config.liquidGlass) {
                 if (tab.background != null) tab.background = null
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && tab.foreground != null) tab.foreground = null
+                if (tab.foreground != null) tab.foreground = null
                 if (tab is FrameLayout && tab.foreground != null) tab.foreground = null
                 if (tab.isPressed) tab.isPressed = false
             }
@@ -355,7 +346,8 @@ internal object HostBottomBarFxController {
                 val name = resourceName(child, cId)
 
                 if (name.contains("normal") || child is ConstraintLayout) {
-                    if (child is ViewGroup) fitGarbIcons(child, density, config, colors?.garbAccent != null)
+                    if (child is ViewGroup) fitGarbIcons(child, density, config, colors?.garbAccent != null, fit.heightDp)
+                    if (!config.iconOnly && child is ViewGroup && (fit.contentScale < 1f || labelsScaled)) scaleTabLabels(child, fit.contentScale)
                     if (config.iconOnly && child is ViewGroup) {
                         hideTabLabels(child)
                         child.setPadding(0, 0, 0, 0)
@@ -440,19 +432,66 @@ internal object HostBottomBarFxController {
         }
     }
 
-    private fun horizontalMarginPx(
+    private class DockFitMemo(val signature: Long, val tabCount: Int, val fit: HostDockFit)
+    private val dockFits = WeakHashMap<ViewGroup, DockFitMemo>()
+
+    /**
+     * 底栏贴在父布局底部（gravity BOTTOM），父布局下沿即量白条与导航栏的基准。
+     * 逐帧入口：窗口 insets 与容器几何都没变时直接复用，不读取也不分配。
+     */
+    private fun dockFit(
         tabHost: ViewGroup,
         container: ViewGroup?,
         config: HostBottomBarFxConfig,
         density: Float
-    ): Int {
-        val parent = tabHost.parent as? ViewGroup
+    ): HostDockFit {
+        val parent = tabHost.parentOrNull()
+        var tabCount = 5
+        if (container != null) {
+            tabCount = 0
+            for (i in 0 until container.childCount) if (container.getChildAt(i).visibility != View.GONE) tabCount++
+        }
+        val signature = parent?.let(HostDockClearanceReader::signature) ?: 0L
+        dockFits[tabHost]?.let { if (it.signature == signature && it.tabCount == tabCount) return it.fit }
         val parentWidth = parent?.width?.takeIf { it > 0 } ?: tabHost.resources.displayMetrics.widthPixels
         val availableWidth = parentWidth - (parent?.paddingLeft ?: 0) - (parent?.paddingRight ?: 0)
-        val tabCount = container?.let { c ->
-            (0 until c.childCount).count { c.getChildAt(it).visibility != View.GONE }
-        } ?: 5
-        return (config.horizontalMarginDp(availableWidth / density, tabCount) * density).roundToInt()
+        val clearance = parent?.let { HostDockClearanceReader.read(it, HostDockFitPolicy::bottomDp) } ?: HostDockClearance()
+        return HostDockFitPolicy.fit(config, availableWidth / density, tabCount, clearance).also {
+            dockFits[tabHost] = DockFitMemo(signature, tabCount, it)
+        }
+    }
+
+    private fun applyDockFit(tabHost: ViewGroup, fit: HostDockFit, density: Float) {
+        val lp = tabHost.layoutParams ?: return
+        val height = (fit.heightDp * density).roundToInt()
+        val margin = (fit.marginDp * density).roundToInt()
+        val bottom = (fit.bottomDp * density).roundToInt()
+        val margins = lp as? ViewGroup.MarginLayoutParams
+        if (lp.height == height && (margins == null ||
+                margins.leftMargin == margin && margins.rightMargin == margin && margins.bottomMargin == bottom)) return
+        // 没有外边距的布局参数仍按原逻辑定高度，只是无法悬浮。
+        lp.height = height
+        margins?.leftMargin = margin
+        margins?.rightMargin = margin
+        margins?.bottomMargin = bottom
+        tabHost.layoutParams = lp
+    }
+
+    private val labelSizes = HostChromeValueLedger<TextView, Float>({ it.textSize },
+        { view, value -> view.setTextSize(TypedValue.COMPLEX_UNIT_PX, value) })
+    private var labelsScaled = false
+
+    /** 窄屏随槽位等比缩小文字；宿主重设字号时账本以新字号为基准，恢复后不再遍历。 */
+    private fun scaleTabLabels(group: ViewGroup, scale: Float) {
+        for (i in 0 until group.childCount) {
+            val child = group.getChildAt(i)
+            if (child is TextView) {
+                if (scale < 1f) {
+                    labelsScaled = true
+                    labelSizes.apply(child) { it * scale }
+                } else labelSizes.restore(child)
+            } else if (child is ViewGroup) scaleTabLabels(child, scale)
+        }
     }
 
     /** Only hide labels inside normal tab content; badge and publish overlays remain intact. */
@@ -502,7 +541,7 @@ internal object HostBottomBarFxController {
         if (!isRoot && view.background != null) {
             view.background = null
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && view.foreground != null) {
+        if (view.foreground != null) {
             view.foreground = null
         }
         (view as? FrameLayout)?.foreground = null
