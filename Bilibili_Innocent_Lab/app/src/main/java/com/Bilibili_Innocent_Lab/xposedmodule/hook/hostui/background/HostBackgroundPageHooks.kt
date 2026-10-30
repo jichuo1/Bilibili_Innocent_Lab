@@ -10,6 +10,7 @@ import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentComposeViewAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.commentOwnerActivity
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 
 internal object HostBackgroundPageHooks {
@@ -34,7 +35,7 @@ internal object HostBackgroundPageHooks {
                 val pageKind = kind ?: return@after
                 val root = (if (created.parameterCount == 0) getView.invoke(instance) else argOrNull(0)) as? ViewGroup ?: return@after
                 // 等子类 onViewCreated 和宿主 Fragment 事务完成，适配器尚无内容也能铺背景。
-                root.post { pages.attach(root, pageKind) }
+                root.post { HostThreadGuard.run("host.background.page.post") { pages.attach(root, pageKind) } }
             }
         }
         var count = nativeCount + 1
@@ -45,7 +46,11 @@ internal object HostBackgroundPageHooks {
                 after {
                     if (hasThrowable) return@after
                     val list = instance as? ViewGroup ?: return@after
-                    list.post { if (list.isAttachedToWindow) pages.attachHomeList(list) }
+                    list.post {
+                        HostThreadGuard.run("host.background.list.post") {
+                            if (list.isAttachedToWindow) pages.attachHomeList(list)
+                        }
+                    }
                 }
             }
             count++
@@ -149,7 +154,11 @@ internal object HostBackgroundPageHooks {
                     after {
                         if (hasThrowable) return@after
                         val view = runCatching { root.invoke(instance) }.getOrNull() as? ViewGroup ?: return@after
-                        view.post { pages.attach(view, HostBackgroundPagePolicy.Kind.COMMENT) }
+                        view.post {
+                            HostThreadGuard.run("host.background.comment.post") {
+                                pages.attach(view, HostBackgroundPagePolicy.Kind.COMMENT)
+                            }
+                        }
                     }
                 }
                 count++
@@ -178,20 +187,22 @@ internal object HostBackgroundPageHooks {
                 }
                 val root = activity.window?.decorView as? ViewGroup ?: return@after
                 root.post {
-                    if (!root.isAttachedToWindow) return@post
-                    val window = activity.window
-                    if (mediaDetail) {
+                    HostThreadGuard.run("host.background.native.post") {
+                        if (!root.isAttachedToWindow) return@run
+                        val window = activity.window
+                        if (mediaDetail) {
+                            pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE, window)
+                            return@run
+                        }
+                        // 非沉浸式旧页面的 Decor 背景会避开不透明系统栏；先让窗口取消这块白色占位。
+                        if (HostBackgroundPagePolicy.neutral(window.statusBarColor)) window.statusBarColor = Color.TRANSPARENT
+                        if (HostBackgroundPagePolicy.neutral(window.navigationBarColor)) window.navigationBarColor = Color.TRANSPARENT
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) window.isStatusBarContrastEnforced = false
+                        // 窗口原点涵盖状态栏和原生工具栏，避免窗口白底透出；夜空预设的系统栏文字保持可读。
+                        if (pages.requiresNight) root.systemUiVisibility = root.systemUiVisibility and
+                            (View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR).inv()
                         pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE, window)
-                        return@post
                     }
-                    // 非沉浸式旧页面的 Decor 背景会避开不透明系统栏；先让窗口取消这块白色占位。
-                    if (HostBackgroundPagePolicy.neutral(window.statusBarColor)) window.statusBarColor = Color.TRANSPARENT
-                    if (HostBackgroundPagePolicy.neutral(window.navigationBarColor)) window.navigationBarColor = Color.TRANSPARENT
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) window.isStatusBarContrastEnforced = false
-                    // 窗口原点涵盖状态栏和原生工具栏，避免窗口白底透出；夜空预设的系统栏文字保持可读。
-                    if (pages.requiresNight) root.systemUiVisibility = root.systemUiVisibility and
-                        (View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR).inv()
-                    pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE, window)
                 }
             }
         }

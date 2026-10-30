@@ -138,12 +138,12 @@ internal class HostTopFusionBinding private constructor(
     private fun install() {
         observe()
         container.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) {
+            override fun onViewAttachedToWindow(v: View) = HostThreadGuard.run("host.top.fusion.attach") {
                 observe()
                 sync()
             }
 
-            override fun onViewDetachedFromWindow(v: View) {
+            override fun onViewDetachedFromWindow(v: View) = HostThreadGuard.run("host.top.fusion.detach") {
                 restoreStatusBar()
                 unobserve(v)
             }

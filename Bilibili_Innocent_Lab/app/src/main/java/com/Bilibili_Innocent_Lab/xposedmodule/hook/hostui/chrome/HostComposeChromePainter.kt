@@ -141,47 +141,54 @@ internal class HostComposeChromePainter(
         guarded("host.chrome.backdrop") { wake() }
     }
     private val layoutChanged = ViewTreeObserver.OnGlobalLayoutListener {
-        float?.markDirty()
-        guarded("host.chrome.dock") { refreshDockLayout() }
+        guarded("host.chrome.dock") {
+            float?.markDirty()
+            refreshDockLayout()
+        }
         guarded("host.chrome.layout") { requestBackdropRefresh() }
     }
     private val scrollChanged = ViewTreeObserver.OnScrollChangedListener {
         guarded("host.chrome.scroll") { requestBackdropRefresh() }
     }
     private val preDraw = ViewTreeObserver.OnPreDrawListener {
-        var proceed = true
-        runCatching {
-            val currentOwner = this.owner.get() ?: return@runCatching
-            // The first composition can run before insets reach the window; correct it on a later
-            // frame, then leave changes to the layout listener instead of re-measuring every frame.
-            if (!dockInsetsSeen) refreshDockLayout()
-            trackOwner(currentOwner)
-            // A frame drawn before the relayout would show the feed at its old place; bound the retries.
-            if (syncTop(currentOwner) && staleFrames < 2) { staleFrames++; proceed = false } else staleFrames = 0
-            val visible = actuallyVisible(currentOwner)
-            target?.visibility = if (visible) View.VISIBLE else View.INVISIBLE
-            val shouldPause = !visible
-            if (paused != shouldPause) {
-                paused = shouldPause
-                if (shouldPause) session?.pause() else session?.resume()
+        HostThreadGuard.call("host.chrome.predraw", true) {
+            var proceed = true
+            try {
+                val currentOwner = this.owner.get() ?: return@call true
+                // The first composition can run before insets reach the window; correct it on a later
+                // frame, then leave changes to the layout listener instead of re-measuring every frame.
+                if (!dockInsetsSeen) refreshDockLayout()
+                trackOwner(currentOwner)
+                // A frame drawn before the relayout would show the feed at its old place; bound the retries.
+                if (syncTop(currentOwner) && staleFrames < 2) { staleFrames++; proceed = false } else staleFrames = 0
+                val visible = actuallyVisible(currentOwner)
+                target?.visibility = if (visible) View.VISIBLE else View.INVISIBLE
+                val shouldPause = !visible
+                if (paused != shouldPause) {
+                    paused = shouldPause
+                    if (shouldPause) session?.pause() else session?.resume()
+                }
+                if (!visible) {
+                    cancelBackdropProbe()
+                    return@call proceed
+                }
+                val nextContent = selectContent()
+                val currentContent = source?.coordinateView?.takeUnless { it === currentOwner }
+                if (target != null && nextContent !== currentContent) {
+                    release()?.let { throw it }
+                    build(currentOwner, nextContent)
+                    wake()
+                }
+                scheduleBackdropProbe(currentOwner)
+                if (viewport?.sync() == true) session?.notifyPositionChanged()
+                val next = viewport?.contentVersion
+                if (next != version) { version = next; session?.notifyContentChanged() }
+            } catch (error: Throwable) {
+                failure(error)
+                throw error
             }
-            if (!visible) {
-                cancelBackdropProbe()
-                return@runCatching
-            }
-            val nextContent = selectContent()
-            val currentContent = source?.coordinateView?.takeUnless { it === currentOwner }
-            if (target != null && nextContent !== currentContent) {
-                release()?.let { throw it }
-                build(currentOwner, nextContent)
-                wake()
-            }
-            scheduleBackdropProbe(currentOwner)
-            if (viewport?.sync() == true) session?.notifyPositionChanged()
-            val next = viewport?.contentVersion
-            if (next != version) { version = next; session?.notifyContentChanged() }
-        }.onFailure(::failure)
-        proceed
+            proceed
+        }
     }
     private val attach = object : View.OnAttachStateChangeListener {
         override fun onViewAttachedToWindow(v: View) = guarded("host.chrome.attach") { wake() }
@@ -576,7 +583,16 @@ internal class HostComposeChromePainter(
         if (owned.isNotEmpty()) runCatching {
             owner.get()?.post {
                 HostThreadGuard.run("host.chrome.restore") {
-                    owned.forEach { (node, expected, original) -> runCatching { api.restore(node, expected, original) } }
+                    var first: Throwable? = null
+                    owned.forEach { (node, expected, original) ->
+                        try {
+                            api.restore(node, expected, original)
+                        } catch (error: Throwable) {
+                            val previous = first
+                            if (previous == null) first = error else runCatching { previous.addSuppressed(error) }
+                        }
+                    }
+                    first?.let { throw it }
                 }
             }
         }

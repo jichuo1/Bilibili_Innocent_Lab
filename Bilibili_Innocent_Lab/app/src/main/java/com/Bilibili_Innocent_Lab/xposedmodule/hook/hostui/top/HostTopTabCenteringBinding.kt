@@ -10,6 +10,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockLayer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostGlowView
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 
@@ -71,10 +72,18 @@ internal class HostTopTabCenteringBinding internal constructor(
     private var rejected: Generation? = null
     private val titleIds = HashMap<Int, Boolean>()
     private val bounds = Rect()
-    private val layout = ViewTreeObserver.OnGlobalLayoutListener { sync() }
+    private val layout = ViewTreeObserver.OnGlobalLayoutListener {
+        HostThreadGuard.run("host.top.centering.layout") { sync() }
+    }
     private val attachment = object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(view: View) { observe(); sync() }
-        override fun onViewDetachedFromWindow(view: View) { unobserve(); restore() }
+        override fun onViewAttachedToWindow(view: View) = HostThreadGuard.run("host.top.centering.attach") {
+            observe()
+            sync()
+        }
+        override fun onViewDetachedFromWindow(view: View) = HostThreadGuard.run("host.top.centering.detach") {
+            unobserve()
+            restore()
+        }
     }
 
     init {

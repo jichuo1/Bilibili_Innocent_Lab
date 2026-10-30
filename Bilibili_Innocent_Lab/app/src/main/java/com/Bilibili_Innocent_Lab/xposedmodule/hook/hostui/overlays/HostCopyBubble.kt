@@ -19,6 +19,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.Bilibili_Innocent_Lab.xposedmodule.R
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.lumen.coacervation.engine.motion.LumenEasing
 import com.lumen.coacervation.engine.widget.BubbleDrawable
 
@@ -131,18 +132,22 @@ internal class HostCopyBubble(private val activity: Activity, private val anchor
     private fun enter() {
         animation = AnimatorSet().apply {
             playTogether(ValueAnimator.ofFloat(.9f, 1f).apply {
-                addUpdateListener { surface.scale = it.animatedValue as Float }
+                addUpdateListener {
+                    HostThreadGuard.run("host.copy_bubble.frame") { surface.scale = it.animatedValue as Float }
+                }
             }, ObjectAnimator.ofFloat(body, View.ALPHA, 0f, 1f), ObjectAnimator.ofFloat(content, View.ALPHA, 0f, 1f))
             duration = 200L
             interpolator = LumenEasing.standardDecelerate()
             addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    if (released || closing) return
+                override fun onAnimationEnd(animation: Animator) = HostThreadGuard.run("host.copy_bubble.enter_end") {
+                    if (released || closing) return@run
                     content.setTextIsSelectable(true)
                     this@HostCopyBubble.animation = ValueAnimator.ofFloat(0f, 1f).apply {
                         duration = 120L
                         interpolator = LumenEasing.standardDecelerate()
-                        addUpdateListener { surface.strokeAlpha = it.animatedValue as Float }
+                        addUpdateListener {
+                            HostThreadGuard.run("host.copy_bubble.frame") { surface.strokeAlpha = it.animatedValue as Float }
+                        }
                         start()
                     }
                 }
@@ -160,16 +165,21 @@ internal class HostCopyBubble(private val activity: Activity, private val anchor
         animation = AnimatorSet().apply {
             playTogether(ValueAnimator.ofFloat(surface.scale, .92f).apply {
                 duration = 150L
-                addUpdateListener { surface.scale = it.animatedValue as Float }
+                addUpdateListener {
+                    HostThreadGuard.run("host.copy_bubble.frame") { surface.scale = it.animatedValue as Float }
+                }
             }, ObjectAnimator.ofFloat(body, View.ALPHA, 0f).apply { duration = 150L },
                 ObjectAnimator.ofFloat(content, View.ALPHA, 0f).apply { duration = 150L },
                 ValueAnimator.ofFloat(surface.strokeAlpha, 0f).apply {
                     duration = 100L
-                    addUpdateListener { surface.strokeAlpha = it.animatedValue as Float }
+                    addUpdateListener {
+                        HostThreadGuard.run("host.copy_bubble.frame") { surface.strokeAlpha = it.animatedValue as Float }
+                    }
                 })
             interpolator = LumenEasing.standardAccelerate()
             addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) { dialog.dismiss() }
+                override fun onAnimationEnd(animation: Animator) =
+                    HostThreadGuard.run("host.copy_bubble.exit_end") { dialog.dismiss() }
             })
         }
         animation?.start()
