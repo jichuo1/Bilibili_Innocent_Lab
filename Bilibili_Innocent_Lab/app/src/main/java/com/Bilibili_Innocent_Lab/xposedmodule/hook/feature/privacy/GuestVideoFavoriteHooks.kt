@@ -29,18 +29,22 @@ import java.util.concurrent.atomic.AtomicBoolean
  * coroutine class `FavorRepository$favor$1` (its constructor takes the cache class first) and the writer is the single public
  * static `void(long, boolean)` on it, so a tap repaints the star from the toggle result: added turns it on, a second tap
  * turns it off. When the writer cannot be located the guest gets a "saved" toast instead, since nothing else shows the tap
- * worked. The host's own folder picker (a KMP dialog, obfuscated) is not opened; the module shows its own [FolderPicker] instead,
- * listing the local folders as checkboxes, and commits the exact selection (an empty selection un-favorites). Without a live
+ * worked. Where the build has it (8.97 to 9.11), the host's own folder picker opens ([HostDialog], [GuestHostFavoriteDialog]) and
+ * writes the library itself through the local favorite protocol. Elsewhere (the 9.12+ picker is a KMP dialog) the module
+ * shows its own [FolderPicker], listing the local folders as checkboxes, and commits the exact selection (an empty selection
+ * un-favorites). Without a live
  * Activity to attach the dialog to, the tap falls back to toggling the default folder. The favorite count moves too when the
  * host's page repository for the video can be reached ([PageFavoriteSource]): its own favorite method then changes the count,
  * writes the star cache and sends the bus message, so the cache writer above is only the fallback.
  * Status keys, kept apart because the channel keeps only the first value per key: `guest_video_favorite` is the install
  * report, `_state` says whether the star writer was located, `_page` says whether the page repository was recognised,
- * `_applied` says a tap was taken over, `_picker` says the folder picker was shown, `_saved` says the local write committed,
+ * `_applied` says a tap was taken over, `_host_dialog` says the host picker was found, `_host_picker` says it was shown,
+ * `_picker` says the module's folder picker was shown, `_saved` says the local write committed,
  * `_counted` says the page repository took the new state, `_repainted` says the star writer ran, and `_failed` says the
  * write did not commit.
  *
- * Verified on a 9.16.1 device only (`_applied`, `_saved` seen; the star turns pink on the first tap and grey on the second).
+ * Verified on 9.16.1 (module picker: the star turns pink on the first tap and grey on the second) and 9.0.0 (host picker:
+ * ticking, unticking, a new folder and its watch-later row).
  */
 internal class GuestVideoFavoriteHooks(
     private val store: FavoriteStore,
@@ -64,6 +68,8 @@ internal class GuestVideoFavoriteHooks(
     private val storyStar: StoryStarSource? = null,
     /** The host's page repository, which moves the favorite count with the star; null means only the star cache is written. */
     private val pageFavorite: PageFavoriteSource? = null,
+    /** The host's own folder picker, preferred over [picker] where this build has it; null means the module's picker only. */
+    private val hostDialog: HostDialog? = null,
     /** Whether a call stack belongs to the Story player's favorite star; replaceable for the same reason. */
     private val isStoryStar: (Array<StackTraceElement>) -> Boolean = ::fromStoryFavoriteWidget
 ) {
@@ -104,6 +110,17 @@ internal class GuestVideoFavoriteHooks(
         fun write(aid: Long, favorited: Boolean) {
             method.invoke(receiver, aid, favorited)
         }
+    }
+
+    /**
+     * The host's folder picker. It reads and writes the local library itself, through the local favorite protocol, so the
+     * caller only learns when it closed and then reads the result back.
+     */
+    internal interface HostDialog {
+        /** Finds what this build needs from the host; false when it does not have the expected shape. */
+        fun install(env: HookEnvironment, loader: ClassLoader): Boolean
+        /** False when it cannot be shown here (no host Activity, or the build lacks it), so the caller uses its own picker. */
+        fun show(context: Context?, video: LocalVirtualLibrary.Video, favorited: Boolean, onClosed: () -> Unit): Boolean
     }
 
     /** Shows the folder choice. Returns false when it cannot be shown, so the caller falls back to the default folder. */
@@ -154,6 +171,9 @@ internal class GuestVideoFavoriteHooks(
         // The page repository changes the count, the star cache and sends the bus message in one call, so it is preferred.
         val pageReady = pageFavorite?.let { runCatching { it.install(env, loader) }.getOrDefault(false) } == true
         if (pageFavorite != null) env.reportStatus("guest_video_favorite_page", if (pageReady) "installed" else "absent")
+        val hostReady = hostDialog?.let { runCatching { it.install(env, loader) }.getOrDefault(false) } == true
+        if (hostDialog != null) env.reportStatus("guest_video_favorite_host_dialog", if (hostReady) "installed" else "absent")
+        val hosted = AtomicBoolean(false)
 
         /** Repaints the star from the result, or says "saved" when there is no star writer. */
         fun paintStar(context: Context?, aid: Long, favorited: Boolean) {
@@ -203,11 +223,28 @@ internal class GuestVideoFavoriteHooks(
             } else toggleDefault(context, video, after)
         }
 
-        /** One star tap on a known video: the folder choice when there is a picker, otherwise the default folder. */
+        /** The host's picker writes the library itself; once it closes, the star and count follow a changed state. */
+        fun hostPick(context: Context?, video: LocalVirtualLibrary.Video, folders: List<Folder>, after: (Boolean) -> Unit): Boolean {
+            val before = folders.any { it.checked }
+            val shown = hostDialog!!.show(context, video, before) {
+                store.folders(video.aid) { now ->
+                    val favorited = now.any { it.checked }
+                    if (favorited != before) onCommitted(context, video.aid, favorited, after)
+                }
+            }
+            if (shown && hosted.compareAndSet(false, true)) env.reportStatus("guest_video_favorite_host_picker", "seen")
+            return shown
+        }
+
+        /** One star tap on a known video: the host's folder choice, else the module's, otherwise the default folder. */
         fun startTap(context: Context?, video: LocalVirtualLibrary.Video, after: (Boolean) -> Unit = {}) {
             if (applied.compareAndSet(false, true)) env.reportStatus("guest_video_favorite_applied", "seen")
-            if (picker == null) toggleDefault(context, video, after)
-            else store.folders(video.aid) { folders -> pick(context, video, folders, after) }
+            if (picker == null && !hostReady) toggleDefault(context, video, after)
+            else store.folders(video.aid) { folders ->
+                if (!(hostReady && hostPick(context, video, folders, after))) {
+                    if (picker == null) toggleDefault(context, video, after) else pick(context, video, folders, after)
+                }
+            }
         }
 
         var hooks = 0

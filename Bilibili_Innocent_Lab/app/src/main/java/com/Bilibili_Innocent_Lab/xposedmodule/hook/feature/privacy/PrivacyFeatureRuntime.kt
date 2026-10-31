@@ -112,7 +112,7 @@ internal class PrivacyFeatureRuntime(
                 val hooks = onboarding + GuestLibraryHostHooks(library, guest, history).install(env) + playback +
                     kmpHooks + installMineOverlayGuard(env, guest) + GuestMineOverlayHooks(guest).install(env) +
                     GuestMineMenuHooks(guest).install(env) +
-                    GuestFavoritesRouteHooks(guest).install(env) + GuestVideoFavoriteHooks(GuestVideoFavoriteHooks.storeFor(library), guest, picker = GuestFavoriteFolderPicker(), storyStar = GuestStoryStar(), pageFavorite = GuestPageFavorite()).install(env) +
+                    GuestFavoritesRouteHooks(guest).install(env) + GuestVideoFavoriteHooks(GuestVideoFavoriteHooks.storeFor(library), guest, picker = GuestFavoriteFolderPicker(), storyStar = GuestStoryStar(), pageFavorite = GuestPageFavorite(), hostDialog = GuestHostFavoriteDialog()).install(env) +
                     GuestIgnetLibraryResponses(guest, { path, params ->
                         library.nativeBlocking {
                             if (NativeWatchLaterProtocol.handles(path)) NativeWatchLaterProtocol.respond(path, params, it) { aid -> library.videoMetadata(aid, 0) }
@@ -163,7 +163,11 @@ internal class PrivacyFeatureRuntime(
         )
         values.forEach { (name, value) ->
             val m = requireNotNull(Lookup.methodOrNull(accounts, name))
-            plan.step { env.registrar.exact("incognito.account.$name", accounts, name, *m.parameterTypes) { before { result = value } } }
+            // A host page the module opened for the guest may see itself logged in (GuestLoginScope); nothing else does.
+            val scoped = name == "isLogin"
+            plan.step { env.registrar.exact("incognito.account.$name", accounts, name, *m.parameterTypes) {
+                before { result = if (scoped && GuestLoginScope.active) true else value }
+            } }
             count++
         }
         // Guest responses must never expire/revoke the real account persisted before the session.
