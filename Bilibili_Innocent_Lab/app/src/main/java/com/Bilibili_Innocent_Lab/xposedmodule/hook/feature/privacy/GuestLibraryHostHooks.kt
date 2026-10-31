@@ -24,15 +24,14 @@ internal class GuestLibraryHostHooks(
         var installed = 0
         // Each entry reports its own outcome: the log channel keeps only the first line per key, so one shared key
         // hid which of these host-version-bound entries were actually missing. Status carries the failure kind only.
-        fun attempt(name: String, action: () -> Unit) {
+        fun attempt(name: String, action: () -> Unit): Boolean =
             runCatching(action).onSuccess {
                 installed++
                 env.reportStatus("guest_library_$name", "installed")
             }.onFailure {
                 env.logError("guest_library_entry_$name", "[BIL] Local library entry unavailable: $name")
                 env.reportStatus("guest_library_$name", "missing:${it.javaClass.simpleName}")
-            }
-        }
+            }.isSuccess
         attempt("mine_menu") {
             val manager = requireNotNull(Lookup.classOrNull(loader, MINE_MANAGER))
             val item = requireNotNull(Lookup.classOrNull(loader, MINE_ITEM))
@@ -145,7 +144,10 @@ internal class GuestLibraryHostHooks(
         attempt("native_history") { history.install(env) }
         attempt("native_watch_later") { GuestNativeWatchLaterHooks(library, isGuest).install(env) }
         attempt("native_watch_later_add") { GuestNativeWatchLaterAddHooks(library, isGuest).install(env) }
-        attempt("native_list_http") { GuestNativeListHttpHooks(library, isGuest).install(env) }
+        val localLists = attempt("native_list_http") { GuestNativeListHttpHooks(library, isGuest).install(env) }
+        // The 8.97+ add flow posts a real request once the login gate is passed; only the short circuit keeps it local.
+        if (localLists) attempt("watch_later_login_scope") { GuestWatchLaterLoginScope(isGuest).install(env) }
+        else env.reportStatus("guest_library_watch_later_login_scope", "skipped-no-local-lists")
 
         attempt("follow_button") {
             val access = PrivacyHostAccess(loader)

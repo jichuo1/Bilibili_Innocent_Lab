@@ -41,8 +41,16 @@ internal class GuestNativeListHttpHooks(private val library: GuestLibraryRuntime
                     if (body != null && host.type("okhttp3.FormBody").isInstance(body)) repeat(host.call(body, "size") as Int) { index ->
                         params[host.call(body, "name", index) as String] = host.call(body, "value", index) as String
                     }
+                    // A feed card can add a video this session never opened. Read its archive here on the host's network
+                    // thread: the blocking gRPC call must not run inside the library's single IO executor. A failed read
+                    // leaves the id unknown, so the protocol fails the add instead of inventing data.
+                    val archives = if (!NativeWatchLaterProtocol.isAdd(path)) emptyMap() else
+                        NativeWatchLaterProtocol.resourceIds(params).filter { library.videoMetadata(it, 0) == null }
+                            .mapNotNull { aid -> runCatching { aid to PrivacyVideoMetadata.fetch(host, aid) }.getOrNull() }.toMap()
                     val json = library.nativeBlocking {
-                        if (NativeWatchLaterProtocol.handles(path)) NativeWatchLaterProtocol.respond(path, params, it) { aid -> library.videoMetadata(aid, 0) }
+                        if (NativeWatchLaterProtocol.handles(path)) NativeWatchLaterProtocol.respond(path, params, it) { aid ->
+                            library.videoMetadata(aid, 0) ?: archives[aid]
+                        }
                         else NativeFavoriteProtocol.respond(path, params, it)
                     }
                     // The same pin endpoint is decoded as BaseResponse by Favorites V2 and String by the older detail page.

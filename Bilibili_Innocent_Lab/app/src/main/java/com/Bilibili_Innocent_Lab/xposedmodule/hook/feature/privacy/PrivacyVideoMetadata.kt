@@ -3,6 +3,16 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 
 internal object PrivacyVideoMetadata {
+    /** An explicit add can target an unseen recommendation. Read archive data, never invent a cid or create history. */
+    fun fetch(host: PrivacyHostAccess, aid: Long): LocalVirtualLibrary.Video {
+        require(aid in 1..LocalVirtualLibrary.MAX_ID)
+        val request = requireNotNull(host.static(host.type("com.bapis.bilibili.app.view.v1.ViewReq"), "newBuilder"))
+        host.call(request, "setAid", aid)
+        val reply = requireNotNull(host.call(host.create(host.type("com.bapis.bilibili.app.view.v1.ViewMoss")),
+            "executeView", host.call(request, "build")))
+        return read(host, reply).also { require(it.aid == aid) }
+    }
+
     fun read(host: PrivacyHostAccess, reply: Any): LocalVirtualLibrary.Video {
         val arc = host.call(reply, "getArc") ?: error("Missing arc")
         val aid = (host.call(arc, "getAid") as Number).toLong()

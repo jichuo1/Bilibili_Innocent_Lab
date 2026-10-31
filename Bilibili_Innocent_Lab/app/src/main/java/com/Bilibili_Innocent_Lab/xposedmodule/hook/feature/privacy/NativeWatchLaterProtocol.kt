@@ -6,6 +6,11 @@ import org.json.JSONObject
 /** Replies are consumed by the official watch-later screen; no request reaches an account endpoint. */
 internal object NativeWatchLaterProtocol {
     fun handles(path: String) = path == "/x/v2/history/toview" || path.startsWith("/x/v2/history/toview/") || path == "/x/v3/fav/toview/adds"
+    fun isAdd(path: String) = path == "/x/v2/history/toview/add" || path == "/x/v3/fav/toview/adds"
+
+    /** `resources` (`aid[:type],...`, batch) or `aid` (single add); every id must be positive. */
+    fun resourceIds(params: Map<String, String>): Set<Long> = params["resources"].orEmpty().ifBlank { params["aid"].orEmpty() }
+        .split(',').filter { it.isNotBlank() }.map { it.substringBefore(':').toLong().also { id -> require(id > 0) } }.toSet()
     private fun obj(vararg values: Pair<String, Any?>) = JSONObject().apply { values.forEach { put(it.first, it.second ?: JSONObject.NULL) } }
     private fun row(v: LocalVirtualLibrary.Video) = obj(
         "aid" to v.aid, "cid" to v.cid, "card_type" to 0, "title" to v.title, "pic" to v.cover.orEmpty(),
@@ -19,8 +24,7 @@ internal object NativeWatchLaterProtocol {
         metadata: (Long) -> LocalVirtualLibrary.Video? = { null }): String {
         val snapshot = library.readSnapshot()
         val state = snapshot.collections
-        fun resources(): Set<Long> = params["resources"].orEmpty().ifBlank { params["aid"].orEmpty() }
-            .split(',').filter { it.isNotBlank() }.map { it.substringBefore(':').toLong().also { id -> require(id > 0) } }.toSet()
+        fun resources(): Set<Long> = resourceIds(params)
         val data: Any = when (path) {
             "/x/v2/history/toview", "/x/v2/history/toview/v2/list" -> {
                 var list = state.watchLater.distinctBy { it.aid }
@@ -68,7 +72,9 @@ internal object NativeWatchLaterProtocol {
                 val videos = ids.map { aid -> requireNotNull(known.firstOrNull { it.aid == aid } ?: metadata(aid)) }
                 val remaining = state.watchLater.filterNot { it.aid in ids }
                 library.writeSnapshot(snapshot.copy(collections = state.copy(watchLater = videos + remaining)))
-                obj("toast" to "已添加至稍后再看")
+                // The fields of the host's WatchLaterAddToast: with show_toast it shows its own "added, view" popup.
+                obj("show_toast" to true, "icon_type" to 1, "toast" to "已添加至稍后再看", "jump_text" to "查看",
+                    "app_jump_link" to "bilibili://main/playset/watch-later", "avids" to ids.joinToString(","))
             }
             else -> return obj("code" to -400, "ttl" to 1, "message" to "不支持的本地稍后再看操作", "data" to JSONObject()).toString()
         }

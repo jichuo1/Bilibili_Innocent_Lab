@@ -42,7 +42,7 @@ internal class GuestNativeWatchLaterAddHooks(private val library: GuestLibraryRu
                     val caller = requireNotNull(argOrNull(types.lastIndex))
                     library.nativeRequest({ store ->
                         NativeWatchLaterProtocol.respond("/x/v2/history/toview/add", mapOf("resources" to resources), store) { aid ->
-                            library.videoMetadata(aid, 0) ?: readMetadata(host, aid)
+                            library.videoMetadata(aid, 0) ?: PrivacyVideoMetadata.fetch(host, aid)
                         }
                     }) { outcome ->
                         val context = requireNotNull(host.call(caller, "getContext"))
@@ -88,15 +88,5 @@ internal class GuestNativeWatchLaterAddHooks(private val library: GuestLibraryRu
             }
         }
         env.reportStatus("guest_native_watch_later_add", "adapted")
-    }
-
-    /** An explicit add can target an unseen recommendation. Read archive data, never invent a cid or create history. */
-    private fun readMetadata(host: PrivacyHostAccess, aid: Long): LocalVirtualLibrary.Video {
-        require(aid in 1..LocalVirtualLibrary.MAX_ID)
-        val request = requireNotNull(host.static(host.type("com.bapis.bilibili.app.view.v1.ViewReq"), "newBuilder"))
-        host.call(request, "setAid", aid)
-        val reply = requireNotNull(host.call(host.create(host.type("com.bapis.bilibili.app.view.v1.ViewMoss")),
-            "executeView", host.call(request, "build")))
-        return PrivacyVideoMetadata.read(host, reply).also { require(it.aid == aid) }
     }
 }

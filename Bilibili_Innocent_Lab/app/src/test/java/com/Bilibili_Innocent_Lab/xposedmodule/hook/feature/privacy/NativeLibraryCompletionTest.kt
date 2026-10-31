@@ -141,6 +141,31 @@ class NativeLibraryCompletionTest {
         assertTrue(restored.history.isEmpty())
     }
 
+    @Test fun singleAddAnswersWithTheHostsOwnAddedPopupFields() {
+        // 8.97+ addV2 posts one `aid` form field, not `resources`; the reply is decoded as WatchLaterAddToast.
+        val store = LocalVirtualLibrary({ null }, {})
+        val data = JSONObject(NativeWatchLaterProtocol.respond("/x/v2/history/toview/add",
+            mapOf("aid" to "2", "from" to "", "spmid" to "tm.recommend.0.0", "toview_version" to "v2"), store) { second })
+            .getJSONObject("data")
+        assertTrue(data.getBoolean("show_toast"))
+        assertEquals(1, data.getInt("icon_type"))
+        assertEquals("已添加至稍后再看", data.getString("toast"))
+        assertEquals("查看", data.getString("jump_text"))
+        assertEquals("bilibili://main/playset/watch-later", data.getString("app_jump_link"))
+        assertEquals("2", data.getString("avids"))
+        assertEquals(listOf(second), store.readSnapshot().collections.watchLater)
+    }
+
+    @Test fun resourceIdsReadBatchAndSingleFormsAndRejectNonPositiveIds() {
+        assertEquals(setOf(1L, 2L), NativeWatchLaterProtocol.resourceIds(mapOf("resources" to "1:2,2:2", "aid" to "9")))
+        assertEquals(setOf(7L), NativeWatchLaterProtocol.resourceIds(mapOf("aid" to "7")))
+        assertTrue(NativeWatchLaterProtocol.resourceIds(emptyMap()).isEmpty())
+        assertThrows(IllegalArgumentException::class.java) { NativeWatchLaterProtocol.resourceIds(mapOf("aid" to "0")) }
+        assertTrue(NativeWatchLaterProtocol.isAdd("/x/v2/history/toview/add"))
+        assertTrue(NativeWatchLaterProtocol.isAdd("/x/v3/fav/toview/adds"))
+        assertFalse(NativeWatchLaterProtocol.isAdd("/x/v2/history/toview/v2/dels"))
+    }
+
     @Test fun addingKnownVideoKeepsResumeProgressAndMissingMetadataFailsAtomically() {
         val store = LocalVirtualLibrary({ null }, {})
         store.putHistory(first)
