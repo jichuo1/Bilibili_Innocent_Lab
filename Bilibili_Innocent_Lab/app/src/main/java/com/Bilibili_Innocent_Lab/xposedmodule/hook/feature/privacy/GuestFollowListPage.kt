@@ -71,9 +71,17 @@ internal class GuestFollowListPage(private val library: GuestLibraryRuntime, pri
         val face = requireNotNull(Lookup.fieldOrNull(attention, "face"))
         val viewCreated = requireNotNull(Lookup.methodOrNull(fragment, "onViewCreated", classOf<View>(), classOf<Bundle>()))
         val holderType = host.type("androidx.recyclerview.widget.RecyclerView\$ViewHolder")
-        val adapter = requireNotNull(Lookup.declaredFields(fragment, makeAccessible = true) {
-            !it.isStatic && it.type isSubclassOf host.type("androidx.recyclerview.widget.RecyclerView\$Adapter")
-        }.singleOrNull()?.type) { "BlackListFragment adapter" }
+        val adapterType = host.type("androidx.recyclerview.widget.RecyclerView\$Adapter")
+        val adapterField = requireNotNull(Lookup.declaredFields(fragment, makeAccessible = true) {
+            !it.isStatic && it.type isSubclassOf adapterType
+        }.singleOrNull()) { "BlackListFragment adapter" }
+        val adapter = adapterField.type
+        // The host answers an empty list with its empty tips only, keeping the old rows and its hidden tips view.
+        val rowsField = Lookup.declaredFields(adapter, makeAccessible = true) { !it.isStatic && it.type == classOf<List<*>>() }.singleOrNull()
+        val refresh = Lookup.methodOrNull(adapterType, "notifyDataSetChanged")
+        val emptyTips = Lookup.declaredFields(fragment, makeAccessible = true) {
+            !it.isStatic && it.type.name == "tv.danmaku.bili.widget.LoadingImageView"
+        }.singleOrNull()
         val bind = requireNotNull(Lookup.methodOrNull(adapter, "onBindViewHolder", holderType, classOf<Int>()))
         val itemView = requireNotNull(Lookup.fieldOrNull(holderType, "itemView"))
         val touchHelper = host.type("androidx.recyclerview.widget.ItemTouchHelper")
@@ -100,7 +108,13 @@ internal class GuestFollowListPage(private val library: GuestLibraryRuntime, pri
                     mid.setLong(row, follow.mid); uname.set(row, follow.name); face.set(row, follow.face)
                 } }
                 val list = host.create(listType).also { listField.set(it, rows) }
-                if (synchronized(pages) { pages[target] } === page) onDataSuccess.invoke(callback, list)
+                if (synchronized(pages) { pages[target] } !== page) return@readCollections
+                onDataSuccess.invoke(callback, list)
+                if (rows.isEmpty()) {
+                    val shown = adapterField.get(target) ?: return@readCollections
+                    (rowsField?.get(shown) as? MutableList<*>)?.let { it.clear(); refresh?.invoke(shown) }
+                    (emptyTips?.get(target) as? View)?.isVisible = true
+                }
             }
         }
         library.observeCollections { synchronized(pages) { pages.toList() }.forEach { (target, page) -> deliver(target, page) } }
