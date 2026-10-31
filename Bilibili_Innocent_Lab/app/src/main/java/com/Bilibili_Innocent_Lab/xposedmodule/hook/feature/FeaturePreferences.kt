@@ -277,6 +277,9 @@ internal object FeaturePreferences {
     /** 后台播放使用系统媒体控制样式通知。 */
     const val SYSTEM_MEDIA_NOTIFICATION = "system_media_notification"
 
+    /** 固定使用旧版首页框架，屏蔽云控把首页切到新版框架。 */
+    const val HOME_FRAME_LEGACY_LOCK = "home_frame_legacy_lock"
+
     /** 开屏页背景跟随系统深色模式。 */
     const val SPLASH_AUTO_NIGHT = "splash_auto_night"
     const val BRAND_SPLASH_SKIP = "brand_splash_skip"

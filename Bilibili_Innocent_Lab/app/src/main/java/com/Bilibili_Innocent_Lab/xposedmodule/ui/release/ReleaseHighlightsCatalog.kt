@@ -337,6 +337,9 @@ internal object ReleaseHighlightsCatalog {
     )), ReleaseHighlightsBatch(30, listOf(
         ReleaseHighlight("host-mine-garb-dim", HighlightKind.NEW, R.string.host_mine_garb_dim_tip,
             HighlightDestination("host.mine.garb_dim.enabled"))
+    )), ReleaseHighlightsBatch(31, listOf(
+        ReleaseHighlight("home-frame-legacy-lock", HighlightKind.NEW, R.string.home_frame_legacy_lock_tip,
+            HighlightDestination("home.frame.legacy_lock.enabled"))
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

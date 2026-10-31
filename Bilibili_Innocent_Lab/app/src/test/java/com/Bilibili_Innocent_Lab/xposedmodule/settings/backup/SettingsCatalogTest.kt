@@ -9,6 +9,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsCatalogTest {
+    @Test fun `legacy home frame lock is opt in restorable and requires host restart in catalog v66`() {
+        val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v66.txt"))
+            .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 66 }.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 66 }
+        assertEquals("home.frame.legacy_lock.enabled", added.id)
+        assertEquals(FeaturePreferences.HOME_FRAME_LEGACY_LOCK, added.storageKey)
+        assertEquals(SettingValue.Bool(false), added.defaultValue)
+        assertEquals(RestorePolicy.AUTOMATIC, added.restorePolicy)
+        assertTrue(ImportEffect.RESTART_BILIBILI in added.effects)
+    }
+
     @Test fun `mine garb dimming preserves the existing default and joins catalog v65`() {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v65.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
@@ -356,11 +368,11 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog is a unique allowlist with 245 settings`() {
-        assertEquals(245, SettingsCatalog.specs.size)
-        assertEquals(245, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(245, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(240, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 246 settings`() {
+        assertEquals(246, SettingsCatalog.specs.size)
+        assertEquals(246, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(246, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(241, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(5, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -591,7 +603,7 @@ class SettingsCatalogTest {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v13.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 13 }.map { it.id }.sorted())
-        assertEquals(65, SettingsCatalog.CATALOG_VERSION)
+        assertEquals(66, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 13 }
         assertEquals(6, added.size)
         assertTrue(added.all { it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects })
@@ -890,7 +902,7 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(149, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(150, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(24, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(72, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 

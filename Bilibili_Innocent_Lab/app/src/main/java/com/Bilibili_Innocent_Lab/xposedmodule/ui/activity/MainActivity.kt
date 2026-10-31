@@ -445,6 +445,7 @@ class MainActivity : SkinnedActivity() {
     internal var shareMiniProgramDirectLink = false
     internal var forceExternalBrowser = false
     internal var systemMediaNotification = false
+    internal var homeFrameLegacyLock = false
     internal var splashAutoNight = false
     internal var brandSplashSkip = false
     internal var brandSplashCustom = false
@@ -4464,6 +4465,7 @@ class MainActivity : SkinnedActivity() {
         shareMiniProgramDirectLink = uiSettings.bool(FeaturePreferences.SHARE_MINI_PROGRAM_DIRECT_LINK)
         forceExternalBrowser = uiSettings.bool(FeaturePreferences.FORCE_EXTERNAL_BROWSER)
         systemMediaNotification = uiSettings.bool(FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION)
+        homeFrameLegacyLock = uiSettings.bool(FeaturePreferences.HOME_FRAME_LEGACY_LOCK)
         splashAutoNight = uiSettings.bool(FeaturePreferences.SPLASH_AUTO_NIGHT)
         brandSplashSkip = uiSettings.bool(FeaturePreferences.BRAND_SPLASH_SKIP)
         brandSplashCustom = uiSettings.bool(FeaturePreferences.BRAND_SPLASH_CUSTOM)

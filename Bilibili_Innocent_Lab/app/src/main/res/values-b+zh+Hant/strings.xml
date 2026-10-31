@@ -887,6 +887,8 @@
     <string name="force_external_browser_tip">開啟後，用系統瀏覽器開啟站外網頁；站內連結和支付連結不變，無可用瀏覽器時依原方式開啟。</string>
     <string name="system_media_notification">使用系統媒體控制通知</string>
     <string name="system_media_notification_tip">開啟後，背景播放啟用嗶哩嗶哩內建的系統媒體控制樣式。重新啟動嗶哩嗶哩後生效。</string>
+    <string name="home_frame_legacy_lock">固定使用舊版首頁框架</string>
+    <string name="home_frame_legacy_lock_tip">嗶哩嗶哩會透過雲控把首頁切換到新版框架，切換後依賴舊版首頁的功能可能突然失效。開啟後，手機上保持舊版首頁。大螢幕裝置由宿主依螢幕尺寸決定，不受影響。重新啟動嗶哩嗶哩後生效。</string>
     <string name="splash_auto_night">開屏頁跟隨深色模式</string>
     <string name="splash_auto_night_tip">開啟後，開屏背景隨深淺色模式切換為黑色或白色，開屏圖與標誌不變。</string>
     <string name="block_live_room_switch">禁止上下滑動切換直播間</string>

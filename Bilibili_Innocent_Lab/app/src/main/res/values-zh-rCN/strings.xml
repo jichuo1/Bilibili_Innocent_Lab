@@ -887,6 +887,8 @@
     <string name="force_external_browser_tip">开启后，用系统浏览器打开站外网页；站内链接和支付链接不变，无可用浏览器时按原方式打开。</string>
     <string name="system_media_notification">使用系统媒体控制通知</string>
     <string name="system_media_notification_tip">开启后，后台播放启用哔哩哔哩自带的系统媒体控制样式。重启哔哩哔哩后生效。</string>
+    <string name="home_frame_legacy_lock">固定使用旧版首页框架</string>
+    <string name="home_frame_legacy_lock_tip">哔哩哔哩会通过云控把首页切到新版框架，切换后依赖旧版首页的功能可能突然失效。开启后，手机上保持旧版首页。大屏设备由宿主按屏幕尺寸决定，不受影响。重启哔哩哔哩后生效。</string>
     <string name="splash_auto_night">开屏页跟随深色模式</string>
     <string name="splash_auto_night_tip">开启后，开屏背景随深浅色模式切换为黑色或白色，开屏图和标志不变。</string>
     <string name="block_live_room_switch">禁止上下滑动切换直播间</string>

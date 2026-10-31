@@ -887,6 +887,8 @@
     <string name="force_external_browser_tip">Links outside Bilibili leave the in-app browser. Bilibili sites and payment gateways stay in the app, and the link is kept in-app when no browser can handle it.</string>
     <string name="system_media_notification">Use the system media notification</string>
     <string name="system_media_notification_tip">Turns on the background-playback media style that Bilibili already ships but keeps gated. Restart Bilibili to apply.</string>
+    <string name="home_frame_legacy_lock">Keep the legacy home frame</string>
+    <string name="home_frame_legacy_lock_tip">Bilibili can switch the home page to its new frame through a remote flag, which may suddenly break features that rely on the legacy home. Turn this on to keep phones on the legacy home. Large screens are decided by screen size inside Bilibili and are not affected. Restart Bilibili to apply.</string>
     <string name="splash_auto_night">Match the splash screen to dark mode</string>
     <string name="splash_auto_night_tip">Paints the splash background black in dark mode and white in light mode, so switching from a dark home screen no longer flashes white. Only the background changes.</string>
     <string name="block_live_room_switch">Disable swiping between live rooms</string>

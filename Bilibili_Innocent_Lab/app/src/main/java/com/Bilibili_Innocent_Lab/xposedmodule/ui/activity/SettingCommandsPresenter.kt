@@ -23,6 +23,15 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             brandSplashSkip = outcome.confirmed
             brandSplashSkip
         }
+        FeaturePreferences.HOME_FRAME_LEGACY_LOCK -> {
+            val checked = requested
+            val outcome = SettingWritePolicy.attempt(homeFrameLegacyLock, checked) {
+                prefs().edit { putBoolean(FeaturePreferences.HOME_FRAME_LEGACY_LOCK, checked) }
+            }
+            outcome.failure?.let { Log.e("BilibiliInnocentLab", "write home frame legacy lock prefs failed", it) }
+            homeFrameLegacyLock = outcome.confirmed
+            homeFrameLegacyLock
+        }
         FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION -> {
             val checked = requested
             systemMediaNotification = checked
@@ -1581,6 +1590,7 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
 internal val modeledToggleKeys = setOf(
     FeaturePreferences.BRAND_SPLASH_SKIP,
     FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION,
+    FeaturePreferences.HOME_FRAME_LEGACY_LOCK,
     FeaturePreferences.FORCE_EXTERNAL_BROWSER,
     FeaturePreferences.SHOW_FULL_NUMBERS,
     FeaturePreferences.SHOW_BV_AS_AV,
@@ -1692,6 +1702,7 @@ internal fun MainActivity.synchronizeSettingField(key: String, confirmed: Boolea
     when (key) {
         FeaturePreferences.BRAND_SPLASH_SKIP -> brandSplashSkip = confirmed
         FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION -> systemMediaNotification = confirmed
+        FeaturePreferences.HOME_FRAME_LEGACY_LOCK -> homeFrameLegacyLock = confirmed
         FeaturePreferences.FORCE_EXTERNAL_BROWSER -> forceExternalBrowser = confirmed
         FeaturePreferences.SHOW_FULL_NUMBERS -> showFullNumbers = confirmed
         FeaturePreferences.SHOW_BV_AS_AV -> showBvAsAv = confirmed

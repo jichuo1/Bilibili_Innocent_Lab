@@ -78,6 +78,31 @@ internal fun MainActivity.enhanceSystemCategory(scope: LinearSettingsScope) = wi
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
+    materialSwitch(key = "EnhanceSettingsSections:1120",
+        lparams = params(widthMatchParent = true) {
+            topMargin = 12.dp
+            bottomMargin = 5.dp
+        }
+    ) {
+        bindFavoriteSwitch(this, FeaturePreferences.HOME_FRAME_LEGACY_LOCK, directToggle = true)
+        text = stringResource(R.string.home_frame_legacy_lock)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = homeFrameLegacyLock
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HOME_FRAME_LEGACY_LOCK, checked, button)
+        }
+    }
+    textView(key = "EnhanceSettingsSections:1121",
+        lparams = params(widthMatchParent = true)
+    ) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.home_frame_legacy_lock_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
     materialSwitch(key = "EnhanceSettingsSections:109",
         lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
