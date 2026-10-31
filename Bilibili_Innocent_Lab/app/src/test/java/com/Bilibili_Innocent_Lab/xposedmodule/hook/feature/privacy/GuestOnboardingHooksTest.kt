@@ -171,6 +171,30 @@ class GuestOnboardingHooksTest {
         assertNull(GuestOnboardingHooks.locateGate(StaticBooleanWithArgument::class.java))
     }
 
+    @Test fun gateOnRequestBIsUsedWhenRequestDHasNone() {
+        // 8.99-9.01 and 9.08-9.15: request.d is the Retrofit interface, the predicate is request.b.g()/f()/h().
+        val registrar = PlayerPortTestRegistrar()
+        val loader = object : ClassLoader(javaClass.classLoader) {
+            override fun loadClass(name: String?, resolve: Boolean): Class<*> = when (name) {
+                "com.bilibili.pegasus.request.d" -> NoStaticBoolean::class.java
+                "com.bilibili.pegasus.request.b" -> OneStaticBoolean::class.java
+                else -> super.loadClass(name, resolve)
+            }
+        }
+        GuestOnboardingHooks { true }.install(environment(registrar, loader))
+        assertEquals("installed", statuses["guest_onboarding_gate"])
+        assertEquals(OneStaticBoolean::class.java.getMethod("only"), registrar.hooks["guest.onboarding.gate"]?.member)
+        // With the gate in place, the wizard data and entry suppressions install as on 9.16.
+        assertEquals("installed", statuses["guest_onboarding_data"])
+        assertEquals("installed", statuses["guest_onboarding_entry"])
+    }
+
+    @Test fun gateLocatorNeverPicksBetweenPredicatesInBothRequestClasses() {
+        assertEquals("only", GuestOnboardingHooks.locateGate(NoStaticBoolean::class.java, OneStaticBoolean::class.java)?.name)
+        assertNull(GuestOnboardingHooks.locateGate(FirstStartGate::class.java, OneStaticBoolean::class.java))
+        assertNull(GuestOnboardingHooks.locateGate(NoStaticBoolean::class.java, NoStaticBoolean::class.java))
+    }
+
     @Test fun reportsGateAbsentAndRegistersNothingWhenTheBuildHasNoSuchPredicate() {
         val registrar = PlayerPortTestRegistrar()
         val loader = object : ClassLoader(javaClass.classLoader) {

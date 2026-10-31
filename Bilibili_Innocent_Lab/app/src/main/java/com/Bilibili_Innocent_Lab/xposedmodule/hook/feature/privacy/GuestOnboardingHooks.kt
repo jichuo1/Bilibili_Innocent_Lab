@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 
 /**
  * Skip the new-user interest/gender/age onboarding for guests, without changing host preferences,
@@ -12,12 +13,13 @@ import java.lang.reflect.Modifier
  *
  * 1. First-start wait gate ([installGate]). On a first start the host's `PegasusFragment.onCreate`
  *    does NOT load the home feed; it waits for the interest wizard to finish and loads the feed from
- *    the wizard's completion event. The same predicate (`request.d.h()`, "first start and waiting for
- *    interest") decides whether the V2 plugin registry mounts the Compose wizard. Forcing it to false
- *    for a guest makes the host take its own non-first-start path: the feed loads immediately and the
- *    wizard never mounts. Nothing is faked, so no loading gate can be stranded. Verified on 9.16.0 and
- *    9.16.1 only (the predicate does not exist under this shape elsewhere), so every other build
- *    reports `guest_onboarding_gate=absent` and keeps the host's behavior.
+ *    the wizard's completion event. The same predicate ("first start and waiting for interest":
+ *    `request.d.h()` on 9.16.x, `request.b.f/g/h()` on 8.99-9.01 and 9.08-9.15) decides whether the
+ *    V2 plugin registry mounts the Compose wizard. Forcing it to false for a guest makes the host take
+ *    its own non-first-start path: the feed loads immediately and the wizard never mounts. Nothing is
+ *    faked, so no loading gate can be stranded. Verified on 9.0.0, 9.16.0 and 9.16.1; the other builds
+ *    in that range have only static evidence (matrix q60). Builds where neither class carries the
+ *    predicate report `guest_onboarding_gate=absent` and keep the host's behavior.
  *
  * 2. Legacy plugins ([installPlugins]). The pre-V2 `NewUserInterestChoosePlugin` and
  *    `LowActiveInterestChoosePlugin` are located by version-stable ABI shape:
@@ -109,18 +111,18 @@ internal class GuestOnboardingHooks(private val isGuest: () -> Boolean) {
     }
 
     private fun installGate(env: HookEnvironment, loader: ClassLoader): Int = runCatching {
-        val request = PrivacyStructuralResolver.type(loader, REQUEST_CLASS)
+        val requests = REQUEST_CLASSES.mapNotNull { PrivacyStructuralResolver.type(loader, it) }
         val fragment = PrivacyStructuralResolver.type(loader, FRAGMENT_CLASS)
-        // The predicate is the SINGLE static ()Z on request.d. That shape exists only where the matrix
-        // (b687820c, 38 builds) found it: 9.16.0 and 9.16.1, where PegasusFragment.onCreate calls it.
-        // Reflection cannot see call sites, so uniqueness is the guard: on every other build request.d
-        // has no static ()Z, or the class differs, and nothing is installed. Ambiguity fails closed.
-        val gate = if (request != null && fragment != null) locateGate(request) else null
+        // The predicate is the SINGLE static ()Z across request.d and request.b. The matrix (q60, 38 builds)
+        // found it on request.d for 9.16.x and on request.b for 8.99-9.01 and 9.08-9.15, each called by
+        // PegasusFragment.onCreate; on the other builds neither class has a static ()Z. Reflection cannot see
+        // call sites, so uniqueness is the guard: none, or one in each class, installs nothing.
+        val gate = if (requests.isNotEmpty() && fragment != null) locateGate(*requests.toTypedArray()) else null
         if (gate == null) {
             env.reportStatus("guest_onboarding_gate", "absent")
             return@runCatching 0
         }
-        env.registrar.exact("guest.onboarding.gate", request!!, gate.name, *gate.parameterTypes) {
+        env.registrar.exact("guest.onboarding.gate", gate.declaringClass, gate.name, *gate.parameterTypes) {
             before {
                 if (!runCatching { isGuest() }.getOrDefault(false)) return@before
                 result = false
@@ -194,7 +196,7 @@ internal class GuestOnboardingHooks(private val isGuest: () -> Boolean) {
     }
 
     internal companion object {
-        private const val REQUEST_CLASS = "com.bilibili.pegasus.request.d"
+        private val REQUEST_CLASSES = listOf("com.bilibili.pegasus.request.d", "com.bilibili.pegasus.request.b")
         private const val FRAGMENT_CLASS = "com.bilibili.pegasus.PegasusFragment"
         private const val SESSION_CLASS = "com.bilibili.pegasus.components.interestv2.host.AndroidInterestChooseSession"
         private const val RESPONSE_CLASS = "com.bilibili.pegasus.data.base.PegasusResponse"
@@ -202,10 +204,12 @@ internal class GuestOnboardingHooks(private val isGuest: () -> Boolean) {
         private const val NEW_PLUGIN = "com.bilibili.pegasus.components.interest.NewUserInterestChoosePlugin"
         private const val LOW_PLUGIN = "com.bilibili.pegasus.components.interest.LowActiveInterestChoosePlugin"
 
-        /** The single static no-arg boolean on [request]; null when none or more than one (fails closed). */
-        fun locateGate(request: Class<*>): Method? = PrivacyStructuralResolver.uniqueMethod(request) { m ->
-            Modifier.isStatic(m.modifiers) && m.returnType == java.lang.Boolean.TYPE && m.parameterCount == 0
-        }
+        /** The single static no-arg boolean across [requests]; null when none or more than one (fails closed). */
+        fun locateGate(vararg requests: Class<*>): Method? = requests.flatMap { request ->
+            Lookup.methods(request, includeSuperclasses = false, makeAccessible = true) { m ->
+                Modifier.isStatic(m.modifiers) && m.returnType == java.lang.Boolean.TYPE && m.parameterCount == 0
+            }
+        }.distinct().singleOrNull()
 
         /**
          * The entry decision `(int, String, ref, boolean[, ref]): boolean` (the trailing step-session argument was
