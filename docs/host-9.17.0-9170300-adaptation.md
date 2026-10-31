@@ -74,6 +74,14 @@ DexKit 语义兜底逐条改写成 DexSQL，在两个构建上各跑一遍，比
 | F011 `story_native` | Story 清晰度三支一致；动作图标按 widget 类名挂接，8 个 widget 类仍在，`StoryDanmakuToggleWidget` 与 `StoryLandscapeCommentWidget` 只有混淆字段名前移，模块不按字段名读取 |
 | F012 `mine_account_model` | `AccountMineV2`、`MenuGroup`、`MenuGroupV2`、`MenuGroupV2$Item` 在忽略混淆名后一致 |
 
+## 顶栏与底栏：云控切换新首页框架
+
+8.92.1～9.17.0 共 23 个带新框架的宿主（逐个核对）都用 `KConfig.INSTANCE.ff("dd.use_new_home_frame", false)` 决定手机用旧首页还是新首页（khome）。新框架在下面任一条件成立时启用：该云控为真、窗口为大屏或中屏、宿主本地调试 SP `sp_key_new_home_frame_test` 为真（默认 false）。云控可以在宿主不升级的情况下随时切换，依赖旧框架视图的模块功能会因此静默失效。
+
+逐版核对的结论：9.1.0～9.17.0 共 24 个宿主上，旧框架落点（游戏入口菜单、搜索框与默认词、`TabHost`、`HomeFragmentV2` Tab 构建）、新框架数据层（`HomeTabData` / `HomeTabItemData`）、八个 Compose 家族的语义查询都成立，宿主侧没有回归。最新发布版 v1.2.1 本身缺新框架的美化支持（没有 Compose 顶底栏钩子），相关修复都在发布之后的提交里。
+
+新增「固定使用旧版首页框架」开关（默认关闭，重启哔哩哔哩后生效）：只在 `KConfig#ff(String, boolean)` 读取 `dd.use_new_home_frame` 的位置把结果压回 false，其它云控键不碰。该签名在 24 个宿主上一致，key 在每个宿主里只有一处读取。它管不到大屏与中屏窗口，也管不到本地调试 SP。诊断项 `home_frame_lock`：`OBSERVED` 表示宿主读过该 key，`APPLIED` 表示云控确实要求新框架并被拦截。
+
 ## 边界
 
 - 这是静态结构证据，不证明 LSPosed 注册、服务端实验分组或页面展示。没有设备，也没有在 9170300 上运行 `HostApkCompatibilityInstrumentedTest.verifyHostApkContracts`；建议拿到 9170300 的原版 APK 后按该测试的说明显式跑一遍，它直接用生产定位器解析真实类。
