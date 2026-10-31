@@ -9,6 +9,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsCatalogTest {
+    @Test fun `cloud key freeze joins catalog v67 as an opt in restorable group that needs a host restart`() {
+        val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v67.txt"))
+            .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 67 }.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 67 }.associateBy { it.id }
+        assertEquals(
+            setOf("cloud.key_freeze.enabled", "cloud.key_freeze.rules", "cloud.key_freeze.observe"),
+            added.keys
+        )
+        assertEquals(FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED, added.getValue("cloud.key_freeze.enabled").storageKey)
+        assertEquals(FeaturePreferences.CLOUD_KEY_FREEZE_RULES, added.getValue("cloud.key_freeze.rules").storageKey)
+        assertEquals(FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE, added.getValue("cloud.key_freeze.observe").storageKey)
+        assertEquals(SettingValue.Bool(false), added.getValue("cloud.key_freeze.enabled").defaultValue)
+        assertEquals(SettingValue.Text(""), added.getValue("cloud.key_freeze.rules").defaultValue)
+        assertEquals(SettingValue.Bool(false), added.getValue("cloud.key_freeze.observe").defaultValue)
+        assertTrue(added.values.all { it.restorePolicy == RestorePolicy.AUTOMATIC })
+        assertTrue(added.values.all { ImportEffect.RESTART_BILIBILI in it.effects })
+        // 规则文本里允许 ; 与 s: 取值，目录层不应把它们当非法字符串拒掉。
+        assertTrue(added.getValue("cloud.key_freeze.rules").accepts(SettingValue.Text("ff_a=true;live.cfg=s:x")))
+    }
+
     @Test fun `legacy home frame lock is opt in restorable and requires host restart in catalog v66`() {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v66.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
@@ -368,11 +389,11 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog is a unique allowlist with 246 settings`() {
-        assertEquals(246, SettingsCatalog.specs.size)
-        assertEquals(246, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(246, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(241, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 249 settings`() {
+        assertEquals(249, SettingsCatalog.specs.size)
+        assertEquals(249, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(249, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(244, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(5, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -603,7 +624,7 @@ class SettingsCatalogTest {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v13.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 13 }.map { it.id }.sorted())
-        assertEquals(66, SettingsCatalog.CATALOG_VERSION)
+        assertEquals(67, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 13 }
         assertEquals(6, added.size)
         assertTrue(added.all { it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects })
@@ -902,9 +923,9 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(150, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(152, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(24, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
-        assertEquals(72, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
+        assertEquals(73, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 
         val roaming = requireNotNull(SettingsCatalog.byId["compat.roaming.enabled"])
         assertEquals(RestorePolicy.MANUAL, roaming.restorePolicy)

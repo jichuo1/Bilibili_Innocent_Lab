@@ -198,6 +198,7 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("external_browser", "external_browser", R.string.force_external_browser, setOf("links.external_browser.enabled")),
         DiagnosticCapabilityDefinition("system_media_notification", "system_media_notification", R.string.system_media_notification, setOf("system.media_notification.enabled")),
         DiagnosticCapabilityDefinition("home_frame_lock", "home_frame_lock", R.string.home_frame_legacy_lock, setOf("home.frame.legacy_lock.enabled")),
+        DiagnosticCapabilityDefinition("cloud_key_freeze", "cloud_key_freeze", R.string.cloud_key_freeze, setOf("cloud.key_freeze.enabled", "cloud.key_freeze.rules", "cloud.key_freeze.observe")),
         DiagnosticCapabilityDefinition("bv_to_av", "bv_to_av", R.string.show_bv_as_av, setOf("numbers.bv_as_av.enabled")),
         DiagnosticCapabilityDefinition("free_copy_comment_enabled", "free_copy", R.string.free_copy_enable, setOf("free_copy.comment.enabled")),
         DiagnosticCapabilityDefinition("free_copy_description_enabled", "free_copy", R.string.free_copy_desc_enable, setOf("free_copy.description.enabled")),

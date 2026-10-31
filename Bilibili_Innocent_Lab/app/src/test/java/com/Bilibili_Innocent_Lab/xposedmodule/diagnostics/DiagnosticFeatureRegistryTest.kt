@@ -19,6 +19,7 @@ class DiagnosticFeatureRegistryTest {
         assertTrue("roaming_compat" in DiagnosticFeatureRegistry.ids)
         assertTrue("player_interactive_overlay" in DiagnosticFeatureRegistry.ids)
         assertTrue("home_frame_lock" in DiagnosticFeatureRegistry.ids)
+        assertTrue("cloud_key_freeze" in DiagnosticFeatureRegistry.ids)
         // 哔哩漫游移植批次：九个新安装器都必须能在诊断中心单独看到运行证据。
         listOf(
             "danmaku_purify",

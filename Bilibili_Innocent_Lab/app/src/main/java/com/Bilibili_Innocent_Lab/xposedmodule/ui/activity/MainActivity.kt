@@ -446,6 +446,9 @@ class MainActivity : SkinnedActivity() {
     internal var forceExternalBrowser = false
     internal var systemMediaNotification = false
     internal var homeFrameLegacyLock = false
+    internal var cloudKeyFreeze = false
+    internal var cloudKeyFreezeRules = ""
+    internal var cloudKeyFreezeObserve = false
     internal var splashAutoNight = false
     internal var brandSplashSkip = false
     internal var brandSplashCustom = false
@@ -494,6 +497,7 @@ class MainActivity : SkinnedActivity() {
     internal var playerSpeedMenuSummary: NativeTextView? = null
     internal var homeTabRulesSummaryView: NativeTextView? = null
     internal var homeRecommendTitleSummaryView: NativeTextView? = null
+    internal var cloudKeyFreezeRulesSummaryView: NativeTextView? = null
     internal var homeRecommendBlockedTidsSummaryView: NativeTextView? = null
     internal var homeRecommendBlockedAuthorsSummaryView: NativeTextView? = null
     internal var videoRelateBlockedAuthorsSummaryView: NativeTextView? = null
@@ -4202,6 +4206,7 @@ class MainActivity : SkinnedActivity() {
         playerSpeedMenuSummary = null
         homeTabRulesSummaryView = null
         homeRecommendTitleSummaryView = null
+        cloudKeyFreezeRulesSummaryView = null
         homeRecommendBlockedTidsSummaryView = null
         homeRecommendBlockedAuthorsSummaryView = null
         videoRelateBlockedAuthorsSummaryView = null
@@ -4466,6 +4471,9 @@ class MainActivity : SkinnedActivity() {
         forceExternalBrowser = uiSettings.bool(FeaturePreferences.FORCE_EXTERNAL_BROWSER)
         systemMediaNotification = uiSettings.bool(FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION)
         homeFrameLegacyLock = uiSettings.bool(FeaturePreferences.HOME_FRAME_LEGACY_LOCK)
+        cloudKeyFreeze = uiSettings.bool(FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED)
+        cloudKeyFreezeRules = uiSettings.string(FeaturePreferences.CLOUD_KEY_FREEZE_RULES)
+        cloudKeyFreezeObserve = uiSettings.bool(FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE)
         splashAutoNight = uiSettings.bool(FeaturePreferences.SPLASH_AUTO_NIGHT)
         brandSplashSkip = uiSettings.bool(FeaturePreferences.BRAND_SPLASH_SKIP)
         brandSplashCustom = uiSettings.bool(FeaturePreferences.BRAND_SPLASH_CUSTOM)

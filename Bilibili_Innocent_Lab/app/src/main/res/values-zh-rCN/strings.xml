@@ -889,6 +889,15 @@
     <string name="system_media_notification_tip">开启后，后台播放启用哔哩哔哩自带的系统媒体控制样式。重启哔哩哔哩后生效。</string>
     <string name="home_frame_legacy_lock">固定使用旧版首页框架</string>
     <string name="home_frame_legacy_lock_tip">哔哩哔哩会通过云控把首页切到新版框架，切换后依赖旧版首页的功能可能突然失效。开启后，手机上保持旧版首页。大屏设备由宿主按屏幕尺寸决定，不受影响。重启哔哩哔哩后生效。</string>
+    <string name="cloud_key_freeze">冻结指定云控键</string>
+    <string name="cloud_key_freeze_tip">哔哩哔哩的许多页面和按钮由服务端云控决定，云控一变，功能就可能突然消失或出现。开启后，按下方规则固定指定云控键的取值，其它云控键不受影响。网络、登录、风控与初始化类键名会被拒绝。重启哔哩哔哩后生效。</string>
+    <string name="cloud_key_freeze_rules">云控键规则</string>
+    <string name="cloud_key_freeze_rules_empty">未设置规则</string>
+    <string name="cloud_key_freeze_rules_current">已设置 %1$d 条规则</string>
+    <string name="cloud_key_freeze_rules_rejected">已设置 %1$d 条规则，另有 %2$d 条格式不对或被拒绝</string>
+    <string name="cloud_key_freeze_dialog_hint">每行一条：键名=取值\ntrue / false：固定布尔值\ndefault：忽略云控，用宿主默认值\ns:文本：固定字符串\n# 开头为注释</string>
+    <string name="cloud_key_freeze_observe">记录宿主读取的云控键名</string>
+    <string name="cloud_key_freeze_observe_tip">开启后，宿主读取到的云控键名会写入 LSPosed 日志，最多 400 个；只记录布尔值，不记录字符串内容，用来查找要固定的键。需要把日志详细度设为完整。重启哔哩哔哩后生效。</string>
     <string name="splash_auto_night">开屏页跟随深色模式</string>
     <string name="splash_auto_night_tip">开启后，开屏背景随深浅色模式切换为黑色或白色，开屏图和标志不变。</string>
     <string name="block_live_room_switch">禁止上下滑动切换直播间</string>

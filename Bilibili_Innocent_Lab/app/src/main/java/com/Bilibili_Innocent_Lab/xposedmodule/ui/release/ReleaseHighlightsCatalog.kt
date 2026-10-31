@@ -340,6 +340,10 @@ internal object ReleaseHighlightsCatalog {
     )), ReleaseHighlightsBatch(31, listOf(
         ReleaseHighlight("home-frame-legacy-lock", HighlightKind.NEW, R.string.home_frame_legacy_lock_tip,
             HighlightDestination("home.frame.legacy_lock.enabled"))
+    )), ReleaseHighlightsBatch(32, listOf(
+        ReleaseHighlight("cloud-key-freeze", HighlightKind.NEW, R.string.cloud_key_freeze_tip,
+            HighlightDestination("cloud.key_freeze.enabled",
+                alsoCovers = setOf("cloud.key_freeze.rules", "cloud.key_freeze.observe")))
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

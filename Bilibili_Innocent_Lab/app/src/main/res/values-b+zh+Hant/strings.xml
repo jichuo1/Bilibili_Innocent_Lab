@@ -889,6 +889,15 @@
     <string name="system_media_notification_tip">開啟後，背景播放啟用嗶哩嗶哩內建的系統媒體控制樣式。重新啟動嗶哩嗶哩後生效。</string>
     <string name="home_frame_legacy_lock">固定使用舊版首頁框架</string>
     <string name="home_frame_legacy_lock_tip">嗶哩嗶哩會透過雲控把首頁切換到新版框架，切換後依賴舊版首頁的功能可能突然失效。開啟後，手機上保持舊版首頁。大螢幕裝置由宿主依螢幕尺寸決定，不受影響。重新啟動嗶哩嗶哩後生效。</string>
+    <string name="cloud_key_freeze">凍結指定雲控鍵</string>
+    <string name="cloud_key_freeze_tip">嗶哩嗶哩的許多頁面和按鈕由伺服端雲控決定，雲控一變，功能就可能突然消失或出現。開啟後，依下方規則固定指定雲控鍵的取值，其他雲控鍵不受影響。網路、登入、風控與初始化類鍵名會被拒絕。重新啟動嗶哩嗶哩後生效。</string>
+    <string name="cloud_key_freeze_rules">雲控鍵規則</string>
+    <string name="cloud_key_freeze_rules_empty">未設定規則</string>
+    <string name="cloud_key_freeze_rules_current">已設定 %1$d 條規則</string>
+    <string name="cloud_key_freeze_rules_rejected">已設定 %1$d 條規則，另有 %2$d 條格式不對或被拒絕</string>
+    <string name="cloud_key_freeze_dialog_hint">每行一條：鍵名=取值\ntrue / false：固定布林值\ndefault：忽略雲控，使用宿主預設值\ns:文字：固定字串\n# 開頭為註解</string>
+    <string name="cloud_key_freeze_observe">記錄宿主讀取的雲控鍵名</string>
+    <string name="cloud_key_freeze_observe_tip">開啟後，宿主讀取到的雲控鍵名會寫入 LSPosed 日誌，最多 400 個；只記錄布林值，不記錄字串內容，用來尋找要固定的鍵。需要把日誌詳細度設為完整。重新啟動嗶哩嗶哩後生效。</string>
     <string name="splash_auto_night">開屏頁跟隨深色模式</string>
     <string name="splash_auto_night_tip">開啟後，開屏背景隨深淺色模式切換為黑色或白色，開屏圖與標誌不變。</string>
     <string name="block_live_room_switch">禁止上下滑動切換直播間</string>

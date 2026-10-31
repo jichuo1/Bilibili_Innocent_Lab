@@ -17,6 +17,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 import io.github.libxposed.api.XposedModule
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CloudKeyFreezeFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindBudget
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindProbe
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindQueue
@@ -3729,6 +3730,20 @@ class HookEntry : XposedModule() {
                     HomeFrameLockFeatureInstaller(
                         enabled = prefs.getBoolean(
                             FeaturePreferences.HOME_FRAME_LEGACY_LOCK,
+                            false
+                        )
+                    ),
+                    CloudKeyFreezeFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED,
+                            false
+                        ),
+                        rules = prefs.getString(
+                            FeaturePreferences.CLOUD_KEY_FREEZE_RULES,
+                            ""
+                        ).orEmpty(),
+                        observe = prefs.getBoolean(
+                            FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE,
                             false
                         )
                     ),

@@ -32,6 +32,24 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             homeFrameLegacyLock = outcome.confirmed
             homeFrameLegacyLock
         }
+        FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED -> {
+            val checked = requested
+            val outcome = SettingWritePolicy.attempt(cloudKeyFreeze, checked) {
+                prefs().edit { putBoolean(FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED, checked) }
+            }
+            outcome.failure?.let { Log.e("BilibiliInnocentLab", "write cloud key freeze prefs failed", it) }
+            cloudKeyFreeze = outcome.confirmed
+            cloudKeyFreeze
+        }
+        FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE -> {
+            val checked = requested
+            val outcome = SettingWritePolicy.attempt(cloudKeyFreezeObserve, checked) {
+                prefs().edit { putBoolean(FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE, checked) }
+            }
+            outcome.failure?.let { Log.e("BilibiliInnocentLab", "write cloud key freeze observe prefs failed", it) }
+            cloudKeyFreezeObserve = outcome.confirmed
+            cloudKeyFreezeObserve
+        }
         FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION -> {
             val checked = requested
             systemMediaNotification = checked
@@ -1591,6 +1609,8 @@ internal val modeledToggleKeys = setOf(
     FeaturePreferences.BRAND_SPLASH_SKIP,
     FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION,
     FeaturePreferences.HOME_FRAME_LEGACY_LOCK,
+    FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED,
+    FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE,
     FeaturePreferences.FORCE_EXTERNAL_BROWSER,
     FeaturePreferences.SHOW_FULL_NUMBERS,
     FeaturePreferences.SHOW_BV_AS_AV,
@@ -1703,6 +1723,8 @@ internal fun MainActivity.synchronizeSettingField(key: String, confirmed: Boolea
         FeaturePreferences.BRAND_SPLASH_SKIP -> brandSplashSkip = confirmed
         FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION -> systemMediaNotification = confirmed
         FeaturePreferences.HOME_FRAME_LEGACY_LOCK -> homeFrameLegacyLock = confirmed
+        FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED -> cloudKeyFreeze = confirmed
+        FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE -> cloudKeyFreezeObserve = confirmed
         FeaturePreferences.FORCE_EXTERNAL_BROWSER -> forceExternalBrowser = confirmed
         FeaturePreferences.SHOW_FULL_NUMBERS -> showFullNumbers = confirmed
         FeaturePreferences.SHOW_BV_AS_AV -> showBvAsAv = confirmed
