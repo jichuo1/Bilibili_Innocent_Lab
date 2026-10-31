@@ -67,7 +67,7 @@ internal class GuestNativeFollowListHooks(private val library: GuestLibraryRunti
                 val name = field(row, "uname") as String
                 val cell = requireNotNull(field(target, "a"))
                 val action = field(cell, "c") as TextView
-                action.text = "已关注 · 取消关注"
+                action.text = "已关注"
                 action.contentDescription = "取消关注$name"
                 root.setOnClickListener {
                     activity.startActivity(Intent(Intent.ACTION_VIEW, "bilibili://space/$mid".toUri()).setPackage(activity.packageName))

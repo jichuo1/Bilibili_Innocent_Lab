@@ -236,7 +236,8 @@ internal class GuestLibraryHostHooks(
             setOnClickListener { if (isGuest()) library.show(it.context) }
         }
         (view("tv_login") as? TextView)?.apply {
-            text = "${if (library.incognito) strings.incognitoTitle else strings.title} · ${strings.signIn}"
+            // Incognito names the session (tapping explains how to sign in); a plain guest keeps the sign-in prompt.
+            text = if (library.incognito) strings.incognitoTitle else strings.signIn
             contentDescription = text
             if (library.incognito) setOnClickListener {
                 if (isGuest()) android.app.AlertDialog.Builder(it.context)
