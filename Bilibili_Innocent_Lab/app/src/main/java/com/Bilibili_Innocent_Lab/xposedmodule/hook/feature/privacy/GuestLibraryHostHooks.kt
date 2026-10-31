@@ -161,6 +161,20 @@ internal class GuestLibraryHostHooks(
             val helper = access.type("com.bilibili.relation.utils.FollowFlowHelper")
             val mid = requireNotNull(Lookup.fieldOrNull(helper, "c")).also { require(it.type == classOf<Long>()) }
             val callback = requireNotNull(Lookup.fieldOrNull(helper, "i"))
+            // The host's success path: the callback may show its own feedback, otherwise the host toasts, and then it
+            // broadcasts the change to every page following this person. Without these pieces the module toasts instead.
+            val listener = access.type("com.bilibili.relation.FollowStateManager\$FollowChangeListener")
+            // Declared as the lambda class that implements the listener, not as the interface.
+            val changed = Lookup.declaredFields(helper, makeAccessible = true) { !it.isStatic && it.type isSubclassOf listener }.singleOrNull()
+            val manager = access.type("com.bilibili.relation.FollowStateManager")
+            val broadcast = Lookup.methodOrNull(manager, "notify", classOf<Long>(), classOf<Boolean>(), listener)
+            val getInstance = Lookup.methodOrNull(manager, "getInstance")?.takeIf { it.isStatic }
+            val toast = Lookup.methodOrNull(access.type("com.bilibili.droid.ToastHelper"), "showToastShort",
+                classOf<android.content.Context>(), classOf<String>())?.takeIf { it.isStatic }
+            val native = changed != null && broadcast != null && getInstance != null && toast != null
+            env.reportStatus("guest_library_follow_button_feedback", if (native) "host" else
+                "module:" + listOfNotNull("listener".takeIf { changed == null }, "notify".takeIf { broadcast == null },
+                    "instance".takeIf { getInstance == null }, "toast".takeIf { toast == null }).joinToString(","))
             // 8.84 declares only (Context, String); later builds add the (Context, String, Rect) overload.
             // Hook every overload this build declares (both are real click entries); none means skip.
             val overloads = listOf(arrayOf(classOf<android.content.Context>(), classOf<String>()),
@@ -176,12 +190,18 @@ internal class GuestLibraryHostHooks(
                         val uid = mid.getLong(current)
                         if (uid <= 0) return@before
                         val weak = java.lang.ref.WeakReference(current)
-                        library.toggleFollow(uid) { following ->
+                        val context = argOrNull(0) as? android.content.Context
+                        library.toggleFollow(uid, announce = !native) { following ->
                             weak.get()?.let { target ->
                                 if (mid.getLong(target) == uid) {
                                     access.call(target, "setIsAttention", following)
-                                    callback.get(target)?.let { cb ->
+                                    val handled = callback.get(target)?.let { cb ->
                                         access.call(cb, if (following) "onFollowSuccess" else "onUnFollowSuccess")
+                                    } == true
+                                    if (native) {
+                                        val strings = context?.let(GuestLibraryStrings::resolve)
+                                        if (!handled && strings != null) toast!!.invoke(null, context, if (following) strings.followed else strings.unfollowed)
+                                        broadcast!!.invoke(getInstance!!.invoke(null), uid, following, changed!!.get(target))
                                     }
                                 }
                             }

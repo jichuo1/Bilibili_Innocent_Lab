@@ -352,8 +352,11 @@ internal class GuestLibraryRuntime(
     }
 
 
-    /** A host follow click is local even when no video has started. Callback must hold host objects weakly. */
-    fun toggleFollow(mid: Long, done: (Boolean) -> Unit) {
+    /**
+     * A host follow click is local even when no video has started. Callback must hold host objects weakly. With
+     * [announce] false the caller gives the host's own feedback instead of the module's "saved" toast.
+     */
+    fun toggleFollow(mid: Long, announce: Boolean = true, done: (Boolean) -> Unit) {
         val token = token() ?: return
         execute(token) {
             val before = library.readSnapshot().collections
@@ -367,7 +370,7 @@ internal class GuestLibraryRuntime(
             val updated = library.readSnapshot().collections
             onMain(token) {
                 notifyCollections(updated)
-                toast(GuestLibraryStrings.resolve(application).saved)
+                if (announce) toast(GuestLibraryStrings.resolve(application).saved)
                 done(!existing)
             }
         }
