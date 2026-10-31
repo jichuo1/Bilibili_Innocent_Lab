@@ -501,3 +501,9 @@ q51（38 版本）：
 - 引导页：9.0.0 的首启等待判断是 `pegasus.request.b.g()`（`isFirstStart() && a`），`PegasusFragment.onCreate` 调用它；9.16 是 `request.d.h()`。q60：`b`/`d` 合起来只有一个静态 `()Z` 的版本有 13 个。门改成跨两个类找唯一一个，数据与入口两层随之装上。实机连续三次冷启动不再弹引导页。
 - 稍后再看添加：8.97 起入口是 `MainCommonService.addToWatchLater`/`batchAddToWatchLater`，实现类混淆（9.0.0 是 `tv.danmaku.bili.P`），动作是 `ui.watchlater.widget` 下的 `Function0`（9.0.0 的 `a/b/c`），交给 `LoginScopeKt.loginRequire`，未登录就去登录页。真正的添加是 `widget.f.a(...)`（9.0.0），协程里 `WatchLaterApiService.addV2` 经 `BiliCall.enqueue` 发 `/x/v2/history/toview/add`，`enqueue` 在工作线程上调 `execute()`，所以现有短路能接住。实机：首页卡片「添加至稍后再看」出宿主提示条，稍后再看页出现该视频。
 - 关注数、关注列表、历史页登录横幅在 9.0.0 的结论与剩余工作见交接文档第 5、6 节。
+
+## 2026-10-31 第二轮：关注列表与历史横幅（`c02df9db`、`374ffbfd`）
+
+- q65、q67（38 版）：本地关注列表要复用的关系页 8.84 到 8.91 是 `BlackListActivity`，8.92 到 9.17 是 `BlackListFragment`（所以 9.16.1 上旧钩子其实也没生效），两者都经 `RelationApiManager.getBlackList(String, BiliApiDataCallback)` 取数据；`BlackListFragment` 都只有一个 `TextView` 字段，内部类和成员名几乎每版都变。「我的」页关注点击对象的 `toString()` 在 31 版都是 `ToAttentionClick`，所在类名每版不同。`AccountMineV2` 的长整型字段 26 版都是 `M a l r s t w`（`s` 是 following）。
+- q66：历史页登录横幅是 `HistoryFragmentV3` 唯一的 `TintConstraintLayout` 字段（8.92 到 9.09 叫 `n`，9.10 起叫 `T`）；8.97 起 26 版没有 `isLogin()`。
+- 9.0.0 实机：点「关注」打开「我的关注」原生页并显示本地关注；历史横幅三个标签都不出现。新发现的缺口（空间页关注按钮不认本地状态）记在交接文档第 6 节第 2 条。

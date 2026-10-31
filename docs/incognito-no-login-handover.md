@@ -16,7 +16,7 @@
 | 项目 | 状态 |
 |---|---|
 | 提交 | 本地 HEAD 之前的功能提交见第 3 节。已推送到 `c15fd96a`；之后的提交（`3eaf89b6` 起，含 2026-10-31 的四个）只在本地，**推送须用户明确要求，只推 `feature/incognito-no-login`，不推 main** |
-| 门禁 | 2026-10-31（`d60f185f`）：`:app:testDebugUnitTest :app:lintFast :app:assembleDebug` 4226 个测试，0 失败，1 个无关跳过；FastLint 0 错误、261 条警告。**完整 `:app:lintDebug` 已跑**：0 错误（基线 3 个不变）、1387 条警告；本轮改动文件里新增的两条 KavaRef 建议已改掉（`d60f185f`），其余命中这些文件的建议是更早的代码，没动 |
+| 门禁 | 2026-10-31 12:50（`374ffbfd`）：4228 个测试 0 失败（1 个无关跳过），完整 `:app:lintDebug` 0 错误、1387 条警告，新代码无新增建议。更早一次（`d60f185f`）：`:app:testDebugUnitTest :app:lintFast :app:assembleDebug` 4226 个测试，0 失败，1 个无关跳过；FastLint 0 错误、261 条警告。**完整 `:app:lintDebug` 已跑**：0 错误（基线 3 个不变）、1387 条警告；本轮改动文件里新增的两条 KavaRef 建议已改掉（`d60f185f`），其余命中这些文件的建议是更早的代码，没动 |
 | 真机 | 只有一台小米 10（Android 16，root，LSPosed）。此前装 9.16.1，2026-10-30 起装 arm64 的 9.0.0（versionCode 9000200）。8.90.2 在这个阶段没有设备 |
 | 其余版本 | 只有 hostlab 静态证据（反编译、dex 形状查询），没有真机 |
 
@@ -42,6 +42,8 @@
 - `6c52a164` 8.97 起游客「添加至稍后再看」走宿主自己的流程和弹窗（9.0.0 实机）
 - `21df16e5` 去掉游客文案里的 ` · ` 分隔
 - `d60f185f` 新定位代码改用 KavaRef 的 `isStatic`（完整 Lint 建议）
+- `c02df9db` 8.97 起历史页登录横幅对游客隐藏（9.0.0 实机）
+- `374ffbfd` 8.92 起「我的」页点「关注」打开本地关注列表（宿主 `BlackListFragment` 页，9.0.0 实机）
 
 ## 4. 官方原生与模块自有（重点）
 
@@ -104,8 +106,18 @@
 - 历史记录：从「我的」打开原生历史页；播放一个视频约 10 秒后再进，列表里有它，进度「00:24 / 02:27」、今天的时间。**页顶仍有宿主的「登录查看更多历史记录　立即登录」横幅**：8.97 起页面把登录判断内联到 `BiliAccounts` 调用里（`GuestNativeHistoryHooks` 的 `isLogin`、`up(boolean)` 在 9.0.0 都不存在，状态键是 `adapted-rpc`），点它会去登录页。
 - 关注数、关注列表：**不通**。「我的」页是 Compose 的 `mineV2.HomeUserCenterFragmentV2`，点「关注」数字直接拉起 `LoginActivityV2`。反编译 9.0.0：动态、关注、粉丝三个数字的点击是密封接口 `mineV2.L` 的 Kotlin object 实现（关注是 `L$q`、粉丝是 `L$r`，方法 `a(b)`），先查 `BiliAccounts.isLogin()`，未登录就 `routeTo("activity://main/login/")`。类名全混淆。数字本身显示宿主账号的 0，不是本地关注数（`guest_library_follow_count` 钩的是旧 View 版 `HomeUserCenterFragment.p0/jr`，9.0.0 为 `missing`）。本地关注列表页 `GuestNativeFollowListHooks` 写死 8.90.2 的 `BlackListActivity.g9/Y8/X8/D/P`，9.0.0 为 `missing`，所以即使放行点击也没有可用的原生列表页。
 
+2026-10-31 12:40 第二轮（`c02df9db`、`374ffbfd`）：
+
+- 历史页：`guest_native_history=adapted:banner-guard`，登录横幅不再出现，「全部」「视频」「未看完」三个标签来回切都不出现，列表从页顶开始。
+- 关注列表：`guest_follow_page`、`guest_mine_follow_entry` 都是 `installed`。点「我的」页的「关注」数字，出现 `guest_mine_follow_entry_applied`、`guest_follow_page_applied`，打开宿主的原生页，标题「我的关注」，空时是宿主的「再怎么找也没有啦」。在视频页关注一个 UP 主后再进，列表里有头像、名字和「已关注」；左滑不会触发移出黑名单；点行进入对方空间页。
+- 关注数字仍显示宿主账号的 0（见第 6 节）。
+
+上面「关注数、关注列表：不通」一条，其中关注列表已由 `374ffbfd` 解决；那段分析保留作记录。
+
 没验证：
 
+- 设置里真正的「黑名单」入口在游客下是否仍是宿主原样（代码上只有本模块刚打开的页才当成本地页，10 秒过期，没实机点过）。
+- 关注列表在别处取消关注后是否当场刷新（有观察者重发，没实测）。
 - 收藏页里那张卡片在非空时的封面和「N 个内容」文字（详情页的数量是对的）。
 - 收藏页的「+」新建收藏夹、卡片长按编辑。接口 `folder/add`、`edit`、`add_top` 本地协议里有，但没在 9.0.0 点过。
 - 稍后再看提示条上的「查看」：提示条 4 秒后自动收起，这次没点到，链接 `bilibili://main/playset/watch-later` 在 9.0.0 已登记，但跳转没实测。
@@ -133,8 +145,8 @@
 ## 6. 已知问题与剩余工作（按重要性）
 
 1. **星标弹窗不是官方的**（第 4.3 节）。要不要改、怎么改需要用户定。
-2. **8.97 起「我的」页关注数与关注列表**（第 5 节 9.0.0）：要放行 `mineV2.L` 的关注、粉丝 object（类名混淆，需先找稳定形状），数字要换成本地关注数，本地关注列表页要把 `GuestNativeFollowListHooks` 的 8.90.2 成员名改成按形状找。三块都要跨版本矩阵，再在 9.0.0 实机验证。
-3. **8.97 起历史页的登录横幅**：宿主内联了登录判断，要在 9.0.0 反编译 `HistoryFragmentV3` 找横幅的显示入口。
+2. **空间页的关注按钮不认本地关注**（2026-10-31 实测）：从关注列表进对方空间页，按钮显示「＋关注」；点它走的是宿主自己的关注请求，被无痕网络封口当成功应答，提示「关注成功~」，但本地库不变，也不经过 `FollowFlowHelper`。视频页的关注按钮在重进页面后大概率也一样只认服务端状态。要找空间页（`com.bilibili.app.authorspace.local.LocalAuthorSpaceActivity`）关注按钮的状态来源和点击入口。另外视频页关注后弹的是模块的「已保存到本地」，宿主原本提示「关注成功」。
+3. **「我的」页的关注数字**：显示宿主账号的 0，不是本地关注数。数字在 `AccountMineV2.following`（8.92 起 26 版字段名都是 `s`，q65），但无痕下动态、关注、粉丝都是 0，现有的按值定位（`MineSerializedFields`）分不出是哪个字段，没有按字段名硬写。
 4. 引导页：8.97、8.98、9.02 到 9.07、9.17 共 9 个 V2 版本的首启等待判断不在 `request.b/d` 上，仍不生效；8.84 到 8.96 靠旧插件钩子，没验证。
 5. 批次 2 的多项（登录弹窗、一键登录引导、登录 toast、画质钳制、海外强制登录）只有「已注册」证据，没有真机触发过。
 6. 评论游客上限、动态页底部登录条：9.x 上干净跳过，没做。
@@ -168,7 +180,7 @@
 - 列表短路：`GuestNativeListHttpHooks`（`BiliCall.execute`，另含回退缓存屏蔽、`findFragmentByUrl`、文件夹路由、详情页归属）、`GuestIgnetLibraryResponses`（Ktor/ignet）。
 - 入口与路由：`GuestMineMenuHooks`（菜单项 `needLogin`）、`GuestFavoritesRouteHooks`（收藏页与卡片，`routeTo` 两个重载）、`GuestMineOverlayHooks`、`GuestLibraryHostHooks`。
 - 收藏写入：`GuestVideoFavoriteHooks`、`GuestFavoriteFolderPicker`、`GuestStoryStar`、`GuestPageFavorite`、`GuestNativeFavoriteHooks`（仅 8.90.2）、`GuestNativeFolderEditorHooks`。
-- 其他：`GuestNativeHistoryHooks`、`GuestNativeWatchLaterHooks`、`GuestNativeWatchLaterAddHooks`（仅 8.90.2）、`GuestWatchLaterLoginScope`（8.97 起的稍后再看添加）、`GuestNativeFollowListHooks`、`GuestPlaybackHooks`、`GuestOnboardingHooks`、`PrivacyStructuralResolver`（按形状找混淆成员，歧义不猜）。
+- 其他：`GuestNativeHistoryHooks`（含 8.97 起的横幅守卫）、`GuestFollowListPage` 与 `GuestMineFollowEntry`（8.92 起的本地关注列表和入口）、`GuestNativeWatchLaterHooks`、`GuestNativeWatchLaterAddHooks`（仅 8.90.2）、`GuestWatchLaterLoginScope`（8.97 起的稍后再看添加）、`GuestNativeFollowListHooks`、`GuestPlaybackHooks`、`GuestOnboardingHooks`、`PrivacyStructuralResolver`（按形状找混淆成员，歧义不猜）。
 
 宿主类与成员的查找统一走 `runtime/KavaMemberLookup.kt`。
 
