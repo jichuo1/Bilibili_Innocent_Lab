@@ -17,13 +17,13 @@ import java.util.WeakHashMap
  * The host's own folder picker for the video page star, `com.bilibili.playset.widget.favorite.FavoriteDialog`, opened for a
  * guest instead of the module's [GuestVideoFavoriteHooks.FolderPicker].
  *
- * 8.97 to 9.11 (16 builds, matrix q69) build it the same way, `FavoriteDialog(ComponentActivity, ExtraParams, launcher)` with
- * one 20-parameter `ExtraParams` constructor, which is what `KingPositionService` does after its login gate. The dialog lists
+ * All 38 builds build it the same way, `FavoriteDialog(ComponentActivity, ExtraParams, launcher)` with one 20-parameter
+ * `ExtraParams` constructor (matrices q69, q71, q72), which is what `KingPositionService` does after its login gate; the
+ * parameter class is `FavoriteDialog$c` up to 8.96 and `$b` from 8.97, so it is taken from the constructor. The dialog lists
  * folders through `/x/v3/fav/folder/created/list-all` and commits through `/x/v3/fav/resource/batch-deal`, both `BiliCall`,
  * so [NativeFavoriteProtocol] answers them from the local library. It only loads its list when `BiliAccounts.isLogin()` is
  * true, so while one of the dialogs opened here runs its own code, `isLogin()` answers true on that thread ([GuestLoginScope]);
- * nothing outside the dialog sees it. Other builds (8.84 to 8.96 take another parameter class, 9.12 on have a KMP dialog) keep the module's
- * picker.
+ * nothing outside the dialog sees it. A build without that shape keeps the module's picker.
  */
 internal class GuestHostFavoriteDialog : GuestVideoFavoriteHooks.HostDialog {
     private class Parts(val params: Constructor<*>, val dialog: Constructor<*>, val activity: Class<*>, val ugc: Any, val scene: Any)
@@ -37,17 +37,21 @@ internal class GuestHostFavoriteDialog : GuestVideoFavoriteHooks.HostDialog {
     override fun install(env: HookEnvironment, loader: ClassLoader): Boolean = runCatching {
         val host = PrivacyHostAccess(loader)
         val dialog = host.type(DIALOG)
-        val params = host.type("$DIALOG\$b")
+        val launcher = host.type("androidx.activity.result.ActivityResultLauncher")
         val bizType = host.type("$DIALOG\$BizType")
         val scene = host.type("com.bilibili.playset.widget.favorite.FavSnackBarUtil\$Scene")
         val activity = host.type("androidx.activity.ComponentActivity")
-        val types = arrayOf(classOf<Long>(), classOf<Long>(), bizType, classOf<Boolean>(), classOf<Int>(), classOf<Boolean>(),
+        val dialogConstructor = requireNotNull(Lookup.declaredConstructors(dialog, makeAccessible = true) {
+            it.parameterCount == 3 && it.parameterTypes[0] == activity && it.parameterTypes[2] == launcher
+        }.singleOrNull()) { "FavoriteDialog constructor" }
+        val params = dialogConstructor.parameterTypes[1]
+        val fields = arrayOf(classOf<Long>(), classOf<Long>(), bizType, classOf<Boolean>(), classOf<Int>(), classOf<Boolean>(),
             classOf<Boolean>(), classOf<Boolean>(), classOf<Map<*, *>>(), classOf<String>(), classOf<String>(), classOf<String>(),
             scene, Boolean::class.javaObjectType, classOf<Boolean>(), classOf<Boolean>(), classOf<String>(), classOf<String>(),
-            Long::class.javaObjectType, classOf<Int>())
-        val paramsConstructor = requireNotNull(Lookup.constructorOrNull(params, *types)) { "FavoriteDialog params" }
-        val dialogConstructor = requireNotNull(Lookup.constructorOrNull(dialog, activity, params,
-            host.type("androidx.activity.result.ActivityResultLauncher"))) { "FavoriteDialog constructor" }
+            Long::class.javaObjectType)
+        // Up to 8.96 the 19 fields have a plain constructor; from 8.97 the only one also takes the defaults mask (passed 0).
+        val paramsConstructor = requireNotNull(Lookup.constructorOrNull(params, *fields)
+            ?: Lookup.constructorOrNull(params, *fields, classOf<Int>())) { "FavoriteDialog params" }
         val ugc = requireNotNull(Lookup.fieldOrNull(bizType, "UGC")).get(null)
         val detail = requireNotNull(Lookup.fieldOrNull(scene, "DetailPage")).get(null)
         val accounts = host.type("com.bilibili.lib.accounts.BiliAccounts")
@@ -102,8 +106,9 @@ internal class GuestHostFavoriteDialog : GuestVideoFavoriteHooks.HostDialog {
         val found = parts ?: return false
         if (context == null || !found.activity.isInstance(context)) return false
         return runCatching {
-            val params = found.params.newInstance(video.aid, video.cid, found.ugc, favorited, REQUEST_CODE, false, false, false,
-                emptyMap<String, String>(), "", "", "", found.scene, false, false, false, "", "", null, 0)
+            val values = arrayOf<Any?>(video.aid, video.cid, found.ugc, favorited, REQUEST_CODE, false, false, false,
+                emptyMap<String, String>(), "", "", "", found.scene, false, false, false, "", "", null)
+            val params = found.params.newInstance(*(if (found.params.parameterCount == values.size) values else values + 0))
             val dialog = found.dialog.newInstance(context, params, null) as Dialog
             opened[dialog] = WeakReference(context)
             runCatching { watchResults?.invoke(context.javaClass) }

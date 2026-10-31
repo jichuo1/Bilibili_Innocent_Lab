@@ -29,9 +29,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * coroutine class `FavorRepository$favor$1` (its constructor takes the cache class first) and the writer is the single public
  * static `void(long, boolean)` on it, so a tap repaints the star from the toggle result: added turns it on, a second tap
  * turns it off. When the writer cannot be located the guest gets a "saved" toast instead, since nothing else shows the tap
- * worked. Where the build has it (8.97 to 9.11), the host's own folder picker opens ([HostDialog], [GuestHostFavoriteDialog]) and
- * writes the library itself through the local favorite protocol. Elsewhere (the 9.12+ picker is a KMP dialog) the module
- * shows its own [FolderPicker], listing the local folders as checkboxes, and commits the exact selection (an empty selection
+ * worked. The host's own folder picker opens ([HostDialog], [GuestHostFavoriteDialog]; one shape on all 38 builds) and
+ * writes the library itself through the local favorite protocol. Only when it cannot be built or shown does the module
+ * show its own [FolderPicker], listing the local folders as checkboxes, and commit the exact selection (an empty selection
  * un-favorites). Without a live
  * Activity to attach the dialog to, the tap falls back to toggling the default folder. The favorite count moves too when the
  * host's page repository for the video can be reached ([PageFavoriteSource]): its own favorite method then changes the count,
