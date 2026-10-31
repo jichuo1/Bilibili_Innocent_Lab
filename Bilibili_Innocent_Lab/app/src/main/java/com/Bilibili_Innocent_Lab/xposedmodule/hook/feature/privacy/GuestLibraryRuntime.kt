@@ -372,6 +372,30 @@ internal class GuestLibraryRuntime(
             }
         }
     }
+    /**
+     * Mirrors a follow change a host page already made and announced with its own feedback, so this stays silent.
+     * [name] and [face] come from that page when it knows them; otherwise the entry keeps what it had or a video's author.
+     */
+    fun setFollow(mid: Long, following: Boolean, name: String?, face: String?) {
+        val token = token() ?: return
+        execute(token) {
+            val existing = library.readSnapshot().collections.follows.firstOrNull { it.mid == mid }
+            if (following) {
+                val author = synchronized(gate) { metadata.values.lastOrNull { it.authorMid == mid } }
+                val next = LocalVirtualLibrary.Follow(mid,
+                    name?.takeIf { it.isNotBlank() } ?: existing?.name ?: author?.authorName?.takeIf { it.isNotBlank() } ?: "UID $mid",
+                    face?.takeIf { it.isNotBlank() } ?: existing?.face?.takeIf { it.isNotBlank() } ?: author?.authorFace.orEmpty())
+                if (next == existing) return@execute
+                library.follow(next)
+            } else {
+                if (existing == null) return@execute
+                library.unfollow(mid)
+            }
+            val updated = library.readSnapshot().collections
+            onMain(token) { notifyCollections(updated) }
+        }
+    }
+
     internal fun onMain(token: Token, block: () -> Unit) {
         main.post {
             synchronized(gate) {

@@ -154,6 +154,8 @@ internal class GuestLibraryHostHooks(
         if (localLists) attempt("watch_later_login_scope") { GuestWatchLaterLoginScope(isGuest).install(env) }
         else env.reportStatus("guest_library_watch_later_login_scope", "skipped-no-local-lists")
 
+        // The host's follow broadcast: mirrors H5 and other host follow buttons into the library, and the space page back.
+        attempt("space_follow") { GuestSpaceFollowSync(library, isGuest).install(env) }
         attempt("follow_button") {
             val access = PrivacyHostAccess(loader)
             val helper = access.type("com.bilibili.relation.utils.FollowFlowHelper")
