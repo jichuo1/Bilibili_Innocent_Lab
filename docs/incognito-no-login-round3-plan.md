@@ -523,3 +523,13 @@ q51（38 版本）：
 - 实机走过三个坑：无痕的 `isLogin` 钩子先注册并设结果，后注册的钩子不执行，所以改成共享的 `GuestLoginScope`；`ComponentActivity.onActivityResult` 收不到创建页结果，改钩视频页实际生效的覆写；弹窗的 `ownerActivity` 与视频页不同，改为打开时自己记录所属页面。
 - 门禁：4233 个测试 0 失败（1 个无关跳过），FastLint 0 错误、261 条警告；完整 Lint 这轮没跑。
 
+## 2026-10-31 第五轮：全版本补齐（`56060759`、`592449ad`、`e084eb96`、`b79b2690`）
+
+- q70（第一次用了 `length()`，结果全空；改用 `LIKE` 后正常）：38 版的 `PegasusFragment.onCreate` 都恰好调用 `pegasus.request` 包里一个静态 `()Z`，方法体都调 `EnvironmentManager.isFirstStart()`。所在类：8.84 到 8.96 是 `ApiManagerKt`（`s`/`r`），8.97 起是 `a`、`b`、`c` 或 `d`。q73：8.97 起这四个类合起来只有这一个静态 `()Z`；`ApiManagerKt` 里有 4 个。
+- q71、q72：`FavoriteDialog` 38 版都在，`KingPositionService` 都有一个该类型字段；参数类 8.84 到 8.96 是 `$c`（19 参数普通构造 + 合成默认构造），8.97 起是 `$b`（20 参数带掩码），字段类型一致；`BizType.UGC`、`Scene.DetailPage` 38 版都在。
+- 8.84 到 8.96 的稍后再看添加（q61、q64 复读）：`WatchLaterManagerV2.j/k/p` 直接调 `LoginScopeKt.loginRequire$default`，动作类是 `ui.watchlater.widget` 下的单字母类，现有放行规则适用。
+- q65 复读：`BlackListActivity`（8.84 到 8.91）的数据回调 `$a` 持有页面字段，与 8.92 起的 `BlackListFragment` 同走 `RelationApiManager.getBlackList`。
+- 9.0.0 实机：视频页关注后弹宿主「关注成功~」，`guest_library_follow_button_feedback=host`，`guest_space_follow_synced` 出现；星标弹窗回归正常；关注列表回归正常（`guest_library_native_follow_list=skipped-follow-page`）。实测中修了两处：钩子里的局部变量 `instance` 遮住了被点击的对象；关注监听字段的声明类型是实现接口的 lambda 类。
+- 「我的」页关注数字：在 `BiliCall` 转换处改 `/x/v2/account/mine` 的方案，9.0.0 无痕下转换点没被触发（游客不请求），已撤回。
+- 门禁：4234 个测试 0 失败（1 个无关跳过），FastLint 0 错误、261 条警告；完整 Lint 没跑。
+
