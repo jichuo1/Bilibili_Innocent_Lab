@@ -71,18 +71,23 @@ internal object FollowFeedAdapter {
     private const val PERSONAL_PAGE = PERSONAL + "VideoQuickConsumeFragment"
     private const val CURRENT_PAINTER = "rU.d"
     private val painterOwners = listOf(CURRENT_PAINTER, "mU.d", "gv1.c", "iU.d")
-    // 9.17.0：rU.d + home.a0 / quick.F / quick.T，CS.I.b / CS.J.j,n 的归属语义已核。
+    // 9.17.0(9170300)：rU.d 与 CS.I / CS.J 的成员和 9170100 逐项一致，只有子类被重新排名：
+    //   home.a0 → X，quick.F → D，quick.T → P；本地归属字段在 CS.I 上由 b 前移为 a。
+    // 9.17.0(9170100)：rU.d + home.a0 / quick.F / quick.T，CS.I.b / CS.J.j,n 的归属语义已核。
     // 9.16.0：mU.d + home.U / quick.I / quick.W；模型和父类仍须完整复核。
     // z0 是旧家族，T/Q 是双 9.15.0 的 home 装饰器，不跨页面拼接。
+    // 同一个 rU.d 下新旧名称并存时，仍要求直接继承 rU.d；父类不符的同名类不会进入结果。
     private val homeDecorations = listOf(HOME + "U", HOME + "z0", HOME + "T", HOME + "Q")
-    private val personalDecorations = listOf(PERSONAL + "I", PERSONAL + "F", PERSONAL + "E")
+    private val personalDecorations = listOf(PERSONAL + "D", PERSONAL + "I", PERSONAL + "F", PERSONAL + "E")
     private val personalSeparators = listOf(PERSONAL + "W", PERSONAL + "y0", PERSONAL + "U", PERSONAL + "S")
+    private val currentHomeDecorations = listOf(HOME + "X", HOME + "a0")
+    private val currentSeparators = listOf(PERSONAL + "P", PERSONAL + "T")
 
     private fun homeCandidates(painter: String): List<String> =
-        if (painter == CURRENT_PAINTER) listOf(HOME + "a0") + homeDecorations else homeDecorations
+        if (painter == CURRENT_PAINTER) currentHomeDecorations + homeDecorations else homeDecorations
 
     private fun separatorCandidates(painter: String): List<String> =
-        if (painter == CURRENT_PAINTER) listOf(PERSONAL + "T") + personalSeparators else personalSeparators
+        if (painter == CURRENT_PAINTER) currentSeparators + personalSeparators else personalSeparators
 
     data class Resolved(val points: FollowFeedPoints, val host: FollowFeedHostAccess, val paint: Method,
         val homeDecoration: Class<*>, val personalDecoration: Class<*>?, val separator: Method?, val header: Method?)

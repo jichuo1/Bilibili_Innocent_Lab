@@ -277,6 +277,14 @@ internal object FeaturePreferences {
     /** 后台播放使用系统媒体控制样式通知。 */
     const val SYSTEM_MEDIA_NOTIFICATION = "system_media_notification"
 
+    /** 固定使用旧版首页框架，屏蔽云控把首页切到新版框架。 */
+    const val HOME_FRAME_LEGACY_LOCK = "home_frame_legacy_lock"
+
+    /** 冻结指定云控键：总开关、规则文本（`键名=取值`）与「记录读取到的云控键名」。 */
+    const val CLOUD_KEY_FREEZE_ENABLED = "cloud_key_freeze_enabled"
+    const val CLOUD_KEY_FREEZE_RULES = "cloud_key_freeze_rules"
+    const val CLOUD_KEY_FREEZE_OBSERVE = "cloud_key_freeze_observe"
+
     /** 开屏页背景跟随系统深色模式。 */
     const val SPLASH_AUTO_NIGHT = "splash_auto_night"
     const val BRAND_SPLASH_SKIP = "brand_splash_skip"

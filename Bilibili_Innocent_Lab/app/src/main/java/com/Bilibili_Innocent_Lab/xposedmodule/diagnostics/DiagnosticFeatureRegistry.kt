@@ -201,6 +201,16 @@ internal object DiagnosticFeatureRegistry {
             runtimeEvidenceExpected = true
         ),
         DiagnosticFeatureDescriptor(
+            "home_frame_lock",
+            DiagnosticFeatureCategory.GENERAL,
+            runtimeEvidenceExpected = true
+        ),
+        DiagnosticFeatureDescriptor(
+            "cloud_key_freeze",
+            DiagnosticFeatureCategory.GENERAL,
+            runtimeEvidenceExpected = true
+        ),
+        DiagnosticFeatureDescriptor(
             "splash_auto_night",
             DiagnosticFeatureCategory.GENERAL,
             runtimeEvidenceExpected = true

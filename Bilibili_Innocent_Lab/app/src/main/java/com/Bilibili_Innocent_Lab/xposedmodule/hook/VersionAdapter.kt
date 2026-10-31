@@ -2667,7 +2667,11 @@ object VersionAdapter {
         "tv.danmaku.bili.ui.main2.HomeFragmentV2",
         "tv.danmaku.p9138bili.p9228ui.main2.HomeFragmentV2"
     )
+    // 主路径取 HomeFragmentV2 构建方法的泛型实参；这里只是泛型不可读时的兜底。
+    // 9.17.0(9170300) 的 Tab 模型由 resource.z 重排为 resource.y，字段布局不变；z 变成无字符串字段的 lambda，
+    // 会被 locateHomeTabs 的字符串字段数量检查拒绝。
     private val HOME_TAB_RESOURCE_CLASS_CANDIDATES = listOf(
+        "tv.danmaku.bili.ui.main2.resource.y",
         "tv.danmaku.bili.ui.main2.resource.z",
         "tv.danmaku.p9138bili.p9228ui.main2.resource.z"
     )

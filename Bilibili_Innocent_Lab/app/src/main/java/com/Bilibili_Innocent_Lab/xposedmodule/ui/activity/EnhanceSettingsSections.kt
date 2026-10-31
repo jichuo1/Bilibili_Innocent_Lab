@@ -19,6 +19,7 @@ import io.github.jichuo1.meguviz.android.extensions.updatePadding
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.ModuleUiSettings
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CloudKeyFreezeRules
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ExactRuleSetCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TidBlocklistCodec
 import android.widget.LinearLayout as NativeLinearLayout
@@ -75,6 +76,111 @@ internal fun MainActivity.enhanceSystemCategory(scope: LinearSettingsScope) = wi
         alpha = 0.6f
         setLineSpacing(6f, 1f)
         text = stringResource(R.string.system_media_notification_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
+    materialSwitch(key = "EnhanceSettingsSections:1120",
+        lparams = params(widthMatchParent = true) {
+            topMargin = 12.dp
+            bottomMargin = 5.dp
+        }
+    ) {
+        bindFavoriteSwitch(this, FeaturePreferences.HOME_FRAME_LEGACY_LOCK, directToggle = true)
+        text = stringResource(R.string.home_frame_legacy_lock)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = homeFrameLegacyLock
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HOME_FRAME_LEGACY_LOCK, checked, button)
+        }
+    }
+    textView(key = "EnhanceSettingsSections:1121",
+        lparams = params(widthMatchParent = true)
+    ) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.home_frame_legacy_lock_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
+    materialSwitch(key = "EnhanceSettingsSections:1130",
+        lparams = params(widthMatchParent = true) {
+            topMargin = 12.dp
+            bottomMargin = 5.dp
+        }
+    ) {
+        bindFavoriteSwitch(this, FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED, directToggle = true)
+        text = stringResource(R.string.cloud_key_freeze)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = cloudKeyFreeze
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED, checked, button)
+        }
+    }
+    textView(key = "EnhanceSettingsSections:1131",
+        lparams = params(widthMatchParent = true)
+    ) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.cloud_key_freeze_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
+    textView(key = "EnhanceSettingsSections:1132",
+        lparams = params(widthMatchParent = true) {
+            topMargin = 4.dp
+        }
+    ) {
+        bindSettingDestination(this, FeaturePreferences.CLOUD_KEY_FREEZE_RULES)
+        cloudKeyFreezeRulesSummaryView = this
+        text = cloudKeyFreezeRulesSummary()
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        maxLines = 3
+        ellipsize = TextUtils.TruncateAt.END
+        setLineSpacing(5f, 1f)
+        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+        background = selfRippleBackground(10f)
+        isClickable = true
+        isFocusable = true
+        setOnClickListener {
+            showRuleEditorDialog(
+                R.string.cloud_key_freeze_rules,
+                R.string.cloud_key_freeze_dialog_hint,
+                cloudKeyFreezeRules,
+                anchor = it
+            ) { value ->
+                cloudKeyFreezeRules = value
+                prefs().edit { putString(FeaturePreferences.CLOUD_KEY_FREEZE_RULES, value) }
+                cloudKeyFreezeRulesSummaryView?.text = cloudKeyFreezeRulesSummary()
+            }
+        }
+    }
+    materialSwitch(key = "EnhanceSettingsSections:1133",
+        lparams = params(widthMatchParent = true) {
+            topMargin = 8.dp
+            bottomMargin = 5.dp
+        }
+    ) {
+        bindFavoriteSwitch(this, FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE, directToggle = true)
+        text = stringResource(R.string.cloud_key_freeze_observe)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = cloudKeyFreezeObserve
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE, checked, button)
+        }
+    }
+    textView(key = "EnhanceSettingsSections:1134",
+        lparams = params(widthMatchParent = true)
+    ) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.cloud_key_freeze_observe_tip)
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
@@ -910,5 +1016,16 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: LinearSettingsScope) = 
         text = stringResource(R.string.prefer_dynamic_video_tab_tip)
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
+    }
+}
+
+/** 规则行的摘要：标题加上规则条数；写错或被拒绝的条目单独计数，免得用户以为已经生效。 */
+internal fun MainActivity.cloudKeyFreezeRulesSummary(): String {
+    val parsed = CloudKeyFreezeRules.parse(cloudKeyFreezeRules)
+    val dropped = parsed.rejected + parsed.protectedRejected
+    return getString(R.string.cloud_key_freeze_rules) + "\n" + when {
+        parsed.isEmpty && dropped == 0 -> getString(R.string.cloud_key_freeze_rules_empty)
+        dropped == 0 -> getString(R.string.cloud_key_freeze_rules_current, parsed.rules.size)
+        else -> getString(R.string.cloud_key_freeze_rules_rejected, parsed.rules.size, dropped)
     }
 }

@@ -23,7 +23,10 @@ internal class HostOpusBackgroundAccess private constructor(
             val points = FollowFeedAdapter.direct(loader) ?: return null
             val follow = FollowFeedAdapter.resolve(loader, points) ?: return null
             val painter = follow.paint.declaringClass
-            val opus = listOf("com.bilibili.bplus.followinglist.opus.t", "com.bilibili.bplus.followinglist.opus.k")
+            // 9170300 把图文装饰器 t 重排为 p（继承链 p → m → detail.a → rU.d）；此时 t 和 k 已是无关的
+            // synthetic lambda，不是 painter 子类，会被下面的继承过滤排除。
+            val opus = listOf("com.bilibili.bplus.followinglist.opus.p", "com.bilibili.bplus.followinglist.opus.t",
+                "com.bilibili.bplus.followinglist.opus.k")
                 .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
                 .filter { painter.isAssignableFrom(it) }.singleOrNull() ?: return null
             val color = KavaMemberLookup.declaredMethods(painter, true) {

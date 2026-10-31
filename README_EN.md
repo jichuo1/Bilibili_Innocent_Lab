@@ -261,6 +261,8 @@ The sections below describe capabilities by feature topic. Developer-facing cate
 | --- | --- |
 | Splash screen follows dark mode | The splash background is black in dark mode and white in light mode, so switching from a dark UI no longer flashes white; only the background is changed, not the splash image or logo |
 | Use system media control notification | Enables the background playback system media-style notification that Bilibili ships but has switched off in its gradual rollout |
+| Keep the legacy home frame | Blocks the remote flag (`dd.use_new_home_frame`) that moves phones to Bilibili's new home frame, so features built on the legacy home do not suddenly stop working; large screens follow the host's own screen-size rule and are unaffected |
+| Freeze chosen remote flags | Pages and buttons are often switched by remote flags, so a server change can make a feature appear or vanish overnight. Write rules as `key=value` (`true` / `false` pin a boolean, `default` ignores the remote value and uses the built-in default, `s:text` pins a string) and Bilibili reads those fixed values while every other flag stays untouched; network, sign-in, risk-control and startup flags are refused. An optional log of the flags Bilibili reads (names and boolean values only) goes to the LSPosed log to help you find the key to pin |
 | Open external links in the system browser | Web pages outside Bilibili no longer open in the built-in browser. Bilibili domains plus payment and UnionPay gateways still stay inside the app; when no browser is available the original behaviour is kept so the client never errors |
 
 ### ▶️ Video detail, player and content feeds
