@@ -1,5 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import android.os.Bundle
+import android.view.View
+import android.view.ViewTreeObserver
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import com.highcapable.kavaref.extension.classOf
@@ -113,7 +116,7 @@ internal class GuestNativeHistoryHooks(
         }
         // Presentation is version-specific and optional: 8.84-8.96 expose a fragment isLogin() gate,
         // a few builds the up(boolean) login banner and fallback-cache getters. 8.97+ inline these into
-        // BiliAccounts calls, so the page still renders local data but keeps the host's guest chrome.
+        // BiliAccounts calls; there only the login banner is hidden ([installBannerGuard]).
         val presentation = mutableListOf<String>()
         val fragment = Lookup.classOrNull(host.loader, "com.bilibili.app.history.HistoryFragmentV3")
         fragment?.let { Lookup.methodOrNull(it, "isLogin") }
@@ -134,6 +137,19 @@ internal class GuestNativeHistoryHooks(
                     }
                 }
             }
+        if ("isLogin" !in presentation) fragment?.let { page ->
+            val banner = bannerField(page, Lookup.classOrNull(host.loader, BANNER_TYPE)) ?: return@let
+            val viewCreated = Lookup.methodOrNull(page, "onViewCreated", classOf<View>(), classOf<Bundle>()) ?: return@let
+            presentation += "banner-guard"
+            plan.step {
+                env.registrar.exact("guest.native.history.banner_guard", page, viewCreated.name, *viewCreated.parameterTypes) {
+                    after {
+                        if (hasThrowable || !isGuest()) return@after
+                        (banner.get(requireNotNull(instance)) as? View)?.let(::installBannerGuard)
+                    }
+                }
+            }
+        }
         for ((name, getter) in mapOf("com.bilibili.app.history.ui.viewmodel.HistoryContentViewModel" to "I2",
             "com.bilibili.app.history.search.presenter.HistorySearchTabViewModel" to "u2")) {
             val method = Lookup.classOrNull(host.loader, name)?.let { Lookup.methodOrNull(it, getter) }
@@ -151,7 +167,37 @@ internal class GuestNativeHistoryHooks(
             if (presentation.isEmpty()) "adapted-rpc" else "adapted:${presentation.joinToString("+")}")
     }
 
+    /**
+     * 8.97+ show the "sign in for more history" banner whenever `BiliAccounts` reports a signed-out account, on every tab
+     * load, and its button opens the login page. For a guest it is collapsed right before each draw instead, so no frame
+     * shows it; the host's own visibility logic is left untouched. The listener lives only while the banner is attached.
+     */
+    private fun installBannerGuard(banner: View) {
+        val guard = ViewTreeObserver.OnPreDrawListener {
+            if (isGuest() && banner.visibility != View.GONE) {
+                banner.visibility = View.GONE
+                false
+            } else true
+        }
+        fun attach(view: View) = view.viewTreeObserver.addOnPreDrawListener(guard)
+        if (banner.isAttachedToWindow) attach(banner)
+        banner.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(view: View) = attach(view)
+            override fun onViewDetachedFromWindow(view: View) = view.viewTreeObserver.removeOnPreDrawListener(guard)
+        })
+    }
+
     companion object {
+        private const val BANNER_TYPE = "com.bilibili.magicasakura.widgets.TintConstraintLayout"
+
+        /**
+         * The login banner: the fragment's single instance field of the host's `TintConstraintLayout` type (`n` on 8.92 to
+         * 9.09, `T` on 9.10 to 9.17; matrix q66). Null when there is none or more than one.
+         */
+        fun bannerField(fragment: Class<*>, bannerType: Class<*>?): java.lang.reflect.Field? = bannerType?.let { type ->
+            Lookup.declaredFields(fragment, makeAccessible = true) { !it.isStatic && it.type == type }.singleOrNull()
+        }
+
         private const val PREFIX = "com.bapis.bilibili.app.interfaces.v1."
         /** `package.Service/` as the KMP method descriptor names it (the proto package says `interface`). */
         private const val KMP_SERVICE = "bilibili.app.interface.v1.History/"
