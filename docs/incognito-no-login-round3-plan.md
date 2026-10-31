@@ -494,3 +494,10 @@ q51（38 版本）：
 - 截图在中途出现过与设备时间不符的旧图（时间戳和内容都对不上），已弃用，改用日志、栈顶 Activity 和设备时间一致的截图判断。
 - 卡片自身（列表页那张卡）在非空时的封面与「N 个内容」文字没有再看一遍；详情页的数量是对的。
 - 测试：`GuestFavoritesRouteHooksTest` 新增 6 例；夹具 `StoryFragment`、`StoryRouter` 新增 Fragment 重载；两处 `routeTo(request, null)` 因重载歧义改成显式 `null as Context?`。
+
+## 2026-10-31：9.0.0 补测与两处修复（`934700ef`、`6c52a164`、`21df16e5`、`d60f185f`）
+
+- 从手机拉了 arm64 的 9.0.0 `base.apk`（`captures/r4/h900/`，已忽略），按需用 jadx 反编译单个类；hostlab 新跑 q60（引导页首启等待门）、q61 与 q64（稍后再看添加入口），q62、q63 因 dexsql `LIKE` 不认 `_` 通配而为空。
+- 引导页：9.0.0 的首启等待判断是 `pegasus.request.b.g()`（`isFirstStart() && a`），`PegasusFragment.onCreate` 调用它；9.16 是 `request.d.h()`。q60：`b`/`d` 合起来只有一个静态 `()Z` 的版本有 13 个。门改成跨两个类找唯一一个，数据与入口两层随之装上。实机连续三次冷启动不再弹引导页。
+- 稍后再看添加：8.97 起入口是 `MainCommonService.addToWatchLater`/`batchAddToWatchLater`，实现类混淆（9.0.0 是 `tv.danmaku.bili.P`），动作是 `ui.watchlater.widget` 下的 `Function0`（9.0.0 的 `a/b/c`），交给 `LoginScopeKt.loginRequire`，未登录就去登录页。真正的添加是 `widget.f.a(...)`（9.0.0），协程里 `WatchLaterApiService.addV2` 经 `BiliCall.enqueue` 发 `/x/v2/history/toview/add`，`enqueue` 在工作线程上调 `execute()`，所以现有短路能接住。实机：首页卡片「添加至稍后再看」出宿主提示条，稍后再看页出现该视频。
+- 关注数、关注列表、历史页登录横幅在 9.0.0 的结论与剩余工作见交接文档第 5、6 节。
