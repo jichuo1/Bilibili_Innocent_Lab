@@ -516,3 +516,10 @@ q51（38 版本）：
 - 游客 `/x/v2/space`（vmid=2，签名的公开请求）：`data.relation=-999`、`data.guest_relation=-999`、`data.card.relation={"status":1}`。改写后 H5 显示「已关注」，说明它按这几个字段渲染。
 - 门禁：4231 个测试 0 失败（1 个无关跳过），FastLint 0 错误、261 条警告；完整 Lint 这轮没跑。
 
+## 2026-10-31 第四轮：星标改回宿主弹窗（`3e048601`、`20b31940`）
+
+- 9.0.0 反编译：星标点击在 `KingPositionService$create$1$1$14$a.emit`，先过登录门 `Kg1.p.a`（只查 `BiliAccounts.isLogin()`，未登录就 `RouterProxy.open("activity://main/login/")`），通过后未收藏调 `playset.widget.favorite.f.d`（`batch-deal` 收进默认夹，失败才 `k(false)` 开弹窗），已收藏调 `f.f`（`unfav-all`）；长按直接 `k(false)`。收藏接口全在 `FavoriteService`，都是 `BiliCall`。
+- q69（8.84 到 9.11 成功，9.12 起 10 版分析失败）：`FavoriteDialog` 38 版里 28 版有；8.97 到 9.11 共 16 版构造为 `(ComponentActivity, FavoriteDialog$b, ActivityResultLauncher)`，`$b` 的 20 参数构造描述符完全相同；8.84 到 8.96 是 `(ComponentActivity, FavoriteDialog$c, …)`。q69 第一次因 `method_strings` 列名写错（应为 `value`）全部失败，第二次修正。
+- 实机走过三个坑：无痕的 `isLogin` 钩子先注册并设结果，后注册的钩子不执行，所以改成共享的 `GuestLoginScope`；`ComponentActivity.onActivityResult` 收不到创建页结果，改钩视频页实际生效的覆写；弹窗的 `ownerActivity` 与视频页不同，改为打开时自己记录所属页面。
+- 门禁：4233 个测试 0 失败（1 个无关跳过），FastLint 0 错误、261 条警告；完整 Lint 这轮没跑。
+

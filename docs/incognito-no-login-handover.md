@@ -46,6 +46,8 @@
 - `374ffbfd` 8.92 起「我的」页点「关注」打开本地关注列表（宿主 `BlackListFragment` 页，9.0.0 实机）
 - `3c692894` 空间页关注按钮走本地：宿主关注广播同步进本地库，空间数据响应按本地状态显示已关注（9.0.0 实机）
 - `a929a38e` 本地关注列表删到空时当场显示空提示（9.0.0 实机）
+- `3e048601` 本地收藏协议补 `resource/batch-deal`、`resource/unfav-all`，收藏夹列表按 `rid` 标勾选
+- `20b31940` 8.97 到 9.11 游客点视频页星标打开宿主自己的 `FavoriteDialog`（9.0.0 实机）
 
 ## 4. 官方原生与模块自有（重点）
 
@@ -55,7 +57,7 @@
 
 | 界面 | 代码 | 何时出现 |
 |---|---|---|
-| 「收藏到」多选框（勾选收藏夹、「新建收藏夹」「取消」「完成」） | `GuestFavoriteFolderPicker`，由 `GuestVideoFavoriteHooks` 调用 | 游客点视频页星标或 Story 星标。9.0.0 与 9.16.1 实机看到。**8.90.2 除外**：那里旧钩子 `GuestNativeFavoriteHooks` 在登录门之前接管星标点击，走官方的 `FavoriteDialog`，但这个阶段没有 8.90.2 设备，没重新验证 |
+| 「收藏到」多选框（勾选收藏夹、「新建收藏夹」「取消」「完成」） | `GuestFavoriteFolderPicker`，由 `GuestVideoFavoriteHooks` 调用 | 游客点视频页星标或 Story 星标，**只在宿主弹窗用不了的版本**（8.84 到 8.96、9.12 起）。9.16.1 实机看到。8.97 到 9.11 改用宿主弹窗（第 4.3 节），9.0.0 实机。**8.90.2 除外**：那里旧钩子 `GuestNativeFavoriteHooks` 在登录门之前接管星标点击，走官方的 `FavoriteDialog`，但这个阶段没有 8.90.2 设备，没重新验证 |
 | 「新建收藏夹」输入框 | 同上 | 在上面的框里点「新建收藏夹」 |
 | 「已保存到本地」Toast | `GuestVideoFavoriteHooks` 的 `notify` | 找不到星标状态写入口，星标无法重绘时才出现；它是唯一的反馈 |
 | 无痕下点顶部「登录」弹出的提示（请先关闭无痕再登录） | `GuestLibraryHostHooks` | 无痕开着，游客点「我的」页头部的登录文字 |
@@ -74,7 +76,20 @@
 - 视频页星标颜色和收藏数：调用宿主自己的 `RelationRepository.n(boolean)`，它会改页面计数、写星标缓存并发总线消息（`GuestPageFavorite`）。Story 星标用 `StoryDetail` 的 getter 和 setter（`GuestStoryStar`）。
 - 8.90.2 上的收藏夹编辑器：官方 V2 Compose 编辑器与状态机（`GuestNativeFolderEditorHooks`）。
 
-### 4.3 为什么星标用了自己的弹窗，以及改回官方的思路（未实现、未验证）
+### 4.3 星标弹窗：8.97 到 9.11 已改回官方（`3e048601`、`20b31940`）
+
+9.0.0 的官方弹窗是 `com.bilibili.playset.widget.favorite.FavoriteDialog`（类名不混淆），由 `KingPositionService.k(boolean)` 在登录门之后构造。q69：8.97 到 9.11 共 16 版构造方式完全相同，`FavoriteDialog(ComponentActivity, ExtraParams, ActivityResultLauncher)`，`ExtraParams` 只有一个 20 参数构造。8.84 到 8.96 的参数类是 `$c`，形状不同；9.12 起分析失败（9.16 已知是 KMP 弹层），这两段仍用模块自己的框。
+
+做法（`GuestHostFavoriteDialog`）：
+
+- 现有的星标登录拦截（`RouterProxy.open`）照旧，拦下后不再弹模块框，而是构造宿主的 `FavoriteDialog` 并显示。
+- 弹窗加载收藏夹前要 `BiliAccounts.isLogin()` 为真。只在这个弹窗自己的方法运行时，当前线程上 `isLogin()` 返回真（`GuestLoginScope`）。无痕的账号隔离钩子也读它，因为同一方法上先设结果的钩子说了算。
+- 弹窗走 `BiliCall` 的 `/x/v3/fav/folder/created/list-all`（按 `rid` 标勾选）和 `/x/v3/fav/resource/batch-deal`（只发改动的夹，`0` 是默认夹），由本地收藏协议回答。
+- 弹窗里「新建收藏夹」打开宿主的创建页，返回时视频页只刷新它自己字段里的弹窗；模块钩视频页实际生效的 `onActivityResult`，对自己打开的弹窗调用同一个加载方法（弹窗唯一一个自有的无参方法）。
+- 弹窗关闭后，若收藏状态变了，星标和收藏数照旧由 `GuestPageFavorite` 处理。
+
+以下是改动前的分析，保留作记录。
+
 
 9.16.1 的官方收藏弹层是 KMP 组件 `kntr.app.favorite.favoriteDialog`，入口 `KingPositionService.k(boolean)`，类和方法名混淆且逐版变化，当时判断接管成本最高，所以改成自己的框。8.97 起 `KingPositionService.B0/C0/V0` 也不存在，旧钩子装不上。
 
@@ -98,7 +113,7 @@
 - 状态键 `guest_native_lists_http=adapted;skipped=folder_route,detail_owner`：本地列表应答通过形状找转换器装上；`fa6.b`（8.90.2 的文件夹路由）在 9.0.0 不存在。
 - `guest_native_lists_cache_dropped=seen`：回退缓存的 `kotlin.Lazy` 被替换成返回 null 的代理（`3eaf89b6`）。**宿主缓存文件本身没有去查看**，「没有写入」是由缓存为 null 推出来的。
 - 「我的收藏」入口：`guest_favorites_route_opened=seen`，`FavoritesActivityV2` 打开，两个标签正常渲染（`c15fd96a`）。
-- 星标：点视频页星标，弹出模块自己的「收藏到」框，勾选「默认收藏夹」点「完成」，状态键 `guest_video_favorite_picker`、`_applied`、`_saved`、`_counted` 都出现。
+- 星标：点视频页星标，弹出模块自己的「收藏到」框，勾选「默认收藏夹」点「完成」，状态键 `guest_video_favorite_picker`、`_applied`、`_saved`、`_counted` 都出现。（2026-10-31 起 9.0.0 改为宿主弹窗，见下面第四轮。）
 - 收藏夹卡片：`guest_favorites_folder_route_opened=seen`，点卡片后栈顶为 `MultiTypeListDetailActivityV2`。收藏一个视频后（**不重启宿主**）进详情页，显示「默认收藏夹」「创建者: 本地账号」「1个内容」和那条视频（`617614ce`）。
 
 2026-10-31 补测（截图在已忽略的 `captures/r4/`）：
@@ -118,6 +133,14 @@
 
 - 空间页：`guest_library_space_follow=installed`。新开 `bilibili://space/2` 显示「＋关注」，点它后宿主自己变「已关注」并提示「关注成功~」，出现 `guest_space_follow_synced`；退出再进，出现 `guest_space_follow_shown`，按钮直接是「已关注」。
 - 关注列表里这条显示空间页上的名字「碧诗」和头像。点进空间页「已关注 → 取消关注」，宿主提示「取消关注成功」；返回列表当场变成「再怎么找也没有啦」，重进也是空。
+
+2026-10-31 16:41 第四轮（`3e048601`、`20b31940`，av170001）：
+
+- 状态键 `guest_video_favorite_host_dialog=installed`。点星标出现宿主自己的弹窗（「添加到稍后再看」「选择收藏夹」「新建收藏夹」「完成」），列出本地「默认收藏夹 0个内容 · 私密」，出现 `_host_picker`。
+- 勾选点完成：星标变粉，`_saved`、`_counted` 出现。再点星标，默认夹显示「1个内容」并已勾选；取消勾选点完成，星标变灰。
+- 「新建收藏夹」打开宿主的「创建」页，填名字点完成，回到弹窗时新夹排在最上面并已勾选；点完成后再开，新夹「1个内容」。
+- 弹窗里的「添加到稍后再看」出宿主提示条「已添加至稍后再看 / 查看」。
+- 没看到：完成后宿主的收藏提示条（`commitChange` 里有 `n(...)`，这次没出现，原因没查）；收藏数显示 87.7万，加一减一看不出变化。
 
 上面「关注数、关注列表：不通」一条，其中关注列表已由 `374ffbfd` 解决；那段分析保留作记录。
 
@@ -152,7 +175,7 @@
 
 ## 6. 已知问题与剩余工作（按重要性）
 
-1. **星标弹窗不是官方的**（第 4.3 节）。要不要改、怎么改需要用户定。
+1. **星标弹窗**：8.97 到 9.11 已改回宿主的 `FavoriteDialog`（第 4.3 节，9.0.0 实机）。8.84 到 8.96（参数类不同）和 9.12 起（KMP 弹层）仍是模块的框。官方点星标的流程是先一键收进默认夹并弹提示条，弹窗只在长按或提示条里打开；模块这里点星标直接开弹窗，没有一键收藏和那条提示条。
 2. **空间页关注按钮已改为本地（`3c692894`，9.0.0 实机）**。空间页是 H5（`LocalAuthorSpaceActivity`，38 版都有，q68）：点关注后 H5 自己发请求（无痕封口当成功），再经 `SpaceRelationWrapper` 调宿主的全局关注广播 `FollowStateManager.notify(mid, followed, except)`；模块钩这个广播同步本地库。H5 的初始关系来自原生 `BiliCall` 取的 `/x/v2/space`，对本地已关注的人改写成 `relation=1`、`card.relation.status=2`。试过在 H5 首次报告后用广播把本地状态推回去：宿主那边收到了（包装类的关系变成 FOLLOW_HIM），但 H5 按钮不变，延后到 4 秒也一样，所以放弃推送，只改响应。仍开放：视频页的关注按钮重进后大概率仍按服务端状态显示；视频页关注弹的是模块的「已保存到本地」，宿主原本提示「关注成功」。
 3. **「我的」页的关注数字**：显示宿主账号的 0，不是本地关注数。数字在 `AccountMineV2.following`（8.92 起 26 版字段名都是 `s`，q65），但无痕下动态、关注、粉丝都是 0，现有的按值定位（`MineSerializedFields`）分不出是哪个字段，没有按字段名硬写。
 4. 引导页：8.97、8.98、9.02 到 9.07、9.17 共 9 个 V2 版本的首启等待判断不在 `request.b/d` 上，仍不生效；8.84 到 8.96 靠旧插件钩子，没验证。
