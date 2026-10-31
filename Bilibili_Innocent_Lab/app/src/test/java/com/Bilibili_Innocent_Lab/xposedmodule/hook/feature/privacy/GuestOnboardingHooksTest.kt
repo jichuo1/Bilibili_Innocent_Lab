@@ -189,6 +189,24 @@ class GuestOnboardingHooksTest {
         assertEquals("installed", statuses["guest_onboarding_entry"])
     }
 
+    @Test fun gateOnRequestAOrCIsFoundOnTheOtherV2Builds() {
+        // 8.97, 8.98, 9.02-9.05, 9.13 and 9.17 keep the predicate on request.c; 9.06, 9.07 and one 9.14 on request.a (q70).
+        for (holder in listOf("a", "c")) {
+            statuses.clear()
+            val registrar = PlayerPortTestRegistrar()
+            val loader = object : ClassLoader(javaClass.classLoader) {
+                override fun loadClass(name: String?, resolve: Boolean): Class<*> = when (name) {
+                    "com.bilibili.pegasus.request.d" -> NoStaticBoolean::class.java
+                    "com.bilibili.pegasus.request.$holder" -> OneStaticBoolean::class.java
+                    else -> super.loadClass(name, resolve)
+                }
+            }
+            GuestOnboardingHooks { true }.install(environment(registrar, loader))
+            assertEquals(holder, "installed", statuses["guest_onboarding_gate"])
+            assertEquals(holder, OneStaticBoolean::class.java.getMethod("only"), registrar.hooks["guest.onboarding.gate"]?.member)
+        }
+    }
+
     @Test fun gateLocatorNeverPicksBetweenPredicatesInBothRequestClasses() {
         assertEquals("only", GuestOnboardingHooks.locateGate(NoStaticBoolean::class.java, OneStaticBoolean::class.java)?.name)
         assertNull(GuestOnboardingHooks.locateGate(FirstStartGate::class.java, OneStaticBoolean::class.java))

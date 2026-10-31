@@ -15,12 +15,13 @@ import com.highcapable.kavaref.extension.isStatic
  * 1. First-start wait gate ([installGate]). On a first start the host's `PegasusFragment.onCreate`
  *    does NOT load the home feed; it waits for the interest wizard to finish and loads the feed from
  *    the wizard's completion event. The same predicate ("first start and waiting for interest":
- *    `request.d.h()` on 9.16.x, `request.b.f/g/h()` on 8.99-9.01 and 9.08-9.15) decides whether the
+ *    a static `()Z` on `request.a`, `b`, `c` or `d`, renamed per build) decides whether the
  *    V2 plugin registry mounts the Compose wizard. Forcing it to false for a guest makes the host take
  *    its own non-first-start path: the feed loads immediately and the wizard never mounts. Nothing is
  *    faked, so no loading gate can be stranded. Verified on 9.0.0, 9.16.0 and 9.16.1; the other builds
- *    in that range have only static evidence (matrix q60). Builds where neither class carries the
- *    predicate report `guest_onboarding_gate=absent` and keep the host's behavior.
+ *    have only static evidence (matrices q60, q70, q73). On 8.84-8.96 the predicate sits in
+ *    `ApiManagerKt` beside three other static `()Z`, so it cannot be told by shape; those builds report
+ *    `guest_onboarding_gate=absent` and rely on the legacy plugin layer below.
  *
  * 2. Legacy plugins ([installPlugins]). The pre-V2 `NewUserInterestChoosePlugin` and
  *    `LowActiveInterestChoosePlugin` are located by version-stable ABI shape:
@@ -114,10 +115,10 @@ internal class GuestOnboardingHooks(private val isGuest: () -> Boolean) {
     private fun installGate(env: HookEnvironment, loader: ClassLoader): Int = runCatching {
         val requests = REQUEST_CLASSES.mapNotNull { PrivacyStructuralResolver.type(loader, it) }
         val fragment = PrivacyStructuralResolver.type(loader, FRAGMENT_CLASS)
-        // The predicate is the SINGLE static ()Z across request.d and request.b. The matrix (q60, 38 builds)
-        // found it on request.d for 9.16.x and on request.b for 8.99-9.01 and 9.08-9.15, each called by
-        // PegasusFragment.onCreate; on the other builds neither class has a static ()Z. Reflection cannot see
-        // call sites, so uniqueness is the guard: none, or one in each class, installs nothing.
+        // The predicate is the SINGLE static ()Z across request.a, b, c and d. On all 26 builds from 8.97 those four
+        // classes hold exactly one, the method PegasusFragment.onCreate calls and that reads isFirstStart (q70, q73);
+        // before 8.97 they hold none. Reflection cannot see call sites, so uniqueness is the guard: none, or more
+        // than one, installs nothing.
         val gate = if (requests.isNotEmpty() && fragment != null) locateGate(*requests.toTypedArray()) else null
         if (gate == null) {
             env.reportStatus("guest_onboarding_gate", "absent")
@@ -197,7 +198,7 @@ internal class GuestOnboardingHooks(private val isGuest: () -> Boolean) {
     }
 
     internal companion object {
-        private val REQUEST_CLASSES = listOf("com.bilibili.pegasus.request.d", "com.bilibili.pegasus.request.b")
+        private val REQUEST_CLASSES = listOf("a", "b", "c", "d").map { "com.bilibili.pegasus.request.$it" }
         private const val FRAGMENT_CLASS = "com.bilibili.pegasus.PegasusFragment"
         private const val SESSION_CLASS = "com.bilibili.pegasus.components.interestv2.host.AndroidInterestChooseSession"
         private const val RESPONSE_CLASS = "com.bilibili.pegasus.data.base.PegasusResponse"
