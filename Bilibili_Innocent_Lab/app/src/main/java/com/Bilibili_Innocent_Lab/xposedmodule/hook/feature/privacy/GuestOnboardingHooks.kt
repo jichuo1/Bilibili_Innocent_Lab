@@ -4,6 +4,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
+import com.highcapable.kavaref.extension.isStatic
 
 /**
  * Skip the new-user interest/gender/age onboarding for guests, without changing host preferences,
@@ -207,7 +208,7 @@ internal class GuestOnboardingHooks(private val isGuest: () -> Boolean) {
         /** The single static no-arg boolean across [requests]; null when none or more than one (fails closed). */
         fun locateGate(vararg requests: Class<*>): Method? = requests.flatMap { request ->
             Lookup.methods(request, includeSuperclasses = false, makeAccessible = true) { m ->
-                Modifier.isStatic(m.modifiers) && m.returnType == java.lang.Boolean.TYPE && m.parameterCount == 0
+                m.isStatic && m.returnType == java.lang.Boolean.TYPE && m.parameterCount == 0
             }
         }.distinct().singleOrNull()
 

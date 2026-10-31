@@ -2,8 +2,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
+import com.highcapable.kavaref.extension.isStatic
 import java.lang.reflect.Method
-import java.lang.reflect.Modifier
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -47,7 +47,7 @@ internal class GuestWatchLaterLoginScope(private val isGuest: () -> Boolean) {
 
         /** The single static `loginRequire(..., Function0)` with the action last; the `$default` bridge delegates to it. */
         fun locateGate(scope: Class<*>, function0: Class<*>): Method? = PrivacyStructuralResolver.uniqueMethod(scope) { m ->
-            Modifier.isStatic(m.modifiers) && m.name == "loginRequire" && m.parameterTypes.lastOrNull() == function0
+            m.isStatic && m.name == "loginRequire" && m.parameterTypes.lastOrNull() == function0
         }
 
         /** An action class declared directly in the watch-later widget package (not a nested or unrelated class). */
