@@ -142,10 +142,15 @@ internal class GuestLibraryHostHooks(
             }
         }
         attempt("native_favorite") { GuestNativeFavoriteHooks(library, isGuest).install(env) }
-        attempt("native_follow_list") { GuestNativeFollowListHooks(library, isGuest).install(env) }
-        // 8.92+: the same relation page is a fragment, and the Compose mine page's 关注 count opens it for a guest.
-        if (attempt("follow_page") { followPage.install(env) }) attempt("mine_follow_entry") { GuestMineFollowEntry(isGuest, followPage).install(env) }
-        else env.reportStatus("guest_library_mine_follow_entry", "skipped-no-follow-page")
+        // The relation page (an activity up to 8.91, a fragment from 8.92) lists the local follows; the Compose mine page's
+        // 关注 count opens it for a guest. The older hooks, bound to 8.90.2's member names, are only the fallback.
+        if (attempt("follow_page") { followPage.install(env) }) {
+            attempt("mine_follow_entry") { GuestMineFollowEntry(isGuest, followPage).install(env) }
+            env.reportStatus("guest_library_native_follow_list", "skipped-follow-page")
+        } else {
+            env.reportStatus("guest_library_mine_follow_entry", "skipped-no-follow-page")
+            attempt("native_follow_list") { GuestNativeFollowListHooks(library, isGuest).install(env) }
+        }
         attempt("native_history") { history.install(env) }
         attempt("native_watch_later") { GuestNativeWatchLaterHooks(library, isGuest).install(env) }
         attempt("native_watch_later_add") { GuestNativeWatchLaterAddHooks(library, isGuest).install(env) }
@@ -244,10 +249,13 @@ internal class GuestLibraryHostHooks(
             "watchLater" -> activity.startActivity(android.content.Intent().setClassName(activity.packageName,
                 "tv.danmaku.bili.ui.main2.WatchLaterActivity"))
             // 8.84-8.91 have the activity page; 8.92+ the fragment page, and without either the simple list stays.
-            "follows" -> if (Lookup.classOrNull(activity.classLoader, GuestNativeFollowListHooks.ACTIVITY) != null) {
-                activity.startActivity(android.content.Intent().setClassName(activity.packageName,
-                    GuestNativeFollowListHooks.ACTIVITY).putExtra(GuestNativeFollowListHooks.EXTRA, true))
-            } else if (!followPage.open(activity)) library.show(activity, section)
+            "follows" -> if (!followPage.open(activity)) {
+                if (Lookup.classOrNull(activity.classLoader, GuestNativeFollowListHooks.ACTIVITY) != null) {
+                    // Both local pages read the same marker from the activity's intent.
+                    activity.startActivity(android.content.Intent().setClassName(activity.packageName, GuestFollowListPage.ACTIVITY)
+                        .putExtra(GuestFollowListPage.EXTRA, true))
+                } else library.show(activity, section)
+            }
             else -> library.show(activity, section)
         }
     }

@@ -27,10 +27,10 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * The guest's local follow list on 8.92 and later builds, shown in the host's own relation-list page.
  *
- * The host has no native follow list (its follow entry is H5); 8.84 to 8.91 reuse `BlackListActivity`
- * ([GuestNativeFollowListHooks]). From 8.92 that page is `BlackListFragment` (matrix q65, 27 builds), behind the route
- * `bilibili://user_center/blackList`, and its members are renamed on almost every build. So only stable API is used: the
- * fragment loads through `RelationApiManager.getBlackList(String, BiliApiDataCallback)`, and for a page this class opened
+ * The host has no native follow list (its follow entry is H5), so its blacklist page is reused: `BlackListActivity` on
+ * 8.84 to 8.91 and `BlackListFragment` from 8.92 (matrix q65), behind the route `bilibili://user_center/blackList`, with
+ * members renamed on almost every build. So only stable API is used: both load through
+ * `RelationApiManager.getBlackList(String, BiliApiDataCallback)`, whose callback holds the page, and for a page this class opened
  * that call is answered through the callback's public `onDataSuccess` with an `AttentionList` of the local follows. Rows
  * are relabelled by walking their views, the swipe-to-unblock helper is never attached, and a row opens the person's space,
  * whose own follow button (already local for guests) is how a guest unfollows; the list follows the library's changes.
@@ -57,7 +57,9 @@ internal class GuestFollowListPage(private val library: GuestLibraryRuntime, pri
 
     fun install(env: HookEnvironment) {
         val host = PrivacyHostAccess(requireNotNull(env.classLoader))
-        val fragment = host.type(FRAGMENT)
+        // 8.92 on, the relation list is a fragment; before, the activity itself (q65). Both load through getBlackList.
+        val fragment = PrivacyStructuralResolver.type(host.loader, FRAGMENT)
+        val owner = fragment ?: host.type(ACTIVITY)
         val manager = host.type("com.bilibili.relation.api.RelationApiManager")
         val callbackType = host.type("com.bilibili.okretro.BiliApiDataCallback")
         val getBlackList = requireNotNull(Lookup.methodOrNull(manager, "getBlackList", classOf<String>(), callbackType)
@@ -69,17 +71,18 @@ internal class GuestFollowListPage(private val library: GuestLibraryRuntime, pri
         val mid = requireNotNull(Lookup.fieldOrNull(attention, "mid"))
         val uname = requireNotNull(Lookup.fieldOrNull(attention, "uname"))
         val face = requireNotNull(Lookup.fieldOrNull(attention, "face"))
-        val viewCreated = requireNotNull(Lookup.methodOrNull(fragment, "onViewCreated", classOf<View>(), classOf<Bundle>()))
+        val created = if (fragment != null) requireNotNull(Lookup.methodOrNull(fragment, "onViewCreated", classOf<View>(), classOf<Bundle>()))
+            else requireNotNull(Lookup.methodOrNull(owner, "onCreate", classOf<Bundle>()))
         val holderType = host.type("androidx.recyclerview.widget.RecyclerView\$ViewHolder")
         val adapterType = host.type("androidx.recyclerview.widget.RecyclerView\$Adapter")
-        val adapterField = requireNotNull(Lookup.declaredFields(fragment, makeAccessible = true) {
+        val adapterField = requireNotNull(Lookup.declaredFields(owner, makeAccessible = true) {
             !it.isStatic && it.type isSubclassOf adapterType
-        }.singleOrNull()) { "BlackListFragment adapter" }
+        }.singleOrNull()) { "relation list adapter" }
         val adapter = adapterField.type
         // The host answers an empty list with its empty tips only, keeping the old rows and its hidden tips view.
         val rowsField = Lookup.declaredFields(adapter, makeAccessible = true) { !it.isStatic && it.type == classOf<List<*>>() }.singleOrNull()
         val refresh = Lookup.methodOrNull(adapterType, "notifyDataSetChanged")
-        val emptyTips = Lookup.declaredFields(fragment, makeAccessible = true) {
+        val emptyTips = Lookup.declaredFields(owner, makeAccessible = true) {
             !it.isStatic && it.type.name == "tv.danmaku.bili.widget.LoadingImageView"
         }.singleOrNull()
         val bind = requireNotNull(Lookup.methodOrNull(adapter, "onBindViewHolder", holderType, classOf<Int>()))
@@ -87,9 +90,9 @@ internal class GuestFollowListPage(private val library: GuestLibraryRuntime, pri
         val touchHelper = host.type("androidx.recyclerview.widget.ItemTouchHelper")
         val attach = requireNotNull(Lookup.methodOrNull(touchHelper, "attachToRecyclerView",
             host.type("androidx.recyclerview.widget.RecyclerView")))
-        val getArguments = requireNotNull(Lookup.inheritedMethodOrNull(fragment, "getArguments"))
-        val getActivity = requireNotNull(Lookup.inheritedMethodOrNull(fragment, "getActivity"))
-        val title = Lookup.declaredFields(fragment, makeAccessible = true) { !it.isStatic && it.type == classOf<TextView>() }.singleOrNull()
+        val getArguments = fragment?.let { requireNotNull(Lookup.inheritedMethodOrNull(it, "getArguments")) }
+        val getActivity = fragment?.let { requireNotNull(Lookup.inheritedMethodOrNull(it, "getActivity")) }
+        val title = Lookup.declaredFields(owner, makeAccessible = true) { !it.isStatic && it.type == classOf<TextView>() }.singleOrNull()
         val names = GuestVideoFavoriteHooks.RouterNames()
         val request = host.type(names.request)
         val routeTo = requireNotNull(Lookup.methodOrNull(host.type(names.router), "routeTo", request, classOf<Context>()))
@@ -119,17 +122,24 @@ internal class GuestFollowListPage(private val library: GuestLibraryRuntime, pri
         }
         library.observeCollections { synchronized(pages) { pages.toList() }.forEach { (target, page) -> deliver(target, page) } }
 
-        env.registrar.exact("guest.follow.page.mark", fragment, viewCreated.name, *viewCreated.parameterTypes) {
+        env.registrar.exact("guest.follow.page.mark", owner, created.name, *created.parameterTypes) {
             before {
                 val target = instance ?: return@before
                 if (!isGuest()) return@before
-                val arguments = getArguments.invoke(target) as? Bundle
                 val opened = pendingUntil.getAndSet(0) >= SystemClock.uptimeMillis()
-                if (!opened && arguments?.getBoolean(EXTRA) != true) return@before
-                val activity = getActivity.invoke(target) as? Activity ?: return@before
-                // Kept in the arguments too, so a page recreated after a configuration change stays local.
-                arguments?.putBoolean(EXTRA, true)
-                synchronized(pages) { pages[target] = Page(WeakReference(activity)) }
+                if (getArguments != null && getActivity != null) {
+                    val arguments = getArguments.invoke(target) as? Bundle
+                    if (!opened && arguments?.getBoolean(EXTRA) != true) return@before
+                    val activity = getActivity.invoke(target) as? Activity ?: return@before
+                    // Kept in the arguments too, so a page recreated after a configuration change stays local.
+                    arguments?.putBoolean(EXTRA, true)
+                    synchronized(pages) { pages[target] = Page(WeakReference(activity)) }
+                } else {
+                    val activity = target as? Activity ?: return@before
+                    if (!opened && activity.intent?.getBooleanExtra(EXTRA, false) != true) return@before
+                    activity.intent?.putExtra(EXTRA, true)
+                    synchronized(pages) { pages[target] = Page(WeakReference(activity)) }
+                }
             }
             after {
                 val target = instance ?: return@after
@@ -146,7 +156,7 @@ internal class GuestFollowListPage(private val library: GuestLibraryRuntime, pri
                 if (!isGuest()) return@before
                 val callback = argOrNull(1) ?: return@before
                 val target = Lookup.declaredFields(callback.javaClass, makeAccessible = true) {
-                    !it.isStatic && it.type isSubclassOf fragment
+                    !it.isStatic && it.type isSubclassOf owner
                 }.singleOrNull()?.get(callback) ?: return@before
                 val page = synchronized(pages) { pages[target] } ?: return@before
                 result = null
@@ -180,6 +190,7 @@ internal class GuestFollowListPage(private val library: GuestLibraryRuntime, pri
 
     internal companion object {
         const val FRAGMENT = "com.bilibili.relation.blacklist.BlackListFragment"
+        const val ACTIVITY = "com.bilibili.relation.blacklist.BlackListActivity"
         const val ROUTE = "bilibili://user_center/blackList"
         const val EXTRA = "bil.local.follow.list"
         private const val PENDING_MS = 10_000L
