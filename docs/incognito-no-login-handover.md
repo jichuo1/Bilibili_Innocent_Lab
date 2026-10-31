@@ -44,6 +44,8 @@
 - `d60f185f` 新定位代码改用 KavaRef 的 `isStatic`（完整 Lint 建议）
 - `c02df9db` 8.97 起历史页登录横幅对游客隐藏（9.0.0 实机）
 - `374ffbfd` 8.92 起「我的」页点「关注」打开本地关注列表（宿主 `BlackListFragment` 页，9.0.0 实机）
+- `3c692894` 空间页关注按钮走本地：宿主关注广播同步进本地库，空间数据响应按本地状态显示已关注（9.0.0 实机）
+- `a929a38e` 本地关注列表删到空时当场显示空提示（9.0.0 实机）
 
 ## 4. 官方原生与模块自有（重点）
 
@@ -112,12 +114,18 @@
 - 关注列表：`guest_follow_page`、`guest_mine_follow_entry` 都是 `installed`。点「我的」页的「关注」数字，出现 `guest_mine_follow_entry_applied`、`guest_follow_page_applied`，打开宿主的原生页，标题「我的关注」，空时是宿主的「再怎么找也没有啦」。在视频页关注一个 UP 主后再进，列表里有头像、名字和「已关注」；左滑不会触发移出黑名单；点行进入对方空间页。
 - 关注数字仍显示宿主账号的 0（见第 6 节）。
 
+2026-10-31 16:10 第三轮（`3c692894`、`a929a38e`）：
+
+- 空间页：`guest_library_space_follow=installed`。新开 `bilibili://space/2` 显示「＋关注」，点它后宿主自己变「已关注」并提示「关注成功~」，出现 `guest_space_follow_synced`；退出再进，出现 `guest_space_follow_shown`，按钮直接是「已关注」。
+- 关注列表里这条显示空间页上的名字「碧诗」和头像。点进空间页「已关注 → 取消关注」，宿主提示「取消关注成功」；返回列表当场变成「再怎么找也没有啦」，重进也是空。
+
 上面「关注数、关注列表：不通」一条，其中关注列表已由 `374ffbfd` 解决；那段分析保留作记录。
 
 没验证：
 
 - 设置里真正的「黑名单」入口在游客下是否仍是宿主原样（代码上只有本模块刚打开的页才当成本地页，10 秒过期，没实机点过）。
-- 关注列表在别处取消关注后是否当场刷新（有观察者重发，没实测）。
+- 视频页关注按钮（`FollowFlowHelper` 短路，没改）在这轮之后没有重测；它调宿主回调时若也触发关注广播，本地库按状态设置，不会重复切换。
+- 空间页之外的宿主关注按钮（搜索结果、评论区等）只要发 `FollowStateManager.notify` 就会同步进本地库，但这些页面重进后按钮仍按服务端显示，没逐个看。
 - 收藏页里那张卡片在非空时的封面和「N 个内容」文字（详情页的数量是对的）。
 - 收藏页的「+」新建收藏夹、卡片长按编辑。接口 `folder/add`、`edit`、`add_top` 本地协议里有，但没在 9.0.0 点过。
 - 稍后再看提示条上的「查看」：提示条 4 秒后自动收起，这次没点到，链接 `bilibili://main/playset/watch-later` 在 9.0.0 已登记，但跳转没实测。
@@ -145,7 +153,7 @@
 ## 6. 已知问题与剩余工作（按重要性）
 
 1. **星标弹窗不是官方的**（第 4.3 节）。要不要改、怎么改需要用户定。
-2. **空间页的关注按钮不认本地关注**（2026-10-31 实测）：从关注列表进对方空间页，按钮显示「＋关注」；点它走的是宿主自己的关注请求，被无痕网络封口当成功应答，提示「关注成功~」，但本地库不变，也不经过 `FollowFlowHelper`。视频页的关注按钮在重进页面后大概率也一样只认服务端状态。要找空间页（`com.bilibili.app.authorspace.local.LocalAuthorSpaceActivity`）关注按钮的状态来源和点击入口。另外视频页关注后弹的是模块的「已保存到本地」，宿主原本提示「关注成功」。
+2. **空间页关注按钮已改为本地（`3c692894`，9.0.0 实机）**。空间页是 H5（`LocalAuthorSpaceActivity`，38 版都有，q68）：点关注后 H5 自己发请求（无痕封口当成功），再经 `SpaceRelationWrapper` 调宿主的全局关注广播 `FollowStateManager.notify(mid, followed, except)`；模块钩这个广播同步本地库。H5 的初始关系来自原生 `BiliCall` 取的 `/x/v2/space`，对本地已关注的人改写成 `relation=1`、`card.relation.status=2`。试过在 H5 首次报告后用广播把本地状态推回去：宿主那边收到了（包装类的关系变成 FOLLOW_HIM），但 H5 按钮不变，延后到 4 秒也一样，所以放弃推送，只改响应。仍开放：视频页的关注按钮重进后大概率仍按服务端状态显示；视频页关注弹的是模块的「已保存到本地」，宿主原本提示「关注成功」。
 3. **「我的」页的关注数字**：显示宿主账号的 0，不是本地关注数。数字在 `AccountMineV2.following`（8.92 起 26 版字段名都是 `s`，q65），但无痕下动态、关注、粉丝都是 0，现有的按值定位（`MineSerializedFields`）分不出是哪个字段，没有按字段名硬写。
 4. 引导页：8.97、8.98、9.02 到 9.07、9.17 共 9 个 V2 版本的首启等待判断不在 `request.b/d` 上，仍不生效；8.84 到 8.96 靠旧插件钩子，没验证。
 5. 批次 2 的多项（登录弹窗、一键登录引导、登录 toast、画质钳制、海外强制登录）只有「已注册」证据，没有真机触发过。
@@ -180,7 +188,7 @@
 - 列表短路：`GuestNativeListHttpHooks`（`BiliCall.execute`，另含回退缓存屏蔽、`findFragmentByUrl`、文件夹路由、详情页归属）、`GuestIgnetLibraryResponses`（Ktor/ignet）。
 - 入口与路由：`GuestMineMenuHooks`（菜单项 `needLogin`）、`GuestFavoritesRouteHooks`（收藏页与卡片，`routeTo` 两个重载）、`GuestMineOverlayHooks`、`GuestLibraryHostHooks`。
 - 收藏写入：`GuestVideoFavoriteHooks`、`GuestFavoriteFolderPicker`、`GuestStoryStar`、`GuestPageFavorite`、`GuestNativeFavoriteHooks`（仅 8.90.2）、`GuestNativeFolderEditorHooks`。
-- 其他：`GuestNativeHistoryHooks`（含 8.97 起的横幅守卫）、`GuestFollowListPage` 与 `GuestMineFollowEntry`（8.92 起的本地关注列表和入口）、`GuestNativeWatchLaterHooks`、`GuestNativeWatchLaterAddHooks`（仅 8.90.2）、`GuestWatchLaterLoginScope`（8.97 起的稍后再看添加）、`GuestNativeFollowListHooks`、`GuestPlaybackHooks`、`GuestOnboardingHooks`、`PrivacyStructuralResolver`（按形状找混淆成员，歧义不猜）。
+- 其他：`GuestNativeHistoryHooks`（含 8.97 起的横幅守卫）、`GuestFollowListPage` 与 `GuestMineFollowEntry`（8.92 起的本地关注列表和入口）、`GuestSpaceFollowSync`（关注广播同步与空间页响应）、`GuestNativeWatchLaterHooks`、`GuestNativeWatchLaterAddHooks`（仅 8.90.2）、`GuestWatchLaterLoginScope`（8.97 起的稍后再看添加）、`GuestNativeFollowListHooks`、`GuestPlaybackHooks`、`GuestOnboardingHooks`、`PrivacyStructuralResolver`（按形状找混淆成员，歧义不猜）。
 
 宿主类与成员的查找统一走 `runtime/KavaMemberLookup.kt`。
 

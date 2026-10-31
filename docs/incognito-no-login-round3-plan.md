@@ -507,3 +507,12 @@ q51（38 版本）：
 - q65、q67（38 版）：本地关注列表要复用的关系页 8.84 到 8.91 是 `BlackListActivity`，8.92 到 9.17 是 `BlackListFragment`（所以 9.16.1 上旧钩子其实也没生效），两者都经 `RelationApiManager.getBlackList(String, BiliApiDataCallback)` 取数据；`BlackListFragment` 都只有一个 `TextView` 字段，内部类和成员名几乎每版都变。「我的」页关注点击对象的 `toString()` 在 31 版都是 `ToAttentionClick`，所在类名每版不同。`AccountMineV2` 的长整型字段 26 版都是 `M a l r s t w`（`s` 是 following）。
 - q66：历史页登录横幅是 `HistoryFragmentV3` 唯一的 `TintConstraintLayout` 字段（8.92 到 9.09 叫 `n`，9.10 起叫 `T`）；8.97 起 26 版没有 `isLogin()`。
 - 9.0.0 实机：点「关注」打开「我的关注」原生页并显示本地关注；历史横幅三个标签都不出现。新发现的缺口（空间页关注按钮不认本地状态）记在交接文档第 6 节第 2 条。
+
+## 2026-10-31 第三轮：空间页关注（`3c692894`、`a929a38e`）
+
+- 探针（未提交）：9.0.0 空间页加载后 H5 先报一次服务端关系（`SpaceRelationWrapper` 的关系从 null 变 NO_RELATION，不广播）；点关注、取消关注时 H5 自己请求，再报新关系，包装类经 `updateFromH5` 调 `FollowStateManager.notify(2, true/false)`。从空间页进视频再返回不会重报。
+- q68（38 版）：`LocalAuthorSpaceActivity`、`SpaceRelationWrapper`、`$updateFromH5$1`、`FollowStateManager.notify(JZ…)` 38 版都在；关系类 8.84 到 8.99 叫 `kntr.base.jsb.api.space.b0/c0/d0`，9.01 起叫 `SpaceRelation`；`SpaceRelationType` 的枚举名 38 版相同；包装类字段名 9.10 起整体后移一位（`a/c` 变 `b/d`）。
+- 推回失败的证据：包装类的更新通道是 `replay=0` 的 `MutableSharedFlow`；推送时订阅数已大于 0，推送后包装类关系为 FOLLOW_HIM，H5 按钮仍是「＋关注」，延后 1.5 秒、4 秒都一样。
+- 游客 `/x/v2/space`（vmid=2，签名的公开请求）：`data.relation=-999`、`data.guest_relation=-999`、`data.card.relation={"status":1}`。改写后 H5 显示「已关注」，说明它按这几个字段渲染。
+- 门禁：4231 个测试 0 失败（1 个无关跳过），FastLint 0 错误、261 条警告；完整 Lint 这轮没跑。
+
