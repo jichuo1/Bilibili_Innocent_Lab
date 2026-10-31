@@ -54,6 +54,45 @@ class NativeFavoriteProtocolTest {
         assertTrue(data.readSnapshot().collections.favorites.getValue(LocalVirtualLibrary.DEFAULT_FOLDER).isEmpty())
         assertEquals(listOf(video), data.readSnapshot().collections.favorites.getValue("other"))
     }
+    @Test fun hostFolderPickerTicksAndCommitsOnlyTheChangedFolders() {
+        val data = library()
+        data.createFavoriteFolder("other")
+        val state = data.readSnapshot().collections
+        val default = NativeFavoriteFolders.id(state, LocalVirtualLibrary.DEFAULT_FOLDER)
+        val other = NativeFavoriteFolders.id(state, "other")
+        fun ticks() = response(data, "folder/created/list-all", "rid" to "170001", "type" to "2").getJSONObject("data")
+            .getJSONArray("list").let { list -> (0 until list.length()).associate { list.getJSONObject(it).getLong("id") to list.getJSONObject(it).getInt("fav_state") } }
+        assertEquals(mapOf(default to 1, other to 0), ticks())
+
+        val reply = response(data, "resource/batch-deal", "resources" to "170001:2", "add_media_ids" to "$other", "del_media_ids" to "$default")
+        assertEquals(0, reply.getInt("code"))
+        assertEquals("", reply.getJSONObject("data").getString("toast_msg"))
+        assertEquals(mapOf(default to 0, other to 1), ticks())
+
+        // "0" is the default folder; an archive this library never held comes from the caller's metadata.
+        val fresh = video.copy(aid = 170002, title = "new")
+        assertTrue(NativeFavoriteProtocol.isAdd("/x/v3/fav/resource/batch-deal", mapOf("add_media_ids" to "0")))
+        assertFalse(NativeFavoriteProtocol.isAdd("/x/v3/fav/resource/batch-deal", mapOf("del_media_ids" to "0", "add_media_ids" to "")))
+        JSONObject(NativeFavoriteProtocol.respond("/x/v3/fav/resource/batch-deal",
+            mapOf("resources" to "170002:2", "add_media_ids" to "0", "del_media_ids" to ""), data) { if (it == 170002L) fresh else null })
+        assertEquals(listOf(fresh), data.readSnapshot().collections.favorites.getValue(LocalVirtualLibrary.DEFAULT_FOLDER))
+
+        // Unknown archives and empty commits never report success.
+        val before = data.readSnapshot().collections
+        assertThrows(IllegalArgumentException::class.java) {
+            response(data, "resource/batch-deal", "resources" to "170003:2", "add_media_ids" to "0")
+        }
+        assertThrows(IllegalArgumentException::class.java) { response(data, "resource/batch-deal", "resources" to "170001:2") }
+        assertEquals(before, data.readSnapshot().collections)
+    }
+    @Test fun unfavoriteAllRemovesTheArchiveEverywhere() {
+        val data = library()
+        data.createFavoriteFolder("other")
+        data.addFavorite(video, "other")
+        assertEquals(0, response(data, "resource/unfav-all", "rid" to "170001", "type" to "2").getInt("code"))
+        assertTrue(data.readSnapshot().collections.favorites.values.all { it.isEmpty() })
+        assertEquals(1, response(data, "folder/created/list-all").getJSONObject("data").getJSONArray("list").getJSONObject(0).getInt("fav_state"))
+    }
     @Test fun unknownMutationIsNotReportedAsSaved() {
         val data = library(); val before = data.readSnapshot()
         assertEquals(-400, response(data, "folder/unknown-operation").getInt("code"))

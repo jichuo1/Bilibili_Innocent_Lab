@@ -44,14 +44,17 @@ internal class GuestNativeListHttpHooks(private val library: GuestLibraryRuntime
                     // A feed card can add a video this session never opened. Read its archive here on the host's network
                     // thread: the blocking gRPC call must not run inside the library's single IO executor. A failed read
                     // leaves the id unknown, so the protocol fails the add instead of inventing data.
-                    val archives = if (!NativeWatchLaterProtocol.isAdd(path)) emptyMap() else
-                        NativeWatchLaterProtocol.resourceIds(params).filter { library.videoMetadata(it, 0) == null }
-                            .mapNotNull { aid -> runCatching { aid to PrivacyVideoMetadata.fetch(host, aid) }.getOrNull() }.toMap()
+                    val adds = when {
+                        NativeWatchLaterProtocol.isAdd(path) -> NativeWatchLaterProtocol.resourceIds(params)
+                        NativeFavoriteProtocol.isAdd(path, params) -> NativeFavoriteProtocol.resourceIds(params)
+                        else -> emptyList()
+                    }
+                    val archives = adds.filter { library.videoMetadata(it, 0) == null }
+                        .mapNotNull { aid -> runCatching { aid to PrivacyVideoMetadata.fetch(host, aid) }.getOrNull() }.toMap()
+                    val metadata = { aid: Long -> library.videoMetadata(aid, 0) ?: archives[aid] }
                     val json = library.nativeBlocking {
-                        if (NativeWatchLaterProtocol.handles(path)) NativeWatchLaterProtocol.respond(path, params, it) { aid ->
-                            library.videoMetadata(aid, 0) ?: archives[aid]
-                        }
-                        else NativeFavoriteProtocol.respond(path, params, it)
+                        if (NativeWatchLaterProtocol.handles(path)) NativeWatchLaterProtocol.respond(path, params, it, metadata)
+                        else NativeFavoriteProtocol.respond(path, params, it, metadata)
                     }
                     // The same pin endpoint is decoded as BaseResponse by Favorites V2 and String by the older detail page.
                     val pinString = path == "/x/v3/fav/folder/add_top" &&

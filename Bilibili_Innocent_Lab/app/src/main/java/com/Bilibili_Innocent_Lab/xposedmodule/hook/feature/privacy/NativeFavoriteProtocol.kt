@@ -23,11 +23,22 @@ internal object NativeFavoriteProtocol {
         return videos.filter { it.aid !in order } + state.favoriteOrder.mapNotNull(byId::get)
     }
 
-    fun respond(path: String, params: Map<String, String>, library: LocalVirtualLibrary): String {
+    /** The favorite writes that add a video, so the caller can fetch metadata for an archive this session never opened. */
+    fun isAdd(path: String, params: Map<String, String>) =
+        path == "/x/v3/fav/resource/batch-deal" && params["add_media_ids"].orEmpty().isNotBlank()
+
+    /** Archive ids of `aid:type` resources; only videos (type 2) are local. */
+    fun resourceIds(params: Map<String, String>): List<Long> = params["resources"].orEmpty().split(',')
+        .filter { it.isNotBlank() && it.substringAfter(':', "2") == "2" }.map { it.substringBefore(':').toLong() }
+
+    fun respond(path: String, params: Map<String, String>, library: LocalVirtualLibrary,
+                metadata: (Long) -> LocalVirtualLibrary.Video? = { null }): String {
         val snapshot = library.readSnapshot()
         val state = snapshot.collections
         fun id(key: String) = params[key]?.toLongOrNull() ?: 0L
         fun folder(fid: Long): String = requireNotNull(state.favorites.keys.firstOrNull { NativeFavoriteFolders.id(state, it) == fid }) { "Unknown local folder" }
+        // With `rid`, `fav_state` says whether that video is in the folder (the host's folder picker ticks from it).
+        val rid = id("rid")
         fun folderRow(name: String): JSONObject {
             val videos = state.favorites.getValue(name).distinctBy { it.aid }
             val fid = NativeFavoriteFolders.id(state, name)
@@ -36,7 +47,8 @@ internal object NativeFavoriteProtocol {
                 "is_top" to (state.folderInfo[name]?.pinned == true), "title" to name, "intro" to state.folderInfo[name]?.intro.orEmpty(), "media_count" to videos.size,
                 "cover" to (state.folderInfo[name]?.cover?.takeIf { it.isNotEmpty() } ?: videos.firstOrNull()?.cover.orEmpty()),
                 "link" to "bilibili://music/playlist/detail/$fid?type=11", "recent_fav" to array(videos.take(3).map(::row)),
-                "upper" to obj("mid" to 0, "name" to "本地账号"), "cnt_info" to obj("collect" to 0, "play" to 0), "fav_state" to 1)
+                "upper" to obj("mid" to 0, "name" to "本地账号"), "cnt_info" to obj("collect" to 0, "play" to 0),
+                "fav_state" to if (rid <= 0 || videos.any { it.aid == rid }) 1 else 0)
         }
         fun videos(): List<LocalVirtualLibrary.Video> {
             val source = if (id("media_id") > 0) state.favorites.getValue(folder(id("media_id")))
@@ -125,6 +137,28 @@ internal object NativeFavoriteProtocol {
                     if (name == null || key == name) values.filterNot { it.aid in ids } else values
                 }
                 library.writeSnapshot(snapshot.copy(collections = state.copy(favorites = folders)))
+                JSONObject()
+            }
+            "/x/v3/fav/resource/batch-deal" -> {
+                // The host's folder picker sends only the changed folders; "0" is the default folder.
+                fun folders(key: String) = params[key].orEmpty().split(',').filter { it.isNotBlank() }
+                    .map { if (it == "0") LocalVirtualLibrary.DEFAULT_FOLDER else folder(it.toLong()) }.toSet()
+                val added = folders("add_media_ids")
+                val removed = folders("del_media_ids")
+                val ids = resourceIds(params)
+                require(ids.isNotEmpty() && (added.isNotEmpty() || removed.isNotEmpty()))
+                ids.forEach { aid ->
+                    val current = state.favorites.filterValues { videos -> videos.any { it.aid == aid } }.keys
+                    val video = state.favorites.values.flatten().firstOrNull { it.aid == aid } ?: requireNotNull(metadata(aid)) { "Unknown archive" }
+                    library.setFavoriteFolders(video, current - removed + added)
+                }
+                obj("prompt" to false, "toast_msg" to "")
+            }
+            "/x/v3/fav/resource/unfav-all" -> {
+                val aid = id("rid")
+                require(aid > 0)
+                library.writeSnapshot(snapshot.copy(collections = state.copy(
+                    favorites = state.favorites.mapValues { (_, videos) -> videos.filterNot { it.aid == aid } })))
                 JSONObject()
             }
             "/x/v3/fav/folder/del" -> {
