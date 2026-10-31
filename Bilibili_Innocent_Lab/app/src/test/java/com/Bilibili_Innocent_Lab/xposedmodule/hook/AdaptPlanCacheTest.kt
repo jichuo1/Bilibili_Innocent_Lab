@@ -96,7 +96,7 @@ class AdaptPlanCacheTest {
 
     @Test fun `schema and rule versions are unchanged because the key is purely additive`() {
         assertEquals(62, VersionAdapterContract.SCHEMA_VERSION)
-        assertEquals(80, VersionAdapterContract.RULE_VERSION)
+        assertEquals(81, VersionAdapterContract.RULE_VERSION)
         assertEquals(62, JSONObject(fullyCovered().toJson().toString()).getInt("sv"))
     }
 
@@ -125,13 +125,13 @@ class AdaptPlanCacheTest {
         // 宿主升级：versionCode 变化。
         assertNull(ok.copy(identity = identity.copy(versionCode = identity.versionCode + 1)).usableCache(false, plan()))
         // 规则版本变化 / 宿主 APK 变化：指纹不同。
-        assertNull(ok.copy(identity = identity.copy(fingerprint = "rules=81")).usableCache(false, plan()))
+        assertNull(ok.copy(identity = identity.copy(fingerprint = "rules=82")).usableCache(false, plan()))
         // 手动 reset：reset 时间戳晚于缓存。
         assertNull(ok.copy(resetTimestamp = stored.ts + 1).usableCache(false, plan()))
         // 这些情况下缓存整体不可用 → null（整轮重新适配），而不是「缺口」→ 静默补扫。
         for (invalid in listOf(
             ok.copy(identity = identity.copy(versionCode = identity.versionCode + 1)),
-            ok.copy(identity = identity.copy(fingerprint = "rules=81")),
+            ok.copy(identity = identity.copy(fingerprint = "rules=82")),
             ok.copy(resetTimestamp = stored.ts + 1),
             ok.copy(cached = null)
         )) {
