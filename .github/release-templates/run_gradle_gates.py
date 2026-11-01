@@ -32,7 +32,15 @@ TASKS = (
     "compileReleaseJavaWithJavac",
     "minifyReleaseWithR8",
 )
-TASK_LINE = re.compile(r"^> Task (:app:\S+?)(?: (UP-TO-DATE|FROM-CACHE|NO-SOURCE|SKIPPED|FAILED))?\s*$")
+# "all" is the complete single-invocation gate. CI splits it into two parallel jobs: "lint" owns the
+# serial lintDebug chain (the longest path) and "build" owns every other task. Together they cover
+# exactly TASKS; a partition never adds, drops or reorders a task relative to "all".
+PARTITIONS = {
+    "all": TASKS,
+    "build": tuple(task for task in TASKS if task != "lintDebug"),
+    "lint": ("lintDebug",),
+}
+TASK_LINE =re.compile(r"^> Task (:app:\S+?)(?: (UP-TO-DATE|FROM-CACHE|NO-SOURCE|SKIPPED|FAILED))?\s*$")
 MAX_XML_BYTES = 16 * 1024 * 1024
 
 
@@ -43,6 +51,7 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--jvmargs", default="")
     parser.add_argument("--release-version-name", default="")
     parser.add_argument("--version-code", type=int)
+    parser.add_argument("--partition", default="all", choices=sorted(PARTITIONS))
     return parser
 
 
@@ -65,7 +74,7 @@ def build_command(project: Path, options: argparse.Namespace) -> list[str]:
         command.append(f"-PinnocentLab.releaseVersionName={options.release_version_name}")
     if options.version_code is not None:
         command.append(f"-Pproject.app.versionCode={options.version_code}")
-    return command + ["--profile"] + list(TASKS) + ["--continue", "--console=plain", "--no-daemon"]
+    return command + ["--profile"] + list(PARTITIONS[options.partition]) + ["--continue", "--console=plain", "--no-daemon"]
 
 
 def source_test_classes(directory: Path) -> set[str]:
@@ -93,56 +102,64 @@ def source_test_inventory(project: Path) -> dict[str, set[str]]:
             for layer, folder in (("unit", "test"), ("contract", "contractTest"))}
 
 
-def collect_reports(project: Path, expected: dict[str, set[str]] | None = None) -> dict:
+def collect_reports(project: Path, expected: dict[str, set[str]] | None = None, partition: str = "all") -> dict:
+    """Validate the raw evidence a partition owns; other partitions' reports are neither read nor required."""
     app = project / "app"
     errors: list[str] = []
-    if expected is None:
-        expected = source_test_inventory(project)
+    with_tests = partition != "lint"
+    with_lint = partition != "build"
     totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0, "time_seconds": 0.0}
-    classes: set[str] = set()
-    report_files = sorted((app / "build/test-results/testDebugUnitTest").glob("TEST-*.xml"))
-    for path in report_files:
-        try:
-            suite = read_xml(path)
-            if suite.tag != "testsuite":
-                raise ValueError("expected testsuite report")
-            cases = suite.findall("testcase")
-            if int(suite.get("tests", "-1")) != len(cases):
-                raise ValueError("test count does not match cases")
-            for case in cases:
-                classes.add(case.get("classname", suite.get("name", "")))
-                totals["tests"] += 1
-                for tag in ("failure", "error", "skipped"):
-                    totals[{"failure": "failures", "error": "errors", "skipped": "skipped"}[tag]] += int(case.find(tag) is not None)
-                elapsed = float(case.get("time", "0"))
-                if not math.isfinite(elapsed) or elapsed < 0:
-                    raise ValueError("invalid test time")
-                totals["time_seconds"] += elapsed
-        except (OSError, ValueError, ET.ParseError):
-            errors.append(f"invalid_test_report:{path.name}")
     layers = {}
-    for layer, required in expected.items():
-        missing = sorted(required - classes)
-        layers[layer] = {"expected_classes": len(required), "reported_classes": len(required & classes), "missing_classes": missing}
-        if not required or missing:
-            errors.append(f"incomplete_{layer}_test_reports")
-    if not totals["tests"] or totals["tests"] == totals["skipped"]:
-        errors.append("empty_or_all_skipped_test_reports")
-    if totals["failures"] or totals["errors"]:
-        errors.append("test_failures")
+    report_files: list[Path] = []
+    if with_tests:
+        if expected is None:
+            expected = source_test_inventory(project)
+        classes: set[str] = set()
+        report_files = sorted((app / "build/test-results/testDebugUnitTest").glob("TEST-*.xml"))
+        for path in report_files:
+            try:
+                suite = read_xml(path)
+                if suite.tag != "testsuite":
+                    raise ValueError("expected testsuite report")
+                cases = suite.findall("testcase")
+                if int(suite.get("tests", "-1")) != len(cases):
+                    raise ValueError("test count does not match cases")
+                for case in cases:
+                    classes.add(case.get("classname", suite.get("name", "")))
+                    totals["tests"] += 1
+                    for tag in ("failure", "error", "skipped"):
+                        totals[{"failure": "failures", "error": "errors", "skipped": "skipped"}[tag]] += int(case.find(tag) is not None)
+                    elapsed = float(case.get("time", "0"))
+                    if not math.isfinite(elapsed) or elapsed < 0:
+                        raise ValueError("invalid test time")
+                    totals["time_seconds"] += elapsed
+            except (OSError, ValueError, ET.ParseError):
+                errors.append(f"invalid_test_report:{path.name}")
+        for layer, required in expected.items():
+            missing = sorted(required - classes)
+            layers[layer] = {"expected_classes": len(required), "reported_classes": len(required & classes), "missing_classes": missing}
+            if not required or missing:
+                errors.append(f"incomplete_{layer}_test_reports")
+        if not totals["tests"] or totals["tests"] == totals["skipped"]:
+            errors.append("empty_or_all_skipped_test_reports")
+        if totals["failures"] or totals["errors"]:
+            errors.append("test_failures")
     lint = {"errors": None, "warnings": None}
-    try:
-        root = read_xml(app / "build/reports/lint-results-debug.xml")
-        if root.tag != "issues":
-            raise ValueError("expected lint issues report")
-        severities = [issue.get("severity", "") for issue in root.findall("issue")]
-        lint = {"errors": sum(s in ("Error", "Fatal") for s in severities), "warnings": severities.count("Warning")}
-        if lint["errors"]:
-            errors.append("lint_errors")
-    except (OSError, ValueError, ET.ParseError):
-        errors.append("missing_or_invalid_full_lint_xml")
+    if with_lint:
+        try:
+            root = read_xml(app / "build/reports/lint-results-debug.xml")
+            if root.tag != "issues":
+                raise ValueError("expected lint issues report")
+            severities = [issue.get("severity", "") for issue in root.findall("issue")]
+            lint = {"errors": sum(s in ("Error", "Fatal") for s in severities), "warnings": severities.count("Warning")}
+            if lint["errors"]:
+                errors.append("lint_errors")
+        except (OSError, ValueError, ET.ParseError):
+            errors.append("missing_or_invalid_full_lint_xml")
     files = {}
     for name, relative in (("lint_html", "build/reports/lint-results-debug.html"), ("debug_apk", "build/outputs/apk/debug/app-debug.apk"), ("r8_mapping", "build/outputs/mapping/release/mapping.txt")):
+        if (name == "lint_html" and not with_lint) or (name != "lint_html" and not with_tests):
+            continue
         path = app / relative
         size = path.stat().st_size if path.is_file() else 0
         files[name] = {"path": f"app/{relative}", "bytes": size}
@@ -154,10 +171,15 @@ def collect_reports(project: Path, expected: dict[str, set[str]] | None = None) 
 def write_summary(path: str | None, receipt: dict) -> None:
     if not path:
         return
-    lines = ["### Complete Gradle gates", "", f"- Result: **{receipt['status']}**; Gradle exit: `{receipt['gradle_exit_code']}`; wall: `{receipt['runtime_seconds']:.3f}s`", "- One invocation; both test layers; full lint; R8; `--continue --no-daemon`.", "", "| Task | Outcome |", "| --- | --- |"]
-    lines += [f"| `{task}` | {receipt['task_outcomes'].get(task, 'NOT_REACHED')} |" for task in TASKS]
+    partition = receipt.get("partition", "all")
+    scope = {"all": "both test layers; full lint; R8", "build": "both test layers; R8; lint runs in its own parallel job", "lint": "full lint only; tests and R8 run in the parallel build job"}[partition]
+    lines = [f"### Gradle gates ({partition})", "", f"- Result: **{receipt['status']}**; Gradle exit: `{receipt['gradle_exit_code']}`; wall: `{receipt['runtime_seconds']:.3f}s`", f"- One invocation; {scope}; `--continue --no-daemon`.", "", "| Task | Outcome |", "| --- | --- |"]
+    lines += [f"| `{task}` | {receipt['task_outcomes'].get(task, 'NOT_REACHED')} |" for task in receipt["tasks"]]
     reports = receipt["reports"]
-    lines += ["", f"- Tests: {reports['tests']['tests']}; failures/errors: {reports['tests']['failures']}/{reports['tests']['errors']}; skipped: {reports['tests']['skipped']}."]
+    if partition != "lint":
+        lines += ["", f"- Tests: {reports['tests']['tests']}; failures/errors: {reports['tests']['failures']}/{reports['tests']['errors']}; skipped: {reports['tests']['skipped']}."]
+    else:
+        lines += ["", f"- Lint: errors {reports['lint']['errors']}; warnings {reports['lint']['warnings']}."]
     for layer, values in reports["layers"].items():
         lines.append(f"- {layer} test classes: {values['reported_classes']}/{values['expected_classes']}.")
     lines += [f"- Evidence errors: `{', '.join(receipt['errors']) or 'none'}`.", "- Receipt/log: `app/build/reports/gradle-gates.json` / `gradle-gates.log`.", ""]
@@ -167,6 +189,7 @@ def write_summary(path: str | None, receipt: dict) -> None:
 
 def run_gates(repository: Path, options: argparse.Namespace) -> int:
     project = repository / PROJECT_DIRECTORY
+    tasks = PARTITIONS[options.partition]
     command = build_command(project, options)
     output = project / "app/build/reports"
     output.mkdir(parents=True, exist_ok=True)
@@ -183,7 +206,7 @@ def run_gates(repository: Path, options: argparse.Namespace) -> int:
                 print(line, end="", flush=True)
                 log.write(line)
                 match = TASK_LINE.fullmatch(line.rstrip("\r\n"))
-                if match and match[1][5:] in TASKS:
+                if match and match[1][5:] in tasks:
                     task = match[1][5:]
                     outcomes[task] = match[2] or "EXECUTED"
                     observed[task] = round(time.monotonic() - started, 6)
@@ -192,22 +215,22 @@ def run_gates(repository: Path, options: argparse.Namespace) -> int:
             spawn_error = type(exc).__name__
             gradle_exit = 2
             log.write(f"Gradle launch failed: {spawn_error}\n")
-    reports = collect_reports(project)
+    reports = collect_reports(project, partition=options.partition)
     errors = list(reports["errors"])
     if gradle_exit:
         errors.insert(0, "gradle_failed")
     if spawn_error:
         errors.append("gradle_launch_failed")
-    for task in TASKS:
+    for task in tasks:
         outcome = outcomes.get(task)
         if outcome is None or outcome in ("FAILED", "SKIPPED") or (outcome == "NO-SOURCE" and task != "compileReleaseJavaWithJavac"):
             errors.append(f"task_incomplete:{task}")
     receipt = {
         "schema": 1, "status": "success" if not errors else "failed", "started_at_utc": started_at,
         "runtime_seconds": round(time.monotonic() - started, 6), "gradle_exit_code": gradle_exit,
-        "tasks": list(TASKS), "task_outcomes": outcomes, "task_last_observed_seconds": observed,
+        "partition": options.partition, "tasks": list(tasks), "task_outcomes": outcomes, "task_last_observed_seconds": observed,
         "task_timing_scope": "console event observation, not individual task execution duration",
-        "invocations": 1, "continue": True, "daemon": False, "test_layers": ["unit", "contract"],
+        "invocations": 1, "continue": True, "daemon": False, "test_layers": [] if options.partition == "lint" else ["unit", "contract"],
         "compile_sdk": options.compile_sdk, "version_code": options.version_code,
         "release_version_name": options.release_version_name or None,
         "jvmargs_sha256": hashlib.sha256(options.jvmargs.encode()).hexdigest() if options.jvmargs else None,
