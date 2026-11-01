@@ -510,10 +510,9 @@ tasks.withType<KotlinJvmCompile>().configureEach {
         freeCompilerArgs.addAll(
             "-Xno-param-assertions",
             "-Xno-call-assertions",
-            "-Xno-receiver-assertions",
-            // 代码生成阶段并行：0 = 每个核一个线程（默认只有 1 个）。只改编译速度，不改输出：
-            // 3279 个 Kotlin 类的输出逐字节一致；CI 的 4 核 runner 上两个并行的 Kotlin 编译约快 20%。
-            "-Xbackend-threads=0"
+            "-Xno-receiver-assertions"
+            // 不要加 -Xbackend-threads：Kotlin 2.4.21 的并行代码生成存在数据竞争（CI 里出现过
+            // ArrayList 下标越界，编译崩溃后靠重试才通过），输出的正确性无法保证，省下的十几秒不值得。
         )
     }
 }
