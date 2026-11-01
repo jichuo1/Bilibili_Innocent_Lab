@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookParam
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
@@ -34,7 +35,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class CloudKeyFreezeFeatureInstaller(
     private val enabled: Boolean,
     private val rules: String,
-    private val observe: Boolean
+    private val observe: Boolean,
+    /** 扫描勾选面板写出的固定值（`键名=true|false` 每行一条）；同一个键手填规则优先。 */
+    private val picked: String = "",
+    private val scanFlushDelayMs: Long = CloudKeyScanCollector.DEFAULT_FLUSH_DELAY_MS
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -59,7 +63,8 @@ internal class CloudKeyFreezeFeatureInstaller(
         if (environment.processName != TARGET_PACKAGE) {
             return FeatureInstallResult.Skipped("non-main-process")
         }
-        val ruleSet = CloudKeyFreezeRules.parse(rules)
+        val ruleSet = CloudKeyFreezeRules.parse(picked, CloudKeyFreezeRules.MAX_PICKED)
+            .overlaidWith(CloudKeyFreezeRules.parse(rules))
         if (ruleSet.rejected + ruleSet.protectedRejected > 0) {
             environment.logError(
                 "cloud_key_freeze_rejected",
@@ -75,7 +80,7 @@ internal class CloudKeyFreezeFeatureInstaller(
         val targets = collectTargets(loader)
         if (targets.isEmpty()) return missing(environment, "missing-config-boundary")
 
-        val gate = Gate(environment, ruleSet.rules, observe)
+        val gate = Gate(environment, ruleSet.rules, observe, if (observe) startScan(environment) else null)
         var installed = 0
         targets.forEachIndexed { index, target ->
             if (register(environment, gate, "cloud_key_freeze.${target.family}.$index", target)) {
@@ -106,6 +111,44 @@ internal class CloudKeyFreezeFeatureInstaller(
         return FeatureInstallResult.Installed(installed, complete = complete)
     }
 
+    /**
+     * 扫描是挂在冻结功能上的可选能力，有自己的状态键和错误日志：它建不起来时冻结照常安装，
+     * 也不把冻结的状态报成失败。
+     */
+    private fun startScan(environment: HookEnvironment): CloudKeyScanCollector? = runCatching {
+        newScanCollector(environment)
+    }.onSuccess {
+        environment.reportStatus(SCAN_STATUS, "collecting")
+    }.onFailure { throwable ->
+        environment.reportStatus(SCAN_STATUS, "unavailable")
+        environment.logError("cloud_key_scan_start", "[BIL] 云控键扫描未能启动，冻结不受影响: $throwable")
+    }.getOrNull()
+
+    /**
+     * 扫描结果经现成的宿主扫描快照通道交给模块设置页；发布在自己的守护线程上做，
+     * 回调体内不编码、不落盘。任务体跑在宿主进程里，逃逸异常会按默认 handler 杀宿主，所以带防波堤。
+     */
+    private fun newScanCollector(environment: HookEnvironment): CloudKeyScanCollector {
+        val publisher = ScanSnapshotPublisher(
+            environment, MineComponentSnapshotCodec.SURFACE_CLOUD_KEYS, setOf(CloudKeyScan.CAPABILITY)
+        )
+        val executor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { task ->
+            Thread(task, "bil-cloud-key-scan").apply { isDaemon = true }
+        }
+        return CloudKeyScanCollector(
+            capacity = MineComponentSnapshotCodec.maxEntries(MineComponentSnapshotCodec.SURFACE_CLOUD_KEYS),
+            schedule = { delayMs, task ->
+                runCatching {
+                    executor.schedule({
+                        HostThreadGuard.run("cloud_key_scan.flush") { task() }
+                    }, delayMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+                }
+            },
+            publish = publisher::publish,
+            flushDelayMs = scanFlushDelayMs
+        )
+    }
+
     private fun register(
         environment: HookEnvironment,
         gate: Gate,
@@ -131,7 +174,8 @@ internal class CloudKeyFreezeFeatureInstaller(
     private class Gate(
         private val environment: HookEnvironment,
         private val table: Map<String, CloudKeyRule>,
-        private val observe: Boolean
+        private val observe: Boolean,
+        private val collector: CloudKeyScanCollector?
     ) {
         private val seen = ConcurrentHashMap<String, Boolean>()
         private val firstObserved = AtomicBoolean(false)
@@ -140,8 +184,8 @@ internal class CloudKeyFreezeFeatureInstaller(
         fun onRead(param: ModernHookParam, target: Target) {
             if (param.hasThrowable) return
             val key = param.argOrNull(target.keyIndex) as? String ?: return
-            if (observe) observeKey(key, target.kind, param.result)
             val rule = table[key]
+            if (observe) observeKey(key, target.kind, param.result, frozen = rule != null)
             // 观测模式下读到任意键、或读到规则里的键，都说明读取入口确实在宿主里被走到了。
             if ((rule != null || observe) && firstObserved.compareAndSet(false, true)) {
                 environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
@@ -168,7 +212,10 @@ internal class CloudKeyFreezeFeatureInstaller(
          * 只记键名和布尔值：字符串云控值里可能带地址、盐或密钥(例如上报盐值)，不进日志。
          * 去重集合到上限后不再登记，避免宿主读到海量动态键时无限增长。
          */
-        private fun observeKey(key: String, kind: CloudKeyReadKind, original: Any?) {
+        private fun observeKey(key: String, kind: CloudKeyReadKind, original: Any?, frozen: Boolean) {
+            // 扫描面板只收布尔值，且不收已被固定的键：它们的结果可能已经被内层钩子换成了固定值，
+            // 此刻看到的不再是云控下发的原值；这些键在面板里保留上一次扫描到的原值。
+            if (!frozen && original is Boolean && kind != CloudKeyReadKind.TEXT) collector?.record(key, original)
             if (seen.size >= MAX_OBSERVED_KEYS || seen.putIfAbsent(key, true) != null) return
             val value = if (original is Boolean) " value=$original" else ""
             environment.logInfo("cloud_key_freeze_seen_$key", "[BIL] 云控读取 key=$key kind=$kind$value")
@@ -326,6 +373,7 @@ internal class CloudKeyFreezeFeatureInstaller(
         const val ID = "cloud_key_freeze"
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val CHANNEL_STATUS = "cloud_key_freeze_status"
+        private const val SCAN_STATUS = "cloud_key_scan_status"
         private const val MAX_OBSERVED_KEYS = 400
 
         private const val DEVICE_DECISION_PACKAGE = "com.bilibili.lib.dd"

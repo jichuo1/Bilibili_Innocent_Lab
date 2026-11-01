@@ -148,4 +148,51 @@ class CloudKeyFreezeRulesTest {
     }
 
     // endregion
+
+    // region pins written by the scan panel
+
+    @Test fun `only keys that can be written as a rule are freezable`() {
+        assertTrue(CloudKeyFreezeRules.isFreezable("ff_home.tab-1"))
+        for (key in listOf("", "has space", "a=b", "中文", "k".repeat(97), "grpc.timeout", "Login.x", "RISK.y")) {
+            assertFalse(key, CloudKeyFreezeRules.isFreezable(key))
+        }
+        assertTrue(CloudKeyFreezeRules.isFreezable("k".repeat(96)))
+        assertTrue("a lookalike of a protected prefix is not protected", CloudKeyFreezeRules.isFreezable("login_banner"))
+    }
+
+    @Test fun `pins are written sorted one per line and read back unchanged`() {
+        val text = CloudKeyFreezeRules.formatPins(mapOf("ff_b" to false, "dd.a" to true, "grpc.x" to true, "bad key" to true))
+        assertEquals("dd.a=true\nff_b=false", text)
+        assertEquals(mapOf("dd.a" to true, "ff_b" to false), CloudKeyFreezeRules.parsePins(text))
+        assertEquals("", CloudKeyFreezeRules.formatPins(emptyMap()))
+        assertTrue(CloudKeyFreezeRules.parsePins(null).isEmpty())
+    }
+
+    @Test fun `reading pins ignores non boolean rules a person may have typed into the saved text`() {
+        val pins = CloudKeyFreezeRules.parsePins("ff_a=true\nff_b=default\nlive.cfg=s:x\nff_c=FALSE\n# note")
+        assertEquals(mapOf("ff_a" to true, "ff_c" to false), pins)
+    }
+
+    @Test fun `pins have their own limit and the manual limit is unchanged`() {
+        val many = (1..CloudKeyFreezeRules.MAX_PICKED + 10).joinToString("\n") { "ff_$it=true" }
+        assertEquals(CloudKeyFreezeRules.MAX_PICKED, CloudKeyFreezeRules.parsePins(many).size)
+        assertEquals(CloudKeyFreezeRules.MAX_PICKED, CloudKeyFreezeRules.parse(many, CloudKeyFreezeRules.MAX_PICKED).rules.size)
+        assertEquals(CloudKeyFreezeRules.MAX_RULES, parse(many).rules.size)
+        assertEquals(CloudKeyFreezeRules.MAX_PICKED,
+            CloudKeyFreezeRules.formatPins((1..400).associate { "ff_$it" to true }).lines().size)
+    }
+
+    @Test fun `overlaying manual rules on pins lets the manual rule win and sums the rejects`() {
+        val pins = CloudKeyFreezeRules.parse("ff_a=true\nff_b=true\ngrpc.x=true", CloudKeyFreezeRules.MAX_PICKED)
+        val manual = parse("ff_b=false\nff_c=default\nnot a rule")
+        val merged = pins.overlaidWith(manual)
+        assertEquals(CloudKeyRule.Bool(true), merged.rules["ff_a"])
+        assertEquals(CloudKeyRule.Bool(false), merged.rules["ff_b"])
+        assertEquals(CloudKeyRule.UseDefault, merged.rules["ff_c"])
+        assertEquals(1, merged.rejected)
+        assertEquals(1, merged.protectedRejected)
+        assertEquals(CloudKeyRuleSet.EMPTY, CloudKeyRuleSet.EMPTY.overlaidWith(CloudKeyRuleSet.EMPTY))
+    }
+
+    // endregion
 }

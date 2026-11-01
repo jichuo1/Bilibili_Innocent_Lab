@@ -21,6 +21,13 @@ internal data class CloudKeyRuleSet(
 ) {
     val isEmpty: Boolean get() = rules.isEmpty()
 
+    /** 以 [overrides] 为准的并集：同一个键两边都有时，[overrides] 的规则生效。 */
+    fun overlaidWith(overrides: CloudKeyRuleSet): CloudKeyRuleSet = CloudKeyRuleSet(
+        LinkedHashMap(rules).also { it.putAll(overrides.rules) },
+        rejected + overrides.rejected,
+        protectedRejected + overrides.protectedRejected
+    )
+
     companion object {
         val EMPTY = CloudKeyRuleSet(emptyMap(), 0, 0)
     }
@@ -41,6 +48,9 @@ internal data class CloudKeyRuleSet(
  */
 internal object CloudKeyFreezeRules {
     const val MAX_RULES = 64
+
+    /** 扫描勾选面板最多固定的键数；手填规则另有 [MAX_RULES]，两边互不挤占。 */
+    const val MAX_PICKED = 256
     const val MAX_KEY_LENGTH = 96
     const val MAX_TEXT_LENGTH = 512
 
@@ -67,7 +77,29 @@ internal object CloudKeyFreezeRules {
         return PROTECTED_PREFIXES.any(lowered::startsWith)
     }
 
-    fun parse(raw: String?): CloudKeyRuleSet {
+    /** 键名是否能写成规则：字符集、长度合法，且不属于受保护前缀。扫描面板只列这样的键。 */
+    fun isFreezable(key: String): Boolean =
+        key.isNotEmpty() && key.length <= MAX_KEY_LENGTH && keyPattern.matches(key) && !isProtected(key)
+
+    /**
+     * 扫描勾选面板写出的固定值：每行 `键名=true|false`，按键名排序，同样的集合得到同样的文本。
+     * 与手填规则同一套语法，所以备份、导入和解析都复用 [parse]。
+     */
+    fun formatPins(pins: Map<String, Boolean>): String =
+        pins.entries.filter { isFreezable(it.key) }.sortedBy { it.key }
+            .take(MAX_PICKED)
+            .joinToString("\n") { "${it.key}=${it.value}" }
+
+    /** 读回面板写出的固定值；只认布尔规则，其它写法（被手工改过的）忽略。 */
+    fun parsePins(raw: String?): Map<String, Boolean> {
+        val result = LinkedHashMap<String, Boolean>()
+        parse(raw, MAX_PICKED).rules.forEach { (key, rule) ->
+            if (rule is CloudKeyRule.Bool) result[key] = rule.value
+        }
+        return result
+    }
+
+    fun parse(raw: String?, maxRules: Int = MAX_RULES): CloudKeyRuleSet {
         if (raw.isNullOrBlank()) return CloudKeyRuleSet.EMPTY
         val rules = LinkedHashMap<String, CloudKeyRule>()
         var rejected = 0
@@ -83,7 +115,7 @@ internal object CloudKeyFreezeRules {
             val (key, value) = rule
             when {
                 isProtected(key) -> protectedRejected += 1
-                key !in rules && rules.size >= MAX_RULES -> rejected += 1
+                key !in rules && rules.size >= maxRules -> rejected += 1
                 else -> {
                     // 重复键以后者为准；先移除再放入，保证迭代顺序与书写顺序一致。
                     rules.remove(key)

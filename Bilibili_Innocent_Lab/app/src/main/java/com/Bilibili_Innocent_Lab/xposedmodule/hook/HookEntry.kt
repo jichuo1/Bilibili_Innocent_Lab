@@ -3761,7 +3761,11 @@ class HookEntry : XposedModule() {
                         observe = prefs.getBoolean(
                             FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE,
                             false
-                        )
+                        ),
+                        picked = prefs.getString(
+                            FeaturePreferences.CLOUD_KEY_FREEZE_PICKED,
+                            ""
+                        ).orEmpty()
                     ),
                     classicInstaller,
                     SplashAutoNightFeatureInstaller(

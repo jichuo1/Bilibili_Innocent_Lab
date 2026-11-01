@@ -129,6 +129,25 @@ internal fun MainActivity.enhanceSystemCategory(scope: LinearSettingsScope) = wi
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
+    textView(key = "EnhanceSettingsSections:1135",
+        lparams = params(widthMatchParent = true) {
+            topMargin = 4.dp
+        }
+    ) {
+        bindSettingDestination(this, FeaturePreferences.CLOUD_KEY_FREEZE_PICKED)
+        cloudKeyFreezePickedSummaryView = this
+        text = cloudKeyFreezePickedSummary()
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        maxLines = 3
+        ellipsize = TextUtils.TruncateAt.END
+        setLineSpacing(5f, 1f)
+        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+        background = selfRippleBackground(10f)
+        isClickable = true
+        isFocusable = true
+        setOnClickListener { openCloudKeyScanPanel() }
+    }
     textView(key = "EnhanceSettingsSections:1132",
         lparams = params(widthMatchParent = true) {
             topMargin = 4.dp

@@ -111,7 +111,8 @@ class CloudKeyFreezeFeatureInstallerTest {
         recorder: Recorder = Recorder(),
         registrar: HookRegistrar = TestHookRegistrar,
         process: String = "tv.danmaku.bili",
-        loader: ClassLoader? = loader()
+        loader: ClassLoader? = loader(),
+        scan: ((String, ScanSnapshotContent) -> Boolean)? = null
     ) = HookEnvironment(
         processName = process,
         classLoader = loader,
@@ -120,14 +121,20 @@ class CloudKeyFreezeFeatureInstallerTest {
         logInfo = { key, message -> recorder.infoLogs[key] = message },
         logError = { key, message -> recorder.errorLogs[key] = message },
         reportStatus = { _, status -> recorder.statuses += status },
+        writeScanSnapshot = scan,
         runtimeEvidence = { id, stage, _ ->
             assertEquals(CloudKeyFreezeFeatureInstaller.ID, id)
             recorder.stages += stage
         }
     )
 
-    private fun installer(rules: String = "ff_a=false", observe: Boolean = false, enabled: Boolean = true) =
-        CloudKeyFreezeFeatureInstaller(enabled, rules, observe)
+    private fun installer(
+        rules: String = "ff_a=false",
+        observe: Boolean = false,
+        enabled: Boolean = true,
+        picked: String = "",
+        scanFlushMs: Long = 10L
+    ) = CloudKeyFreezeFeatureInstaller(enabled, rules, observe, picked, scanFlushMs)
 
     private fun PlayerPortTestRegistrar.idOf(owner: Class<*>, name: String, parameterCount: Int): String =
         hooks.entries.single {
@@ -400,6 +407,91 @@ class CloudKeyFreezeFeatureInstallerTest {
         val bool = registrar.idOf(FakeDeviceDecision::class.java, "getBoolean", 2)
         registrar.invoke(bool, args = arrayOf("ff_seen", false)) { true }
         assertTrue(recorder.infoLogs.keys.none { it.startsWith("cloud_key_freeze_seen_") })
+    }
+
+    // endregion
+
+    // region picked pins and the scan
+
+    @Test fun `pins from the scan panel freeze like rules and a manual rule on the same key wins`() {
+        val registrar = PlayerPortTestRegistrar()
+        val recorder = Recorder()
+        val result = installer(rules = "ff_both=true", picked = "ff_picked=false\nff_both=false")
+            .install(environment(recorder, registrar))
+        assertTrue(result is FeatureInstallResult.Installed)
+        assertTrue(recorder.statuses.single().startsWith("installed:rules=2,"))
+        val id = registrar.idOf(FakeDeviceDecision::class.java, "getBoolean", 2)
+        assertEquals(false, registrar.invoke(id, args = arrayOf("ff_picked", true)) { true })
+        assertEquals(true, registrar.invoke(id, args = arrayOf("ff_both", false)) { false })
+        assertEquals(true, registrar.invoke(id, args = arrayOf("ff_other", true)) { true })
+    }
+
+    @Test fun `pins alone are enough to install and protected or malformed pins are refused`() {
+        val registrar = PlayerPortTestRegistrar()
+        val recorder = Recorder()
+        val result = installer(rules = "", picked = "ff_ok=true\ngrpc.x=true\nnot a pin")
+            .install(environment(recorder, registrar))
+        assertTrue(result is FeatureInstallResult.Installed)
+        val message = recorder.errorLogs.getValue("cloud_key_freeze_rejected")
+        assertTrue(message, "1 条规则格式不对" in message && "1 条属于受保护类别" in message)
+        assertEquals(
+            FeatureInstallResult.Skipped("no-rules"),
+            installer(rules = "", picked = "grpc.x=true").install(environment(registrar = PlayerPortTestRegistrar()))
+        )
+    }
+
+    private fun awaitScan(
+        published: java.util.concurrent.BlockingQueue<Pair<String, ScanSnapshotContent>>,
+        until: (Map<String, MineComponentScanEntry>) -> Boolean
+    ): Pair<String, ScanSnapshotContent> {
+        val deadline = System.nanoTime() + 3_000_000_000L
+        while (System.nanoTime() < deadline) {
+            val next = published.poll(100, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
+            if (until(next.second.entries.associateBy { it.id!! })) return next
+        }
+        throw AssertionError("scan snapshot with the expected content was not published")
+    }
+
+    @Test fun `the scan publishes unfrozen boolean keys and marks flapping ones while skipping the rest`() {
+        val registrar = PlayerPortTestRegistrar()
+        val recorder = Recorder()
+        val published = java.util.concurrent.LinkedBlockingQueue<Pair<String, ScanSnapshotContent>>()
+        val result = installer(rules = "", observe = true, picked = "ff_frozen=true").install(
+            environment(recorder, registrar, scan = { surface, content -> published.add(surface to content); true })
+        )
+        assertTrue(result is FeatureInstallResult.Installed)
+        assertTrue("collecting" in recorder.statuses)
+        val bool = registrar.idOf(FakeDeviceDecision::class.java, "getBoolean", 2)
+        val text = registrar.idOf(FakeDeviceDecision::class.java, "dd", 2)
+        registrar.invoke(bool, args = arrayOf("ff_free", true)) { false }
+        // 已固定的键：此刻看到的可能已是被内层钩子换过的值，不能当作云控原值记录。
+        registrar.invoke(bool, args = arrayOf("ff_frozen", false)) { false }
+        registrar.invoke(bool, args = arrayOf("ff_flip", true)) { true }
+        registrar.invoke(bool, args = arrayOf("ff_flip", true)) { false }
+        registrar.invoke(bool, args = arrayOf("grpc.timeout", true)) { true }
+        registrar.invoke(text, args = arrayOf("live.secret_key", "d")) { "SECRET-VALUE" }
+
+        val (surface, content) = awaitScan(published) { it["ff_flip"]?.value == CloudKeyScan.VALUE_MIXED && "ff_free" in it }
+        assertEquals(MineComponentSnapshotCodec.SURFACE_CLOUD_KEYS, surface)
+        assertEquals("tv.danmaku.bili", content.processName)
+        val entries = content.entries.associateBy { it.id!! }
+        assertEquals(setOf("ff_free", "ff_flip"), entries.keys)
+        assertEquals(CloudKeyScan.VALUE_FALSE, entries.getValue("ff_free").value)
+        assertFalse(entries.getValue("ff_flip").selectable)
+        assertTrue(content.entries.none { "SECRET-VALUE" in it.toJson().toString() })
+    }
+
+    @Test fun `the scan is not started and nothing is published when observation is off`() {
+        val registrar = PlayerPortTestRegistrar()
+        val recorder = Recorder()
+        val published = java.util.concurrent.LinkedBlockingQueue<Pair<String, ScanSnapshotContent>>()
+        installer(rules = "ff_pin=false").install(
+            environment(recorder, registrar, scan = { surface, content -> published.add(surface to content); true })
+        )
+        val bool = registrar.idOf(FakeDeviceDecision::class.java, "getBoolean", 2)
+        registrar.invoke(bool, args = arrayOf("ff_free", true)) { false }
+        assertNull(published.poll(300, java.util.concurrent.TimeUnit.MILLISECONDS))
+        assertFalse("collecting" in recorder.statuses)
     }
 
     // endregion

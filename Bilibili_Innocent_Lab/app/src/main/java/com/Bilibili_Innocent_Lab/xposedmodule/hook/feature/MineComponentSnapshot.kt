@@ -44,7 +44,12 @@ internal data class MineComponentScanEntry(
      * 连别名一起移除、只写回 [key]——存量选择器因此在用户下一次确认面板时迁移到新口径。
      * 目前只有底栏用（旧图标地址键 → 路由键），见 `BottomBarFeatureInstaller.selectorKeys`。
      */
-    val aliases: Set<String> = emptySet()
+    val aliases: Set<String> = emptySet(),
+    /**
+     * 条目的一个短取值标记，目前只有 `cloud_key` 面用：宿主最近一次读到的布尔云控值（`true` / `false`）。
+     * 只承载布尔值，字符串云控值永远不进快照——其中可能有盐值、地址或密钥。
+     */
+    val value: String? = null
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("key", key)
@@ -56,6 +61,7 @@ internal data class MineComponentScanEntry(
         put("selectable", selectable)
         selectionToken?.let { put("selectionToken", it) }
         if (aliases.isNotEmpty()) put("aliases", JSONArray().apply { aliases.sorted().forEach(::put) })
+        value?.let { put("value", it) }
     }
 
     companion object {
@@ -66,16 +72,19 @@ internal data class MineComponentScanEntry(
             uri: String?,
             showing: Boolean,
             selectable: Boolean = true,
-            aliases: Collection<String> = emptyList()
+            aliases: Collection<String> = emptyList(),
+            value: String? = null
         ): MineComponentScanEntry? {
             val safeKind = kind.trim().takeIf { it in MineComponentSnapshotCodec.ALLOWED_KINDS }
                 ?: return null
             val safeTitle = title?.trim()?.takeIf(String::isNotEmpty)
             val safeId = id?.trim()?.takeIf(String::isNotEmpty)
             val safeUri = uri?.trim()?.takeIf(String::isNotEmpty)
+            val safeValue = value?.trim()?.takeIf(String::isNotEmpty)
             if ((safeTitle?.length ?: 0) > MAX_TITLE_LENGTH ||
                 (safeId?.length ?: 0) > MAX_ID_LENGTH ||
-                (safeUri?.length ?: 0) > MAX_URI_LENGTH
+                (safeUri?.length ?: 0) > MAX_URI_LENGTH ||
+                (safeValue?.length ?: 0) > MAX_VALUE_LENGTH
             ) return null
             val key = MineComponentSelector.key(safeKind, safeTitle, safeId, safeUri) ?: return null
             return MineComponentScanEntry(
@@ -86,7 +95,8 @@ internal data class MineComponentScanEntry(
                 uri = safeUri,
                 showing = showing,
                 selectable = selectable,
-                aliases = sanitizeAliases(safeKind, key, aliases) ?: return null
+                aliases = sanitizeAliases(safeKind, key, aliases) ?: return null,
+                value = safeValue
             )
         }
 
@@ -110,6 +120,8 @@ internal data class MineComponentScanEntry(
                 (0 until array.length()).map { array.optString(it) }
             }.orEmpty()
             val aliases = sanitizeAliases(kind, key, rawAliases) ?: return null
+            val entryValue = value.optString("value").trim().takeIf(String::isNotEmpty)
+            if ((entryValue?.length ?: 0) > MAX_VALUE_LENGTH) return null
             return MineComponentScanEntry(
                 key = key,
                 kind = kind,
@@ -119,7 +131,8 @@ internal data class MineComponentScanEntry(
                 showing = value.optBoolean("showing", true),
                 selectable = value.optBoolean("selectable", true),
                 selectionToken = selectionToken,
-                aliases = aliases
+                aliases = aliases,
+                value = entryValue
             )
         }
 
@@ -144,6 +157,7 @@ internal data class MineComponentScanEntry(
         private const val MAX_ID_LENGTH = 128
         private const val MAX_URI_LENGTH = 512
         private const val MAX_ALIAS_COUNT = 4
+        private const val MAX_VALUE_LENGTH = 16
     }
 }
 
@@ -172,6 +186,8 @@ internal object MineComponentSelector {
         "home_component" -> id?.let { "home_component:id:${normalize(it)}" }
         // 池名就是稳定标识，没有第二个候选；空名永不成键，避免匿名池被勾成"全选"。
         "component_pool" -> id?.takeIf(String::isNotBlank)?.let { "component_pool:${normalize(it)}" }
+        // 云控键名：整串精确匹配、区分大小写，键名本身就是稳定标识，没有第二个候选。
+        "cloud_key" -> id?.takeIf(String::isNotBlank)?.let { "cloud_key:${normalize(it)}" }
         "section" -> id?.toLongOrNull()?.takeIf { it > 0 }?.let { "tid:$it" }
         "author" -> id?.takeIf(String::isNotBlank)?.let { "author:name:${normalize(it)}" }
         else -> null
@@ -232,6 +248,9 @@ internal object MineComponentSnapshotCodec {
     const val TARGET_PACKAGE = "tv.danmaku.bili"
     const val MAX_PAYLOAD_BYTES = 64 * 1024
     const val MAX_ENTRY_COUNT = 256
+
+    /** 所有面里最大的载荷上限；解码时用它做第一道廉价检查。 */
+    private const val ABSOLUTE_MAX_PAYLOAD_BYTES = 256 * 1024
     val ALLOWED_KINDS = setOf(
         "item", "group", "button", "live_tip",   // 我的页
         "bottom_tab",                            // 底栏
@@ -239,6 +258,7 @@ internal object MineComponentSnapshotCodec {
         "home_component",                        // 首页子组件（标识是混淆类名）
         "section", "author",                    // 原生面板中显式选择的标签、UP
         "component_pool",                        // 组件库资源池（标识就是池名）
+        "cloud_key",                             // 宿主读取过的布尔云控键（标识就是键名）
     )
 
     const val SURFACE_MINE = "mine"
@@ -273,10 +293,30 @@ internal object MineComponentSnapshotCodec {
      * 面板里就只剩这一条。见 [ACCUMULATING_SURFACES] 与 `ComponentPoolCatalog`。
      */
     const val SURFACE_COMPONENT_POOLS = "component_pools"
+
+    /**
+     * 宿主读取过的**布尔**云控键（`ff_*`、`dd.*` 一类开关），供「冻结指定云控键」的扫描勾选面板使用。
+     *
+     * 累积面：一场进程里读到的键只是全部键的一部分，页面不同读到的键不同，所以落盘要与上一份取并集。
+     * 条目数远多于其它面（一场会话能读到几百个开关），所以有自己的上限，见 [maxEntries] 与 [maxPayloadBytes]。
+     * 只含键名和布尔值——字符串云控值里可能带盐值、地址或密钥，永远不进快照。
+     */
+    const val SURFACE_CLOUD_KEYS = "cloud_keys"
     val ALLOWED_SURFACES = setOf(
         SURFACE_MINE, SURFACE_BOTTOM_BAR, SURFACE_HOME_TABS, SURFACE_HOME_COMPONENTS,
-        SURFACE_SECTION_PICKS, SURFACE_AUTHOR_PICKS, SURFACE_COMPONENT_POOLS
+        SURFACE_SECTION_PICKS, SURFACE_AUTHOR_PICKS, SURFACE_COMPONENT_POOLS, SURFACE_CLOUD_KEYS
     )
+
+    private const val CLOUD_KEYS_MAX_ENTRY_COUNT = 1024
+    private const val CLOUD_KEYS_MAX_PAYLOAD_BYTES = 256 * 1024
+
+    /** 单个面的条目上限；云控键面远大于其它面。 */
+    fun maxEntries(surface: String): Int =
+        if (surface == SURFACE_CLOUD_KEYS) CLOUD_KEYS_MAX_ENTRY_COUNT else MAX_ENTRY_COUNT
+
+    /** 单个面的载荷上限（按字节）；云控键面远大于其它面。 */
+    fun maxPayloadBytes(surface: String): Int =
+        if (surface == SURFACE_CLOUD_KEYS) CLOUD_KEYS_MAX_PAYLOAD_BYTES else MAX_PAYLOAD_BYTES
 
     /**
      * 提交内容只是**本次宿主进程**所见片段的面，与"每次扫描给出完整列表"的列表面相反。
@@ -294,7 +334,7 @@ internal object MineComponentSnapshotCodec {
      * 三者的落盘都必须与上一份取并集，否则新的一片会把攒了很久的候选打回原形。
      */
     val ACCUMULATING_SURFACES = setOf(
-        SURFACE_SECTION_PICKS, SURFACE_AUTHOR_PICKS, SURFACE_COMPONENT_POOLS
+        SURFACE_SECTION_PICKS, SURFACE_AUTHOR_PICKS, SURFACE_COMPONENT_POOLS, SURFACE_CLOUD_KEYS
     )
 
     /**
@@ -314,9 +354,10 @@ internal object MineComponentSnapshotCodec {
         current: List<MineComponentScanEntry>
     ): List<MineComponentScanEntry> {
         if (surface !in ACCUMULATING_SURFACES || previous.isEmpty()) return current
+        val limit = maxEntries(surface)
         val merged = LinkedHashMap<String, MineComponentScanEntry>()
         current.forEach { merged[it.key] = it }
-        previous.forEach { if (merged.size < MAX_ENTRY_COUNT) merged.putIfAbsent(it.key, it) }
+        previous.forEach { if (merged.size < limit) merged.putIfAbsent(it.key, it) }
         return merged.values.sortedBy(MineComponentScanEntry::key)
     }
 
@@ -326,19 +367,37 @@ internal object MineComponentSnapshotCodec {
         entries: Collection<MineComponentScanEntry>,
         surface: String = SURFACE_MINE,
         generatedAt: Long = System.currentTimeMillis()
-    ): String = MineComponentSnapshot(
-        targetPackage = TARGET_PACKAGE,
-        processName = processName,
-        surface = surface.takeIf { it in ALLOWED_SURFACES } ?: SURFACE_MINE,
-        generatedAt = generatedAt,
-        capabilities = capabilities,
-        entries = entries.distinctBy(MineComponentScanEntry::key).take(MAX_ENTRY_COUNT)
-    ).toJson().toString()
+    ): String {
+        val safeSurface = surface.takeIf { it in ALLOWED_SURFACES } ?: SURFACE_MINE
+        fun build(list: List<MineComponentScanEntry>) = MineComponentSnapshot(
+            targetPackage = TARGET_PACKAGE,
+            processName = processName,
+            surface = safeSurface,
+            generatedAt = generatedAt,
+            capabilities = capabilities,
+            entries = list
+        ).toJson().toString()
+
+        var kept = entries.distinctBy(MineComponentScanEntry::key).take(maxEntries(safeSurface))
+        var payload = build(kept)
+        // 条目数没超限不代表载荷放得下（云控键面一千多个长键名会超过字节上限）。载荷超限时落盘校验
+        // 会整份拒绝，用户什么都看不到，所以这里按顺序收缩到放得下为止，宁可少几个键也不能整份丢。
+        val limit = maxPayloadBytes(safeSurface)
+        while (kept.size > 1 && payload.toByteArray(Charsets.UTF_8).size > limit) {
+            kept = kept.take(kept.size * 9 / 10)
+            payload = build(kept)
+        }
+        return payload
+    }
 
     /** UI 可读取旧 v1 快照；跨进程写入端只接受当前 schema。 */
     fun decodeOrNull(raw: String, allowLegacy: Boolean = true): MineComponentSnapshot? = runCatching {
-        if (raw.isBlank() || raw.toByteArray(Charsets.UTF_8).size > MAX_PAYLOAD_BYTES) return null
+        // 先按最大的面挡掉明显超限的载荷，再在读出面之后按该面自己的上限复核。
+        if (raw.isBlank() || raw.length > ABSOLUTE_MAX_PAYLOAD_BYTES) return null
         val root = JSONObject(raw)
+        // 旧 schema 没有 surface 字段，一律按"我的"页解读。
+        val surface = root.optString("surface").takeIf { it in ALLOWED_SURFACES } ?: SURFACE_MINE
+        if (raw.toByteArray(Charsets.UTF_8).size > maxPayloadBytes(surface)) return null
         val schema = root.optInt("schema", root.optInt("v", 0))
         if (schema != CURRENT_SCHEMA_VERSION && !(allowLegacy && schema == 1)) return null
         val targetPackage = if (schema == 1) TARGET_PACKAGE else root.optString("targetPackage")
@@ -347,7 +406,7 @@ internal object MineComponentSnapshotCodec {
             (processName != TARGET_PACKAGE && !processName.startsWith("$TARGET_PACKAGE:"))
         ) return null
         val values = root.optJSONArray("items") ?: return null
-        if (values.length() > MAX_ENTRY_COUNT) return null
+        if (values.length() > maxEntries(surface)) return null
         val entries = buildList {
             for (index in 0 until values.length()) {
                 val entry = MineComponentScanEntry.fromJsonOrNull(values.getJSONObject(index))
@@ -358,8 +417,7 @@ internal object MineComponentSnapshotCodec {
         MineComponentSnapshot(
             targetPackage = targetPackage,
             processName = processName,
-            // 旧 schema 没有 surface 字段，一律按"我的"页解读。
-            surface = root.optString("surface").takeIf { it in ALLOWED_SURFACES } ?: SURFACE_MINE,
+            surface = surface,
             generatedAt = root.optLong("generatedAt", 0L).coerceAtLeast(0L),
             capabilities = root.optJSONArray("capabilities")?.let { capabilities ->
                 buildSet {

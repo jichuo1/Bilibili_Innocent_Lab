@@ -71,7 +71,7 @@ internal object MineComponentSnapshotQueryClient {
         requestedSurface: String
     ): Result {
         val payload = extras.getString(MineComponentSnapshotQueryContract.EXTRA_PAYLOAD).orEmpty()
-        if (payload.length > MineComponentSnapshotCodec.MAX_PAYLOAD_BYTES) {
+        if (payload.length > MineComponentSnapshotCodec.maxPayloadBytes(requestedSurface)) {
             return Result(Status.INVALID_RESPONSE, failure = ReceiptQueryFailure.MALFORMED_RESPONSE)
         }
         val digest = extras.getString(

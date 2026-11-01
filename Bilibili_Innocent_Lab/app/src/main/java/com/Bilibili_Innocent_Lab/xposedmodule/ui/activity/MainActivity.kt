@@ -347,7 +347,7 @@ class MainActivity : SkinnedActivity() {
     internal var keepMineVipSpace = false
     private var mineComponentHiddenRules = ""
     /** 每个面各自节流一次查询；四个面的面板可以互不阻塞地打开。仅在主线程读写。 */
-    private val componentSnapshotQueryInFlight = mutableSetOf<String>()
+    internal val componentSnapshotQueryInFlight = mutableSetOf<String>()
     /**
      * 「管理推荐屏蔽」要同时拉两个点选观测面，整体节流一次。
      *
@@ -449,6 +449,7 @@ class MainActivity : SkinnedActivity() {
     internal var cloudKeyFreeze = false
     internal var cloudKeyFreezeRules = ""
     internal var cloudKeyFreezeObserve = false
+    internal var cloudKeyFreezePicked = ""
     internal var splashAutoNight = false
     internal var brandSplashSkip = false
     internal var brandSplashCustom = false
@@ -498,6 +499,7 @@ class MainActivity : SkinnedActivity() {
     internal var homeTabRulesSummaryView: NativeTextView? = null
     internal var homeRecommendTitleSummaryView: NativeTextView? = null
     internal var cloudKeyFreezeRulesSummaryView: NativeTextView? = null
+    internal var cloudKeyFreezePickedSummaryView: NativeTextView? = null
     internal var homeRecommendBlockedTidsSummaryView: NativeTextView? = null
     internal var homeRecommendBlockedAuthorsSummaryView: NativeTextView? = null
     internal var videoRelateBlockedAuthorsSummaryView: NativeTextView? = null
@@ -4207,6 +4209,7 @@ class MainActivity : SkinnedActivity() {
         homeTabRulesSummaryView = null
         homeRecommendTitleSummaryView = null
         cloudKeyFreezeRulesSummaryView = null
+        cloudKeyFreezePickedSummaryView = null
         homeRecommendBlockedTidsSummaryView = null
         homeRecommendBlockedAuthorsSummaryView = null
         videoRelateBlockedAuthorsSummaryView = null
@@ -4474,6 +4477,7 @@ class MainActivity : SkinnedActivity() {
         cloudKeyFreeze = uiSettings.bool(FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED)
         cloudKeyFreezeRules = uiSettings.string(FeaturePreferences.CLOUD_KEY_FREEZE_RULES)
         cloudKeyFreezeObserve = uiSettings.bool(FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE)
+        cloudKeyFreezePicked = uiSettings.string(FeaturePreferences.CLOUD_KEY_FREEZE_PICKED)
         splashAutoNight = uiSettings.bool(FeaturePreferences.SPLASH_AUTO_NIGHT)
         brandSplashSkip = uiSettings.bool(FeaturePreferences.BRAND_SPLASH_SKIP)
         brandSplashCustom = uiSettings.bool(FeaturePreferences.BRAND_SPLASH_CUSTOM)
