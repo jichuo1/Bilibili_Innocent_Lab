@@ -100,7 +100,8 @@ internal object MineComponentSnapshotHostBridge {
     ): Boolean {
         if (surface !in MineComponentSnapshotCodec.ALLOWED_SURFACES) return false
         if (content.processName != MineComponentSnapshotQueryContract.TARGET_PACKAGE ||
-            content.entries.isEmpty() || content.entries.size > MineComponentSnapshotCodec.MAX_ENTRY_COUNT) return false
+            content.entries.isEmpty() ||
+            content.entries.size > MineComponentSnapshotCodec.maxEntries(surface)) return false
         val accepted = publications.submit(surface, Publication(context.applicationContext ?: context, content))
         if (!accepted) logError("扫描快照后台调度失败，等待下次提交")
         return accepted

@@ -8,6 +8,7 @@ import android.widget.FrameLayout
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorStoryAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureRuntimeStage
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.hostProxyDefaultValue
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.reportRuntimeEvidence
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
@@ -224,7 +225,8 @@ internal class StorySponsorSessions(
                         if (weak.get()?.invalid == false) HostThreadGuard.run("sponsorblock_story.observer") {
                             callback(method.name, args)
                         }
-                        null
+                        // 宿主直接调用这个代理，框架的 PROTECTIVE 兜不住：基本类型返回值不能给 null。
+                        hostProxyDefaultValue(method.returnType)
                     }
                 }
             }

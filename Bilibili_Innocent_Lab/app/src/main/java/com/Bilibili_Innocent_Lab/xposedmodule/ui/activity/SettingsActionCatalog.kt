@@ -59,6 +59,7 @@ internal object SettingsActionCatalog {
             FeaturePreferences.PLAYER_BUFFER_DISK_MB,
             FeaturePreferences.PLAYER_BUFFER_WIFI_ONLY,
             FeaturePreferences.CLOUD_KEY_FREEZE_RULES,
+            FeaturePreferences.CLOUD_KEY_FREEZE_PICKED,
         ).forEach { byKey(it, 2, "ENHANCEMENT_ADVANCED") }
         if (FrameInterpolationEntryGate.entryOpen()) {
             byKey(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MAX_FPS, 2, "ENHANCEMENT_ADVANCED")

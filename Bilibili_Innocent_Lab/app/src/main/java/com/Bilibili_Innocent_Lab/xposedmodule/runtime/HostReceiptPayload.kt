@@ -7,7 +7,7 @@ internal object HostReceiptPayload {
                  source: HostRuntimeDiagnosticsSource, current: HostRuntimeDiagnosticsSource): ReceiptQueryFailure {
         if (!source.isComplete || source != current) return ReceiptQueryFailure.SOURCE_MISMATCH
         val limit = if (channel == HostReceiptWire.DIAGNOSTICS) HostRuntimeDiagnosticsCodec.MAX_PAYLOAD_CHARS
-            else MineComponentSnapshotCodec.MAX_PAYLOAD_BYTES
+            else MineComponentSnapshotCodec.maxPayloadBytes(channel)
         if (payload.isEmpty() || payload.length > limit) return ReceiptQueryFailure.MALFORMED_RESPONSE
         if (!HostRuntimeDiagnosticsQueryContract.digestMatches(payload, digest)) return ReceiptQueryFailure.DIGEST_MISMATCH
         if (channel == HostReceiptWire.DIAGNOSTICS) {

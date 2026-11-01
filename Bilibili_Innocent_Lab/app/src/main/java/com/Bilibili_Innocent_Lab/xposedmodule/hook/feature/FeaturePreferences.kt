@@ -288,6 +288,9 @@ internal object FeaturePreferences {
     const val CLOUD_KEY_FREEZE_RULES = "cloud_key_freeze_rules"
     const val CLOUD_KEY_FREEZE_OBSERVE = "cloud_key_freeze_observe"
 
+    /** 扫描勾选面板固定的云控键：每行 `键名=true|false`，与手填规则同一套语法，手填规则优先。 */
+    const val CLOUD_KEY_FREEZE_PICKED = "cloud_key_freeze_picked"
+
     /** 开屏页背景跟随系统深色模式。 */
     const val SPLASH_AUTO_NIGHT = "splash_auto_night"
     const val BRAND_SPLASH_SKIP = "brand_splash_skip"

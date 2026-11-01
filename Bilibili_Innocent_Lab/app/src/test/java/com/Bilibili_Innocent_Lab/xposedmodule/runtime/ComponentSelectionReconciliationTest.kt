@@ -31,12 +31,17 @@ class ComponentSelectionReconciliationTest {
      *
      * 注意豁免判据是"草稿面"而不是 `ACCUMULATING_SURFACES`：`component_pools`
      * 也是累积面，但它有自己的勾选存储键，两个集合并不是同一回事。
+     *
+     * `cloud_keys`（云控键扫描面）是第三种观测面：用户的选择是带取值的固定值，存在
+     * `cloud.key_freeze.picked`，不是隐藏用的 selector，不能被"未观察到就清理"的对账碰，
+     * 面板直接用查询结果里的快照，所以同样点名豁免。
      */
     @Test
     fun `every scan surface either has a selectors key or is a draft only surface`() {
         val draftOnly = setOf(
             MineComponentSnapshotCodec.SURFACE_SECTION_PICKS,
-            MineComponentSnapshotCodec.SURFACE_AUTHOR_PICKS
+            MineComponentSnapshotCodec.SURFACE_AUTHOR_PICKS,
+            MineComponentSnapshotCodec.SURFACE_CLOUD_KEYS
         )
         assertEquals(
             MineComponentSnapshotCodec.ALLOWED_SURFACES,

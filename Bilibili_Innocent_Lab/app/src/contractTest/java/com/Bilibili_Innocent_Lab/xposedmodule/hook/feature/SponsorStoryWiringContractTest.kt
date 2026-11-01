@@ -36,6 +36,13 @@ class SponsorStoryWiringContractTest {
         assertFalse(sessions.contains("handler.post(Runnable"))
     }
 
+    @Test fun theHostFacingObserverProxyNeverReturnsNullForAPrimitiveReturnType() {
+        // 宿主直接调用这个代理，框架的 PROTECTIVE 兜不住；规范见 HostProxyGuardContractTest。
+        val proxy = sessions.after("Proxy.newProxyInstance(").before("val target = core.get()")
+        assertTrue(proxy.contains("hostProxyDefaultValue(method.returnType)"))
+        assertFalse(proxy.contains("else -> null")); assertFalse(proxy.contains("\n                        null\n"))
+    }
+
     @Test fun hookIdsAreUniqueAndTheSecondOnCreateRebindsInsteadOfStacking() {
         val ids = Regex("\"\\\$featureId\\.[a-z.]+(\\\$[a-z]+)?\"").findAll(sessions).map { it.value }.toList()
         assertEquals(ids.size, ids.toSet().size)
