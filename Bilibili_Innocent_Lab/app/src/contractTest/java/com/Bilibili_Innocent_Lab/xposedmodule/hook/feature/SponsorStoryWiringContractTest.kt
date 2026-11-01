@@ -59,9 +59,19 @@ class SponsorStoryWiringContractTest {
     }
 
     @Test fun storyOnlyBindsAfterTheAdmissionGateAndEveryRebindUsesAFreshController() {
-        assertTrue(session.contains("StorySponsorGate.evaluate(host.playable(), host.loadedId(), host.details())"))
+        assertTrue(session.contains("StorySponsorGate.evaluate(host.playable(), loaded, host.details())"))
         assertTrue(session.contains("SponsorPlaybackController(verdict.video"))
         assertTrue(session.contains("TAIL_GUARD_MS"))
         assertTrue(session.contains("executing()\n            host.seek(targetMs)"))
+    }
+
+    @Test fun anItemRuledOutForGoodIsRememberedOnlyUntilTheItemChanges() {
+        // 永久拒绝按已装载条目编号记住，省掉每秒重读游标、分页器和详情；只有"条目本身的属性"才记，
+        // 暂未就绪的拒绝（游标领先、详情未到、被挡住）每次进度回调都要重判。
+        val reconcile = session.after("private fun reconcile()").before("private fun bind(")
+        assertTrue(reconcile.contains("if (loaded != null && loaded == rejected) return"))
+        assertTrue(reconcile.contains("if (verdict.final) rejected = loaded"))
+        assertTrue(session.after("fun itemChanged()").before("fun seekStarted(").contains("rejected = null"))
+        assertTrue(SourceContract.read("hook/feature/sponsor/StorySponsorGate.kt").contains("\"blocked-detail\""))
     }
 }

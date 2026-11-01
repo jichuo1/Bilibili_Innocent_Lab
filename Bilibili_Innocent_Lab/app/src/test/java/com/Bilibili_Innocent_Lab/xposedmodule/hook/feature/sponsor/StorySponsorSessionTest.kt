@@ -17,6 +17,7 @@ class StorySponsorSessionTest {
         var details: List<StoryDetailSnapshot> = emptyList()
         var onSeek: (Int) -> Unit = {}
         val seeks = mutableListOf<Int>()
+        var playableReads = 0; var detailReads = 0
         override fun alive() = alive
         override fun resumed() = resumed
         override fun state() = state
@@ -24,9 +25,9 @@ class StorySponsorSessionTest {
         override fun duration() = duration
         override fun realPosition() = realPositionOverride ?: position
         override fun realDuration() = realDurationOverride ?: duration
-        override fun playable() = playable
+        override fun playable(): StoryPlayableIdentity? { playableReads++; return playable }
         override fun loadedId() = loaded
-        override fun details() = details
+        override fun details(): List<StoryDetailSnapshot> { detailReads++; return details }
         override fun seek(targetMs: Int) { seeks += targetMs; onSeek(targetMs) }
     }
 
@@ -102,6 +103,40 @@ class StorySponsorSessionTest {
         val natural = Harness(); natural.select("p1", aid, cid, adInfo = true)
         natural.session.progressTick()
         assertTrue(natural.lookups.isEmpty())
+    }
+
+    @Test fun anItemThatIsPermanentlyNotApplicableIsJudgedOnceInsteadOfOnEveryTick() {
+        val h = Harness(); h.select("p1", aid, cid, ad = true)
+        repeat(30) { h.session.progressTick() }
+        assertEquals(1, h.host.playableReads); assertEquals(1, h.host.detailReads)
+        assertTrue(h.lookups.isEmpty()); assertNull(h.session.bound)
+        // 换条目后重新判断：新条目是普通投稿就正常绑定。
+        h.session.itemChanged()
+        h.select("p2", aid + 7, cid + 7)
+        h.session.progressTick()
+        assertEquals(2, h.host.playableReads)
+        assertEquals(SponsorVideoId(SponsorVideoId.bvidFromAvid(aid + 7)!!, cid + 7), h.session.bound)
+    }
+
+    @Test fun anItemThatIsOnlyNotReadyYetIsJudgedAgainOnEveryTick() {
+        val h = Harness()
+        h.host.loaded = "previous"
+        repeat(3) { h.session.progressTick() }
+        assertEquals(3, h.host.playableReads)
+        // 详情还没到：同样每次都重判，到了就绑定。
+        val late = Harness(); late.host.details = emptyList()
+        repeat(3) { late.session.progressTick() }
+        assertEquals(3, late.host.detailReads); assertNull(late.session.bound)
+        late.select("p1", aid, cid)
+        late.session.progressTick()
+        assertEquals(SponsorVideoId(bvid, cid), late.session.bound)
+        // 被挡住（需要解锁）的条目解锁后也要能重新绑定。
+        val wall = Harness(); wall.host.details = listOf(StoryDetailSnapshot(aid, cid, bvid, true, false, false, false))
+        repeat(2) { wall.session.progressTick() }
+        assertNull(wall.session.bound)
+        wall.host.details = listOf(StoryDetailSnapshot(aid, cid, bvid, true, true, false, false))
+        wall.session.progressTick()
+        assertEquals(SponsorVideoId(bvid, cid), wall.session.bound)
     }
 
     @Test fun itemChangeStopsTheOldControllerAndTheNextItemGetsItsOwnQuery() {

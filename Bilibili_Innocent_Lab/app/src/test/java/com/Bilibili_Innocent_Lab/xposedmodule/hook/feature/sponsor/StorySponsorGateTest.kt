@@ -54,8 +54,32 @@ class StorySponsorGateTest {
         assertEquals("ad", deny(playable(), "p1", listOf(detail(adInfo = true))))
         // vertical_ad_av / vertical_game / vertical_preview_av：goto 不是 vertical_av。
         assertEquals("non-ugc-detail", deny(playable(), "p1", listOf(detail(ugc = false))))
-        // blockingWall 非空：条目被挡住，不是可播放视频。
-        assertEquals("non-ugc-detail", deny(playable(), "p1", listOf(detail(playable = false))))
+        // blockingWall 非空：条目被挡住，不是可播放视频；解锁后可能变好，所以单独成因。
+        assertEquals("blocked-detail", deny(playable(), "p1", listOf(detail(playable = false))))
+    }
+
+    @Test fun denialsThatAreAPropertyOfTheItemAreFinalAndTheOnesThatAreJustNotReadyAreNot() {
+        fun final(playable: StoryPlayableIdentity?, loaded: String?, details: List<StoryDetailSnapshot>) =
+            (StorySponsorGate.evaluate(playable, loaded, details) as StorySponsorVerdict.Deny).final
+        val permanent = listOf(
+            final(playable(vupload = false), "p1", listOf(detail())),
+            final(playable(ugc = false), "p1", listOf(detail())),
+            final(playable(aid = 0), "p1", listOf(detail())),
+            final(playable(aid = Long.MAX_VALUE), "p1", listOf(detail(aid = Long.MAX_VALUE))),
+            final(playable(), "p1", listOf(detail(ad = true))),
+            final(playable(), "p1", listOf(detail(adInfo = true))),
+            final(playable(), "p1", listOf(detail(ugc = false))),
+            final(playable(), "p1", listOf(detail(bvid = "BV14741127BN")))
+        )
+        assertTrue(permanent.all { it })
+        val notReady = listOf(
+            final(null, "p1", listOf(detail())),
+            final(playable(id = "next"), "p1", listOf(detail())),
+            final(playable(), null, listOf(detail())),
+            final(playable(), "p1", emptyList()),
+            final(playable(), "p1", listOf(detail(playable = false)))
+        )
+        assertTrue(notReady.none { it })
     }
 
     @Test fun everyPagerItemMatchingTheCursorMustPassTheGate() {
