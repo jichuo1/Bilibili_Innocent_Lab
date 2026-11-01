@@ -31,6 +31,8 @@ jobs:
   verify:
     name: Build, test, lint and validate Release minification
     runs-on: ubuntu-latest
+    # 防卡死的宽松上限（约为常规耗时的 6 倍以上），不是性能预算；默认值是 360 分钟。
+    timeout-minutes: 90
     permissions:
       contents: read
     outputs:
@@ -127,6 +129,18 @@ jobs:
           distribution: temurin
           java-version: '27'
 
+      # R8 的构建缓存键包含输出文件名：未签名是 app-release-unsigned.apk，签名后是
+      # app-release.apk。验证作业没有（也不该有）真实签名密钥，所以发布作业的 R8 键
+      # 一直与验证作业不同，会把 R8 完整重跑一遍（约 80 秒）。这里生成一把只存在于本
+      # 作业的一次性密钥，仅让输出文件名一致；它不签任何产物，门禁也不执行 packageRelease。
+      - name: Create throwaway signing identity (R8 cache-key parity)
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -keystore "$RUNNER_TEMP/verify-throwaway.p12" -storetype PKCS12 \
+            -alias throwaway -keyalg RSA -keysize 2048 -validity 2 \
+            -storepass throwaway-r8 -keypass throwaway-r8 -dname "CN=throwaway"
+
       - name: Set up Gradle and restore build cache
         id: gradle-cache
         uses: ./.github/actions/gradle-cache
@@ -189,6 +203,10 @@ jobs:
         id: build
         shell: bash
         env:
+          INNOCENT_LAB_SIGNING_STORE_FILE: ${{ runner.temp }}/verify-throwaway.p12
+          INNOCENT_LAB_SIGNING_STORE_PASSWORD: throwaway-r8
+          INNOCENT_LAB_SIGNING_KEY_ALIAS: throwaway
+          INNOCENT_LAB_SIGNING_KEY_PASSWORD: throwaway-r8
           EXPECTED_VERSION_NAME: ${{ steps.identity.outputs.build_version_name }}
         run: |
           set -euo pipefail
@@ -230,6 +248,7 @@ jobs:
     needs: verify
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_alpha == true && needs.verify.outputs.release_tag == inputs.release_tag }}
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     environment:
       name: alpha-release
     permissions:
