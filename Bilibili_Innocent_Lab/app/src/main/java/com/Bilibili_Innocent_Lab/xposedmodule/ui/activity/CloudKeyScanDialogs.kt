@@ -46,26 +46,32 @@ internal fun MainActivity.openCloudKeyScanPanel() {
     val anchor = cloudKeyFreezePickedSummaryView
     if (!componentSnapshotQueryInFlight.add(MineComponentSnapshotCodec.SURFACE_CLOUD_KEYS)) return
     toast(getString(R.string.cloud_key_scan_querying))
-    MineComponentSnapshotQueryClient.query(this, MineComponentSnapshotCodec.SURFACE_CLOUD_KEYS) { result ->
-        componentSnapshotQueryInFlight.remove(MineComponentSnapshotCodec.SURFACE_CLOUD_KEYS)
-        if (isFinishing || isDestroyed ||
-            !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
-        ) return@query
-        // 云控键面没有勾选存储键（固定值另存在 cloud.key_freeze.picked），和反馈面板的草稿面一样
-        // 不走 Store.write：STORE_FAILED 也带着已校验的快照，这次显示得出来，只是没落盘。
-        val live = result.snapshot?.takeIf {
-            it.surface == MineComponentSnapshotCodec.SURFACE_CLOUD_KEYS && it.entries.isNotEmpty()
-        }
-        val cached = if (live == null) cachedCloudKeySnapshot() else null
-        when {
-            live != null -> showCloudKeyScanDialog(live, anchor, fresh = true)
-            // 宿主这会儿不在线或还没扫到：用上一次宿主推送过来的结果，让用户至少能取消已有的固定。
-            cached != null -> {
-                toast(getString(R.string.cloud_key_scan_cached_notice))
-                showCloudKeyScanDialog(cached, anchor, fresh = false)
+    // 查询本身抛出时回调不会再来；不兜住就会把 in-flight 标记永久锁死，面板再也点不开。
+    runCatching {
+        MineComponentSnapshotQueryClient.query(this, MineComponentSnapshotCodec.SURFACE_CLOUD_KEYS) { result ->
+            componentSnapshotQueryInFlight.remove(MineComponentSnapshotCodec.SURFACE_CLOUD_KEYS)
+            if (isFinishing || isDestroyed ||
+                !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+            ) return@query
+            // 云控键面没有勾选存储键（固定值另存在 cloud.key_freeze.picked），和反馈面板的草稿面一样
+            // 不走 Store.write：STORE_FAILED 也带着已校验的快照，这次显示得出来，只是没落盘。
+            val live = result.snapshot?.takeIf {
+                it.surface == MineComponentSnapshotCodec.SURFACE_CLOUD_KEYS && it.entries.isNotEmpty()
             }
-            else -> showCloudKeyScanGuide(anchor, result.status)
+            val cached = if (live == null) cachedCloudKeySnapshot() else null
+            when {
+                live != null -> showCloudKeyScanDialog(live, anchor, fresh = true)
+                // 宿主这会儿不在线或还没扫到：用上一次宿主推送过来的结果，让用户至少能取消已有的固定。
+                cached != null -> {
+                    toast(getString(R.string.cloud_key_scan_cached_notice))
+                    showCloudKeyScanDialog(cached, anchor, fresh = false)
+                }
+                else -> showCloudKeyScanGuide(anchor, result.status)
+            }
         }
+    }.onFailure {
+        componentSnapshotQueryInFlight.remove(MineComponentSnapshotCodec.SURFACE_CLOUD_KEYS)
+        showCloudKeyScanGuide(anchor, MineComponentSnapshotQueryClient.Status.TARGET_UNAVAILABLE)
     }
 }
 
