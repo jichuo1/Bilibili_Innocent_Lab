@@ -18,7 +18,7 @@ internal object SettingsDependencies {
         children(FeaturePreferences.PLAYER_FRAME_INTERPOLATION,
             "player.frame_interpolation.max_fps", "player.frame_interpolation.status_toast",
             "player.frame_interpolation.disable_thermal_control", FRAME_MODEL)
-        children(FeaturePreferences.SPONSORBLOCK_ENABLED, "player.sponsorblock.automatic")
+        children(FeaturePreferences.SPONSORBLOCK_ENABLED, "player.sponsorblock.automatic", "player.sponsorblock.story")
         put("player.long_press_speed.percent", Requirement(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS, false))
         children(FeaturePreferences.HIDE_MINE_VIP, "mine.vip.space_kept")
         children(FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS, "host.mine.garb_dim.enabled")

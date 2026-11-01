@@ -56,8 +56,51 @@ public final class StoryDetail {
         this.playbackState = playbackState;
     }
 
+    private long aid;
+    private long cid;
+    private String bvid = "";
+    private boolean ugc;
+    private boolean playableVideo;
+    private boolean ad;
+    private Object adInfo;
+
     public boolean isAd() {
-        return false;
+        return ad;
+    }
+
+    public long getAid() {
+        return aid;
+    }
+
+    public long getCid() {
+        return cid;
+    }
+
+    public String getBvid() {
+        return bvid;
+    }
+
+    public boolean isUgc() {
+        return ugc;
+    }
+
+    public boolean isPlayableVideo() {
+        return playableVideo;
+    }
+
+    public Object getAdInfo() {
+        return adInfo;
+    }
+
+    /** 测试用：一次性设置 Story 条目的准入相关字段。 */
+    public void setIdentity(long aid, long cid, String bvid, boolean ugc, boolean playableVideo, boolean ad, Object adInfo) {
+        this.aid = aid;
+        this.cid = cid;
+        this.bvid = bvid;
+        this.ugc = ugc;
+        this.playableVideo = playableVideo;
+        this.ad = ad;
+        this.adInfo = adInfo;
     }
 
     public boolean isLive() {

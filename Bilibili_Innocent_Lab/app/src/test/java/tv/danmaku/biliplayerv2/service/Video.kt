@@ -21,5 +21,8 @@ class FixturePlayableParams(private val display: Video.DisplayParams, kind: Vide
     override fun getDisplayParams() = display
 }
 
-open class FixtureResolveParams(private val origin: String) { fun getFrom() = origin }
+open class FixtureResolveParams(private val origin: String) {
+    fun getFrom() = origin
+    open fun id(): String = ""
+}
 class CurrentVideoPointer(var index: Int = 0)

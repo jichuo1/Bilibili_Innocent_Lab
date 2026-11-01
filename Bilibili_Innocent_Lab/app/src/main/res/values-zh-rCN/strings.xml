@@ -1372,7 +1372,9 @@
     <string name="highlights_host_glass_materials">新增顶栏与底栏独立的柔光、透明玻璃、液态玻璃材质及渲染方式选择。</string>
     <string name="sponsorblock_enabled">商单片段提示</string>
     <string name="sponsorblock_automatic">自动跳过商单片段</string>
-    <string name="sponsorblock_tip">开启提示后，将使用视频编号的哈希前缀查询社区服务 www.bsbsb.top。仅支持普通视频详情页中的商单片段；自动跳过须同时开启提示，暂停和手动拖动优先。社区标注可能不准确，跳转确认后 6 秒内可撤销。不发送投稿、投票或账户数据。修改后需重启哔哩哔哩。</string>
+    <string name="sponsorblock_story_enabled">短视频也跳过商单片段</string>
+    <string name="highlights_sponsorblock_story">短视频（竖屏）现在也可提示或自动跳过社区标注的商单片段。默认关闭，每停留一个短视频会向 www.bsbsb.top 查询一次（每分钟最多 12 次）；短视频的标注覆盖面很小。</string>
+    <string name="sponsorblock_tip">开启提示后，将使用视频编号的哈希前缀查询社区服务 www.bsbsb.top。支持普通视频详情页中的商单片段；短视频（竖屏）需另外开启上面的开关，每停留一个短视频查询一次（每分钟最多 12 次），且只处理普通投稿、不处理广告；自动跳过须同时开启提示，暂停和手动拖动优先。社区标注可能不准确，跳转确认后 6 秒内可撤销。不发送投稿、投票或账户数据。修改后需重启哔哩哔哩。</string>
     <string name="agent_title">AI 任务助手（实验性）</string>
     <string name="agent_help">开启模块无障碍后，助手可在哔哩哔哩界面内点击、滑动、输入普通文本和返回；未开启时仍可使用原有搜索及视频工具。密码、实名验证和付款等敏感操作受保护。目标与必要的界面内容会发送给所选 API，可随时点击停止接管。时间和步数均可设为无限。</string>
     <string name="agent_enable">启用宿主任务接口</string>

@@ -136,6 +136,12 @@ internal object HostFeaturePlanAudit {
         add("SplashAdFeatureInstaller") { SplashAdFeatureInstaller(true, points.splashAds) }
         add("SplashAutoNightFeatureInstaller") { SplashAutoNightFeatureInstaller(true) }
         add("SponsorBlockFeatureInstaller") { SponsorBlockFeatureInstaller(true, true) { points.sponsorPlayer } }
+        add("SponsorBlockStoryFeatureInstaller") {
+            SponsorBlockStoryFeatureInstaller(true, true) {
+                com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor.SponsorSegmentRepository(
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor.SponsorBlockClient("audit"))
+            }
+        }
         add("StoryActionIconsFeatureInstaller") { StoryActionIconsFeatureInstaller(StoryActionIcon.entries.toSet()) }
         add("StoryPurifyFeatureInstaller") { StoryPurifyFeatureInstaller(true, true, true, true, true, true, true, true, true, true, true, true, points.storyFeed) }
         add("SystemMediaNotificationFeatureInstaller") { SystemMediaNotificationFeatureInstaller(true) }

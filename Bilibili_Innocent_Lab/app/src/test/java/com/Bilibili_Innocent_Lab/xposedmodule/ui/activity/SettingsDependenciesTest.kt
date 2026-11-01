@@ -96,6 +96,7 @@ class SettingsDependenciesTest {
     @Test fun `sponsor automatic and retained vip space require their own main feature`() {
         listOf(
             FeaturePreferences.SPONSORBLOCK_ENABLED to "player.sponsorblock.automatic",
+            FeaturePreferences.SPONSORBLOCK_ENABLED to "player.sponsorblock.story",
             FeaturePreferences.HIDE_MINE_VIP to "mine.vip.space_kept"
         ).forEach { (key, id) ->
             assertFalse(id, SettingsDependencies.available(id, ModuleUiSettings.EMPTY))

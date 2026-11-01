@@ -706,7 +706,8 @@ internal fun MainActivity.enhancePlaybackCategory(
         applyAdvancedSubsectionStyle()
     }
     listOf(FeaturePreferences.SPONSORBLOCK_ENABLED to R.string.sponsorblock_enabled,
-        FeaturePreferences.SPONSORBLOCK_AUTOMATIC to R.string.sponsorblock_automatic).forEach { (key, label) ->
+        FeaturePreferences.SPONSORBLOCK_AUTOMATIC to R.string.sponsorblock_automatic,
+        FeaturePreferences.SPONSORBLOCK_STORY to R.string.sponsorblock_story_enabled).forEach { (key, label) ->
         materialSwitch(key = "setting:$key", lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp

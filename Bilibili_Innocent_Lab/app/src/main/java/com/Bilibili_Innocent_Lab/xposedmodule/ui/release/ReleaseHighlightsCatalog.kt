@@ -344,6 +344,9 @@ internal object ReleaseHighlightsCatalog {
         ReleaseHighlight("cloud-key-freeze", HighlightKind.NEW, R.string.cloud_key_freeze_tip,
             HighlightDestination("cloud.key_freeze.enabled",
                 alsoCovers = setOf("cloud.key_freeze.rules", "cloud.key_freeze.observe")))
+    )), ReleaseHighlightsBatch(33, listOf(
+        ReleaseHighlight("sponsorblock-story", HighlightKind.NEW, R.string.highlights_sponsorblock_story,
+            HighlightDestination("player.sponsorblock.story"))
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

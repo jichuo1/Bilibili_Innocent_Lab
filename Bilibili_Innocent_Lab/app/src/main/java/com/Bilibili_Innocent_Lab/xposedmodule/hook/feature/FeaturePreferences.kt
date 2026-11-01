@@ -233,6 +233,9 @@ internal object FeaturePreferences {
     const val PLAYER_SPEED_MENU_PERCENTS = "player_speed_menu_percents"
     const val SPONSORBLOCK_ENABLED = "sponsorblock_enabled"
     const val SPONSORBLOCK_AUTOMATIC = "sponsorblock_automatic"
+
+    /** 竖屏短视频（Story）也跳过商单；需要同时开启 [SPONSORBLOCK_ENABLED]，默认关。 */
+    const val SPONSORBLOCK_STORY = "sponsorblock_story_enabled"
     const val BLOCK_TEENAGERS_MODE_PROMPT = "block_teenagers_mode_prompt"
     const val REMOVE_COMMENT_SEARCH_LINKS = "remove_comment_search_links"
     const val REMOVE_COMMENT_EMPTY_GUIDE = "remove_comment_empty_guide"
