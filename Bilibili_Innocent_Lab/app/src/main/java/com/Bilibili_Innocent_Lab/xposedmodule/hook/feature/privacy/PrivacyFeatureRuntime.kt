@@ -16,24 +16,27 @@ internal class PrivacyFeatureRuntime(
             if (!incognito) FeatureInstallResult.Skipped("disabled")
             else {
                 val session = IncognitoSession()
+                // Broadcast switches may be cached while the remaining host surfaces are resolved.
+                // Install the protective disable first, before any preflight can initialize them.
+                val broadcast = runCatching { IncognitoBroadcastConfig().prepare(env)?.invoke() }.getOrNull() ?: run {
+                    env.reportRuntimeEvidence("incognito_privacy", FeatureRuntimeStage.ERROR)
+                    runCatching { env.reportStatus("incognito_broadcast_policy", "unavailable") }
+                    0
+                }
                 // Keep reads sealed until every account/identity adapter has installed. An optional
                 // host API disappearing must not leave an authenticated network path open.
                 val ready = java.util.concurrent.atomic.AtomicBoolean(false)
-                // ALL-OR-NOTHING PREFLIGHT: resolve every required anchor for the network boundary,
-                // account isolation and web isolation BEFORE registering anything. If any required
-                // anchor is missing on this host build, register nothing and skip the whole feature.
-                // This prevents the dangerous half-install (HTTP blacked out while gRPC still carries
-                // the real identity) that happened when a later resolve threw mid-registration.
+                // ALL-OR-NOTHING PREFLIGHT for the remaining network, account and web isolation:
+                // the earlier independent broadcast disable is deliberately protective even if this
+                // preflight fails. Do not install any of these other boundaries on a missing anchor.
                 val networkApply = IncognitoNetworkHooks(session) { ready.get() }.prepare(env)
                 val accountApply = prepareAccountIsolation(env, session)
                 val webApply = IncognitoWebHooks().prepare(env)
                 // The host's KMP gRPC pipeline bypasses the Java moss boundary above. If the build has
                 // one that cannot be routed, incognito must not start: that channel would stay open.
                 val kmpPrepared = KmpMossBoundary.prepare(env, session) { ready.get() }
-                // KMP HTTP (Ktor on the native ighttp engine) bypasses both the OkHttp and the moss
-                // boundaries; a build that has it unroutable must not start. The KMP broadcast tunnel
-                // (online presence) is NOT blocked here: refusing its native bidi stream aborts the
-                // host on 9.16.1, so it is left open and tracked as a residual (round3-plan batch 1.5).
+                // KMP HTTP bypasses the OkHttp and moss boundaries. Broadcast uses the host's
+                // disabled-stream configuration when the relevant adapters can be located.
                 val ignetApply = IgnetHttpBoundary(session) { ready.get() }.prepare(env)
                 if (networkApply == null || accountApply == null || kmpPrepared == null || ignetApply == null) {
                     env.reportRuntimeEvidence("incognito_privacy", FeatureRuntimeStage.ADAPTED)
@@ -62,7 +65,7 @@ internal class PrivacyFeatureRuntime(
                 }.also { bus -> env.postToMain?.invoke { bus.register() } }
                 env.reportStatus("incognito_privacy_status", "partial")
                 // Network adapters are version-bound. Never report end-to-end privacy as verified.
-                FeatureInstallResult.Installed(count + network + web + kmp + ignet + ktorProbe, complete = false)
+                FeatureInstallResult.Installed(count + network + web + kmp + ignet + broadcast + ktorProbe, complete = false)
             }
         },
         FunctionalFeatureInstaller("guest_browsing") { env ->
