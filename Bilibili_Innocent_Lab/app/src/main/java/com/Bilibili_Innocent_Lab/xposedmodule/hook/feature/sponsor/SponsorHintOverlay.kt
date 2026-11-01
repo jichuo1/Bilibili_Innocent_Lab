@@ -15,6 +15,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiMessages
 import java.lang.ref.WeakReference
 
@@ -58,7 +59,8 @@ internal class SponsorHintOverlay(
             text = if (hint == SponsorPlaybackController.Hint.UNDO) messages.sponsorUndoAction else messages.sponsorSkip
             contentDescription = if (hint == SponsorPlaybackController.Hint.UNDO) messages.sponsorUndo else messages.sponsorSkip
             setPadding(dp(12), dp(8), dp(12), dp(8))
-            setOnClickListener { if (shown == hint) action(hint) }
+            // 点击在宿主窗口的 UI 线程分发，逃逸异常会直接杀宿主进程，框架的 PROTECTIVE 兜不住。
+            setOnClickListener { HostThreadGuard.run("sponsorblock.hint.click") { if (shown == hint) action(hint) } }
         }
         val view = if (hint == SponsorPlaybackController.Hint.UNDO) {
             // 只消费按钮自己的触摸区域，提示文字与容器不截获宿主手势。
