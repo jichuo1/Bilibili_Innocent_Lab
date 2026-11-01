@@ -42,6 +42,12 @@ internal class StorySponsorSession(
     @Volatile private var live: Bound? = null
     private var progressSeen = false
     private var stopped = false
+
+    /**
+     * 已被判定为永久不适用（广告、非普通投稿、标识非法）的已装载条目编号。
+     * 同一个条目再判多少次结果都一样，记住它就不用每秒重新读一遍游标、分页器和详情；换条目时清空。
+     */
+    private var rejected: String? = null
     private val granted = LinkedHashMap<SponsorVideoId, Long>()
 
     val bound: SponsorVideoId? get() = live?.video
@@ -65,6 +71,7 @@ internal class StorySponsorSession(
     fun itemChanged() {
         if (stopped) return
         progressSeen = false
+        rejected = null
         live?.controller?.invalidateExternalSeek()
         unbind()
     }
@@ -106,14 +113,19 @@ internal class StorySponsorSession(
             unbind()
         }
         if (!progressSeen || !host.resumed() || host.state() != PLAYING) return
+        val loaded = host.loadedId()
+        if (loaded != null && loaded == rejected) return
         val duration = host.duration()
         if (duration <= 0 || abs(duration - host.realDuration()) > CLIP_TOLERANCE_MS ||
             abs(host.position() - host.realPosition()) > CLIP_TOLERANCE_MS) {
             diagnostic("bind.denied.clip", "")
             return
         }
-        when (val verdict = StorySponsorGate.evaluate(host.playable(), host.loadedId(), host.details())) {
-            is StorySponsorVerdict.Deny -> diagnostic("bind.denied.${verdict.reason}", "")
+        when (val verdict = StorySponsorGate.evaluate(host.playable(), loaded, host.details())) {
+            is StorySponsorVerdict.Deny -> {
+                diagnostic("bind.denied.${verdict.reason}", "")
+                if (verdict.final) rejected = loaded
+            }
             is StorySponsorVerdict.Allow -> bind(verdict)
         }
     }
