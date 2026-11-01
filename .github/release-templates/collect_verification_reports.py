@@ -39,7 +39,9 @@ def safe_file(path: Path, root: Path) -> bool:
             and path.resolve().is_relative_to(root.resolve()))
 
 
-def collect(repository: Path, build_outcome: str, environment: dict[str, str]) -> tuple[Path, dict]:
+def collect(repository: Path, build_outcome: str, environment: dict[str, str], partition: str = "all") -> tuple[Path, dict]:
+    tasks = gates.PARTITIONS[partition]
+    with_tests = partition != "lint"
     project = repository / gates.PROJECT_DIRECTORY
     output = project / "build/verification-reports"
     # Fresh directory only: a rerun must not mix current and previous receipts.
@@ -50,8 +52,8 @@ def collect(repository: Path, build_outcome: str, environment: dict[str, str]) -
         raise ValueError("invalid source commit")
     if environment.get("GITHUB_SHA") != source_commit:
         errors.append("source_commit_does_not_match_event")
-    expected = gates.source_test_inventory(project)
-    reports = gates.collect_reports(project, expected)
+    expected = gates.source_test_inventory(project) if with_tests else {}
+    reports = gates.collect_reports(project, expected, partition)
     errors.extend(reports["errors"])
     gate_path = project / "app/build/reports/gradle-gates.json"
     try:
@@ -61,14 +63,14 @@ def collect(repository: Path, build_outcome: str, environment: dict[str, str]) -
         if not isinstance(gate, dict):
             raise ValueError("invalid gate object")
         if (gate.get("status") != "success" or gate.get("gradle_exit_code") != 0
-                or gate.get("tasks") != list(gates.TASKS)
+                or gate.get("partition") != partition or gate.get("tasks") != list(tasks)
                 or gate.get("invocations") != 1 or gate.get("continue") is not True
                 or gate.get("daemon") is not False or gate.get("errors") != []):
             errors.append("gate_receipt_not_successful")
         if gate.get("reports") != reports:
             errors.append("gate_receipt_does_not_match_raw_reports")
         outcomes = gate.get("task_outcomes", {})
-        for task in gates.TASKS:
+        for task in tasks:
             allowed = {"EXECUTED", "UP-TO-DATE", "FROM-CACHE"}
             if task == "compileReleaseJavaWithJavac":
                 allowed.add("NO-SOURCE")
@@ -94,8 +96,10 @@ def collect(repository: Path, build_outcome: str, environment: dict[str, str]) -
         entries.append({"path": relative, "bytes": size, "sha256": digest(destination)})
         total += size
     paths = {entry["path"] for entry in entries}
-    for required in ("app/build/reports/gradle-gates.log", "app/build/reports/gradle-gates.json",
-                     "app/build/reports/tests/testDebugUnitTest/index.html", "build/reports/tooling/unittest.log"):
+    required_reports = ["app/build/reports/gradle-gates.log", "app/build/reports/gradle-gates.json"]
+    if with_tests:
+        required_reports += ["app/build/reports/tests/testDebugUnitTest/index.html", "build/reports/tooling/unittest.log"]
+    for required in required_reports:
         if required not in paths or not (output / required).stat().st_size:
             errors.append(f"missing_required_report:{required}")
     if not any(p.startswith("build/reports/profile/") and p.endswith(".html") and (output / p).stat().st_size for p in paths):
@@ -109,7 +113,7 @@ def collect(repository: Path, build_outcome: str, environment: dict[str, str]) -
     tools = {path.name: digest(path) for path in (Path(__file__), Path(gates.__file__))}
     manifest = {
         "schema": 1, "status": "complete" if build_outcome == "success" and not errors else "partial",
-        "build_outcome": build_outcome, "source_commit": source_commit,
+        "partition": partition, "build_outcome": build_outcome, "source_commit": source_commit,
         "run": {k: environment.get(k, "") for k in ("GITHUB_REPOSITORY", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_JOB")},
         "reports": reports, "expected_test_classes": inventory, "tool_sha256": tools,
         "verified_outputs": outputs, "files": entries, "total_bytes": total,
@@ -122,16 +126,17 @@ def collect(repository: Path, build_outcome: str, environment: dict[str, str]) -
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-outcome", choices=("success", "failure"), required=True)
+    parser.add_argument("--partition", choices=sorted(gates.PARTITIONS), default="all")
     options = parser.parse_args(argv)
     try:
-        output, manifest = collect(gates.REPOSITORY_ROOT, options.build_outcome, dict(os.environ))
+        output, manifest = collect(gates.REPOSITORY_ROOT, options.build_outcome, dict(os.environ), options.partition)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         print(f"Verification collection failed: {type(exc).__name__}", file=sys.stderr)
         return 1
     print(f"Verification evidence: {manifest['status']}; files={len(manifest['files'])}; path={output}")
     if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
         with Path(summary).open("a", encoding="utf-8") as stream:
-            stream.write(f"\n### Verification evidence\n\n- Status: **{manifest['status']}**; source: `{manifest['source_commit']}`.\n"
+            stream.write(f"\n### Verification evidence ({manifest['partition']})\n\n- Status: **{manifest['status']}**; source: `{manifest['source_commit']}`.\n"
                          f"- Raw files: {len(manifest['files'])}; bytes: {manifest['total_bytes']}; SHA-256 per file in `manifest.json`.\n"
                          f"- Evidence errors: `{', '.join(manifest['errors']) or 'none'}`.\n")
     return int(options.build_outcome == "success" and manifest["status"] != "complete")

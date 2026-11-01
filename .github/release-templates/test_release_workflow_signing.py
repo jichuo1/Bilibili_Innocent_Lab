@@ -1,7 +1,8 @@
+import re
 import unittest
 from pathlib import Path
 
-from run_gradle_gates import TASKS
+from run_gradle_gates import PARTITIONS, TASKS
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -120,6 +121,51 @@ class ReleaseWorkflowSigningTest(unittest.TestCase):
         self.assertIn("INNOCENT_LAB_SIGNING_STORE_FILE", gradle_script)
         self.assertIn('task.name.equals("packageRelease", ignoreCase = true)', gradle_script)
         self.assertNotIn("(assemble|bundle|package|sign)", gradle_script)
+
+
+    def test_lint_runs_in_a_parallel_job_that_gates_publish(self) -> None:
+        lint_workflow = (WORKFLOW_DIRECTORY / "android-lint.yml").read_text(encoding="utf-8")
+        self.assertIn("workflow_call:", lint_workflow)
+        self.assertEqual(2, lint_workflow.count("--partition lint"))  # gate and evidence collector
+        self.assertIn("run_gradle_gates.py", lint_workflow)
+        self.assertIn("timeout-minutes:", lint_workflow)
+        self.assertIn("uses: ./.github/actions/gradle-cache", lint_workflow)
+        self.assertNotIn("actions/cache/save@", lint_workflow)  # verify stays the single cache owner
+        self.assertNotIn("secrets.", lint_workflow)
+        for name in ("canary-build.yml", "alpha-release.yml", "stable-release.yml", "advanced-verify.yml"):
+            with self.subTest(workflow=name):
+                content = (WORKFLOW_DIRECTORY / name).read_text(encoding="utf-8")
+                verify = content.split("\n  lint:", 1)[0]
+                lint = content.split("\n  lint:", 1)[1].split("\n  publish:", 1)[0]
+                self.assertEqual(2, verify.count("--partition build"))  # gate and evidence collector
+                self.assertNotIn("--partition lint", verify)
+                self.assertIn("uses: ./.github/workflows/android-lint.yml", lint)
+                self.assertNotIn("needs:", lint)  # must start together with verify
+                if "\n  publish:" in content:
+                    header = content.split("\n  publish:", 1)[1].split("\n    runs-on:", 1)[0]
+                    self.assertIn("needs: [verify, lint]", header)
+                    self.assertIn("needs.lint.result == 'success'", header)
+
+    def test_verify_and_lint_partitions_still_cover_the_complete_gate(self) -> None:
+        self.assertEqual(set(TASKS), set(PARTITIONS["build"]) | set(PARTITIONS["lint"]))
+        self.assertEqual({"lintDebug"}, set(PARTITIONS["lint"]))
+        self.assertNotIn("lintDebug", PARTITIONS["build"])
+
+    def test_reusable_lint_workflow_uses_the_same_build_constants(self) -> None:
+        names = "CI_COMPILE_SDK|CI_COMPILE_SDK_PACKAGE|CI_BUILD_TOOLS|CI_GRADLE_JVMARGS|JDK_JAVA_OPTIONS"
+
+        def constants(workflow: str) -> dict[str, str]:
+            text = (WORKFLOW_DIRECTORY / workflow).read_text(encoding="utf-8")
+            return dict(re.findall(rf"^  ({names}): (.+)$", text, re.MULTILINE))
+
+        lint = constants("android-lint.yml")
+        self.assertEqual(5, len(lint))
+        for name in ("canary-build.yml", "alpha-release.yml", "stable-release.yml", "advanced-verify.yml"):
+            with self.subTest(workflow=name):
+                own = constants(name)
+                self.assertTrue(own)
+                for key, value in own.items():
+                    self.assertEqual(lint[key], value, key)
 
 
 if __name__ == "__main__":

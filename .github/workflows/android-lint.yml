@@ -1,0 +1,129 @@
+name: Android Lint (reusable)
+
+# 完整的 Android Lint 门禁，供各验证工作流作为与 verify 并行的作业调用。
+#
+# 为什么单独成作业：lintDebug 要等 debug 的 Kotlin 编译结束才能开始，随后自身串行
+# 约 400 秒，是整个验证图里最长的一条链；测试、R8、打包都在它之前跑完，最后一两分钟
+# 只剩 lint 一个任务在占用 runner。把它交给另一台 runner 与 verify 同时开始，墙钟
+# 时间就从"编译 + lint"之和变成两者中较长的一个。
+#
+# 检查强度不变：同一个 run_gradle_gates.py、同一个 lintDebug 任务、同样的 lint 基线，
+# 并且 lint 报告、收据与证据清单仍按原有规则校验（partition=lint）。发布作业必须同时
+# 等 verify 与 lint 都成功。Gradle 缓存快照仍由 verify 独家保存，本作业只读。
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  # 与 canary-build.yml / alpha-release.yml / stable-release.yml 的同名常量保持一致，
+  # test_release_workflow_signing.py 会检查它们没有漂移。
+  CI_COMPILE_SDK: '37'
+  CI_COMPILE_SDK_PACKAGE: 'platforms;android-37.2'
+  CI_BUILD_TOOLS: '37.0.0'
+  CI_GRADLE_JVMARGS: '-Xmx6144m -Dfile.encoding=UTF-8'
+  JDK_JAVA_OPTIONS: '-XX:MaxMetaspaceSize=1024m -XX:ReservedCodeCacheSize=512m -XX:+UseCodeCacheFlushing'
+
+jobs:
+  lint:
+    name: Full Android Lint
+    runs-on: ubuntu-latest
+    # 防卡死的宽松上限（约为常规耗时的 6 倍以上），不是性能预算；默认值是 360 分钟。
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7.0.1
+        with:
+          # 始终检查触发事件记录的精确提交；发布作业会再确认它仍是最新的 main。
+          ref: ${{ github.sha }}
+
+      - name: Set up Java
+        uses: actions/setup-java@v6.1.0
+        with:
+          distribution: temurin
+          java-version: '27'
+
+      # 只读恢复：快照由 verify 作业保存，这里不保存，避免两个作业争用同一个缓存键。
+      - name: Set up Gradle and restore build cache
+        id: gradle-cache
+        uses: ./.github/actions/gradle-cache
+
+      - name: Probe exact Android SDK packages
+        id: sdk
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/release-templates/android_sdk_probe.py \
+            --build-tools "$CI_BUILD_TOOLS" \
+            --platform "${CI_COMPILE_SDK_PACKAGE#platforms;}" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-env "$GITHUB_ENV"
+
+      - name: Set up Android SDK
+        if: ${{ steps.sdk.outputs.ready != 'true' }}
+        uses: android-actions/setup-android@v4.0.4
+        with:
+          # packages 默认值 "tools platform-tools" 会跑 `sdkmanager tools`，而 Google 已在
+          # 2026-09-14 把废弃多年的 tools 包从 SDK 仓库下架，该调用直接 exit 1。
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+
+      - name: Install Android SDK packages
+        if: ${{ steps.sdk.outputs.ready != 'true' }}
+        shell: bash
+        run: sdkmanager "${CI_COMPILE_SDK_PACKAGE}" "build-tools;${CI_BUILD_TOOLS}"
+
+      # lintDebug 的任务图包含 debug 的 CMake 构建，弹幕 wire 内核由它调 cargo 编译，
+      # 所以与 verify 一样需要 Rust；工具链代次必须与
+      # Bilibili_Innocent_Lab/app/src/main/rust/danmaku-wire/rust-toolchain.toml 一致。
+      - name: Install Rust toolchain (danmaku wire kernel)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain 1.99.0
+          . "$HOME/.cargo/env"
+          rustup target add aarch64-linux-android armv7-linux-androideabi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Verify installed Android SDK packages
+        if: ${{ steps.sdk.outputs.ready != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/release-templates/android_sdk_probe.py \
+            --build-tools "$CI_BUILD_TOOLS" \
+            --platform "${CI_COMPILE_SDK_PACKAGE#platforms;}" \
+            --github-env "$GITHUB_ENV" \
+            --require-ready
+
+      - name: Run full Lint
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/release-templates/run_gradle_gates.py \
+            --project-root Bilibili_Innocent_Lab \
+            --partition lint \
+            --compile-sdk "$CI_COMPILE_SDK" \
+            --jvmargs="$CI_GRADLE_JVMARGS"
+
+      - name: Collect complete lint evidence
+        id: reports
+        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
+        working-directory: .
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+        run: python3 .github/release-templates/collect_verification_reports.py --partition lint --build-outcome "$BUILD_OUTCOME"
+
+      - name: Upload lint reports
+        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: lint-reports-${{ github.sha }}-${{ github.run_attempt }}
+          path: Bilibili_Innocent_Lab/build/verification-reports/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6

@@ -197,5 +197,101 @@ class RunGradleGatesTest(unittest.TestCase):
         self.assertIn("minifyReleaseWithR8", text)
 
 
+    def parse(self, *args: str):
+        return gates.argument_parser().parse_args(list(args))
+
+    def test_partitions_split_the_gate_without_adding_or_dropping_a_task(self) -> None:
+        build, lint = gates.PARTITIONS["build"], gates.PARTITIONS["lint"]
+        self.assertEqual(gates.TASKS, gates.PARTITIONS["all"])
+        self.assertEqual(("lintDebug",), lint)
+        self.assertEqual(tuple(task for task in gates.TASKS if task != "lintDebug"), build)
+        self.assertEqual(set(gates.TASKS), set(build) | set(lint))
+        self.assertFalse(set(build) & set(lint))
+
+    def test_each_partition_runs_exactly_its_own_tasks_in_one_invocation(self) -> None:
+        for partition in ("build", "lint"):
+            with self.subTest(partition=partition):
+                tasks = list(gates.PARTITIONS[partition])
+                command = gates.build_command(self.project, self.parse("--partition", partition))
+                self.assertEqual(tasks, command[-3 - len(tasks):-3])
+                self.assertEqual(["--continue", "--console=plain", "--no-daemon"], command[-3:])
+                self.assertIn("--profile", command)
+
+    def test_lint_partition_needs_only_lint_evidence(self) -> None:
+        self.options = self.parse("--partition", "lint")
+        self.write("build/reports/lint-results-debug.xml", '<issues format="6"><issue severity="Warning"/></issues>')
+        self.write("build/reports/lint-results-debug.html", "<html>full lint</html>")
+        result, receipt, popen = self.run_fake("> Task :app:lintDebug\n")
+        self.assertEqual(0, result)
+        self.assertEqual("lint", receipt["partition"])
+        self.assertEqual(["lintDebug"], receipt["tasks"])
+        self.assertEqual([], receipt["test_layers"])
+        self.assertEqual({}, receipt["reports"]["layers"])
+        self.assertEqual({"lint_html"}, set(receipt["reports"]["files"]))
+        self.assertEqual(["lintDebug"], popen.call_args.args[0][-4:-3])
+
+    def test_lint_partition_still_fails_on_lint_errors_and_missing_reports(self) -> None:
+        self.options = self.parse("--partition", "lint")
+        result, receipt, _ = self.run_fake("> Task :app:lintDebug\n")
+        self.assertNotEqual(0, result)
+        self.assertIn("missing_or_invalid_full_lint_xml", receipt["errors"])
+        self.assertIn("missing_or_empty_lint_html", receipt["errors"])
+        self.write("build/reports/lint-results-debug.xml", '<issues><issue severity="Fatal"/></issues>')
+        self.write("build/reports/lint-results-debug.html", "<html>full lint</html>")
+        result, receipt, _ = self.run_fake("> Task :app:lintDebug\n")
+        self.assertNotEqual(0, result)
+        self.assertIn("lint_errors", receipt["errors"])
+        result, receipt, _ = self.run_fake("")
+        self.assertIn("task_incomplete:lintDebug", receipt["errors"])
+
+    def test_lint_partition_ignores_unrelated_test_reports(self) -> None:
+        self.write_reports()
+        (self.app / "build/test-results/testDebugUnitTest/TEST-example.BehaviorTest.xml").write_text("<testsuite", encoding="utf-8")
+        self.options = self.parse("--partition", "lint")
+        result, receipt, _ = self.run_fake("> Task :app:lintDebug\n")
+        self.assertEqual(0, result)
+        self.assertEqual(0, receipt["reports"]["test_report_files"])
+
+    def test_build_partition_needs_no_lint_evidence_and_keeps_every_other_gate(self) -> None:
+        self.write_reports()
+        for name in ("lint-results-debug.xml", "lint-results-debug.html"):
+            (self.app / "build/reports" / name).unlink()
+        self.options = self.parse("--partition", "build")
+        tasks = gates.PARTITIONS["build"]
+        log = "".join(f"> Task :app:{task}\n" for task in tasks)
+        result, receipt, _ = self.run_fake(log)
+        self.assertEqual(0, result)
+        self.assertEqual("build", receipt["partition"])
+        self.assertEqual(list(tasks), receipt["tasks"])
+        self.assertEqual({"unit", "contract"}, set(receipt["reports"]["layers"]))
+        self.assertEqual({"debug_apk", "r8_mapping"}, set(receipt["reports"]["files"]))
+        self.assertEqual({"errors": None, "warnings": None}, receipt["reports"]["lint"])
+        for broken in ("testDebugUnitTest", "minifyReleaseWithR8"):
+            with self.subTest(missing=broken):
+                result, receipt, _ = self.run_fake(log.replace(f"> Task :app:{broken}\n", ""))
+                self.assertNotEqual(0, result)
+                self.assertIn(f"task_incomplete:{broken}", receipt["errors"])
+        self.write("build/outputs/mapping/release/mapping.txt", "")
+        result, receipt, _ = self.run_fake(log)
+        self.assertIn("missing_or_empty_r8_mapping", receipt["errors"])
+
+    def test_unknown_partition_is_rejected(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.parse("--partition", "tests")
+
+    def test_partition_step_summary_names_the_partition(self) -> None:
+        self.options = self.parse("--partition", "lint")
+        self.write("build/reports/lint-results-debug.xml", '<issues format="6"><issue severity="Warning"/></issues>')
+        self.write("build/reports/lint-results-debug.html", "<html>full lint</html>")
+        summary = self.repository / "summary.md"
+        with patch.object(gates.subprocess, "Popen", return_value=FakeGradle("> Task :app:lintDebug\n", 0)), patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(0, gates.run_gates(self.repository, self.options))
+        text = summary.read_text(encoding="utf-8")
+        self.assertIn("Gradle gates (lint)", text)
+        self.assertIn("`lintDebug`", text)
+        self.assertNotIn("minifyReleaseWithR8", text)
+        self.assertIn("Lint: errors 0; warnings 1.", text)
+
+
 if __name__ == "__main__":
     unittest.main()
