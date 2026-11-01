@@ -1372,7 +1372,9 @@
     <string name="highlights_host_glass_materials">新增頂欄與底欄獨立的柔光、透明玻璃、液態玻璃材質及渲染方式選擇。</string>
     <string name="sponsorblock_enabled">商單片段提示</string>
     <string name="sponsorblock_automatic">自動略過商單片段</string>
-    <string name="sponsorblock_tip">開啟提示後，將使用影片編號的雜湊前綴查詢社群服務 www.bsbsb.top。僅支援普通影片詳情頁中的商單片段；自動略過須同時開啟提示，暫停和手動拖動優先。社群標註可能不準確，跳轉確認後 6 秒內可復原。不傳送投稿、投票或帳戶資料。修改後需重新啟動嗶哩嗶哩。</string>
+    <string name="sponsorblock_story_enabled">短影片也略過商單片段</string>
+    <string name="highlights_sponsorblock_story">短影片（直式）現在也可提示或自動略過社群標註的商單片段。預設關閉，每停留一支短影片會向 www.bsbsb.top 查詢一次（每分鐘最多 12 次）；短影片的標註覆蓋面很小。</string>
+    <string name="sponsorblock_tip">開啟提示後，將使用影片編號的雜湊前綴查詢社群服務 www.bsbsb.top。支援普通影片詳情頁中的商單片段；短影片（直式）需另外開啟上方的開關，每停留一支短影片查詢一次（每分鐘最多 12 次），且只處理普通投稿、不處理廣告；自動略過須同時開啟提示，暫停和手動拖動優先。社群標註可能不準確，跳轉確認後 6 秒內可復原。不傳送投稿、投票或帳戶資料。修改後需重新啟動嗶哩嗶哩。</string>
     <string name="agent_title">AI 任務助手（實驗性）</string>
     <string name="agent_help">開啟模組無障礙後，助手可在嗶哩嗶哩介面內點擊、滑動、輸入一般文字和返回；未開啟時仍可使用原有搜尋及影片工具。密碼、實名驗證和付款等敏感操作受保護。目標與必要的介面內容會傳送給所選 API，可隨時點擊停止接管。時間和步數均可設為無限。</string>
     <string name="agent_enable">啟用宿主任務介面</string>

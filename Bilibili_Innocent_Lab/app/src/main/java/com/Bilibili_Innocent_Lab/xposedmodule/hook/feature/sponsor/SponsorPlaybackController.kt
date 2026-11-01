@@ -22,10 +22,11 @@ internal class SponsorPlaybackController(
     private val now: () -> Long,
     private val hint: (Hint) -> Unit,
     private val applied: () -> Unit,
-    private val diagnostic: (String, String) -> Unit = { _, _ -> }
+    private val diagnostic: (String, String) -> Unit = { _, _ -> },
+    tailGuardMs: Long = 0L
 ) {
     enum class Hint { NONE, SKIP, UNDO }
-    private val policy = SponsorPlaybackPolicy(automatic)
+    private val policy = SponsorPlaybackPolicy(automatic, tailGuardMs)
     private val alive = AtomicBoolean(true)
     private val gate = AtomicReference<SponsorPlaybackPolicy.Request?>()
     private val executed = AtomicBoolean(false)

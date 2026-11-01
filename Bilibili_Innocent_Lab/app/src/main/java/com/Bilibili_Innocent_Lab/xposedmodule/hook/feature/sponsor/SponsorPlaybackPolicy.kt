@@ -2,8 +2,13 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor
 
 import kotlin.math.abs
 
-/** 主线程会话状态；网络与反射由外层承担，void seek 返回值不代表已跳转。 */
-internal class SponsorPlaybackPolicy(private val automatic: Boolean) {
+/**
+ * 主线程会话状态；网络与反射由外层承担，void seek 返回值不代表已跳转。
+ *
+ * [tailGuardMs] 大于 0 时，终点距视频结尾不足该值的区间不自动跳转，只保留手动「跳过」：
+ * 短视频流里 seek 到结尾会让条目播完、循环或触发翻页，自动执行有副作用。
+ */
+internal class SponsorPlaybackPolicy(private val automatic: Boolean, private val tailGuardMs: Long = 0L) {
     data class Range(val startMs: Long, val endMs: Long, val ids: Set<String>)
     data class Request(val serial: Long, val originMs: Long, val targetMs: Long,
         val range: Range, val undo: Boolean, val deadlineMs: Long)
@@ -39,6 +44,7 @@ internal class SponsorPlaybackPolicy(private val automatic: Boolean) {
         if (pending != null || seeking || position !in 0 until duration || (!manual && (!automatic || !playing || autoSuspended))) return null
         val range = currentRange ?: return null
         if (!manual && range.ids.any(blocked::contains)) return null
+        if (!manual && tailGuardMs > 0 && duration - range.endMs < tailGuardMs) return null
         return Request(++sequence, position, range.endMs, range, false, nowMs + 4_000).also { pending = it; undo = null }
     }
 

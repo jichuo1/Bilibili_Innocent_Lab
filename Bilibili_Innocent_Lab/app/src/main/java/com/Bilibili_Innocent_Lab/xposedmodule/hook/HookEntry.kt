@@ -143,6 +143,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedFeatureIns
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerAiSubtitleFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSubtitleStyleFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SponsorBlockFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SponsorBlockStoryFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor.SponsorBlockClient
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor.SponsorSegmentRepository
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TeenagersModeFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoRelateFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
@@ -2723,10 +2726,22 @@ class HookEntry : XposedModule() {
                 enabled = hookConfig.getBoolean(FeaturePreferences.COMMENT_CLASSIC_STYLE, false),
                 cachedPoints = { classicPointsRef.get() }
             )
+            // 详情页与 Story 共用一个查询仓库：缓存与 429 退避状态只有一份，首次使用时才创建。
+            val sponsorRepository = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+                SponsorSegmentRepository(SponsorBlockClient(com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.VERSION_NAME))
+            }
+            val sponsorEnabled = hookConfig.getBoolean(FeaturePreferences.SPONSORBLOCK_ENABLED, false)
+            val sponsorAutomatic = hookConfig.getBoolean(FeaturePreferences.SPONSORBLOCK_AUTOMATIC, false)
             val sponsorInstaller = SponsorBlockFeatureInstaller(
-                enabled = hookConfig.getBoolean(FeaturePreferences.SPONSORBLOCK_ENABLED, false),
-                automatic = hookConfig.getBoolean(FeaturePreferences.SPONSORBLOCK_AUTOMATIC, false),
-                cachedClasses = { sponsorClassesRef.get() }
+                enabled = sponsorEnabled,
+                automatic = sponsorAutomatic,
+                cachedClasses = { sponsorClassesRef.get() },
+                repository = { sponsorRepository.value }
+            )
+            val sponsorStoryInstaller = SponsorBlockStoryFeatureInstaller(
+                enabled = sponsorEnabled && hookConfig.getBoolean(FeaturePreferences.SPONSORBLOCK_STORY, false),
+                automatic = sponsorAutomatic,
+                repository = { sponsorRepository.value }
             )
 
             val roamingCompatPrefs = hookConfig
@@ -3721,6 +3736,7 @@ class HookEntry : XposedModule() {
                         cachedMenuPoints = hostAdaptResult?.playerSpeedMenu
                     ),
                     sponsorInstaller,
+                    sponsorStoryInstaller,
                     SystemMediaNotificationFeatureInstaller(
                         enabled = prefs.getBoolean(
                             FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION,

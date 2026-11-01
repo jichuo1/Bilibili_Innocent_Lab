@@ -1572,7 +1572,8 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             }
             requested
         }
-        FeaturePreferences.SPONSORBLOCK_ENABLED, FeaturePreferences.SPONSORBLOCK_AUTOMATIC -> {
+        FeaturePreferences.SPONSORBLOCK_ENABLED, FeaturePreferences.SPONSORBLOCK_AUTOMATIC,
+        FeaturePreferences.SPONSORBLOCK_STORY -> {
             runCatching { prefs().edit { putBoolean(storageKey, requested) } }.onFailure {
                 Log.e("BilibiliInnocentLab", "write sponsorblock prefs failed", it)
             }
@@ -1712,6 +1713,7 @@ internal val modeledToggleKeys = setOf(
     FeaturePreferences.PLAYER_UNLOCK_CAST,
     FeaturePreferences.SPONSORBLOCK_ENABLED,
     FeaturePreferences.SPONSORBLOCK_AUTOMATIC,
+    FeaturePreferences.SPONSORBLOCK_STORY,
     FeaturePreferences.PLAYER_FRAME_INTERPOLATION,
     FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST,
     FeaturePreferences.PLAYER_SUBTITLE_STYLE,

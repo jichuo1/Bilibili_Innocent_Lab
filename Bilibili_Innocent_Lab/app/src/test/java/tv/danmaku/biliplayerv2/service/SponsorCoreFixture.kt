@@ -9,6 +9,8 @@ interface IPlayerCoreService {
     fun getCurrentPosition(): Int = 0
     fun getRealCurrentPosition(): Int = getCurrentPosition()
     fun getDuration(): Int = 100_000
+    fun getRealDuration(): Int = getDuration()
+    fun getCurrentMediaItem(): tv.danmaku.videoplayer.coreV2.MediaItem? = null
     fun getState(): Int = 4
     fun seekTo(position: Int, accurate: Boolean) {}
     fun registerPlayerProgressObserver(observer: PlayerProgressObserver) {}

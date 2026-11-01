@@ -122,6 +122,7 @@ internal object SettingsUiCatalog {
         add(FeaturePreferences.PLAYER_AI_SUBTITLE, R.string.player_ai_subtitle, 2, "ENHANCEMENT_ADVANCED", true)
         add(FeaturePreferences.SPONSORBLOCK_ENABLED, R.string.sponsorblock_enabled, 2, "ENHANCEMENT_ADVANCED", true)
         add(FeaturePreferences.SPONSORBLOCK_AUTOMATIC, R.string.sponsorblock_automatic, 2, "ENHANCEMENT_ADVANCED", true)
+        add(FeaturePreferences.SPONSORBLOCK_STORY, R.string.sponsorblock_story_enabled, 2, "ENHANCEMENT_ADVANCED", true)
         if (FrameInterpolationEntryGate.entryOpen()) add(FeaturePreferences.PLAYER_FRAME_INTERPOLATION, R.string.player_frame_interpolation, 2, "ENHANCEMENT_ADVANCED", true)
         if (FrameInterpolationEntryGate.entryOpen()) add(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_DISABLE_THERMAL_CONTROL, R.string.player_frame_disable_thermal_control, 2, "ENHANCEMENT_ADVANCED", true)
         if (FrameInterpolationEntryGate.entryOpen()) add(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST, R.string.player_frame_status_toast, 2, "ENHANCEMENT_ADVANCED", true)

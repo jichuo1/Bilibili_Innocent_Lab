@@ -9,6 +9,18 @@ class SponsorPlaybackPolicyTest {
         load(listOf(ad)); progress(12_000, 100_000, 0)
     }
 
+    @Test fun tailGuardKeepsIntervalsThatEndAtTheVideoEndManualOnly() {
+        val tail = SponsorSegment("t", 90_000, 99_000, 100_000)
+        fun guarded(guard: Long) = SponsorPlaybackPolicy(true, guard).apply { load(listOf(tail)); progress(95_000, 100_000, 0) }
+        assertNull(guarded(1_500).request(true, 0))
+        assertEquals(99_000L, guarded(1_500).request(true, 0, manual = true)?.targetMs)
+        assertEquals(99_000L, guarded(500).request(true, 0)?.targetMs)
+        assertEquals(99_000L, guarded(0).request(true, 0)?.targetMs)
+        // 区间终点离结尾刚好等于保护值时放行，严格小于才拦。
+        assertEquals(20_000L, SponsorPlaybackPolicy(true, 80_000).apply { load(listOf(ad)); progress(12_000, 100_000, 0) }
+            .request(true, 0)?.targetMs)
+    }
+
     @Test fun manualModeAndPausedPlaybackNeverAutomaticallySeek() {
         assertNull(policy(false).request(true, 0))
         assertNull(policy().request(false, 0))

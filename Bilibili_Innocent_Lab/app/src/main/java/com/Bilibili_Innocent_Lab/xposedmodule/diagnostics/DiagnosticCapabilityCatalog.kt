@@ -33,6 +33,8 @@ internal object DiagnosticCapabilityCatalog {
             introducedCatalogVersion = 21),
         DiagnosticCapabilityDefinition("sponsorblock", "sponsorblock", R.string.sponsorblock_enabled,
             setOf("player.sponsorblock.enabled", "player.sponsorblock.automatic"), introducedCatalogVersion = 19),
+        DiagnosticCapabilityDefinition("sponsorblock_story", "sponsorblock_story", R.string.sponsorblock_story_enabled,
+            setOf("player.sponsorblock.story")),
         DiagnosticCapabilityDefinition("host_video_cards", "host_video_cards", R.string.host_video_cards,
             setOf("host.video_cards.enabled", "host.video_cards.radius_dp", "host.cards.material",
                 "host.home_cards.horizontal_dp", "host.home_cards.vertical_dp"), introducedCatalogVersion = 18),
