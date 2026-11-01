@@ -40,14 +40,14 @@ class PrivacyNetworkPolicyTest {
         assertFalse(PrivacyNetworkPolicy.blockHttp("example.com", "/history/report", "POST"))
     }
 
-    @Test fun gameTrackerCollectorIsNeverAnsweredLocally() {
-        // Blocking biligame.net answered the tracker's config pull and report uploads with a synthetic
-        // empty success. The SDK then parsed its flush interval as 0 and re-queued flushes without delay:
-        // ~800k queued events and a host OOM within a minute on 9.16.1. It stays outside the Bilibili
-        // host list, so its traffic is sealed (identity headers replaced) but never short-circuited.
+    @Test fun gameTrackerReportsAreWithheldWithoutReplacingItsConfiguration() {
         assertFalse(PrivacyNetworkPolicy.isBiliHost("line1-log.biligame.net"))
         assertFalse(PrivacyNetworkPolicy.blockHttp("line1-log.biligame.net", "/collector/admin/config", "POST"))
-        assertFalse(PrivacyNetworkPolicy.blockHttp("line1-log.biligame.net", "/collector/api/report", "POST"))
+        assertTrue(PrivacyNetworkPolicy.blockHttp("line1-log.biligame.net", "/collector/api/report", "POST"))
+        assertTrue(PrivacyNetworkPolicy.blockHttp("LINE2-LOG.BILIGAME.NET.", "/collector/api/report/", "POST"))
+        assertFalse(PrivacyNetworkPolicy.blockHttp("notbiligame.net", "/collector/api/report", "POST"))
+        assertFalse(PrivacyNetworkPolicy.blockHttp("biligame.net.example.com", "/collector/api/report", "POST"))
+        assertFalse(PrivacyNetworkPolicy.blockHttp("line1-log.biligame.net", "/collector/api/reporters", "POST"))
         assertTrue(PrivacyNetworkPolicy.isBiliHost("line3-h5-mobile-api.biligame.com"))
     }
 

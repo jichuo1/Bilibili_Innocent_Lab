@@ -52,6 +52,7 @@ internal class IgnetHttpBoundary(
         // Requests sealed by build(); weak so a request the host drops is never kept alive here.
         val sealed: MutableMap<Any, Boolean> = Collections.synchronizedMap(WeakHashMap())
         val seen = ConcurrentHashMap.newKeySet<String>()
+        val gameTrackerEvidence = java.util.concurrent.atomic.AtomicBoolean()
 
         return@runCatching {
             env.registrar.exact("incognito.ignet.http.build", builder, build.name) {
@@ -84,6 +85,10 @@ internal class IgnetHttpBoundary(
                         if (target == null || !isolationReady() || sealed.remove(target) != true) return@runCatching false
                         val (host, path) = IgnetHttpSanitizer.target(getUrl.invoke(target) as String)
                         val allowed = !PrivacyNetworkPolicy.blockHttp(host, path, getMethod.invoke(target) as String)
+                        if (!allowed && PrivacyNetworkPolicy.isGameTrackerReport(host, path) &&
+                            gameTrackerEvidence.compareAndSet(false, true)) {
+                            runCatching { env.reportStatus("incognito_game_tracker_report", "withheld-ignet") }
+                        }
                         if (allowed && BuildConfig.DEBUG && seen.size < MAX_SEEN && seen.add(host + path)) {
                             env.logInfo("incognito_ignet_seen:$host$path", "[BIL] ignet HTTP sealed and sent: $host$path")
                         }

@@ -78,6 +78,18 @@ class KmpSideChannelBoundaryTest {
         assertEquals("withheld", h.statuses["incognito_transport_ignet_http"])
     }
 
+    @Test fun gameTrackerConfigurationIsAllowedButReportsNeverReachTheNativeEngine() {
+        val h = ignet()
+        val config = h.request("https://line1-log.biligame.net/collector/admin/config", "POST")
+        assertTrue(h.execute(config).isSuccess)
+        assertEquals(1, config.executed)
+        val report = h.request("https://line1-log.biligame.net/collector/api/report", "POST")
+        assertTrue(h.execute(report).exceptionOrNull() is IOException)
+        assertEquals(0, report.executed)
+        assertTrue(report.closed)
+        assertEquals("withheld-ignet", h.statuses["incognito_game_tracker_report"])
+    }
+
     @Test fun unsealedOrEarlyRequestsNeverLeave() {
         val h = ignet()
         val unsealed = IgHttpRequest.Builder().url("https://api.bilibili.com/x/v2/view?aid=1").build()

@@ -133,6 +133,7 @@ internal class IncognitoNetworkHooks(
             return requireNotNull(host.call(builder, "build"))
         }
         val seenHttp = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        val gameTrackerEvidence = java.util.concurrent.atomic.AtomicBoolean()
         val proxy = Proxy.newProxyInstance(host.loader, arrayOf(interceptor)) { p, method, args ->
             when (method.name) {
                 "toString" -> "BIL incognito network boundary"
@@ -143,19 +144,25 @@ internal class IncognitoNetworkHooks(
                     val original = requireNotNull(request.invoke(chain))
                     try {
                         val url = requireNotNull(host.call(original, "url"))
-                        if (!isolationReady() || PrivacyNetworkPolicy.blockHttp(host.call(url, "host") as String,
-                                host.call(url, "encodedPath") as String, host.call(original, "method") as String)) {
+                        val targetHost = host.call(url, "host") as String
+                        val targetPath = host.call(url, "encodedPath") as String
+                        if (!isolationReady() || PrivacyNetworkPolicy.blockHttp(targetHost, targetPath,
+                                host.call(original, "method") as String)) {
                             applied("http")
+                            if (PrivacyNetworkPolicy.isGameTrackerReport(targetHost, targetPath) &&
+                                gameTrackerEvidence.compareAndSet(false, true)) {
+                                runCatching { env.reportStatus("incognito_game_tracker_report", "withheld-okhttp") }
+                            }
                             // Debug builds only: names of what an incognito session keeps off the network, once each.
                             if (BuildConfig.DEBUG && seenHttp.size < MAX_SEEN_HTTP) {
-                                val target = (host.call(url, "host") as String) + (host.call(url, "encodedPath") as String)
+                                val target = targetHost + targetPath
                                 if (seenHttp.add("blocked:$target")) env.logInfo("incognito_http_blocked:$target", "[BIL] HTTP withheld locally: $target")
                             }
                             success(original)
                         } else {
                             // Debug builds only: host and path (never the query) of what is sent on, once each.
                             if (BuildConfig.DEBUG && seenHttp.size < MAX_SEEN_HTTP) {
-                                val target = (host.call(url, "host") as String) + (host.call(url, "encodedPath") as String)
+                                val target = targetHost + targetPath
                                 if (seenHttp.add(target)) env.logInfo("incognito_http_seen:$target", "[BIL] HTTP sealed and sent: $target")
                             }
                             proceed.invoke(chain, sanitize(original, requireNotNull(session.identity())))

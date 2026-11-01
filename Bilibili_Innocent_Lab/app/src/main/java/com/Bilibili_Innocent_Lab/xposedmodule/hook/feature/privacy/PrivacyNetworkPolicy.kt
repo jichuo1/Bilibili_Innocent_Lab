@@ -5,7 +5,16 @@ internal object PrivacyNetworkPolicy {
     fun isBiliHost(host: String): Boolean = listOf("bilibili.com", "biliapi.net", "biliapi.com",
         "bilivideo.com", "hdslb.com", "biligame.com").any { host == it || host.endsWith(".$it") }
 
+    /** Keep the tracker's real config: an empty reply can make its flush interval zero and OOM. */
+    fun isGameTrackerReport(host: String, path: String): Boolean {
+        val normalizedHost = host.lowercase().trimEnd('.')
+        return (normalizedHost == "biligame.net" || normalizedHost.endsWith(".biligame.net")) &&
+            path.lowercase().trimEnd('/') == "/collector/api/report"
+    }
+
     fun blockHttp(host: String, path: String, method: String): Boolean {
+        // Withhold only the confirmed upload endpoint, whose body can contain device identifiers.
+        if (isGameTrackerReport(host, path)) return true
         val normalizedHost = host.lowercase().trimEnd('.')
         if (!isBiliHost(normalizedHost)) return false
         if (normalizedHost == "data.bilibili.com" || normalizedHost.endsWith(".data.bilibili.com") ||

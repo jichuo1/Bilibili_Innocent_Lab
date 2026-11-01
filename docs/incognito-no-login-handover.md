@@ -1,5 +1,7 @@
 # 无痕与免登录：交接说明
 
+> 2026-11-01 更新：游戏中心日志上报已针对具体路径拦截，9.0.0 与 9.16.1 的实机证据和最新门禁见第 10 节；广播隧道仍未封闭。
+
 更新于 2026-10-31 12:00。分支 `feature/incognito-no-login`，远端 `fork`。本文只写事实：哪些做了、在哪台机器上看到过、哪些没验证、哪些界面是官方的、哪些是模块自己画的。按时间追加的证据记录在 `docs/incognito-no-login-round3-plan.md`，其中 2026-10-28 的状态表与缺口表已过时，以本文为准。
 
 ## 1. 目标
@@ -226,3 +228,12 @@
 - 每个子功能有独立状态键，日志通道对同一个键只保留第一条，所以不同结果要用不同键。
 - 提交信息用英文，`前缀: 内容`，小写，要点用短横线。
 - hostlab 数据：38 个版本，另有 9.0.0 的近邻 9.0.1（`9010300`、`9011100`）可当参考。9.0.0 自己没有 hostlab 数据，反编译用邻版再到真机确认。
+
+## 10. 2026-11-01：游戏中心日志上报
+
+- `PrivacyNetworkPolicy.blockHttp` 只对 `biligame.net` 及其子域的 `/collector/api/report` 拦截，不把整个域名加入主机名单。`/collector/admin/config` 仍经原有清洗流程发出，避免空配置令 SDK 刷新间隔归零。OkHttp 使用原有本地成功应答；ignet 仍以 IOException 拒绝。新增 `incognito_game_tracker_report` 独立状态，避免通用网络日志达到 64 条上限后无法确认命中。
+- 9.0.0（arm64，小米 10）：最终 APK 打开游戏中心后看到 `incognito_game_tracker_report=withheld-okhttp`，配置请求仍显示 sealed and sent。此前仅差诊断异常保护的构建，命中后采样 10 次、间隔 20 秒，宿主 PID 10370 不变，Java 堆 PSS 为 68,368–109,492 KiB；记录在本机忽略的 `captures/incognito-game-20261101-final-soak.log`。
+- 9.16.1（arm64，同一手机）：覆盖升级后，配置请求正常发出，实际日志上报命中 `withheld-okhttp`。视频详情页播放期间采样 10 次、间隔 20 秒，宿主 PID 17785 不变，Java 堆 PSS 为 76,428–127,120 KiB；截图与采样在 `captures/incognito-916-playing.png`、`captures/incognito-game-916-20261101-soak.log`。此前 30–60 秒内的持续堆暴涨在此次窗口未复现。
+- 9.16.1 APK 来自哔哩哔哩官方 CDN，versionCode 9161100、arm64，签名 SHA-256 为 `93ba270f...faf5910e`；APK SHA-256 为 `2af77f5e...154f6ffe`，与 hostlab 归档的 `41efb1c9...d17bbfb2` 不是同一字节样本，不能把该实机结果当成后者的实机结果。
+- 门禁：Debug APK、4235 个 JVM 测试（0 失败、1 跳过）和快速 Lint（0 新错误、261 条警告；3 条现有基线错误不变）通过。完整 Lint 未在这次普通迭代重跑。
+- 边界：这里只证明已确认的游戏日志上报路径被拦截；其他未知埋点路径仍需审计。KMP 广播隧道及其认证帧仍开放，不能声称无痕已完全隔离身份。
