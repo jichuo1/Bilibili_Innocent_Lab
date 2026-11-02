@@ -8,6 +8,43 @@ class GuestSpaceFollowShapeTest {
     class Wrapper { @JvmField var a: String = ""; @JvmField var c: Any? = null }
     class TwoStrings { @JvmField var a: String = ""; @JvmField var b: String = "" }
 
+    class Model
+    class StringStore {
+        private val models = mutableMapOf<String, Model>()
+        fun put(key: String, model: Model) { models[key] = model }
+        fun get(key: String): Model? = models[key]
+        fun keys(): Set<String> = models.keys
+    }
+    class ObjectStore {
+        private val models = mutableMapOf<Any, Model>()
+        fun put(key: Any, model: Model) { models[key] = model }
+        fun get(key: Any): Model? = models[key]
+        fun keys(): Set<Any> = models.keys
+    }
+    class MixedStore {
+        fun put(key: String, model: Model) = Unit
+        fun get(key: Any): Model? = null
+        fun keys(): Set<Any> = emptySet()
+    }
+    class AmbiguousStore {
+        fun put(key: String, model: Model) = Unit
+        fun put(key: Any, model: Model) = Unit
+        fun get(key: String): Model? = null
+        fun get(key: Any): Model? = null
+        fun keys(): Set<Any> = emptySet()
+    }
+
+    @Test fun viewModelStoresSupportStringAndObjectKeysWithoutGuessing() {
+        val model = Model()
+        listOf(StringStore() to "key", ObjectStore() to Any()).forEach { (store, key) ->
+            val access = requireNotNull(GuestSpaceFollowSync.storeAccess(store.javaClass, Model::class.java))
+            access.put.invoke(store, key, model)
+            val keys = access.keys.invoke(store) as Set<*>
+            assertSame(model, access.get.invoke(store, keys.single()))
+        }
+        assertNull(GuestSpaceFollowSync.storeAccess(MixedStore::class.java, Model::class.java))
+        assertNull(GuestSpaceFollowSync.storeAccess(AmbiguousStore::class.java, Model::class.java))
+    }
     @Test fun wrapperMidIsItsSingleStringField() {
         assertEquals("a", GuestSpaceFollowSync.stringField(Wrapper::class.java)?.name)
         assertNull(GuestSpaceFollowSync.stringField(TwoStrings::class.java))  // never guessed

@@ -7,6 +7,7 @@ import com.highcapable.kavaref.extension.isStatic
 import org.json.JSONObject
 import java.lang.ref.WeakReference
 import java.lang.reflect.Field
+import java.lang.reflect.Method
 import java.util.WeakHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -35,9 +36,7 @@ internal class GuestSpaceFollowSync(private val library: GuestLibraryRuntime, pr
         val wrapper = host.type(WRAPPER)
         val ownerMid = requireNotNull(stringField(wrapper)) { "SpaceRelationWrapper mid" }
         val store = host.type("androidx.lifecycle.ViewModelStore")
-        val put = requireNotNull(Lookup.methodOrNull(store, "put", classOf<String>(), host.type("androidx.lifecycle.ViewModel")))
-        val keys = requireNotNull(Lookup.methodOrNull(store, "keys"))
-        val get = requireNotNull(Lookup.methodOrNull(store, "get", classOf<String>()))
+        val (put, keys, get) = requireNotNull(storeAccess(store, host.type("androidx.lifecycle.ViewModel")))
         val call = host.type("com.bilibili.okretro.call.BiliCall")
         val response = host.type("okhttp3.Response")
         val convert = requireNotNull(GuestNativeListHttpHooks.locateConverter(call, response, host.type("retrofit2.Response"))) {
@@ -112,6 +111,20 @@ internal class GuestSpaceFollowSync(private val library: GuestLibraryRuntime, pr
         private const val SPACE_HOST = "app.bilibili.com"
         private const val SPACE_PATH = "/x/v2/space"
 
+        internal data class StoreAccess(val put: Method, val keys: Method, val get: Method)
+
+        /** Lifecycle versions use either String or Object keys; never select mismatched or ambiguous pairs. */
+        fun storeAccess(store: Class<*>, viewModel: Class<*>): StoreAccess? {
+            val keys = Lookup.methodOrNull(store, "keys")
+                ?.takeIf { !it.isStatic && classOf<Set<*>>().isAssignableFrom(it.returnType) } ?: return null
+            return listOf(classOf<String>(), classOf<Any>()).mapNotNull { key ->
+                val put = Lookup.methodOrNull(store, "put", key, viewModel)
+                    ?.takeIf { !it.isStatic && it.returnType == Void.TYPE } ?: return@mapNotNull null
+                val get = Lookup.methodOrNull(store, "get", key)
+                    ?.takeIf { !it.isStatic && it.returnType == viewModel } ?: return@mapNotNull null
+                StoreAccess(put, keys, get)
+            }.singleOrNull()
+        }
         fun stringField(owner: Class<*>): Field? =
             Lookup.declaredFields(owner, makeAccessible = true) { !it.isStatic && it.type == classOf<String>() }.singleOrNull()
 
