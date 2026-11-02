@@ -16,7 +16,6 @@ import android.content.ActivityNotFoundException
 import android.app.Dialog
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Bundle
@@ -24,11 +23,12 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.text.TextUtils
+import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.animation.PathInterpolator
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -39,6 +39,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.BackEventCompat
 import androidx.activity.OnBackPressedCallback
 import androidx.core.graphics.ColorUtils
+import androidx.core.graphics.drawable.toDrawable
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.R
@@ -62,6 +64,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.ModuleDiagnosticSnapsh
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AndroidUserSpace
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.ModalBackdropBlurStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatusListener
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
@@ -71,6 +74,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 
 /** 只读、本地优先的统一诊断中心。 */
 class DiagnosticsActivity : SkinnedActivity(),
@@ -94,7 +98,8 @@ class DiagnosticsActivity : SkinnedActivity(),
     private var frameworkCheckPending = true
     private var frameworkServiceObserved = false
     private var currentSnapshot: ModuleDiagnosticSnapshot? = null
-    private var activeDialog: Dialog? = null
+    internal var activeDialog: Dialog? = null
+        private set
     private var stretchViewport: View? = null
     private var stretchScrollTarget: View? = null
     private lateinit var motionHost: SettingsBackupMotionHost
@@ -108,8 +113,7 @@ class DiagnosticsActivity : SkinnedActivity(),
     private lateinit var content: LinearLayout
     private lateinit var refreshButton: TextView
     private lateinit var exportButton: TextView
-
-    private val modalExitInterpolator = PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
+    private var supportExportButton: TextView? = null
 
     private val frameworkTimeout = Runnable {
         frameworkCheckPending = false
@@ -144,6 +148,19 @@ class DiagnosticsActivity : SkinnedActivity(),
             return@registerForActivityResult
         }
         viewModel.export(applicationContext, uri, snapshot)
+    }
+
+    private val createSupportDocumentLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        pickerOpen = false
+        if (uri == null) return@registerForActivityResult
+        val snapshot = currentSnapshot
+        if (snapshot == null) {
+            Toast.makeText(this, R.string.diagnostics_export_snapshot_stale, Toast.LENGTH_LONG).show()
+            return@registerForActivityResult
+        }
+        viewModel.export(applicationContext, uri, snapshot, supportBundle = true)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -459,6 +476,7 @@ class DiagnosticsActivity : SkinnedActivity(),
             exportRunning = running
             refreshButton.isEnabled = !running
             exportButton.isEnabled = !running && currentSnapshot != null
+            supportExportButton?.isEnabled = !running && currentSnapshot != null
             when (state) {
                 DiagnosticsExportState.Running -> Toast.makeText(
                     this,
@@ -537,6 +555,19 @@ class DiagnosticsActivity : SkinnedActivity(),
     private fun renderSnapshot(snapshot: ModuleDiagnosticSnapshot) {
         content.removeAllViews()
         content.addView(overallCard(snapshot), cardParams())
+        supportExportButton = null
+        if (snapshot.inputs.nPatchEnvironment?.patch?.markerPresent == true) {
+            content.addView(card().apply {
+                addView(titleText(getString(R.string.npatch_support_title)), linearMatch())
+                addView(bodyText(getString(R.string.npatch_support_description)), linearMatch())
+                addView(actionButton(getString(R.string.npatch_support_export), getString(R.string.npatch_support_export)) {
+                    if (!exportRunning && !pickerOpen) showExportPreview(supportBundle = true)
+                }.apply {
+                    supportExportButton = this
+                    isEnabled = !exportRunning
+                }, linearWrap())
+            }, cardParams())
+        }
         addSection(
             R.string.diagnostics_section_environment,
             listOf(DiagnosticItemId.MODULE_BUILD, DiagnosticItemId.TARGET_APP),
@@ -564,6 +595,27 @@ class DiagnosticsActivity : SkinnedActivity(),
             ),
             snapshot
         )
+        if (snapshot.inputs.nPatchEnvironment?.patch?.mode == com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchMode.MANAGER) {
+            content.addView(card().apply {
+                addView(bodyText(getString(R.string.npatch_module_recover_manager)), linearMatch())
+                addView(actionButton(getString(R.string.npatch_open_manager), getString(R.string.npatch_open_manager)) {
+                    val intent = FrameworkManagerLauncher.resolvePackage(this@DiagnosticsActivity, "top.nkbe.npatch")
+                    if (intent == null || runCatching { startActivity(intent) }.isFailure) {
+                        Toast.makeText(this@DiagnosticsActivity, R.string.npatch_manager_launch_failed, Toast.LENGTH_LONG).show()
+                    }
+                }, linearWrap())
+            }, cardParams())
+        }
+        if (com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG && snapshot.inputs.nPatchEnvironment?.patch?.markerPresent == true) {
+            content.addView(card().apply {
+                addView(bodyText(getString(R.string.npatch_test_crash_explanation)), linearMatch())
+                addView(actionButton(getString(R.string.npatch_test_crash), getString(R.string.npatch_test_crash)) {
+                    runCatching {
+                        com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchProcessDiagnostics.requestTestCrash(applicationContext)
+                    }
+                }, linearWrap())
+            }, cardParams())
+        }
     }
 
     private fun overallCard(snapshot: ModuleDiagnosticSnapshot) = card().apply {
@@ -676,6 +728,10 @@ class DiagnosticsActivity : SkinnedActivity(),
 
     private fun itemDetail(id: DiagnosticItemId, snapshot: ModuleDiagnosticSnapshot): String {
         val input = snapshot.inputs
+        if ((id == DiagnosticItemId.ACTIVATION || id == DiagnosticItemId.NO_ROOT) &&
+            com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.EmbeddedModePolicy.isSettingsBlocked(this)) {
+            return getString(R.string.embedded_mode_unsupported)
+        }
         return when (id) {
             DiagnosticItemId.MODULE_BUILD -> getString(
                 R.string.diagnostics_module_detail,
@@ -754,7 +810,8 @@ class DiagnosticsActivity : SkinnedActivity(),
             DiagnosticItemId.ACTIVATION -> getString(
                 when (input.activationState) {
                     DiagnosticActivationState.ACTIVE_LSPOSED ->
-                        R.string.diagnostics_activation_lsposed
+                        if (input.frameworkCapable) R.string.diagnostics_activation_lsposed
+                        else R.string.diagnostics_activation_host_confirmed
                     DiagnosticActivationState.ACTIVE_NPATCH ->
                         R.string.diagnostics_activation_npatch
                     DiagnosticActivationState.CHECKING ->
@@ -763,7 +820,8 @@ class DiagnosticsActivity : SkinnedActivity(),
                         R.string.diagnostics_activation_unavailable
                 }
             )
-            DiagnosticItemId.NO_ROOT -> getString(noRootText(input.noRootState))
+            DiagnosticItemId.NO_ROOT -> listOf(getString(noRootText(input.noRootState)),
+                nPatchDiagnosticsDetails(this, input)).filter { it.isNotBlank() }.joinToString("\n")
             DiagnosticItemId.HOST_BOOTSTRAP -> hostBootstrapDetail(snapshot)
             DiagnosticItemId.FEATURE_COVERAGE -> featureCoverageDetail(snapshot)
             DiagnosticItemId.HOST_ADAPTATION -> if (input.hostRuntimeReceiptAvailable) {
@@ -938,6 +996,10 @@ class DiagnosticsActivity : SkinnedActivity(),
         DiagnosticNoRootState.CHECKING -> R.string.no_root_status_checking
         DiagnosticNoRootState.MANAGER_MISSING -> R.string.no_root_status_manager_missing
         DiagnosticNoRootState.MODULE_NOT_REGISTERED -> R.string.no_root_status_module_not_registered
+        DiagnosticNoRootState.SCOPE_MISSING -> R.string.no_root_status_scope_missing
+        DiagnosticNoRootState.CONFIRMING -> R.string.no_root_status_confirming
+        DiagnosticNoRootState.UNCONFIRMED -> R.string.no_root_status_unconfirmed
+        DiagnosticNoRootState.NOT_RUNNING -> R.string.no_root_status_not_running
         DiagnosticNoRootState.SYNCING -> R.string.no_root_status_syncing
         DiagnosticNoRootState.RESTART_REQUIRED -> R.string.no_root_status_restart_required
         DiagnosticNoRootState.DISABLE_RESTART_REQUIRED,
@@ -994,6 +1056,7 @@ class DiagnosticsActivity : SkinnedActivity(),
             "player_buffer" -> R.string.player_buffer_strategy
             "sponsorblock" -> R.string.sponsorblock_title
             "sponsorblock_story" -> R.string.sponsorblock_story_enabled
+            "ai_insight" -> R.string.ai_insight_title
             "splash_ad_purify" -> R.string.diagnostics_host_feature_splash
             "mine_component_filter" -> R.string.diagnostics_host_feature_mine
             "block_app_update" -> R.string.block_app_update
@@ -1006,7 +1069,7 @@ class DiagnosticsActivity : SkinnedActivity(),
 
     // Dialog Window 自己消费返回并播放统一退场；底层 Activity 的 predictive back 仍保持 BLOCKED。
     @SuppressLint("GestureBackNavigation")
-    private fun showExportPreview() {
+    private fun showExportPreview(supportBundle: Boolean = false) {
         if (currentSnapshot == null || viewModel.exportState.value is DiagnosticsExportState.Running) return
         activeDialog?.dismiss()
         val density = resources.displayMetrics.density
@@ -1027,9 +1090,15 @@ class DiagnosticsActivity : SkinnedActivity(),
             scaleY = 0.85f
             alpha = 0f
         }
+        val scrim = View(this).apply {
+            setBackgroundColor(SettingsModalScrim.color(monetColors.surface, monetColors.background))
+            alpha = 0f
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            isFocusable = false
+        }
         container.addView(
             TextView(this).apply {
-                setText(R.string.diagnostics_report_preview_title)
+                setText(if (supportBundle) R.string.npatch_support_title else R.string.diagnostics_report_preview_title)
                 setTextColor(getColor(R.color.colorTextGray))
                 textSize = 19f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -1041,7 +1110,7 @@ class DiagnosticsActivity : SkinnedActivity(),
         )
         container.addView(
             TextView(this).apply {
-                setText(R.string.diagnostics_report_preview_body)
+                setText(if (supportBundle) R.string.npatch_support_preview else R.string.diagnostics_report_preview_body)
                 setTextColor(getColor(R.color.colorTextDark))
                 textSize = 14f
                 setLineSpacing(4 * density, 1f)
@@ -1060,7 +1129,7 @@ class DiagnosticsActivity : SkinnedActivity(),
                 textRes = R.string.diagnostics_report_cancel,
                 filled = false
             ) {
-                dismissExportPreviewDialog(dialog, container)
+                dismissExportPreviewDialog(dialog, container, scrim)
             }
         )
         buttonRow.addView(
@@ -1068,7 +1137,7 @@ class DiagnosticsActivity : SkinnedActivity(),
                 textRes = R.string.diagnostics_report_choose_location,
                 filled = true
             ) {
-                dismissExportPreviewDialog(dialog, container, ::launchDiagnosticsExportPicker)
+                dismissExportPreviewDialog(dialog, container, scrim) { launchDiagnosticsExportPicker(supportBundle) }
             },
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -1083,6 +1152,7 @@ class DiagnosticsActivity : SkinnedActivity(),
             ).apply { topMargin = (22 * density).toInt() }
         )
         val root = FrameLayout(this).apply {
+            addView(scrim, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             addView(
                 container,
                 FrameLayout.LayoutParams(
@@ -1095,27 +1165,82 @@ class DiagnosticsActivity : SkinnedActivity(),
             )
         }
         dialog.window?.apply {
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
             setDimAmount(0f)
+            // Dialog 必须接管系统栏颜色，否则它会把诊断页的浅色状态栏替换成黑色。
+            addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+            @Suppress("DEPRECATION")
+            statusBarColor = this@DiagnosticsActivity.window.statusBarColor
+            @Suppress("DEPRECATION")
+            navigationBarColor = this@DiagnosticsActivity.window.navigationBarColor
+            val pageBars = WindowCompat.getInsetsController(this@DiagnosticsActivity.window, this@DiagnosticsActivity.window.decorView)
+            WindowCompat.getInsetsController(this, decorView).apply {
+                isAppearanceLightStatusBars = pageBars.isAppearanceLightStatusBars
+                isAppearanceLightNavigationBars = pageBars.isAppearanceLightNavigationBars
+            }
         }
         dialog.setContentView(root)
+        dialog.window?.setWindowAnimations(0)
+        val backdropBlur = ModalBackdropBlur.createOrNull(dialog.window, ModalBackdropBlurStore.read(this),
+            isMaterialYouSkinEffective, density)
         val disposeElasticInteraction = installDialogElasticInteraction(dialog)
         dialog.setCanceledOnTouchOutside(false)
+        val backCallback: Any? = when {
+            AndroidVersion.isAtLeast(AndroidVersion.U) -> PredictiveBackApi33.animationCallback(
+                onStarted = { if (!container.hasTransientState()) LumenAnimator.property(container).cancel() },
+                onProgressed = { progress ->
+                    if (!container.hasTransientState()) {
+                        container.scaleX = 1f - 0.05f * progress
+                        container.scaleY = 1f - 0.05f * progress
+                        container.alpha = 1f - 0.15f * progress
+                        scrim.alpha = container.alpha
+                        notifyPreparedSkinPositionChanged()
+                    }
+                },
+                onCancelled = {
+                    if (!container.hasTransientState()) {
+                        LumenAnimator.property(container).scaleX(1f).scaleY(1f).alpha(1f)
+                            .setDuration(260L).setInterpolator(LumenEasing.emphasizedDecelerate())
+                            .setUpdateListener {
+                                backdropBlur?.apply(container.alpha)
+                                scrim.alpha = container.alpha
+                                notifyPreparedSkinPositionChanged()
+                            }.start()
+                    }
+                },
+                onInvoked = { dismissExportPreviewDialog(dialog, container, scrim) }
+            )
+            AndroidVersion.isAtLeast(AndroidVersion.T) -> PredictiveBackApi33.plainCallback {
+                dismissExportPreviewDialog(dialog, container, scrim)
+            }
+            else -> null
+        }
+        var backDispatcher: Any? = null
         dialog.setOnKeyListener { _, keyCode, event ->
             if (keyCode == KeyEvent.KEYCODE_BACK) {
                 if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) {
-                    dismissExportPreviewDialog(dialog, container)
+                    dismissExportPreviewDialog(dialog, container, scrim)
                 }
                 true
             } else false
         }
         dialog.setOnDismissListener {
             disposeElasticInteraction()
+            backdropBlur?.clear()
+            val dispatcher = backDispatcher
+            if (dispatcher != null && backCallback != null && AndroidVersion.isAtLeast(AndroidVersion.T)) {
+                backDispatcher = null
+                runCatching { PredictiveBackApi33.unregister(dispatcher, backCallback) }
+            }
             if (activeDialog === dialog) activeDialog = null
         }
         activeDialog = dialog
         stylePreparedSkinControls(container)
         dialog.show()
+        if (backCallback != null && AndroidVersion.isAtLeast(AndroidVersion.T)) {
+            runCatching { backDispatcher = PredictiveBackApi33.register(dialog, backCallback) }
+                .onFailure { Log.e("BilibiliInnocentLab", "register diagnostics dialog back callback failed", it) }
+        }
         dialog.window?.setLayout(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
@@ -1126,7 +1251,17 @@ class DiagnosticsActivity : SkinnedActivity(),
                 .scaleY(1f)
                 .alpha(1f)
                 .setDuration(260L)
-                .setInterpolator(LumenEasing.secondaryExpand())
+                .setInterpolator(LumenEasing.emphasizedDecelerate())
+                .setUpdateListener {
+                    backdropBlur?.apply(container.alpha)
+                    scrim.alpha = container.alpha
+                    notifyPreparedSkinPositionChanged()
+                }
+                .withEndAction {
+                    backdropBlur?.apply(1f)
+                    scrim.alpha = 1f
+                    notifyPreparedSkinPositionChanged()
+                }
                 .start()
         }
     }
@@ -1178,6 +1313,7 @@ class DiagnosticsActivity : SkinnedActivity(),
     private fun dismissExportPreviewDialog(
         dialog: Dialog,
         container: View,
+        scrim: View,
         afterDismiss: () -> Unit = {}
     ) {
         if (!dialog.isShowing || container.hasTransientState()) return
@@ -1188,7 +1324,11 @@ class DiagnosticsActivity : SkinnedActivity(),
             .scaleY(0.92f)
             .alpha(0f)
             .setDuration(180L)
-            .setInterpolator(modalExitInterpolator)
+            .setInterpolator(LumenEasing.emphasizedAccelerate())
+            .setUpdateListener {
+                scrim.alpha = container.alpha
+                notifyPreparedSkinPositionChanged()
+            }
             .withEndAction {
                 container.setHasTransientState(false)
                 if (dialog.isShowing) dialog.dismiss()
@@ -1197,11 +1337,12 @@ class DiagnosticsActivity : SkinnedActivity(),
             .start()
     }
 
-    private fun launchDiagnosticsExportPicker() {
+    private fun launchDiagnosticsExportPicker(supportBundle: Boolean = false) {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         pickerOpen = true
         try {
-            createDocumentLauncher.launch("BILab_Diagnostics_$timestamp.json")
+            if (supportBundle) createSupportDocumentLauncher.launch("BILab_NPatch_Support_$timestamp.zip")
+            else createDocumentLauncher.launch("BILab_Diagnostics_$timestamp.json")
         } catch (_: ActivityNotFoundException) {
             pickerOpen = false
             Toast.makeText(this, R.string.diagnostics_export_failed, Toast.LENGTH_LONG).show()

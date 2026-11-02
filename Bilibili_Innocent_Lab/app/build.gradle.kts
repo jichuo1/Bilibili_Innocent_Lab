@@ -198,6 +198,11 @@ android {
         // 1.0.7-alpha.2）。普通本地构建仍使用 gradle.properties 中的稳定基础版本。
         versionName = releaseVersionNameOverride ?: gropify.project.app.versionName
         versionCode = gropify.project.app.versionCode
+        // Manifest 声明的类与 activity-alias 使用 namespace，而不是 applicationId；embedded 变体
+        // 追加包名后缀后两者不再相等，组件名必须继续按 namespace 构造。
+        buildConfigField("String", "MODULE_CLASS_PACKAGE", "\"${gropify.project.app.packageName}\"")
+        // 发布构建默认关闭集成模式；只有 CI 的 embedded 变体把它编译成 true。
+        buildConfigField("boolean", "EMBEDDED_MODE_SUPPORTED", "false")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
             cmake {
@@ -238,12 +243,27 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("boolean", "STARTUP_TRACE", providers.gradleProperty("innocentLab.startupTrace")
+                .map { it.toBooleanStrict().toString() }.getOrElse("false"))
+        }
         release {
+            buildConfigField("boolean", "STARTUP_TRACE", "false")
             isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
             signingConfig = fixedReleaseSigning
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        // 面向内测群的集成模式构建：与 release 同形态、同发布签名，仅追加包名后缀并打开 flag。
+        // 包名不同使它可以与正式模块并存；签名相同使被同一密钥重签的宿主仍能通过 signature 权限校验。
+        create("embedded") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".embedded"
+            signingConfig = fixedReleaseSigning
+            // AAR 依赖只有 debug/release 变体，自定义构建类型必须显式声明回退目标。
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "EMBEDDED_MODE_SUPPORTED", "true")
         }
     }
     compileOptions {
@@ -251,6 +271,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures {
+        aidl = true
         buildConfig = true
         viewBinding = true
     }
@@ -310,7 +331,8 @@ androidComponents.onVariants { variant ->
         nativeBuildAnchor.set(variant.artifacts.get(SingleArtifact.MERGED_NATIVE_LIBS))
         payloadDirectory.set(copiedPayload)
         buildKey.set(sourceKey)
-        requireBothAbis.set(variant.buildType == "release")
+        // 发布包与内测集成包都必须是完整双 ABI，避免测试产物悄悄少一个 ABI。
+        requireBothAbis.set(variant.buildType == "release" || variant.buildType == "embedded")
         val host = if (System.getProperty("os.name").startsWith("Windows")) "windows-x86_64" else if (System.getProperty("os.name").startsWith("Mac")) "darwin-x86_64" else "linux-x86_64"
         val executable = if (host == "windows-x86_64") "llvm-strip.exe" else "llvm-strip"
         stripExecutable.set(androidComponents.sdkComponents.ndkDirectory.map { it.file("toolchains/llvm/prebuilt/$host/bin/$executable") })
@@ -376,6 +398,8 @@ val sourceContractInputs = files(
         )
     },
     fileTree(rootDir.parentFile) {
+        include("docs/npatch-feature-matrix.tsv")
+        include("docs/npatch-embed-acceptance.md")
         include(".github/workflows/*.yml", ".github/workflows/*.yaml")
         include(".github/actions/**/action.yml")
         include(".github/release-templates/*.py")
@@ -486,18 +510,19 @@ gradle.taskGraph.whenReady {
     if (!fastLintRequested && allTasks.any { it.project == project && it.name == "lintFast" }) {
         throw GradleException("Request lintFast by its full task name, not an abbreviation or aggregate task.")
     }
-    val releasePackagingRequested = allTasks.any { task ->
+    val fixedSignedPackagingRequested = allTasks.any { task ->
         task.project == project &&
             // The opt-in profiling build types (P2-07) are debug-signed, profileable and never distributed.
             !(baselineProfileTooling && task.name.contains(Regex("(?i)benchmark|nonMinified"))) &&
             (
                 task.name.matches(Regex("(?i)^(assemble|bundle|sign).*release.*$")) ||
+                    task.name.matches(Regex("(?i)^(assemble|bundle|sign|package).*embedded.*$")) ||
                     task.name.equals("packageRelease", ignoreCase = true)
             )
     }
-    if (releasePackagingRequested && !hasCompleteReleaseSigningValues) {
+    if (fixedSignedPackagingRequested && !hasCompleteReleaseSigningValues) {
         throw GradleException(
-            "Release packaging requires the fixed signing identity. Configure the " +
+            "Release and embedded packaging require the fixed signing identity. Configure the " +
                 "INNOCENT_LAB_SIGNING_* environment variables or matching " +
                 "innocentLab.signing.* Gradle properties."
         )
@@ -531,6 +556,8 @@ if (
 }
 
 dependencies {
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
     compileOnly(libs.libxposed.api)
     implementation(libs.libxposed.service)
 

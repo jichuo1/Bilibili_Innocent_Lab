@@ -104,9 +104,9 @@ class HostBottomBarHiddenTabsInstrumentedTest {
                 val now = SystemClock.uptimeMillis()
                 val event = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, height / 2f, 0)
                 try {
-                    assertTrue(dock.handleTouch(event, hostIndex))
+                    assertTrue(dock.dispatchTouch(event, hostIndex))
                     event.action = MotionEvent.ACTION_UP
-                    assertTrue(dock.handleTouch(event, hostIndex))
+                    assertTrue(dock.dispatchTouch(event, hostIndex))
                 } finally { event.recycle() }
             }
             layout()

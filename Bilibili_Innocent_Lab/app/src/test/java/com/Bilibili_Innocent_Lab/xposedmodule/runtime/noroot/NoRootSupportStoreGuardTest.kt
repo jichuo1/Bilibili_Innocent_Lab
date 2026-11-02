@@ -17,6 +17,15 @@ class NoRootSupportStoreGuardTest {
     )
 
     @Test
+    fun `disabled ack requires the current tombstone and matching module version`() {
+        val disabled = enabledSnapshot.copy(enabled = false)
+        assertTrue(NoRootSupportStore.acceptsDisabledAck(disabled, 42L, 1L))
+        assertFalse(NoRootSupportStore.acceptsDisabledAck(enabledSnapshot, 42L, 1L))
+        assertFalse(NoRootSupportStore.acceptsDisabledAck(disabled, 41L, 1L))
+        assertFalse(NoRootSupportStore.acceptsDisabledAck(disabled, 42L, 2L))
+    }
+
+    @Test
     fun `rejects late callback after user disables support`() {
         assertFalse(
             NoRootSupportStore.acceptsEnabledStateWrite(

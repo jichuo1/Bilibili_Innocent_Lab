@@ -1,0 +1,137 @@
+{
+  "status": "final production APK passed 18 device regressions and complete 8-phase crossover",
+  "date": "2026-10-25",
+  "baseCommit": "38d25d3398c1ac7846a9d83d09ce5a51ee57a801",
+  "branch": "opt/power-saving",
+  "lumenVersion": "1.5.4",
+  "device": "Mi 10 / Android 16 API 36 / Adreno650v3 / 1080x2340",
+  "displayHz": 90,
+  "windowBrightness": 0.15,
+  "apkSha256": "4D2FB71E265C8986FD0535D64902A1D4943F24236218E535E6E86ED10B328D6C",
+  "testApkSha256": "1DF4DAF569D8E4405933687D1FA1328FCB555DDDB5BA9317360F0C465541864C",
+  "baseline": "Same APK, reuseGpuFrames=false, including the earlier CPU traversal optimization",
+  "candidate": "Same APK, reuseGpuFrames=true, the production default",
+  "protocol": "ABBA BAAB; 8s animated warmup and 40s measured scroll per phase; 5s/2s trimming; real input_suspend=1; no governor changes; identical observation load",
+  "powerClock": "elapsedRealtimeNanos / proc uptime",
+  "presentClock": "System.nanoTime / SurfaceFlinger actual present monotonic timestamps",
+  "deadlineMetric": "Unusable on this ROM: multi-second budgets; excluded from smoothness conclusions",
+  "calibration": "On-device fuel gauge; confidence interval describes phase repeatability, not absolute sensor calibration; no external power meter",
+  "tests": {
+    "jvm": 4056,
+    "jvmFailures": 0,
+    "jvmSkipped": 1,
+    "fastLint": "passed; 258 existing warnings; 3 existing baseline errors",
+    "device": 18,
+    "deviceFailures": 0,
+    "powerPhases": 8
+  },
+  "rawLocalDirectory": "captures/power-saving/settled-campaign",
+  "images": [
+    {
+      "path": "phase-0-A/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "path": "phase-0-A/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "path": "phase-0-A/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "path": "phase-1-B/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "path": "phase-1-B/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "path": "phase-1-B/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "path": "phase-2-B/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "path": "phase-2-B/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "path": "phase-2-B/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "path": "phase-3-A/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "path": "phase-3-A/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "path": "phase-3-A/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "path": "phase-4-B/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "path": "phase-4-B/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "path": "phase-4-B/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "path": "phase-5-A/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "path": "phase-5-A/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "path": "phase-5-A/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "path": "phase-6-A/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "path": "phase-6-A/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "path": "phase-6-A/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "path": "phase-7-B/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "path": "phase-7-B/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "path": "phase-7-B/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    }
+  ],
+  "hostValidation": {
+    "installedApkHashMatched": true,
+    "prismAndTouchGlowLoaded": true,
+    "scrollAndMyHomeReturnChecked": true,
+    "inputSuspendRestored": 0,
+    "batteryStatus": "Charging",
+    "foreground": "tv.danmaku.bili/.MainActivityV2",
+    "gradleDaemonsRemaining": 0
+  },
+  "serialization": "UTF-8 LF line endings normalized for Git; recorded numbers unchanged"
+}

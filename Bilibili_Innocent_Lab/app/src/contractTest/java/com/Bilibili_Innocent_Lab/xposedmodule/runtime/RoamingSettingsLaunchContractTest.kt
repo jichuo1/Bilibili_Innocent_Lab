@@ -98,6 +98,6 @@ class RoamingSettingsLaunchContractTest {
     fun `fast admission drains already arrived refusals before installing a grant`() {
         val client = SourceContract.read("runtime/HostAdmissionClient.kt")
         val fast = client.after("if (collect.grant != null) {").before("if (collect.sawDenied)")
-        assertTrue(fast.contains("drainRouted(collect, responses, acceptGrant = false)"))
+        assertTrue(fast.contains("drainRouted(collect, responses, acceptGrant = false"))
     }
 }

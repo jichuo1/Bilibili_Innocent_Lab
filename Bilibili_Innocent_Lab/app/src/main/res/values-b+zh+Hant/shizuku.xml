@@ -1,0 +1,32 @@
+<resources>
+    <string name="shizuku_restart_button">Shizuku 重啟</string>
+    <string name="shizuku_restart_entry">使用 Shizuku 重新啟動</string>
+    <string name="shizuku_restart_description">儲存目前設定後，強制停止並重新開啟嗶哩嗶哩，再檢查新處理程序及目前設定回條。可取消或使用手動重新啟動指引。</string>
+    <string name="shizuku_missing">尚未安裝 Shizuku。</string>
+    <string name="shizuku_stopped">請先在 Shizuku 中啟動服務，再返回此處。</string>
+    <string name="shizuku_unsupported">需要 Shizuku API 13 或更新版本。</string>
+    <string name="shizuku_unauthorized">需要 Shizuku 授權。僅授權不會重新啟動嗶哩嗶哩。</string>
+    <string name="shizuku_denied">授權已拒絕或撤銷，請在 Shizuku 中允許本模組後返回。</string>
+    <string name="shizuku_ready">Shizuku 已授權，點擊下方按鈕儲存並重新啟動嗶哩嗶哩。</string>
+    <string name="shizuku_disconnected">Shizuku 連線中斷或授權已撤銷，請檢查服務後重試。</string>
+    <string name="shizuku_requesting">正在等待 Shizuku 授權…</string>
+    <string name="shizuku_saving">正在儲存目前設定…</string>
+    <string name="shizuku_binding">正在連接重新啟動服務…</string>
+    <string name="shizuku_stopping">正在強制停止嗶哩嗶哩並確認處理程序退出…</string>
+    <string name="shizuku_launching">正在開啟嗶哩嗶哩並確認新處理程序…</string>
+    <string name="shizuku_verifying">嗶哩嗶哩已啟動，正在確認目前設定回條…</string>
+    <string name="shizuku_save_failed">目前設定儲存失敗，未重新啟動嗶哩嗶哩。</string>
+    <string name="shizuku_stop_failed">無法確認嗶哩嗶哩已停止，未繼續開啟。</string>
+    <string name="shizuku_launch_failed">嗶哩嗶哩已停止，但無法確認新處理程序，請手動開啟。</string>
+    <string name="shizuku_receipt_timeout">新處理程序已啟動，但目前設定回條尚未確認，請查看診斷中心。</string>
+    <string name="shizuku_config_changed">設定或授權發生變化，本次重新啟動已取消，請按目前設定重試。</string>
+    <string name="shizuku_cancelled">本次重新啟動已取消；若嗶哩嗶哩已經停止，請手動開啟。</string>
+    <string name="shizuku_confirmed">已確認嗶哩嗶哩新處理程序及目前設定回條。</string>
+    <string name="shizuku_disabled_confirmed">已確認嗶哩嗶哩新處理程序按目前設定停用模組。</string>
+    <string name="shizuku_busy">已有重新啟動正在進行，請稍候。</string>
+    <string name="shizuku_status_uid">%1$s\n執行 UID：%2$d</string>
+    <string name="shizuku_install">安裝 Shizuku</string>
+    <string name="shizuku_open_manager">開啟 Shizuku</string>
+    <string name="shizuku_authorize">申請 Shizuku 授權</string>
+    <string name="shizuku_save_restart">儲存並重新啟動</string>
+</resources>

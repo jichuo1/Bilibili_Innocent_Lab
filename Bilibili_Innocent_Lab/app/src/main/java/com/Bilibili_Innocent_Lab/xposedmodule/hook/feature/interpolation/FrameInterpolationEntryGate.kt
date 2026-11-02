@@ -100,8 +100,8 @@ internal object FrameInterpolationEntryGate {
      * 生产入口：只采集当前确有来源的证据。宿主集成缺失时 clock/capture/presentation/media
      * 一律视为未证明；设置页与播放器档位必须以此为准，不能自行拼 Evidence。
      */
-    fun production(): Verdict = evaluate(Evidence(
-        nativeReady = FrameInterpolationNative.available,
+    fun production(nativeReady: Boolean = FrameInterpolationNative.available): Verdict = evaluate(Evidence(
+        nativeReady = nativeReady,
         modelVerified = false,
         mediaPermit = false,
         inferenceWithinBudget = false,
@@ -114,5 +114,6 @@ internal object FrameInterpolationEntryGate {
      * 入口可见性；关闭时设置页不得渲染 FPS 档位，播放器不得构造 [FrameInterpolationSession]。
      * 打开只表示装配时可证明的条件齐全；[RUNTIME_ENFORCED] 中的条件仍由宿主逐次播放检查。
      */
-    fun entryOpen(): Boolean = production().missing.all { it in RUNTIME_ENFORCED }
+    fun entryOpen(nativeReady: Boolean = FrameInterpolationNative.available): Boolean =
+        production(nativeReady).missing.all { it in RUNTIME_ENFORCED }
 }

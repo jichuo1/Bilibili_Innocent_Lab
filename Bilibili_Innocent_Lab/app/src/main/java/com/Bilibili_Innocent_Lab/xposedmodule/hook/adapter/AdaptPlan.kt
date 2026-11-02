@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptAssistGate.Attempt
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.StartupTrace
 import org.json.JSONObject
 import java.util.EnumMap
 
@@ -186,7 +187,11 @@ class AdaptCoverage internal constructor(source: Map<PointFamily, Attempt>) {
  * 定位器抛出异常（含类链接失败）时记为 [Attempt.RETRYABLE] 并按未找到处理（原先异常会冒到安装链）；定位器内部自己
  * `runCatching` 吞掉的异常仍无法区分，那种情况只能记为确认缺失。
  */
-internal class SyncLocatorRun(val plan: AdaptPlan, private val observer: LocateObserver? = null) {
+internal class SyncLocatorRun(
+    val plan: AdaptPlan,
+    private val observer: LocateObserver? = null,
+    private val traceStartup: Boolean = false
+) {
     private val attempts = EnumMap<PointFamily, Attempt>(PointFamily::class.java)
 
     fun <T> locate(family: PointFamily, found: (T) -> Boolean = { true }, block: () -> T?): T? {
@@ -195,7 +200,15 @@ internal class SyncLocatorRun(val plan: AdaptPlan, private val observer: LocateO
         val value: T?
         val outcome: Attempt
         try {
-            value = block()
+            value = if (traceStartup && StartupTrace.enabled) {
+                val traceName = when (family) {
+                    PointFamily.MINE_ENTRY -> "mine"
+                    PointFamily.HOME_TOP_BAR -> "hometopbar"
+                    PointFamily.COMMENT_TOPOLOGY -> "commenttopologyoutcome"
+                    else -> family.key.replace("_", "")
+                }
+                StartupTrace.measure("locate.$traceName", block)
+            } else block()
             outcome = if (value != null && found(value)) Attempt.FOUND else Attempt.CONCLUSIVE_MISSING
         } catch (failure: Throwable) {
             // 反射定位期间的类加载/链接失败属于可重试；虚拟机级错误必须继续抛出。

@@ -29,7 +29,11 @@ internal object HostReceiptRegistry {
             val pid = Binder.getCallingPid()
             // 写回执只接受该 Android 用户中真实的宿主 uid，不复用 Provider 的 shell/root 读权限。
             val info = context.packageManager.getPackageInfo(HostRuntimeDiagnosticsQueryContract.TARGET_PACKAGE, 0)
-            if (info.applicationInfo?.uid != uid || extras == null) return@runCatching false
+            if (info.applicationInfo?.uid != uid) return@runCatching false
+            if (extras == null) {
+                failure = ReceiptQueryFailure.MALFORMED_RESPONSE
+                return@runCatching false
+            }
             if (extras.getInt("version") != HostReceiptWire.VERSION) {
                 failure = ReceiptQueryFailure.UNSUPPORTED_PROTOCOL
                 return@runCatching false
@@ -54,7 +58,6 @@ internal object HostReceiptRegistry {
                 }
             }
             synchronized(lock) {
-                failure = ReceiptQueryFailure.SESSION_MISMATCH
                 val old = gate.current()
                 val candidate = ReceiptSessionGate.Session(started, pid, endpoint)
                 if (candidate != old) {
@@ -64,8 +67,10 @@ internal object HostReceiptRegistry {
                             if (gate.current() == null) death = null
                         }
                     }
+                    failure = ReceiptQueryFailure.ENDPOINT_DEAD
                     endpoint.linkToDeath(recipient, 0)
                     if (!gate.accept(started, pid, endpoint)) {
+                        failure = ReceiptQueryFailure.SESSION_MISMATCH
                         endpoint.unlinkToDeath(recipient, 0)
                         return@synchronized false
                     }
@@ -73,17 +78,30 @@ internal object HostReceiptRegistry {
                     death = recipient
                     hostUid = uid
                     sequences.clear()
-                    if (!endpoint.isBinderAlive) {
-                        gate.remove(candidate)
-                        return@synchronized false
-                    }
+                }
+                if (!endpoint.isBinderAlive) {
+                    failure = ReceiptQueryFailure.ENDPOINT_DEAD
+                    gate.remove(candidate)
+                    return@synchronized false
                 }
                 // 与会话替换串行，旧进程迟到的发布不能覆盖新会话的缓存。
+                failure = ReceiptQueryFailure.MALFORMED_RESPONSE
                 com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentHostClient.register(
                     candidate, extras.getBinder(com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentWire.ENDPOINT_KEY))
                 if (channel == HostReceiptWire.REGISTER) return@synchronized true
                 val sequence = extras.getLong("sequence")
-                if (!ReceiptSessionGate.isNewerSequence(sequences[channel] ?: 0L, sequence)) return@synchronized false
+                when (ReceiptSessionGate.sequenceDecision(sequences[channel] ?: 0L, sequence)) {
+                    ReceiptSessionGate.SequenceDecision.INVALID -> {
+                        failure = ReceiptQueryFailure.INVALID_SEQUENCE
+                        return@synchronized false
+                    }
+                    ReceiptSessionGate.SequenceDecision.SUPERSEDED -> {
+                        // Provider 与备用 Binder 可能同时送达；已有较新值即可确认，避免重试同一副本。
+                        ReceiptQueryLog.superseded()
+                        return@synchronized true
+                    }
+                    ReceiptSessionGate.SequenceDecision.STORE -> Unit
+                }
                 failure = ReceiptQueryFailure.STORE_FAILED
                 val stored = if (channel == HostReceiptWire.DIAGNOSTICS) {
                     // 仅留作历史数据；实时诊断必须经过 endpoint 的 nonce 响应。

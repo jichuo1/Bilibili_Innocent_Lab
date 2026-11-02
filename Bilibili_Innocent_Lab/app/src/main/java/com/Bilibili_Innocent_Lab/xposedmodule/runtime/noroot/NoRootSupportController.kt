@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsAuthorizationCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
@@ -9,12 +10,12 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsPendingCom
 import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import java.util.concurrent.CountDownLatch
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationAuthorityStore
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicReference
 
 /** 模块设置进程的单飞协调器；无定时轮询，不持有 Activity 或 View。 */
 internal object NoRootSupportController {
@@ -27,11 +28,6 @@ internal object NoRootSupportController {
         FAILED,
         TIMED_OUT
     }
-
-    private data class EnabledSyncCompletion(
-        val revision: Long,
-        val remoteResult: NPatchRemoteGateway.SyncResult?
-    )
 
     private enum class TermsSettlement(val failureCode: String?) {
         SETTLED(null),
@@ -140,7 +136,16 @@ internal object NoRootSupportController {
                             snapshot = tombstone,
                             generation = intentGeneration,
                             decision = requestedTermsDecision(appContext),
-                            resultHandler = {},
+                            // B1：tombstone 写不进去不能再当没发生过。授权端点的总开关门禁
+                            // 与不可授权文档已经挡住宿主，这里至少把失败记进日志，便于排查。
+                            resultHandler = { result ->
+                                if (result !is NPatchRemoteGateway.SyncResult.Success) {
+                                    Log.w(
+                                        "BilibiliInnocentLab",
+                                        "[BIL] 免 Root 关闭后 tombstone 同步未确认: $result"
+                                    )
+                                }
+                            },
                             listener = null
                         )
                     }
@@ -193,28 +198,28 @@ internal object NoRootSupportController {
         generation: Long? = null,
         onFinished: (() -> Unit)? = null
     ) {
-        synchronizeWithResult(context, bridge, generation) { onFinished?.invoke() }
+        synchronizeDirect(context, bridge, generation) { onFinished?.invoke() }
     }
 
-    private fun synchronizeWithResult(
+    private fun synchronizeDirect(
         context: Context,
         bridge: SharedPreferences,
         generation: Long? = null,
-        onFinished: (EnabledSyncCompletion) -> Unit
+        onFinished: () -> Unit
     ) {
         val appContext = context.applicationContext
         if (!NoRootSupportStore.isDesiredEnabled(appContext) ||
             AndroidVersion.isLessThan(AndroidVersion.P)
         ) {
-            onFinished(EnabledSyncCompletion(0L, null))
+            onFinished()
             return
         }
         val activeGeneration = generation ?: beginSynchronization(appContext) ?: run {
-            onFinished(EnabledSyncCompletion(0L, null))
+            onFinished()
             return
         }
         if (requestGeneration.get() != activeGeneration) {
-            onFinished(EnabledSyncCompletion(0L, null))
+            onFinished()
             return
         }
         val snapshot = runCatching {
@@ -224,7 +229,7 @@ internal object NoRootSupportController {
             if (requestGeneration.get() != activeGeneration ||
                 !NoRootSupportStore.isDesiredEnabled(appContext)
             ) {
-                onFinished(EnabledSyncCompletion(0L, null))
+                onFinished()
                 return
             }
             NoRootSupportStore.updateSyncState(
@@ -233,22 +238,34 @@ internal object NoRootSupportController {
                 detail = "snapshot_write_failed",
                 stillCurrent = { requestGeneration.get() == activeGeneration }
             )
-            onFinished(EnabledSyncCompletion(0L, null))
+            onFinished()
             return
         }
         if (requestGeneration.get() != activeGeneration ||
             !NoRootSupportStore.isDesiredEnabled(appContext)
         ) {
-            onFinished(EnabledSyncCompletion(snapshot.revision, null))
+            onFinished()
             return
         }
-        NoRootSupportStore.updateSyncState(
-            appContext,
-            NoRootSupportStore.SyncState.SYNCING,
-            revision = snapshot.revision,
-            stillCurrent = { requestGeneration.get() == activeGeneration }
-        )
         val attemptedDecision = requestedTermsDecision(appContext)
+        val localReady = UserTermsConsentStore.withAuthorityLock {
+            val publication = PublicationAuthorityStore.current(appContext)
+            publication?.noRootRevision == snapshot.revision && publication.decision.isAuthorized &&
+                requestGeneration.get() == activeGeneration &&
+                NoRootSupportStore.isDesiredEnabled(appContext)
+        }
+        if (!localReady) {
+            NoRootSupportStore.updateSyncState(appContext, NoRootSupportStore.SyncState.ERROR,
+                snapshot.revision, "direct_publication_unavailable",
+                stillCurrent = { requestGeneration.get() == activeGeneration })
+            onFinished()
+            return
+        }
+        NoRootSupportStore.updateSyncState(appContext, successfulSyncState(appContext, snapshot),
+            snapshot.revision, "module_direct_ready",
+            stillCurrent = { requestGeneration.get() == activeGeneration })
+        // 本地文档落盘即可交还界面；Manager 仅作可选镜像，不等待它来判断直达就绪。
+        onFinished()
         enqueueRemoteSync(
             context = appContext,
             snapshot = snapshot,
@@ -263,14 +280,12 @@ internal object NoRootSupportController {
                     result = result
                 )
             },
-            listener = { result ->
-                onFinished(EnabledSyncCompletion(snapshot.revision, result))
-            }
+            listener = null
         )
     }
 
     /**
-     * 打开宿主应用详情前的有界落盘屏障。开启态确保当前 revision 已写入 NPatch；
+     * 打开宿主应用详情前的有界落盘屏障。开启态确保当前 revision 的直达文档已落盘；
      * 关闭态确保更高 revision 的 tombstone 已写入。失败或超时也会明确回调，绝不阻塞 UI。
      */
     fun flushBeforeRestart(
@@ -295,7 +310,7 @@ internal object NoRootSupportController {
         }, "InnocentLab-NoRootFlush").apply { isDaemon = true }.start()
     }
 
-    /** 设置在等待期间继续变化时，使用同一总截止时间同步新 revision，直到源 prefs 稳定。 */
+    /** 本地持久化与身份复读共用总截止时间，不等待可选的 Manager 镜像。 */
     private fun flushEnabledUntilStable(
         appContext: Context,
         bridge: SharedPreferences,
@@ -303,56 +318,28 @@ internal object NoRootSupportController {
         deadlineNanos: Long
     ): FlushResult {
         if (AndroidVersion.isLessThan(AndroidVersion.P)) return FlushResult.FAILED
-        while (remainingNanos(deadlineNanos) > 0L) {
-            if (requestGeneration.get() != generation ||
-                !NoRootSupportStore.isDesiredEnabled(appContext)
-            ) return FlushResult.FAILED
-
-            val completed = CountDownLatch(1)
-            val completionRef = AtomicReference<EnabledSyncCompletion?>()
-            synchronizeWithResult(appContext, bridge, generation) { completion ->
-                completionRef.set(completion)
-                completed.countDown()
-            }
-            if (!awaitUntil(completed, deadlineNanos)) return FlushResult.TIMED_OUT
-
-            val completion = completionRef.get() ?: return FlushResult.FAILED
-            if (requestGeneration.get() != generation ||
-                !NoRootSupportStore.isDesiredEnabled(appContext)
-            ) return FlushResult.FAILED
-            when (completion.remoteResult) {
-                NPatchRemoteGateway.SyncResult.ConnectionTimeout ->
-                    return FlushResult.TIMED_OUT
-                NPatchRemoteGateway.SyncResult.Success -> {
-                    val refreshedSnapshot = runCatching {
-                        NoRootSupportStore.upsertEnabledSnapshot(appContext, bridge)
-                    }.getOrNull() ?: return FlushResult.FAILED
-                    if (refreshedSnapshot.revision != completion.revision) {
-                        // 等待期间设置已变化；新 revision 已落盘，继续使用剩余时间同步。
-                        continue
-                    }
-                    return if (acceptsFlushCompletion(
-                            appContext = appContext,
-                            generation = generation,
-                            expectedEnabled = true,
-                            expectedRevision = completion.revision,
-                            remoteWriteConfirmed = NoRootSupportStore.isRemoteSynced(
-                                appContext,
-                                completion.revision
-                            )
-                        )
-                    ) FlushResult.SUCCESS else FlushResult.FAILED
+        while (System.nanoTime() < deadlineNanos) {
+            val result = UserTermsConsentStore.withAuthorityLock {
+                if (requestGeneration.get() != generation || !NoRootSupportStore.isDesiredEnabled(appContext)) {
+                    return@withAuthorityLock FlushResult.FAILED
                 }
-                null -> {
-                    val currentRevision = NoRootSupportStore.readSnapshot(appContext)?.revision
-                        ?: return FlushResult.FAILED
-                    if (completion.revision > 0L &&
-                        currentRevision != completion.revision
-                    ) continue
-                    return FlushResult.FAILED
+                val snapshot = NoRootSupportStore.upsertEnabledSnapshot(appContext, bridge)
+                    ?: return@withAuthorityLock FlushResult.FAILED
+                val publication = PublicationAuthorityStore.current(appContext)
+                    ?.takeIf { it.decision.isAuthorized && it.noRootRevision == snapshot.revision }
+                    ?: return@withAuthorityLock FlushResult.FAILED
+                // 设置可能在构造文档时变化。身份和快照都匹配才允许重启，否则在原截止时间内重试。
+                if (!PublicationAuthorityStore.matches(appContext, publication)) return@withAuthorityLock null
+                if (!acceptsFlushCompletion(appContext, generation, true, snapshot.revision, true)) {
+                    return@withAuthorityLock FlushResult.FAILED
                 }
-                else -> return FlushResult.FAILED
+                NoRootSupportStore.updateSyncState(appContext, successfulSyncState(appContext, snapshot),
+                    snapshot.revision, "module_direct_ready",
+                    stillCurrent = { requestGeneration.get() == generation })
+                FlushResult.SUCCESS
             }
+            if (System.nanoTime() >= deadlineNanos) return FlushResult.TIMED_OUT
+            if (result != null) return result
         }
         return FlushResult.TIMED_OUT
     }
@@ -361,58 +348,25 @@ internal object NoRootSupportController {
         appContext: Context,
         generation: Long,
         deadlineNanos: Long
-    ): FlushResult {
-        val tombstone = NoRootSupportStore.readSnapshot(appContext)
-            ?.takeUnless { it.enabled }
-            ?: return FlushResult.FAILED
-        val completed = CountDownLatch(1)
-        val resultRef = AtomicReference<NPatchRemoteGateway.SyncResult?>()
-        enqueueRemoteSync(
-            context = appContext,
-            snapshot = tombstone,
-            generation = generation,
-            decision = requestedTermsDecision(appContext),
-            resultHandler = {},
-            listener = { result ->
-                resultRef.set(result)
-                completed.countDown()
-            }
-        )
-        if (!awaitUntil(completed, deadlineNanos)) return FlushResult.TIMED_OUT
-        val remoteResult = resultRef.get()
-        if (remoteResult == NPatchRemoteGateway.SyncResult.ConnectionTimeout) {
-            return FlushResult.TIMED_OUT
+    ): FlushResult = UserTermsConsentStore.withAuthorityLock {
+        if (requestGeneration.get() != generation || NoRootSupportStore.isDesiredEnabled(appContext)) {
+            return@withAuthorityLock FlushResult.FAILED
         }
-        return if (acceptsFlushCompletion(
-                appContext = appContext,
-                generation = generation,
-                expectedEnabled = false,
-                expectedRevision = tombstone.revision,
-                remoteWriteConfirmed = remoteResult == NPatchRemoteGateway.SyncResult.Success
-            )
-        ) FlushResult.SUCCESS else FlushResult.FAILED
+        if (System.nanoTime() >= deadlineNanos) return@withAuthorityLock FlushResult.TIMED_OUT
+        val tombstone = NoRootSupportStore.ensureDisabledSnapshot(appContext)
+            ?: return@withAuthorityLock FlushResult.FAILED
+        if (System.nanoTime() >= deadlineNanos) return@withAuthorityLock FlushResult.TIMED_OUT
+        if (acceptsFlushCompletion(appContext, generation, false, tombstone.revision, true)) {
+            FlushResult.SUCCESS
+        } else FlushResult.FAILED
     }
-
-    private fun awaitUntil(latch: CountDownLatch, deadlineNanos: Long): Boolean {
-        val remaining = remainingNanos(deadlineNanos)
-        if (remaining <= 0L) return false
-        return try {
-            latch.await(remaining, TimeUnit.NANOSECONDS)
-        } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
-            false
-        }
-    }
-
-    private fun remainingNanos(deadlineNanos: Long): Long =
-        (deadlineNanos - System.nanoTime()).coerceAtLeast(0L)
 
     private fun acceptsFlushCompletion(
         appContext: Context,
         generation: Long,
         expectedEnabled: Boolean,
         expectedRevision: Long,
-        remoteWriteConfirmed: Boolean
+        directWriteConfirmed: Boolean
     ): Boolean {
         val snapshot = NoRootSupportStore.readSnapshot(appContext)
         return NoRootRestartFlushGuard.accepts(
@@ -422,10 +376,10 @@ internal object NoRootSupportController {
             snapshotEnabled = snapshot?.enabled,
             snapshotRevision = snapshot?.revision ?: 0L,
             expectedRevision = expectedRevision,
-            remoteWriteConfirmed = remoteWriteConfirmed
+            remoteWriteConfirmed = false,
+            directWriteConfirmed = directWriteConfirmed
         )
     }
-
     private fun enqueueRemoteSync(
         context: Context,
         snapshot: NoRootConfigSnapshot,
@@ -434,6 +388,11 @@ internal object NoRootSupportController {
         resultHandler: (NPatchRemoteGateway.SyncResult) -> Unit,
         listener: ((NPatchRemoteGateway.SyncResult?) -> Unit)?
     ) {
+        // embed 的 Remote Store 属于宿主 UID；独立设置 App 只发布自己的当前直达文档。
+        if (NPatchRuntimeProfiles.read(context).mode == NPatchMode.EMBEDDED) {
+            listener?.let { notifyListeners(listOf(it), result = null) }
+            return
+        }
         val key = NoRootSyncFlightRegistry.Key(
             intentGeneration = generation,
             snapshotRevision = snapshot.revision,
@@ -543,33 +502,43 @@ internal object NoRootSupportController {
         } else {
             null
         }
-        val state = when (result) {
-            NPatchRemoteGateway.SyncResult.Success -> {
-                if (termsSettlement != TermsSettlement.SETTLED) {
-                    NoRootSupportStore.SyncState.ERROR
-                } else if (!NoRootSupportStore.markRemoteSynced(
-                        appContext,
-                        snapshot.revision,
-                        stillCurrent = { requestGeneration.get() == activeGeneration }
-                    )
-                ) {
-                    NoRootSupportStore.SyncState.ERROR
-                } else {
-                    successfulSyncState(appContext, snapshot)
+        val directReady = UserTermsConsentStore.withAuthorityLock {
+            PublicationAuthorityStore.current(appContext)?.let {
+                it.noRootRevision == snapshot.revision && it.decision.isAuthorized
+            } == true
+        }
+        val remoteRecorded = result != NPatchRemoteGateway.SyncResult.Success ||
+            termsSettlement != TermsSettlement.SETTLED || NoRootSupportStore.markRemoteSynced(
+                appContext, snapshot.revision, stillCurrent = { requestGeneration.get() == activeGeneration })
+        val state = when {
+            !remoteRecorded -> NoRootSupportStore.SyncState.ERROR
+            directReady && (termsSettlement == null || termsSettlement == TermsSettlement.SETTLED) ->
+                successfulSyncState(appContext, snapshot)
+            else -> when (result) {
+                NPatchRemoteGateway.SyncResult.Success -> {
+                    if (termsSettlement != TermsSettlement.SETTLED) {
+                        NoRootSupportStore.SyncState.ERROR
+                    } else {
+                        successfulSyncState(appContext, snapshot)
+                    }
                 }
+                NPatchRemoteGateway.SyncResult.ManagerMissing ->
+                    NoRootSupportStore.SyncState.MANAGER_MISSING
+                NPatchRemoteGateway.SyncResult.ModuleNotRegistered ->
+                    NoRootSupportStore.SyncState.MODULE_NOT_REGISTERED
+                NPatchRemoteGateway.SyncResult.ConnectionTimeout ->
+                    NoRootSupportStore.SyncState.CONNECTION_TIMEOUT
+                is NPatchRemoteGateway.SyncResult.Failure ->
+                    NoRootSupportStore.SyncState.ERROR
             }
-            NPatchRemoteGateway.SyncResult.ManagerMissing ->
-                NoRootSupportStore.SyncState.MANAGER_MISSING
-            NPatchRemoteGateway.SyncResult.ModuleNotRegistered ->
-                NoRootSupportStore.SyncState.MODULE_NOT_REGISTERED
-            NPatchRemoteGateway.SyncResult.ConnectionTimeout ->
-                NoRootSupportStore.SyncState.CONNECTION_TIMEOUT
-            is NPatchRemoteGateway.SyncResult.Failure ->
-                NoRootSupportStore.SyncState.ERROR
         }
         val detail = when {
-            result is NPatchRemoteGateway.SyncResult.Failure -> result.errorCode
+            result is NPatchRemoteGateway.SyncResult.Failure ->
+                if (directReady) "manager_cache_${result.errorCode}" else result.errorCode
             termsSettlement != null -> termsSettlement.failureCode
+            directReady && result == NPatchRemoteGateway.SyncResult.ManagerMissing -> "manager_cache_unavailable"
+            directReady && result == NPatchRemoteGateway.SyncResult.ConnectionTimeout -> "manager_cache_timeout"
+            directReady && result == NPatchRemoteGateway.SyncResult.ModuleNotRegistered -> "manager_cache_not_registered"
             else -> null
         }
         NoRootSupportStore.updateSyncState(

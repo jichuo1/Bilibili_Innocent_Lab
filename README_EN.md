@@ -73,11 +73,17 @@ Where possible, grant this module ROOT permission, which enables:
 
 **A note on root-free NPatch support**
 
-The module now offers experimental root-free support for NPatch. On devices without Root/LSPosed you can load the module into a locally patched Bilibili client through NPatch Manager. This is an independent optional compatibility path and does not change the existing Root/LSPosed installation or usage. It currently requires Android 9 or later, NPatch Manager 1.0.7 or later, and local/manager mode: add and enable this module in NPatch Manager first, then turn on "Root-free support (NPatch, experimental)" in the module settings.
+Experimental root-free NPatch support requires Android 9 or later and loads the module through Manager mode. **This version does not support embedded mode**, which is temporarily disabled to discourage resale of hosts with the module bundled inside; its implementation is retained. Manager mode requires NPatch Manager 1.0.7 or later, with the module added and enabled. Keep the separate module settings app installed, accept the terms, select "Root-free support (NPatch, experimental)", and cold-start Bilibili to verify its receipt. This optional path does not change Root/LSPosed usage.
 
-Once enabled, the module synchronises the currently supported feature configuration to NPatch, and the patched Bilibili process loads the corresponding hooks. After enabling, disabling or changing these settings you must manually force-stop and reopen Bilibili. The target process installs module features only after authorisation and full configuration validation pass, and the module UI shows "activated" only after it receives and verifies the host receipt.
+Once enabled, the NPatch host obtains current settings through the module's admission channel without requiring Communication Compatibility Mode. Manager Remote Store sync is an optional mirror; its availability does not gate direct delivery. After enabling, disabling or changing settings, force-stop and reopen Bilibili. Features are installed only after current authorisation and full configuration validation pass; activation requires a verified host receipt. If all authorising endpoints are unavailable, an old cached document cannot enable features.
+
+The root-free Diagnostics details show the patch mode, signature bypass level, Loader API/version, Manager version, actual configuration source, and processes responding to the current query with their Hook point counts. Unresponsive processes remain unknown; installation counts do not prove feature behavior. See the [patching guide](scripts/npatch/README.md) and [implementation roadmap](docs/npatch-implementation-roadmap.md) for the measured scope. Historical embedded-mode results do not mean that mode is available in this version. Build 833's Manager loading failure when Manager is unavailable requires the tool's Java loader fix.
 
 > NPatch support is still experimental. Its real-world stability is affected by the Android version, ROM, NPatch Manager version, Bilibili version and other injected modules, and it should not be treated as a complete replacement for every Root/LSPosed scenario. Back up your configuration first and keep the ability to restore the unmodified app.
+
+**A note on root-free LSPatch support**
+
+JingMatrix LSPatch 1.2 (487) is supported in local (Manager / `--manager`) mode. Select the module in Manager and apply it, keep the separate settings app installed, accept the terms, then cold-start Bilibili. The NPatch switch and Communication Compatibility Mode are not required. **Embedded (`--embed`) mode is currently unsupported** and shares the disabled support flag with NPatch; its implementation is retained. See the [stage 9 record](docs/lspatch-stage9.md) for historical tests and the verified scope.
 
 ---
 
@@ -254,6 +260,7 @@ The sections below describe capabilities by feature topic. Developer-facing cate
 | --- | --- |
 | Clean up share links | Removes tracking parameters from Bilibili links in the share panel link and share text, keeping only the page number and timestamp. **b23.tv short links are not expanded**, so no network request is made |
 | Convert mini-program cards to plain links | When sharing to WeChat or QQ a plain link card is sent instead; when the title only contains the app name, the real video title is filled back in and no attribution text is appended |
+| Share to re-signed WeChat | Off by default. Enable if you trust the re-signed WeChat on this device to keep native friend and Moments sharing. Restart Bilibili after changing it. Adapted for Bilibili 8.90.2; account-level previews and delivery remain unverified |
 
 #### Launch and system
 

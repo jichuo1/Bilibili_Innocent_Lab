@@ -1,0 +1,14 @@
+{
+  "sourceDateEpoch": "1790090288",
+  "basePatcherSha256": "fd6257b562af7f2c55776131f97ef72e7e7c772f5b2c0396c69ae1517f7e1e78",
+  "archives": [
+    {"name":"npatch-833-source.zip","repo":"7723mod/NPatch","commit":"a9dc461945fbe96caf22acf80e67a72d68a6d4d4","sha256":"58fd4a569d8601cfffe6a73523918fa0d56597d428aeec750b453de6d380865b","destination":""},
+    {"name":"vector-833-official.zip","repo":"HSSkyBoy/Vector","commit":"e903286082a0f702b5b05cf73143993b058c668f","sha256":"26990d242591d5483a9a1a9b72676b8864c4932a9fdbda085afb6ba8d1b32511","destination":"core"},
+    {"name":"dobby-833.zip","repo":"JingMatrix/Dobby","commit":"05a09ac6807a6bb1726350e40ea4b127c1c79809","sha256":"ff7aa0f7b475ed1d2dbbf06dcd185c38df7aaa4221bb1f3ed72a6a32b1951f6b","destination":"core/external/dobby"},
+    {"name":"fmt-833.zip","repo":"fmtlib/fmt","commit":"21d4cc15c8a2a3536aab5623258ba3b3dae573ce","sha256":"c7d7d03fd1520a2e81ca145ff8164df6fb0fa2657fd2f556fd8267c5fa4433c4","destination":"core/external/fmt"},
+    {"name":"lsplant-833.zip","repo":"HSSkyBoy/LSPlant","commit":"b9ed97c7bddd8d484595516e80290feed0c53b15","sha256":"90c3dc4eacd74592fd6b38e42da0a30a108d6427ad0fc9621ebd438a7aba201f","destination":"core/external/lsplant"},
+    {"name":"xz-embedded-833.zip","repo":"tukaani-project/xz-embedded","commit":"ae63ae3a36ed01724674e8f3d750dc47bf125410","sha256":"def1cc76f59db117245670f334599d70406c5f8a3ea99fb79763a84803420abf","destination":"core/external/xz-embedded"},
+    {"name":"dex-builder-833.zip","repo":"LSPosed/DexBuilder","commit":"ac7fb2230954ee311808bad469b0db501f31bfb8","sha256":"2284e3e13fffe5513bdacfc586f3275020e62f6ddaa50ba01903cf91c080a67b","destination":"core/external/lsplant/lsplant/src/main/jni/external/dex_builder"},
+    {"name":"phmap-833.zip","repo":"greg7mdp/parallel-hashmap","commit":"0cd57d29a959256ed66b2afdd1009928fc625d09","sha256":"6a7f206352db4ed578a808c4facea02b71c4f76f40d3c8c8c2f5515509668b77","destination":"core/external/lsplant/lsplant/src/main/jni/external/dex_builder/external/parallel_hashmap"}
+  ]
+}

@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.StartupTrace
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import java.lang.reflect.Constructor
@@ -154,7 +155,7 @@ internal class FeatureInstallCoordinator(
                     reported += id
                 }
             })
-            val record = runCatching { installer.install(scoped) }
+            val record = runCatching { StartupTrace.measure("feature.${installer.id}") { installer.install(scoped) } }
                 .fold(
                     onSuccess = { result ->
                         FeatureInstallRecord(installer.id, result, failure = null)

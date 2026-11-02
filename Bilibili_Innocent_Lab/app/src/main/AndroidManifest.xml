@@ -9,6 +9,7 @@
         me.iacn.biliroaming 可见（Android 11+ 包可见性）。
     -->
     <queries>
+        <package android:name="moe.shizuku.privileged.api" />
         <package android:name="tv.danmaku.bili" />
         <package android:name="me.iacn.biliroaming" />
         <!-- 条款待同步页只在管理器入口确实可解析时显示快捷按钮。 -->
@@ -19,6 +20,8 @@
         <package android:name="com.android.shell" />
         <!-- NPatch Local/Manager 模式的 Remote API Provider 可见性。 -->
         <provider android:authorities="top.nkbe.npatch.remote" />
+        <!-- 只读查询哔哩哔哩当前的作用域，用于发现作用域被移除后仍显示已激活。 -->
+        <provider android:authorities="top.nkbe.npatch.manager.provider.config" />
     </queries>
 
     <!--
@@ -44,10 +47,18 @@
         android:name="${applicationId}.permission.QUERY_HOST_RUNTIME_DIAGNOSTICS"
         android:protectionLevel="signature" />
 
+    <!-- 仅模块 App 可以向 B 站主进程询问“模块是否正在运行”（B12 存活探测）。 -->
+    <permission
+        android:name="${applicationId}.permission.PROBE_HOST_RUNTIME"
+        android:protectionLevel="signature" />
+
     <uses-permission android:name="${applicationId}.permission.SET_ROAMING_COMPAT" />
     <uses-permission android:name="${applicationId}.permission.SET_UI_LOCALE" />
+    <permission android:name="${applicationId}.permission.APPLY_LIVE_CONFIG" android:protectionLevel="signature" />
+    <uses-permission android:name="${applicationId}.permission.APPLY_LIVE_CONFIG" />
     <uses-permission android:name="${applicationId}.permission.QUERY_MINE_COMPONENT_SNAPSHOT" />
     <uses-permission android:name="${applicationId}.permission.QUERY_HOST_RUNTIME_DIAGNOSTICS" />
+    <uses-permission android:name="${applicationId}.permission.PROBE_HOST_RUNTIME" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -71,6 +82,15 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AppDefault"
         tools:targetApi="33">
+
+        <!-- 官方要求的系统级权限保护；普通应用不能向此 Provider 注入 Binder。 -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <!--
             Android 12 及以下由 AppCompat 保存应用语言；Android 13+ 交由系统

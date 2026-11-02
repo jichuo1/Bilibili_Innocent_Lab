@@ -8,6 +8,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.LiveDanmakuRules
 import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -52,7 +53,8 @@ internal class DanmakuPurifyFeatureInstaller(
     /** debug 构建的观测日志目录；release 为 null。 */
     private val semanticLogDir: java.io.File? = null,
     /** 主线程上只查缓存、绝不联网；单测可替换。 */
-    private val isMainThread: () -> Boolean = { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() }
+    private val isMainThread: () -> Boolean = { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() },
+    private val liveRules: (() -> LiveDanmakuRules)? = null
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -261,11 +263,12 @@ internal class DanmakuPurifyFeatureInstaller(
             purifyViaWire(plan, environment, reply, members)?.let { return it }
         }
         return runCatching {
-            val weighted = purifyElems(environment, reply, members)
-            val colorful = purifyColorfulSrc(reply, members)
+            val live = liveRules?.invoke() ?: LiveDanmakuRules(minimumWeight, removeVipColorful)
+            val weighted = purifyElems(environment, reply, members, live.minimum)
+            val colorful = purifyColorfulSrc(reply, members, live.colorful)
             // 删了渐变样式定义，就必须同时把引用它的弹幕改回普通色：弹幕分段整包交给原生引擎
             // （libchronos）解析，不能留"条目引用一个已不存在的样式"这种半截数据。
-            val recolored = neutralizeVipColorful(reply, members, weighted) ?: weighted
+            val recolored = neutralizeVipColorful(reply, members, weighted, live.colorful) ?: weighted
             val elems = semanticFilter(environment, reply, members, recolored) ?: recolored
             if (elems == null && colorful == null) return@runCatching reply
             val updated = members.builder.edit(reply) { builder ->
@@ -290,9 +293,10 @@ internal class DanmakuPurifyFeatureInstaller(
     private fun purifyElems(
         environment: HookEnvironment,
         reply: Any,
-        members: ReplyMembers
+        members: ReplyMembers,
+        minimum: Int?
     ): List<Any>? {
-        val threshold = minimumWeight ?: return null
+        val threshold = minimum ?: return null
         val weight = members.weight ?: return null
         val elems = invokeList(members.elemList!!.elemsGetter, reply) ?: return null
         if (elems.isEmpty()) return null
@@ -472,8 +476,8 @@ internal class DanmakuPurifyFeatureInstaller(
      * @param base 权重过滤后的列表；为 null 表示权重没改，按原始列表处理。
      * @return 需要写回的新列表；没有任何条目需要改时返回 null。
      */
-    private fun neutralizeVipColorful(reply: Any, members: ReplyMembers, base: List<Any>?): List<Any>? {
-        if (!removeVipColorful) return null
+    private fun neutralizeVipColorful(reply: Any, members: ReplyMembers, base: List<Any>?, enabled: Boolean): List<Any>? {
+        if (!enabled) return null
         val colorful = members.colorful ?: return null
         val elems = base ?: invokeList(members.elemList!!.elemsGetter, reply)?.filterNotNull() ?: return null
         var changed = false
@@ -561,8 +565,8 @@ internal class DanmakuPurifyFeatureInstaller(
         )
     }
 
-    private fun purifyColorfulSrc(reply: Any, members: ReplyMembers): List<Any>? {
-        if (!removeVipColorful) return null
+    private fun purifyColorfulSrc(reply: Any, members: ReplyMembers, enabled: Boolean): List<Any>? {
+        if (!enabled) return null
         val colorful = members.colorful ?: return null
         val sources = invokeList(colorful.srcGetter, reply) ?: return null
         if (sources.isEmpty()) return null

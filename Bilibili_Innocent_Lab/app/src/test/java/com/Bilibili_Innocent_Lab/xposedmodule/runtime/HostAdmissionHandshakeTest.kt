@@ -22,11 +22,33 @@ class HostAdmissionHandshakeTest {
         identity(config), HostAdmissionContract.NORMAL, challenge)
 
     private fun exchange(prepared: HostAdmissionHandshake.Reply, granted: HostAdmissionHandshake.Reply = reply("granted"),
-        config: RemoteHookConfigSnapshot? = normal, direct: Boolean = false) = HostAdmissionHandshake.exchange(
+        config: RemoteHookConfigSnapshot? = normal, direct: Boolean = false, npatch: Boolean = false) = HostAdmissionHandshake.exchange(
         "provider", nonce, config, direct, 100L, { 0L }, { prepared }, { value, _ ->
             assertEquals(challenge, value)
             granted
-        })
+        }, nPatchRuntime = npatch)
+
+    @Test fun currentNpatchCloseRevisionSurvivesBothHandshakePhasesOnlyWithAValidEnvelope() {
+        val closed = reply("manager_sync_required").copy(disabledRevision = 42L)
+        for (result in listOf(exchange(closed), exchange(reply("prepared"), closed))) {
+            assertNull(result.grant)
+            assertEquals(42L, result.disabledRevision)
+            assertEquals(HostAdmissionRouteClassifier.REASON_SYNC_REQUIRED, result.reason)
+        }
+        for (unbound in listOf(closed.copy(nonce = "wrong-nonce-value"), closed.copy(moduleVersion = -1))) {
+            assertEquals(0L, exchange(unbound).disabledRevision)
+            assertEquals(0L, exchange(reply("prepared"), unbound).disabledRevision)
+        }
+    }
+
+    @Test fun npatchRequiresANoRootRevisionWhileStandardAdmissionKeepsItsOriginalContract() {
+        assertNotNull(exchange(reply("prepared")).grant)
+        val stale = exchange(reply("prepared"), npatch = true)
+        assertNull(stale.grant)
+        assertEquals(HostAdmissionRouteClassifier.REASON_SYNC_REQUIRED, stale.reason)
+        val current = normal.copy(noRootRevision = 42L)
+        assertEquals(current, exchange(reply("prepared", current), reply("granted", current), current, npatch = true).grant?.snapshot)
+    }
 
     @Test fun completeCurrentSnapshotRequiresBoundPrepareAndConfirm() {
         val result = exchange(reply("prepared"))

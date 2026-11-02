@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.os.Parcel
 import android.os.RemoteException
+import android.os.DeadObjectException
 import android.os.SystemClock
 import androidx.core.net.toUri
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
@@ -136,6 +137,7 @@ internal object NPatchRemoteGateway {
         } catch (throwable: Throwable) {
             val root = unwrap(throwable)
             when (root) {
+                is ManagerUnavailableException -> SyncResult.ManagerMissing
                 is SecurityException -> SyncResult.ModuleNotRegistered
                 is ConnectionTimeoutException -> SyncResult.ConnectionTimeout
                 is IncompatibleServiceException -> SyncResult.Failure("incompatible_service")
@@ -168,7 +170,9 @@ internal object NPatchRemoteGateway {
         val call = try {
             connectionExecutor.submit<SyncResult?> {
                 if (!isStillCurrent(stillCurrent)) return@submit null
-                val service = connectServiceBlocking(context)
+                val service = connectWithRetry(stillCurrent,
+                    beforeRetry = { Thread.sleep(200L) }) { connectServiceBlocking(context) }
+                    ?: return@submit null
                 if (!isStillCurrent(stillCurrent)) return@submit null
                 val publication = com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationAuthorityStore.current(context)
                     ?.takeIf { it.decision == decision &&
@@ -213,17 +217,41 @@ internal object NPatchRemoteGateway {
             context.contentResolver.acquireUnstableContentProviderClient(AUTHORITY)?.use {
                 it.call(METHOD_GET_REMOTE_SERVICE, null, extras)
             }
-        } catch (_: android.os.DeadObjectException) { standardCall() }
+        } catch (_: DeadObjectException) {
+            try { standardCall() }
+            catch (error: SecurityException) { throw ManagerUnavailableException(error) }
+        } catch (error: SecurityException) {
+            // Provider 启动/访问被平台拒绝，不等于远端显式拒绝模块身份。
+            throw ManagerUnavailableException(error)
+        }
         val binder = result?.getBinder(KEY_BINDER)
-            ?: throw SecurityException("NPatch rejected module identity")
+            ?: throw ManagerUnavailableException()
         if (!binder.isBinderAlive || !binder.pingBinder()) {
-            throw RemoteException("NPatch remote service binder is dead")
+            throw ManagerUnavailableException()
         }
         val descriptor = binder.interfaceDescriptor
         if (!acceptsServiceDescriptor(descriptor)) {
             throw IncompatibleServiceException(descriptor)
         }
         return binder
+    }
+
+    /** 只重试连接，不重放可能已写入的事务；两次尝试共享外层截止时间与取消条件。 */
+    internal fun <T> connectWithRetry(
+        stillCurrent: () -> Boolean,
+        beforeRetry: () -> Unit = {},
+        connect: () -> T
+    ): T? {
+        repeat(2) { attempt ->
+            if (!isStillCurrent(stillCurrent)) return null
+            try { return connect() }
+            catch (error: Exception) {
+                if (attempt != 0 || (error !is ManagerUnavailableException && error !is DeadObjectException)) throw error
+                if (!isStillCurrent(stillCurrent)) return null
+                beforeRetry()
+            }
+        }
+        return null
     }
 
     private fun publishRemotePreferences(
@@ -344,6 +372,9 @@ internal object NPatchRemoteGateway {
 
     private class ConnectionTimeoutException(cause: Throwable? = null) :
         IllegalStateException("NPatch connection unavailable", cause)
+
+    internal class ManagerUnavailableException(cause: Throwable? = null) :
+        IllegalStateException("NPatch Manager connection unavailable", cause)
 
     private class IncompatibleServiceException(descriptor: String?) :
         RemoteException("Unexpected NPatch service descriptor: ${descriptor ?: "null"}")

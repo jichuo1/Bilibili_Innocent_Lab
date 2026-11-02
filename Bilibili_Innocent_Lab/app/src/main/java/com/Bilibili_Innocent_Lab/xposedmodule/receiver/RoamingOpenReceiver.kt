@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.receiver
 
+import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
+
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -12,6 +14,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AdmissionReplayBook
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostAdmissionEndpoint
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.RoamingSettingsLauncher
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostRuntimeProbeClient
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostRuntimeProbeContract
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootUpgradeRecoveryCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
@@ -90,7 +94,12 @@ class RoamingOpenReceiver : BroadcastReceiver() {
             receiveNoRootHeartbeat(context, intent)
             return
         }
-        if (intent.action != ACTION_OPEN_ROAMING_SETTINGS) return
+        if (intent.action == HostRuntimeProbeContract.ACTION_REPLY) {
+            receiveHostRuntimeProbeReply(context, intent)
+            return
+        }
+        if (intent.action != ACTION_OPEN_ROAMING_SETTINGS &&
+            intent.action != RoamingSettingsLauncher.ACTION_OPEN_MODULE_SETTINGS) return
         RoamingSettingsLauncher.reply(context, intent,
             if (AndroidVersion.isAtLeast(AndroidVersion.U)) sentFromPackage else null,
             if (AndroidVersion.isAtLeast(AndroidVersion.U)) sentFromUid else -1)
@@ -207,15 +216,19 @@ class RoamingOpenReceiver : BroadcastReceiver() {
                 UserTermsConsentStore.readOrInitialize(context).isAuthorized
             }.getOrDefault(false)
             if (!authorized) return
-            NoRootSupportStore.recordHeartbeat(
-                context = context,
-                revision = revision,
-                moduleVersionCode = moduleVersion,
-                targetVersionCode = targetVersion,
-                targetUpdateTime = targetUpdateTime,
-                targetPackage = targetPackage
-            )
+            if (NoRootSupportStore.recordHeartbeat(
+                    context = context,
+                    revision = revision,
+                    moduleVersionCode = moduleVersion,
+                    targetVersionCode = targetVersion,
+                    targetUpdateTime = targetUpdateTime,
+                    targetPackage = targetPackage
+                )
+            ) {
+                HostRuntimeProbeClient.markHostAlive()
+            }
         } else {
+            if (processName != targetPackage) return
             NoRootSupportStore.recordDisabledAck(
                 context = context,
                 revision = revision,
@@ -224,6 +237,50 @@ class RoamingOpenReceiver : BroadcastReceiver() {
                 targetUpdateTime = targetUpdateTime,
                 targetPackage = targetPackage
             )
+        }
+    }
+
+    /**
+     * 存活探测回执：宿主自建 PendingIntent 证明身份，nonce 只属于本次探测窗口。
+     * 回执本身即“模块代码此刻在宿主主进程运行”的证据，B12 的静默失效由此可观测。
+     */
+    private fun receiveHostRuntimeProbeReply(context: Context, intent: Intent) {
+        if (AndroidVersion.isAtLeast(AndroidVersion.U) &&
+            sentFromPackage != HookEntry.TARGET_PACKAGE
+        ) {
+            Log.w("BilibiliInnocentLab", "[BIL] 存活回执被拒：发送者是 ${sentFromPackage ?: "null"}")
+            return
+        }
+        val hostProof = IntentCompat.getParcelableExtra(
+            intent,
+            HostRuntimeProbeContract.EXTRA_HOST_PROOF,
+            classOf<PendingIntent>()
+        ) ?: run {
+            Log.w("BilibiliInnocentLab", "[BIL] 存活回执被拒：缺少身份证明")
+            return
+        }
+        if (!HostRuntimeProbeContract.isHostProof(hostProof.creatorPackage)) {
+            Log.w("BilibiliInnocentLab", "[BIL] 存活回执被拒：创建者是 ${hostProof.creatorPackage}")
+            return
+        }
+        val nonce = intent.getStringExtra(HostRuntimeProbeContract.EXTRA_NONCE).orEmpty()
+        if (!HostRuntimeProbeContract.isValidNonce(nonce)) return
+        val hooksInstalled = intent.getBooleanExtra(
+            HostRuntimeProbeContract.EXTRA_HOOKS_INSTALLED,
+            false
+        )
+        if (HostRuntimeProbeClient.onHostReply(nonce = nonce, hooksInstalled = hooksInstalled)) {
+            if (hooksInstalled) NoRootSupportStore.recordRuntimeReply(context)
+            else {
+                val revision = intent.getLongExtra(HostRuntimeProbeContract.EXTRA_DISABLED_REVISION, 0L)
+                val targetInfo = runCatching { context.packageManager.getPackageInfo(HookEntry.TARGET_PACKAGE, 0) }.getOrNull()
+                if (revision > 0L && targetInfo != null) {
+                    NoRootSupportStore.recordDisabledAck(context, revision,
+                        com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.VERSION_CODE.toLong(),
+                        targetInfo.versionCodeCompat, targetInfo.lastUpdateTime, HookEntry.TARGET_PACKAGE)
+                }
+            }
+            Log.i("BilibiliInnocentLab", "[BIL] 存活回执已接受(hooksInstalled=$hooksInstalled)")
         }
     }
 

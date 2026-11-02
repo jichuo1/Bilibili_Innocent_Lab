@@ -22,6 +22,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.receiver.RoamingOpenReceiver
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
+import io.github.jichuo1.meguviz.android.extensions.toast
 import java.lang.ref.WeakReference
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -32,6 +33,8 @@ internal object RoamingSettingsLauncher {
     const val EXTRA_CALLBACK = "roaming_launch_callback"
     const val EXTRA_NONCE = "roaming_launch_nonce"
     const val EXTRA_LAUNCH = "roaming_launch_token"
+    const val ACTION_OPEN_MODULE_SETTINGS = "com.Bilibili_Innocent_Lab.xposedmodule.OPEN_MODULE_SETTINGS"
+    const val EXTRA_MODULE_SETUP = "show_npatch_setup"
     private const val TARGET_PACKAGE = "me.iacn.biliroaming"
     private const val TARGET_ACTIVITY = "$TARGET_PACKAGE.MainActivityAlias"
     private val handler = Handler(Looper.getMainLooper())
@@ -67,7 +70,11 @@ internal object RoamingSettingsLauncher {
         }
     }
 
-    fun request(context: Context) {
+    fun request(context: Context) = requestTarget(context, moduleSettings = false)
+
+    fun requestModule(context: Context) = requestTarget(context, moduleSettings = true)
+
+    private fun requestTarget(context: Context, moduleSettings: Boolean) {
         HostThreadGuard.run("roaming.request") {
             initializeHost(context)
             val activity = activity(context) ?: resumed.get()
@@ -77,7 +84,7 @@ internal object RoamingSettingsLauncher {
             }
             // 同一点击链尚未完成时合并重复点击，避免取消第一份凭证后撞上模块节流。
             if (pending != null) return@run
-            val request = Request(context.applicationContext ?: context, requireNotNull(activity))
+            val request = Request(context.applicationContext ?: context, requireNotNull(activity), moduleSettings)
             pending = request
             request.start()
         }
@@ -86,6 +93,11 @@ internal object RoamingSettingsLauncher {
     /** 在模块进程内执行；外部输入不能改变目的组件或启动选项。 */
     fun reply(context: Context, intent: Intent, sentFromPackage: String?, sentFromUid: Int) {
         runCatching {
+            val moduleSettings = when (intent.action) {
+                ACTION_OPEN_MODULE_SETTINGS -> true
+                RoamingOpenReceiver.ACTION_OPEN_ROAMING_SETTINGS -> false
+                else -> return
+            }
             val callback = IntentCompat.getParcelableExtra(intent, EXTRA_CALLBACK, PendingIntent::class.java)
                 ?: return
             val hostUid = context.packageManager.getApplicationInfo(HookEntry.TARGET_PACKAGE, 0).uid
@@ -99,8 +111,8 @@ internal object RoamingSettingsLauncher {
             if (!HostRuntimeDiagnosticsQueryContract.isValidNonce(nonce) ||
                 !RoamingSettingsLaunchPolicy.isFresh(requestedAt, now)) return
             val authorized = UserTermsConsentStore.readOrInitialize(context).isAuthorized &&
-                context.getSharedPreferences("${context.packageName}_preferences", Context.MODE_PRIVATE)
-                    .getBoolean(HookEntry.PREF_ROAMING_COMPAT_ENABLED, false)
+                (moduleSettings || context.getSharedPreferences("${context.packageName}_preferences", Context.MODE_PRIVATE)
+                    .getBoolean(HookEntry.PREF_ROAMING_COMPAT_ENABLED, false))
             val previous = lastAccepted.get()
             val accepted = authorized && (previous == 0L ||
                 now - previous >= RoamingSettingsLaunchPolicy.MIN_REQUEST_INTERVAL_MS)
@@ -108,7 +120,8 @@ internal object RoamingSettingsLauncher {
             var launch: PendingIntent? = null
             try {
                 if (accepted && lastAccepted.compareAndSet(previous, now)) {
-                    launch = createLaunchToken(context, nonce.hashCode())
+                    launch = if (moduleSettings) createModuleLaunchToken(context, nonce.hashCode())
+                        else createLaunchToken(context, nonce.hashCode())
                     response.putExtra(EXTRA_LAUNCH, launch)
                     val expiring = launch
                     handler.postDelayed(HostThreadGuard.runnable("roaming.token-expire") { expiring.cancel() },
@@ -129,7 +142,15 @@ internal object RoamingSettingsLauncher {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_CANCEL_CURRENT)
 
-    private class Request(private val context: Context, activity: Activity) {
+    internal fun createModuleLaunchToken(context: Context, requestCode: Int): PendingIntent =
+        PendingIntent.getActivity(context, requestCode,
+            Intent().setComponent(ComponentName(BuildConfig.APPLICATION_ID,
+                "${BuildConfig.MODULE_CLASS_PACKAGE}.ui.activity.MainActivity"))
+                .putExtra(EXTRA_MODULE_SETUP, true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_CANCEL_CURRENT)
+
+    private class Request(private val context: Context, activity: Activity, private val moduleSettings: Boolean) {
         private val source = WeakReference(activity)
         private val nonce = UUID.randomUUID().toString()
         private val lease = RoamingSettingsLaunchLease(nonce, SystemClock.elapsedRealtime())
@@ -138,6 +159,7 @@ internal object RoamingSettingsLauncher {
         private var registered = false
         private val timeout = HostThreadGuard.runnable("roaming.timeout") {
             record("request_timeout")
+            notifyUnavailable()
             close()
         }
         private val receiver = object : BroadcastReceiver() {
@@ -153,6 +175,7 @@ internal object RoamingSettingsLauncher {
                                 BuildConfig.APPLICATION_ID, launch.creatorPackage, privateReplyVerified) ||
                             Build.VERSION.SDK_INT >= 31 && !Api31.isActivityImmutable(launch)) {
                             record("token_rejected")
+                            notifyUnavailable()
                             return@run
                         }
                         launch.send(this@Request.context, 0, null, null, null, null, senderOptions())
@@ -173,7 +196,7 @@ internal object RoamingSettingsLauncher {
                 callback = PendingIntent.getBroadcast(context, nonce.hashCode(), Intent(action).setPackage(context.packageName),
                     PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_CANCEL_CURRENT or mutable)
                 handler.postDelayed(timeout, RoamingSettingsLaunchPolicy.MAX_REQUEST_AGE_MS)
-                val request = Intent(RoamingOpenReceiver.ACTION_OPEN_ROAMING_SETTINGS)
+                val request = Intent(if (moduleSettings) ACTION_OPEN_MODULE_SETTINGS else RoamingOpenReceiver.ACTION_OPEN_ROAMING_SETTINGS)
                     .setComponent(ComponentName(BuildConfig.APPLICATION_ID, RoamingOpenReceiver::class.java.name))
                     .addFlags(Intent.FLAG_RECEIVER_FOREGROUND or Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                     .putExtra(EXTRA_NONCE, nonce)
@@ -182,9 +205,19 @@ internal object RoamingSettingsLauncher {
                 CrossAppBroadcastCompat.sendBroadcast(context, request)
                 record("token_requested")
             } catch (error: Throwable) {
+                notifyUnavailable()
                 close()
                 throw error
             }
+        }
+
+        private fun notifyUnavailable() {
+            val notify = HostThreadGuard.runnable("roaming.unavailable") {
+                if (moduleSettings && isVisible(source.get())) {
+                    source.get()?.toast(InjectedUiLocale.messages(context).moduleSettingsUnavailable)
+                }
+            }
+            if (Looper.myLooper() == Looper.getMainLooper()) notify.run() else handler.post(notify)
         }
 
         fun belongsTo(activity: Activity): Boolean = source.get() === activity

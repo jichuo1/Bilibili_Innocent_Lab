@@ -26,7 +26,7 @@ class PlayerQualityFeatureInstallerTest {
     }
 
     @Test
-    fun `installs only the adapted default quality boundary`() {
+    fun `installs verified normal policy without claiming missing Story coverage`() {
         val result = PlayerQualityFeatureInstaller(
             qualityQn = 80,
             points = VersionAdapter.PlayerQualityPoints(
@@ -34,8 +34,8 @@ class PlayerQualityFeatureInstallerTest {
             )
         ).install(environment)
 
-        assertEquals(FeatureInstallResult.Installed(1, complete = false), result)
-        assertEquals(listOf("player_quality_status" to "partial:1/2"), statuses)
+        assertEquals(FeatureInstallResult.Installed(5, complete = false), result)
+        assertEquals(listOf("player_quality_status" to "partial:2/3"), statuses)
     }
 
     @Test
@@ -48,7 +48,7 @@ class PlayerQualityFeatureInstallerTest {
         }
         val result = PlayerQualityFeatureInstaller(80, VersionAdapter.PlayerQualityPoints(
             VersionAdapter.HookPoint("gh6.h", "c", emptyList()))).install(environment.copy(classLoader = loader))
-        assertEquals(FeatureInstallResult.Installed(1), result)
+        assertEquals(FeatureInstallResult.Installed(5), result)
         assertEquals(listOf("player_quality_status" to "success"), statuses)
     }
 

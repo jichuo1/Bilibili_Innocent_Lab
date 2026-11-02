@@ -47,7 +47,9 @@ internal class HostBackgroundScene(private val config: HostBackgroundConfig, pri
     /** 共享任务表里的订阅句柄；只持有 Scene 的弱引用，在途任务不会延长 Scene 的寿命。 */
     private val subscription = Subscription(WeakReference(this))
     private val version = AtomicLong()
-    internal val isReady get() = synchronized(lock) { wanted.isNotEmpty() && wanted.filter { it.band in first..last }.all { ready.containsKey(it) } }
+    internal val isReady get() = synchronized(lock) {
+        wanted.isNotEmpty() && wanted.all { it.band !in first..last || ready.containsKey(it) }
+    }
     internal val retainedTileCount get() = synchronized(lock) { ready.size }
     /** 每发布一个有效 tile 加一：采样方用它（而不是单个「全部就绪」布尔）判断内容是否变化。 */
     internal val contentVersion get() = version.get()

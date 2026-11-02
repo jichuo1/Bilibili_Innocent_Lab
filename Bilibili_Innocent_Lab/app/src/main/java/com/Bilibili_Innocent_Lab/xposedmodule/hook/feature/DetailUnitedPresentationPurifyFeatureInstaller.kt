@@ -15,7 +15,7 @@ import java.util.concurrent.ConcurrentHashMap
  * 这不是旧 `view.v1.ViewReply` 的协议改写：当前 `UnitedBizDetailsActivity` 已经把 viewunite
  * 数据转成两个短生命周期的渲染模型。这里在模型进入 View 前精确删除：
  *
- * - 标题 `Headline.label` 中 URI 来源为热搜的角标；
+ * - 标题 `Headline.label` 中跳转搜索或运营活动页的角标；
  * - `SpecialTag` 映射出的 topic cell。
  *
  * 两者都按 URI 判别，不按可见文字、span 位置或资源图标猜测。
@@ -234,8 +234,8 @@ internal class HeadlineBadgeModelCleaner private constructor(
         if (!modelClass.isInstance(model)) return null
         val labelValue = label.get(model) ?: return null
         val isHotSearch = labelStrings.any { field ->
-            // 按类别（跳搜索）判，不按某个 from 值——「热搜」「活动」及未来变体同覆盖。
-            DetailUnitedPresentationPurifyPolicy.isSearchJumpLabelUri(field.get(labelValue) as? String)
+            // 按跳转路由分类，不依赖运营文案、图片地址或某个活动 ID。
+            DetailUnitedPresentationPurifyPolicy.isPromotionalLabelUri(field.get(labelValue) as? String)
         }
         if (!isHotSearch) return null
         val title = content.get(model) as? String ?: return null

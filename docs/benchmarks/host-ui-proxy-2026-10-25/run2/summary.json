@@ -1,0 +1,169 @@
+{
+  "phases": [
+    {
+      "index": 0,
+      "variant": "B",
+      "seconds": 52.970000000001164,
+      "watts": 3.753838166276974,
+      "chargeCounterWatts": 3.774609994558436,
+      "tempStart": 32.7,
+      "tempEnd": 33.0,
+      "frames": 5316,
+      "framesPerSecond": 88.56635650333381,
+      "gpuMeanMs": 9.365316873589165,
+      "gpuP95Ms": 15.221927,
+      "mainCpuMs": 27960.614203,
+      "thermalStatus": 0,
+      "materialRecordings": 1782,
+      "prismProxyRecordings": 3527
+    },
+    {
+      "index": 1,
+      "variant": "A",
+      "seconds": 52.470000000001164,
+      "watts": 3.7949419780701414,
+      "chargeCounterWatts": 3.8436091994354067,
+      "tempStart": 33.0,
+      "tempEnd": 33.5,
+      "frames": 5309,
+      "framesPerSecond": 88.43848338817304,
+      "gpuMeanMs": 9.303314758146543,
+      "gpuP95Ms": 15.243385,
+      "mainCpuMs": 30037.218118,
+      "thermalStatus": 0,
+      "materialRecordings": 1765,
+      "prismProxyRecordings": 3485
+    },
+    {
+      "index": 2,
+      "variant": "A",
+      "seconds": 52.38000000000466,
+      "watts": 3.8328575341887596,
+      "chargeCounterWatts": 3.9124827993702094,
+      "tempStart": 33.5,
+      "tempEnd": 34.0,
+      "frames": 5311,
+      "framesPerSecond": 88.48236396242808,
+      "gpuMeanMs": 9.286761188853323,
+      "gpuP95Ms": 15.176354,
+      "mainCpuMs": 29994.737679,
+      "thermalStatus": 0,
+      "materialRecordings": 1776,
+      "prismProxyRecordings": 3507
+    },
+    {
+      "index": 3,
+      "variant": "B",
+      "seconds": 52.41000000000349,
+      "watts": 3.7302566578813825,
+      "chargeCounterWatts": 3.7775158174075814,
+      "tempStart": 34.0,
+      "tempEnd": 34.5,
+      "frames": 5320,
+      "framesPerSecond": 88.61442664999146,
+      "gpuMeanMs": 9.321716317293232,
+      "gpuP95Ms": 15.35974,
+      "mainCpuMs": 26008.758063,
+      "thermalStatus": 0,
+      "materialRecordings": 1782,
+      "prismProxyRecordings": 3525
+    },
+    {
+      "index": 4,
+      "variant": "A",
+      "seconds": 52.51000000000931,
+      "watts": 3.942000578578596,
+      "chargeCounterWatts": 3.8850690213585235,
+      "tempStart": 34.5,
+      "tempEnd": 35.2,
+      "frames": 5319,
+      "framesPerSecond": 88.61744004872808,
+      "gpuMeanMs": 9.165908832675315,
+      "gpuP95Ms": 14.855052,
+      "mainCpuMs": 29560.990222,
+      "thermalStatus": 0,
+      "materialRecordings": 1778,
+      "prismProxyRecordings": 3511
+    },
+    {
+      "index": 5,
+      "variant": "B",
+      "seconds": 52.39999999999418,
+      "watts": 3.7595371465823937,
+      "chargeCounterWatts": 3.7480633938887054,
+      "tempStart": 35.0,
+      "tempEnd": 35.5,
+      "frames": 5312,
+      "framesPerSecond": 88.51816141636125,
+      "gpuMeanMs": 9.21552029066265,
+      "gpuP95Ms": 15.08625,
+      "mainCpuMs": 25569.711878,
+      "thermalStatus": 0,
+      "materialRecordings": 1786,
+      "prismProxyRecordings": 3534
+    },
+    {
+      "index": 6,
+      "variant": "B",
+      "seconds": 52.39999999999418,
+      "watts": 3.8761302735810905,
+      "chargeCounterWatts": 3.8849411630717015,
+      "tempStart": 35.5,
+      "tempEnd": 36.0,
+      "frames": 5324,
+      "framesPerSecond": 88.69147707143296,
+      "gpuMeanMs": 9.260445561232157,
+      "gpuP95Ms": 15.051875,
+      "mainCpuMs": 25293.277322,
+      "thermalStatus": 0,
+      "materialRecordings": 1786,
+      "prismProxyRecordings": 3527
+    },
+    {
+      "index": 7,
+      "variant": "A",
+      "seconds": 52.5,
+      "watts": 3.8490835018024003,
+      "chargeCounterWatts": 3.7394451248792073,
+      "tempStart": 36.0,
+      "tempEnd": 36.2,
+      "frames": 5329,
+      "framesPerSecond": 88.7858423678544,
+      "gpuMeanMs": 9.13161991780822,
+      "gpuP95Ms": 15.063437,
+      "mainCpuMs": 28960.701253,
+      "thermalStatus": 0,
+      "materialRecordings": 1775,
+      "prismProxyRecordings": 3505
+    }
+  ],
+  "pairs": [
+    {
+      "pair": 0,
+      "wattsSaved": 0.041103811793167466,
+      "percentSaved": 1.0831209549630683
+    },
+    {
+      "pair": 1,
+      "wattsSaved": 0.10260087630737713,
+      "percentSaved": 2.6768768573364965
+    },
+    {
+      "pair": 2,
+      "wattsSaved": 0.18246343199620219,
+      "percentSaved": 4.628701299226967
+    },
+    {
+      "pair": 3,
+      "wattsSaved": -0.027046771778690193,
+      "percentSaved": -0.7026808269039897
+    }
+  ],
+  "trimStartSeconds": 5.0,
+  "trimEndSeconds": 2.0,
+  "meanWattsSaved": 0.07478033707951415,
+  "paired95CiWatts": [
+    -0.06716442437544318,
+    0.21672509853447147
+  ]
+}

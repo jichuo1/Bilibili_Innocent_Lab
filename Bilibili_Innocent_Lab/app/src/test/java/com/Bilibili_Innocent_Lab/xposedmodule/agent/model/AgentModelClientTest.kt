@@ -25,6 +25,36 @@ class AgentModelClientTest {
         try { action(); fail("Expected $reason") } catch (e: AgentModelException) { assertEquals(reason, e.reason) }
     }
 
+    @Test fun `verified River endpoint disables thinking without guessing for lookalike hosts`() {
+        val requests = mutableListOf<JSONObject>()
+        val client = AgentModelClient(AgentHttpTransport { _, bytes, _, _ ->
+            requests += JSONObject(String(bytes, Charsets.UTF_8)); response()
+        })
+        client.generate(source.copy(endpoint = "https://api.river.ai/v1"), user, JSONArray(), false, 5000) { false }
+        assertEquals("disabled", requests.single().getJSONObject("thinking").getString("type"))
+        assertFalse(requests.single().has("enable_thinking"))
+        client.generate(source.copy(endpoint = "https://api.river.ai.example.test/v1"), user, JSONArray(), false, 5000) { false }
+        assertFalse(requests.last().has("thinking"))
+        assertFalse(requests.last().has("reasoning_effort"))
+    }
+
+    @Test fun `explicit large input budget transmits complete text without relaxing output or default clients`() {
+        val text = "完整字幕".repeat(20_000)
+        var received = ""
+        val transport = AgentHttpTransport { _, bytes, _, _ ->
+            received = JSONObject(bytes.toString(Charsets.UTF_8)).getJSONArray("messages").getJSONObject(0).getString("content")
+            response()
+        }
+        val messages = JSONArray().put(JSONObject().put("role", "user").put("content", text))
+        val client = AgentModelClient(transport, inputTextLimit = 500_000)
+        client.generate(source, messages, JSONArray(), false, 5000) { false }
+        assertEquals(text, received)
+        failure(AgentModelException.Reason.INVALID_REQUEST) {
+            AgentModelClient(transport).generate(source, messages, JSONArray(), false, 5000) { false }
+        }
+        failure(AgentModelException.Reason.INVALID_RESPONSE) { client.decode(response("x".repeat(65_537)), emptySet()) }
+    }
+
     @Test fun `plain text JSON never becomes an executable call`() {
         val client = AgentModelClient()
         val turn = client.decode(response("{\"name\":\"search_videos\",\"arguments\":{}}"), setOf("search_videos"))

@@ -4,6 +4,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ReceiptSessionGateTest {
+    @Test fun `duplicate routes and reordered snapshots acknowledge without replacing newer data`() {
+        var saved = 0L
+        val stored = mutableListOf<Long>()
+        for (sequence in listOf(2L, 1L, 2L, 3L)) {
+            when (ReceiptSessionGate.sequenceDecision(saved, sequence)) {
+                ReceiptSessionGate.SequenceDecision.STORE -> { stored += sequence; saved = sequence }
+                ReceiptSessionGate.SequenceDecision.SUPERSEDED -> Unit
+                ReceiptSessionGate.SequenceDecision.INVALID -> fail("valid sequence rejected")
+            }
+        }
+        assertEquals(listOf(2L, 3L), stored)
+        assertEquals(ReceiptSessionGate.SequenceDecision.INVALID, ReceiptSessionGate.sequenceDecision(saved, 0L))
+        assertEquals(ReceiptSessionGate.SequenceDecision.INVALID, ReceiptSessionGate.sequenceDecision(saved, -1L))
+        assertEquals(ReceiptSessionGate.SequenceDecision.STORE, ReceiptSessionGate.sequenceDecision(saved, 4L))
+    }
+
     @Test fun `publication sequence rejects zero duplicates and late snapshots`() {
         assertFalse(ReceiptSessionGate.isNewerSequence(0, 0))
         assertTrue(ReceiptSessionGate.isNewerSequence(0, 1))

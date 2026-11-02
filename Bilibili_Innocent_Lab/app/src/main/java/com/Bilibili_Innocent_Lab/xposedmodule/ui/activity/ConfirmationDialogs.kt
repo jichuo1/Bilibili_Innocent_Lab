@@ -16,15 +16,21 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.setPadding
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import com.Bilibili_Innocent_Lab.xposedmodule.R
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ShellCommandRunner
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportController
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannel
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannels
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.ShizukuAvailability
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.RestartCapabilities
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.RestartConfigBarrier
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.RestartRoute
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.RestartRoutePolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.RootRestartAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity.AnchorStyle
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity.Companion.openBilibiliAppDetails
 import io.github.jichuo1.meguviz.android.extensions.textColor
@@ -36,20 +42,15 @@ import android.widget.LinearLayout as NativeLinearLayout
 import android.widget.TextView as NativeTextView
 
 /*
- * 需要用户二次确认的操作类弹窗，从 MainActivity 外移而来（函数体逐字搬迁，未改行为）：
+ * 需要用户二次确认的操作类弹窗，从 MainActivity 外移而来：
  * 重启宿主、自动亮度确认、适配确认、设置页 UI 兼容回退。
  *
  * 写成 `MainActivity` 的扩展函数，是为了原样调用设置页的共用底座——
  * createModalContainer() / presentModalDialog() / dismissWithAnimation() /
  * createTermsNeutralRoot()。
  *
- * ## 重启路径的约束没有变
- *
- * `restartBilibili` 与它的 su 探测（findSuPath / execShell）一起搬了过来，
- * 免 Root 分支仍然先经 `shouldUseNoRootRestartFlow` 判定、并在跳系统页之前
- * 调用 `flushNoRootSupportBeforeOpeningDetails` 把待写配置落盘——
- * 这条顺序是 NPatch 免 Root 路径的既有契约，改动前先读
- * docs/development_experience.md 里 2026-08-30 与 2026-09-02 的 NPatch 条目。
+ * 重启执行按 Root → Shizuku → 手动排序；框架判断只决定配置保存通道。
+ * 所有方式均须先落盘当前配置，不能把旧回执或命令退出码当成新配置生效。
  */
 
 /**
@@ -57,110 +58,144 @@ import android.widget.TextView as NativeTextView
  * 弹窗采用 scale + alpha 动画（GPU 加速、不触发布局重绘，低功耗），
  * 符合 Material 3 的 emphasized easing 标准。
  */
-internal fun MainActivity.showRestartConfirmDialog(anchor: View? = null) {
+internal fun MainActivity.showRestartConfirmDialog(anchor: View? = null, resumeNoRoot: Boolean = false) {
     val density = resources.displayMetrics.density
     val dialog = Dialog(this).also { installDialogElasticInteraction(it) }
-    val useNoRootFlow = shouldUseNoRootRestartFlow()
+    // 这里只决定配置保存通道；恢复手动向导不会把 LSPosed/LSPatch 切成 NPatch 配置。
+    fun usesNoRootConfig() = usesNoRootRestartConfig()
     val container = createModalContainer()
-
-    // 标题
-    container.addView(
-        NativeTextView(this).apply {
-            text = getString(
-                if (useNoRootFlow) R.string.no_root_restart_confirm_title
-                else R.string.restart_bilibili_confirm_title
-            )
-            textColor = getColor(R.color.colorTextDark)
-            textSize = 17f
-            setLineSpacing(4 * density, 1f)
-        },
-        NativeLinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-    )
-
-    if (useNoRootFlow) {
-        container.addView(
-            NativeTextView(this).apply {
-                text = getString(R.string.no_root_restart_confirm_message)
-                textColor = getColor(R.color.colorTextGray)
-                textSize = 13f
-                setLineSpacing(4 * density, 1f)
-            },
-            NativeLinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = (12 * density).toInt() }
-        )
+    val title = NativeTextView(this).apply {
+        setText(if (resumeNoRoot) R.string.no_root_restart_resume_title else R.string.restart_bilibili_confirm_title)
+        textColor = getColor(R.color.colorTextDark)
+        textSize = 17f
+        setLineSpacing(4 * density, 1f)
     }
-
-    // 按钮行
-    val buttonRow = NativeLinearLayout(this).apply {
+    container.addView(title, NativeLinearLayout.LayoutParams(-1, -2))
+    val message = NativeTextView(this).apply {
+        textColor = getColor(R.color.colorTextGray)
+        textSize = 13f
+        setLineSpacing(4 * density, 1f)
+    }
+    container.addView(message, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (12 * density).toInt() })
+    val hint = NativeTextView(this).apply {
+        textColor = getColor(R.color.colorTextGray)
+        textSize = 12f
+        setLineSpacing(3 * density, 1f)
+    }
+    container.addView(hint, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (10 * density).toInt() })
+    val row = NativeLinearLayout(this).apply {
         orientation = NativeLinearLayout.HORIZONTAL
         gravity = Gravity.END or Gravity.CENTER_VERTICAL
     }
-
-    // 取消按钮（文本按钮 + 标准 ripple）
-    buttonRow.addView(
-        NativeTextView(this).apply {
-            text = getString(R.string.dialog_cancel)
-            textColor = getColor(R.color.colorTextGray)
-            textSize = 15f
-            gravity = Gravity.CENTER
-            setPadding((20 * density).toInt(), (11 * density).toInt(), (20 * density).toInt(), (11 * density).toInt())
-            background = selfRippleBackground(14f)
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { dismissWithAnimation(dialog, container) {} }
-        }
-    )
-
-    // 确认按钮（圆角 filled + 跟随圆角的 ripple）
-    buttonRow.addView(
-        NativeTextView(this).apply {
-            text = getString(
-                if (useNoRootFlow) R.string.no_root_restart_open_app_details
-                else R.string.dialog_confirm
-            )
-            textColor = monetColors.onPrimary
-            textSize = 15f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            setPadding((22 * density).toInt(), (11 * density).toInt(), (22 * density).toInt(), (11 * density).toInt())
-            val radius = 20 * density
-            val content = GradientDrawable().apply { cornerRadius = radius; setColor(monetColors.primary) }
-            val rippleMask = GradientDrawable().apply { cornerRadius = radius; setColor(Color.WHITE) }
-            background = RippleDrawable(
-                ColorStateList.valueOf(ColorUtils.setAlphaComponent(monetColors.onPrimary, 0x33)),
-                content,
-                rippleMask
-            )
-            skinActionButton(this, filled = true)
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                dismissWithAnimation(dialog, container) {
-                    if (useNoRootFlow) {
-                        flushNoRootSupportBeforeOpeningDetails()
-                    } else {
-                        restartBilibili()
-                    }
-                }
+    val cancel = createRestartActionButton(R.string.dialog_cancel).apply {
+        setOnClickListener { dismissWithAnimation(dialog, container) {} }
+    }
+    val manual = createRestartActionButton(if (resumeNoRoot) R.string.no_root_restart_launch_verify else R.string.no_root_restart_open_app_details).apply {
+        setOnClickListener {
+            dismissWithAnimation(dialog, container) {
+                val noRoot = usesNoRootConfig()
+                if (resumeNoRoot && noRoot) flushRestartBeforeOpeningDetails(noRoot, openHost = true)
+                else if (resumeNoRoot) showPrivilegedRestartDialog(noRoot, RestartRoute.MANUAL)
+                else flushRestartBeforeOpeningDetails(noRoot)
             }
-        },
-        NativeLinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            marginStart = (16 * density).toInt()
         }
-    )
+    }
+    var selected: RestartRoute? = null
+    var secondary: RestartRoute? = null
+    var checking = true
+    var rootPath: String? = null
+    fun open(route: RestartRoute?) {
+        if (checking || route == null) return
+        if (route == RestartRoute.ROOT && rootPath == null) {
+            RestartCapabilities.warm(applicationContext, force = true)
+        } else dismissWithAnimation(dialog, container) { showPrivilegedRestartDialog(usesNoRootConfig(), route) }
+    }
+    val primary = createRestartActionButton(R.string.restart_capabilities_checking_short).apply { setOnClickListener { open(selected) } }
+    row.addView(cancel, NativeLinearLayout.LayoutParams(0, -2, 0.6f))
+    row.addView(manual, NativeLinearLayout.LayoutParams(0, -2, 1.2f).apply { marginStart = (4 * density).toInt() })
+    row.addView(primary, NativeLinearLayout.LayoutParams(0, -2, 1.2f).apply { marginStart = (4 * density).toInt() })
+    container.addView(row, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (22 * density).toInt() })
+    // 混合场景把次选方式放在同一弹窗，主行仍保留取消、手动底线和首选方式。
+    val alternate = createRestartActionButton(R.string.shizuku_restart_button).apply { setOnClickListener { open(secondary) } }
+    container.addView(alternate, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (8 * density).toInt() })
+    val retry = createRestartActionButton(R.string.restart_capabilities_retry).apply {
+        setOnClickListener { RestartCapabilities.warm(applicationContext, force = true) }
+    }
+    container.addView(retry, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (8 * density).toInt() })
 
-    container.addView(
-        buttonRow,
-        NativeLinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = (22 * density).toInt()
+    var observing = true
+    val subscription = RestartCapabilities.observe(applicationContext) { snapshot ->
+        if (!observing || isFinishing || isDestroyed) return@observe
+        checking = snapshot.preferred == null
+        rootPath = snapshot.root?.path
+        val root = snapshot.root
+        val shizuku = snapshot.shizuku
+        selected = when {
+            checking -> null
+            snapshot.preferred != RestartRoute.MANUAL -> snapshot.preferred
+            root?.visible == true -> RestartRoute.ROOT
+            shizuku?.visible == true -> RestartRoute.SHIZUKU
+            else -> null
         }
-    )
-
-    presentModalDialog(dialog, container, anchor, AnchorStyle.BUBBLE)
+        secondary = when (selected) {
+            RestartRoute.ROOT -> RestartRoute.SHIZUKU.takeIf { shizuku?.visible == true }
+            RestartRoute.SHIZUKU -> RestartRoute.ROOT.takeIf { root?.visible == true }
+            else -> null
+        }
+        fun renderAction(button: android.widget.Button, route: RestartRoute?, isPrimary: Boolean) {
+            button.visibility = if (route != null || checking && isPrimary) View.VISIBLE else View.GONE
+            button.setText(when {
+                checking -> R.string.restart_capabilities_checking_short
+                route == RestartRoute.ROOT && rootPath == null -> R.string.restart_root_retry
+                route == RestartRoute.ROOT -> R.string.restart_root_button
+                else -> R.string.shizuku_restart_button
+            })
+            button.isEnabled = canOpenRestartControls(checking, route, shizuku)
+            styleRestartActionButton(button, !checking && isPrimary && snapshot.preferred == route)
+            button.alpha = if (button.isEnabled) 1f else 0.38f
+        }
+        renderAction(primary, selected, true)
+        renderAction(alternate, secondary, false)
+        styleRestartActionButton(cancel, false)
+        styleRestartActionButton(manual, !checking && snapshot.preferred == RestartRoute.MANUAL)
+        message.setText(when {
+            resumeNoRoot -> R.string.no_root_restart_resume_message
+            checking -> R.string.restart_capabilities_checking
+            snapshot.preferred == RestartRoute.ROOT -> R.string.restart_root_first_message
+            snapshot.preferred == RestartRoute.SHIZUKU -> R.string.restart_shizuku_fallback_message
+            else -> R.string.no_root_restart_confirm_message
+        })
+        val rootHint = when (root?.status) {
+            RootRestartAccess.Status.CANDIDATE -> R.string.restart_root_candidate
+            RootRestartAccess.Status.DENIED -> R.string.restart_root_unavailable
+            RootRestartAccess.Status.UNKNOWN -> R.string.restart_root_unknown
+            else -> null
+        }
+        val shizukuHint = if (snapshot.preferred == RestartRoute.ROOT) null else when (shizuku?.status) {
+            ShizukuAvailability.Status.STOPPED -> R.string.shizuku_stopped
+            ShizukuAvailability.Status.UNSUPPORTED -> R.string.shizuku_unsupported
+            ShizukuAvailability.Status.DISCONNECTED -> R.string.shizuku_disconnected
+            ShizukuAvailability.Status.UNAUTHORIZED -> R.string.shizuku_unauthorized
+            ShizukuAvailability.Status.DENIED -> R.string.shizuku_denied
+            else -> null
+        }
+        hint.text = listOfNotNull(rootHint, shizukuHint).joinToString("\n") { getString(it) }
+        hint.visibility = if (hint.text.isEmpty() || checking) View.GONE else View.VISIBLE
+        retry.visibility = if (!checking && root?.status != RootRestartAccess.Status.UNKNOWN &&
+            snapshot.preferred != RestartRoute.ROOT && shizuku?.status == ShizukuAvailability.Status.DISCONNECTED) View.VISIBLE else View.GONE
+        styleRestartActionButton(retry, false)
+    }
+    val observer = object : DefaultLifecycleObserver {
+        override fun onStart(owner: LifecycleOwner) { RestartCapabilities.warm(applicationContext) }
+        override fun onDestroy(owner: LifecycleOwner) { dialog.dismiss() }
+    }
+    lifecycle.addObserver(observer)
+    presentModalDialog(dialog, container, anchor, AnchorStyle.BUBBLE, onDismissed = {
+        observing = false
+        subscription.close()
+        lifecycle.removeObserver(observer)
+    })
 }
-
 /**
  * 「亮色模式气泡」二级确认（手动优先：自动跟随开启时切换手动开关 → 提示会关闭
  * 自动跟随，确认后关闭跟随并应用手动值，取消保持原样）。样式与 showAdaptConfirmDialog
@@ -329,6 +364,8 @@ internal fun MainActivity.showAdaptConfirmDialog(anchor: View? = null) {
                     runCatching { VersionAdapter.clearCache(activity, runCatching { prefs() }.getOrNull()) }
                     if (NoRootSupportStore.isDesiredEnabled(applicationContext)) {
                         NoRootSupportStore.markAdapterReset(applicationContext)
+                        activity.roamingCacheStatusView?.setText(R.string.roaming_cache_unavailable)
+                        activity.roamingCacheRestartView?.visibility = View.GONE
                         synchronizeNoRootSupportIfEnabled()
                     }
                     activity.toast(getString(R.string.adapt_manual_done))
@@ -419,156 +456,30 @@ internal fun MainActivity.showSettingsUiCompatibilityFallback(reason: String, fa
     setContentView(root)
 }
 
-/**
- * 一键重启哔哩哔哩：先强制停止 B 站进程，延迟后再重新拉起。
- * 使用 root 的 am 命令（KernelSU 的 su 位于 /system/bin/su，需完整路径）。
- * 注意：不能用 monkey 拉起——monkey 在注入事件前会强制开启系统自动旋转
- * （accelerometer_rotation 0→1），副作用不可接受；改用 am start 指定主 Activity。
- */
-private fun MainActivity.restartBilibili() {
-    // 提前取出 applicationContext：Thread 与 Toast lambda 只持有它（全局单例），
-    // 不再持有 Activity，避免 Activity 销毁后无法回收的内存泄漏。
-    val appContext = applicationContext
-    // 提前探测 su 路径（不同 root 方案 su 位置不同：KernelSU 在 /system/bin/su、
-    // Magisk 新版在 /product/bin/su，硬编码会失败）；null 表示常见路径均无 su
-    val suPath = findSuPath()
-    Thread {
-        // 先做一次幂等的授权探测（su -c id）：首次使用会触发 Root 管理器的授权
-        // 弹窗，用户当场允许即继续；失败时区分「无 su 二进制」与「su 被拒绝」，
-        // 给出对应指引而不是笼统的「重启失败」。
-        // 授权窗给足 2 分钟：用户要解锁、切到管理器、可能还有倒计时确认，
-        // 10s 的默认超时会把"还没点允许"误判成"Root 被拒绝"，重启整个流程直接不执行。
-        val rootFailureRes = runCatching {
-            val probeExit = execShell(suPath ?: "su", "-c", "id", timeoutMs = 120_000L)
-            check(probeExit == 0) { "su probe exited with $probeExit" }
-            null
-        }.getOrElse { throwable ->
-            Log.e("BilibiliInnocentLab", "su probe failed: $throwable")
-            if (suPath == null) {
-                R.string.restart_root_missing
-            } else {
-                R.string.restart_root_denied
-            }
-        }
-        if (rootFailureRes != null) {
-            Handler(Looper.getMainLooper()).post {
-                appContext.toast(appContext.getString(rootFailureRes))
-            }
-            return@Thread
-        }
-        try {
-            // 在同一个 root shell 中保存并恢复旋转策略。部分 ROM 会在 Activity
-            // 重建期间临时改写这两个 system setting；只在读到合法值且启动后确实
-            // 发生变化时写回，原来关闭/开启的自动旋转状态都保持不变。
-            val restartExitCode = execShell(
-                suPath ?: "su",
-                "-c",
-                buildRestartShellCommand()
-            )
-            check(restartExitCode == 0) { "restart shell exited with $restartExitCode" }
-            Handler(Looper.getMainLooper()).post {
-                appContext.toast(appContext.getString(R.string.restart_bilibili_done))
-            }
-        } catch (e: Exception) {
-            Log.e("BilibiliInnocentLab", "restart bilibili failed: $e")
-            Handler(Looper.getMainLooper()).post {
-                appContext.toast(appContext.getString(R.string.restart_bilibili_failed))
-            }
-        }
-    }.start()
-}
-
-/** 构造无用户输入的 root 重启命令；包名与 Activity 均为编译期常量。 */
-private fun buildRestartShellCommand(): String =
-    """
-    auto_rotate=${'$'}(settings get system accelerometer_rotation 2>/dev/null);
-    user_rotate=${'$'}(settings get system user_rotation 2>/dev/null);
-    restore_rotation() {
-        current_auto=${'$'}(settings get system accelerometer_rotation 2>/dev/null);
-        case "${'$'}auto_rotate" in
-            0|1) if [ "${'$'}current_auto" != "${'$'}auto_rotate" ]; then settings put system accelerometer_rotation "${'$'}auto_rotate"; fi ;;
-        esac;
-        current_user=${'$'}(settings get system user_rotation 2>/dev/null);
-        case "${'$'}user_rotate" in
-            0|1|2|3) if [ "${'$'}current_user" != "${'$'}user_rotate" ]; then settings put system user_rotation "${'$'}user_rotate"; fi ;;
-        esac;
-    };
-    am force-stop ${HookEntry.TARGET_PACKAGE};
-    stop_status=${'$'}?;
-    if [ "${'$'}stop_status" -ne 0 ]; then restore_rotation; exit "${'$'}stop_status"; fi;
-    sleep 0.8;
-    am start -n ${HookEntry.TARGET_PACKAGE}/.MainActivityV2 >/dev/null 2>&1;
-    start_status=${'$'}?;
-    sleep 1;
-    restore_rotation;
-    exit "${'$'}start_status"
-    """.trimIndent().replace("\n", " ")
-
-/** 重启前确保当前 enabled 快照或关闭 tombstone 已完成一次有界 NPatch 写入。 */
-private fun MainActivity.flushNoRootSupportBeforeOpeningDetails() {
-    val bridge = noRootPrefsBridge
-    if (bridge == null) {
-        toast(getString(R.string.no_root_restart_sync_failed))
-        openBilibiliAppDetails(this)
-        return
-    }
-    noRootStatusView?.setText(R.string.no_root_status_syncing)
+/** 手动兜底同样先经过当前配置通道的保存屏障。 */
+private fun MainActivity.flushRestartBeforeOpeningDetails(noRoot: Boolean, openHost: Boolean = false) {
+    val bridge = noRootPrefsBridge ?: prefs()
     val appContext = applicationContext
     val activityRef = WeakReference(this)
-    NoRootSupportController.flushBeforeRestart(appContext, bridge) { result ->
+    RestartConfigBarrier.flush(appContext, bridge, noRoot) { saved ->
         Handler(Looper.getMainLooper()).post {
-            activityRef.get()?.finishNoRootRestartFlush(result)
+            val activity = activityRef.get() ?: return@post
+            // 应用详情是最后的兜底，即使保存失败也允许进入；返回后自动打开仍要求保存成功。
+            activity.finishNoRootRestartFlush(if (saved) NoRootSupportController.FlushResult.SUCCESS
+                else NoRootSupportController.FlushResult.FAILED, openHost = openHost)
         }
     }
 }
 
-/** 判据见 [NoRootSupportState.useNoRootRestartFlow]：`capable` 不再等于“有 Root”。 */
-private fun MainActivity.shouldUseNoRootRestartFlow(): Boolean {
-    val framework = RemoteHookConfigStore.status()
-    return NoRootSupportState.useNoRootRestartFlow(
-        standardCapable = framework.capable,
-        frameworkName = framework.name,
+/** 与发布权威源、标准发布器旁路保持一致；框架名称和执行权限不改变用户选中的配置通道。 */
+private fun MainActivity.usesNoRootRestartConfig(): Boolean {
+    return RestartRoutePolicy.usesNoRootConfig(
         desiredEnabled = NoRootSupportStore.isDesiredEnabled(applicationContext),
         displayState = currentNoRootDisplayState(),
-        frameworkProperties = framework.properties
+        // 已关闭且收到确认的 NPatch 仍须保存停用文档，不能转去标准配置并等待启用回执。
+        nPatchCarrier = HostConfigChannels.read(applicationContext) == HostConfigChannel.NPATCH
     )
 }
-
-/**
- * 探测可用的 su 路径。不同 root 方案 su 位置不同：
- * KernelSU 通常在 /system/bin/su，Magisk 新版（Android 10+）在 /product/bin/su，
- * 旧版 Magisk/SuperSU 在 /system/xbin/su 或 /sbin/su。按常见顺序探测第一个存在的。
- * @return null 表示所有已知路径均不存在（设备可能未 Root，或 su 仅在非常规 PATH），
- *         调用方仍可用裸 "su" 尝试并由授权探测区分失败原因。
- */
-private fun MainActivity.findSuPath(): String? {
-    val candidates = arrayOf(
-        "/product/bin/su",       // 新版 Magisk（Android 10+，如本次 9.0.0 小米设备）
-        "/system/bin/su",        // KernelSU / 旧版 Magisk
-        "/system/xbin/su",       // 部分 Magisk / SuperSU
-        "/data/adb/ksu/bin/su",  // KernelSU 新版
-        "/sbin/su",              // 旧版 SuperSU
-        "/su/bin/su",            // 部分定制系统
-    )
-    for (path in candidates) {
-        try {
-            if (File(path).exists()) return path
-        } catch (_: Throwable) {
-            // 忽略无权限读取的路径，继续探测下一个
-        }
-    }
-    return null
-}
-
-/**
- * 执行固定的 root shell 命令。输出流由独立读取线程持续排空，且超时后会
- * 终止子进程，避免 stdout/stderr pipe 或异常 root 实现造成设置页后台线程悬挂。
- *
- * [timeoutMs] 默认 10s；授权探测必须传更长的窗：首次使用会弹出 Root 管理器的
- * 授权确认，用户解锁、确认、可能还有倒计时，10s 内点不完就会被当成"Root 被拒绝"。
- */
-private fun MainActivity.execShell(vararg cmd: String, timeoutMs: Long = 10_000L): Int =
-    ShellCommandRunner.run(cmd.toList(), timeoutMs = timeoutMs)
 
 /** 只有关闭操作的面板统一使用右下角按钮，与 GitHub 面板保持一致。 */
 internal fun MainActivity.createPanelCloseRow(onClick: () -> Unit): NativeLinearLayout =

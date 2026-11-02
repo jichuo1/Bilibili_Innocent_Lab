@@ -6,6 +6,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NoRootUpgradeRecoveryCoordinatorTest {
+    @Test fun durableDirectExportCompletesRecoveryWithoutManagerMirror() {
+        assertTrue(NoRootUpgradeRecoveryCoordinator.isRecoveryExportReady(true, true, 42, false, true))
+        assertFalse(NoRootUpgradeRecoveryCoordinator.isRecoveryExportReady(false, true, 42, false, true))
+        assertFalse(NoRootUpgradeRecoveryCoordinator.isRecoveryExportReady(true, true, 0, false, true))
+        assertFalse(NoRootUpgradeRecoveryCoordinator.isRecoveryExportReady(true, true, 42, false, false))
+    }
+
 
     @Test
     fun `recovers only authorized enabled state without a ready snapshot`() {

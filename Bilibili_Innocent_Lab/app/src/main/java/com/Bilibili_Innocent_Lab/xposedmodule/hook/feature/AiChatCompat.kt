@@ -85,7 +85,8 @@ internal object AiChatCompat {
                 ReasoningLevel.MINIMAL -> JSONObject().put("reasoning", JSONObject().put("effort", "minimal"))
                 else -> JSONObject().put("reasoning", JSONObject().put("effort", "low"))
             }
-            host == "api.deepseek.com" -> when (level) {
+            // River 的 DeepSeek-V4.1-Flash-1017 已用长材料实测；enable_thinking=false 无效。
+            host == "api.deepseek.com" || host == "api.river.ai" -> when (level) {
                 ReasoningLevel.OFF -> disabledThinking()
                 ReasoningLevel.MINIMAL -> null
                 else -> effort("low")

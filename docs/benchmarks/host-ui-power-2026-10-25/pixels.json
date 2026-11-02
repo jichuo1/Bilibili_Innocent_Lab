@@ -1,0 +1,218 @@
+[
+  {
+    "phase": 0,
+    "variant": "A",
+    "offset": 0,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 0,
+    "variant": "A",
+    "offset": 137,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 0,
+    "variant": "A",
+    "offset": 559,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 1,
+    "variant": "B",
+    "offset": 0,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 1,
+    "variant": "B",
+    "offset": 137,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 1,
+    "variant": "B",
+    "offset": 559,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 2,
+    "variant": "B",
+    "offset": 0,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 2,
+    "variant": "B",
+    "offset": 137,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 2,
+    "variant": "B",
+    "offset": 559,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 3,
+    "variant": "A",
+    "offset": 0,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 3,
+    "variant": "A",
+    "offset": 137,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 3,
+    "variant": "A",
+    "offset": 559,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 4,
+    "variant": "B",
+    "offset": 0,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 4,
+    "variant": "B",
+    "offset": 137,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 4,
+    "variant": "B",
+    "offset": 559,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 5,
+    "variant": "A",
+    "offset": 0,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 5,
+    "variant": "A",
+    "offset": 137,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 5,
+    "variant": "A",
+    "offset": 559,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 6,
+    "variant": "A",
+    "offset": 0,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 6,
+    "variant": "A",
+    "offset": 137,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 6,
+    "variant": "A",
+    "offset": 559,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 7,
+    "variant": "B",
+    "offset": 0,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 7,
+    "variant": "B",
+    "offset": 137,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  },
+  {
+    "phase": 7,
+    "variant": "B",
+    "offset": 559,
+    "pixels": 2247200,
+    "changedPixels": 0,
+    "meanChannelError": 0.0,
+    "maxChannelError": 0
+  }
+]

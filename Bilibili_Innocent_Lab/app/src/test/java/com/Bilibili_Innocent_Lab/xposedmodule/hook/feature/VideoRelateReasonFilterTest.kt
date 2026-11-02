@@ -6,6 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VideoRelateReasonFilterTest {
+    @Test
+    fun `observed named million-like badge is recognized without matching prose or coins`() {
+        assertTrue(VideoRelateEngagementReasonParser.isLikeCountReason("百万点赞"))
+        assertTrue(VideoRelateEngagementReasonParser.isLikeCountReason("百 万 点 赞"))
+        for (reason in listOf("百万投币", "获得百万点赞", "百万点赞的视频", "百万点赞+")) {
+            assertFalse(reason, VideoRelateEngagementReasonParser.isLikeCountReason(reason))
+        }
+    }
+
 
     private class Badge(private val value: String) {
         fun getText(): String = value

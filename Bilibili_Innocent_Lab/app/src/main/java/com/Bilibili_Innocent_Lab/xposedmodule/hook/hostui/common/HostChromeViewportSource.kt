@@ -6,6 +6,7 @@ import android.graphics.RectF
 import android.view.View
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.ViewSamplingMatrix
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.SamplingMatrixMath
 import com.lumen.coacervation.engine.host.LumenSourceAvailability
 import com.lumen.coacervation.engine.host.LumenVersionedContentSource
 import kotlin.math.ceil
@@ -23,6 +24,7 @@ internal class HostChromeViewportSource(
     private val mapping = ViewSamplingMatrix()
     private val matrix = Matrix()
     private val matrixValues = FloatArray(9)
+    private val versionMatrices = ArrayList<FloatArray>()
     private val union = RectF()
     private val region = RectF()
     private val contentBounds = RectF()
@@ -57,14 +59,20 @@ internal class HostChromeViewportSource(
             version = version * 31 + coordinateView.width
             version = version * 31 + coordinateView.height
             fun mix(value: Long) { version = version * 31 + value }
-            fun visit(view: View, depth: Int) {
+            fun visit(view: View, transform: FloatArray, depth: Int) {
                 // GPU ViewGroup invalidation can leave only the descendant dirty. A retained
                 // RenderNode sees that change, but the software bitmap needs a new recording.
                 // Ignore the invisible proxy and branches clipped outside the sampling halo.
-                if (depth >= 128 || view.visibility != View.VISIBLE || view.alpha <= 0f ||
-                    !mapping.sourceToTarget(view, coordinateView, matrix)) return
-                region.set(0f, 0f, view.width.toFloat(), view.height.toFloat())
-                matrix.mapRect(region)
+                if (depth >= 128 || view.visibility != View.VISIBLE || view.alpha <= 0f) return
+                if (!SamplingMatrixMath.isFinite(transform)) return
+                if (transform[0] == 1f && transform[1] == 0f && transform[3] == 0f && transform[4] == 1f &&
+                    transform[6] == 0f && transform[7] == 0f && transform[8] == 1f) {
+                    region.set(transform[2], transform[5], transform[2] + view.width, transform[5] + view.height)
+                } else {
+                    matrix.setValues(transform)
+                    region.set(0f, 0f, view.width.toFloat(), view.height.toFloat())
+                    matrix.mapRect(region)
+                }
                 val intersects = region.intersects(0f, 0f, coordinateView.width.toFloat(), coordinateView.height.toFloat())
                 if (!intersects && (view !is ViewGroup || view.clipChildren)) return
                 mix(System.identityHashCode(view).toLong())
@@ -72,11 +80,30 @@ internal class HostChromeViewportSource(
                 mix(view.scrollX.toLong()); mix(view.scrollY.toLong()); mix(view.alpha.toBits().toLong())
                 mix(if (view.isDirty) view.drawingTime else -1L)
                 // This also versions owner/child property movement inside a fixed Window crop.
-                matrix.getValues(matrixValues)
-                for (value in matrixValues) mix(value.toBits().toLong())
-                if (view is ViewGroup) for (index in 0 until view.childCount) visit(view.getChildAt(index), depth + 1)
+                for (value in transform) mix(value.toBits().toLong())
+                if (view is ViewGroup && depth + 1 < 128) {
+                    // The target is fixed throughout this read. Compose each child from its
+                    // already resolved parent instead of finding/inverting Window matrices
+                    // for every descendant. Reuse one scratch matrix per depth, never per View.
+                    if (versionMatrices.size <= depth) versionMatrices.add(FloatArray(9))
+                    val childMatrix = versionMatrices[depth]
+                    for (index in 0 until view.childCount) {
+                        val child = view.getChildAt(index)
+                        if (child.visibility != View.VISIBLE || child.alpha <= 0f) continue
+                        child.matrix.getValues(childMatrix)
+                        SamplingMatrixMath.translateAfter(childMatrix, (child.left.toLong() - view.scrollX).toFloat(),
+                            (child.top.toLong() - view.scrollY).toFloat())
+                        SamplingMatrixMath.multiply(transform, childMatrix, childMatrix)
+                        visit(child, childMatrix, depth + 1)
+                    }
+                }
             }
-            visit(content, 0)
+            // Background-only sources already declare all their inputs. Surface invalidations
+            // must not wake them, and there is no foreground subtree to inspect.
+            if (!source.excludesSurfaces && mapping.sourceToTarget(content, coordinateView, matrix)) {
+                matrix.getValues(matrixValues)
+                visit(content, matrixValues, 0)
+            }
             version and Long.MAX_VALUE
         }
 

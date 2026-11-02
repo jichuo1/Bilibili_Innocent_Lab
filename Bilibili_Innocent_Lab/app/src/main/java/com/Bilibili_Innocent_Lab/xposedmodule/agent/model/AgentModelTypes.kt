@@ -150,6 +150,8 @@ internal class AgentModelException(
         DECISIONS_UNVERIFIED("该来源尚未通过限定决策检测"),
         TOKEN_PARAMETER("模型不接受当前输出预算参数"),
         OPTIONAL_PARAMETER("模型不接受当前思考控制参数"),
+        RESPONSE_FORMAT_PARAMETER("模型不接受当前结构化输出格式"),
+        STREAM_PARAMETER("模型不接受流式输出"),
         DECISION_PARAMETER("判定接口不接受当前结构写法"),
         TOOLS_UNSUPPORTED("接口明确不支持工具调用"), VISION_UNSUPPORTED("接口明确不支持图像输入"),
         PLAIN_UNVERIFIED("该来源尚未通过普通文本规划检测")

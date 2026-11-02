@@ -99,6 +99,23 @@ internal object DetailUnitedPresentationPurifyPolicy {
     }
 
     /**
+     * 搜索角标与活动页角标共用现有开关。8.90.2 实机的「活动」Label.url 为
+     * https://www.bilibili.com/blackboard/era/<活动 ID>.html，既不是搜索，也不是播放器下推广卡。
+     * 只扩展已核实的活动路由；普通视频标识、其它网页和图片资源仍原样保留。
+     */
+    fun isPromotionalLabelUri(uri: String?): Boolean {
+        if (isSearchJumpLabelUri(uri)) return true
+        val parts = parse(uri) ?: return false
+        if (!parts.scheme.equals("https", ignoreCase = true)) return false
+        if (!parts.host.equals("www.bilibili.com", ignoreCase = true)) return false
+        val activity = parts.path.removePrefix("/blackboard/era/")
+        return activity != parts.path && activity.endsWith(".html") &&
+            activity.removeSuffix(".html").let { id ->
+                id.isNotEmpty() && id.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_' }
+            }
+    }
+
+    /**
      * 「热搜」那一种的精确来源。
      *
      * **不再作为屏蔽判据**（已被 [isSearchJumpLabelUri] 的类别判据取代），

@@ -1,0 +1,98 @@
+[
+  {
+    "index": 0,
+    "variant": "A",
+    "frames": 4704,
+    "presentFps": 88.72114880928194,
+    "intervalP50Ms": 11.135,
+    "intervalP95Ms": 11.204218,
+    "intervalP99Ms": 22.269635,
+    "maxIntervalMs": 22.458541,
+    "overOneAndHalfPeriods": 57,
+    "overOneAndHalfPeriodsPercent": 1.2119923453115033
+  },
+  {
+    "index": 1,
+    "variant": "B",
+    "frames": 4714,
+    "presentFps": 88.90368777617394,
+    "intervalP50Ms": 11.135781,
+    "intervalP95Ms": 11.193854,
+    "intervalP99Ms": 11.447395,
+    "maxIntervalMs": 22.414062,
+    "overOneAndHalfPeriods": 47,
+    "overOneAndHalfPeriodsPercent": 0.9972416719711437
+  },
+  {
+    "index": 2,
+    "variant": "B",
+    "frames": 4686,
+    "presentFps": 88.36167673773926,
+    "intervalP50Ms": 11.13526,
+    "intervalP95Ms": 11.198593,
+    "intervalP99Ms": 22.308333,
+    "maxIntervalMs": 22.442187,
+    "overOneAndHalfPeriods": 76,
+    "overOneAndHalfPeriodsPercent": 1.6221985058697972
+  },
+  {
+    "index": 3,
+    "variant": "A",
+    "frames": 4709,
+    "presentFps": 88.8161114127267,
+    "intervalP50Ms": 11.134687,
+    "intervalP95Ms": 11.193594,
+    "intervalP99Ms": 22.251875,
+    "maxIntervalMs": 22.386562,
+    "overOneAndHalfPeriods": 52,
+    "overOneAndHalfPeriodsPercent": 1.1045029736618521
+  },
+  {
+    "index": 4,
+    "variant": "B",
+    "frames": 4694,
+    "presentFps": 88.55199712987992,
+    "intervalP50Ms": 11.134532,
+    "intervalP95Ms": 11.195209,
+    "intervalP99Ms": 22.278073,
+    "maxIntervalMs": 22.416614,
+    "overOneAndHalfPeriods": 66,
+    "overOneAndHalfPeriodsPercent": 1.4063498828041765
+  },
+  {
+    "index": 5,
+    "variant": "A",
+    "frames": 4704,
+    "presentFps": 88.71208966419407,
+    "intervalP50Ms": 11.136146,
+    "intervalP95Ms": 11.195469,
+    "intervalP99Ms": 22.276823,
+    "maxIntervalMs": 22.442448,
+    "overOneAndHalfPeriods": 57,
+    "overOneAndHalfPeriodsPercent": 1.2119923453115033
+  },
+  {
+    "index": 6,
+    "variant": "A",
+    "frames": 4694,
+    "presentFps": 88.52598233175888,
+    "intervalP50Ms": 11.135209,
+    "intervalP95Ms": 11.20052,
+    "intervalP99Ms": 22.287448,
+    "maxIntervalMs": 22.384218,
+    "overOneAndHalfPeriods": 67,
+    "overOneAndHalfPeriodsPercent": 1.4276582143618155
+  },
+  {
+    "index": 7,
+    "variant": "B",
+    "frames": 4712,
+    "presentFps": 88.85286790983324,
+    "intervalP50Ms": 11.135,
+    "intervalP95Ms": 11.192031,
+    "intervalP99Ms": 22.247969,
+    "maxIntervalMs": 22.395938,
+    "overOneAndHalfPeriods": 50,
+    "overOneAndHalfPeriodsPercent": 1.0613457864572278
+  }
+]

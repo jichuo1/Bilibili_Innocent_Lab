@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicLong
  *   “模块回调异常 vs 传递给宿主的 throwable”）。
  * - 日志直连 [ModernHookLog]，不受模块日志开关辖制，但按 key 限量避免高频路径刷屏。
  *   **不做“一次性去重”**：重复崩溃必须仍然可见，这正是 2026-08-29 宿主崩溃哨兵的教训。
- * - 计数只留在内存，不落盘、不进诊断报告格式，避免牵动 `DiagnosticReportCodec` 版本。
+ * - 计数表与任务 key 只留内存。支持诊断只取有界总数，不输出 key，不改变主报告格式。
  */
 internal object HostThreadGuard {
 

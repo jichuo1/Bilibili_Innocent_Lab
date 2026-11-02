@@ -34,7 +34,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 69
+    const val CATALOG_VERSION = 72
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_PLAYER_SPEED_MENU = "player.speed_menu.percents"
@@ -195,6 +195,10 @@ internal object SettingsCatalog {
         bool(com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentPreferences.CATALOG_ID,
             com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentPreferences.ENABLED, R.string.agent_title,
             restorePolicy = RestorePolicy.MANUAL, introducedCatalogVersion = 47),
+        bool("compat.ai_insight.enabled", FeaturePreferences.AI_INSIGHT_ENABLED, R.string.ai_insight_title,
+            restorePolicy = RestorePolicy.MANUAL, introducedCatalogVersion = 71),
+        bool("compat.ai_insight.auto_chapters", FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS, R.string.ai_insight_auto_chapters,
+            introducedCatalogVersion = 71),
         // JEV 语义判定的非敏感配置；API Key 是 hook_config 运行时键，不进目录、不进备份。
         text(ID_SEMANTIC_JEV_ENDPOINT, FeaturePreferences.SEMANTIC_JEV_ENDPOINT, R.string.semantic_jev_endpoint,
             maxStringLength = SemanticJudge.MAX_ENDPOINT_LENGTH, introducedCatalogVersion = 31),
@@ -698,6 +702,9 @@ internal object SettingsCatalog {
         ),
         bool("host.mine.garb_dim.enabled", FeaturePreferences.HOST_MINE_GARB_DIM,
             R.string.host_mine_garb_dim, default = true, introducedCatalogVersion = 65),
+        // 默认值与 HostUiPowerPolicy.DEFAULT_ENABLED 一致（单测钉住），目录不依赖 hook 包。
+        bool("host.ui.power_saving.enabled", FeaturePreferences.HOST_UI_POWER_SAVING,
+            R.string.host_ui_power_saving, default = true, introducedCatalogVersion = 72),
         bool(
             "host.bottom_bar.touch_glow.enabled",
             FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW,
@@ -932,6 +939,12 @@ internal object SettingsCatalog {
             introducedCatalogVersion = 11
         ),
         bool(
+            "share.wechat.resigned_compat",
+            FeaturePreferences.WECHAT_SHARE_COMPAT,
+            R.string.wechat_share_compat,
+            introducedCatalogVersion = 70
+        ),
+        bool(
             "links.external_browser.enabled",
             FeaturePreferences.FORCE_EXTERNAL_BROWSER,
             R.string.force_external_browser,
@@ -1064,7 +1077,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 251) { "Expected 251 catalog settings, found ${specs.size}" }
+        check(specs.size == 255) { "Expected 255 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

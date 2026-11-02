@@ -1,6 +1,8 @@
 package com.bapis.bilibili.app.view.v1
 
 open class Relate {
+    open fun getAuthor(): com.bapis.bilibili.app.archive.v1.Author? = null
+    open fun getTagName(): String = ""
     open fun getGoto(): String = "av"
     open fun getFromSourceType(): Long = 2L
     open fun getDuration(): Long = 300L

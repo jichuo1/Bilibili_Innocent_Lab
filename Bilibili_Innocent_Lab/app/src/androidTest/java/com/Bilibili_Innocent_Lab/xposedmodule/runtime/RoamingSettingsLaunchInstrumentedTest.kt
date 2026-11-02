@@ -19,6 +19,27 @@ import org.junit.runner.RunWith
 /** 验证系统令牌的身份与取消语义，不发送任何仍然有效的启动令牌。 */
 @RunWith(AndroidJUnit4::class)
 class RoamingSettingsLaunchInstrumentedTest {
+    @Test fun moduleLaunchTokenHasAFixedImmutableTargetIndependentOfRoaming() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val requestCode = 0x42494c01
+        val token = RoamingSettingsLauncher.createModuleLaunchToken(context, requestCode)
+        try {
+            assertEquals(context.packageName, token.creatorPackage)
+            assertEquals(context.applicationInfo.uid, token.creatorUid)
+            if (Build.VERSION.SDK_INT >= 31) Api31.assertActivityImmutable(token)
+            val registered = PendingIntent.getActivity(context, requestCode,
+                Intent().setComponent(ComponentName(context.packageName,
+                    "${context.packageName}.ui.activity.MainActivity"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT)
+            assertEquals(token, registered)
+            token.cancel()
+            assertCancelled(token)
+        } finally {
+            token.cancel()
+        }
+    }
+
     @Test fun launchTokenBelongsToTargetApplicationAndUsesImmutableActivityShape() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val token = RoamingSettingsLauncher.createLaunchToken(context, 0x524c0001)

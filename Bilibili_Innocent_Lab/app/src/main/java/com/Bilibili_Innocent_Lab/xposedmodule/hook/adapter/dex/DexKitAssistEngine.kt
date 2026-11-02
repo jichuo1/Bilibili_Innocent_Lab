@@ -62,6 +62,9 @@ internal object DexKitAssistEngine : DexAssistEngine {
     @Volatile
     private var nativeState = NativeState.NOT_TRIED
 
+    /** Read-only diagnostic; never loads a library or starts a query. */
+    fun nativeAvailability(): String = nativeState.name
+
     override fun resolve(request: DexAssistRequest): DexAssistResult =
         resolveAll(setOf(request.query), request.codePaths, request.classLoader).getValue(request.query)
 

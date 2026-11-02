@@ -702,6 +702,28 @@ internal fun MainActivity.beautificationSettingsCard(scope: LinearSettingsScope)
                 textSize = 12f
             }
         }
+        // 步骤：省电（跨顶栏、底栏与卡片的总开关）
+        deferStep {
+            hostAppearanceHeading(this, R.string.host_appearance_power)
+            materialSwitch(key = "SettingsCardSections:HostUiPowerSaving", lparams = params(widthMatchParent = true) { topMargin = 12.dp; bottomMargin = 5.dp }) {
+                bindFavoriteSwitch(this, FeaturePreferences.HOST_UI_POWER_SAVING, directToggle = true)
+                text = stringResource(R.string.host_ui_power_saving)
+                isAllCaps = false
+                textColor = colorResource(R.color.colorTextGray)
+                textSize = 15f
+                isChecked = hostUiPowerSaving
+                setOnCheckedChangeListener { button, checked ->
+                    applyModeledToggle(FeaturePreferences.HOST_UI_POWER_SAVING, checked, button)
+                }
+            }
+            textView(key = "SettingsCardSections:HostUiPowerSavingTip", lparams = params(widthMatchParent = true)) {
+                alpha = 0.6f
+                setLineSpacing(6f, 1f)
+                text = stringResource(R.string.host_ui_power_saving_tip)
+                textColor = colorResource(R.color.colorTextDark)
+                textSize = 12f
+            }
+        }
         // 步骤：复制气泡外观
         deferStep {
             // Either copy feature can display the shared bubble.
@@ -810,6 +832,9 @@ internal fun MainActivity.experimentalFeaturesCard(
     scope: LinearSettingsScope,
     uiSettings: () -> ModuleUiSettings
 ) = with(scope) {
+    val noRootSetup = NoRootSetupPolicy.forChannel(
+        com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannels.read(this@experimentalFeaturesCard)
+    )
     linearLayout(key = "SettingsCardSections:935",
         lparams = params(widthMatchParent = true) {
             updateMargins(horizontal = 15.dp)
@@ -1311,6 +1336,31 @@ internal fun MainActivity.experimentalFeaturesCard(
                             textColor = colorResource(R.color.colorTextDark)
                             textSize = 12f
                         }
+                        materialSwitch(key = "SettingsCardSections:AiInsightEnabled", lparams = params(widthMatchParent = true) { bottomMargin = 5.dp }) {
+                            bindFavoriteSwitch(this, FeaturePreferences.AI_INSIGHT_ENABLED)
+                            text = stringResource(R.string.ai_insight_title)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            isAllCaps = false
+                            isChecked = prefs().getBoolean(FeaturePreferences.AI_INSIGHT_ENABLED, false)
+                            setOnCheckedChangeListener { button, checked -> applyModeledToggle(FeaturePreferences.AI_INSIGHT_ENABLED, checked, button) }
+                        }
+                        textView(key = "SettingsCardSections:AiInsightHelp", lparams = params(widthMatchParent = true) { bottomMargin = 8.dp }) {
+                            alpha = 0.6f
+                            setLineSpacing(6f, 1f)
+                            text = stringResource(R.string.ai_insight_help)
+                            textColor = colorResource(R.color.colorTextDark)
+                            textSize = 12f
+                        }
+                        materialSwitch(key = "SettingsCardSections:AiInsightAutoChapters", lparams = params(widthMatchParent = true) { bottomMargin = 10.dp }) {
+                            bindFavoriteSwitch(this, FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS)
+                            text = stringResource(R.string.ai_insight_auto_chapters)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            isAllCaps = false
+                            isChecked = prefs().getBoolean(FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS, false)
+                            setOnCheckedChangeListener { button, checked -> applyModeledToggle(FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS, checked, button) }
+                        }
                         // JEV 语义判定配置：Key / 地址 / 灵敏度 / 首屏等待，都在同一个面板里保存。
                         textView(key = "SettingsCardSections:1422", lparams = params(widthMatchParent = true) { bottomMargin = 5.dp }) {
                             semanticJevSummaryView = this
@@ -1362,6 +1412,7 @@ internal fun MainActivity.experimentalFeaturesCard(
                     }
                     // 步骤：兼容 · 免 Root 与漫游兼容
                     deferStep {
+                        if (noRootSetup.needsOptIn) {
                         materialSwitch(key = "SettingsCardSections:1469",
                             lparams = params(widthMatchParent = true) {
                                 bottomMargin = 5.dp
@@ -1408,6 +1459,57 @@ internal fun MainActivity.experimentalFeaturesCard(
                             textSize = 12f
                             noRootStatusView = this
                         }
+                        } else {
+                            textView(key = "SettingsCardSections:lspatchSetupDirect",
+                                lparams = params(widthMatchParent = true) { bottomMargin = 10.dp }
+                            ) {
+                                text = stringResource(R.string.lspatch_setup_direct)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 12f
+                                setLineSpacing(6f, 1f)
+                            }
+                        }
+                        textView(key = "SettingsCardSections:noRootSetup",
+                            lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }
+                        ) {
+                            if (!noRootSetup.needsOptIn) settingsDestinations.bind(RuntimeSettingsNavigationCatalog.NO_ROOT_SUPPORT, this)
+                            text = stringResource(if (noRootSetup.lspatch) R.string.lspatch_setup_title else R.string.npatch_setup_title)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                            background = selfRippleBackground(10f)
+                            isClickable = true
+                            isFocusable = true
+                            setOnClickListener { showNPatchSetupDialog(anchor = it) }
+                        }
+                        textView(key = "SettingsCardSections:noRootLiveApply",
+                            lparams = params(widthMatchParent = true) { bottomMargin = 5.dp }
+                        ) {
+                            text = stringResource(R.string.npatch_live_apply)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                            background = selfRippleBackground(10f)
+                            isClickable = true
+                            isFocusable = true
+                            setOnClickListener { applyNPatchValues() }
+                        }
+                        textView(key = "SettingsCardSections:noRootLiveTip",
+                            lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }
+                        ) {
+                            text = stringResource(R.string.npatch_live_tip)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 12f
+                            setLineSpacing(6f, 1f)
+                        }
+                        textView(key = "SettingsCardSections:noRootLiveStatus",
+                            lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }
+                        ) {
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 12f
+                            setLineSpacing(6f, 1f)
+                            liveApplyStatusView = this
+                        }
                         materialSwitch(key = "SettingsCardSections:1514",
                             lparams = params(widthMatchParent = true) {
                                 bottomMargin = 5.dp
@@ -1433,6 +1535,40 @@ internal fun MainActivity.experimentalFeaturesCard(
                             text = stringResource(R.string.roaming_compat_tip)
                             textColor = colorResource(R.color.colorTextDark)
                             textSize = 12f
+                        }
+                        textView(key = "SettingsCardSections:roamingCacheCheck",
+                            lparams = params(widthMatchParent = true)
+                        ) {
+                            text = stringResource(R.string.roaming_cache_check)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                            background = selfRippleBackground(10f)
+                            isClickable = true
+                            isFocusable = true
+                            setOnClickListener { checkRoamingCache() }
+                        }
+                        textView(key = "SettingsCardSections:roamingCacheStatus",
+                            lparams = params(widthMatchParent = true)
+                        ) {
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 12f
+                            setLineSpacing(6f, 1f)
+                            roamingCacheStatusView = this
+                        }
+                        textView(key = "SettingsCardSections:roamingCacheRestart",
+                            lparams = params(widthMatchParent = true)
+                        ) {
+                            text = stringResource(R.string.roaming_cache_restart)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                            background = selfRippleBackground(10f)
+                            visibility = View.GONE
+                            isClickable = true
+                            isFocusable = true
+                            setOnClickListener { showRestartConfirmDialog(it) }
+                            roamingCacheRestartView = this
                         }
                     }
                     // 步骤：兼容 · 预见式返回与手动重新适配

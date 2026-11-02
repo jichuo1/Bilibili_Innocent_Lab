@@ -6,6 +6,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RemoteHookConfigCommitterTest {
+    @Test fun disabledNpatchRevisionSurvivesStandardPublisherCleanup() {
+        fun publishDisabled(revision: Long) = committer.publish(1L, BuildConfig.VERSION_CODE.toLong(),
+            UserTermsDecision.ACCEPTED, values, 100L, backend, deliveryEnabled = false, noRootRevision = revision)
+        assertTrue(publishDisabled(42L).succeeded)
+        assertTrue(publishDisabled(42L).succeeded)
+        assertEquals(1, backend.commits)
+        assertTrue(publishDisabled(43L).succeeded)
+        assertEquals(2, backend.commits)
+        val snapshot = (RemoteHookConfigContract.decode(backend.remote) as RemoteHookConfigDecodeResult.Ready).snapshot
+        assertEquals(43L, snapshot.noRootRevision)
+        assertFalse(snapshot.authorized)
+    }
+
     private val values = RemoteHookConfigContract.resolveSourceValues(emptyMap<String, Any>())
     private val committer = RemoteHookConfigCommitter()
     private val backend = CachedBackend()
@@ -21,12 +34,28 @@ class RemoteHookConfigCommitterTest {
             values,100L,backend,stillCurrent={false})
         assertFalse(result.succeeded); assertEquals(0,backend.commits)
     }
+
+    @Test fun aDisabledDeliveryMustNotProduceAnAuthorizingDocument() {
+        assertTrue(publish(deliveryEnabled = false).succeeded)
+        val disabled = RemoteHookConfigContract.decode(backend.remote) as RemoteHookConfigDecodeResult.Ready
+        assertFalse(disabled.snapshot.deliveryEnabled)
+        assertFalse(disabled.snapshot.authorized)
+
+        // 同一份不可授权文档去重，不重复提交。
+        val repeated = committer.publish(1L, BuildConfig.VERSION_CODE.toLong(), UserTermsDecision.ACCEPTED,
+            values, 200L, backend, deliveryEnabled = false)
+        assertTrue(repeated.succeeded)
+        assertEquals(1, backend.commits)
+    }
+
     private fun publish(
         decision: UserTermsDecision = UserTermsDecision.ACCEPTED,
         connectionId: Long = 1L,
-        now: Long = 100L
+        now: Long = 100L,
+        deliveryEnabled: Boolean = true
     ) = committer.publish(
-        connectionId, BuildConfig.VERSION_CODE.toLong(), decision, values, now, backend
+        connectionId, BuildConfig.VERSION_CODE.toLong(), decision, values, now, backend,
+        deliveryEnabled = deliveryEnabled
     )
 
     @Test

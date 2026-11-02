@@ -3,6 +3,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HostAdmissionRouteClassifierTest {
+    @Test fun disabledRevisionRequiresABoundExplicitCloseResponse() {
+        assertEquals(42L, HostAdmissionRouteClassifier.disabledRevision("manager_sync_required", true, 42L))
+        assertEquals(0L, HostAdmissionRouteClassifier.disabledRevision("manager_sync_required", false, 42L))
+        assertEquals(0L, HostAdmissionRouteClassifier.disabledRevision("denied", true, 42L))
+        assertEquals(0L, HostAdmissionRouteClassifier.disabledRevision("stale", true, 42L))
+        assertEquals(0L, HostAdmissionRouteClassifier.disabledRevision("granted", true, 42L))
+        assertEquals(0L, HostAdmissionRouteClassifier.disabledRevision("manager_sync_required", true, -1L))
+    }
+    @Test fun npatchRequiresFreshAdmissionWhileStandardFrameworkKeepsValidatedFallback() {
+        fun allowed(npatch: Boolean) = HostAdmissionRouteClassifier.allowRemoteConfigFallback(
+            false, null, true, true, 1L, nPatchRuntime = npatch)
+        assertFalse(allowed(true))
+        assertTrue(allowed(false))
+    }
     @Test fun endpointStatusesAreClassifiedExhaustively() {
         val expected = mapOf(
             "prepared" to HostAdmissionRouteClassifier.StatusClass.PREPARED,
@@ -10,6 +24,7 @@ class HostAdmissionRouteClassifierTest {
             "denied" to HostAdmissionRouteClassifier.StatusClass.AUTHORITY_DENIED,
             "consent_commit_failed" to HostAdmissionRouteClassifier.StatusClass.CONSENT_PENDING,
             "manager_sync_required" to HostAdmissionRouteClassifier.StatusClass.SYNC_REQUIRED,
+            "embedded_mode_unsupported" to HostAdmissionRouteClassifier.StatusClass.AUTHORITY_DENIED,
             "identity_rejected" to HostAdmissionRouteClassifier.StatusClass.UNAVAILABLE,
             "protocol_rejected" to HostAdmissionRouteClassifier.StatusClass.UNAVAILABLE,
             "storage_failed" to HostAdmissionRouteClassifier.StatusClass.UNAVAILABLE,
@@ -36,6 +51,10 @@ class HostAdmissionRouteClassifierTest {
     }
 
     @Test fun termsDenialIsDistinctFromRecoverableSyncAndCommitFailures() {
+        assertEquals(HostAdmissionRouteClassifier.Outcome.AUTHORITY_DENIED,
+            HostAdmissionRouteClassifier.prepare("embedded_mode_unsupported", envelopeValid = true))
+        assertEquals(HostAdmissionRouteClassifier.Outcome.AUTHORITY_DENIED,
+            HostAdmissionRouteClassifier.confirm("embedded_mode_unsupported", envelopeValid = true, successBinding = false))
         assertEquals(
             HostAdmissionRouteClassifier.Outcome.AUTHORITY_DENIED,
             HostAdmissionRouteClassifier.prepare("denied", envelopeValid = true)

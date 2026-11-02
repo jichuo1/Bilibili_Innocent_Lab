@@ -1,0 +1,17 @@
+<resources>
+    <string name="restart_capabilities_checking">正在检查 Root 和 Shizuku。检查完成后会按 Root、Shizuku、手动重启的顺序提供操作。</string>
+    <string name="restart_capabilities_checking_short">检查中…</string>
+    <string name="restart_capabilities_retry">重新检测</string>
+    <string name="restart_root_retry">重新检测 Root</string>
+    <string name="restart_root_button">Root 重启</string>
+    <string name="restart_root_authorize">申请 Root 授权</string>
+    <string name="restart_root_candidate">检测到 su，尚未确认本模块的 Root 授权。申请授权本身不会重启哔哩哔哩。</string>
+    <string name="restart_root_ready">最近已确认本模块取得 Root 权限。点击保存并重启，执行前会再次校验权限。</string>
+    <string name="restart_root_requesting">正在等待 Root 授权…</string>
+    <string name="restart_root_unavailable">上次未能取得 Root 权限。可检查 Root 管理器后重试，或改用 Shizuku / 手动重启。</string>
+    <string name="restart_root_not_found">未找到可用的 su。可重新检测，或改用 Shizuku / 手动重启。</string>
+    <string name="restart_root_unknown">Root 检查未完成或发生异常，当前无法确认。可重新检测或选择其他方式。</string>
+    <string name="restart_root_first_message">优先使用 Root 强停并重新打开哔哩哔哩。Root 不可用时可改用 Shizuku，最后可通过应用详情手动重启。操作前会保存当前配置。</string>
+    <string name="restart_shizuku_fallback_message">可使用 Shizuku 强停并重新打开哔哩哔哩，或通过应用详情手动重启。操作前会保存当前配置。</string>
+    <string name="restart_change_method">更换重启方式</string>
+</resources>

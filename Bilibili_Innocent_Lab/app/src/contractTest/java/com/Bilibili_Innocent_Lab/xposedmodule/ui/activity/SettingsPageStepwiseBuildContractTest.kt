@@ -118,8 +118,8 @@ class SettingsPageStepwiseBuildContractTest {
         // 模型必须真的识别到了推迟块，否则上面的断言在空树上通过。
         assertEquals(9 + 0, counts.getValue("purifySettingsCard"))
         assertEquals(6, counts.getValue("enhancementSettingsCard"))
-        // 美化卡：5 个区段 + 底栏构建函数里再推迟的 1 段；实验性卡：外观 2 + 兼容子卡 1 + 兼容内容 3。
-        assertEquals(6, counts.getValue("beautificationSettingsCard"))
+        // 美化卡：6 个区段（含省电）+ 底栏构建函数里再推迟的 1 段；实验性卡：外观 2 + 兼容子卡 1 + 兼容内容 3。
+        assertEquals(7, counts.getValue("beautificationSettingsCard"))
         assertEquals(6, counts.getValue("experimentalFeaturesCard"))
         assertEquals(1, counts.getValue("hostBottomBarAppearanceRows"))
     }
@@ -156,10 +156,10 @@ class SettingsPageStepwiseBuildContractTest {
     @Test fun pagesHaveTheExpectedStepCountsAndNoOversizedStep() {
         val model = SettingsStepModel()
         val executed = (1..4).map { model.execute(model.pageSteps(it, expand = true)) }
-        // 净化 = 壳 + 9 个分类；增强 = 壳 + 6 个；美化 = 壳 + 5 个区段 + 底栏再推迟的 1 段；
+        // 净化 = 壳 + 9 个分类；增强 = 壳 + 6 个；美化 = 壳 + 6 个区段（含省电）+ 底栏再推迟的 1 段；
         // 模块 = 活动与备份 + 实验性（壳 + 外观 2 + 兼容子卡 + 兼容 3）+ 日志 + 关于。
-        assertEquals(listOf(10, 7, 7, 10), executed.map { it.executedSteps })
-        assertEquals("steps plus one finish unit each", listOf(11, 8, 8, 11), executed.map { it.units })
+        assertEquals(listOf(10, 7, 8, 10), executed.map { it.executedSteps })
+        assertEquals("steps plus one finish unit each", listOf(11, 8, 9, 11), executed.map { it.units })
         // 控件挂载数是上界（分支按存在计）。拆分前美化页是一个约 50 个控件的步骤，实验性卡约 57 个。
         val beautification = executed[2].stepSizes
         val module = executed[3].stepSizes
@@ -200,6 +200,7 @@ class SettingsPageStepwiseBuildContractTest {
             assertTrue("$read must happen when its step runs", SettingsStepModel.deferredBlockContaining(experimental, at))
         }
         for (read in listOf("isChecked = transparentPlayerStatusBar", "isChecked = brandSplashCustom", "isChecked = splashAutoNight",
+            "isChecked = hostUiPowerSaving",
             "isChecked = freeCopyAutoLight", "isChecked = freeCopyLightMode")) {
             val at = beautification.indexOf(read)
             assertTrue("$read missing", at > 0)
@@ -218,7 +219,8 @@ class SettingsPageStepwiseBuildContractTest {
         val anchors = mapOf(
             "beautificationSettingsCard" to listOf("SettingsCardSections:668", "HostAppearancePresenter:252", "HostAppearancePresenter:38",
                 "HostAppearancePresenter:82", "HostAppearancePresenter:204", "HostAppearancePresenter:343", "HostBackgroundPresenter:57",
-                "SettingsCardSections:688", "SettingsCardSections:728", "SettingsCardSections:803", "SettingsCardSections:894"),
+                "SettingsCardSections:688", "SettingsCardSections:728", "SettingsCardSections:HostUiPowerSaving",
+                "SettingsCardSections:803", "SettingsCardSections:894"),
             "experimentalFeaturesCard" to listOf("SettingsCardSections:935", "SettingsCardSections:946", "SettingsCardSections:972",
                 "SettingsCardSections:1037", "SettingsCardSections:1047", "SettingsCardSections:1204", "SettingsCardSections:1295",
                 "SettingsCardSections:1358", "SettingsCardSections:1372", "SettingsCardSections:1469", "SettingsCardSections:1562",

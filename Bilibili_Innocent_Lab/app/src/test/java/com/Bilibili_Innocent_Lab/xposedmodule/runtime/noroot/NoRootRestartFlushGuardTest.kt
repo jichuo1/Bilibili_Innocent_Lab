@@ -5,6 +5,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NoRootRestartFlushGuardTest {
+    @Test fun directPublicationDoesNotNeedAManagerMirrorButStillRejectsStaleState() {
+        assertTrue(NoRootRestartFlushGuard.accepts(true, true, true, true, 42, 42, false, true))
+        assertTrue(NoRootRestartFlushGuard.accepts(true, false, false, false, 42, 42, false, true))
+        assertFalse(NoRootRestartFlushGuard.accepts(false, true, true, true, 42, 42, false, true))
+        assertFalse(NoRootRestartFlushGuard.accepts(true, false, true, false, 42, 42, false, true))
+        assertFalse(NoRootRestartFlushGuard.accepts(true, true, true, true, 43, 42, false, true))
+        assertFalse(NoRootRestartFlushGuard.accepts(true, true, true, true, 42, 42, false, false))
+    }
+
     @Test
     fun `accepts confirmed enabled revision that is still current`() {
         assertTrue(

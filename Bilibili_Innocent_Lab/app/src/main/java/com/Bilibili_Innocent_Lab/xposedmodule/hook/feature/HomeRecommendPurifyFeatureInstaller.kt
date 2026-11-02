@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.LiveHomeRules
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.time.Instant
@@ -68,7 +69,8 @@ internal class HomeRecommendPurifyFeatureInstaller(
     semanticJudge: SemanticJudge? = null,
     /** debug 构建的观测日志目录；release 为 null。 */
     semanticLogDir: java.io.File? = null,
-    isMainThread: () -> Boolean = { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() }
+    isMainThread: () -> Boolean = { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() },
+    private val liveRules: (() -> LiveHomeRules)? = null
 ) : FeatureInstaller {
 
     private val semantic = SemanticTitleFilter(semanticJudge, semanticLogDir, isMainThread, "home")
@@ -498,6 +500,8 @@ internal class HomeRecommendPurifyFeatureInstaller(
 
     private fun shouldRemove(signals: Signals, advertisements: AdvertisementCounts?): Boolean {
         if (!itemRemovalEnabled) return false
+        // 提取链仍按启动期完整依赖保留；同一卡片的动态判据只读取一次原子快照。
+        val live = liveRules?.invoke()
         val hostSignals = signals.toHostSignals()
         val kinds = if (semanticClassificationEnabled) {
             HostContentSemanticClassifier.classify(hostSignals)
@@ -513,13 +517,13 @@ internal class HomeRecommendPurifyFeatureInstaller(
         }
         return (removePictures && HostContentKind.PICTURE in kinds) ||
             (removeGamePromotions && HostContentKind.GAME in kinds) ||
-            RuleSetCodec.matches(titleKeywords, signals.title) ||
+            RuleSetCodec.matches(live?.titles ?: titleKeywords, signals.title) ||
             (removeLive && HostContentKind.LIVE in kinds) ||
             (removeCourses && HostContentKind.COURSE in kinds) ||
             (removeVertical && HostContentKind.VERTICAL in kinds) ||
             (removeLarge && HostContentKind.LARGE in kinds) ||
-            durationRange.shouldRemove(signals.durationSeconds) ||
-            playCountRange.shouldRemove(signals.playCount) ||
+            (live?.duration ?: durationRange).shouldRemove(signals.durationSeconds) ||
+            (live?.plays ?: playCountRange).shouldRemove(signals.playCount) ||
             signals.publishContext?.let { context ->
                 publishTimeRule.shouldRemove(signals.publishTime, context.now, context.zone)
             } == true ||

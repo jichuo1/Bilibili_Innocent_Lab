@@ -93,10 +93,11 @@ class SettingsDependenciesTest {
         assertTrue(SettingsDependencies.available(SettingsCatalog.ID_SEMANTIC_JEV_ENDPOINT, ModuleUiSettings.EMPTY))
     }
 
-    @Test fun `sponsor automatic and retained vip space require their own main feature`() {
+    @Test fun `dependent settings require their own main feature`() {
         listOf(
             FeaturePreferences.SPONSORBLOCK_ENABLED to "player.sponsorblock.automatic",
             FeaturePreferences.SPONSORBLOCK_ENABLED to "player.sponsorblock.story",
+            FeaturePreferences.AI_INSIGHT_ENABLED to "compat.ai_insight.auto_chapters",
             FeaturePreferences.HIDE_MINE_VIP to "mine.vip.space_kept"
         ).forEach { (key, id) ->
             assertFalse(id, SettingsDependencies.available(id, ModuleUiSettings.EMPTY))

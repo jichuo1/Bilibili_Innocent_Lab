@@ -224,6 +224,8 @@ internal object VideoRelateEngagementReasonParser {
 
     fun isLikeCountReason(reason: String): Boolean {
         val normalized = normalize(reason) ?: return false
+        // 8.90.2 的真实推荐徽标还会把一百万写作“百万点赞”，只认完整标签。
+        if (normalized == "百万点赞") return true
         if (!normalized.endsWith(SUFFIX)) return false
         var amount = normalized.dropLast(SUFFIX.length)
         if (amount.endsWith('+')) amount = amount.dropLast(1)

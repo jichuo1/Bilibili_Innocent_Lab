@@ -350,7 +350,16 @@ internal object ReleaseHighlightsCatalog {
     )), ReleaseHighlightsBatch(34, listOf(
         ReleaseHighlight("cloud-key-scan", HighlightKind.IMPROVED, R.string.highlights_cloud_key_scan,
             HighlightDestination("cloud.key_freeze.picked"))
-    )))
+    )), ReleaseHighlightsBatch(35, listOf(
+        ReleaseHighlight("wechat-resigned-sharing", HighlightKind.NEW, R.string.wechat_share_compat_tip,
+            HighlightDestination("share.wechat.resigned_compat"))
+    )), ReleaseHighlightsBatch(36, listOf(
+        ReleaseHighlight("ai-insight", HighlightKind.NEW, R.string.ai_insight_help,
+            HighlightDestination("compat.ai_insight.enabled", alsoCovers = setOf("compat.ai_insight.auto_chapters")))
+    ), automatic = false), ReleaseHighlightsBatch(37, listOf(
+        ReleaseHighlight("host-ui-power-saving", HighlightKind.NEW, R.string.host_ui_power_saving_tip,
+            HighlightDestination("host.ui.power_saving.enabled"))
+    ), automatic = false))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }
         .mapNotNull { it.destination }.distinctBy { it.settingId }

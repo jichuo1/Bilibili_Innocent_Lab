@@ -30,12 +30,15 @@ json = "20260814"
 # P2-07 opt-in tooling (-PinnocentLab.baselineProfile=true); not resolved by default builds.
 androidx-baselineprofile = "1.5.0"
 androidx-benchmark-macro = "1.5.0"
+shizuku = "13.1.5"
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 
 [libraries]
+shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuku" }
+shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }
 libxposed-api = { group = "io.github.libxposed", name = "api", version.ref = "libxposed" }
 libxposed-service = { group = "io.github.libxposed", name = "service", version.ref = "libxposed" }
 meguviz-ref-core = { group = "io.github.jichuo1.meguviz", name = "meguviz-ref-core", version.ref = "meguviz-ref" }

@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.modern
 
 import android.util.Log
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ModernApiSupport
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.StartupTrace
 import io.github.libxposed.api.XposedInterface
 import java.lang.reflect.Executable
 import java.lang.reflect.Method
@@ -63,6 +64,15 @@ internal class ModernHookRuntime(
         id: String,
         executable: Executable,
         exceptionPolicy: HookExceptionPolicy = HookExceptionPolicy.PROTECT_HOST,
+        block: ModernMemberHookCreator.() -> Unit
+    ): XposedInterface.HookHandle {
+        return StartupTrace.measure("registration") { installMeasured(id, executable, exceptionPolicy, block) }
+    }
+
+    private fun installMeasured(
+        id: String,
+        executable: Executable,
+        exceptionPolicy: HookExceptionPolicy,
         block: ModernMemberHookCreator.() -> Unit
     ): XposedInterface.HookHandle {
         check(apiVersion >= ModernApiSupport.MIN_API) { "Modern API 101 or newer is required" }

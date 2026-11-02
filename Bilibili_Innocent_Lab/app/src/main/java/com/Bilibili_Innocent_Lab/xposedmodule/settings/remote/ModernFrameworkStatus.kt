@@ -57,6 +57,21 @@ internal fun isRootFramework(capable: Boolean, frameworkName: String, properties
     capable && !isNpatchFrameworkName(frameworkName) &&
         frameworkHasSystemCapability(properties) != false
 
+/**
+ * 当前 Modern 服务是不是 NPatch 的「免 Root 通道」。免 Root 开关只对这条通道是总开关，
+ * LSPosed / LSPatch 的标准发布不受它影响。
+ *
+ * 名字是第一道（已实测公开服务名 "NPatch"），`PROP_CAP_SYSTEM` 能力位是第二道（改名后
+ * 仍成立）；LSPatch 用精确名字单独排除。**元数据未知（[ModernFrameworkStatus.capable] 为
+ * false）时不判定**，宁可退回文档判据，也不能把 LSPosed 误判成 NPatch 后关掉它的发布。
+ */
+internal fun isNpatchConfigChannel(status: ModernFrameworkStatus): Boolean {
+    if (!status.capable) return false
+    return isNpatchFrameworkName(status.name) ||
+        (!isLspatchFrameworkName(status.name) &&
+            !isRootFramework(status.capable, status.name, status.properties))
+}
+
 /** 可选版本信息读取失败不否决已确认的 API/Remote 能力；任何失败都不逸出服务回调。 */
 internal fun readModernFrameworkStatus(
     readApiVersion: () -> Int,

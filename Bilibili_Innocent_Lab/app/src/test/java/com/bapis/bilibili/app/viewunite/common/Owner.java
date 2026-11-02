@@ -21,6 +21,15 @@ public class Owner {
         return name;
     }
 
+    // 8.90.2 protocol uses title for the display name; getName remains a test convenience above.
+    public String getTitle() {
+        return name;
+    }
+
+    public long getMid() {
+        return 0L;
+    }
+
     public Vip getVip() {
         return vip;
     }

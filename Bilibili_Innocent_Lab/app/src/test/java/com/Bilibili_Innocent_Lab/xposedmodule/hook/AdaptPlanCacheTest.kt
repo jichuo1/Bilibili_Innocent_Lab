@@ -94,9 +94,9 @@ class AdaptPlanCacheTest {
         assertNotNull(AdaptResult.fromJson(missingButPresent))
     }
 
-    @Test fun `schema and rule versions are unchanged because the key is purely additive`() {
+    @Test fun `schema remains compatible while merged rules invalidate old caches`() {
         assertEquals(62, VersionAdapterContract.SCHEMA_VERSION)
-        assertEquals(81, VersionAdapterContract.RULE_VERSION)
+        assertEquals(82, VersionAdapterContract.RULE_VERSION)
         assertEquals(62, JSONObject(fullyCovered().toJson().toString()).getInt("sv"))
     }
 

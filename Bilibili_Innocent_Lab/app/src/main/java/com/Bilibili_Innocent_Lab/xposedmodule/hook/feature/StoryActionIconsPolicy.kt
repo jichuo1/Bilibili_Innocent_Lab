@@ -6,6 +6,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
  * ### 定位依据（2026-10-01 调研）
  * - 组件全在 `com.bilibili.video.story.action.widget`，类名**未混淆**，31 个本地宿主（8.84.0–9.14.0）
  *   逐版存在；弹幕开关 `StoryDanmakuToggleWidget` 从 9.4.0 起才有（Compose 新样式）。
+ *   更早版本由 StoryAbsController 持有底部 ImageView，另行核对访问器和绑定入口，不能因新 widget 缺失而判不适用。
  * - 竖屏视频布局 `story_list_item_controller` 与图文 `story_list_item_controller_image` 都把它们放在
  *   `StoryRightModule`（竖向 LinearLayout，id `story_ctrl_layer_action`）里；图文版不含投币。
  *   Story 横屏模式另有 `StoryLandscapeLikeWidget` / `StoryLandscapeCommentWidget`，归到点赞 / 评论同一开关。

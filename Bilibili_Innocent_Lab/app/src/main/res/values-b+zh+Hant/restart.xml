@@ -1,0 +1,17 @@
+<resources>
+    <string name="restart_capabilities_checking">正在檢查 Root 和 Shizuku。檢查完成後會按 Root、Shizuku、手動重新啟動的順序提供操作。</string>
+    <string name="restart_capabilities_checking_short">檢查中…</string>
+    <string name="restart_capabilities_retry">重新偵測</string>
+    <string name="restart_root_retry">重新偵測 Root</string>
+    <string name="restart_root_button">Root 重啟</string>
+    <string name="restart_root_authorize">申請 Root 授權</string>
+    <string name="restart_root_candidate">偵測到 su，尚未確認本模組的 Root 授權。申請授權本身不會重新啟動嗶哩嗶哩。</string>
+    <string name="restart_root_ready">最近已確認本模組取得 Root 權限。點擊儲存並重新啟動，執行前會再次驗證權限。</string>
+    <string name="restart_root_requesting">正在等待 Root 授權…</string>
+    <string name="restart_root_unavailable">上次未能取得 Root 權限。可檢查 Root 管理器後重試，或改用 Shizuku / 手動重新啟動。</string>
+    <string name="restart_root_not_found">未找到可用的 su。可重新偵測，或改用 Shizuku / 手動重新啟動。</string>
+    <string name="restart_root_unknown">Root 檢查未完成或發生異常，目前無法確認。可重新偵測或選擇其他方式。</string>
+    <string name="restart_root_first_message">優先使用 Root 強制停止並重新開啟嗶哩嗶哩。Root 無法使用時可改用 Shizuku，最後可透過應用程式資訊手動重新啟動。操作前會儲存目前設定。</string>
+    <string name="restart_shizuku_fallback_message">可使用 Shizuku 強制停止並重新開啟嗶哩嗶哩，或透過應用程式資訊手動重新啟動。操作前會儲存目前設定。</string>
+    <string name="restart_change_method">更換重新啟動方式</string>
+</resources>

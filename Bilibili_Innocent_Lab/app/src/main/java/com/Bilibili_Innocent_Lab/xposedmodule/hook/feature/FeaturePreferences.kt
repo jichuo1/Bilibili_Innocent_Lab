@@ -2,6 +2,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 /** 新增功能的稳定配置键；旧功能键在完成迁移前仍保留在 HookEntry。 */
 internal object FeaturePreferences {
+    const val AI_INSIGHT_ENABLED = "ai_insight_enabled"
+    const val AI_INSIGHT_AUTO_CHAPTERS = "ai_insight_auto_chapters"
     const val PLAYER_SUBTITLE_STYLE = "player_subtitle_style"
     const val PLAYER_AI_SUBTITLE = "player_ai_subtitle"
     const val HIDE_VIDEO_DETAIL_APP_PROMOTION = "hide_video_detail_app_promotion"
@@ -188,6 +190,7 @@ internal object FeaturePreferences {
     const val HOST_BOTTOM_BAR_COMPACT = "host_bottom_bar_compact"
     const val HOST_BOTTOM_BAR_ICON_ONLY = "host_bottom_bar_icon_only"
     const val HOST_MINE_GARB_DIM = "host_mine_garb_dim"
+    const val HOST_UI_POWER_SAVING = "host_ui_power_saving"
     const val HOST_BOTTOM_BAR_TOUCH_GLOW = "host_bottom_bar_touch_glow"
     const val HOST_VIDEO_CARDS = "host_video_cards"
     // 仅供已发布的布尔设置迁移；新界面与运行时只使用 HOST_CARD_MATERIAL。
@@ -273,6 +276,9 @@ internal object FeaturePreferences {
 
     /** 微信/QQ 小程序卡片降级为普通链接分享。 */
     const val SHARE_MINI_PROGRAM_DIRECT_LINK = "share_mini_program_direct_link"
+
+    /** 仅放宽 B 站分享实例对重签名微信的客户端证书比较，默认关闭。 */
+    const val WECHAT_SHARE_COMPAT = "wechat_share_compat"
 
     /** 站外链接改由系统浏览器打开，不再进入宿主内置 WebView。 */
     const val FORCE_EXTERNAL_BROWSER = "force_external_browser"

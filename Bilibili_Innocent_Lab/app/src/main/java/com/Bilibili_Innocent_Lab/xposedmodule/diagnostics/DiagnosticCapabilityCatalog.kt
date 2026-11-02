@@ -20,8 +20,10 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 32
+    const val VERSION = 35
     val definitions = listOf(
+        DiagnosticCapabilityDefinition("ai_insight", "ai_insight", R.string.ai_insight_title,
+            setOf("compat.ai_insight.enabled", "compat.ai_insight.auto_chapters"), introducedCatalogVersion = 35),
         DiagnosticCapabilityDefinition("player_buffer_strategy", "player_buffer", R.string.player_buffer_mode,
             setOf("player.buffer.mode", "player.buffer.seconds", "player.buffer.memory_mb"),
             introducedCatalogVersion = 22),
@@ -34,10 +36,12 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("sponsorblock", "sponsorblock", R.string.sponsorblock_enabled,
             setOf("player.sponsorblock.enabled", "player.sponsorblock.automatic"), introducedCatalogVersion = 19),
         DiagnosticCapabilityDefinition("sponsorblock_story", "sponsorblock_story", R.string.sponsorblock_story_enabled,
-            setOf("player.sponsorblock.story")),
+            setOf("player.sponsorblock.story"), introducedCatalogVersion = 34),
         DiagnosticCapabilityDefinition("host_video_cards", "host_video_cards", R.string.host_video_cards,
             setOf("host.video_cards.enabled", "host.video_cards.radius_dp", "host.cards.material",
-                "host.home_cards.horizontal_dp", "host.home_cards.vertical_dp"), introducedCatalogVersion = 18),
+                "host.home_cards.horizontal_dp", "host.home_cards.vertical_dp",
+                // 省电开关同时作用于顶栏、底栏和卡片；卡片是它最主要的消费者，矩阵里归在这一项。
+                "host.ui.power_saving.enabled"), introducedCatalogVersion = 18),
         DiagnosticCapabilityDefinition("search_home_recommend_hidden", "search_home_recommend_hidden", R.string.hide_search_home_recommend, setOf("search.home_recommend.hidden"), introducedCatalogVersion = 4),
         DiagnosticCapabilityDefinition("player_interactive_legacy_follow", "player_interactive_overlay", R.string.diag_cap_player_interactive_legacy_follow, setOf("player.interactive_overlays.hidden"), "legacy/guide/clearAttention"),
         DiagnosticCapabilityDefinition("player_interactive_legacy_commands", "player_interactive_overlay", R.string.diag_cap_player_interactive_legacy_commands, setOf("player.interactive_overlays.hidden"), "legacy/guide/clearCommandDms"),
@@ -197,10 +201,12 @@ internal object DiagnosticCapabilityCatalog {
             setOf("splash.custom_selection.enabled"), introducedCatalogVersion = 18),
         DiagnosticCapabilityDefinition("share_content_purified", "share_purify", R.string.purify_share_content, setOf("share.content.purified")),
         DiagnosticCapabilityDefinition("share_mini_program_direct_link", "share_purify", R.string.share_mini_program_direct_link, setOf("share.mini_program.direct_link")),
+        DiagnosticCapabilityDefinition("wechat_share_compat", "wechat_share_compat", R.string.wechat_share_compat,
+            setOf("share.wechat.resigned_compat"), introducedCatalogVersion = 33),
         DiagnosticCapabilityDefinition("external_browser", "external_browser", R.string.force_external_browser, setOf("links.external_browser.enabled")),
         DiagnosticCapabilityDefinition("system_media_notification", "system_media_notification", R.string.system_media_notification, setOf("system.media_notification.enabled")),
-        DiagnosticCapabilityDefinition("home_frame_lock", "home_frame_lock", R.string.home_frame_legacy_lock, setOf("home.frame.legacy_lock.enabled")),
-        DiagnosticCapabilityDefinition("cloud_key_freeze", "cloud_key_freeze", R.string.cloud_key_freeze, setOf("cloud.key_freeze.enabled", "cloud.key_freeze.rules", "cloud.key_freeze.observe", "cloud.key_freeze.picked")),
+        DiagnosticCapabilityDefinition("home_frame_lock", "home_frame_lock", R.string.home_frame_legacy_lock, setOf("home.frame.legacy_lock.enabled"), introducedCatalogVersion = 34),
+        DiagnosticCapabilityDefinition("cloud_key_freeze", "cloud_key_freeze", R.string.cloud_key_freeze, setOf("cloud.key_freeze.enabled", "cloud.key_freeze.rules", "cloud.key_freeze.observe", "cloud.key_freeze.picked"), introducedCatalogVersion = 34),
         DiagnosticCapabilityDefinition("bv_to_av", "bv_to_av", R.string.show_bv_as_av, setOf("numbers.bv_as_av.enabled")),
         DiagnosticCapabilityDefinition("free_copy_comment_enabled", "free_copy", R.string.free_copy_enable, setOf("free_copy.comment.enabled")),
         DiagnosticCapabilityDefinition("free_copy_description_enabled", "free_copy", R.string.free_copy_desc_enable, setOf("free_copy.description.enabled")),
@@ -298,6 +304,7 @@ internal object DiagnosticCapabilityCatalog {
         "comments_reply_button_removed",
         "share_content_purified",
         "share_mini_program_direct_link",
+        "wechat_share_compat",
         "live_room_switch_blocked",
         "live_double_tap_pause",
         "player_long_press_disabled",

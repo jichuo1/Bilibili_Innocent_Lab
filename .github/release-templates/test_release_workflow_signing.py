@@ -117,9 +117,10 @@ class ReleaseWorkflowSigningTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn('signingConfigs.create("fixedRelease")', gradle_script)
         self.assertIn("isDebuggable = false", gradle_script)
-        self.assertIn("Release packaging requires the fixed signing identity", gradle_script)
+        self.assertIn("Release and embedded packaging require the fixed signing identity", gradle_script)
         self.assertIn("INNOCENT_LAB_SIGNING_STORE_FILE", gradle_script)
         self.assertIn('task.name.equals("packageRelease", ignoreCase = true)', gradle_script)
+        self.assertIn('Regex("(?i)^(assemble|bundle|sign|package).*embedded.*$")', gradle_script)
         self.assertNotIn("(assemble|bundle|package|sign)", gradle_script)
 
 
