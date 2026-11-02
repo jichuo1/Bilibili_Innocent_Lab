@@ -702,6 +702,28 @@ internal fun MainActivity.beautificationSettingsCard(scope: LinearSettingsScope)
                 textSize = 12f
             }
         }
+        // 步骤：省电（跨顶栏、底栏与卡片的总开关）
+        deferStep {
+            hostAppearanceHeading(this, R.string.host_appearance_power)
+            materialSwitch(key = "SettingsCardSections:HostUiPowerSaving", lparams = params(widthMatchParent = true) { topMargin = 12.dp; bottomMargin = 5.dp }) {
+                bindFavoriteSwitch(this, FeaturePreferences.HOST_UI_POWER_SAVING, directToggle = true)
+                text = stringResource(R.string.host_ui_power_saving)
+                isAllCaps = false
+                textColor = colorResource(R.color.colorTextGray)
+                textSize = 15f
+                isChecked = hostUiPowerSaving
+                setOnCheckedChangeListener { button, checked ->
+                    applyModeledToggle(FeaturePreferences.HOST_UI_POWER_SAVING, checked, button)
+                }
+            }
+            textView(key = "SettingsCardSections:HostUiPowerSavingTip", lparams = params(widthMatchParent = true)) {
+                alpha = 0.6f
+                setLineSpacing(6f, 1f)
+                text = stringResource(R.string.host_ui_power_saving_tip)
+                textColor = colorResource(R.color.colorTextDark)
+                textSize = 12f
+            }
+        }
         // 步骤：复制气泡外观
         deferStep {
             // Either copy feature can display the shared bubble.

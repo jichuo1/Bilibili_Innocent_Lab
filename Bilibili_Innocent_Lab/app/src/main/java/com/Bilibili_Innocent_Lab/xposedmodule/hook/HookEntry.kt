@@ -32,6 +32,7 @@ import java.lang.reflect.Constructor
 import java.lang.reflect.Method
 import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostUiPowerPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.StartupTrace
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsBridge
@@ -2513,6 +2514,8 @@ class HookEntry : XposedModule() {
             // 局部遮蔽把功能安装链统一约束在只读配置接口上。
             val prefs: HookConfigSource = hookConfig
             val liveConfig = hookConfig as? com.Bilibili_Innocent_Lab.xposedmodule.hook.config.LiveHookConfigState
+            // 省电开关在宿主重启后生效：先于任何宿主 UI 作用域创建，各作用域在创建时读取这份快照。
+            HostUiPowerPolicy.configure(prefs.getBoolean(FeaturePreferences.HOST_UI_POWER_SAVING, HostUiPowerPolicy.DEFAULT_ENABLED))
             // JEV 语义判定的共享配置（实验性功能 → 兼容）；Key 为空或地址非法时为 null，任何过滤面都不建判定器。
             // 硬盘缓存根目录要等宿主 Context 就绪后补上（见 attachedContext 处）。
             var semanticSettings = SemanticSettings.from(

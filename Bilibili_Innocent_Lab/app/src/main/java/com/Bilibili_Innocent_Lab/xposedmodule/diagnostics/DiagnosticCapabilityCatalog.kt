@@ -39,7 +39,9 @@ internal object DiagnosticCapabilityCatalog {
             setOf("player.sponsorblock.story"), introducedCatalogVersion = 34),
         DiagnosticCapabilityDefinition("host_video_cards", "host_video_cards", R.string.host_video_cards,
             setOf("host.video_cards.enabled", "host.video_cards.radius_dp", "host.cards.material",
-                "host.home_cards.horizontal_dp", "host.home_cards.vertical_dp"), introducedCatalogVersion = 18),
+                "host.home_cards.horizontal_dp", "host.home_cards.vertical_dp",
+                // 省电开关同时作用于顶栏、底栏和卡片；卡片是它最主要的消费者，矩阵里归在这一项。
+                "host.ui.power_saving.enabled"), introducedCatalogVersion = 18),
         DiagnosticCapabilityDefinition("search_home_recommend_hidden", "search_home_recommend_hidden", R.string.hide_search_home_recommend, setOf("search.home_recommend.hidden"), introducedCatalogVersion = 4),
         DiagnosticCapabilityDefinition("player_interactive_legacy_follow", "player_interactive_overlay", R.string.diag_cap_player_interactive_legacy_follow, setOf("player.interactive_overlays.hidden"), "legacy/guide/clearAttention"),
         DiagnosticCapabilityDefinition("player_interactive_legacy_commands", "player_interactive_overlay", R.string.diag_cap_player_interactive_legacy_commands, setOf("player.interactive_overlays.hidden"), "legacy/guide/clearCommandDms"),

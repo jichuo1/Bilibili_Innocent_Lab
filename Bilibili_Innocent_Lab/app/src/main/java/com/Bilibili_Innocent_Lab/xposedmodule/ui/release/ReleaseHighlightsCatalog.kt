@@ -356,6 +356,9 @@ internal object ReleaseHighlightsCatalog {
     )), ReleaseHighlightsBatch(36, listOf(
         ReleaseHighlight("ai-insight", HighlightKind.NEW, R.string.ai_insight_help,
             HighlightDestination("compat.ai_insight.enabled", alsoCovers = setOf("compat.ai_insight.auto_chapters")))
+    ), automatic = false), ReleaseHighlightsBatch(37, listOf(
+        ReleaseHighlight("host-ui-power-saving", HighlightKind.NEW, R.string.host_ui_power_saving_tip,
+            HighlightDestination("host.ui.power_saving.enabled"))
     ), automatic = false))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

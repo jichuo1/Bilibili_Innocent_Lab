@@ -1,4 +1,4 @@
-# settings=71; capabilities=35
+# settings=72; capabilities=35
 kind	id	installer_group	links	local_scope	manager	embedded	evidence
 setting	ads.game_card.hidden	detail_united_module_purify,game_mentioned_promotion	detail_united_video_mentions_removed,game_mentioned_promotion	-	pending	pending	-
 setting	ads.home_banner.hidden	home_banner	home_banner_feed,home_banner_view	-	pending	pending	-
@@ -137,6 +137,7 @@ setting	host.top_bar.glass.material	home_top_bar_purify	home_top_bar_search_word
 setting	host.top_bar.glass.renderer	home_top_bar_purify	home_top_bar_search_word_hidden	-	pending	pending	-
 setting	host.top_bar.liquid_glass.enabled	home_top_bar_purify	home_top_bar_search_word_hidden	-	pending	pending	-
 setting	host.top_bar.touch_glow.enabled	home_top_bar_purify	home_top_bar_search_word_hidden	-	pending	pending	-
+setting	host.ui.power_saving.enabled	host_video_cards	host_video_cards	-	pending	pending	-
 setting	host.video_cards.enabled	host_video_cards	host_video_cards	-	pending	pending	-
 setting	host.video_cards.radius_dp	host_video_cards	host_video_cards	-	pending	pending	-
 setting	links.external_browser.enabled	external_browser	external_browser	-	pending	pending	-
@@ -346,7 +347,7 @@ capability	home_top_bar_game_menu_hidden	home_top_bar_purify	home.top_bar.game_m
 capability	home_top_bar_search_word_hidden	home_top_bar_purify	home.top_bar.search_word.hidden,host.top_bar.glass.material,host.top_bar.glass.renderer,host.top_bar.liquid_glass.enabled,host.top_bar.touch_glow.enabled	-	pending	pending	-
 capability	home_vertical_detail	home_vertical_detail	home.vertical.open_detail	-	pending	pending	-
 capability	host_background	host_background	host.background.asset,host.background.blur,host.background.preset,host.background.saturation,host.background.veil	-	pending	observed	case:APPEARANCE_REPRESENTATIVE
-capability	host_video_cards	host_video_cards	host.cards.material,host.home_cards.horizontal_dp,host.home_cards.vertical_dp,host.video_cards.enabled,host.video_cards.radius_dp	-	pending	pending	-
+capability	host_video_cards	host_video_cards	host.cards.material,host.home_cards.horizontal_dp,host.home_cards.vertical_dp,host.ui.power_saving.enabled,host.video_cards.enabled,host.video_cards.radius_dp	-	pending	pending	-
 capability	live_double_tap_pause	live_room_widgets	live.double_tap.pause	-	pending	pending	-
 capability	live_home_promotion	live_home_promotion	home.live.promotion.hidden	-	pending	pending	-
 capability	live_room_switch_blocked	live_room_widgets	live.room_switch.blocked	-	pending	pending	-

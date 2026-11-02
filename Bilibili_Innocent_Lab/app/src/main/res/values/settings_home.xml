@@ -24,4 +24,5 @@
     <string name="host_appearance_video_cards">Video cards</string>
     <string name="host_appearance_splash">Splash appearance</string>
     <string name="host_appearance_player">Player appearance</string>
+    <string name="host_appearance_power">Power saving</string>
 </resources>

@@ -36,6 +36,7 @@ internal object SettingsUiCatalog {
         add(FeaturePreferences.HOST_BOTTOM_BAR_COMPACT, R.string.host_bottom_bar_compact, 3, "BEAUTIFICATION", true)
         add(FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY, R.string.host_bottom_bar_icon_only, 3, "BEAUTIFICATION", true)
         add(FeaturePreferences.HOST_MINE_GARB_DIM, R.string.host_mine_garb_dim, 3, "BEAUTIFICATION", true)
+        add(FeaturePreferences.HOST_UI_POWER_SAVING, R.string.host_ui_power_saving, 3, "BEAUTIFICATION", true)
         add(FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW, R.string.host_bottom_bar_touch_glow, 3, "BEAUTIFICATION", true)
         add(FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS, R.string.host_top_bar_liquid_glass, 3, "BEAUTIFICATION", true)
         add(FeaturePreferences.HOST_TOP_BAR_TOUCH_GLOW, R.string.host_top_bar_touch_glow, 3, "BEAUTIFICATION", true)

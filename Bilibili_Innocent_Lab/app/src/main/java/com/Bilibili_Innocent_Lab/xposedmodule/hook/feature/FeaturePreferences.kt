@@ -190,6 +190,7 @@ internal object FeaturePreferences {
     const val HOST_BOTTOM_BAR_COMPACT = "host_bottom_bar_compact"
     const val HOST_BOTTOM_BAR_ICON_ONLY = "host_bottom_bar_icon_only"
     const val HOST_MINE_GARB_DIM = "host_mine_garb_dim"
+    const val HOST_UI_POWER_SAVING = "host_ui_power_saving"
     const val HOST_BOTTOM_BAR_TOUCH_GLOW = "host_bottom_bar_touch_glow"
     const val HOST_VIDEO_CARDS = "host_video_cards"
     // 仅供已发布的布尔设置迁移；新界面与运行时只使用 HOST_CARD_MATERIAL。

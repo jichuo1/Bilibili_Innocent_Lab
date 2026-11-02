@@ -134,7 +134,8 @@ class HostStackGuardContractTest {
                 "host.copy_bubble.frame", "host.copy_bubble.enter_end", "host.copy_bubble.exit_end"
             ),
             "cards/HostCardMaterialScope.kt" to listOf(
-                "host.card.material.attach", "host.card.material.detach", "host.card.material.draw"
+                "host.card.material.attach", "host.card.material.detach", "host.card.material.draw",
+                "host.card.material.refresh"
             ),
             "cards/HostVideoCardStyle.kt" to listOf("host.card.detach", "host.card.list.attach", "host.card.list.detach")
         )

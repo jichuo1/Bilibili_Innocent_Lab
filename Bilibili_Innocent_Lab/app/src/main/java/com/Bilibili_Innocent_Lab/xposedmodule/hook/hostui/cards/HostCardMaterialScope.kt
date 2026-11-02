@@ -15,7 +15,9 @@ import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.ContentRefreshCoalescer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeContentSource
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostUiPowerPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.ViewSamplingMatrix
@@ -39,8 +41,8 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     private val context: Context = owner.context,
     internal val materialKind: HostCardMaterial = HostCardMaterial.ACRYLIC,
     private val gpuScale: Float = .5f,
-    private val reuseGpuFrames: Boolean = true,
-    private val optimizeCardRendering: Boolean = true) : AutoCloseable,
+    private val reuseGpuFrames: Boolean = HostUiPowerPolicy.current.retainsGpuFrames,
+    private val optimizeCardRendering: Boolean = HostUiPowerPolicy.current.shortcutsCardRendering) : AutoCloseable,
     View.OnAttachStateChangeListener, ViewTreeObserver.OnPreDrawListener {
     private var palette = HostVideoCardSurface.palette(night, context)
     private val frameStrokeDp = if (materialKind == HostCardMaterial.ACRYLIC) .5f else 1f
@@ -57,18 +59,13 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     private var hardwareRecordedFrame = -1L
     private var softwareRecordedFrame = -1L
     private var version = Long.MIN_VALUE
-    private val inputIntervalMs = LumenSurfaceSampling().minIntervalMs
-    private var contentChangedAt = 0L
-    private var contentRefreshPending = false
-    private val contentRefresh = object : Runnable {
-        override fun run() {
-            if (closed || visible != true) { contentRefreshPending = false; return }
-            val now = SystemClock.uptimeMillis()
-            val remaining = inputIntervalMs - (now - contentChangedAt)
-            if (remaining > 0L) owner.postOnAnimationDelayed(this, remaining)
-            else { contentRefreshPending = false; refreshContent() }
-        }
-    }
+    // 离散变化立即刷新，连续变化在安静满一个引擎采样间隔后补一帧尾帧。
+    private val coalescer = ContentRefreshCoalescer(LumenSurfaceSampling().minIntervalMs)
+    // 挂在宿主 View 上的延迟入口不在框架保护范围内，必须过守卫；同一个实例也用于 removeCallbacks。
+    private val contentRefresh = HostThreadGuard.runnable("host.card.material.refresh") { onContentRefreshTimer() }
+    // 由引擎的取样面状态事件维护：唯一的取样面由 GPU 承载且没有失败。事件在绘制栈之外送达，
+    // 预绘制里不必再为每次内容变化取诊断快照。首个事件之前保持完整刷新。
+    private var gpuBacked = false
     private var visible: Boolean? = null
     private var observer: ViewTreeObserver? = null
     private var hardwareScene: HostCardMaterialScene? = null
@@ -114,6 +111,9 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         if (session != null) owner.overlay.add(source)
         owner.overlay.add(field)
         material = if (session != null) LumenFluentControl(field, palette, materialOptions(), session, source) else null
+        session?.setListener { _, backend, failure, _ ->
+            gpuBacked = backend == LumenSurfaceBackend.GPU && failure == LumenSurfaceFailure.NONE
+        }
         mica = if (materialKind == HostCardMaterial.MICA) HostCardMicaField(owner, field, palette, ::changed) else null
         owner.addOnAttachStateChangeListener(this)
         if (owner.isAttachedToWindow) observe()
@@ -125,13 +125,25 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         owner.postInvalidateOnAnimation()
     }
 
+    /** 只有开关开启、API 32+ 且唯一的取样面由 GPU 承载并且没有失败时，才允许复用上一份输入。 */
+    internal fun canRetainGpuFrame(): Boolean =
+        HostUiPowerPolicy.canRetainGpuFrame(reuseGpuFrames, AndroidVersion.code) { gpuBacked }
+
     private fun refreshContent() {
-        if (contentRefreshPending) {
-            owner.removeCallbacks(contentRefresh)
-            contentRefreshPending = false
-        }
         session?.notifyContentChanged()
         changed()
+    }
+
+    private fun onContentRefreshTimer() {
+        if (closed || visible != true) { coalescer.cancel(); return }
+        val delay = coalescer.onTimer(SystemClock.uptimeMillis())
+        if (delay == ContentRefreshCoalescer.NOW) refreshContent()
+        else owner.postOnAnimationDelayed(contentRefresh, delay)
+    }
+
+    private fun cancelContentRefresh() {
+        if (coalescer.armed) owner.removeCallbacks(contentRefresh)
+        coalescer.cancel()
     }
 
     private fun observe() {
@@ -176,7 +188,7 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
                 }
                 changed()
             } else {
-                owner.removeCallbacks(contentRefresh); contentRefreshPending = false
+                cancelContentRefresh()
                 session?.pause()
             }
         }
@@ -207,19 +219,16 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
             // Keep source invalidations at display cadence. On API 32+ the glass can
             // reuse its input between captures instead of rebuilding at every VSYNC.
             // API 31 requires explicit filter refresh; software and recovery stay eager.
-            val retained = reuseGpuFrames && AndroidVersion.isAtLeast(32) &&
-                material?.diagnostics()?.backdropBackend == LumenSurfaceBackend.GPU &&
-                session?.diagnostics()?.lastFailure == LumenSurfaceFailure.NONE
-            val isolated = contentChangedAt == 0L || now - contentChangedAt >= inputIntervalMs
-            contentChangedAt = now
+            val retained = canRetainGpuFrame()
             // Lumen already invalidates the field at its capture cadence during a burst.
             // Flush isolated changes immediately and the final change after a quiet
             // input interval. A second periodic notifier would duplicate that work.
-            if (!retained || isolated) refreshContent()
-            else if (!contentRefreshPending) {
-                contentRefreshPending = true
-                owner.postOnAnimationDelayed(contentRefresh, inputIntervalMs)
-            }
+            val wasArmed = coalescer.armed
+            val decision = coalescer.onChange(now, coalesce = retained)
+            if (decision == ContentRefreshCoalescer.NOW) {
+                if (wasArmed) owner.removeCallbacks(contentRefresh)
+                refreshContent()
+            } else if (decision > 0L) owner.postOnAnimationDelayed(contentRefresh, decision)
         }
     }
 
@@ -354,7 +363,7 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     override fun close() {
         if (closed) return
         closed = true
-        owner.removeCallbacks(contentRefresh); contentRefreshPending = false
+        cancelContentRefresh()
         observer?.takeIf { it.isAlive }?.removeOnPreDrawListener(this); observer = null
         owner.removeOnAttachStateChangeListener(this)
         paints.keys.toList().forEach { it.close() }; paints.clear(); cards.clear()

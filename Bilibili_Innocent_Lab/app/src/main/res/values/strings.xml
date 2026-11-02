@@ -207,6 +207,8 @@
     <string name="host_bottom_bar_liquid_glass_tip">Turns Bilibili\'s bottom bar into a floating glass capsule with a specular top edge. Personalized theme colors blend into the glass, retaining character icons and animations with compact bar sizing. Slightly increases rendering load.</string>
     <string name="host_mine_garb_dim">Dim profile theme artwork</string>
     <string name="host_mine_garb_dim_tip">Requires the floating bottom bar. Darkens personalized theme artwork on the profile page to improve text contrast. Turn off to retain its original brightness and rounded corners. Restart Bilibili to apply.</string>
+    <string name="host_ui_power_saving">Host UI power saving</string>
+    <string name="host_ui_power_saving_tip">Reuses the glass and card material between captures while you scroll, which lowers power draw. A frame can occasionally arrive one refresh late. Turn it off if scrolling feels uneven. Restart Bilibili to apply.</string>
     <string name="host_bottom_bar_touch_glow">Bottom bar touch glow</string>
     <string name="host_bottom_bar_touch_glow_tip">Blooms an adaptive glow that follows your finger while you touch a bottom bar tab.</string>
     <string name="host_top_bar_liquid_glass">Floating top bar</string>

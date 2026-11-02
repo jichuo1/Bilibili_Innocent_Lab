@@ -516,6 +516,7 @@ class MainActivity : SkinnedActivity() {
     internal var hostBottomBarCompact = false
     internal var hostBottomBarIconOnly = false
     internal var hostMineGarbDim = true
+    internal var hostUiPowerSaving = true
     internal var hostTopBarLiquidGlass = false
     internal var hostTopBarGlassAppearance = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance()
     internal var hostTopBarTouchGlow = false
@@ -4783,6 +4784,7 @@ class MainActivity : SkinnedActivity() {
         hostBottomBarCompact = uiSettings.bool(FeaturePreferences.HOST_BOTTOM_BAR_COMPACT)
         hostBottomBarIconOnly = uiSettings.bool(FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY)
         hostMineGarbDim = uiSettings.bool(FeaturePreferences.HOST_MINE_GARB_DIM)
+        hostUiPowerSaving = uiSettings.bool(FeaturePreferences.HOST_UI_POWER_SAVING)
         hostTopBarLiquidGlass = uiSettings.bool(FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS)
         hostTopBarGlassAppearance = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance.read(
             uiSettings.string(FeaturePreferences.HOST_TOP_BAR_GLASS_MATERIAL),

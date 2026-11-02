@@ -1598,7 +1598,8 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             requested
         }
         FeaturePreferences.PLAYER_SUBTITLE_STYLE, FeaturePreferences.PLAYER_AI_SUBTITLE,
-        FeaturePreferences.AI_INSIGHT_ENABLED, FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS -> {
+        FeaturePreferences.AI_INSIGHT_ENABLED, FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS,
+        FeaturePreferences.HOST_UI_POWER_SAVING -> {
             val store = checkNotNull(settingStore)
             val descriptor = store.descriptors.single { it.storageKey == storageKey }
             var savedChecked = store.state(descriptor.id).checked
@@ -1727,7 +1728,8 @@ internal val modeledToggleKeys = setOf(
     FeaturePreferences.PLAYER_FRAME_INTERPOLATION,
     FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST,
     FeaturePreferences.PLAYER_SUBTITLE_STYLE,
-    FeaturePreferences.PLAYER_AI_SUBTITLE
+    FeaturePreferences.PLAYER_AI_SUBTITLE,
+    FeaturePreferences.HOST_UI_POWER_SAVING
 )
 
 internal fun MainActivity.synchronizeSettingField(key: String, confirmed: Boolean) {
@@ -1754,6 +1756,7 @@ internal fun MainActivity.synchronizeSettingField(key: String, confirmed: Boolea
         FeaturePreferences.HOST_BOTTOM_BAR_COMPACT -> hostBottomBarCompact = confirmed
         FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY -> hostBottomBarIconOnly = confirmed
         FeaturePreferences.HOST_MINE_GARB_DIM -> hostMineGarbDim = confirmed
+        FeaturePreferences.HOST_UI_POWER_SAVING -> hostUiPowerSaving = confirmed
         FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW -> hostBottomBarTouchGlow = confirmed
         FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS -> hostTopBarLiquidGlass = confirmed
         FeaturePreferences.HOST_TOP_BAR_TOUCH_GLOW -> hostTopBarTouchGlow = confirmed

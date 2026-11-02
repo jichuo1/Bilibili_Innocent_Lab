@@ -3,10 +3,12 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.view.Choreographer
 import android.view.PixelCopy
 import android.view.View
 import android.view.Window
@@ -16,6 +18,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostCardMaterialScope
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostUiPowerPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.ViewSamplingMatrix
 import com.lumen.coacervation.engine.host.LumenSurfaceBackend
@@ -106,6 +109,90 @@ class HostCardRenderingInstrumentedTest {
                     } finally { frame.recycle() }
                 }
             } finally { instrumentation.runOnMainSync { scopes.forEach { it.close() } } }
+        }
+    }
+
+    /** The settings switch picks the notification path; the retained one records less yet settles on the same pixels. */
+    @Test fun theSwitchSelectsEagerOrRetainedRefreshAndTheTrailingFlushSettlesTheFinalMaterial() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            lateinit var window: Window
+            val backgrounds = ArrayList<ColorDrawable>()
+            val owners = ArrayList<FrameLayout>()
+            val cards = ArrayList<View>()
+            val scopes = ArrayList<HostCardMaterialScope>()
+            try {
+                scenario.onActivity { activity ->
+                    activity.activeConfirmDialog?.dismiss()
+                    window = activity.window
+                    val root = FrameLayout(activity).apply { setBackgroundColor(Color.WHITE) }
+                    repeat(2) { index ->
+                        val background = ColorDrawable(Color.rgb(20, 60, 160))
+                        val owner = FrameLayout(activity).apply { this.background = background }
+                        val card = View(activity)
+                        owner.addView(card, FrameLayout.LayoutParams(340, 240).apply { leftMargin = 60; topMargin = 260 })
+                        root.addView(owner, FrameLayout.LayoutParams(480, 900).apply { leftMargin = index * 540; topMargin = 200 })
+                        backgrounds += background; owners += owner; cards += card
+                    }
+                    activity.setContentView(root)
+                    // Scopes read the process policy when they are created: 0 = switch off, 1 = switch on.
+                    repeat(2) { index ->
+                        HostUiPowerPolicy.configure(index == 1)
+                        scopes += HostCardMaterialScope(owners[index], true).also { it.apply(cards[index], 24f) }
+                    }
+                }
+                SystemClock.sleep(900)
+                instrumentation.runOnMainSync {
+                    for (index in cards.indices) {
+                        val state = requireNotNull(scopes[index].diagnostics(cards[index]))
+                        assertEquals(LumenSurfaceBackend.GPU, state.backdropBackend)
+                    }
+                }
+                // The engine reports the GPU state through its listener; the switch must decide the path from that.
+                val retains = BooleanArray(2)
+                instrumentation.runOnMainSync { scopes.forEachIndexed { index, scope -> retains[index] = scope.canRetainGpuFrame() } }
+                assertEquals("switch off must never retain", false, retains[0])
+                assertEquals("switch on must learn the GPU backend from the engine's events", true, retains[1])
+                val before = IntArray(2)
+                instrumentation.runOnMainSync { scopes.forEachIndexed { index, scope -> before[index] = scope.materialRecordings.toInt() } }
+                val frames = 72
+                var step = 0
+                val startedAt = SystemClock.uptimeMillis()
+                val finished = CountDownLatch(1)
+                val callback = object : Choreographer.FrameCallback {
+                    override fun doFrame(frameTimeNanos: Long) {
+                        backgrounds.forEach { it.color = Color.rgb(20 + step * 2, 60 + step, 160 - step) }
+                        if (++step < frames) Choreographer.getInstance().postFrameCallback(this) else finished.countDown()
+                    }
+                }
+                instrumentation.runOnMainSync { Choreographer.getInstance().postFrameCallback(callback) }
+                assertTrue(finished.await(15, TimeUnit.SECONDS))
+                val framePeriodMs = (SystemClock.uptimeMillis() - startedAt) / frames.toFloat()
+                SystemClock.sleep(900)
+                val recorded = IntArray(2)
+                instrumentation.runOnMainSync { scopes.forEachIndexed { index, scope -> recorded[index] = scope.materialRecordings.toInt() - before[index] } }
+                // Lumen samples no faster than every 28 ms. A slower display (software GL emulator) never lets
+                // the throttle engage, so the saving is only measurable when frames are faster than that.
+                if (framePeriodMs < 24f) {
+                    assertTrue("period=$framePeriodMs eager=${recorded[0]} retained=${recorded[1]}",
+                        recorded[0] > 20 && recorded[1] < recorded[0] * 0.85)
+                } else println("HostCardRendering: frame period $framePeriodMs ms is above the sampling interval; eager=${recorded[0]} retained=${recorded[1]}")
+                val frame = capture(window)
+                try {
+                    val centers = cards.map { card ->
+                        val at = IntArray(2)
+                        instrumentation.runOnMainSync { card.getLocationInWindow(at) }
+                        frame.getPixel(at[0] + card.width / 2, at[1] + card.height / 2)
+                    }
+                    for (shift in listOf(0, 8, 16)) {
+                        val delta = kotlin.math.abs((centers[0] shr shift and 255) - (centers[1] shr shift and 255))
+                        assertTrue("Final material differs: ${Integer.toHexString(centers[0])} vs ${Integer.toHexString(centers[1])}", delta <= 4)
+                    }
+                } finally { frame.recycle() }
+            } finally {
+                HostUiPowerPolicy.resetForTests()
+                instrumentation.runOnMainSync { scopes.forEach { it.close() } }
+            }
         }
     }
 

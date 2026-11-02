@@ -230,6 +230,8 @@
     <string name="host_bottom_bar_liquid_glass_tip">將嗶哩嗶哩底部導覽列改為懸浮膠囊，並以即時取樣的玻璃材質透出下方內容，保留上緣高光。個性主題裝扮自動融合配色，保留角色圖示及動畫，並適配小底欄；輕微提升渲染壓力。</string>
     <string name="host_mine_garb_dim">裝扮背景壓暗</string>
     <string name="host_mine_garb_dim_tip">需開啟底部導覽列懸浮膠囊。壓暗個性主題在「我的」頁的立繪背景，提高文字對比度。關閉後保留原始亮度和圓角。重新啟動嗶哩嗶哩後生效。</string>
+    <string name="host_ui_power_saving">宿主介面省電模式</string>
+    <string name="host_ui_power_saving_tip">捲動時在兩次取樣之間重用玻璃與卡片材質，降低功耗。偶爾會有一幀晚一個更新週期呈現；如果覺得捲動不夠順暢，可以關閉。重新啟動嗶哩嗶哩後生效。</string>
     <string name="host_bottom_bar_touch_glow">底部導覽列觸控光暈</string>
     <string name="host_bottom_bar_touch_glow_tip">觸摸底部導覽列圖示時綻放自適應光暈，跟隨手指觸點即時形變。</string>
     <string name="host_top_bar_liquid_glass">頂欄懸浮膠囊</string>

@@ -34,7 +34,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 71
+    const val CATALOG_VERSION = 72
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_PLAYER_SPEED_MENU = "player.speed_menu.percents"
@@ -702,6 +702,9 @@ internal object SettingsCatalog {
         ),
         bool("host.mine.garb_dim.enabled", FeaturePreferences.HOST_MINE_GARB_DIM,
             R.string.host_mine_garb_dim, default = true, introducedCatalogVersion = 65),
+        // 默认值与 HostUiPowerPolicy.DEFAULT_ENABLED 一致（单测钉住），目录不依赖 hook 包。
+        bool("host.ui.power_saving.enabled", FeaturePreferences.HOST_UI_POWER_SAVING,
+            R.string.host_ui_power_saving, default = true, introducedCatalogVersion = 72),
         bool(
             "host.bottom_bar.touch_glow.enabled",
             FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW,
@@ -1074,7 +1077,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 254) { "Expected 254 catalog settings, found ${specs.size}" }
+        check(specs.size == 255) { "Expected 255 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"
