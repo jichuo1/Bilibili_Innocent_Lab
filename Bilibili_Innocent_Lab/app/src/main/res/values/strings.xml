@@ -4,7 +4,7 @@
     <string name="ai_insight_help">Experimental. Restart Bilibili after changing. The detail page has four collapsible actions: Summary, Ask, Topics, and Chapters. Nothing is generated until you choose an action. Each result opens in its own panel. Uses the first configured text generation model below, sending the complete subtitles of the current part, title, description, and up to 12 loaded public comments and danmaku; Topics fetches comments automatically and uses up to 40 loaded comments. No subtitles: metadata only. Results are cached. Native chapters require at least 3 minutes with subtitles and no official chapters.</string>
     <string name="app_name">Bilibili_Innocent_Lab</string>
     <string name="xposed_desc">A cleaner, more complete Bilibili interface</string>
-    <string name="about_module">This module uses libxposed Modern API 101/102.\nLearn more https://github.com/libxposed/api</string>
+    <string name="about_module">This module uses libxposed Modern API 102.\nLearn more https://github.com/libxposed/api</string>
     <string name="about_module_extension" tools:ignore="Typos">This Xposed Module is powered by MeguvizRef.\nLearn more https://github.com/jichuo1/MeguvizRef</string>
     <string name="module_version">Module version: %1$s</string>
     <string name="module_not_activated">Module not activated</string>
@@ -25,7 +25,7 @@
     <string name="module_activation_not_running_title">Module not in effect</string>
     <string name="module_activation_not_running">Bilibili was started but the module did not respond. Open NPatch Manager to confirm the module is enabled and Bilibili is in scope, then force stop and reopen Bilibili.</string>
     <string name="module_activation_service_unavailable">No compatible Xposed framework service is connected</string>
-    <string name="module_activation_framework_unsupported">The connected framework does not support the required Modern API 101+ service</string>
+    <string name="module_activation_framework_unsupported">The connected framework does not support the required Modern API 102+ service</string>
     <!-- Multi-user hints: the framework pushes the libxposed service per Android user, so a cloned-app or work profile needs the module enabled for that user too. -->
     <string name="module_activation_service_unavailable_secondary_user">No framework service for Android user %1$d. Enable this module for that user in your framework manager.</string>
     <string name="module_activation_user_space_mismatch">Module is in user %1$d, Bilibili is in user %2$d.</string>
@@ -45,15 +45,15 @@
     <string name="settings_ui_compatibility_message">The interface runtime did not initialize correctly. Your terms decision and module settings were not changed. Reinstall a complete build of this version, then reopen the module. If the problem persists, export an LSPosed log and report it.</string>
     <string name="user_terms_save_failed">Could not save your decision. Please try again.</string>
     <string name="user_terms_need_framework_enable">No compatible Xposed framework service is connected. Enable this module and its scope in the current Android user or cloned-app profile, then return and retry.</string>
-    <string name="user_terms_need_api102">The current framework cannot synchronize remote configuration. Modern API 101+ Remote Preferences support is required.</string>
-    <string name="user_terms_need_api102_named">%1$s is connected with API %2$d, but it does not provide the required Modern API 101+ Remote Preferences capability.</string>
+    <string name="user_terms_need_api102">The current framework cannot synchronize remote configuration. Modern API 102+ Remote Preferences support is required.</string>
+    <string name="user_terms_need_api102_named">%1$s is connected with API %2$d, but it does not provide the required Modern API 102+ Remote Preferences capability.</string>
     <string name="user_terms_publish_failed">The framework is connected, but configuration submission or validation failed. Module features remain disabled; please retry.</string>
     <string name="user_terms_open_framework_manager">Open framework manager</string>
     <string name="user_terms_pending_title">Your agreement was recorded</string>
     <string name="user_terms_pending_message">Waiting for a compatible Xposed framework to complete secure synchronization. Module settings and hooks remain disabled until verification succeeds; you do not need to review or accept the terms again.</string>
     <string name="user_terms_pending_waiting">Status: no framework service is connected. Check module activation and scope in the current Android user or cloned-app profile; synchronization will continue automatically after connection.</string>
     <string name="user_terms_pending_syncing">Status: publishing and fully verifying the Modern configuration…</string>
-    <string name="user_terms_pending_unsupported">Status: %1$s is connected with API %2$d, but it does not provide the required Modern API 101+ Remote Preferences capability.</string>
+    <string name="user_terms_pending_unsupported">Status: %1$s is connected with API %2$d, but it does not provide the required Modern API 102+ Remote Preferences capability.</string>
     <string name="user_terms_pending_failed">Status: configuration synchronization is incomplete, so module features remain disabled. You can retry now.</string>
     <string name="user_terms_pending_local_failed">Current status: the final local state could not be saved. Check available storage and restart the module app before retrying.</string>
     <string name="user_terms_retry_sync">Retry now</string>

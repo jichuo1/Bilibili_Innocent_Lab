@@ -561,6 +561,11 @@ dependencies {
     compileOnly(libs.libxposed.api)
     implementation(libs.libxposed.service)
 
+    // MeguvizHook：API 102 后端；框架 API 仍由运行时提供（compileOnly），不会进入 APK。
+    implementation(libs.meguviz.hook.api)
+    implementation(libs.meguviz.hook.core)
+    implementation(libs.meguviz.hook.backend.libxposed)
+
     // MeguvizRef (https://github.com/jichuo1/MeguvizRef)
     implementation(libs.meguviz.ref.core)
 
@@ -604,8 +609,11 @@ dependencies {
     testImplementation(libs.junit)
     // JVM 验证 Modern Hook 边界，生产 APK 仍由框架提供 API。
     testImplementation(libs.libxposed.api)
+    testImplementation(libs.meguviz.hook.testing)
     // android.jar 的 org.json 是抛异常的 stub；单测需要真实实现解析 GitHub 响应。
     testImplementation(libs.test.org.json)
+    // 设备上的 Hook 门面基准要实例化框架接口的替身；运行时由框架提供，测试包里自带一份。
+    androidTestImplementation(libs.libxposed.api)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.espresso.core)
 }

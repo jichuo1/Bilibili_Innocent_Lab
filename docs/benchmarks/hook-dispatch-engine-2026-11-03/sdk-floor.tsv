@@ -1,0 +1,16 @@
+floor	ns
+framework passthrough (hooker proceeds)	4
+sdk NO_ARGS before	133
+sdk READ_ARGS_VIEW before (no read)	254
+sdk READ_ARGS_VIEW before (read arg)	327
+sdk READ_ARGS_VIEW after	257
+sdk MUTABLE_ARGS before	791
+sdk AROUND proceed	1160
+sdk replaceConstant	11
+sdk replaceResultOnSuccess	16
+sdk replaceIfStringArgumentEquals (match)	19
+sdk replaceIfStringArgumentEquals (miss)	79
+legacy facade: string compare then constant (match)	226
+legacy facade: string compare then constant (miss)	225
+sdk facade: string compare then constant (match)	1334
+sdk facade: string compare then constant (miss)	1179

@@ -1,0 +1,14 @@
+shape	pre_migration_ns	runtime_direct_ns	runtime_sdk_ns
+constant	4	11	12
+replace-dynamic-constant	210	208	623
+after-observe	81	80	598
+before-set-result	131	131	1192
+before-observe	82	82	1140
+before+after observe	213	212	1616
+replace-read-arg	155	154	697
+after-read	155	154	853
+before-read	83	82	1148
+before-write-arg	167	168	1512
+before+after	287	288	1872
+before+after (watched)	288	289	1913
+after-read (watched)	153	153	866

@@ -100,7 +100,7 @@ try {
     # 保留真实签名校验，验证放宽 R8 入口名称不会同时接受多入口或未知 API 档案。
     foreach ($case in @(
         @{Name='multiple-entries'; Entry='META-INF/xposed/java_init.list'; Text="a.b.Entry`na.b.Other"},
-        @{Name='wrong-api'; Entry='META-INF/xposed/module.prop'; Text="minApiVersion=101`ntargetApiVersion=103`nstaticScope=true`nautoHotReload=false"}
+        @{Name='wrong-api'; Entry='META-INF/xposed/module.prop'; Text="minApiVersion=102`ntargetApiVersion=103`nstaticScope=true`nautoHotReload=false"}
     )) {
         $invalidModule = Join-Path $root ($case.Name + '.apk')
         # 重新建 ZIP，避免 .NET Update 模式保留 APK 对齐字段后破坏未修改项的局部偏移。

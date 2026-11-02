@@ -133,7 +133,7 @@ $env:JAVA_HOME = 'C:/Program Files/Java/jdk-17' # apksigner 使用
 
 发布模块先完成 Release/R8 构建并签名，再把该**同一份已签名模块 APK**用于修补和独立设置 App 安装。默认使用 NPatch 测试证书；已有自有证书的宿主必须显式提供匹配的 keystore，不能退回默认密钥。只接受环境变量**名称**，口令值由 `apksigner` 直接读取，不进入 patcher 参数、日志或产物记录。`Aapt2` 默认从所选 `ApkSigner` 的同目录查找，也可显式传入。
 
-R8 会按工程已有规则改写 `META-INF/xposed/java_init.list`，入口不保证仍叫 `HookEntry`。工具接受一个合法的原名或混淆类名，并继续核对 Modern API 101/102、静态作用域及禁用热重载的档案；多入口或未知 API 档案被拒绝，实际入口名进入 `verified.json`。已用真实 Release/R8 产物的混淆入口 `ve0` 完成修补、同证书覆盖安装、四进程当前配置诊断及 Web 内容检查。该本地验收包使用既有测试签名，不等于取得或使用正式发布密钥。
+R8 会按工程已有规则改写 `META-INF/xposed/java_init.list`，入口不保证仍叫 `HookEntry`。工具接受一个合法的原名或混淆类名，并继续核对 Modern API 102、静态作用域及禁用热重载的档案；多入口或未知 API 档案被拒绝，实际入口名进入 `verified.json`。已用真实 Release/R8 产物的混淆入口 `ve0` 完成修补、同证书覆盖安装、四进程当前配置诊断及 Web 内容检查。该本地验收包使用既有测试签名，不等于取得或使用正式发布密钥。
 
 ```powershell
 # 当前进程中预先安全设置 BIL_HOST_STORE_PASSWORD / BIL_HOST_KEY_PASSWORD，不在脚本内写入口令值。

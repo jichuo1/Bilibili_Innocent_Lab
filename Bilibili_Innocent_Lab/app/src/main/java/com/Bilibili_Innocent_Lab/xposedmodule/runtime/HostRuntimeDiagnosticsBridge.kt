@@ -44,6 +44,12 @@ internal object HostRuntimeDiagnosticsBridge {
         Thread(runnable, "bil-host-diagnostics").apply { isDaemon = true }
     }
 
+    /**
+     * 功能回调里逃出的异常登记处。快照读取方在自己的后台线程取走并折成既有的 `runtimeError` 位，
+     * 所以没有后台线程或定时器，也不改线协议。
+     */
+    @Volatile internal var hookFaults: ((report: (String) -> Unit) -> Int)? = null
+
     @Volatile private var appContext: Context? = null
     @Volatile private var source: HostRuntimeDiagnosticsSource? = null
     @Volatile private var receiverRegistered = false
@@ -343,13 +349,21 @@ internal object HostRuntimeDiagnosticsBridge {
         }
     }
 
-    internal fun snapshot(): HostRuntimeDiagnosticsSnapshot = synchronized(lock) {
-        HostRuntimeDiagnosticsSnapshot(
-            capturedAtEpochMs = capturedAtEpochMs.coerceAtLeast(1L),
-            processName = HostRuntimeDiagnosticsCodec.TARGET_PACKAGE,
-            features = evidence.values.toList(),
-            bootstrap = bootstrap
-        )
+    internal fun snapshot(): HostRuntimeDiagnosticsSnapshot {
+        absorbHookFaults()
+        return synchronized(lock) {
+            HostRuntimeDiagnosticsSnapshot(
+                capturedAtEpochMs = capturedAtEpochMs.coerceAtLeast(1L),
+                processName = HostRuntimeDiagnosticsCodec.TARGET_PACKAGE,
+                features = evidence.values.toList(),
+                bootstrap = bootstrap
+            )
+        }
+    }
+
+    private fun absorbHookFaults() {
+        val drain = hookFaults ?: return
+        runCatching { drain { featureId -> record(featureId, FeatureRuntimeStage.ERROR) } }
     }
 
     private fun updateBootstrap(transform: HostRuntimeBootstrapEvidence.() -> HostRuntimeBootstrapEvidence) {

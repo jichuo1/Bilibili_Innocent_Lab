@@ -102,7 +102,7 @@ try {
         throw 'Module APK has an unexpected modern entry point.'
     }
     $moduleProperties = ConvertFrom-StringData (Read-ZipText $moduleArchive 'META-INF/xposed/module.prop')
-    if ($moduleProperties.minApiVersion -ne '101' -or $moduleProperties.targetApiVersion -ne '102' -or
+    if ($moduleProperties.minApiVersion -ne '102' -or $moduleProperties.targetApiVersion -ne '102' -or
         $moduleProperties.staticScope -ne 'true' -or $moduleProperties.autoHotReload -ne 'false') {
         throw 'Module APK has an unsupported modern API profile.'
     }
