@@ -136,7 +136,11 @@ internal object DexSourceFingerprint {
                 }
                 return crc.value == origin.crc
             }
+            // 整文件校验只在发布前做一次；之后每次启动只比对长度、修改时间和只读属性。
+            if (target.length() == origin.size && isVerified(target)) return@use target
             if (matches(target)) {
+                // 旧版本发布的、尚无标记的缓存：校验这一次，之后走快路径。
+                markVerified(target)
                 return@use target
             }
             val temporary = File.createTempFile("origin-", ".tmp", cache)
@@ -161,6 +165,7 @@ internal object DexSourceFingerprint {
                 // 同一私有缓存被多个宿主进程使用；只发布完整文件，绝不原地重写已返回的来源。
                 Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING)
+                markVerified(target)
                 target
             } finally {
                 temporary.delete()
@@ -201,7 +206,7 @@ internal object DexSourceFingerprint {
             }
         }.getOrDefault(false)
         if (target.isFile && target.length() in 1..maximumBytes &&
-            verifiedView(target)) {
+            (isVerified(target) || verifiedView(target).also { if (it) markVerified(target) })) {
             return target
         }
         val temporary = File.createTempFile("view-", ".tmp", cache)
@@ -223,14 +228,55 @@ internal object DexSourceFingerprint {
             check(temporary.setReadOnly())
             Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING)
+            markVerified(target)
             return target
         } finally { temporary.delete() }
     }
 
-    private fun retainRecentSources(cache: File, activePaths: Set<String>) {
-        activePaths.forEach { File(it).takeIf { file -> file.parentFile == cache }?.setLastModified(System.currentTimeMillis()) }
-        // 先收集本次全部 base/split；保留当前来源及一份历史来源，不删除尚未交给 DexKit 的 split。
-        cache.listFiles()?.filter { it.absolutePath !in activePaths && it.name.matches(Regex("(?:origin-[0-9]+-[0-9]+|view-[a-f0-9]{64})\\.apk")) }
-            ?.sortedByDescending(File::lastModified)?.drop(1)?.forEach { it.delete() }
+    /**
+     * 缓存来源的"已校验"标记。来源在发布前已做过整文件校验，发布是原子的，文件名又带内容摘要，
+     * 所以此后只要长度、修改时间都没变、文件仍是只读，就仍是当初校验过的那一份。
+     * 原地改写需要先放开只读并推进修改时间，补丁重装后缺失标记，都会退回整文件校验并重建标记。
+     * 标记缺失或写入失败不是错误，只是下次启动再校验一次。
+     */
+    private fun marker(source: File) = File(source.parentFile, source.name + VERIFIED_SUFFIX)
+
+    private fun stamp(source: File) = "${source.length()}:${source.lastModified()}"
+
+    internal fun isVerified(source: File): Boolean = runCatching {
+        val mark = marker(source)
+        source.isFile && !source.canWrite() && mark.isFile && mark.length() <= MAX_STAMP_BYTES &&
+            mark.readText() == stamp(source)
+    }.getOrDefault(false)
+
+    private fun markVerified(source: File) {
+        runCatching {
+            val temporary = File.createTempFile("verified-", ".tmp", source.parentFile)
+            try {
+                temporary.writeText(stamp(source))
+                Files.move(temporary.toPath(), marker(source).toPath(), StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING)
+            } finally { temporary.delete() }
+        }
     }
+
+    private fun retainRecentSources(cache: File, activePaths: Set<String>) {
+        // 最近使用时间记在标记上：触碰来源本身会推进它的修改时间，使已校验标记在下次启动失效。
+        val now = System.currentTimeMillis()
+        activePaths.forEach { path ->
+            File(path).takeIf { file -> file.parentFile == cache }?.let { file ->
+                marker(file).takeIf(File::isFile)?.setLastModified(now) ?: file.setLastModified(now)
+            }
+        }
+        fun recency(source: File) = maxOf(source.lastModified(), marker(source).lastModified())
+        // 先收集本次全部 base/split；保留当前来源及一份历史来源，不删除尚未交给 DexKit 的 split。
+        cache.listFiles()?.filter { it.absolutePath !in activePaths && it.name.matches(SOURCE_NAME) }
+            ?.sortedByDescending(::recency)?.drop(1)?.forEach { it.delete(); marker(it).delete() }
+        cache.listFiles()?.filter { it.name.endsWith(VERIFIED_SUFFIX) &&
+            !File(cache, it.name.removeSuffix(VERIFIED_SUFFIX)).exists() }?.forEach { it.delete() }
+    }
+
+    private const val VERIFIED_SUFFIX = ".ok"
+    private const val MAX_STAMP_BYTES = 64L
+    private val SOURCE_NAME = Regex("(?:origin-[0-9]+-[0-9]+|view-[a-f0-9]{64})\\.apk")
 }

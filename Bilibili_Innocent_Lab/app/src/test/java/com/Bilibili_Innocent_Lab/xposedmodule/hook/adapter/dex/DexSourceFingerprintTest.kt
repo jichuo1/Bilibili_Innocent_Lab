@@ -6,6 +6,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeFalse
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
@@ -221,7 +222,86 @@ class DexSourceFingerprintTest {
                 // Windows 不允许删除只读文件；下一轮仅放开旧测试夹具的删除属性。
                 cache.listFiles()?.forEach { it.setWritable(true) }
             }
-            assertTrue(cache.listFiles()!!.size <= 2)
+            // 上限针对来源文件；每个来源旁的已校验标记随它一起淘汰，不会留下孤儿。
+            assertTrue(cache.listFiles()!!.count { it.name.endsWith(".apk") } <= 2)
+            assertTrue(cache.listFiles()!!.filter { it.name.endsWith(".ok") }
+                .all { File(cache, it.name.removeSuffix(".ok")).isFile })
+        }
+    }
+
+    /** 发布时整文件校验一次；之后只比对长度、修改时间和只读属性，每次启动不再重读几百兆。 */
+    @Test fun `a published source is verified once and later runs skip the full pass`() {
+        for (frozenView in listOf(false, true)) withTempDirectory { directory ->
+            val original = File(directory, "original.apk")
+            val outer = File(directory, "patched.apk")
+            val cache = File(directory, "cache")
+            writeArchive(original, mapOf("classes.dex" to incompressible()))
+            val source = if (frozenView) original else outer.also { writePatched(it, original.readBytes(), 7) }
+            val first = DexSourceFingerprint.inspectCodePaths(listOf(source.path), cache, materializeArchiveView = frozenView)!!
+            val cached = File(first.codePaths.single())
+            val marker = File(cache, cached.name + ".ok")
+            assertTrue("publishing must leave a verified marker", marker.isFile)
+            assertTrue(DexSourceFingerprint.isVerified(cached))
+            val published = cached.lastModified()
+            assertEquals(first, DexSourceFingerprint.inspectCodePaths(listOf(source.path), cache, materializeArchiveView = frozenView))
+            assertEquals("use time is recorded on the marker, never on the source", published, cached.lastModified())
+
+            // Damage dex payload bytes while keeping length, modification time and read-only intact: only a
+            // full pass could notice, so a trusted result proves the pass no longer runs on every start.
+            val damaged = cached.readBytes().also { bytes -> bytes[bytes.size / 3] = (bytes[bytes.size / 3] + 1).toByte() }
+            cached.setWritable(true)
+            cached.writeBytes(damaged)
+            cached.setLastModified(published)
+            cached.setReadOnly()
+            assumeFalse("root can write read-only files, so the marker never applies", cached.canWrite())
+            val trusted = DexSourceFingerprint.inspectCodePaths(listOf(source.path), cache, materializeArchiveView = frozenView)
+            assertEquals(first, trusted)
+            assertTrue(cached.readBytes().contentEquals(damaged))
+        }
+    }
+
+    @Test fun `any real modification of a published source is caught and repaired`() {
+        withTempDirectory { directory ->
+            val original = File(directory, "original.apk")
+            val outer = File(directory, "patched.apk")
+            val cache = File(directory, "cache")
+            writeArchive(original, mapOf("classes.dex" to incompressible()))
+            writePatched(outer, original.readBytes(), 7)
+            val first = DexSourceFingerprint.inspectCodePaths(listOf(outer.path), cache)!!
+            val cached = File(first.codePaths.single())
+            val good = cached.readBytes()
+            val published = cached.lastModified()
+            // Same length, read-only restored, but the modification time moved: a real in-place rewrite.
+            cached.setWritable(true)
+            cached.writeBytes(ByteArray(good.size))
+            cached.setLastModified(published + 5_000)
+            cached.setReadOnly()
+            assertFalse(DexSourceFingerprint.isVerified(cached))
+            assertEquals(first, DexSourceFingerprint.inspectCodePaths(listOf(outer.path), cache))
+            assertTrue("the repaired source must match the original again", File(first.codePaths.single()).readBytes().contentEquals(good))
+            assertTrue(DexSourceFingerprint.isVerified(File(first.codePaths.single())))
+        }
+    }
+
+    @Test fun `a cache published before markers existed is verified once and then marked`() {
+        withTempDirectory { directory ->
+            val original = File(directory, "original.apk")
+            val outer = File(directory, "patched.apk")
+            val cache = File(directory, "cache")
+            writeArchive(original, mapOf("classes.dex" to byteArrayOf(1, 2, 3)))
+            writePatched(outer, original.readBytes(), 7)
+            val first = DexSourceFingerprint.inspectCodePaths(listOf(outer.path), cache)!!
+            val cached = File(first.codePaths.single())
+            val marker = File(cache, cached.name + ".ok")
+            assertTrue(marker.delete())
+            assertFalse(DexSourceFingerprint.isVerified(cached))
+            assertEquals(first, DexSourceFingerprint.inspectCodePaths(listOf(outer.path), cache))
+            assertTrue(marker.isFile)
+            assertTrue(DexSourceFingerprint.isVerified(cached))
+            // A marker that does not describe this exact file never counts.
+            marker.writeText("1:1")
+            assertFalse(DexSourceFingerprint.isVerified(cached))
+            assertFalse(DexSourceFingerprint.isVerified(File(cache, "missing.apk")))
         }
     }
 
@@ -280,6 +360,9 @@ class DexSourceFingerprintTest {
             }
         }
     }
+
+    /** Random bytes deflate to roughly their own size, so damage lands in the payload, not the directory. */
+    private fun incompressible() = ByteArray(4096).also { java.util.Random(7).nextBytes(it) }
 
     private fun writeArchive(target: File, entries: Map<String, ByteArray>) {
         ZipOutputStream(target.outputStream()).use { output ->
