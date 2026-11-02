@@ -255,6 +255,24 @@ class HostVideoCardAcrylicInstrumentedTest {
                         instrumentation.runOnMainSync { diagnostics = scope.samplingDiagnostics().toString() }
                         assertTrue("Wallpaper did not update: $before -> $after; $diagnostics", Color.red(after) > Color.blue(after))
                         assertTrue(abs(Color.blue(before) - Color.blue(after)) > 5)
+                        // The final input in a short burst must publish even when no
+                        // scrolling or further invalidation keeps the window running.
+                        val burstDone = CountDownLatch(1)
+                        instrumentation.runOnMainSync {
+                            list.setBackgroundColor(Color.BLUE)
+                            list.postOnAnimation {
+                                list.setBackgroundColor(Color.GREEN)
+                                burstDone.countDown()
+                            }
+                        }
+                        assertTrue(burstDone.await(3, TimeUnit.SECONDS))
+                        SystemClock.sleep(500)
+                        val settled = capture(window)
+                        try {
+                            val final = pixel(settled, card)
+                            assertTrue("Last wallpaper in burst stayed stale: $final",
+                                Color.green(final) > maxOf(Color.red(final), Color.blue(final)))
+                        } finally { settled.recycle() }
                         // 视口尺寸改变不能使卡片缓存继续引用已丢弃的共享节点。
                         instrumentation.runOnMainSync {
                             list.layout(0, 0, list.width, list.height - 100)

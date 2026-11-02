@@ -1,0 +1,284 @@
+{
+  "status": "21 device regressions passed; CPU/rendering reduction validated; stable incremental power saving not proven",
+  "date": "2026-10-25",
+  "baselineCommit": "bf1d4f5c02ed7f9f29b8618d6da87cf8e1661262",
+  "lumenVersion": "1.5.4",
+  "apkSha256": "816AA22E83804EBB2EED7BD0FE1B080435EE2C1A63CEEA4B507D3D9B315EA0DB",
+  "testApkSha256": "FE558304715F85835187BEECDBA81004BC47F93F2ECFA7296966EF57625C1EEC",
+  "comparison": "Same APK: cardRenderOnly=true; A optimizeCardRendering=false, B=true; reuseGpuFrames=true in both",
+  "protocol": "Two fixed 8-phase runs, ABBABAAB then BAABABBA, 8s warmup + 60s measurement, 5s/2s trimming, both first-phase labels represented",
+  "discharge": "Physically unplugged; input_suspend stayed 0; USB/dc/pc_port online checked per sample; no charging controls changed",
+  "displayHz": 90,
+  "windowBrightness": 0.15,
+  "governors": "unchanged",
+  "positivePowerPairs": 6,
+  "negativePowerPairs": 2,
+  "incrementalPowerClaim": "not statistically confirmed; paired 95% interval crosses zero",
+  "jvmTests": 4056,
+  "jvmFailures": 0,
+  "jvmSkipped": 1,
+  "fastLint": "passed; 258 existing warnings; 3 existing baseline errors",
+  "deviceTests": 21,
+  "deviceFailures": 0,
+  "screenshotCount": 48,
+  "contentPixelsPerScreenshot": 2247200,
+  "changedContentPixels": 0,
+  "cpuProfile": "Proxy-only diagnostic before direct mapping: simpleperf cpu-cycles, 250Hz, 20s, 6946 samples, 0 lost; not used as power evidence",
+  "rawDirectories": [
+    "captures/power-saving/card-render-run1",
+    "captures/power-saving/card-render-run2"
+  ],
+  "images": [
+    {
+      "run": 1,
+      "path": "phase-0-A/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "run": 1,
+      "path": "phase-0-A/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "run": 1,
+      "path": "phase-0-A/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "run": 1,
+      "path": "phase-1-B/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "run": 1,
+      "path": "phase-1-B/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "run": 1,
+      "path": "phase-1-B/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "run": 1,
+      "path": "phase-2-B/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "run": 1,
+      "path": "phase-2-B/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "run": 1,
+      "path": "phase-2-B/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "run": 1,
+      "path": "phase-3-A/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "run": 1,
+      "path": "phase-3-A/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "run": 1,
+      "path": "phase-3-A/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "run": 1,
+      "path": "phase-4-B/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "run": 1,
+      "path": "phase-4-B/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "run": 1,
+      "path": "phase-4-B/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "run": 1,
+      "path": "phase-5-A/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "run": 1,
+      "path": "phase-5-A/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "run": 1,
+      "path": "phase-5-A/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "run": 1,
+      "path": "phase-6-A/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "run": 1,
+      "path": "phase-6-A/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "run": 1,
+      "path": "phase-6-A/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "run": 1,
+      "path": "phase-7-B/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "run": 1,
+      "path": "phase-7-B/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "run": 1,
+      "path": "phase-7-B/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "run": 2,
+      "path": "phase-0-B/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "run": 2,
+      "path": "phase-0-B/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "run": 2,
+      "path": "phase-0-B/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "run": 2,
+      "path": "phase-1-A/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "run": 2,
+      "path": "phase-1-A/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "run": 2,
+      "path": "phase-1-A/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "run": 2,
+      "path": "phase-2-A/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "run": 2,
+      "path": "phase-2-A/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "run": 2,
+      "path": "phase-2-A/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "run": 2,
+      "path": "phase-3-B/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "run": 2,
+      "path": "phase-3-B/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "run": 2,
+      "path": "phase-3-B/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "run": 2,
+      "path": "phase-4-A/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "run": 2,
+      "path": "phase-4-A/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "run": 2,
+      "path": "phase-4-A/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "run": 2,
+      "path": "phase-5-B/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "run": 2,
+      "path": "phase-5-B/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "run": 2,
+      "path": "phase-5-B/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "run": 2,
+      "path": "phase-6-B/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "run": 2,
+      "path": "phase-6-B/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "run": 2,
+      "path": "phase-6-B/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    },
+    {
+      "run": 2,
+      "path": "phase-7-A/offset-0.png",
+      "sha256": "06E312F4019CFF5BAD6F17046E29AC990F95DD70B63D362A86D52C6EA71B1253"
+    },
+    {
+      "run": 2,
+      "path": "phase-7-A/offset-137.png",
+      "sha256": "689533943DAB407E4883C0622EFC002DF69D1248EC83598E21E6F07B7B999B33"
+    },
+    {
+      "run": 2,
+      "path": "phase-7-A/offset-559.png",
+      "sha256": "5364BBA1911171C6D67D9E62B3B534EDAE6112B71E109A8E47D20746E8D7BF11"
+    }
+  ],
+  "serialization": "UTF-8 LF; original numeric values unchanged",
+  "hostValidation": {
+    "installedApkHashMatched": true,
+    "prismTouchGlowAndCardsLoaded": true,
+    "scrollAndMyHomeReturnChecked": true,
+    "inputSuspend": 0,
+    "batteryStatus": "Discharging",
+    "batteryCapacity": 75,
+    "governorsUnchanged": true,
+    "gradleDaemonsRemaining": 0
+  }
+}

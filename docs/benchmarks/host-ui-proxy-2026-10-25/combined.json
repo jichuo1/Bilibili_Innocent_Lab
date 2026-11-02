@@ -1,0 +1,57 @@
+{
+  "pairs": [
+    {
+      "pair": 0,
+      "wattsSaved": 0.12567240729325002,
+      "percentSaved": 3.1575345418671574
+    },
+    {
+      "pair": 1,
+      "wattsSaved": 0.0757571740086398,
+      "percentSaved": 1.9710598593348116
+    },
+    {
+      "pair": 2,
+      "wattsSaved": -0.08000134361334865,
+      "percentSaved": -2.1294317666398
+    },
+    {
+      "pair": 3,
+      "wattsSaved": 0.1217590853131747,
+      "percentSaved": 3.1200568892510105
+    },
+    {
+      "pair": 0,
+      "wattsSaved": 0.041103811793167466,
+      "percentSaved": 1.0831209549630683
+    },
+    {
+      "pair": 1,
+      "wattsSaved": 0.10260087630737713,
+      "percentSaved": 2.6768768573364965
+    },
+    {
+      "pair": 2,
+      "wattsSaved": 0.18246343199620219,
+      "percentSaved": 4.628701299226967
+    },
+    {
+      "pair": 3,
+      "wattsSaved": -0.027046771778690193,
+      "percentSaved": -0.7026808269039897
+    }
+  ],
+  "baselineWatts": 3.862729419182937,
+  "candidateWatts": 3.7949408352679654,
+  "meanWattsSaved": 0.06778858391497156,
+  "percentOfMeanPowerSaved": 1.754940006367589,
+  "paired95CiWatts": [
+    -0.004431203524530802,
+    0.14000837135447392
+  ],
+  "positivePairs": 6,
+  "negativePairs": 2,
+  "baselineMainCpuMs": 29754.000985,
+  "candidateMainCpuMs": 26080.005942375,
+  "statisticallyPositiveInThisMeasurement": false
+}
