@@ -11,6 +11,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.receiver.RoamingOpenReceiver
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.CrossAppBroadcastCompat
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 
 /**
@@ -58,42 +59,45 @@ internal object HostRuntimeProbeResponder {
         }
     }
 
+    // 动态接收器跑在宿主主线程，不在框架保护范围内：逃逸异常会直接带走宿主进程。
     private fun probeReceiver() = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action != HostRuntimeProbeContract.ACTION_PROBE) return
-            val appContext = context.applicationContext ?: context
-            if (AndroidVersion.isAtLeast(AndroidVersion.U) &&
-                sentFromPackage != HostRuntimeProbeContract.MODULE_PACKAGE
-            ) {
-                log("[BIL] 模块存活探测请求被拒：发送者是 ${sentFromPackage ?: "null"}")
-                return
+            HostThreadGuard.run("host.runtime_probe.receive") {
+                if (intent.action != HostRuntimeProbeContract.ACTION_PROBE) return@run
+                val appContext = context.applicationContext ?: context
+                if (AndroidVersion.isAtLeast(AndroidVersion.U) &&
+                    sentFromPackage != HostRuntimeProbeContract.MODULE_PACKAGE
+                ) {
+                    log("[BIL] 模块存活探测请求被拒：发送者是 ${sentFromPackage ?: "null"}")
+                    return@run
+                }
+                val nonce = intent.getStringExtra(HostRuntimeProbeContract.EXTRA_NONCE).orEmpty()
+                if (!HostRuntimeProbeContract.isValidNonce(nonce)) {
+                    log("[BIL] 模块存活探测请求被拒：nonce 非法")
+                    return@run
+                }
+                val hostProof = hostProof(appContext)
+                if (hostProof == null) {
+                    log("[BIL] 模块存活探测请求被拒：身份证明创建失败")
+                    return@run
+                }
+                // 必须用显式组件：RoamingOpenReceiver 的 manifest 过滤器只声明了授权查询 action，
+                // 隐式广播（仅 setPackage）不会被投递。与宿主心跳同一条通道。
+                val reply = Intent(HostRuntimeProbeContract.ACTION_REPLY).apply {
+                    component = ComponentName(
+                        HostRuntimeProbeContract.MODULE_PACKAGE,
+                        RoamingOpenReceiver::class.java.name
+                    )
+                    putExtra(HostRuntimeProbeContract.EXTRA_NONCE, nonce)
+                    putExtra(HostRuntimeProbeContract.EXTRA_HOOKS_INSTALLED, hooksInstalled)
+                    putExtra(HostRuntimeProbeContract.EXTRA_DISABLED_REVISION, disabledRevision)
+                    putExtra(HostRuntimeProbeContract.EXTRA_HOST_PROOF, hostProof)
+                }
+                // 必须走 CrossAppBroadcastCompat：API 34+ 的 sentFromPackage 要求发送方显式共享身份。
+                runCatching { CrossAppBroadcastCompat.sendBroadcast(appContext, reply) }
+                    .onSuccess { log("[BIL] 模块存活探测已回复(hooksInstalled=$hooksInstalled)") }
+                    .onFailure { log("[BIL] 模块存活探测回执发送失败: $it") }
             }
-            val nonce = intent.getStringExtra(HostRuntimeProbeContract.EXTRA_NONCE).orEmpty()
-            if (!HostRuntimeProbeContract.isValidNonce(nonce)) {
-                log("[BIL] 模块存活探测请求被拒：nonce 非法")
-                return
-            }
-            val hostProof = hostProof(appContext)
-            if (hostProof == null) {
-                log("[BIL] 模块存活探测请求被拒：身份证明创建失败")
-                return
-            }
-            // 必须用显式组件：RoamingOpenReceiver 的 manifest 过滤器只声明了授权查询 action，
-            // 隐式广播（仅 setPackage）不会被投递。与宿主心跳同一条通道。
-            val reply = Intent(HostRuntimeProbeContract.ACTION_REPLY).apply {
-                component = ComponentName(
-                    HostRuntimeProbeContract.MODULE_PACKAGE,
-                    RoamingOpenReceiver::class.java.name
-                )
-                putExtra(HostRuntimeProbeContract.EXTRA_NONCE, nonce)
-                putExtra(HostRuntimeProbeContract.EXTRA_HOOKS_INSTALLED, hooksInstalled)
-                putExtra(HostRuntimeProbeContract.EXTRA_DISABLED_REVISION, disabledRevision)
-                putExtra(HostRuntimeProbeContract.EXTRA_HOST_PROOF, hostProof)
-            }
-            // 必须走 CrossAppBroadcastCompat：API 34+ 的 sentFromPackage 要求发送方显式共享身份。
-            runCatching { CrossAppBroadcastCompat.sendBroadcast(appContext, reply) }
-                .onSuccess { log("[BIL] 模块存活探测已回复(hooksInstalled=$hooksInstalled)") }
-                .onFailure { log("[BIL] 模块存活探测回执发送失败: $it") }
         }
     }
 

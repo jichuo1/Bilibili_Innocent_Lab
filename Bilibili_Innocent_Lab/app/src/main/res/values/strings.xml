@@ -438,7 +438,7 @@
     <string name="video_relate_matching_enhancement">Enhanced filter matching</string>
     <string name="video_relate_matching_enhancement_tip">Uses structured recommendation reasons as additional evidence for commercial and special promotions. It does not match ordinary titles or descriptions.</string>
     <string name="video_relate_strong_mode">Strong mode</string>
-    <string name="video_relate_strong_mode_tip">Blocks unknown types, missing or unreadable reasons, like-count recommendations, “Everyone is watching” and “Try now” prompts, and cards with structured ad-feedback menu evidence. It may also hide some ordinary recommendations.</string>
+    <string name="video_relate_strong_mode_tip">Blocks unknown types, missing or unreadable reasons, like-count recommendations, “Everyone is watching” and “Try now” prompts. It may also hide some ordinary recommendations. The three-dot feedback menu is not treated as ad evidence, since ordinary videos carry it too.</string>
     <string name="video_relate_reason_filter">Filter videos by recommendation reason</string>
     <string name="video_relate_reason_filter_tip">Applies your keywords only to structured recommendation reasons. Missing reason fields are kept.</string>
     <string name="video_relate_reason_filter_keywords">Recommendation reason keywords</string>

@@ -14,6 +14,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexKitAssistEngin
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationNative
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.CrossAppBroadcastCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsQueryContract
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.getPackageInfoOrNull
 import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import java.util.UUID
@@ -63,47 +64,50 @@ internal object NPatchProcessDiagnostics {
         try {
             ContextCompat.registerReceiver(app, object : BroadcastReceiver() {
                 override fun onReceive(context: Context, intent: Intent) {
-                    if (com.Bilibili_Innocent_Lab.xposedmodule.runtime.StartupTrace.enabled &&
-                        intent.action == NPatchStartupTraceQuery.action) {
-                        if (!isOrderedBroadcast || intent.getIntExtra("v", 0) != 1) return
-                        if (AndroidVersion.isAtLeast(AndroidVersion.U) && sentFromPackage != BuildConfig.APPLICATION_ID) return
-                        val nonce = intent.getStringExtra("nonce").orEmpty()
-                        if (!HostRuntimeDiagnosticsQueryContract.isValidNonce(nonce)) return
-                        runCatching { current?.let { NPatchStartupTraceQuery.respond(this, it, nonce) } }
-                        return
-                    }
-                    if (intent.action != action || (!isOrderedBroadcast && !intent.getBooleanExtra("testCrash", false)) ||
-                        intent.getIntExtra("v", 0) != PROTOCOL) return
-                    if (AndroidVersion.isAtLeast(AndroidVersion.U) && sentFromPackage != BuildConfig.APPLICATION_ID) return
-                    val nonce = intent.getStringExtra("nonce").orEmpty()
-                    if (!HostRuntimeDiagnosticsQueryContract.isValidNonce(nonce)) return
-                    runCatching { NPatchCrashHandler.install(crashStore) }
-                    if (intent.getBooleanExtra("testCrash", false)) {
-                        if (BuildConfig.DEBUG && processName == NoRootSupportState.TARGET_PACKAGE) {
-                            // Explicit DEBUG-only diagnostic action; deliberately outside HostThreadGuard.
-                            Handler(Looper.getMainLooper()).postDelayed({
-                                NPatchCrashHandler.install(crashStore)
-                                error("BIL controlled diagnostic crash")
-                            }, 300L)
+                    // 这个接收器跑在独立 HandlerThread 上：任何逃逸异常都会带走整个宿主进程，Intent 解析也要在守卫内。
+                    HostThreadGuard.run("npatch.process_diagnostics.receive") {
+                        if (com.Bilibili_Innocent_Lab.xposedmodule.runtime.StartupTrace.enabled &&
+                            intent.action == NPatchStartupTraceQuery.action) {
+                            if (!isOrderedBroadcast || intent.getIntExtra("v", 0) != 1) return@run
+                            if (AndroidVersion.isAtLeast(AndroidVersion.U) && sentFromPackage != BuildConfig.APPLICATION_ID) return@run
+                            val nonce = intent.getStringExtra("nonce").orEmpty()
+                            if (!HostRuntimeDiagnosticsQueryContract.isValidNonce(nonce)) return@run
+                            runCatching { current?.let { NPatchStartupTraceQuery.respond(this, it, nonce) } }
+                            return@run
                         }
-                        return
-                    }
-                    runCatching {
-                        val extras = getResultExtras(true)
-                        val rows = NPatchProcessCodec.decode(extras.getString("rows") ?: "[]") ?: return
-                        val row = current?.copy(dexKitState = DexKitAssistEngine.nativeAvailability(),
-                            frameNativeState = FrameInterpolationNative.status.name,
-                            startups = startup.snapshot(),
-                            guardedFailures = com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard.failureCounts()
-                                .values.sum().coerceIn(0L, 1_000_000_000L),
-                            support = crashStore.read().let { evidence ->
-                                if (intent.getBooleanExtra("media", false) && processName == NoRootSupportState.TARGET_PACKAGE)
-                                    NPatchCrashStore.readMedia(app, evidence) else evidence
-                            }) ?: return
-                        if (rows.size >= NPatchProcessCodec.MAX_PROCESSES || rows.any { it.processName == row.processName }) return
-                        extras.putString("nonce", nonce)
-                        extras.putString("rows", NPatchProcessCodec.encode(rows + row))
-                        setResultExtras(extras)
+                        if (intent.action != action || (!isOrderedBroadcast && !intent.getBooleanExtra("testCrash", false)) ||
+                            intent.getIntExtra("v", 0) != PROTOCOL) return@run
+                        if (AndroidVersion.isAtLeast(AndroidVersion.U) && sentFromPackage != BuildConfig.APPLICATION_ID) return@run
+                        val nonce = intent.getStringExtra("nonce").orEmpty()
+                        if (!HostRuntimeDiagnosticsQueryContract.isValidNonce(nonce)) return@run
+                        runCatching { NPatchCrashHandler.install(crashStore) }
+                        if (intent.getBooleanExtra("testCrash", false)) {
+                            if (BuildConfig.DEBUG && processName == NoRootSupportState.TARGET_PACKAGE) {
+                                // Explicit DEBUG-only diagnostic action; deliberately outside HostThreadGuard.
+                                Handler(Looper.getMainLooper()).postDelayed({
+                                    NPatchCrashHandler.install(crashStore)
+                                    error("BIL controlled diagnostic crash")
+                                }, 300L)
+                            }
+                            return@run
+                        }
+                        runCatching {
+                            val extras = getResultExtras(true)
+                            val rows = NPatchProcessCodec.decode(extras.getString("rows") ?: "[]") ?: return@run
+                            val row = current?.copy(dexKitState = DexKitAssistEngine.nativeAvailability(),
+                                frameNativeState = FrameInterpolationNative.status.name,
+                                startups = startup.snapshot(),
+                                guardedFailures = com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard.failureCounts()
+                                    .values.sum().coerceIn(0L, 1_000_000_000L),
+                                support = crashStore.read().let { evidence ->
+                                    if (intent.getBooleanExtra("media", false) && processName == NoRootSupportState.TARGET_PACKAGE)
+                                        NPatchCrashStore.readMedia(app, evidence) else evidence
+                                }) ?: return@run
+                            if (rows.size >= NPatchProcessCodec.MAX_PROCESSES || rows.any { it.processName == row.processName }) return@run
+                            extras.putString("nonce", nonce)
+                            extras.putString("rows", NPatchProcessCodec.encode(rows + row))
+                            setResultExtras(extras)
+                        }
                     }
                 }
             }, IntentFilter(action).apply {
