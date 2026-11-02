@@ -5,7 +5,7 @@
     <string name="ai_insight_help">實驗功能，修改後重新啟動嗶哩嗶哩。詳情頁提供影片總結、提問、評論話題、AI 章節四個可收起入口，隨簡介捲動；點擊後才生成，各項結果單獨顯示。使用下方首個文字生成模型，傳送目前分 P 的完整字幕、標題、簡介及已讀取的前 12 則公開評論和彈幕；評論話題會主動讀取評論清單，使用最多 40 則已讀取評論，不能代表整個評論區。無字幕時僅依據中繼資料，成功結果本地快取。原生章節需字幕、至少 3 分鐘且沒有官方章節。</string>
     <string name="app_name">Bilibili_Innocent_Lab</string>
     <string name="xposed_desc">讓 Bilibili 介面更加純淨</string>
-    <string name="about_module">此模組使用 libxposed Modern API 101/102 建構。\n瞭解更多 https://github.com/libxposed/api</string>
+    <string name="about_module">此模組使用 libxposed Modern API 102 建構。\n瞭解更多 https://github.com/libxposed/api</string>
     <string name="about_module_extension">此 Xposed 模組由 MeguvizRef 驅動。\n瞭解更多 https://github.com/jichuo1/MeguvizRef</string>
     <string name="player_codec_preference">優先影片編碼</string>
     <string name="player_codec_preference_current">目前：%1$s</string>
@@ -49,7 +49,7 @@
     <string name="module_activation_not_running_title">模組未生效</string>
     <string name="module_activation_not_running">已啟動嗶哩嗶哩，但模組沒有回應。請開啟 NPatch Manager 確認模組已啟用且嗶哩嗶哩在作用域內，然後強制停止並重新開啟嗶哩嗶哩。</string>
     <string name="module_activation_service_unavailable">尚未連接相容的 Xposed 框架服務</string>
-    <string name="module_activation_framework_unsupported">目前框架不支援所需的 Modern API 101+ 服務</string>
+    <string name="module_activation_framework_unsupported">目前框架不支援所需的 Modern API 102+ 服務</string>
     <string name="module_activation_service_unavailable_secondary_user">目前 Android 使用者 %1$d 下沒有框架服務；請在框架管理器中為該使用者啟用本模組。</string>
     <string name="module_activation_user_space_mismatch">模組在使用者 %1$d，嗶哩嗶哩在使用者 %2$d。</string>
     <string name="display_settings">顯示設定</string>
@@ -68,15 +68,15 @@
     <string name="settings_ui_compatibility_message">介面執行階段元件未能正確初始化。您的條款決定與模組設定均未被變更。請重新安裝本版本的完整建置後再次開啟模組；若問題持續，請匯出 LSPosed 日誌後回報。</string>
     <string name="user_terms_save_failed">無法儲存您的決定，請重試。</string>
     <string name="user_terms_need_framework_enable">尚未連接相容的 Xposed 框架服務。請確認本模組已在目前 Android 使用者或分身空間中啟用並勾選作用域，然後返回重試。</string>
-    <string name="user_terms_need_api102">目前框架不支援遠端設定同步（需要 Modern API 101+ Remote Preferences），請升級相容框架後重試。</string>
-    <string name="user_terms_need_api102_named">已連接 %1$s（API %2$d），但其不支援所需的 Modern API 101+ Remote Preferences 能力。</string>
+    <string name="user_terms_need_api102">目前框架不支援遠端設定同步（需要 Modern API 102+ Remote Preferences），請升級相容框架後重試。</string>
+    <string name="user_terms_need_api102_named">已連接 %1$s（API %2$d），但其不支援所需的 Modern API 102+ Remote Preferences 能力。</string>
     <string name="user_terms_publish_failed">框架已經連接，但設定提交或校驗失敗。模組功能仍維持關閉，請重試。</string>
     <string name="user_terms_open_framework_manager">開啟框架管理器</string>
     <string name="user_terms_pending_title">已記錄您的同意</string>
     <string name="user_terms_pending_message">正在等待相容的 Xposed 框架完成安全同步。同步完成前，模組設定與 Hook 功能均不會啟用，您不需要重新閱讀或再次同意。</string>
     <string name="user_terms_pending_waiting">目前狀態：尚未連接框架服務。請檢查目前 Android 使用者或分身空間中的模組啟用狀態與作用域；連接後將自動繼續。</string>
     <string name="user_terms_pending_syncing">目前狀態：正在發佈並完整校驗 Modern 設定…</string>
-    <string name="user_terms_pending_unsupported">目前狀態：已連接 %1$s（API %2$d），但不具備所需的 Modern API 101+ Remote Preferences 能力。</string>
+    <string name="user_terms_pending_unsupported">目前狀態：已連接 %1$s（API %2$d），但不具備所需的 Modern API 102+ Remote Preferences 能力。</string>
     <string name="user_terms_pending_failed">目前狀態：設定同步尚未完成，模組功能仍維持關閉。您可以立即重試。</string>
     <string name="user_terms_pending_local_failed">目前狀態：本機最終狀態儲存失敗，未發放新的啟動授權。請檢查儲存狀態，重新啟動模組後重試。</string>
     <string name="user_terms_retry_sync">立即重試</string>

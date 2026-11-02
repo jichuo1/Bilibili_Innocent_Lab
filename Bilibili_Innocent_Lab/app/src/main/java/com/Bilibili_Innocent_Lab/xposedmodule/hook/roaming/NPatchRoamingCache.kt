@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.RoamingCompatHook
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookHandle
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookRuntime
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
@@ -72,7 +73,7 @@ internal object NPatchRoamingCache {
             status = RoamingCacheStatus.UNAVAILABLE; return true
         }
         val claimed = AtomicBoolean(false)
-        var handle: XposedInterface.HookHandle? = null
+        var handle: ModernHookHandle? = null
         observing = true
         handle = runtime.install("roaming:peer-loader", method) {
             after {

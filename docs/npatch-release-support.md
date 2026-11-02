@@ -23,7 +23,7 @@
 | Loader | 833 / API 102，普通 entry-hook，签名绕过等级 2，不启用 injectdex |
 | 固定修复 | Java Manager Binder 修复及 native TLS/linker 锁修复；由工具核对双 ABI 内容哈希 |
 | 配置 | 独立设置 App 的当前直连配置、许可与回执；接受条款并显式开启免 Root；不要求开启通信兼容模式 |
-| 模块 API | Modern API min 101 / target 102，固定作用域，不启用 autoHotReload |
+| 模块 API | Modern API min 102 / target 102（MeguvizHook API 102 后端），固定作用域，不启用 autoHotReload |
 | 签名 | 测试宿主使用 NPatch 测试证书；用户证书的同证书产物流程另经离线测试，不外推其账号/第三方应用兼容性 |
 
 本轮 arm64 真机运行，x86_64 loader 仅交叉编译并核对字节。其它 Android、ROM、宿主版本、split APK、签名等级、injectdex 和第三方模块共存组合保持未验证。最低系统要求与 Manager 的最低版本是代码准入条件，不表示所有满足最低要求的组合都已实测。补丁档案未知时不猜测当前模式，也不把 Manager 已安装等同于 Manager 模式。
@@ -77,6 +77,8 @@ embed 将**同一份已签名模块 APK**放进宿主，另行安装并保留这
 833 embed 不提供 Manager 的动态作用域管理；更新内嵌模块必须重新修补宿主。固定源码 `7723mod/NPatch` 的 `a9dc461945fbe96caf22acf80e67a72d68a6d4d4` 中，`patch/src/main/java/top/nkbe/patch/NPatch.java` 明确拒绝 `!useManager && sigbypassLevel > SIGBYPASS_HIGH`，其中 HIGH 为 2；这不能通过设置页开关绕过。源码归档及哈希固定在[构建输入清单](../scripts/npatch/native/sources-833.json)。当前普通 entry-hook 已覆盖实测进程，没有启用 injectdex 的必要证据。
 
 模块在 [module.prop](../Bilibili_Innocent_Lab/app/src/main/resources/META-INF/xposed/module.prop) 声明 `autoHotReload=false`，功能 Hook 在 package-ready 生命周期注册。不能把 Manager 同步配置或上游 hot-reload 回调等同于卸载并重建现有 Hook；代码更新和需要重装 Hook 的设置仍通过冷启动生效。
+
+Hook 层建立在 MeguvizHook 1.0.0 的 API 102 后端上，框架低于 API 102 时模块不加载（不再支持 API 101）。`HookEntry.onHotReloading` 明确返回 `false`：接管旧 Hook 需要旧代完整拆除、新代完整重建，这一整套没有在真实框架上验证，宁可拒绝（含 Manager 的手动重载）。回调调度默认走直接拦截器，原因与实测见[调度引擎基准](benchmarks/hook-dispatch-engine-2026-11-03/README.md)。
 
 native 能力按自身 ABI 与运行环境独立判定。原版 DEX/DexKit 通道已有真实 ART 查询证据；不把它外推为插帧模型推理或其它 ABI 全部通过。缺少某项可选 native 能力时按原有能力边界降级，不据此裁掉整个 embed 模式。
 

@@ -2335,6 +2335,19 @@ class HookEntry : XposedModule() {
         frameworkLog("[BIL] Modern 模块入口已加载(api=$apiVersion, process=${param.processName})")
     }
 
+    /**
+     * 明确拒绝框架发起的热重载（含 NPatch 管理器的手动重载），改由冷启动生效。
+     *
+     * 接管旧 Hook 需要新旧两代各自完整的拆除与重建：旧代要停掉自己的线程、广播接收器、监听器和
+     * 缓存，新代还要在没有 onModuleLoaded / onPackageReady 重放的情况下重新引导全部功能安装器。
+     * 这一整套没有在真实框架上验证过，错误的接管会留下重复或悬空的回调，所以宁可拒绝。
+     * 稳定的 Hook 身份（见 `ModernHookIds`）与代次已就绪，将来补齐拆除后即可接入 SDK 的接管桥。
+     */
+    override fun onHotReloading(param: XposedModuleInterface.HotReloadingParam): Boolean {
+        frameworkLog("[BIL] 已拒绝热重载：模块代码更新需要重启宿主后生效")
+        return false
+    }
+
     override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
         if (param.packageName == "android") return
         if (param.packageName != TARGET_PACKAGE) {
@@ -2353,6 +2366,8 @@ class HookEntry : XposedModule() {
     }
 
     private fun installTargetHooks(biliClassLoader: ClassLoader, processName: String) {
+            // Hook 环境把进程与宿主类加载器当作身份固定下来，必须早于任何一次安装登记。
+            modernRuntime.attachHost(processName, biliClassLoader)
             // AndroidX 随模块与宿主各自加载，不能用模块 APK 中的同名 Class 识别或 Hook 宿主。
             hostRecyclerViewClass = KavaMemberLookup.classOrNull(
                 biliClassLoader, "androidx.recyclerview.widget.RecyclerView"
@@ -2705,9 +2720,11 @@ class HookEntry : XposedModule() {
                     )
                 },
                 runtimeEvidence = if (processName == TARGET_PACKAGE) {
-                    { featureId, stage, delta ->
+                    HostRuntimeDiagnosticsBridge.hookFaults = modernRuntime::drainFaults
+                    val sink: (String, FeatureRuntimeStage, Int) -> Unit = { featureId, stage, delta ->
                         HostRuntimeDiagnosticsBridge.record(featureId, stage, delta)
                     }
+                    sink
                 } else {
                     null
                 },

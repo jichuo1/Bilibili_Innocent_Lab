@@ -5,6 +5,8 @@ libxposed = "102.0.0"
 meguviz-ref = "1.0.0"
 meguviz-ui = "1.0.0"
 meguviz-android = "1.1.0"
+# MeguvizHook (Maven Central, io.github.jichuo1.meguviz.hook)：一个 APK 只选一个后端，这里固定 API 102。
+meguviz-hook = "1.0.0"
 dexkit = "2.3.0"
 drawabletoolbox = "1.0.7"
 m3color = "2026.1"
@@ -44,6 +46,10 @@ libxposed-service = { group = "io.github.libxposed", name = "service", version.r
 meguviz-ref-core = { group = "io.github.jichuo1.meguviz", name = "meguviz-ref-core", version.ref = "meguviz-ref" }
 meguviz-ui-core = { group = "io.github.jichuo1.meguviz", name = "meguviz-ui-core", version.ref = "meguviz-ui" }
 meguviz-ui-prewarm = { group = "io.github.jichuo1.meguviz", name = "meguviz-ui-prewarm", version.ref = "meguviz-ui" }
+meguviz-hook-api = { group = "io.github.jichuo1.meguviz.hook", name = "hook-api", version.ref = "meguviz-hook" }
+meguviz-hook-core = { group = "io.github.jichuo1.meguviz.hook", name = "hook-core", version.ref = "meguviz-hook" }
+meguviz-hook-backend-libxposed = { group = "io.github.jichuo1.meguviz.hook", name = "backend-libxposed-102", version.ref = "meguviz-hook" }
+meguviz-hook-testing = { group = "io.github.jichuo1.meguviz.hook", name = "hook-testing", version.ref = "meguviz-hook" }
 meguviz-android-runtime = { group = "io.github.jichuo1.meguviz", name = "meguviz-android-runtime", version.ref = "meguviz-android" }
 meguviz-android-window = { group = "io.github.jichuo1.meguviz", name = "meguviz-android-window", version.ref = "meguviz-android" }
 dexkit = { group = "org.luckypray", name = "dexkit", version.ref = "dexkit" }
