@@ -183,8 +183,8 @@
 ## 6. 已知问题与剩余工作（按重要性）
 
 1. **星标弹窗**：38 版结构上都改用宿主的 `FavoriteDialog`（第 4.3 节；实机只有 9.0.0）。官方点星标的流程是先一键收进默认夹并弹提示条，弹窗只在长按或提示条里打开；模块这里点星标直接开弹窗，没有一键收藏和那条提示条。8.84 到 8.96 新建收藏夹后弹窗不自动刷新。
-2. **空间页关注按钮已改为本地（`3c692894`，9.0.0 实机）**。空间页是 H5（`LocalAuthorSpaceActivity`，38 版都有，q68）：点关注后 H5 自己发请求（无痕封口当成功），再经 `SpaceRelationWrapper` 调宿主的全局关注广播 `FollowStateManager.notify(mid, followed, except)`；模块钩这个广播同步本地库。H5 的初始关系来自原生 `BiliCall` 取的 `/x/v2/space`，对本地已关注的人改写成 `relation=1`、`card.relation.status=2`。试过在 H5 首次报告后用广播把本地状态推回去：宿主那边收到了（包装类的关系变成 FOLLOW_HIM），但 H5 按钮不变，延后到 4 秒也一样，所以放弃推送，只改响应。仍开放：视频页的关注按钮重进后大概率仍按服务端状态显示；视频页关注弹的是模块的「已保存到本地」，宿主原本提示「关注成功」。
-3. **「我的」页的关注数字**：仍显示 0。数字在 `AccountMineV2.following`（8.92 起字段名都是 `s`，q65）。2026-10-31 试过在 `BiliCall` 转换处改 `/x/v2/account/mine` 的 `following`，但 9.0.0 无痕下这个请求根本没经过转换点（游客不请求这份数据，页面用默认值），已撤回。要做只能在页面模型或 Compose 层改。
+2. **空间页关注按钮**：9.0.0 已改为本地（`3c692894`）；9.16.1 的空间同步组件安装失败，关注关系没有可靠同步，见第 15 节。空间页是 H5（`LocalAuthorSpaceActivity`，38 版都有，q68）：点关注后 H5 自己发请求（无痕封口当成功），再经 `SpaceRelationWrapper` 调宿主的全局关注广播 `FollowStateManager.notify(mid, followed, except)`；模块钩这个广播同步本地库。H5 的初始关系来自原生 `BiliCall` 取的 `/x/v2/space`，对本地已关注的人改写成 `relation=1`、`card.relation.status=2`。试过在 H5 首次报告后用广播把本地状态推回去：宿主那边收到了（包装类的关系变成 FOLLOW_HIM），但 H5 按钮不变，延后到 4 秒也一样，所以放弃推送，只改响应。仍开放：视频页的关注按钮重进后大概率仍按服务端状态显示；视频页关注弹的是模块的「已保存到本地」，宿主原本提示「关注成功」。
+3. **「我的」页的关注数字**：9.0.0 和 9.16.1 已在无痕会话中随本地关注数更新，见第 15 节。此前的问题是仍显示 0。数字在 `AccountMineV2.following`（8.92 起字段名都是 `s`，q65）。2026-10-31 试过在 `BiliCall` 转换处改 `/x/v2/account/mine` 的 `following`，但 9.0.0 无痕下这个请求根本没经过转换点（游客不请求这份数据，页面用默认值），已撤回；后续改在页面状态层处理。
 4. 引导页：8.97 起 26 个 V2 版本的首启等待门都能找到（q70、q73，`56060759`）。8.84 到 8.96 的门在 `ApiManagerKt` 里与另外 3 个静态 `()Z` 并列，按形状分不出，仍靠旧插件那一层，没验证。
 5. 批次 2 的多项（登录弹窗、一键登录引导、登录 toast、画质钳制、海外强制登录）只有「已注册」证据，没有真机触发过。
 6. 评论游客上限、动态页底部登录条：9.x 上干净跳过，没做。
@@ -218,7 +218,7 @@
 - 列表短路：`GuestNativeListHttpHooks`（`BiliCall.execute`，另含回退缓存屏蔽、`findFragmentByUrl`、文件夹路由、详情页归属）、`GuestIgnetLibraryResponses`（Ktor/ignet）。
 - 入口与路由：`GuestMineMenuHooks`（菜单项 `needLogin`）、`GuestFavoritesRouteHooks`（收藏页与卡片，`routeTo` 两个重载）、`GuestMineOverlayHooks`、`GuestLibraryHostHooks`。
 - 收藏写入：`GuestVideoFavoriteHooks`、`GuestFavoriteFolderPicker`、`GuestStoryStar`、`GuestPageFavorite`、`GuestNativeFavoriteHooks`（仅 8.90.2）、`GuestNativeFolderEditorHooks`。
-- 其他：`GuestNativeHistoryHooks`（含 8.97 起的横幅守卫）、`GuestFollowListPage` 与 `GuestMineFollowEntry`（8.92 起的本地关注列表和入口）、`GuestSpaceFollowSync`（关注广播同步与空间页响应）、`GuestNativeWatchLaterHooks`、`GuestNativeWatchLaterAddHooks`（仅 8.90.2）、`GuestWatchLaterLoginScope`（8.97 起的稍后再看添加）、`GuestNativeFollowListHooks`、`GuestPlaybackHooks`、`GuestOnboardingHooks`、`PrivacyStructuralResolver`（按形状找混淆成员，歧义不猜）。
+- 其他：`GuestNativeHistoryHooks`（含 8.97 起的横幅守卫）、`GuestFollowListPage` 与 `GuestMineFollowEntry`（8.92 起的本地关注列表和入口）、`GuestSpaceFollowSync`（关注广播同步与空间页响应）、`GuestMineFollowCount`（「我的」页本地关注数）、`GuestNativeWatchLaterHooks`、`GuestNativeWatchLaterAddHooks`（仅 8.90.2）、`GuestWatchLaterLoginScope`（8.97 起的稍后再看添加）、`GuestNativeFollowListHooks`、`GuestPlaybackHooks`、`GuestOnboardingHooks`、`PrivacyStructuralResolver`（按形状找混淆成员，歧义不猜）。
 
 宿主类与成员的查找统一走 `runtime/KavaMemberLookup.kt`。
 
@@ -257,7 +257,7 @@
 ### 关注数后续定位
 
 - 9.0.1 归档样本 `9010300` 的只读查询 `3c7b052c64ba401f9049cc0f1b0d0770` 显示 `AccountMineV2.s` 被 `mineV2.ui.A0.b` 和 `mineV3.ui.I.b` 直接读取；9.16.1 归档样本查询 `a698cc3cefee4f759bb230ec558e23d5` 显示由 `mineV2.ui.B0.b` 直接读取。这些均为混淆方法，归档 APK 与第 10 节实机 APK 的字节不同。
-- 后续需要定位 Compose 渲染入口并验证本地关注变化如何触发重组；单纯修改不可变模型字段不能证明页面会刷新，也不应为了数字而猜其他 long 字段。此项仍未实现。
+- 后续需要定位 Compose 渲染入口并验证本地关注变化如何触发重组；单纯修改不可变模型字段不能证明页面会刷新，也不应为了数字而猜其他 long 字段。此项当时尚未实现；后续结果见第 15 节。
 
 ## 12. 2026-11-01：使用宿主配置禁用广播
 
@@ -286,4 +286,15 @@
 - 对此前从手机备份的 9.0.0 arm64 APK 的 `classes21.dex` 做只读定位：`AccountMineV2.s` 的页面读取方包括 `mineV2.ui.A0.b(AccountMineV2, Function1, J, Composer, int)` 和 `mineV3.ui.L.b(...)`。这与 9.0.1 归档样本中 `mineV2.ui.A0.b` 的记录相邻，但不是同一个 APK 的证据。
 - 对 9.0.0 的 `A0` 做单类反编译：`b` 是 `AmountLayout`，分别格式化 `AccountMineV2.r`、`s`、`t` 为动态、关注、粉丝数。其 `shouldExecute` 判定包含 `changedInstance(accountMineV2)`；如果只修改同一个模型的字段，不能据此认为 Compose 会重绘。`A0.m` 接收为空时直接返回，否则调用该 `b`。JADX 报了两个反编译错误，以上具体方法内容已结合 DEX 字段读取指令核对，不把整个类当作无错误源码。
 - 9.0.0 `UserCenterPageKt` 在未登录且 `mineV2.N.a(false)` 为 true 时走另一套 `LoggedOutUserInfo`；`N.a` 在青少年或课堂模式启用时返回 true。该分支的 `LoggedOutAmountItem` 当前画 `-`，并不从 `AccountMineV2.s` 读取。因此仅适配 `A0.b` 不能声称覆盖此分支。
-- 仍未实现关注数修复：需要先验证普通游客页的模型构造、不同版本的结构定位、只影响本地游客态的安全更新方式，以及本地关注变化后真实触发重组；不能直接更改共享的宿主账号模型，或凭格式化调用顺序猜测数值。当前只完成静态定位，没有新增实机结果。
+- 仍未实现关注数修复：需要先验证普通游客页的模型构造、不同版本的结构定位、只影响本地游客态的安全更新方式，以及本地关注变化后真实触发重组；不能直接更改共享的宿主账号模型，或凭格式化调用顺序猜测数值。该阶段只完成静态定位；后续实现和实机结果见第 15 节。
+
+## 15. 2026-11-02：「我的」页本地关注数
+
+- 普通游客页由宿主的 `MutableStateFlow<AccountMineData>` 提供 `AccountMineV2`。模块只对已识别的页面状态流与有效游客会话生效：本地库变化时复制账号和页面状态、替换副本的 `following` 字段并通过 `compareAndSet` 发布；宿主随后写入状态时也应用当前会话的计数。其他字段经逐项校验，原宿主对象保持不变，并发更新失败时最多重试三次。页面状态流使用弱引用，会话刷新或登录后缓存快照失效。
+- 仅在模型复制方法、关注字段及页面状态形状可唯一识别时工作。绑定找不到唯一候选时记录 `guest_mine_follow_count_binding=unavailable`，模型副本无法验证时记录 `guest_mine_follow_count_copy=unavailable`；安装、绑定和应用分别有独立状态键。旧版原有 TextView 路径保留，不据此推断未实测版本的行为。
+- 9.0.0（第 12 节的 arm64 APK，诊断补充前的候选包）：同一无痕进程中，视频页关注后「我的」页由 0 变 1，关注列表有一人；从其空间取消关注后「我的」页回到 0。截图位于忽略目录 `captures/follow-count-900-new-one.png`、`captures/follow-count-900-new-list.png`、`captures/follow-cancel-mine-900.png`。
+- 9.16.1（第 10 节的官方 arm64 APK）：同一无痕进程中，视频页关注后「我的」页由 0 变 1，关注列表有一人；返回视频页再次点击关注按钮后本地关注被移除，「我的」页回到 0。诊断补充后的最终包再次完成 0→1→0；日志记录页面状态流安装与计数应用。截图位于 `captures/follow-916-one.png`、`captures/follow-916-list.png`、`captures/follow-916-video-cancel-mine.png`。
+- 新发现的独立问题：9.16.1 在本地列表已有该作者时进入其空间，按钮仍显示「关注」；在空间页先关注再取消后，空间页提示成功，但本地列表仍保留该作者。重进视频页也显示「关注」，点击后实际移除原有本地关注。因此不能把计数正确等同于这些按钮的关系同步正确，后续需定位该版本的空间与视频页适配。9.0.0 此次空间取消可正确更新本地库。9.16.1 的日志记录 `guest_library_space_follow=missing:IllegalArgumentException`，具体缺失的成员或结构尚未定位。
+- 青少年或课堂模式使用的 `LoggedOutAmountItem` 分支仍显示 `-`，不读取该模型；此次未覆盖。8.90.2 及其他版本此次没有实机测试；真实登录账号、真实会话刷新和长时间使用仍需单独验证。
+- 最终包在 9.16.1 上切换页面、查看历史并执行关注/取消期间，10 次、间隔约 20 秒采样中 PID 15766 不变，Java 堆 PSS 为 86,028–115,920 KiB，未出现本关注数功能的错误或结构不兼容状态；这只是约三分钟窗口的观察。记录在 `captures/follow-count-916-final-soak.log`。
+- 门禁：最终源码的 Debug APK、4249 项 JVM 测试（0 失败、1 跳过）和快速 Lint（0 新错误、261 条警告，3 条现有基线错误过滤）通过；没有重跑完整 Lint。测试后 B 站恢复为 9.16.1，免登录与无痕均关闭，宿主和模块进程停止，临时 IPv4/IPv6 隔离规则均已移除。

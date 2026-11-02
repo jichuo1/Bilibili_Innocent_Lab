@@ -205,6 +205,10 @@ internal class GuestLibraryRuntime(
         collectionObservers += observer
     }
 
+    /** A UI adapter may retain a token, but must revalidate it before publishing a cached snapshot. */
+    internal fun currentToken(): Token? = token()
+    internal fun accepts(token: Token): Boolean = valid(token)
+
     internal fun readCollections(callback: (LocalVirtualLibrary.Collections) -> Unit) {
         val token = token() ?: return
         query(token) { callback(it.collections) }

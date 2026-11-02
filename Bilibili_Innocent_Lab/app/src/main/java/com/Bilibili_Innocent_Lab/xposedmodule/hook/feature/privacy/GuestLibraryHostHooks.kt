@@ -108,6 +108,7 @@ internal class GuestLibraryHostHooks(
                 after { if (!hasThrowable) bind(instance) }
             }
         }
+        attempt("mine_follow_count") { GuestMineFollowCount(library, isGuest).install(env) }
         if (fragment != null) {
             attempt("follow_list") {
                 val getActivity = requireNotNull(Lookup.inheritedMethodOrNull(fragment, "getActivity"))
