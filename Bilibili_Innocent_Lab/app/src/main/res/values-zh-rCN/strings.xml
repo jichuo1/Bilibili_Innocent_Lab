@@ -882,7 +882,7 @@
     <string name="skip_guest_onboarding">跳过基本信息与兴趣引导</string>
     <string name="skip_guest_onboarding_tip">免登录浏览与无痕模式的共用子项，默认关闭。任一模式开启且宿主处于游客态时，跳过自动弹出的性别、年龄与兴趣选择，直接进入首页，不代填或提交资料。修改后重启哔哩哔哩生效。</string>
     <string name="incognito_enabled">无痕模式</string>
-    <string name="incognito_enabled_tip">默认关闭，与免登录浏览独立。修改设置须重启哔哩哔哩生效。使用临时游客会话，关闭并重启后恢复账号；会话内历史、收藏与关注在退出会话或于宿主本地资料库刷新时丢弃。无痕期间内嵌网页禁用联网，避免复用真实账号的网页凭据。在线使用不能保证服务端不留日志。覆盖范围取决于宿主版本，尚未验证所有链路。</string>
+    <string name="incognito_enabled_tip">默认关闭，与免登录浏览独立。修改设置须重启哔哩哔哩生效。使用临时游客会话，关闭并重启后恢复账号；会话内历史、收藏与关注在退出会话或于宿主本地资料库刷新时丢弃。无痕期间内嵌网页禁用联网，避免复用真实账号的网页凭据。部分直播互动和实时更新可能不可用。在线使用不能保证服务端不留日志。覆盖范围取决于宿主版本，尚未验证所有链路。</string>
     <string name="purify_share_content">净化分享链接</string>
     <string name="purify_share_content_tip">开启后，清理分享内容中哔哩哔哩链接的追踪参数，保留分页和时间点；不展开短链、不联网。</string>
     <string name="share_mini_program_direct_link">小程序卡片转为普通链接</string>
