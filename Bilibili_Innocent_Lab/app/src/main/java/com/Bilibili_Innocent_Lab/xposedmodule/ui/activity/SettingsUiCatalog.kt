@@ -114,6 +114,8 @@ internal object SettingsUiCatalog {
         add(HookEntry.PREF_FREE_COPY_AUTO_LIGHT, R.string.free_copy_auto_light, 3, "BEAUTIFICATION", true)
         add(HookEntry.PREF_FREE_COPY_LIGHT_MODE, R.string.free_copy_light_mode, 3, "BEAUTIFICATION", false)
         add(HookEntry.PREF_ROAMING_COMPAT_ENABLED, R.string.roaming_compat_enable, 4, "EXPERIMENTAL", true)
+        add(FeaturePreferences.AI_INSIGHT_ENABLED, R.string.ai_insight_title, 4, "EXPERIMENTAL", true)
+        add(FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS, R.string.ai_insight_auto_chapters, 4, "EXPERIMENTAL", true)
         add(HookEntry.PREF_PREDICTIVE_BACK_ENABLED, R.string.predictive_back_enable, 4, "EXPERIMENTAL", true)
         add(HookEntry.PREF_LOG_ENABLED, R.string.log_capture_enable, 4, "EXPERIMENTAL", true)
         add(FeaturePreferences.PLAYER_UNLOCK_BACKGROUND, R.string.player_unlock_background, 2, "ENHANCEMENT_ADVANCED", true)

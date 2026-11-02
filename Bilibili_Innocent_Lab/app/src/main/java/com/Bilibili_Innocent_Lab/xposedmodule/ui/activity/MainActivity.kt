@@ -2454,13 +2454,6 @@ class MainActivity : SkinnedActivity() {
     /** 弹窗卡片圆角；图标锚点形变的展开端半径必须与它一致，否则末帧会有一次圆角跳变。 */
     private val MODAL_CORNER_RADIUS_DP = 28f
 
-    /** 弹窗背板压暗色（40% 黑）：比 UiTokens.scrim 略重，底页文字不会透过模态面板与内容混排。 */
-    private val MODAL_SCRIM_COLOR = 0x66000000.toInt()
-
-    /** 浅色主题背板：背景色压暗 8% 后 50% 不透明的浅色薄纱。 */
-    private val LIGHT_MODAL_SCRIM_DARKEN = 0.08f
-    private val LIGHT_MODAL_SCRIM_ALPHA = 0x80
-
     /**
      * 弹窗背板颜色随主题。深色沿用 40% 黑；浅色改为浅色薄纱。
      *
@@ -2470,12 +2463,7 @@ class MainActivity : SkinnedActivity() {
      * 形变伸缩的暗区。薄纱把底页文字对比压下来（文字约 50 → 137，背景基本不变），可读性目的
      * 不变，形变过程中未覆盖区域不再变暗。
      */
-    private fun modalScrimColor(): Int =
-        if (ColorUtils.calculateLuminance(monetColors.surface) < 0.5) MODAL_SCRIM_COLOR
-        else ColorUtils.setAlphaComponent(
-            ColorUtils.blendARGB(monetColors.background, Color.BLACK, LIGHT_MODAL_SCRIM_DARKEN),
-            LIGHT_MODAL_SCRIM_ALPHA
-        )
+    private fun modalScrimColor(): Int = SettingsModalScrim.color(monetColors.surface, monetColors.background)
 
     /** 正文起始位移上限（每轴）。够看出"从锚点方向飞来"，又不至于让长卡片整体晃动。 */
     private val CONTENT_TRAVEL_CAP_DP = 20f

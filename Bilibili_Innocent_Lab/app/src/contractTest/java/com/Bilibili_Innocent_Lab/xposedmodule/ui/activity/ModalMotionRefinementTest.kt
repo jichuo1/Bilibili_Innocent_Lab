@@ -352,8 +352,8 @@ class ModalMotionRefinementTest {
     @Test fun lightThemeMorphsNeverFlashDark() {
         val main = source("MainActivity")
         val scrim = main.after("private fun modalScrimColor(): Int =").before("/** 正文起始位移上限")
-        assertTrue(scrim.contains("ColorUtils.calculateLuminance(monetColors.surface) < 0.5) MODAL_SCRIM_COLOR"))
-        assertTrue(scrim.contains("ColorUtils.blendARGB(monetColors.background, Color.BLACK, LIGHT_MODAL_SCRIM_DARKEN)"))
+        assertTrue(scrim.contains("SettingsModalScrim.color(monetColors.surface, monetColors.background)"))
+        assertTrue(source("DiagnosticsActivity").contains("SettingsModalScrim.color(monetColors.surface, monetColors.background)"))
         assertTrue(SettingsUiSource.function("presentSizedModalDialog").contains("setBackgroundColor(modalScrimColor())"))
         val container = SettingsUiSource.function("createModalContainer")
         assertTrue(container.contains("elevation = if (isLiquidSkinEffective || isMaterialYouSkinEffective) 0f else 12 * density"))

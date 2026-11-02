@@ -1597,14 +1597,15 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             }
             requested
         }
-        FeaturePreferences.PLAYER_SUBTITLE_STYLE, FeaturePreferences.PLAYER_AI_SUBTITLE -> {
+        FeaturePreferences.PLAYER_SUBTITLE_STYLE, FeaturePreferences.PLAYER_AI_SUBTITLE,
+        FeaturePreferences.AI_INSIGHT_ENABLED, FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS -> {
             val store = checkNotNull(settingStore)
             val descriptor = store.descriptors.single { it.storageKey == storageKey }
             var savedChecked = store.state(descriptor.id).checked
             if (requested != savedChecked) {
                 runCatching { prefs().edit { putBoolean(storageKey, requested) } }
                     .onSuccess { savedChecked = requested }
-                    .onFailure { Log.e("BilibiliInnocentLab", "write subtitle prefs failed", it) }
+                    .onFailure { Log.e("BilibiliInnocentLab", "write feature prefs failed", it) }
             }
             savedChecked
         }
@@ -1721,6 +1722,8 @@ internal val modeledToggleKeys = setOf(
     FeaturePreferences.SPONSORBLOCK_ENABLED,
     FeaturePreferences.SPONSORBLOCK_AUTOMATIC,
     FeaturePreferences.SPONSORBLOCK_STORY,
+    FeaturePreferences.AI_INSIGHT_ENABLED,
+    FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS,
     FeaturePreferences.PLAYER_FRAME_INTERPOLATION,
     FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST,
     FeaturePreferences.PLAYER_SUBTITLE_STYLE,

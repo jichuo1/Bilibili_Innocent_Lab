@@ -72,8 +72,9 @@ internal fun MainActivity.showNPatchSetupDialog(step: Int = 0, anchor: View? = n
         setPadding((12 * density).toInt(), (10 * density).toInt(),
             (12 * density).toInt(), (10 * density).toInt())
     }
+    // 先为底部操作预留空间；窗口较矮或字体较大时由正文滚动，不能把按钮挤到零高度。
     container.addView(ScrollView(this).apply { addView(message) },
-        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply {
             topMargin = (16 * density).toInt()
         })
     fun action(label: Int, filled: Boolean = false, click: () -> Unit) {

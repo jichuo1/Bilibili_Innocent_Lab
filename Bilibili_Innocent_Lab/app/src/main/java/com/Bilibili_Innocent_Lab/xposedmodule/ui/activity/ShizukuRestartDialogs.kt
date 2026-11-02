@@ -16,6 +16,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.core.net.toUri
 import androidx.annotation.StringRes
 import androidx.core.graphics.ColorUtils
+import androidx.core.view.isVisible
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.PrivilegedRestartController
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.PrivilegedRestartController.State
@@ -112,6 +113,8 @@ internal fun MainActivity.showPrivilegedRestartDialog(noRoot: Boolean, route: Re
                 State.BUSY -> R.string.shizuku_busy
             })
             status.text = if (uid != null) getString(R.string.shizuku_status_uid, message, uid) else message
+            status.isVisible = route != RestartRoute.MANUAL || uid != null ||
+                (state != State.READY && state != State.AUTHORIZED)
             action.setText(when (state) {
                 State.CHECKING -> R.string.restart_capabilities_checking_short
                 State.ROOT_AVAILABLE, State.ROOT_UNAVAILABLE -> R.string.restart_root_authorize
@@ -141,15 +144,14 @@ internal fun MainActivity.showPrivilegedRestartDialog(noRoot: Boolean, route: Re
         }
         container.addView(other, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = (12 * density).toInt() })
     }
-    label(14f).apply {
-        textColor = getColor(R.color.colorTextGray)
-        gravity = Gravity.CENTER
-        setText(R.string.dialog_cancel)
-        setOnClickListener {
+    createRestartActionButton(R.string.dialog_cancel).also { cancel ->
+        styleRestartActionButton(cancel, false)
+        cancel.setOnClickListener {
             // 用户点击时立即取消；不能等退场动画结束后才撤销在途的特权请求。
             controller.close()
             dismissWithAnimation(dialog, container) {}
         }
+        container.addView(cancel, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = (12 * density).toInt() })
     }
     val observer = object : DefaultLifecycleObserver {
         override fun onStart(owner: LifecycleOwner) {
