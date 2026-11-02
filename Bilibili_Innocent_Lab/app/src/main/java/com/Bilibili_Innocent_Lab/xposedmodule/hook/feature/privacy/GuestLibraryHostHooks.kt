@@ -162,6 +162,7 @@ internal class GuestLibraryHostHooks(
 
         // The host's follow broadcast: mirrors H5 and other host follow buttons into the library, and the space page back.
         attempt("space_follow") { GuestSpaceFollowSync(library, isGuest).install(env) }
+        attempt("video_follow_initial") { GuestVideoFollowInitialState(library, isGuest).install(env) }
         attempt("follow_button") {
             val access = PrivacyHostAccess(loader)
             val helper = access.type("com.bilibili.relation.utils.FollowFlowHelper")
