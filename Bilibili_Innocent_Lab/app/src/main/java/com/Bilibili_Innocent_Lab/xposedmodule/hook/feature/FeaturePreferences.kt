@@ -2,6 +2,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 /** 新增功能的稳定配置键；旧功能键在完成迁移前仍保留在 HookEntry。 */
 internal object FeaturePreferences {
+    const val AI_INSIGHT_ENABLED = "ai_insight_enabled"
+    const val AI_INSIGHT_AUTO_CHAPTERS = "ai_insight_auto_chapters"
     const val PLAYER_SUBTITLE_STYLE = "player_subtitle_style"
     const val PLAYER_AI_SUBTITLE = "player_ai_subtitle"
     const val HIDE_VIDEO_DETAIL_APP_PROMOTION = "hide_video_detail_app_promotion"

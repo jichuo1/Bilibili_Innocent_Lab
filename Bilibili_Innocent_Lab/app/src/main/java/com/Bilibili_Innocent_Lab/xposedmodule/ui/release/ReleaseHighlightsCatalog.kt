@@ -353,7 +353,10 @@ internal object ReleaseHighlightsCatalog {
     )), ReleaseHighlightsBatch(35, listOf(
         ReleaseHighlight("wechat-resigned-sharing", HighlightKind.NEW, R.string.wechat_share_compat_tip,
             HighlightDestination("share.wechat.resigned_compat"))
-    )))
+    )), ReleaseHighlightsBatch(36, listOf(
+        ReleaseHighlight("ai-insight", HighlightKind.NEW, R.string.ai_insight_help,
+            HighlightDestination("compat.ai_insight.enabled", alsoCovers = setOf("compat.ai_insight.auto_chapters")))
+    ), automatic = false))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }
         .mapNotNull { it.destination }.distinctBy { it.settingId }

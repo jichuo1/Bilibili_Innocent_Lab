@@ -15,6 +15,9 @@ import java.util.concurrent.atomic.AtomicReference
 
 internal fun interface AgentHttpTransport {
     fun post(source: AgentModelSource, body: ByteArray, timeoutMs: Int, cancelled: () -> Boolean): String
+    /** 默认实现保留注入替身与不支持增量的传输；生产 HTTPS 实现读取 SSE。 */
+    fun postStreaming(source: AgentModelSource, body: ByteArray, timeoutMs: Int, cancelled: () -> Boolean,
+        onDelta: (String) -> Unit): String = post(source, body, timeoutMs, cancelled)
 }
 
 /** 全程 HTTPS；不跟随重定向；DNS/写入阻塞也不得无限占住任务线程。 */
@@ -26,10 +29,22 @@ internal object AgentHttpsTransport : AgentHttpTransport {
     override fun post(source: AgentModelSource, body: ByteArray, timeoutMs: Int, cancelled: () -> Boolean): String =
         postWithConnection(source, body, timeoutMs, cancelled) { it.openConnection() as HttpURLConnection }
 
+    override fun postStreaming(source: AgentModelSource, body: ByteArray, timeoutMs: Int, cancelled: () -> Boolean,
+        onDelta: (String) -> Unit): String = postStreamingWithConnection(source, body, timeoutMs, cancelled, onDelta) {
+            it.openConnection() as HttpURLConnection
+        }
+
     /** 连接工厂仅用于传输边界的 JVM 验证，生产调用固定为平台 HTTPS 实现。 */
-    internal fun postWithConnection(
+    internal fun postWithConnection(source: AgentModelSource, body: ByteArray, timeoutMs: Int, cancelled: () -> Boolean,
+        connect: (URL) -> HttpURLConnection): String = requestWithConnection(source, body, timeoutMs, cancelled, null, connect)
+
+    internal fun postStreamingWithConnection(source: AgentModelSource, body: ByteArray, timeoutMs: Int, cancelled: () -> Boolean,
+        onDelta: (String) -> Unit, connect: (URL) -> HttpURLConnection): String =
+        requestWithConnection(source, body, timeoutMs, cancelled, onDelta, connect)
+
+    private fun requestWithConnection(
         source: AgentModelSource, body: ByteArray, timeoutMs: Int, cancelled: () -> Boolean,
-        connect: (URL) -> HttpURLConnection
+        onDelta: ((String) -> Unit)?, connect: (URL) -> HttpURLConnection
     ): String {
         if (body.size > MAX_REQUEST_BYTES) throw AgentModelException(AgentModelException.Reason.TOO_LARGE)
         if (cancelled()) throw AgentModelException(AgentModelException.Reason.CANCELLED)
@@ -50,7 +65,7 @@ internal object AgentHttpsTransport : AgentHttpTransport {
                     http.readTimeout = remaining(deadline)
                     http.doOutput = true
                     http.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                    http.setRequestProperty("Accept", "application/json")
+                    http.setRequestProperty("Accept", if (onDelta == null) "application/json" else "text/event-stream, application/json")
                     http.setRequestProperty("Authorization", "Bearer ${source.apiKey}")
                     http.setFixedLengthStreamingMode(body.size)
                     http.outputStream.use { it.write(body) }
@@ -63,10 +78,15 @@ internal object AgentHttpsTransport : AgentHttpTransport {
                         val error = http.errorStream?.use { readBounded(it, 16_384, deadline, cancelled) }.orEmpty()
                         throw httpFailure(status, error, retryAfter)
                     }
-                    if (http.contentLengthLong > MAX_RESPONSE_BYTES) {
+                    val streaming = onDelta != null && http.contentType?.substringBefore(';')?.trim()
+                        ?.equals("text/event-stream", ignoreCase = true) == true
+                    if (http.contentLengthLong > if (streaming) AgentChatStream.MAX_WIRE_BYTES else MAX_RESPONSE_BYTES) {
                         throw AgentModelException(AgentModelException.Reason.TOO_LARGE)
                     }
-                    http.inputStream.use { readBounded(it, MAX_RESPONSE_BYTES, deadline, cancelled) }
+                    http.inputStream.use { input ->
+                        if (streaming) AgentChatStream.read(input, { checkAlive(deadline, cancelled) }, checkNotNull(onDelta))
+                        else readBounded(input, MAX_RESPONSE_BYTES, deadline, cancelled)
+                    }
                 } finally {
                     http.disconnect()
                     connection.compareAndSet(http, null)
@@ -130,6 +150,10 @@ internal object AgentHttpsTransport : AgentHttpTransport {
         val decisionParameter = if (status in setOf(400, 422)) rejectedDecisionParameter(root, error) else null
         // 只认结构化拒绝，不能从任意错误正文推断能力或把正文展示给用户。
         val reason = when {
+            status in setOf(400, 422) && code in setOf("unsupported_parameter", "unsupported_value", "unsupported_feature") &&
+                parameter in setOf("response_format", "response_format.type") -> AgentModelException.Reason.RESPONSE_FORMAT_PARAMETER
+            status in setOf(400, 422) && code in setOf("unsupported_parameter", "unsupported_value", "unsupported_feature", "invalid_request_error") &&
+                parameter == "stream" -> AgentModelException.Reason.STREAM_PARAMETER
             parameterRejected &&
                 parameter in setOf("max_tokens", "max_completion_tokens") -> AgentModelException.Reason.TOKEN_PARAMETER
             parameterRejected && optionalParameter in setOf("enable_thinking", "thinking", "reasoning") &&
@@ -147,6 +171,7 @@ internal object AgentHttpsTransport : AgentHttpTransport {
                 AgentModelException.Reason.OPTIONAL_PARAMETER -> optionalParameter
                 AgentModelException.Reason.TOKEN_PARAMETER -> parameter
                 AgentModelException.Reason.DECISION_PARAMETER -> decisionParameter
+                AgentModelException.Reason.RESPONSE_FORMAT_PARAMETER -> "response_format"
                 else -> null
             })
     }

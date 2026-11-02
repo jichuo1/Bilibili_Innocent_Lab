@@ -1,4 +1,7 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="ai_insight_title">AI Insight video assistant</string>
+    <string name="ai_insight_auto_chapters">Generate native chapters automatically</string>
+    <string name="ai_insight_help">Experimental. Restart Bilibili after changing. The detail page has four collapsible actions: Summary, Ask, Topics, and Chapters. Nothing is generated until you choose an action. Each result opens in its own panel. Uses the first configured text generation model below, sending the complete subtitles of the current part, title, description, and up to 12 loaded public comments and danmaku; Topics fetches comments automatically and uses up to 40 loaded comments. No subtitles: metadata only. Results are cached. Native chapters require at least 3 minutes with subtitles and no official chapters.</string>
     <string name="app_name">Bilibili_Innocent_Lab</string>
     <string name="xposed_desc">A cleaner, more complete Bilibili interface</string>
     <string name="about_module">This module uses libxposed Modern API 101/102.\nLearn more https://github.com/libxposed/api</string>

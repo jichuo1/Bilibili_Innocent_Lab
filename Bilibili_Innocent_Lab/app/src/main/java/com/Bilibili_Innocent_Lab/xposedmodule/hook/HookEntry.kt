@@ -2755,6 +2755,13 @@ class HookEntry : XposedModule() {
 
             // 已授权安装链所需的宿主 Context；只在当前调用栈使用，不进入长期缓存。
             val attachedContext = authorizationContext.applicationContext ?: authorizationContext
+            val insightInstaller = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.AiInsightFeatureInstaller(
+                enabled = prefs.getBoolean(FeaturePreferences.AI_INSIGHT_ENABLED, false),
+                automaticChapters = prefs.getBoolean(FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS, false),
+                sources = semanticSettings?.sources.orEmpty(),
+                cacheRoot = java.io.File(attachedContext.filesDir, "bil_insight"),
+                cachedClasses = { sponsorClassesRef.get() }
+            )
             // 判定结果硬盘缓存：宿主私有 files/bil_semantic/<面>.bin。启动时先在后台删掉未启用面的文件，
             // 保证"关闭 → 重启"后磁盘上没有任何残留判定。
             val semanticStoreRoot = runCatching { attachedContext.filesDir }.getOrNull()
@@ -3750,6 +3757,7 @@ class HookEntry : XposedModule() {
                     ),
                     sponsorInstaller,
                     sponsorStoryInstaller,
+                    insightInstaller,
                     SystemMediaNotificationFeatureInstaller(
                         enabled = prefs.getBoolean(
                             FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION,
@@ -4978,11 +4986,14 @@ class HookEntry : XposedModule() {
                                             }
                                         }
                                     }
-                                    if (sponsorInstaller.requiresAdaptationRetry) {
+                                    if (sponsorInstaller.requiresAdaptationRetry || insightInstaller.requiresAdaptationRetry) {
                                         sponsorClassesRef.set(adapted?.sponsorPlayer)
                                         hookEnvironment.postToMain?.invoke {
                                             if (sponsorInstaller.requiresAdaptationRetry) {
                                                 featureInstallCoordinator.installAll(listOf(sponsorInstaller))
+                                            }
+                                            if (insightInstaller.requiresAdaptationRetry) {
+                                                featureInstallCoordinator.installAll(listOf(insightInstaller))
                                             }
                                         }
                                     }
@@ -5023,7 +5034,9 @@ class HookEntry : XposedModule() {
                         },
                         startupCache = startupCache,
                         kotlinDefaultWordsEnabled = prefs.getBoolean(FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD, false),
-                        sponsorBlockEnabled = prefs.getBoolean(FeaturePreferences.SPONSORBLOCK_ENABLED, false),
+                        // 播放器结构适配同时服务 SponsorBlock 与 AI Insight；只开 Insight 时也要在直接定位失败后补查。
+                        sponsorBlockEnabled = prefs.getBoolean(FeaturePreferences.SPONSORBLOCK_ENABLED, false) ||
+                            prefs.getBoolean(FeaturePreferences.AI_INSIGHT_ENABLED, false),
                         commentClassicStyleEnabled = prefs.getBoolean(FeaturePreferences.COMMENT_CLASSIC_STYLE, false),
                         playerPopupPromotionEnabled = prefs.getBoolean(FeaturePreferences.HIDE_PLAYER_POPUP_PROMOTION, false),
                         brandSplashCustomEnabled = prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_CUSTOM, false) &&

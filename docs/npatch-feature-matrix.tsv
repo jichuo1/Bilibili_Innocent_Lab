@@ -1,4 +1,4 @@
-# settings=70; capabilities=34
+# settings=71; capabilities=35
 kind	id	installer_group	links	local_scope	manager	embedded	evidence
 setting	ads.game_card.hidden	detail_united_module_purify,game_mentioned_promotion	detail_united_video_mentions_removed,game_mentioned_promotion	-	pending	pending	-
 setting	ads.home_banner.hidden	home_banner	home_banner_feed,home_banner_view	-	pending	pending	-
@@ -38,6 +38,8 @@ setting	comments.user_filter.rules	comment_filter	comments_user_filter_enabled	-
 setting	comments.vote_widgets.removed	comment_purify	comments_vote_widgets_removed	-	pending	pending	-
 setting	communication.bili_access_key.authorized	-	-	HOST_GATE	pending	passed	case:ACCOUNT_GATE
 setting	communication.compatibility.enabled	-	-	LOCAL_DIAGNOSTICS	pending	pending	-
+setting	compat.ai_insight.auto_chapters	ai_insight	ai_insight	-	pending	pending	-
+setting	compat.ai_insight.enabled	ai_insight	ai_insight	-	pending	pending	-
 setting	compat.roaming.enabled	roaming_compat	roaming_compat	-	pending	pending	-
 setting	compat.semantic_jev.cache_days	dynamic_purify	dynamic_semantic_filter_enabled	-	pending	pending	-
 setting	compat.semantic_jev.endpoint	dynamic_purify	dynamic_semantic_filter_enabled	-	pending	pending	-
@@ -254,6 +256,7 @@ setting	video.semantic_filter.rules	home_recommend_purify,video_relate_filter	ho
 setting	video.semantic_filter.source	home_recommend_purify,video_relate_filter	home_recommend_semantic_filter_enabled,video_related_semantic_filter_enabled	-	pending	pending	-
 capability	ai_declared_author_block	ai_declared_video_block	video.ai_declared.strong_mode	-	pending	pending	-
 capability	ai_declared_detail_redirect	ai_declared_video_block	video.ai_declared.blocked	-	pending	installed	case:ACCOUNT_GATE
+capability	ai_insight	ai_insight	compat.ai_insight.auto_chapters,compat.ai_insight.enabled	-	pending	pending	-
 capability	block_app_update	block_app_update	client.update_prompt.blocked	-	pending	pending	-
 capability	block_component_library_download	block_component_library_download	client.component_library.blocked_pools.rules,client.component_library.blocked_pools.selectors,client.component_library.download.blocked	-	pending	pending	-
 capability	bottom_bar	bottom_bar	host.bottom_bar.compact.enabled,host.bottom_bar.glass.material,host.bottom_bar.glass.renderer,host.bottom_bar.icon_only.enabled,host.bottom_bar.liquid_glass.enabled,host.bottom_bar.touch_glow.enabled,host.mine.garb_dim.enabled,navigation.bottom_bar.hidden_rules,navigation.bottom_bar.hidden_selectors	-	pending	pending	-

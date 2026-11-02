@@ -164,6 +164,24 @@ internal class KotlinMossBridgeMembers private constructor(
                 types[1].name == SERIALIZATION_STRATEGY && types[2].name == DESERIALIZATION_STRATEGY &&
                 types[3].isInterface && types[4].name == PROTO_BUF
         }
+
+        /**
+         * 8.84.0–9.8.0 的同一回调入口少最后一个 `ProtoBuf` 参数：`(Object, SerializationStrategy,
+         * DeserializationStrategy, Handler)V`，序列化使用 [defaultProtoBuf]（与播放编码偏好的旧版路径一致）。
+         * Hostlab 38 版矩阵：9.9.0 起才是 5 参；8.96.0 起评论、9.5.0 起弹幕已有宿主调用走 K 通道。
+         */
+        fun legacyCallbackEntry(mossClass: Class<*>, name: String): Method? =
+            KavaMemberLookup.declaredMethods(mossClass, makeAccessible = true) { method ->
+                method.name == name && isLegacyCallbackEntry(method)
+            }.singleOrNull()
+
+        fun isLegacyCallbackEntry(method: Method): Boolean {
+            val types = method.parameterTypes
+            return !method.isStatic && method.returnType == Void.TYPE &&
+                types.size == 4 && types[0] == classOf<Any>() &&
+                types[1].name == SERIALIZATION_STRATEGY && types[2].name == DESERIALIZATION_STRATEGY &&
+                types[3].isInterface
+        }
     }
 }
 

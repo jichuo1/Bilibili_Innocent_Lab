@@ -1053,6 +1053,7 @@ class DiagnosticsActivity : SkinnedActivity(),
             "player_buffer" -> R.string.player_buffer_strategy
             "sponsorblock" -> R.string.sponsorblock_title
             "sponsorblock_story" -> R.string.sponsorblock_story_enabled
+            "ai_insight" -> R.string.ai_insight_title
             "splash_ad_purify" -> R.string.diagnostics_host_feature_splash
             "mine_component_filter" -> R.string.diagnostics_host_feature_mine
             "block_app_update" -> R.string.block_app_update

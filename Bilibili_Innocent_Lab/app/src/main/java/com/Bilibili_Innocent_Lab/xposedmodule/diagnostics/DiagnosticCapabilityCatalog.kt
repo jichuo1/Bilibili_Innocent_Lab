@@ -20,8 +20,10 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 34
+    const val VERSION = 35
     val definitions = listOf(
+        DiagnosticCapabilityDefinition("ai_insight", "ai_insight", R.string.ai_insight_title,
+            setOf("compat.ai_insight.enabled", "compat.ai_insight.auto_chapters"), introducedCatalogVersion = 35),
         DiagnosticCapabilityDefinition("player_buffer_strategy", "player_buffer", R.string.player_buffer_mode,
             setOf("player.buffer.mode", "player.buffer.seconds", "player.buffer.memory_mb"),
             introducedCatalogVersion = 22),

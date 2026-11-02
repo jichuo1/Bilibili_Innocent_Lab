@@ -26,6 +26,7 @@ internal data class DiagnosticFeatureDescriptor(
 /** 宿主协议、诊断页面和报告共同使用的唯一功能 ID 白名单。 */
 internal object DiagnosticFeatureRegistry {
     private val groups: List<DiagnosticFeatureDescriptor> = listOf(
+        DiagnosticFeatureDescriptor("ai_insight", DiagnosticFeatureCategory.PLAYER_AND_DETAIL),
         DiagnosticFeatureDescriptor("host_video_cards", DiagnosticFeatureCategory.GENERAL, runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("host_background", DiagnosticFeatureCategory.GENERAL, runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("search_home_recommend_hidden", DiagnosticFeatureCategory.HOME_AND_DYNAMIC, runtimeEvidenceExpected = true),
