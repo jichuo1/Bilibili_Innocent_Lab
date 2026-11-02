@@ -29,6 +29,15 @@ internal object FrameworkManagerLauncher {
         return null
     }
 
+    /** 只按包名解析入口；框架名不可用（如 Manager 已被回收）时的兜底。 */
+    fun resolvePackage(context: Context, packageName: String): Intent? {
+        val intent = runCatching {
+            context.packageManager.getLaunchIntentForPackage(packageName)
+        }.getOrNull() ?: return null
+        return if (isLaunchable(context, intent)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        else null
+    }
+
     private fun isLaunchable(context: Context, intent: Intent): Boolean {
         val resolveInfo = runCatching {
             if (AndroidVersion.isAtLeast(AndroidVersion.T)) {

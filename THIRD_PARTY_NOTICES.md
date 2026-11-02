@@ -1,5 +1,13 @@
 # Third-party notices
 
+## Shizuku API
+
+The optional Bilibili restart feature uses `dev.rikka.shizuku:api` and
+`dev.rikka.shizuku:provider` version `13.1.5` from
+[RikkaApps/Shizuku-API](https://github.com/RikkaApps/Shizuku-API).
+Copyright (c) 2021 RikkaW. Licensed under the MIT License; the complete text is
+provided in `third_party/Shizuku-API-LICENSE.txt`.
+
 ## Material Design Icons
 
 The enhancement, appearance and compatibility section icons use Google's

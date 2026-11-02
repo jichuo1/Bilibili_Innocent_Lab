@@ -10,6 +10,32 @@ import org.junit.Test
 
 class DetailUnitedPresentationPurifyPolicyTest {
 
+    @Test fun `activity headline route is removed without matching visible labels or image names`() {
+        val uri = "https://www.bilibili.com/blackboard/era/sEUlB5cmkNeH3izK.html?from_spmid=united.player-video-detail.0.0"
+        val cleaner = requireNotNull(HeadlineBadgeModelCleaner.resolve(FakeHeadline::class.java))
+        val input = FakeHeadline("original title", FakeHeadlineLabel(type = 2, uri = uri))
+        val result = cleaner.removeHotSearchBadge(input) as FakeHeadline
+        assertEquals(input.content, result.content)
+        assertNull(result.label)
+        assertNotNull(input.label)
+        assertTrue(DetailUnitedPresentationPurifyPolicy.isPromotionalLabelUri("bilibili://search?from=other"))
+    }
+
+    @Test fun `activity headline route excludes other destinations and lookalikes`() {
+        listOf(
+            "bilibili://video/1", "https://www.bilibili.com/video/BV1",
+            "https://evilbilibili.com/blackboard/era/id.html",
+            "https://www.bilibili.com.evil.test/blackboard/era/id.html",
+            "https://www.bilibili.com@evil.test/blackboard/era/id.html",
+            "https://www.bilibili.com/blackboard/other/id.html",
+            "https://www.bilibili.com/blackboard/era/.html",
+            "https://www.bilibili.com/blackboard/era/nested/id.html",
+            "https://www.bilibili.com/blackboard/era/../id.html",
+            "https://www.bilibili.com/video/1?next=/blackboard/era/id.html",
+            "https://i0.hdslb.com/bfs/app/activity.png", "", null
+        ).forEach { assertFalse(it, DetailUnitedPresentationPurifyPolicy.isPromotionalLabelUri(it)) }
+    }
+
     @Test fun `special tag mapper candidates stay bounded to the tags package alphabet`() {
         val candidates = DetailUnitedPresentationPurifyPolicy.specialTagMapperClasses
         val pkg = "com.bilibili.ship.theseus.united.page.intro.module.tags."

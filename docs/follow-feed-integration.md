@@ -1,5 +1,7 @@
 # 关注页凝光接入
 
+范围归属：这是 NPatch 专项前独立实施的通用关注页 / Lumen 视觉适配。本文的实现、性能和剩余画面验收不属于 NPatch 默认排期，详见[全目录范围复核](npatch-scope-audit.md#专项前已有的整份通用视觉工作)。
+
 ## 依赖与边界
 
 catalog 使用 Maven Central 的 `io.github.jichuo1:lumen-engine` 和 `lumen-motion`，两者共用同一正式版本，版本号以 `gradle/libs.versions.toml` 为准。普通构建直接解析官方产物，不应用任何 Lumen 补丁；只有显式传入 `-Plumen.sourceDir` 时，Android settings 的复合构建才同时替换两个模块。线性淡出等历史公共扩展已在 1.2.3 被上游吸收，表面连续性修复已在 1.4.1 被上游吸收。本地源码验证与升级方法见 [接入说明](../Bilibili_Innocent_Lab/gradle/lumen/README.md)。没有使用浮动版本或修改包名。

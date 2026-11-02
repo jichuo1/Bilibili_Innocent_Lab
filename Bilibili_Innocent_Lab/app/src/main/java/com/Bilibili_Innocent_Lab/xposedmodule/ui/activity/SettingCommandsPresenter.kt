@@ -409,6 +409,12 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             }
             shareMiniProgramDirectLink
         }
+        FeaturePreferences.WECHAT_SHARE_COMPAT -> {
+            weChatShareCompat = requested
+            runCatching { prefs().edit { putBoolean(FeaturePreferences.WECHAT_SHARE_COMPAT, requested) } }
+                .onFailure { Log.e("BilibiliInnocentLab", "write WeChat share compatibility prefs failed", it) }
+            weChatShareCompat
+        }
         FeaturePreferences.PURIFY_SPLASH_ADS -> {
             val checked = requested
             purifySplashAds = checked
@@ -1632,6 +1638,7 @@ internal val modeledToggleKeys = setOf(
     FeaturePreferences.HOST_TOP_BAR_TOUCH_GLOW,
     FeaturePreferences.PURIFY_SHARE_CONTENT,
     FeaturePreferences.SHARE_MINI_PROGRAM_DIRECT_LINK,
+    FeaturePreferences.WECHAT_SHARE_COMPAT,
     FeaturePreferences.PURIFY_SPLASH_ADS,
     FeaturePreferences.BLOCK_TEENAGERS_MODE_PROMPT,
     FeaturePreferences.BLOCK_APP_UPDATE,
@@ -1750,6 +1757,7 @@ internal fun MainActivity.synchronizeSettingField(key: String, confirmed: Boolea
         FeaturePreferences.HOST_VIDEO_CARDS -> hostVideoCards = confirmed
         FeaturePreferences.PURIFY_SHARE_CONTENT -> purifyShareContent = confirmed
         FeaturePreferences.SHARE_MINI_PROGRAM_DIRECT_LINK -> shareMiniProgramDirectLink = confirmed
+        FeaturePreferences.WECHAT_SHARE_COMPAT -> weChatShareCompat = confirmed
         FeaturePreferences.PURIFY_SPLASH_ADS -> purifySplashAds = confirmed
         FeaturePreferences.BLOCK_TEENAGERS_MODE_PROMPT -> blockTeenagersModePrompt = confirmed
         FeaturePreferences.BLOCK_APP_UPDATE -> blockAppUpdate = confirmed

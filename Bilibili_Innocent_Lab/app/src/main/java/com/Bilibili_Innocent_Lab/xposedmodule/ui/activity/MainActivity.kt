@@ -28,6 +28,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.text.Editable
+import android.text.format.DateUtils
 import android.text.InputFilter
 import android.text.InputType
 import android.text.SpannableString
@@ -84,6 +85,7 @@ import io.github.jichuo1.meguviz.android.extensions.textToString
 import io.github.jichuo1.meguviz.android.extensions.toast
 import io.github.jichuo1.meguviz.android.extensions.updateMargins
 import io.github.jichuo1.meguviz.android.extensions.updatePadding
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.startActivityOrElse
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.ModuleUiSettings
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
@@ -116,10 +118,12 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateCheckCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ColdStartUpdateSession
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateChannelStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.ActivationDisplayState
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostRuntimeProbeClient
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootDisplayState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportController
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchScopeProbe
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportApplier
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ModuleSettingsStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.ModalBackdropBlurStore
@@ -127,7 +131,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkSta
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatusListener
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigPublishState
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.isLspatch
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannel
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannels
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsAuthorizationCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsAuthorizationListener
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsAuthorizationSnapshot
@@ -193,6 +198,8 @@ class MainActivity : SkinnedActivity() {
         const val MINE_COMPONENT_SNAPSHOT_STALE_MS = 7L * 24L * 60L * 60L * 1_000L
         const val SETTINGS_SEARCH_HIGHLIGHT_DELAY_MS = 240L
         const val SETTINGS_SEARCH_HIGHLIGHT_DURATION_MS = 560L
+        /** B12 修复引导的固定目标；框架名不可用时也要能打开 Manager。 */
+        const val NPATCH_MANAGER_PACKAGE = "top.nkbe.npatch"
 
         /** 赞助页；与仓库地址一样经 [openExternalUrl] 的 https 白名单跳转。 */
         const val SPONSOR_URL = "https://ifdian.net/a/jichuo1"
@@ -202,9 +209,9 @@ class MainActivity : SkinnedActivity() {
             val intent = Intent(
                 Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                 "package:${HookEntry.TARGET_PACKAGE}".toUri()
-            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            ) // Activity Result 必须保留当前任务，不能加 NEW_TASK 提前收到取消回调。
             return runCatching {
-                activity.startActivity(intent)
+                activity.noRootDetailsLauncher.launch(intent)
                 true
             }.getOrElse { throwable ->
                 Log.e("BilibiliInnocentLab", "open Bilibili app details failed", throwable)
@@ -225,7 +232,44 @@ class MainActivity : SkinnedActivity() {
         ENGLISH("en", R.string.app_language_english)
     }
 
-    private val homeComponent by lazy { ComponentName(packageName, "${BuildConfig.APPLICATION_ID}.Home") }
+    private val homeComponent by lazy { ComponentName(packageName, "${BuildConfig.MODULE_CLASS_PACKAGE}.Home") }
+
+    private var pendingNoRootRelaunch = false
+    private val noRootDetailsLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        // 系统详情页没有“已强停”的可信返回值，返回后由用户确认继续。
+        pendingNoRootRelaunch = true
+        scheduleNoRootRelaunch()
+    }
+
+    private fun scheduleNoRootRelaunch() {
+        if (!pendingNoRootRelaunch) return
+        window.decorView.post {
+            if (pendingNoRootRelaunch && userTermsDecision.isAuthorized &&
+                !isFinishing && !isDestroyed && hasWindowFocus() &&
+                lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                pendingNoRootRelaunch = false
+                showRestartConfirmDialog(resumeNoRoot = true)
+            }
+        }
+    }
+
+    private fun scheduleNPatchSetup() {
+        window.decorView.post {
+            if (!userTermsDecision.isAuthorized || isFinishing || isDestroyed || !hasWindowFocus() ||
+                !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) || pendingNoRootRelaunch ||
+                activeConfirmDialog?.isShowing == true) return@post
+            val requested = intent?.getBooleanExtra(
+                com.Bilibili_Innocent_Lab.xposedmodule.runtime.RoamingSettingsLauncher.EXTRA_MODULE_SETUP, false) == true
+            val first = prefs().getInt("npatch_setup_seen", 0) < 1 &&
+                com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRuntimeProfiles.read(this).markerPresent
+            if (!requested && !first) return@post
+            intent?.removeExtra(com.Bilibili_Innocent_Lab.xposedmodule.runtime.RoamingSettingsLauncher.EXTRA_MODULE_SETUP)
+            prefs().edit { putInt("npatch_setup_seen", 1) }
+            showNPatchSetupDialog()
+        }
+    }
 
     private val settingsBackupLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -443,6 +487,7 @@ class MainActivity : SkinnedActivity() {
     internal var liveRoomDoubleTapPause = false
     internal var purifyShareContent = false
     internal var shareMiniProgramDirectLink = false
+    internal var weChatShareCompat = false
     internal var forceExternalBrowser = false
     internal var systemMediaNotification = false
     internal var homeFrameLegacyLock = false
@@ -605,8 +650,85 @@ class MainActivity : SkinnedActivity() {
 
     /** 免 Root 配置只在用户明确开启后同步；回调不得持有 Activity 或 View。 */
     internal var noRootPrefsBridge: SharedPreferences? = null
+    internal var liveApplyStatusView: NativeTextView? = null
+    internal var roamingCacheStatusView: NativeTextView? = null
+    internal var roamingCacheRestartView: NativeTextView? = null
+    private var roamingCacheQueryPending = false
+
+    internal fun checkRoamingCache() {
+        if (roamingCacheQueryPending) return
+        if (!roamingCompatEnabled || !NoRootSupportStore.isDesiredEnabled(applicationContext)) {
+            roamingCacheStatusView?.setText(if (!roamingCompatEnabled) R.string.roaming_cache_disabled else R.string.roaming_cache_unavailable)
+            roamingCacheRestartView?.visibility = View.GONE
+            return
+        }
+        roamingCacheQueryPending = true
+        roamingCacheStatusView?.setText(R.string.roaming_cache_waiting)
+        roamingCacheRestartView?.visibility = View.GONE
+        val ref = WeakReference(this)
+        com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRoamingStatus.query(applicationContext) { response ->
+            ref.get()?.let { activity ->
+                activity.roamingCacheQueryPending = false
+                if (activity.isFinishing || activity.isDestroyed) return@let
+                val status = when {
+                    !activity.roamingCompatEnabled -> com.Bilibili_Innocent_Lab.xposedmodule.hook.roaming.RoamingCacheStatus.DISABLED
+                    !NoRootSupportStore.isDesiredEnabled(activity.applicationContext) -> com.Bilibili_Innocent_Lab.xposedmodule.hook.roaming.RoamingCacheStatus.UNAVAILABLE
+                    else -> response
+                }
+                activity.roamingCacheStatusView?.setText(when (status) {
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.roaming.RoamingCacheStatus.DISABLED -> R.string.roaming_cache_disabled
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.roaming.RoamingCacheStatus.WAITING,
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.roaming.RoamingCacheStatus.REBUILDING -> R.string.roaming_cache_waiting
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.roaming.RoamingCacheStatus.READY_NEXT_START -> R.string.roaming_cache_ready
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.roaming.RoamingCacheStatus.REUSED -> R.string.roaming_cache_reused
+                    else -> R.string.roaming_cache_unavailable
+                })
+                activity.roamingCacheRestartView?.visibility = if (status ==
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.roaming.RoamingCacheStatus.READY_NEXT_START) View.VISIBLE else View.GONE
+            }
+        }
+    }
+    private var liveApplyPending = false
+
+    internal fun applyNPatchValues() {
+        if (liveApplyPending) return
+        val bridge = noRootPrefsBridge
+        val channel = HostConfigChannels.read(applicationContext)
+        if (bridge == null || channel == HostConfigChannel.STANDARD ||
+            com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.EmbeddedModePolicy.isSettingsBlocked(applicationContext) ||
+            channel == HostConfigChannel.NPATCH && !NoRootSupportStore.isDesiredEnabled(applicationContext)) {
+            liveApplyStatusView?.setText(R.string.npatch_live_failed)
+            return
+        }
+        liveApplyPending = true
+        liveApplyStatusView?.setText(R.string.npatch_live_working)
+        val ref = WeakReference(this)
+        val app = applicationContext
+        com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.RestartConfigBarrier.flush(
+            app, bridge, noRoot = channel == HostConfigChannel.NPATCH) { flushed ->
+            if (!flushed || HostConfigChannels.read(app) != channel) {
+                Handler(Looper.getMainLooper()).post {
+                    ref.get()?.let { activity ->
+                        activity.liveApplyPending = false
+                        activity.liveApplyStatusView?.setText(R.string.npatch_live_failed)
+                    }
+                }
+            } else com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchLiveConfig.applyFromSettings(app) { report ->
+                ref.get()?.let { activity ->
+                    activity.liveApplyPending = false
+                    if (!activity.isFinishing && !activity.isDestroyed) {
+                        activity.liveApplyStatusView?.text = if (report.status in setOf("APPLIED", "UNCHANGED", "RESTART_REQUIRED"))
+                            activity.getString(R.string.npatch_live_result, report.applied, report.deferred)
+                        else activity.getString(R.string.npatch_live_failed)
+                    }
+                }
+            }
+        }
+    }
     internal var noRootSwitch: com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch? = null
     internal var noRootStatusView: NativeTextView? = null
+    /** B12：状态未确认/未生效时的唯一操作入口（验证或打开 NPatch Manager）。 */
+    internal var noRootActionView: NativeTextView? = null
     internal var noRootProgrammaticSwitch = false
 
     /** 激活卡片需要同时聚合 LSPosed 状态与经过版本校验的免 Root heartbeat。 */
@@ -651,7 +773,7 @@ class MainActivity : SkinnedActivity() {
                 frameworkStatusCheckPending = false
                 activationMainHandler.removeCallbacks(frameworkStatusTimeout)
             }
-            if (status.isLspatch && status.capable) {
+            if (com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.LspatchRuntimeProfiles.usesDirectConfig(applicationContext, status)) {
                 requestLspatchHostReceipt(status)
             } else {
                 lspatchActivationReceiptTracker.clearConnectionEvidence()
@@ -897,14 +1019,30 @@ class MainActivity : SkinnedActivity() {
 
     internal fun currentNoRootDisplayState(): NoRootDisplayState {
         val appContext = applicationContext
+        val desired = NoRootSupportStore.isDesiredEnabled(appContext)
         return NoRootSupportState.displayState(
             sdkInt = AndroidVersion.code,
             status = NoRootSupportStore.readStatus(appContext),
             currentSnapshot = NoRootSupportStore.readSnapshot(appContext),
             currentTargetVersionCode = installedBilibiliVersionCode(),
-            currentTargetUpdateTime = installedBilibiliLastUpdateTime()
+            currentTargetUpdateTime = installedBilibiliLastUpdateTime(),
+            scope = if (desired) {
+                NPatchScopeProbe.cached(appContext)
+            } else {
+                NPatchScopeProbe.ScopeState.UNKNOWN
+            },
+            probe = HostRuntimeProbeClient.status(),
+            embeddedModeBlocked = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.EmbeddedModePolicy
+                .isSettingsBlocked(appContext)
         )
     }
+
+    /** “未确认”卡片要把最近一次宿主回执的时间说清楚，否则用户无从判断该不该验证。 */
+    private fun lastReceiptLabel(): CharSequence = DateUtils.getRelativeTimeSpanString(
+        NoRootSupportStore.lastReceiptReceivedAt(applicationContext),
+        System.currentTimeMillis(),
+        DateUtils.MINUTE_IN_MILLIS
+    )
 
     /** 查询失败时返回 0；状态归并据此拒绝把旧宿主 heartbeat 视为当前激活。 */
     private fun installedBilibiliVersionCode(): Long = runCatching {
@@ -919,10 +1057,15 @@ class MainActivity : SkinnedActivity() {
     @StringRes
     internal fun noRootStatusText(state: NoRootDisplayState): Int = when (state) {
         NoRootDisplayState.UNSUPPORTED_OS -> R.string.no_root_status_unsupported_os
+        NoRootDisplayState.EMBEDDED_UNSUPPORTED -> R.string.embedded_mode_unsupported
         NoRootDisplayState.DISABLED -> R.string.no_root_status_disabled
         NoRootDisplayState.CHECKING -> R.string.no_root_status_checking
         NoRootDisplayState.MANAGER_MISSING -> R.string.no_root_status_manager_missing
         NoRootDisplayState.MODULE_NOT_REGISTERED -> R.string.no_root_status_module_not_registered
+        NoRootDisplayState.SCOPE_MISSING -> R.string.no_root_status_scope_missing
+        NoRootDisplayState.CONFIRMING -> R.string.no_root_status_confirming
+        NoRootDisplayState.UNCONFIRMED -> R.string.no_root_status_unconfirmed
+        NoRootDisplayState.NOT_RUNNING -> R.string.no_root_status_not_running
         NoRootDisplayState.SYNCING -> R.string.no_root_status_syncing
         NoRootDisplayState.RESTART_REQUIRED -> R.string.no_root_status_restart_required
         NoRootDisplayState.DISABLE_RESTART_REQUIRED ->
@@ -944,13 +1087,115 @@ class MainActivity : SkinnedActivity() {
             isEnabled = noRootDesiredEnabled ||
                 (
                     AndroidVersion.isAtLeast(AndroidVersion.P) &&
+                        state != NoRootDisplayState.EMBEDDED_UNSUPPORTED &&
                         noRootPrefsBridge != null
                     )
         }
         noRootProgrammaticSwitch = false
-        noRootStatusView?.setText(noRootStatusText(state))
+        val embedded = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRuntimeProfiles
+            .read(applicationContext).mode == com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchMode.EMBEDDED
+        noRootStatusView?.text = if (embedded && state != NoRootDisplayState.EMBEDDED_UNSUPPORTED) getString(noRootStatusText(state)) + "\n" +
+            getString(R.string.npatch_embed_usage) else getString(noRootStatusText(state))
+        renderNoRootAction(state)
 
         renderActivationUi(noRootState = state)
+        refreshNoRootScope()
+    }
+
+    /** B12：只在需要用户出手时给一个入口，其余状态收起避免噪声。 */
+    private fun renderNoRootAction(state: NoRootDisplayState) {
+        val actionView = noRootActionView ?: return
+        val label: Int
+        val click: () -> Unit
+        when (state) {
+            NoRootDisplayState.UNCONFIRMED -> {
+                label = R.string.no_root_action_verify
+                click = ::verifyNoRootHostRuntime
+            }
+            NoRootDisplayState.NOT_RUNNING,
+            NoRootDisplayState.SCOPE_MISSING -> {
+                if (com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRuntimeProfiles
+                        .read(applicationContext).mode == com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchMode.EMBEDDED) {
+                    label = R.string.no_root_action_verify
+                    click = ::verifyNoRootHostRuntime
+                } else {
+                    label = R.string.no_root_action_open_manager
+                    click = ::openNpatchManager
+                }
+            }
+            else -> {
+                actionView.isVisible = false
+                actionView.setOnClickListener(null)
+                return
+            }
+        }
+        actionView.setText(label)
+        actionView.setOnClickListener { click() }
+        actionView.isVisible = true
+    }
+
+    /**
+     * 验证流程：先把哔哩哔哩拉起来，再走完整探测窗口。宿主已在运行时回执立刻到，
+     * 冷启动时靠窗口内重发与新心跳确认；仍无回执才判定“模块未生效”。
+     */
+    internal fun verifyNoRootHostRuntime() {
+        val appContext = applicationContext
+        val opened = runCatching {
+            packageManager
+                .getLaunchIntentForPackage(NoRootSupportState.TARGET_PACKAGE)
+                ?.let { startActivityOrElse(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } ?: false
+        }.getOrDefault(false)
+        if (!opened) {
+            toast(getString(R.string.no_root_restart_launch_failed))
+            return
+        }
+        HostRuntimeProbeClient.probeAsync(appContext, verify = true) {
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed) renderNoRootUi()
+            }
+        }
+        renderNoRootUi()
+    }
+
+    private fun openNpatchManager() {
+        val intent = FrameworkManagerLauncher.resolvePackage(applicationContext, NPATCH_MANAGER_PACKAGE)
+        if (intent == null) {
+            runCatching { toast(getString(R.string.no_root_action_manager_unavailable)) }
+            return
+        }
+        runCatching { startActivity(intent) }
+            .onFailure {
+                runCatching { toast(getString(R.string.no_root_action_manager_unavailable)) }
+            }
+    }
+
+    /**
+     * 作用域查询只在设置页前台、免 Root 已开启时低频执行。结果变化才重新渲染，
+     * 避免探测回调与 renderNoRootUi 互相触发。
+     */
+    private fun refreshNoRootScope() {
+        val appContext = applicationContext
+        if (!NoRootSupportStore.isDesiredEnabled(appContext)) return
+        NPatchScopeProbe.refreshAsync(appContext) {
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed) renderNoRootUi()
+            }
+        }
+    }
+
+    /**
+     * B12：回到设置页时问一次“模块现在还在跑吗”。这里不放在 renderNoRootUi 里，
+     * 否则结算回调会把渲染再触发一次，形成每 1.5 秒一轮的自激。
+     */
+    private fun refreshNoRootProbe() {
+        val appContext = applicationContext
+        val status = NoRootSupportStore.readStatus(appContext)
+        if (!status.desiredEnabled && status.syncState != NoRootSupportStore.SyncState.DISABLE_RESTART_REQUIRED) return
+        HostRuntimeProbeClient.probeAsync(appContext, verify = false) {
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed) renderNoRootUi()
+            }
+        }
     }
 
     /**
@@ -967,12 +1212,14 @@ class MainActivity : SkinnedActivity() {
             configState = lspatchReceipt?.bootstrap?.configState,
             installChainState = lspatchReceipt?.bootstrap?.installChainState
         )
+        val channel = HostConfigChannels.read(applicationContext, framework)
         val displayState = NoRootSupportState.activationDisplayState(
             rootActive = framework.capable,
             frameworkCheckPending = frameworkStatusCheckPending && !framework.connected,
             displayState = noRootState,
-            lspatchFramework = framework.isLspatch,
-            lspatchHostState = lspatchHostState
+            lspatchFramework = channel == HostConfigChannel.LSPATCH,
+            lspatchHostState = lspatchHostState,
+            nPatchFramework = channel == HostConfigChannel.NPATCH
         )
         val activated = displayState == ActivationDisplayState.ACTIVE_LSPOSED ||
             displayState == ActivationDisplayState.ACTIVE_LSPATCH ||
@@ -1006,6 +1253,7 @@ class MainActivity : SkinnedActivity() {
         activationTitleView?.setText(
             when (displayState) {
                 ActivationDisplayState.CHECKING -> R.string.module_activation_checking
+                ActivationDisplayState.EMBEDDED_UNSUPPORTED -> R.string.embedded_mode_unsupported_title
                 ActivationDisplayState.ACTIVE_LSPOSED,
                 ActivationDisplayState.ACTIVE_LSPATCH,
                 ActivationDisplayState.ACTIVE_NPATCH -> R.string.module_is_activated
@@ -1013,6 +1261,14 @@ class MainActivity : SkinnedActivity() {
                     R.string.module_activation_lspatch_waiting_host_title
                 ActivationDisplayState.LSPATCH_HOST_FAILED ->
                     R.string.module_activation_lspatch_host_failed_title
+                ActivationDisplayState.SCOPE_MISSING ->
+                    R.string.module_activation_scope_missing_title
+                ActivationDisplayState.CONFIRMING ->
+                    R.string.module_activation_confirming_title
+                ActivationDisplayState.UNCONFIRMED ->
+                    R.string.module_activation_unconfirmed_title
+                ActivationDisplayState.NOT_RUNNING ->
+                    R.string.module_activation_not_running_title
                 ActivationDisplayState.UNAVAILABLE -> R.string.module_activation_not_detected
             }
         )
@@ -1024,8 +1280,12 @@ class MainActivity : SkinnedActivity() {
         val showsUserSpaceHint = showsSecondaryUserText || moduleUserSpace.sameUser == false
         activationSourceView?.apply {
             val baseText = when (displayState) {
-                ActivationDisplayState.ACTIVE_LSPOSED,
-                ActivationDisplayState.ACTIVE_LSPATCH -> if (framework.apiVersion > 0) getString(
+                ActivationDisplayState.EMBEDDED_UNSUPPORTED -> getString(R.string.embedded_mode_unsupported)
+                ActivationDisplayState.ACTIVE_LSPATCH -> ActivationFrameworkSource.lspatch(framework).let { source ->
+                    if (source.apiVersion == null) getString(R.string.activated_by_noapi, source.name)
+                    else getString(R.string.activated_by, source.name, source.apiVersion)
+                }
+                ActivationDisplayState.ACTIVE_LSPOSED -> if (framework.apiVersion > 0) getString(
                     R.string.activated_by,
                     framework.name,
                     framework.apiVersion
@@ -1034,11 +1294,21 @@ class MainActivity : SkinnedActivity() {
                     framework.name
                 )
                 ActivationDisplayState.ACTIVE_NPATCH ->
-                    getString(R.string.no_root_activated_by_npatch)
+                    getString(if (com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRuntimeProfiles
+                            .read(applicationContext).mode == com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchMode.EMBEDDED)
+                        R.string.no_root_activated_by_npatch_embedded else R.string.no_root_activated_by_npatch)
                 ActivationDisplayState.LSPATCH_WAITING_FOR_HOST ->
                     getString(R.string.module_activation_lspatch_waiting_host)
                 ActivationDisplayState.LSPATCH_HOST_FAILED ->
                     getString(R.string.module_activation_lspatch_host_failed)
+                ActivationDisplayState.SCOPE_MISSING ->
+                    getString(R.string.module_activation_scope_missing)
+                ActivationDisplayState.CONFIRMING ->
+                    getString(R.string.module_activation_confirming)
+                ActivationDisplayState.UNCONFIRMED ->
+                    getString(R.string.module_activation_unconfirmed, lastReceiptLabel())
+                ActivationDisplayState.NOT_RUNNING ->
+                    getString(R.string.module_activation_not_running)
                 ActivationDisplayState.CHECKING ->
                     getString(R.string.module_activation_waiting_framework)
                 ActivationDisplayState.UNAVAILABLE -> when {
@@ -1065,8 +1335,12 @@ class MainActivity : SkinnedActivity() {
             text = listOfNotNull(baseText, mismatchText).joinToString(separator = "\n")
             val showsLspatchAction = displayState == ActivationDisplayState.LSPATCH_WAITING_FOR_HOST ||
                 displayState == ActivationDisplayState.LSPATCH_HOST_FAILED
-            // 多用户和 LSPatch 操作提示都必须完整可见；正常状态仍保持单行省略。
-            if (showsUserSpaceHint || showsLspatchAction) {
+            val showsScopeAction = displayState == ActivationDisplayState.SCOPE_MISSING
+            val showsRuntimeAction = displayState == ActivationDisplayState.CONFIRMING ||
+                displayState == ActivationDisplayState.UNCONFIRMED ||
+                displayState == ActivationDisplayState.NOT_RUNNING
+            // 多用户和 LSPatch/作用域/存活验证的操作提示都必须完整可见；正常状态仍保持单行省略。
+            if (showsUserSpaceHint || showsLspatchAction || showsScopeAction || showsRuntimeAction) {
                 isSingleLine = false
                 maxLines = Int.MAX_VALUE
             } else {
@@ -1081,6 +1355,7 @@ class MainActivity : SkinnedActivity() {
             val noRootNeedsAttention = when (noRootState) {
                 NoRootDisplayState.MANAGER_MISSING,
                 NoRootDisplayState.MODULE_NOT_REGISTERED,
+                NoRootDisplayState.SCOPE_MISSING,
                 NoRootDisplayState.RESTART_REQUIRED,
                 NoRootDisplayState.DISABLE_RESTART_REQUIRED,
                 NoRootDisplayState.DISABLE_RESTART_REQUIRED_ACTIVE,
@@ -1093,7 +1368,9 @@ class MainActivity : SkinnedActivity() {
                     displayState = displayState,
                     publishFailed = publishState == RemoteHookConfigPublishState.FAILED,
                     skinFallback = skinFallback,
-                    noRootNeedsAttention = noRootNeedsAttention
+                    noRootNeedsAttention = noRootNeedsAttention,
+                    standardPublisherBypassed = com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.StandardPublisherPolicy
+                        .isBypassed(NoRootSupportStore.isDesiredEnabled(applicationContext))
                 )
             ) {
                 ActivationSummaryState.ACTION_REQUIRED ->
@@ -1126,7 +1403,7 @@ class MainActivity : SkinnedActivity() {
     }
 
     /**
-     * LSPatch 服务到达只说明 companion 可以发布配置。主页每次进入前台或服务连接改变时最多
+     * LSPatch 服务或安装档案只说明通道类型。主页每次进入前台或服务连接改变时最多
      * 发起一次有界查询；有效回执按 connectionId 绑定，服务重连、页面离开和迟到回调都不能
      * 复用旧的“已激活”证据。
      */
@@ -1137,7 +1414,7 @@ class MainActivity : SkinnedActivity() {
             lspatchActivationReceiptTracker.endSession()
             return
         }
-        if (!framework.isLspatch || !framework.capable) {
+        if (!com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.LspatchRuntimeProfiles.usesDirectConfig(applicationContext, framework)) {
             lspatchActivationReceiptTracker.clearConnectionEvidence()
             return
         }
@@ -1147,7 +1424,7 @@ class MainActivity : SkinnedActivity() {
                 !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             ) return@query
             val current = RemoteHookConfigStore.status()
-            if (!current.isLspatch || !current.capable) {
+            if (!com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.LspatchRuntimeProfiles.usesDirectConfig(applicationContext, current)) {
                 lspatchActivationReceiptTracker.clearConnectionEvidence()
                 renderActivationUi(current)
                 return@query
@@ -1170,6 +1447,11 @@ class MainActivity : SkinnedActivity() {
      * Activity 生命周期。关闭分支不调用此方法，因此不会触发任何 NPatch 连接。
      */
     internal fun enableAndSynchronizeNoRootSupport() {
+        if (com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.EmbeddedModePolicy.isSettingsBlocked(applicationContext)) {
+            renderNoRootUi()
+            toast(getString(R.string.embedded_mode_unsupported))
+            return
+        }
         val bridge = noRootPrefsBridge ?: run {
             renderNoRootUi()
             return
@@ -1660,11 +1942,16 @@ class MainActivity : SkinnedActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) scheduleReleaseHighlights()
+        if (hasFocus) {
+            scheduleNoRootRelaunch()
+            scheduleNPatchSetup()
+            scheduleReleaseHighlights()
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         saveSettingsExpansionState(outState)
+        outState.putBoolean("no_root_relaunch", pendingNoRootRelaunch)
         settingsHome?.saveState(outState)
         outState.putLong("compat_retry_revision", compatibilityRetryTracker.pendingRevision ?: 0L)
         outState.putInt("compat_retry_failures", compatibilityRetryTracker.failures)
@@ -3384,7 +3671,8 @@ class MainActivity : SkinnedActivity() {
      */
     internal fun finishNoRootRestartFlush(
         result: NoRootSupportController.FlushResult,
-        allowFocusRetry: Boolean = true
+        allowFocusRetry: Boolean = true,
+        openHost: Boolean = false
     ) {
         if (isFinishing || isDestroyed ||
             !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
@@ -3392,7 +3680,7 @@ class MainActivity : SkinnedActivity() {
         if (!hasWindowFocus()) {
             if (allowFocusRetry) {
                 window.decorView.postDelayed(
-                    { finishNoRootRestartFlush(result, allowFocusRetry = false) },
+                    { finishNoRootRestartFlush(result, allowFocusRetry = false, openHost = openHost) },
                     100L
                 )
             }
@@ -3403,10 +3691,12 @@ class MainActivity : SkinnedActivity() {
             NoRootSupportController.FlushResult.SUCCESS -> null
             NoRootSupportController.FlushResult.FAILED -> R.string.no_root_restart_sync_failed
             NoRootSupportController.FlushResult.TIMED_OUT ->
-                R.string.no_root_restart_sync_timeout
+                if (openHost) R.string.no_root_restart_sync_failed else R.string.no_root_restart_sync_timeout
         }
         messageRes?.let { toast(getString(it)) }
-        openBilibiliAppDetails(this)
+        if (openHost) {
+            if (result == NoRootSupportController.FlushResult.SUCCESS) verifyNoRootHostRuntime()
+        } else openBilibiliAppDetails(this)
     }
 
     internal fun toggleSecondaryMenu(section: SettingsSearchSection) {
@@ -3640,6 +3930,7 @@ class MainActivity : SkinnedActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        scheduleNPatchSetup()
     }
 
     override fun onStart() {
@@ -3653,6 +3944,7 @@ class MainActivity : SkinnedActivity() {
             return
         }
 
+        com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.RestartCapabilities.warm(applicationContext, force = true)
         val framework = RemoteHookConfigStore.status()
         frameworkServiceObserved = frameworkServiceObserved || framework.connected
         frameworkStatusCheckPending = !framework.connected && !frameworkServiceObserved
@@ -3678,6 +3970,7 @@ class MainActivity : SkinnedActivity() {
 
     override fun onResume() {
         super.onResume()
+        scheduleNoRootRelaunch()
         updateUiResumed = true
         ColdStartUpdateSession.observe(updateUiOwner, updateNoticeObserver)
         scheduleColdStartUpdate()
@@ -3692,8 +3985,11 @@ class MainActivity : SkinnedActivity() {
         val framework = RemoteHookConfigStore.status()
         lspatchActivationReceiptTracker.startSession()
         requestLspatchHostReceipt(framework)
+        // 先启动存活探测再渲染，让界面从“确认中”开始，而不是先闪一下“未确认”。
+        refreshNoRootProbe()
         renderNoRootUi()
         synchronizeNoRootSupportIfEnabled()
+        scheduleNPatchSetup()
         scheduleReleaseHighlights()
     }
 
@@ -4081,7 +4377,7 @@ class MainActivity : SkinnedActivity() {
         suppressLegacyActivityTransition()
     }
 
-    private fun launchDiagnostics() {
+    internal fun launchDiagnostics() {
         val entry = diagnosticsEntryView
         val title = diagnosticsEntryTitleView
         val sourceWindow = findViewById<View>(Android_R.id.content)
@@ -4183,6 +4479,7 @@ class MainActivity : SkinnedActivity() {
         enhancementAdvancedChevron = null
         noRootSwitch = null
         noRootStatusView = null
+        noRootActionView = null
         noRootPrefsBridge = null
         termsDialogHintView = null
         termsManagerLauncher = null
@@ -4242,6 +4539,7 @@ class MainActivity : SkinnedActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         restoreSettingsExpansionState(savedInstanceState)
+        pendingNoRootRelaunch = savedInstanceState?.getBoolean("no_root_relaunch") ?: false
         pendingHighlightsFrom = ReleaseHighlightsStore.prepare(applicationContext)
         if (savedInstanceState?.containsKey("highlights_from") == true) {
             savedInstanceState.getInt("highlights_from",-1)
@@ -4274,6 +4572,8 @@ class MainActivity : SkinnedActivity() {
             }
             return
         }
+        // 授权门禁之后预热；只读异步检查不会弹授权。
+        com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.RestartCapabilities.warm(applicationContext)
         prepareSkinSession()
 
         // 读取广告开关配置：prefs() 只创建一次跨进程 bridge，两个开关复用（降低初始化开销）
@@ -4471,6 +4771,7 @@ class MainActivity : SkinnedActivity() {
         liveRoomDoubleTapPause = uiSettings.bool(FeaturePreferences.LIVE_ROOM_DOUBLE_TAP_PAUSE)
         purifyShareContent = uiSettings.bool(FeaturePreferences.PURIFY_SHARE_CONTENT)
         shareMiniProgramDirectLink = uiSettings.bool(FeaturePreferences.SHARE_MINI_PROGRAM_DIRECT_LINK)
+        weChatShareCompat = uiSettings.bool(FeaturePreferences.WECHAT_SHARE_COMPAT)
         forceExternalBrowser = uiSettings.bool(FeaturePreferences.FORCE_EXTERNAL_BROWSER)
         systemMediaNotification = uiSettings.bool(FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION)
         homeFrameLegacyLock = uiSettings.bool(FeaturePreferences.HOME_FRAME_LEGACY_LOCK)
@@ -4819,6 +5120,21 @@ class MainActivity : SkinnedActivity() {
                         textColor = colorResource(R.color.white)
                         textSize = 13f
                         isVisible = false
+                    }
+                    textView(key = "MainActivity:noRootAction",
+                        lparams = params(widthMatchParent = true) { topMargin = 6.dp }
+                    ) {
+                        text = stringResource(R.string.no_root_action_verify)
+                        textColor = colorResource(R.color.white)
+                        textSize = 13f
+                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                        gravity = Gravity.CENTER
+                        updatePadding(vertical = 8.dp)
+                        background = roundedColor(monetColors.tertiary)
+                        isClickable = true
+                        isFocusable = true
+                        isVisible = false
+                        noRootActionView = this
                     }
                 }
                 linearLayout(key = "MainActivity:4803",

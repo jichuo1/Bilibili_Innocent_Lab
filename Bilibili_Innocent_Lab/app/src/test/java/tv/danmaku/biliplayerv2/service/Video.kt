@@ -12,6 +12,8 @@ class Video {
     abstract class PlayableParams(origin: String, var kind: VideoBizType = VideoBizType.UGC) : FixtureResolveParams(origin) {
         abstract fun getDisplayParams(): DisplayParams
         fun getBizType() = kind
+        open fun getResolveParams(): com.bilibili.lib.media.resolver2.IResolveParams =
+            getDisplayParams().let { com.bilibili.app.gemini.base.player.GeminiCommonResolverParams(it.getAvid(), it.getCid()) }
     }
 }
 

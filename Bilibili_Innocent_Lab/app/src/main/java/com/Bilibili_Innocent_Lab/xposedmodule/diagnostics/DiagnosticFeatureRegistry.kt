@@ -192,6 +192,8 @@ internal object DiagnosticFeatureRegistry {
             DiagnosticFeatureCategory.GENERAL,
             runtimeEvidenceExpected = true
         ),
+        DiagnosticFeatureDescriptor("wechat_share_compat", DiagnosticFeatureCategory.COMPATIBILITY,
+            runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor(
             "external_browser",
             DiagnosticFeatureCategory.GENERAL,

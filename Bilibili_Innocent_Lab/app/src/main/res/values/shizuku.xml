@@ -1,0 +1,32 @@
+<resources>
+    <string name="shizuku_restart_button">Shizuku restart</string>
+    <string name="shizuku_restart_entry">Restart with Shizuku</string>
+    <string name="shizuku_restart_description">Saves your current configuration, force stops Bilibili and opens it again, then checks the new process and current configuration receipt. You can cancel or use the manual restart guide.</string>
+    <string name="shizuku_missing">Shizuku is not installed.</string>
+    <string name="shizuku_stopped">Start the Shizuku service in its manager, then return here.</string>
+    <string name="shizuku_unsupported">Shizuku API 13 or later is required.</string>
+    <string name="shizuku_unauthorized">Shizuku authorization is required. Authorization alone will not restart Bilibili.</string>
+    <string name="shizuku_denied">Authorization was denied or revoked. Allow this module in Shizuku, then return here.</string>
+    <string name="shizuku_ready">Shizuku is authorized. Tap below to save and restart Bilibili.</string>
+    <string name="shizuku_disconnected">Shizuku disconnected or authorization was revoked. Check the service and retry.</string>
+    <string name="shizuku_requesting">Waiting for Shizuku authorization…</string>
+    <string name="shizuku_saving">Saving the current configuration…</string>
+    <string name="shizuku_binding">Connecting to the restart service…</string>
+    <string name="shizuku_stopping">Force stopping Bilibili and checking that its processes exit…</string>
+    <string name="shizuku_launching">Opening Bilibili and checking its new process…</string>
+    <string name="shizuku_verifying">Bilibili started. Checking its current configuration receipt…</string>
+    <string name="shizuku_save_failed">Could not save the current configuration. Bilibili was not restarted.</string>
+    <string name="shizuku_stop_failed">Could not confirm that Bilibili stopped. It has not been opened again.</string>
+    <string name="shizuku_launch_failed">Bilibili stopped, but its new process could not be confirmed. Open it manually.</string>
+    <string name="shizuku_receipt_timeout">The new process started, but its current configuration receipt is unconfirmed. Check Diagnostics.</string>
+    <string name="shizuku_config_changed">Configuration or authorization changed. This restart attempt was cancelled; retry with the current configuration.</string>
+    <string name="shizuku_cancelled">Restart cancelled. If Bilibili has already stopped, open it manually.</string>
+    <string name="shizuku_confirmed">New Bilibili process and current configuration receipt confirmed.</string>
+    <string name="shizuku_disabled_confirmed">New Bilibili process confirmed that the current module configuration is disabled.</string>
+    <string name="shizuku_busy">Another restart is in progress.</string>
+    <string name="shizuku_status_uid">%1$s\nExecution UID: %2$d</string>
+    <string name="shizuku_install">Install Shizuku</string>
+    <string name="shizuku_open_manager">Open Shizuku</string>
+    <string name="shizuku_authorize">Authorize Shizuku</string>
+    <string name="shizuku_save_restart">Save and restart</string>
+</resources>

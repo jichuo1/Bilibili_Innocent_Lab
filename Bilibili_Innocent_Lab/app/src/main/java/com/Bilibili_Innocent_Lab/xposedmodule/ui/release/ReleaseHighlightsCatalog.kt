@@ -350,6 +350,9 @@ internal object ReleaseHighlightsCatalog {
     )), ReleaseHighlightsBatch(34, listOf(
         ReleaseHighlight("cloud-key-scan", HighlightKind.IMPROVED, R.string.highlights_cloud_key_scan,
             HighlightDestination("cloud.key_freeze.picked"))
+    )), ReleaseHighlightsBatch(35, listOf(
+        ReleaseHighlight("wechat-resigned-sharing", HighlightKind.NEW, R.string.wechat_share_compat_tip,
+            HighlightDestination("share.wechat.resigned_compat"))
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

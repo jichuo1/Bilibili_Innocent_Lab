@@ -39,7 +39,10 @@ internal data class NoRootConfigSnapshot(
  */
 internal object NoRootConfigSnapshotCodec {
     const val CURRENT_SCHEMA_VERSION = 1
-    const val MAX_PAYLOAD_BYTES = 256 * 1024
+    // 旧 256 KiB 字节上限已允许这么多 ASCII 字符；固定字符上限保持原有 Binder 最坏载荷，
+    // UTF-8 为每个 UTF-16 代码单元预留最多 3 字节，中文配置不再被额外压缩容量。
+    const val MAX_PAYLOAD_CHARS = 256 * 1024
+    const val MAX_PAYLOAD_BYTES = MAX_PAYLOAD_CHARS * 3
     const val MAX_STRING_LENGTH = 64 * 1024
 
     private const val TYPE_BOOLEAN = "boolean"
@@ -85,7 +88,8 @@ internal object NoRootConfigSnapshotCodec {
             .put("settingCount", snapshot.values.size)
             .put("settings", settings)
             .toString()
-        require(encoded.toByteArray(Charsets.UTF_8).size <= MAX_PAYLOAD_BYTES) {
+        require(encoded.length <= MAX_PAYLOAD_CHARS &&
+            encoded.toByteArray(Charsets.UTF_8).size <= MAX_PAYLOAD_BYTES) {
             "No-root configuration is too large"
         }
         return encoded
@@ -96,7 +100,8 @@ internal object NoRootConfigSnapshotCodec {
         expectedModulePackage: String? = null,
         expectedModuleVersionCode: Long? = null
     ): NoRootConfigSnapshot? = runCatching {
-        if (payload.isBlank() || payload.toByteArray(Charsets.UTF_8).size > MAX_PAYLOAD_BYTES) {
+        if (payload.length > MAX_PAYLOAD_CHARS || payload.isBlank() ||
+            payload.toByteArray(Charsets.UTF_8).size > MAX_PAYLOAD_BYTES) {
             return@runCatching null
         }
         val root = JSONObject(payload)

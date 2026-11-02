@@ -20,7 +20,7 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 32
+    const val VERSION = 34
     val definitions = listOf(
         DiagnosticCapabilityDefinition("player_buffer_strategy", "player_buffer", R.string.player_buffer_mode,
             setOf("player.buffer.mode", "player.buffer.seconds", "player.buffer.memory_mb"),
@@ -34,7 +34,7 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("sponsorblock", "sponsorblock", R.string.sponsorblock_enabled,
             setOf("player.sponsorblock.enabled", "player.sponsorblock.automatic"), introducedCatalogVersion = 19),
         DiagnosticCapabilityDefinition("sponsorblock_story", "sponsorblock_story", R.string.sponsorblock_story_enabled,
-            setOf("player.sponsorblock.story")),
+            setOf("player.sponsorblock.story"), introducedCatalogVersion = 34),
         DiagnosticCapabilityDefinition("host_video_cards", "host_video_cards", R.string.host_video_cards,
             setOf("host.video_cards.enabled", "host.video_cards.radius_dp", "host.cards.material",
                 "host.home_cards.horizontal_dp", "host.home_cards.vertical_dp"), introducedCatalogVersion = 18),
@@ -197,10 +197,12 @@ internal object DiagnosticCapabilityCatalog {
             setOf("splash.custom_selection.enabled"), introducedCatalogVersion = 18),
         DiagnosticCapabilityDefinition("share_content_purified", "share_purify", R.string.purify_share_content, setOf("share.content.purified")),
         DiagnosticCapabilityDefinition("share_mini_program_direct_link", "share_purify", R.string.share_mini_program_direct_link, setOf("share.mini_program.direct_link")),
+        DiagnosticCapabilityDefinition("wechat_share_compat", "wechat_share_compat", R.string.wechat_share_compat,
+            setOf("share.wechat.resigned_compat"), introducedCatalogVersion = 33),
         DiagnosticCapabilityDefinition("external_browser", "external_browser", R.string.force_external_browser, setOf("links.external_browser.enabled")),
         DiagnosticCapabilityDefinition("system_media_notification", "system_media_notification", R.string.system_media_notification, setOf("system.media_notification.enabled")),
-        DiagnosticCapabilityDefinition("home_frame_lock", "home_frame_lock", R.string.home_frame_legacy_lock, setOf("home.frame.legacy_lock.enabled")),
-        DiagnosticCapabilityDefinition("cloud_key_freeze", "cloud_key_freeze", R.string.cloud_key_freeze, setOf("cloud.key_freeze.enabled", "cloud.key_freeze.rules", "cloud.key_freeze.observe", "cloud.key_freeze.picked")),
+        DiagnosticCapabilityDefinition("home_frame_lock", "home_frame_lock", R.string.home_frame_legacy_lock, setOf("home.frame.legacy_lock.enabled"), introducedCatalogVersion = 34),
+        DiagnosticCapabilityDefinition("cloud_key_freeze", "cloud_key_freeze", R.string.cloud_key_freeze, setOf("cloud.key_freeze.enabled", "cloud.key_freeze.rules", "cloud.key_freeze.observe", "cloud.key_freeze.picked"), introducedCatalogVersion = 34),
         DiagnosticCapabilityDefinition("bv_to_av", "bv_to_av", R.string.show_bv_as_av, setOf("numbers.bv_as_av.enabled")),
         DiagnosticCapabilityDefinition("free_copy_comment_enabled", "free_copy", R.string.free_copy_enable, setOf("free_copy.comment.enabled")),
         DiagnosticCapabilityDefinition("free_copy_description_enabled", "free_copy", R.string.free_copy_desc_enable, setOf("free_copy.description.enabled")),
@@ -298,6 +300,7 @@ internal object DiagnosticCapabilityCatalog {
         "comments_reply_button_removed",
         "share_content_purified",
         "share_mini_program_direct_link",
+        "wechat_share_compat",
         "live_room_switch_blocked",
         "live_double_tap_pause",
         "player_long_press_disabled",

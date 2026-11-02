@@ -51,8 +51,10 @@ class AdaptAssistGateWiringContractTest {
     }
 
     @Test fun cacheFastPathRequestsASupplementalScanWhenAFeatureIsEnabledLater() {
-        val cached = adapter.after("val cached = usable?.takeUnless { value ->").before("if (cached != null) {")
-        assertTrue(cached.contains("assistRefreshNeeded(classLoader, value, blockUpdateEnabled, playerQualityEnabled, commentTopologyEnabled)"))
+        val refreshCheck = adapter.after("fun requiresFeatureRefresh(value: AdaptResult): Boolean")
+            .before("val refreshRequested = usable?.let(::requiresFeatureRefresh)")
+        assertTrue(refreshCheck.contains("assistRefreshNeeded(classLoader, value, blockUpdateEnabled, playerQualityEnabled, commentTopologyEnabled)"))
+        assertTrue(adapter.contains("val cached = usable?.takeUnless { refreshRequested || coverageMissing.isNotEmpty() }"))
         // 功能关闭时 internal 判定在求值直接定位前就短路。
         val gate = SourceContract.read("hook/adapter/AdaptAssistGate.kt")
         assertTrue(gate.contains("enabled && !cachedPresent && attempt != Attempt.CONCLUSIVE_MISSING && !directFound()"))

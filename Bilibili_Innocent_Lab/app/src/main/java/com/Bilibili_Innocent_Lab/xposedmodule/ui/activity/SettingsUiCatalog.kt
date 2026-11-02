@@ -42,6 +42,7 @@ internal object SettingsUiCatalog {
         add(FeaturePreferences.HOST_VIDEO_CARDS, R.string.host_video_cards, 3, "BEAUTIFICATION", true)
         add(FeaturePreferences.PURIFY_SHARE_CONTENT, R.string.purify_share_content, 1, "PURIFICATION_ADVANCED", true)
         add(FeaturePreferences.SHARE_MINI_PROGRAM_DIRECT_LINK, R.string.share_mini_program_direct_link, 1, "PURIFICATION_ADVANCED", true)
+        add(FeaturePreferences.WECHAT_SHARE_COMPAT, R.string.wechat_share_compat, 1, "PURIFICATION_ADVANCED", true)
         add(FeaturePreferences.PURIFY_SPLASH_ADS, R.string.purify_splash_ads, 1, "PURIFICATION_ADVANCED", true)
         add(FeaturePreferences.BLOCK_TEENAGERS_MODE_PROMPT, R.string.block_teenagers_mode_prompt, 1, "PURIFICATION_ADVANCED", true)
         add(FeaturePreferences.BLOCK_APP_UPDATE, R.string.block_app_update, 1, "PURIFICATION_ADVANCED", true)

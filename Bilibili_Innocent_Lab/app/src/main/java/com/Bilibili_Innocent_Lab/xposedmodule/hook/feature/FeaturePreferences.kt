@@ -274,6 +274,9 @@ internal object FeaturePreferences {
     /** 微信/QQ 小程序卡片降级为普通链接分享。 */
     const val SHARE_MINI_PROGRAM_DIRECT_LINK = "share_mini_program_direct_link"
 
+    /** 仅放宽 B 站分享实例对重签名微信的客户端证书比较，默认关闭。 */
+    const val WECHAT_SHARE_COMPAT = "wechat_share_compat"
+
     /** 站外链接改由系统浏览器打开，不再进入宿主内置 WebView。 */
     const val FORCE_EXTERNAL_BROWSER = "force_external_browser"
 

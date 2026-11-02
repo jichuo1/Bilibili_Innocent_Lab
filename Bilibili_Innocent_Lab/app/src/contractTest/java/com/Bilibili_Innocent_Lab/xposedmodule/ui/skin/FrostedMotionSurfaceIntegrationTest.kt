@@ -105,7 +105,8 @@ class FrostedMotionSurfaceIntegrationTest {
 
     @Test fun diagnosticPreviewRetainsModalFactoryAndDisposesElasticWithinItsExistingDismissHandler() {
         val diagnostics = source("activity/DiagnosticsActivity")
-        val preview = diagnostics.after("private fun showExportPreview()").before("private fun dismissExportPreviewDialog")
+        val preview = diagnostics.after("private fun showExportPreview(").before("private fun dismissExportPreviewDialog")
+        assertTrue(preview.contains("supportBundle: Boolean = false"))
         assertTrue(preview.contains("background = skinModalBackground(monetColors.surface)"))
         val install = preview.indexOf("val disposeElasticInteraction = installDialogElasticInteraction(dialog)")
         assertTrue(install > preview.indexOf("dialog.setContentView(root)"))

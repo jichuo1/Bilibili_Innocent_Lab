@@ -149,6 +149,30 @@ internal fun MainActivity.purifyShareCategory(scope: LinearSettingsScope) = with
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
+    materialSwitch(key = "PurifySettingsSections:wechatShareCompat",
+        lparams = params(widthMatchParent = true) {
+            topMargin = 12.dp
+            bottomMargin = 5.dp
+        }
+    ) {
+        bindFavoriteSwitch(this, FeaturePreferences.WECHAT_SHARE_COMPAT, directToggle = true)
+        bindSettingDestination(this, FeaturePreferences.WECHAT_SHARE_COMPAT)
+        text = stringResource(R.string.wechat_share_compat)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = weChatShareCompat
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.WECHAT_SHARE_COMPAT, checked, button)
+        }
+    }
+    textView(key = "PurifySettingsSections:wechatShareCompatTip", lparams = params(widthMatchParent = true)) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.wechat_share_compat_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
 }
 
 /** 进阶净化 · PURIFY_STARTUP 分类；标题即 marker，必须是本组第一个子控件。 */

@@ -19,14 +19,14 @@ class FrameInterpolationEntryContractTest {
     @Test fun `entry defers only playback time conditions and the host enforces each one`() {
         assertTrue(gate.contains("const val DEVICE_VALIDATION_RECORDED = true"))
         assertTrue(gate.contains("const val HOST_INTEGRATION_AVAILABLE = true"))
-        val production = gate.after("fun production(): Verdict").before("fun entryOpen()")
+        val production = gate.after("fun production(").before("fun entryOpen(")
         assertTrue(production.contains("modelVerified = false"))
         assertTrue(production.contains("mediaPermit = false"))
         assertTrue(production.contains("inferenceWithinBudget = false"))
         assertFalse(production.contains("deviceValidated"))
         val runtime = gate.after("val RUNTIME_ENFORCED").before("fun evaluate(")
         assertEquals(4, Regex("Condition\\.").findAll(runtime).count())
-        assertTrue(gate.after("fun entryOpen()").contains("production().missing.all { it in RUNTIME_ENFORCED }"))
+        assertTrue(gate.after("fun entryOpen(").contains("production(nativeReady).missing.all { it in RUNTIME_ENFORCED }"))
 
         val engine = SourceContract.read("$dir/FrameInterpolationEngineHolder.kt")
         assertTrue(engine.contains("if (native != FrameNativeLoader.Status.READY) { fail(\"native:\$native\"); return }"))

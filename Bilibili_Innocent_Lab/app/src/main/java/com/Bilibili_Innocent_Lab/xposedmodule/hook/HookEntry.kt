@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook
 
+import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
+
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
@@ -30,10 +32,14 @@ import java.lang.reflect.Constructor
 import java.lang.reflect.Method
 import java.util.Collections
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.StartupTrace
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotHostBridge
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostRuntimeProbeResponder
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchProcessDiagnostics
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchProcessState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootTargetConfigBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlanner
@@ -53,6 +59,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFamilyCoverage
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentComposeCopyBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentNativeSupplementBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentLegacyCopyBridge
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentRawTextReader
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFullTextReader
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyClipboardWrite
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BlockComponentLibraryFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ComponentLibraryPoolMatcher
@@ -124,6 +132,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerStatusBarFeatur
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SearchPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SearchHomeRecommendFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SharePurifyFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.WeChatShareCompatFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.StoryPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.StoryActionIcon
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.StoryActionIconsFeatureInstaller
@@ -193,6 +202,7 @@ class HookEntry : XposedModule() {
 
     private val modernRuntime = ModernHookRuntime(this)
     private val targetHooksStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+    private var loadedModuleArtifact: com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.LoadedModuleArtifact? = null
 
     @Volatile
     private var loadedProcessName: String = ""
@@ -380,8 +390,6 @@ class HookEntry : XposedModule() {
                     HostThreadGuard.run("host_main_message") { super.dispatchMessage(msg) }
                 }
             }
-
-        private const val MODULE_PACKAGE = "com.Bilibili_Innocent_Lab.xposedmodule"
 
         /**
          * 普通模式读取管理器 Remote Preferences 白名单配置，再取得当前模块的启动许可。协议一次性校验目录、
@@ -978,13 +986,30 @@ class HookEntry : XposedModule() {
             val image = additionalNativeCopy?.imageContent(v)
             val state = image?.let { CommentRootState(it.first, false, true, it.second, 0L) }
                 ?: semanticState ?: fallbackState
-            val renderedText = extractCommentText(registeredRoot ?: v)
+            val raw = state?.rawText?.trim()?.takeIf { it.length in 1..3000 && it.isNotBlank() }
+            val fullBody = if (raw != null && state.rawTrusted) {
+                commentFullTextReader.read(v)?.let { full ->
+                    val clickable = (full as? android.text.Spanned)?.let { text ->
+                        text.getSpans(0, text.length, classOf<Any>())
+                            .filter { it is android.text.style.ClickableSpan || commentFullTextReader.isNicknameSpan(it) }
+                            .map { text.getSpanStart(it) until text.getSpanEnd(it) }
+                    }.orEmpty()
+                    val start = CommentTextIdentity.replyBodyStart(raw, full,
+                        visibleSpanRanges(full, replacementSpans(full)), clickable)
+                    logInfo("free_copy_reply_projection", "[BIL] 自由复制回复投影: " +
+                        "full=${full.length} raw=${raw.length} clickable=${clickable.size} accepted=${start != null}")
+                    start?.let { full.subSequence(it, full.length) }
+                }
+            } else null
+            val renderedText = fullBody ?: extractCommentText(registeredRoot ?: v)
             val visibleText = renderedText
                 ?.let(::snapshotCommentText)
                 ?.takeIf(::isValidFreeCopyText)
-            val raw = state?.rawText?.trim()?.takeIf { it.length in 1..3000 && it.isNotBlank() }
             if (visibleText == null) return raw?.let(::FreeCopyContent)
-            if (raw == null) return FreeCopyContent(visibleText)
+            if (raw == null) {
+                logInfo("free_copy_raw_missing", "[BIL] 自由复制原文缺失: bound=${state != null}")
+                return FreeCopyContent(visibleText)
+            }
             // 可展开评论在折叠态会把完整富文本截成前缀，再追加带独立点击/着色 Span 的
             // `... 展开` 控制尾部。该尾部不是评论正文，只参与宿主 UI；若拿它与 raw 做
             // 身份校验会误判为另一条评论，随后退回 U+200B 快照并令表情复制为空。
@@ -1016,6 +1041,8 @@ class HookEntry : XposedModule() {
                     emojiResolution = emojiResolution
                 )
             } else {
+                logInfo("free_copy_identity_rejected", "[BIL] 自由复制原文身份未通过: " +
+                    "rawLength=${raw.length} visibleLength=${identityText.length} trusted=${state.rawTrusted}")
                 FreeCopyContent(visibleText)
             }
         }
@@ -1068,7 +1095,8 @@ class HookEntry : XposedModule() {
         private fun replacementSpans(text: CharSequence): List<android.text.style.ReplacementSpan> {
             val spanned = text as? android.text.Spanned ?: return emptyList()
             return spanned.getSpans(0, text.length, classOf<android.text.style.ReplacementSpan>())
-                .filter { spanned.getSpanStart(it) >= 0 && spanned.getSpanEnd(it) > spanned.getSpanStart(it) }
+                .filter { CommentTextIdentity.isEmojiReplacement(text,
+                    spanned.getSpanStart(it), spanned.getSpanEnd(it)) }
                 .sortedBy { spanned.getSpanStart(it) }
         }
 
@@ -1107,22 +1135,12 @@ class HookEntry : XposedModule() {
         }
 
         /**
-         * 将 raw 中的 [表情]、U+FFFC/Unicode emoji，以及可见 Spanned 中的 ReplacementSpan
-         * 统一为一个槽位；普通文字及 emoji 的数量/位置仍保留。相比直接删除 emoji，既能
+         * 将 raw 中的 [表情]、U+FFFC/Unicode emoji，以及可见 Spanned 中确认的 Emoji
+         * 绘制单元统一为槽位；文字链接的底层文字及 emoji 的数量/位置仍保留。相比直接删除 emoji，既能
          * 兼容宿主的多种富文本编码，也不会把“同文字但 emoji 数量不同”的评论误判为同条。
          */
         private fun renderedCommentMatchKey(text: CharSequence): String {
-            val spanned = text as? android.text.Spanned
-            val replacementRanges = spanned
-                ?.getSpans(0, text.length, classOf<android.text.style.ReplacementSpan>())
-                ?.mapNotNull { span ->
-                    val start = spanned.getSpanStart(span)
-                    val end = spanned.getSpanEnd(span)
-                    if (start >= 0 && end > start) start until end else null
-                }
-                ?.sortedBy { it.first }
-                .orEmpty()
-            return CommentTextIdentity.matchKey(text, replacementRanges)
+            return CommentTextIdentity.matchKey(text, visibleSpanRanges(text, replacementSpans(text)))
         }
 
         /**
@@ -1545,19 +1563,7 @@ class HookEntry : XposedModule() {
          * args[0] 不是 CommentItem，反射失败返回 null，交由调用方兜底。
          */
         private fun extractRawCommentText(commentItem: Any?): String? {
-            if (commentItem == null) return null
-            return runCatching {
-                val zMethod = cItemZMethod
-                    ?: KavaMemberLookup.inheritedMethodOrNull(commentItem.javaClass, "z")
-                        ?.also { cItemZMethod = it }
-                    ?: return@runCatching null
-                val zObj = zMethod.invoke(commentItem) ?: return@runCatching null
-                val eMethod = cRichTextEMethod
-                    ?: KavaMemberLookup.inheritedMethodOrNull(zObj.javaClass, "e")
-                        ?.also { cRichTextEMethod = it }
-                    ?: return@runCatching null
-                eMethod.invoke(zObj) as? String
-            }.getOrNull()
+            return commentRawTextReader.read(commentItem, modern = false)
         }
 
         /**
@@ -1566,31 +1572,12 @@ class HookEntry : XposedModule() {
          * 均为 jadx 反编译确认的真实方法/字段名（无 renamed from 注释）。
          */
         private fun extractRawCommentTextV2(commentItem: Any?): String? {
-            if (commentItem == null) return null
-            // 新版链路：CommentItem.f() -> RichText.a。不同 B 站版本并不同构：
-            // 8.90.2 的 CommentItem 顶层没有 f()，正文仍是 z().e()；旧实现只尝试
-            // f().a，令 high handler 的 rawText 恒为 null，评论必须等 IdleHandler
-            // 完整遍历后才获得身份，快速滚动后立即长按便概率落回官方面板。
-            val newChain = runCatching {
-                val fMethod = cItemFMethod
-                    ?: KavaMemberLookup.inheritedMethodOrNull(commentItem.javaClass, "f")
-                        ?.also { cItemFMethod = it }
-                    ?: return@runCatching null
-                val kObj = fMethod.invoke(commentItem) ?: return@runCatching null
-                val aField = cRichTextAField
-                    ?: KavaMemberLookup.fieldOrNull(kObj.javaClass, "a", includeSuperclasses = true)
-                        ?.also { cRichTextAField = it }
-                    ?: return@runCatching null
-                aField.get(kObj) as? String
-            }.getOrNull()
-            if (!newChain.isNullOrBlank()) return newChain
-            // 8.90.2/旧版链路：CommentItem.z() -> RichText.e()。
-            return extractRawCommentText(commentItem)
+            return commentRawTextReader.read(commentItem)
         }
 
         /** 反射缓存：进程内目标类不卸载，可安全缓存 Method/Field，避免评论滚动时重复反射查找 */
-        @Volatile private var cItemFMethod: java.lang.reflect.Method? = null        // CommentItem.f()（高版本取 raw）
-        @Volatile private var cRichTextAField: java.lang.reflect.Field? = null     // k.a（高版本 raw 字段）
+        private val commentRawTextReader = CommentRawTextReader()
+        private val commentFullTextReader = CommentFullTextReader()
         private val cHandlerViewFieldByClass =
             java.util.concurrent.ConcurrentHashMap<Class<*>, java.lang.reflect.Field>()
         @Volatile private var additionalNativeCopy: CommentNativeSupplementBridge? = null
@@ -1606,8 +1593,6 @@ class HookEntry : XposedModule() {
          * 严格限制，且只持有进程生命周期内本就常驻的 Method/Class。 */
         private val cViewBindingArgIndexByMethod =
             java.util.concurrent.ConcurrentHashMap<java.lang.reflect.Member, Int>()
-        @Volatile private var cItemZMethod: java.lang.reflect.Method? = null       // CommentItem.z()（低版本取 raw）
-        @Volatile private var cRichTextEMethod: java.lang.reflect.Method? = null   // n.e()（低版本 raw getter）
 
         /**
          * 判断目标类是否存在于指定 ClassLoader。
@@ -2339,6 +2324,10 @@ class HookEntry : XposedModule() {
     }
 
     override fun onModuleLoaded(param: XposedModuleInterface.ModuleLoadedParam) {
+        if (param.processName == TARGET_PACKAGE) {
+            loadedModuleArtifact = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.LoadedModuleArtifact.capture(
+                runCatching { moduleApplicationInfo.sourceDir }.getOrNull())
+        }
         moduleInstance = this
         loadedProcessName = param.processName
         ModernHookLog.bind(modernRuntime)
@@ -2359,7 +2348,7 @@ class HookEntry : XposedModule() {
             return
         }
         if (!targetHooksStarted.compareAndSet(false, true)) return
-        installTargetHooks(param.classLoader, loadedProcessName)
+        StartupTrace.measure("entry") { installTargetHooks(param.classLoader, loadedProcessName) }
     }
 
     private fun installTargetHooks(biliClassLoader: ClassLoader, processName: String) {
@@ -2510,15 +2499,20 @@ class HookEntry : XposedModule() {
                 java.util.concurrent.atomic.AtomicReference<((Context) -> Unit)?>(null)
             val activeHookConfig =
                 java.util.concurrent.atomic.AtomicReference<HookConfigSource?>(null)
+            val nPatchStartup = java.util.concurrent.atomic.AtomicBoolean(false)
+            val liveConfigChannel = java.util.concurrent.atomic.AtomicReference(
+                com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannel.STANDARD)
             lateinit var scheduleAuthorizationRetry: (Context, android.app.Application?) -> Unit
 
             fun installAuthorizedHooks(authorizationContext: Context) {
+            StartupTrace.measure("install") {
 
             val hookConfig = checkNotNull(activeHookConfig.get()) {
                 "Authorized hook config was not selected"
             }
             // 局部遮蔽把功能安装链统一约束在只读配置接口上。
             val prefs: HookConfigSource = hookConfig
+            val liveConfig = hookConfig as? com.Bilibili_Innocent_Lab.xposedmodule.hook.config.LiveHookConfigState
             // JEV 语义判定的共享配置（实验性功能 → 兼容）；Key 为空或地址非法时为 null，任何过滤面都不建判定器。
             // 硬盘缓存根目录要等宿主 Context 就绪后补上（见 attachedContext 处）。
             var semanticSettings = SemanticSettings.from(
@@ -2584,23 +2578,36 @@ class HookEntry : XposedModule() {
             // 常驻能力在 AdaptPlanCatalog 里标为始终需要，永远不裁剪。
             val adaptPlan = AdaptPlanner.build(hookConfig)
             val startupCache by lazy(LazyThreadSafetyMode.NONE) {
-                VersionAdapter.readStartupCache(authorizationContext, versionAdapterResetTimestamp)
+                StartupTrace.measure("adapter.cache") {
+                    VersionAdapter.readStartupCache(authorizationContext, versionAdapterResetTimestamp)
+                }
             }
             val hostAdaptResult by lazy(LazyThreadSafetyMode.NONE) {
                 // 仅 debug 构建记录同步定位段耗时（逐家族），给设备上的 A/B 对照用；release 不计时。
                 val locateTimings = if (com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG) LocateTimings() else null
-                val runtime = VersionAdapter.quickLocate(biliClassLoader, adaptPlan, locateTimings)
+                val excluded = StartupAdapterPlan.excludedForProcess(hookConfig, processName, nPatchStartup.get())
+                val runtime = StartupTrace.measure("adapter.quick") {
+                    if (excluded.isEmpty()) VersionAdapter.quickLocate(biliClassLoader, adaptPlan, locateTimings)
+                    else VersionAdapter.quickLocateForStartup(
+                        biliClassLoader, excluded, adaptPlan, locateTimings,
+                        allowPruneRequested = processName != TARGET_PACKAGE
+                    )
+                }
                 locateTimings?.let { logInfo("adapt_locate_timing", "[BIL] 同步定位 plan=$adaptPlan ${it.summary()}") }
-                VersionAdapter.mergeRuntimeWithCached(
+                StartupTrace.measure("adapter.merge") { VersionAdapter.mergeRuntimeWithCached(
                     runtime = runtime,
                     cached = startupCache.cached
-                )
+                ) }
             }
 
             // 读取日志开关 + 详细度档位（默认：开启 + 完整）
             logEnabled = hookConfig.getBoolean(PREF_LOG_ENABLED, true)
             logVerbose = hookConfig.getString(PREF_LOG_LEVEL, LOG_LEVEL_COMPLETE) != LOG_LEVEL_MINIMAL
             RoamingCompatHook.configure(logEnabled, logVerbose, modernRuntime)
+            // NPatch 设置入口复用菜单边界，独立于漫游分析/兼容开关；不影响其它进程。
+            if (nPatchStartup.get() && processName == TARGET_PACKAGE) {
+                RoamingCompatHook.patchMineEntry(biliClassLoader, includeRoaming = false)
+            }
 
             // 读取自由复制亮色模式开关（默认：暗色）
             freeCopyLightMode = hookConfig.getBoolean(PREF_FREE_COPY_LIGHT_MODE, false)
@@ -3137,6 +3144,7 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_KEYWORDS,
                             ""
                         ).orEmpty(),
+                        liveRules = liveConfig?.let { state -> { state.home() } },
                         removeLive = prefs.getBoolean(
                             FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE,
                             false
@@ -3672,6 +3680,7 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.DANMAKU_WEIGHT_FILTER_MINIMUM,
                             DanmakuPurifyPolicy.DEFAULT_MINIMUM_WEIGHT
                         ),
+                        liveRules = liveConfig?.let { state -> { state.danmaku() } },
                         removeVipColorful = prefs.getBoolean(
                             FeaturePreferences.REMOVE_VIP_COLORFUL_DANMAKU,
                             false
@@ -3700,6 +3709,10 @@ class HookEntry : XposedModule() {
 
             featureInstallCoordinator.installAll(
                 listOf(
+                    WeChatShareCompatFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.WECHAT_SHARE_COMPAT, false),
+                        hostVersionCode = { VersionAdapter.biliVersionCode(authorizationContext) }
+                    ),
                     SharePurifyFeatureInstaller(
                         purifyContent = prefs.getBoolean(
                             FeaturePreferences.PURIFY_SHARE_CONTENT,
@@ -3834,7 +3847,7 @@ class HookEntry : XposedModule() {
                 rawComment = { extractRawCommentTextV2(it) }
             )
             additionalNativeCopy = nativeSupplement
-            val legacyCommentCopy = CommentLegacyCopyBridge(biliClassLoader)
+            val legacyCommentCopy = StartupTrace.measure("legacy.comment_prepare") { CommentLegacyCopyBridge(biliClassLoader) }
             if (legacyCommentCopy.isApplicable()) commentFamilies.record("comment2", legacyCommentCopy.isReady())
             val installCommentFreeCopyHooks: () -> Unit = installCommentHooks@{
                 // 只开脉络时只观察 Compose 更多操作，不安装关闭状态的原生复制／滚动 Hook。
@@ -3852,7 +3865,7 @@ class HookEntry : XposedModule() {
                 try {
                 // 读版本适配缓存（loadApp 阶段读 B 站 cache 文件，快路径零开销）；
                 // 缓存缺失（首次启动/版本变化后 attach 适配尚未写入）时即时快速定位
-                // （纯内存反射 ~1ms），避免「首次启动评论 hook 用失效签名」。
+                // （同步结构定位），避免「首次启动评论 hook 用失效签名」。
                 // 注：quickLocate 结果不持久化（AdaptResult 无真实 vc，写文件会被
                 // loadCached 拒绝）；attach 阶段 ensureAdapted 会重跑适配线程写正确缓存
                 val adaptResult = hostAdaptResult
@@ -4155,7 +4168,7 @@ class HookEntry : XposedModule() {
                 }
             }
             commentFreeCopyInstallerRef.set(installCommentFreeCopyHooks)
-            if (runtimeCommentFreeCopyEnabled || commentTopologyEnabled) installCommentFreeCopyHooks()
+            if (runtimeCommentFreeCopyEnabled || commentTopologyEnabled) StartupTrace.measure("legacy.comment") { installCommentFreeCopyHooks() }
 
             // ====== 4a. 气泡亮暗色自动跟随：详情页主题缓存 ======
             // 自动跟随开启时，进入视频详情页判定一次 B 站主题并缓存（详情页会话内 B 站
@@ -4868,14 +4881,14 @@ class HookEntry : XposedModule() {
                 }
             }
             freeCopyHookRetryOnAdapt.set {
-                if (runtimeCommentFreeCopyEnabled) installCommentFreeCopyHooks()
+                if (runtimeCommentFreeCopyEnabled) StartupTrace.measure("legacy.comment") { installCommentFreeCopyHooks() }
                 if (runtimeCommentFreeCopyEnabled || runtimeDescriptionFreeCopyEnabled) {
-                    installDescriptionFreeCopyHooks()
+                    StartupTrace.measure("legacy.description") { installDescriptionFreeCopyHooks() }
                 }
                 publishFreeCopyCapabilities()
             }
             if (runtimeCommentFreeCopyEnabled || runtimeDescriptionFreeCopyEnabled) {
-                installDescriptionFreeCopyHooks()
+                StartupTrace.measure("legacy.description") { installDescriptionFreeCopyHooks() }
             }
             if (processName == TARGET_PACKAGE) {
                 val installedCount =
@@ -4904,7 +4917,9 @@ class HookEntry : XposedModule() {
                 attachedContext,
                 biliClassLoader,
                 prefs = null,
-                authoritativeEnabled = roamingCompatEnabled
+                authoritativeEnabled = roamingCompatEnabled,
+                nPatchRuntime = nPatchStartup.get(),
+                adapterReset = versionAdapterResetTimestamp
             )
             if (processName == TARGET_PACKAGE) {
                 HostRuntimeDiagnosticsBridge.recordInstallation(
@@ -4922,7 +4937,7 @@ class HookEntry : XposedModule() {
             ) {
                 versionAdaptCheckedThisProcess = true
                 runCatching {
-                    VersionAdapter.ensureAdapted(
+                    StartupTrace.measure("adapter.ensure") { VersionAdapter.ensureAdapted(
                         attachedContext,
                         biliClassLoader,
                         versionAdapterResetTimestamp,
@@ -5029,7 +5044,7 @@ class HookEntry : XposedModule() {
                         blockUpdateEnabled = prefs.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false),
                         commentTopologyEnabled = prefs.getBoolean(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, false),
                         plan = adaptPlan
-                    )
+                    ) }
                 }.onFailure { throwable ->
                     logError(
                         "version_adapt_err",
@@ -5037,6 +5052,7 @@ class HookEntry : XposedModule() {
                     )
                 }
             }
+            StartupTrace.measure("diagnostics.summary") {
             val kavaDiagnostics = KavaMemberLookup.diagnostics()
             logInfo(
                 "hook_registry_summary",
@@ -5049,6 +5065,8 @@ class HookEntry : XposedModule() {
             )
             if (processName == TARGET_PACKAGE) {
                 HostRuntimeDiagnosticsBridge.recordHookPointSummary(hookPointRegistry.snapshot())
+            }
+            }
             }
             }
 
@@ -5065,10 +5083,10 @@ class HookEntry : XposedModule() {
             // NPatch 免 Root 的"已激活"只认宿主进程回执：API102 重构删掉了旧的
             // NoRootTargetConfigBridge 调用点后心跳再没有人发，模块侧
             // heartbeatMatches 恒 false，SyncState.ACTIVE 永远降级成"需要重启"。
-            // 在授权安装链成功后恢复回执；noRootRevision 只在 NPatch 网关交付时
+            // 在授权安装链成功后恢复回执；noRootRevision 在 NPatch 当前直达/网关文档中
             // 非零（LSPosed 提交路径恒为 0），模块侧 recordHeartbeat 还会按快照
             // revision/版本逐项校验，非免 Root 交付与失配回执都会被拒收。
-            fun reportNoRootHeartbeatIfSynced(appContext: Context, config: RemoteHookConfigSnapshot) {
+            fun reportNoRootHeartbeatIfSynced(appContext: Context, config: RemoteHookConfigSnapshot, active: Boolean = true) {
                 if (config.noRootRevision <= 0L) return
                 if (!TargetProcess.isMainProcess(appContext, TARGET_PACKAGE)) return
                 Thread({
@@ -5083,7 +5101,7 @@ class HookEntry : XposedModule() {
                         targetVersionCode = targetVersionCode,
                         targetUpdateTime = targetInfo?.lastUpdateTime ?: 0L,
                         processName = processName,
-                        active = true
+                        active = active
                     )
                     frameworkLog(
                         "[BIL] NPatch 免 Root 宿主回执" +
@@ -5097,14 +5115,19 @@ class HookEntry : XposedModule() {
 
             fun performAuthorizationAndInstall(
                 appContext: Context,
-                config: RemoteHookConfigSnapshot
+                config: RemoteHookConfigSnapshot,
+                identity: com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationIdentity?
             ) {
                 if (!config.authorized) {
+                    NPatchProcessDiagnostics.record(NPatchProcessState.REJECTED)
                     authorizedInstallerRef.set(null)
                     frameworkLog("[BIL] Hook 授权未确认，当前宿主进程不安装任何功能")
                     return
                 }
-                activeHookConfig.set(SnapshotHookConfigSource(config.values, config.generation))
+                val live = if (liveConfigChannel.get() != com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannel.STANDARD &&
+                    processName == TARGET_PACKAGE && identity != null)
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.config.LiveHookConfigState(config, identity, liveConfigChannel.get()) else null
+                activeHookConfig.set(live ?: SnapshotHookConfigSource(config.values, config.generation))
                 if (!authorizedInstallStarted.compareAndSet(false, true)) {
                     authorizedInstallerRef.set(null)
                     return
@@ -5118,6 +5141,11 @@ class HookEntry : XposedModule() {
                     installer(appContext)
                 }.onSuccess {
                     authorizedHooksInstalled.set(true)
+                    NPatchProcessDiagnostics.recordInstallation(android.os.SystemClock.elapsedRealtime() - installStartedAtMs)
+                    NPatchProcessDiagnostics.record(NPatchProcessState.INSTALLED,
+                        installedHooks = hookPointRegistry.snapshot().count { it.state == HookPointRegistry.State.INSTALLED })
+                    // B12：存活探测据此回答“活着且已装 Hook”，避免只回“入口在跑”。
+                    HostRuntimeProbeResponder.hooksInstalled = true
                     if (processName == TARGET_PACKAGE && config.values[com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentPreferences.ENABLED] == true) {
                         runCatching {
                             com.Bilibili_Innocent_Lab.xposedmodule.agent.host.HostAgentRuntime.initialize(appContext, biliClassLoader,
@@ -5132,10 +5160,23 @@ class HookEntry : XposedModule() {
                     }
                     if (processName == TARGET_PACKAGE) {
                         HostRuntimeDiagnosticsBridge.recordInstallChainCompleted()
+                        if (live != null && nPatchStartup.get()) runCatching {
+                            com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRoamingStatus.registerHost(appContext)
+                        }.onFailure { frameworkLog("[BIL] 漫游缓存查询不可用") }
+                        if (live != null) runCatching {
+                            com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchLiveConfig.registerHost(
+                                appContext, live, loadedModuleArtifact) {
+                                runtimeCommentFreeCopyEnabled = live.getBoolean(PREF_FREE_COPY_ENABLED, true)
+                                runtimeDescriptionFreeCopyEnabled = live.getBoolean(PREF_FREE_COPY_DESC_ENABLED, true)
+                                freeCopyLightMode = live.getBoolean(PREF_FREE_COPY_LIGHT_MODE, false)
+                            }
+                        }.onFailure { frameworkLog("[BIL] 热应用端点不可用，配置继续使用启动快照") }
                     }
                     reportScanResultIfReady(appContext)
                     reportNoRootHeartbeatIfSynced(appContext, config)
                 }.onFailure { throwable ->
+                    NPatchProcessDiagnostics.recordInstallation(android.os.SystemClock.elapsedRealtime() - installStartedAtMs)
+                    NPatchProcessDiagnostics.record(NPatchProcessState.FAILED)
                     if (processName == TARGET_PACKAGE) {
                         HostRuntimeDiagnosticsBridge.recordInstallChainFailed()
                     }
@@ -5148,20 +5189,65 @@ class HookEntry : XposedModule() {
             }
 
             fun requestAdmission(appContext: Context): com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostAdmissionClient.Result {
+                StartupTrace.attempt()
                 val bootstrapStartedAtMs = android.os.SystemClock.elapsedRealtime()
+                val runtimeMode = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootRuntimeDetector.detect(
+                    appContext, XposedModule::class.java.classLoader, HookEntry::class.java.classLoader)
+                val nPatchRuntime = runtimeMode == com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HookRuntimeMode.NPATCH_LEGACY
+                val lspatchRuntime = runtimeMode == com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HookRuntimeMode.LSPATCH
+                nPatchStartup.set(nPatchRuntime)
+                liveConfigChannel.set(when {
+                    nPatchRuntime -> com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannel.NPATCH
+                    lspatchRuntime -> com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannel.LSPATCH
+                    else -> com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannel.STANDARD
+                })
+                if (lspatchRuntime) {
+                    val profile = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.LspatchRuntimeProfiles.read(appContext, appContext.packageName)
+                    frameworkLog("[BIL] LSPatch 运行档案(mode=${profile.mode}, loader=${profile.loaderVersion}, api=${profile.loaderApi}, process=$processName)")
+                }
+                if (nPatchRuntime) {
+                    val profile = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRuntimeProfiles.read(appContext, appContext.packageName)
+                    runCatching { NPatchProcessDiagnostics.initialize(appContext, processName, profile.mode) }
+                        .onFailure { frameworkLog("[BIL] NPatch 进程诊断不可用，授权流程继续") }
+                    frameworkLog("[BIL] NPatch 运行档案(mode=${profile.mode}, sig=${profile.signatureLevel}, " +
+                        "loader=${profile.loaderVersionCode}, api=${profile.loaderApi}, debuggable=${profile.debuggable}, " +
+                        "process=$processName, is64Bit=${android.os.Process.is64Bit()}, injectdex=unknown)")
+                }
                 val remoteConfigStartedAtMs = android.os.SystemClock.elapsedRealtime()
-                val outcome = queryRemoteHookConfig()
+                // 补丁框架以当前直达端点为准：NPatch 镜像可能过时，LSPatch 集成库不能由设置 App 写入。
+                val outcome = if (nPatchRuntime || lspatchRuntime) RemoteHookConfigQueryOutcome.Rejected("remote_group_unavailable")
+                    else queryRemoteHookConfig()
                 val remoteConfigElapsedMs =
                     android.os.SystemClock.elapsedRealtime() - remoteConfigStartedAtMs
                 val normal = (outcome as? RemoteHookConfigQueryOutcome.Ready)?.snapshot
                 val reason = (outcome as? RemoteHookConfigQueryOutcome.Rejected)?.reasonCode
+                // B3：关闭文档是本进程的安装终态，不排队重试后才能报告“旧 Hook 已退出”。
+                if (normal != null && !normal.deliveryEnabled && normal.noRootRevision > 0L &&
+                    normal.moduleVersionCode == BuildConfig.VERSION_CODE.toLong()) {
+                    authorizedInstallerRef.set(null)
+                    HostRuntimeProbeResponder.disabledRevision = normal.noRootRevision
+                    reportNoRootHeartbeatIfSynced(appContext, normal, active = false)
+                    frameworkLog("[BIL] 免 Root 关闭文档已确认，本进程不安装 Hook")
+                    return com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostAdmissionClient.Result(
+                        reason = com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostAdmissionRouteClassifier.REASON_SYNC_REQUIRED,
+                        disabledRevision = normal.noRootRevision)
+                }
                 if (processName == TARGET_PACKAGE) {
                     frameworkLog("[BIL] 启动授权尝试(process=$processName)")
                 }
                 val admissionStartedAtMs = android.os.SystemClock.elapsedRealtime()
-                val admission = com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostAdmissionClient.admit(appContext, normal, reason)
+                val admission = StartupTrace.measure("admission") { com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostAdmissionClient.admit(
+                    appContext, normal, reason,
+                    nPatchRuntime = nPatchRuntime, lspatchRuntime = lspatchRuntime) }
                 val admissionElapsedMs =
                     android.os.SystemClock.elapsedRealtime() - admissionStartedAtMs
+                NPatchProcessDiagnostics.recordAdmission(admissionElapsedMs, when {
+                    admission.grant != null -> "granted"
+                    admission.disabledRevision > 0L -> "disabled"
+                    admission.reason == "admission_denied" -> "denied"
+                    admission.reason == "admission_timeout" -> "timeout"
+                    else -> "unavailable"
+                }, admission.selectedRoute, admission.routeEvidence)
                 if (processName == TARGET_PACKAGE) {
                     frameworkLog(
                         "[BIL] 启动授权阶段耗时(remote_config=${remoteConfigElapsedMs}ms," +
@@ -5180,11 +5266,30 @@ class HookEntry : XposedModule() {
             fun applyAdmission(appContext: Context, admission: com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostAdmissionClient.Result): Boolean {
                 val grant = admission.grant
                 if (grant == null) {
+                    NPatchProcessDiagnostics.record(if (admission.disabledRevision > 0L)
+                        NPatchProcessState.DISABLED else NPatchProcessState.REJECTED)
+                    // 标准框架的配置拒绝不能被免 Root 的关闭记录变成安装终态。
+                    if (nPatchStartup.get() &&
+                        admission.disabledRevision > 0L && !authorizedHooksInstalled.get()) {
+                        authorizedInstallerRef.set(null)
+                        authorizationRetryPending.set(false)
+                        HostRuntimeProbeResponder.disabledRevision = admission.disabledRevision
+                        if (processName == TARGET_PACKAGE) HostRuntimeDiagnosticsBridge.recordConfigRejected(admission.reason)
+                        frameworkLog("[BIL] 当前关闭许可已确认，本进程不安装 Hook")
+                        return false
+                    }
                     if (processName == TARGET_PACKAGE) HostRuntimeDiagnosticsBridge.recordConfigRejected(admission.reason)
+                    if (admission.reason == "embedded_mode_unsupported") {
+                        authorizedInstallerRef.set(null)
+                        authorizationRetryPending.set(false)
+                        frameworkLog("[BIL] 当前版本不支持集成模式，本进程不安装功能")
+                        return false
+                    }
                     frameworkLog("[BIL] 启动授权未完成，当前进程不安装功能(reason=${admission.reason})")
                     return false
                 }
                 val config = grant.snapshot
+                NPatchProcessDiagnostics.record(NPatchProcessState.LOADED, source = grant.source)
                 if (processName == TARGET_PACKAGE) {
                     val identity = grant.identity
                     HostRuntimeDiagnosticsBridge.recordConfigAccepted(config.generation, config.authorized,
@@ -5193,7 +5298,7 @@ class HookEntry : XposedModule() {
                         identity?.fingerprint ?: "")
                 }
                 frameworkLog("[BIL] 已获得新鲜启动许可(source=${grant.source}, generation=${config.generation})")
-                performAuthorizationAndInstall(appContext, config)
+                performAuthorizationAndInstall(appContext, config, grant.identity)
                 return authorizedHooksInstalled.get()
             }
 
@@ -5205,14 +5310,28 @@ class HookEntry : XposedModule() {
                         HostRuntimeDiagnosticsBridge.initialize(
                             context = appContext,
                             processName = processName,
-                            logError = { message -> logError("host_runtime_diagnostics_receiver", "[BIL] $message") }
+                            logError = { message ->
+                                logError("host_runtime_diagnostics_receiver", "[BIL] $message")
+                            }
                         )
                     }.onFailure { throwable ->
-                        logError("host_runtime_diagnostics_initialize", "[BIL] 宿主诊断桥初始化失败，继续校验 Hook 配置: $throwable")
+                        logError(
+                            "host_runtime_diagnostics_initialize",
+                            "[BIL] 宿主诊断桥初始化失败，继续校验 Hook 配置: $throwable"
+                        )
+                    }
+                    // B12：模块入口一跑起来就要能回答存活探测，哪怕后续授权/安装链还没完成。
+                    runCatching {
+                        HostRuntimeProbeResponder.ensureRegistered(
+                            context = appContext,
+                            logError = { message ->
+                                logError("host_runtime_probe_receiver", "[BIL] $message")
+                            }
+                        )
                     }
                 }
-                val admission = requestAdmission(appContext)
-                if (!applyAdmission(appContext, admission) && admission.grant == null) {
+                val admission = StartupTrace.measure("authorization") { requestAdmission(appContext) }
+                if (!applyAdmission(appContext, admission) && admission.grant == null && authorizedInstallerRef.get() != null) {
                     if (processName == TARGET_PACKAGE) {
                         authorizationRetryPending.set(true)
                         frameworkLog("[BIL] 前台授权重试排队(reason=${admission.reason})")
@@ -5237,7 +5356,7 @@ class HookEntry : XposedModule() {
                 runCatching {
                     com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostAdmissionRecovery(
                         application = application,
-                        admit = { requestAdmission(application) },
+                        admit = { StartupTrace.measure("authorization") { requestAdmission(application) } },
                         accept = { result, activity ->
                             val installed = applyAdmission(application, result)
                             if (installed) {
@@ -5307,6 +5426,9 @@ class HookEntry : XposedModule() {
                     }
                     after {
                         applicationOnCreateCompleted.set(true)
+                        (args.firstOrNull() as? android.app.Application)?.let { application ->
+                            runCatching { StartupTrace.measure("application.ready") { NPatchProcessDiagnostics.onApplicationReady(application) } }
+                        }
                         if (processName == TARGET_PACKAGE && authorizedHooksInstalled.get() &&
                             activeHookConfig.get()?.getBoolean(com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentPreferences.ENABLED, false) == true) {
                             (args.firstOrNull() as? android.app.Application)?.let { application ->

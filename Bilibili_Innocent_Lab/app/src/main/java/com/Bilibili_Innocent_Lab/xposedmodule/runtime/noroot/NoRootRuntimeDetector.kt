@@ -6,6 +6,7 @@ import android.os.Bundle
 
 internal enum class HookRuntimeMode {
     STANDARD_XPOSED,
+    LSPATCH,
     NPATCH_LEGACY
 }
 
@@ -29,7 +30,8 @@ internal object NoRootRuntimeDetector {
         return classify(
             hasNpatchMarker = hasNpatchMarker(metadata),
             frameworkFingerprint = frameworkFingerprint,
-            moduleFingerprint = moduleFingerprint
+            moduleFingerprint = moduleFingerprint,
+            hasLspatchMarker = LspatchRuntimeProfiles.read(context, context.packageName).modern
         )
     }
 
@@ -40,16 +42,19 @@ internal object NoRootRuntimeDetector {
     internal fun classify(
         hasNpatchMarker: Boolean,
         frameworkFingerprint: String,
-        moduleFingerprint: String
+        moduleFingerprint: String,
+        hasLspatchMarker: Boolean = false
     ): HookRuntimeMode {
         val framework = frameworkFingerprint.lowercase()
         val module = moduleFingerprint.lowercase()
         return when {
             framework.contains("npatch") -> HookRuntimeMode.NPATCH_LEGACY
+            framework.contains("org.lsposed.lspatch") -> HookRuntimeMode.LSPATCH
             module.contains("org.lsposed.lspd") ||
                 module.contains("lspmoduleclassloader") ||
                 framework.contains("org.lsposed.lspd") -> HookRuntimeMode.STANDARD_XPOSED
             hasNpatchMarker -> HookRuntimeMode.NPATCH_LEGACY
+            hasLspatchMarker -> HookRuntimeMode.LSPATCH
             else -> HookRuntimeMode.STANDARD_XPOSED
         }
     }

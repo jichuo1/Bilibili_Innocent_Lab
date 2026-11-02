@@ -10,6 +10,31 @@ import java.time.Instant
 import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicBoolean
 
+/** 只归因本次实际执行的首个过滤条件；未知类型/选区标签保留父组证据。 */
+private enum class RelateRemovalCause(val capability: String?) {
+    COMMERCIAL("video_related_commercial_removed"),
+    GAME("video_related_game_removed"), LIVE("video_related_live_removed"),
+    COURSE("video_related_course_removed"), SPECIAL("video_related_special_removed"),
+    AUTHOR("video_related_author_block"), TAG("video_related_tag_block"),
+    DURATION("video_related_duration_filter"), PLAY_COUNT("video_related_play_count_filter"),
+    PUBLISH_TIME("video_related_publish_time_filter"),
+    CUSTOM_REASON("video_related_reason_filter_enabled"),
+    MATCHING("video_related_matching_enhancement_enabled"),
+    STRONG("video_related_strong_mode_enabled"), SEMANTIC("video_related_semantic_filter_enabled"),
+    UNATTRIBUTED(null);
+
+    companion object {
+        fun forType(type: String): RelateRemovalCause = when (type) {
+            "CM" -> COMMERCIAL
+            "GAME" -> GAME
+            "LIVE" -> LIVE
+            "COURSE" -> COURSE
+            "SPECIAL" -> SPECIAL
+            else -> UNATTRIBUTED
+        }
+    }
+}
+
 /** 按相关推荐卡片的公开枚举/路由类型做精确过滤。 */
 internal class VideoRelateFilterFeatureInstaller(
     private val hiddenTypes: Set<String>,
@@ -208,8 +233,7 @@ internal class VideoRelateFilterFeatureInstaller(
         val commercialEvidencePaths = resolveCommercialEvidencePaths(
             environment,
             adapted,
-            commercialEvidenceActive,
-            includeFeedback = strongModeActive
+            commercialEvidenceActive
         )
         val partialReasons = mutableListOf<String>()
         val missingCommercialPayload = promotionTypeFilteringActive &&
@@ -317,6 +341,7 @@ internal class VideoRelateFilterFeatureInstaller(
             )
         }
 
+
         val publishTimeActive = publishTimeRule.isEnabled && publishTextPaths.isNotEmpty()
         val publishTimeProbe = PublishTimeParseProbe()
         fun removedByPublishTime(item: Any, context: PublishTimeContext): Boolean {
@@ -340,7 +365,19 @@ internal class VideoRelateFilterFeatureInstaller(
         fun publishContext(): PublishTimeContext? =
             if (publishTimeActive) PublishTimeContext(clock(), ruleZone()) else null
 
-        val shouldRemoveResponseItem: (Any, PublishTimeContext?) -> Boolean = filter@{ item, publishContext ->
+        val commercialCause = when {
+            "CM" in normalizedHidden -> RelateRemovalCause.COMMERCIAL
+            "SPECIAL" in normalizedHidden -> RelateRemovalCause.SPECIAL
+            strongModeActive -> RelateRemovalCause.STRONG
+            else -> RelateRemovalCause.UNATTRIBUTED
+        }
+        val runtimeCapabilities = capabilityIds.toSet()
+        fun reportCause(cause: RelateRemovalCause, stage: FeatureRuntimeStage, delta: Int = 1) {
+            cause.capability?.takeIf(runtimeCapabilities::contains)?.let {
+                environment.reportRuntimeEvidence(it, stage, delta)
+            }
+        }
+        val responseRemovalCause: (Any, PublishTimeContext?) -> RelateRemovalCause? = filter@{ item, publishContext ->
             val evidence = if (typeObservationActive) {
                 extractEvidence(
                     item,
@@ -354,7 +391,7 @@ internal class VideoRelateFilterFeatureInstaller(
                 null
             }
             val typeMatched = if (normalizedHidden.isNotEmpty() && evidence != null) {
-                matchesNormalizedEvidence(
+                matchingNormalizedHiddenType(
                     evidence.types,
                     evidence.relateCardTypes,
                     evidence.fromSourceTypes,
@@ -362,48 +399,47 @@ internal class VideoRelateFilterFeatureInstaller(
                     normalizedHidden
                 )
             } else {
-                false
+                null
             }
-            if (typeMatched) return@filter true
+            if (typeMatched != null) return@filter RelateRemovalCause.forType(typeMatched)
             // 作者与标签是独立维度：整串相等，读不到一律放行。
             // 放在类型之后、时长之前，判据互不依赖，谁缺失都不影响其余档。
             if (blockedAuthors.isNotEmpty() && ExactRuleSetCodec.matches(
                     blockedAuthors, *readTexts(item, authorPaths).toTypedArray()
-                )) return@filter true
+                )) return@filter RelateRemovalCause.AUTHOR
             if (blockedTags.isNotEmpty() && ExactRuleSetCodec.matches(
                     blockedTags, *readTexts(item, tagPaths).toTypedArray()
-                )) return@filter true
+                )) return@filter RelateRemovalCause.TAG
             if (durationRange.shouldRemove(
                     VideoDurationReader.fromMethods(item, durationPaths)
-                )) return@filter true
+                )) return@filter RelateRemovalCause.DURATION
             if (playCountRange.shouldRemove(
                     VideoPlayCountReader.fromMethods(item, playCountPaths)
-                )) return@filter true
-            if (publishContext != null && removedByPublishTime(item, publishContext)) return@filter true
+                )) return@filter RelateRemovalCause.PLAY_COUNT
+            if (publishContext != null && removedByPublishTime(item, publishContext)) return@filter RelateRemovalCause.PUBLISH_TIME
             if (commercialEvidenceActive && VideoRelateBooleanEvidenceReader
                     .hasPositiveEvidence(item, commercialEvidencePaths)
-            ) return@filter true
+            ) return@filter commercialCause
             if (strongModeActive && (
                     evidence == null || !hasRecognizedTypeEvidence(evidence)
                 )
-            ) return@filter true
-            if (!reasonFilteringActive) return@filter false
+            ) return@filter RelateRemovalCause.STRONG
+            if (!reasonFilteringActive) return@filter null
             val observation = VideoRelateReasonReader.observe(item, reasonPaths)
             val reasons = observation.reasons
-            val regularReasonMatched = VideoRelateReasonMatcher.matchesCustom(
+            if (VideoRelateReasonMatcher.matchesCustom(
                 reasons,
                 customReasonKeywords
-            ) || (
-                promotionReasonEnhancementActive &&
-                    VideoRelateReasonMatcher.matchesHighConfidencePromotion(reasons)
-                )
-            regularReasonMatched || (
-                strongModeActive && (
+            )) return@filter RelateRemovalCause.CUSTOM_REASON
+            if (promotionReasonEnhancementActive &&
+                VideoRelateReasonMatcher.matchesHighConfidencePromotion(reasons)
+            ) return@filter RelateRemovalCause.MATCHING
+            if (strongModeActive && (
                     !observation.hasUsableReason ||
                         VideoRelateReasonMatcher.matchesStrongModePromotion(reasons) ||
                         VideoRelateReasonMatcher.matchesLikeCount(reasons)
                     )
-                )
+            ) RelateRemovalCause.STRONG else null
         }
         val writeBackFailureLogged = AtomicBoolean(false)
 
@@ -417,23 +453,30 @@ internal class VideoRelateFilterFeatureInstaller(
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         val semanticVerdicts = semantic.verdicts(source) { item -> SemanticTitleReader.read(item) }
                         val publishContext = publishContext()
+                        val causes = linkedMapOf<RelateRemovalCause, Int>()
                         val filtered = CopyOnFilter.list(source) { item ->
-                            semanticVerdicts?.get(item) == SemanticVerdict.BLOCK ||
-                                shouldRemoveResponseItem(item, publishContext)
+                            val cause = if (semanticVerdicts?.get(item) == SemanticVerdict.BLOCK) {
+                                RelateRemovalCause.SEMANTIC
+                            } else responseRemovalCause(item, publishContext)
+                            if (cause != null) causes[cause] = (causes[cause] ?: 0) + 1
+                            cause != null
                         }
                         if (filtered !== source) {
                             result = filtered
-                            if (responseListField != null && !writeBackVideoRelateItems(
+                            causes.forEach { (cause, count) -> reportCause(cause, FeatureRuntimeStage.OBSERVED, count) }
+                            val writebackFailed = responseListField != null && !writeBackVideoRelateItems(
                                     target = thisObject,
                                     field = responseListField,
                                     items = filtered
-                                ) && writeBackFailureLogged.compareAndSet(false, true)
-                            ) {
-                                environment.logError(
+                                )
+                            if (writebackFailed) {
+                                causes.forEach { (cause, count) -> reportCause(cause, FeatureRuntimeStage.ERROR, count) }
+                                if (writeBackFailureLogged.compareAndSet(false, true)) environment.logError(
                                     "video_relate_response_writeback_failed",
                                     "[BIL] 详情页推荐响应列表写回失败，已保留返回值过滤结果"
                                 )
                             }
+                            causes.forEach { (cause, count) -> reportCause(cause, FeatureRuntimeStage.APPLIED, count) }
                             environment.reportRuntimeEvidence(
                                 ID,
                                 FeatureRuntimeStage.APPLIED,
@@ -490,7 +533,11 @@ internal class VideoRelateFilterFeatureInstaller(
                         val publishBlocked = publishContext()?.let { context ->
                             removedByPublishTime(item, context)
                         } == true
-                        if (!tagBlocked && !semanticBlocked && !publishBlocked && !shouldRemoveDetailServiceItem(
+                        val cause = when {
+                            tagBlocked -> RelateRemovalCause.UNATTRIBUTED
+                            semanticBlocked -> RelateRemovalCause.SEMANTIC
+                            publishBlocked -> RelateRemovalCause.PUBLISH_TIME
+                            else -> detailServiceRemovalCause(
                                 item = item,
                                 access = access,
                                 normalizedHidden = normalizedHidden,
@@ -502,11 +549,14 @@ internal class VideoRelateFilterFeatureInstaller(
                                 reasonPaths = reasonPaths,
                                 commercialEvidencePaths = commercialEvidencePaths,
                                 commercialEvidenceActive = commercialEvidenceActive,
+                                commercialCause = commercialCause,
                                 promotionReasonEnhancementActive = promotionReasonEnhancementActive,
                                 strongModeActive = strongModeActive
                             )
-                        ) return@before
+                        } ?: return@before
                         result = null
+                        reportCause(cause, FeatureRuntimeStage.OBSERVED)
+                        reportCause(cause, FeatureRuntimeStage.APPLIED)
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
                         environment.logInfo(
                             "video_relate_service_blocked",
@@ -625,7 +675,7 @@ internal class VideoRelateFilterFeatureInstaller(
         )
     }
 
-    private fun shouldRemoveDetailServiceItem(
+    private fun detailServiceRemovalCause(
         item: Any,
         access: DetailRelateServiceAccess,
         normalizedHidden: Set<String>,
@@ -637,9 +687,10 @@ internal class VideoRelateFilterFeatureInstaller(
         reasonPaths: List<VideoRelateReasonMethodPath>,
         commercialEvidencePaths: List<VideoRelateBooleanMethodPath>,
         commercialEvidenceActive: Boolean,
+        commercialCause: RelateRemovalCause,
         promotionReasonEnhancementActive: Boolean,
         strongModeActive: Boolean
-    ): Boolean {
+    ): RelateRemovalCause? {
         val baseEvidence = extractEvidence(
             item,
             typeMethods,
@@ -665,27 +716,27 @@ internal class VideoRelateFilterFeatureInstaller(
             }
         }
         val evidence = baseEvidence.copy(types = baseEvidence.types + serviceTypes)
-        if (normalizedHidden.isNotEmpty() && matchesNormalizedEvidence(
+        val matchedType = if (normalizedHidden.isNotEmpty()) matchingNormalizedHiddenType(
                 evidence.types,
                 evidence.relateCardTypes,
                 evidence.fromSourceTypes,
                 evidence.relateCardTypeValues,
                 normalizedHidden
-            )
-        ) return true
+            ) else null
+        if (matchedType != null) return RelateRemovalCause.forType(matchedType)
         if (commercialEvidenceActive && VideoRelateBooleanEvidenceReader.hasPositiveEvidence(
                 item,
                 commercialEvidencePaths
             )
-        ) return true
-        if (strongModeActive && !hasRecognizedTypeEvidence(evidence)) return true
+        ) return commercialCause
+        if (strongModeActive && !hasRecognizedTypeEvidence(evidence)) return RelateRemovalCause.STRONG
 
         val reasonObservation = VideoRelateReasonReader.observe(item, reasonPaths)
         val reasons = reasonObservation.reasons
-        if (VideoRelateReasonMatcher.matchesCustom(reasons, customReasonKeywords) ||
-            promotionReasonEnhancementActive &&
+        if (VideoRelateReasonMatcher.matchesCustom(reasons, customReasonKeywords)) return RelateRemovalCause.CUSTOM_REASON
+        if (promotionReasonEnhancementActive &&
             VideoRelateReasonMatcher.matchesHighConfidencePromotion(reasons)
-        ) return true
+        ) return RelateRemovalCause.MATCHING
         val title = access.titleGetter?.takeIf { it.declaringClass.isInstance(item) }
             ?.let { getter -> runCatching { getter.invoke(item) }.getOrNull() as? CharSequence }
             ?.toString()
@@ -693,8 +744,8 @@ internal class VideoRelateFilterFeatureInstaller(
             ?.takeIf { it.isNotEmpty() && it.length <= MAX_SERVICE_TITLE_LENGTH }
         if (promotionReasonEnhancementActive && title != null &&
             VideoRelateReasonMatcher.matchesHighConfidencePromotion(setOf(title))
-        ) return true
-        return strongModeActive && (
+        ) return RelateRemovalCause.MATCHING
+        return if (strongModeActive && (
             !reasonObservation.hasUsableReason ||
                 VideoRelateReasonMatcher.matchesStrongModePromotion(reasons) ||
                 VideoRelateReasonMatcher.matchesLikeCount(reasons) ||
@@ -702,7 +753,7 @@ internal class VideoRelateFilterFeatureInstaller(
                     VideoRelateReasonMatcher.matchesStrongModePromotion(setOf(title)) ||
                         VideoRelateReasonMatcher.matchesLikeCount(setOf(title))
                     )
-            )
+            )) RelateRemovalCause.STRONG else null
     }
 
     private fun normalizedObservedType(raw: Any): String? {
@@ -807,20 +858,18 @@ internal class VideoRelateFilterFeatureInstaller(
     private fun resolveCommercialEvidencePaths(
         environment: HookEnvironment,
         points: VersionAdapter.VideoRelatePoints,
-        enabled: Boolean,
-        includeFeedback: Boolean
+        enabled: Boolean
     ): List<VideoRelateBooleanMethodPath> {
         if (!enabled) return emptyList()
-        // hasCm/hasCmStock 是明确广告载体；三点反馈只在用户显式选择强力模式时充当证据。
-        val chains = points.commercialEvidenceChains.filter { chain ->
-            includeFeedback || isCommercialPayloadChain(chain)
-        }.mapIndexedNotNull { chainIndex, chain ->
-            val methods = chain.steps.mapIndexed { stepIndex, point ->
-                resolve(environment, "commercial.$chainIndex.$stepIndex", point)
+        // 8.90.2 普通 AV 也带三点反馈菜单，存在反馈不等于商业推广，强力模式也不能据此删除。
+        val chains = points.commercialEvidenceChains.filter(::isCommercialPayloadChain)
+            .mapIndexedNotNull { chainIndex, chain ->
+                val methods = chain.steps.mapIndexed { stepIndex, point ->
+                    resolve(environment, "commercial.$chainIndex.$stepIndex", point)
+                }
+                if (methods.any { it == null }) return@mapIndexedNotNull null
+                methods.filterNotNull()
             }
-            if (methods.any { it == null }) return@mapIndexedNotNull null
-            methods.filterNotNull()
-        }
         return VideoRelateBooleanEvidenceReader.buildMethodPaths(chains)
     }
 
@@ -986,10 +1035,15 @@ internal class VideoRelateFilterFeatureInstaller(
             fromSourceTypes: Set<Long>,
             relateCardTypeValues: Set<Int>,
             normalizedHidden: Set<String>
-        ): Boolean {
-            if (types.any { normalizeType(it) in normalizedHidden } ||
-                relateCardTypes.any { normalizeType(it) in normalizedHidden }
-            ) return true
+        ): Boolean = matchingNormalizedHiddenType(types, relateCardTypes, fromSourceTypes,
+            relateCardTypeValues, normalizedHidden) != null
+
+        private fun matchingNormalizedHiddenType(
+            types: Set<String>, relateCardTypes: Set<String>, fromSourceTypes: Set<Long>,
+            relateCardTypeValues: Set<Int>, normalizedHidden: Set<String>
+        ): String? {
+            types.forEach { raw -> normalizeType(raw).takeIf(normalizedHidden::contains)?.let { return it } }
+            relateCardTypes.forEach { raw -> normalizeType(raw).takeIf(normalizedHidden::contains)?.let { return it } }
             val kinds = buildSet {
                 types.forEach { type ->
                     HostContentSemanticClassifier.classifyInto(
@@ -1017,7 +1071,7 @@ internal class VideoRelateFilterFeatureInstaller(
                     )
                 }
             }
-            return normalizedHidden.any { hidden ->
+            return normalizedHidden.firstOrNull { hidden ->
                 HostContentSemanticClassifier.hiddenKind(hidden)?.let(kinds::contains) == true
             }
         }
@@ -1064,12 +1118,7 @@ internal fun writeBackVideoRelateItems(
     field: Field,
     items: List<*>
 ): Boolean {
-    if (target == null || !field.declaringClass.isInstance(target)) return false
-    if (!(items.javaClass isSubclassOf field.type)) return false
-    return runCatching {
-        field.set(target, items)
-        true
-    }.getOrDefault(false)
+    return VideoRelateResponseWriteback.write(target, field, items)
 }
 
 internal data class VideoRelateTypeEvidence(

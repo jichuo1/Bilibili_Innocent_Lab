@@ -10,6 +10,7 @@ import android.os.Binder
 import android.os.Bundle
 import android.os.Process
 import androidx.core.net.toUri
+import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
@@ -36,7 +37,7 @@ class RoamingCompatProvider : ContentProvider() {
 
     /** Provider 的 authority（与模块包名区分，避免与资源命名冲突） */
     companion object {
-        const val AUTHORITY = "com.Bilibili_Innocent_Lab.xposedmodule.roaming"
+        const val AUTHORITY = "${BuildConfig.APPLICATION_ID}.roaming"
 
         const val PATH_ENABLED = "roaming_compat_enabled"
         const val PATH_FREE_COPY_CONFIG = "free_copy_config"

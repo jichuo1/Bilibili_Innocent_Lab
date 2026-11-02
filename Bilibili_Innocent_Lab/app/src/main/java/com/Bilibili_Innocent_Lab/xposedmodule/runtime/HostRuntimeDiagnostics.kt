@@ -110,6 +110,7 @@ internal object HostRuntimeDiagnosticsCodec {
 
     val allowedConfigReasonCodes: Set<String> = setOf(
         "admission_unavailable", "admission_denied", "admission_timeout",
+        "embedded_mode_unsupported",
         "admission_sync_required", "admission_consent_pending", "admission_response_invalid", "admission_config_invalid",
         "remote_group_missing", "remote_stale_protocol", "remote_auth_rejected",
         "remote_group_unavailable",

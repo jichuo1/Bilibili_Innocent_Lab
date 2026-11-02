@@ -14,6 +14,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureRuntimeStage
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureSkipReason
 import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
+import com.Bilibili_Innocent_Lab.xposedmodule.receiver.TelemetryHostReadyReceiver
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -176,7 +177,7 @@ internal object HostRuntimeDiagnosticsBridge {
                 CrossAppBroadcastCompat.sendBroadcast(context,
                     Intent("${BuildConfig.APPLICATION_ID}.TELEMETRY_HOST_READY")
                         .setComponent(android.content.ComponentName(BuildConfig.APPLICATION_ID,
-                            "${BuildConfig.APPLICATION_ID}.receiver.TelemetryHostReadyReceiver"))
+                            TelemetryHostReadyReceiver::class.java.name))
                         .putExtra("proof", proof))
             }
         } }

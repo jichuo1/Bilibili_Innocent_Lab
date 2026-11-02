@@ -810,6 +810,9 @@ internal fun MainActivity.experimentalFeaturesCard(
     scope: LinearSettingsScope,
     uiSettings: () -> ModuleUiSettings
 ) = with(scope) {
+    val noRootSetup = NoRootSetupPolicy.forChannel(
+        com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannels.read(this@experimentalFeaturesCard)
+    )
     linearLayout(key = "SettingsCardSections:935",
         lparams = params(widthMatchParent = true) {
             updateMargins(horizontal = 15.dp)
@@ -1362,6 +1365,7 @@ internal fun MainActivity.experimentalFeaturesCard(
                     }
                     // 步骤：兼容 · 免 Root 与漫游兼容
                     deferStep {
+                        if (noRootSetup.needsOptIn) {
                         materialSwitch(key = "SettingsCardSections:1469",
                             lparams = params(widthMatchParent = true) {
                                 bottomMargin = 5.dp
@@ -1408,6 +1412,57 @@ internal fun MainActivity.experimentalFeaturesCard(
                             textSize = 12f
                             noRootStatusView = this
                         }
+                        } else {
+                            textView(key = "SettingsCardSections:lspatchSetupDirect",
+                                lparams = params(widthMatchParent = true) { bottomMargin = 10.dp }
+                            ) {
+                                text = stringResource(R.string.lspatch_setup_direct)
+                                textColor = colorResource(R.color.colorTextGray)
+                                textSize = 12f
+                                setLineSpacing(6f, 1f)
+                            }
+                        }
+                        textView(key = "SettingsCardSections:noRootSetup",
+                            lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }
+                        ) {
+                            if (!noRootSetup.needsOptIn) settingsDestinations.bind(RuntimeSettingsNavigationCatalog.NO_ROOT_SUPPORT, this)
+                            text = stringResource(if (noRootSetup.lspatch) R.string.lspatch_setup_title else R.string.npatch_setup_title)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                            background = selfRippleBackground(10f)
+                            isClickable = true
+                            isFocusable = true
+                            setOnClickListener { showNPatchSetupDialog(anchor = it) }
+                        }
+                        textView(key = "SettingsCardSections:noRootLiveApply",
+                            lparams = params(widthMatchParent = true) { bottomMargin = 5.dp }
+                        ) {
+                            text = stringResource(R.string.npatch_live_apply)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                            background = selfRippleBackground(10f)
+                            isClickable = true
+                            isFocusable = true
+                            setOnClickListener { applyNPatchValues() }
+                        }
+                        textView(key = "SettingsCardSections:noRootLiveTip",
+                            lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }
+                        ) {
+                            text = stringResource(R.string.npatch_live_tip)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 12f
+                            setLineSpacing(6f, 1f)
+                        }
+                        textView(key = "SettingsCardSections:noRootLiveStatus",
+                            lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }
+                        ) {
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 12f
+                            setLineSpacing(6f, 1f)
+                            liveApplyStatusView = this
+                        }
                         materialSwitch(key = "SettingsCardSections:1514",
                             lparams = params(widthMatchParent = true) {
                                 bottomMargin = 5.dp
@@ -1433,6 +1488,40 @@ internal fun MainActivity.experimentalFeaturesCard(
                             text = stringResource(R.string.roaming_compat_tip)
                             textColor = colorResource(R.color.colorTextDark)
                             textSize = 12f
+                        }
+                        textView(key = "SettingsCardSections:roamingCacheCheck",
+                            lparams = params(widthMatchParent = true)
+                        ) {
+                            text = stringResource(R.string.roaming_cache_check)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                            background = selfRippleBackground(10f)
+                            isClickable = true
+                            isFocusable = true
+                            setOnClickListener { checkRoamingCache() }
+                        }
+                        textView(key = "SettingsCardSections:roamingCacheStatus",
+                            lparams = params(widthMatchParent = true)
+                        ) {
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 12f
+                            setLineSpacing(6f, 1f)
+                            roamingCacheStatusView = this
+                        }
+                        textView(key = "SettingsCardSections:roamingCacheRestart",
+                            lparams = params(widthMatchParent = true)
+                        ) {
+                            text = stringResource(R.string.roaming_cache_restart)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                            background = selfRippleBackground(10f)
+                            visibility = View.GONE
+                            isClickable = true
+                            isFocusable = true
+                            setOnClickListener { showRestartConfirmDialog(it) }
+                            roamingCacheRestartView = this
                         }
                     }
                     // 步骤：兼容 · 预见式返回与手动重新适配

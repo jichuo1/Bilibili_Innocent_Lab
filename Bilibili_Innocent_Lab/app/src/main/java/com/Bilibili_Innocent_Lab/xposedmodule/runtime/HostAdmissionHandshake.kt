@@ -20,7 +20,7 @@ internal data class HostAdmissionDiagnostic(
             "consent_commit_failed", "identity_rejected", "protocol_rejected", "storage_failed", "stale", "busy",
             "security", "timeout", "exception", "identity_missing", "challenge_invalid", "source_invalid",
             "direct_not_allowed", "document_invalid", "snapshot_invalid", "snapshot_unavailable",
-            "config_not_authorized", "fingerprint_mismatch", "binding_mismatch") } ?: "unknown"
+            "config_not_authorized", "fingerprint_mismatch", "binding_mismatch", "embedded_mode_unsupported") } ?: "unknown"
         return "route=$safeRoute, phase=$safePhase, status=$safeStatus, binding=${envelopeValid ?: "unknown"}, fingerprint=${fingerprintMatches ?: "unknown"}"
     }
 }
@@ -35,7 +35,8 @@ internal object HostAdmissionHandshake {
         val identity: PublicationIdentity? = null,
         val source: String? = null,
         val challenge: String? = null,
-        val document: String? = null
+        val document: String? = null,
+        val disabledRevision: Long = 0L
     )
 
     fun exchange(
@@ -46,7 +47,8 @@ internal object HostAdmissionHandshake {
         deadline: Long,
         now: () -> Long,
         prepare: () -> Reply?,
-        confirm: (String, PublicationIdentity) -> Reply?
+        confirm: (String, PublicationIdentity) -> Reply?,
+        nPatchRuntime: Boolean = false
     ): HostAdmissionClient.Result {
         fun valid(reply: Reply): Boolean = reply.version == HostAdmissionContract.VERSION &&
             reply.moduleVersion == BuildConfig.VERSION_CODE.toLong() && reply.nonce == nonce
@@ -55,7 +57,9 @@ internal object HostAdmissionHandshake {
             grant, reason, listOf(HostAdmissionDiagnostic(route, phase, status, bound, matches)))
         fun outcome(value: HostAdmissionRouteClassifier.Outcome, phase: String, reply: Reply): HostAdmissionClient.Result =
             result(if (!valid(reply)) HostAdmissionRouteClassifier.REASON_RESPONSE_INVALID
-                else checkNotNull(HostAdmissionRouteClassifier.reason(value)), phase, reply.status, valid(reply))
+                else checkNotNull(HostAdmissionRouteClassifier.reason(value)), phase, reply.status, valid(reply)).copy(
+                disabledRevision = HostAdmissionRouteClassifier.disabledRevision(reply.status, valid(reply), reply.disabledRevision)
+            )
         fun timeout(phase: String) = result(HostAdmissionRouteClassifier.REASON_TIMEOUT, phase, "timeout")
 
         if (now() >= deadline) return timeout("prepare")
@@ -81,6 +85,10 @@ internal object HostAdmissionHandshake {
         }
         if (!snapshot.authorized || snapshot.moduleVersionCode != BuildConfig.VERSION_CODE.toLong()) {
             return result(HostAdmissionRouteClassifier.REASON_CONFIG_INVALID, "config", "config_not_authorized", true)
+        }
+        // NPatch 的标准框架镜像可能过时，必须携带当前免 Root 发布修订。
+        if (nPatchRuntime && snapshot.noRootRevision <= 0L) {
+            return result(HostAdmissionRouteClassifier.REASON_SYNC_REQUIRED, "config", "snapshot_invalid", true)
         }
         if (RemoteHookConfigContract.contentFingerprint(snapshot) != identity.fingerprint) {
             return result(HostAdmissionRouteClassifier.REASON_SYNC_REQUIRED, "config", "fingerprint_mismatch", true, false)

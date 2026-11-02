@@ -18,6 +18,7 @@ class StoryPlayer {
         return source.values.getOrNull(source.currentIndex)
     }
     fun onCreate(owner: LifecycleOwner?) = Unit
+    fun ready(container: tv.danmaku.biliplayerv2.IPlayerContainer?, shared: tv.danmaku.biliplayerv2.PlayerSharingBundle?) = Unit
     fun release() = Unit
     fun onDestroy(owner: LifecycleOwner?) = Unit
 }

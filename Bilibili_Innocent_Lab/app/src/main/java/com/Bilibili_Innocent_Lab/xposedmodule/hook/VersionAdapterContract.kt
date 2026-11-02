@@ -74,7 +74,8 @@ internal object VersionAdapterContract {
      * 却不让全体用户的缓存作废、也不弹适配提示。旧模块读到新缓存会忽略 `cov`，其 quickLocate 仍是全量定位。
      * 若以后改变 `cov` 的语义（而不是增删家族），必须抬 RULE。
      */
-    const val RULE_VERSION = 81
+    /** 81 → 82：合并 NPatch 原版 DEX 来源、相关推荐结构链与 Story 接入；两侧旧缓存均需重新验证。 */
+    const val RULE_VERSION = 82
 
     /**
      * 51 → 52（2026-09-11，9.11.0(9110400) 适配）：

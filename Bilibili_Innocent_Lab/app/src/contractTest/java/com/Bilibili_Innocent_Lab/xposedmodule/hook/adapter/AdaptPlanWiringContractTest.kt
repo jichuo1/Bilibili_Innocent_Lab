@@ -111,12 +111,12 @@ class AdaptPlanWiringContractTest {
     @Test fun `ensureAdapted judges completeness by coverage and keeps supplement scans silent`() {
         val ensure = adapter.after("internal fun ensureAdapted(").before("fun quickLocate(loader: ClassLoader)")
         assertTrue(ensure.contains("AdaptPlanner.missing(usable.coverage, adaptPlan)"))
-        assertTrue(ensure.contains("refresh || coverageMissing.isNotEmpty()"))
+        assertTrue(ensure.contains("refreshRequested || coverageMissing.isNotEmpty()"))
         assertTrue(ensure.contains("adaptDecision(usable, refreshRequested, coverageMissing) == AdaptDecision.SUPPLEMENT_SILENTLY"))
         assertTrue(ensure.contains("if (!silentSupplement) runCatching { callback?.onAdaptStarted() }"))
         assertTrue(ensure.contains("if (!silentSupplement) runCatching { callback?.onAdaptFinished(result != null) }"))
         // 补适配用同一份有效缓存当历史，局部结果的沿用与覆盖范围都由 adapt 负责。
-        assertTrue(ensure.contains("adaptPlan, popupHistory) }.getOrNull()"))
+        assertTrue(ensure.contains("adaptPlan, popupHistory, dexSource) }.getOrNull()"))
         // 缓存只在整轮适配成功后写入，实时 quickLocate 的结果（版本号为 0）从不写盘。
         assertEquals(1, Regex("""writeCache\(adapted\)""").findAll(ensure).count())
         val usable = adapter.after("fun usableCache(highCandidateExists: Boolean, plan: AdaptPlan)").before("fun missingCoverage(")

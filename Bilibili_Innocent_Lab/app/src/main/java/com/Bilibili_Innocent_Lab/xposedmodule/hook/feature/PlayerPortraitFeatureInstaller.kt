@@ -28,8 +28,18 @@ internal class PlayerPortraitFeatureInstaller(
                 environment.registrar.adapted("player.portrait.visibility.$index", point) {
                     before {
                         val requested = args.firstOrNull() as? Int ?: return@before
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         val hidden = hiddenVisibility(requested)
-                        if (hidden != requested) args[0] = hidden
+                        if (hidden != requested) {
+                            args[0] = hidden
+                            setObjectExtra(CHANGED_VISIBILITY, true)
+                        }
+                    }
+                    after {
+                        if (getObjectExtra(CHANGED_VISIBILITY) != true) return@after
+                        // 原方法仍须完成；宿主本来已隐藏或原调用抛错均不算应用成功。
+                        environment.reportRuntimeEvidence(ID,
+                            if (hasThrowable) FeatureRuntimeStage.ERROR else FeatureRuntimeStage.APPLIED)
                     }
                 }
                 installedCount += 1
@@ -79,6 +89,7 @@ internal class PlayerPortraitFeatureInstaller(
         const val ID = "player_portrait_control"
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val CHANNEL_STATUS = "player_portrait_status"
+        private const val CHANGED_VISIBILITY = "bil.player_portrait.visibility_changed"
 
         /** 保留原方法调用，只把宿主请求的可见性收敛为 GONE。 */
         internal fun hiddenVisibility(requested: Int): Int =

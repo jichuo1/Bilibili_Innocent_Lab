@@ -15,6 +15,7 @@ internal class StoryQualityHostAccess private constructor(
     val select: Method, val request: Method, val requestParamsIndex: Int, val reload: Method?,
     val resolveConstructor: Constructor<*>, val resolveInvoke: Method, val resolveCreate: Method,
     val resolveTask: Field, val resolveProvider: Field, val resolveParams: Field?,
+    val shared: SharedAccess?,
     private val serviceHandler: Field, private val handlerProvider: Field,
     private val current: Method, private val at: Method, private val pointer: Method,
     private val display: Method, private val avid: Method, private val cid: Method, private val from: Method,
@@ -28,6 +29,22 @@ internal class StoryQualityHostAccess private constructor(
     val listenerSuccess: Method?, private val state: Method?, private val position: Method?,
     private val language: Method?, private val production: Method?, private val unit: Any
 ) {
+    /** 共享接入独立于基础链路；新版需核对构建结果确实归当前 owner 持有。 */
+    class SharedAccess(
+        val ready: Method, private val pointerIndex: Method, private val resolverParams: Method,
+        private val resolver: Class<*>, private val aid: Method, private val cid: Method,
+        private val ownerContainer: Field? = null, private val builderParams: Field? = null,
+        private val sharingBundle: Method? = null
+    ) {
+        val usesBuilder: Boolean get() = builderParams != null
+        fun hasSharingBundle(builder: Any): Boolean = builderParams?.get(builder)?.let { sharingBundle?.invoke(it) } != null
+        fun ownsContainer(owner: Any, container: Any): Boolean = ownerContainer?.get(owner) === container
+        fun index(pointer: Any): Int? = (pointerIndex.invoke(pointer) as? Int)?.takeIf { it >= 0 }
+        fun confirms(parameters: Any?, item: ItemKey): Boolean? {
+            val resolved = resolverParams.invoke(parameters) ?: return null
+            return resolved.javaClass == resolver && aid.invoke(resolved) == item.aid && cid.invoke(resolved) == item.cid
+        }
+    }
     data class ReplaySnapshot(val position: Long, val language: String?, val productionType: Int)
     val reparseReady: Boolean get() = reload != null && consumerMethod != null && providerConsumer != null &&
         listenerSuccess != null && state != null && position != null && language != null && production != null
@@ -37,6 +54,7 @@ internal class StoryQualityHostAccess private constructor(
     fun handlerOfService(service: Any): Any? = serviceHandler.get(service)
     fun current(owner: Any): Any? = current.invoke(owner)
     fun canSelect(handler: Any): Boolean = pointer.invoke(handler) != null
+    fun currentIndex(handler: Any): Int? = pointer.invoke(handler)?.let { shared?.index(it) }
     fun mediaResource(owner: Any): Any? = service(owner)?.let(core::get)?.let { media.invoke(it) }
     fun consumer(owner: Any): Any? = provider(owner)?.let { providerConsumer?.get(it) }
     fun completed(value: Any?): Boolean = value === unit
@@ -74,9 +92,23 @@ internal class StoryQualityHostAccess private constructor(
     }.getOrNull()
 
     /** 未知业务、登录或限制状态不能产生模块目标；不改变宿主的任何准入状态。 */
-    fun admission(owner: Any?, parameters: Any?): Admission = runCatching {
-        if (owner == null || item(parameters) == null) return Admission.UNKNOWN
-        if (from.invoke(parameters) != "vupload" || bizType.invoke(parameters) !== ugc) return Admission.DENY
+    fun admission(owner: Any?, parameters: Any?, confirmedShared: Boolean = false): Admission = runCatching {
+        val item = item(parameters) ?: return Admission.UNKNOWN
+        if (owner == null) return Admission.UNKNOWN
+        if (bizType.invoke(parameters) !== ugc) return Admission.DENY
+        // 普通详情页共享参数的 from 是来源编号（8.90.2 实测为 "6"），不是 Story 业务类型。
+        // 仅已确认的共享接入允许改用同条目的 Gemini 解析参数作正向证据；其它未知来源继续拒绝。
+        val origin = from.invoke(parameters)
+        if (origin in setOf("live", "music", "bangumi", "pugv")) return Admission.DENY
+        if (origin != "vupload") {
+            if (!confirmedShared) return Admission.DENY
+            val shared = shared ?: return Admission.DENY
+            when (shared.confirms(parameters, item)) {
+                true -> Unit
+                false -> return Admission.DENY
+                null -> return Admission.UNKNOWN
+            }
+        }
         val service = service(owner) ?: return Admission.UNKNOWN
         val currentAccount = account.get(service) ?: return Admission.UNKNOWN
         if (login.invoke(currentAccount) != true) return Admission.DENY
@@ -107,6 +139,7 @@ internal class StoryQualityHostAccess private constructor(
             val handlerProvider = typedField(handler, provider) ?: return null
             val current = method(roles.owner, "getCurrentPlayableParam", params) ?: return null
             val pointer = method(handler, "getCurrentVideoItem", cls("tv.danmaku.biliplayerv2.service.CurrentVideoPointer") ?: return null) ?: return null
+            val shared = resolveShared(loader, roles.owner, params, pointer.returnType)
             val select = Lookup.declaredMethods(handler, true) {
                 concrete(it) && it.returnType == INT && it.parameterTypes.contentEquals(arrayOf(INT))
             }.singleOrNull() ?: return null
@@ -185,10 +218,9 @@ internal class StoryQualityHostAccess private constructor(
                 ?.get(null) ?: return null
             StoryQualityHostAccess(roles, handler, provider, params, select, request,
                 request.parameterTypes.indexOf(params), reload, constructor, invoke, create, resolveTask, resolveProvider,
-                resolveParams.singleOrNull(), serviceHandler, handlerProvider, current, at, pointer,
-                // 这里只做虚调用读取，真实宿主在抽象参数基类声明、由具体条目实现。
-                // Hook 的 invokeSuspend/create 等入口仍要求可执行方法体。
-                method(params, "getDisplayParams", displayClass, allowAbstract = true) ?: return null,
+                resolveParams.singleOrNull(), shared, serviceHandler, handlerProvider, current, at, pointer,
+                // 8.90.2 在 PlayableParams 抽象基类声明，由当前业务参数实例实现；仅缓存调用，不能 Hook 抽象方法。
+                method(params, "getDisplayParams", displayClass, abstractDispatch = true) ?: return null,
                 method(displayClass, "getAvid", Long::class.javaPrimitiveType!!) ?: return null,
                 method(displayClass, "getCid", Long::class.javaPrimitiveType!!) ?: return null,
                 method(params, "getFrom", String::class.java) ?: return null,
@@ -201,13 +233,38 @@ internal class StoryQualityHostAccess private constructor(
                 method(resource, "getCurrentLanguage", String::class.java), method(resource, "getCurProductionType", INT), unit)
         }.getOrNull()
 
+        private fun resolveShared(loader: ClassLoader, owner: Class<*>, params: Class<*>, pointer: Class<*>): SharedAccess? = runCatching {
+            fun cls(name: String) = Lookup.classOrNull(loader, name)
+            val container = cls("tv.danmaku.biliplayerv2.IPlayerContainer") ?: return null
+            val bundle = cls("tv.danmaku.biliplayerv2.PlayerSharingBundle") ?: return null
+            // 8.84–8.96 独立接入；8.97 起内联在 onCreate。不能使用出站分享或返回时取回播放器的方法。
+            val legacy = Lookup.declaredMethods(owner, true) {
+                concrete(it) && it.returnType == Void.TYPE && it.parameterTypes.contentEquals(arrayOf(container, bundle))
+            }
+            if (legacy.size > 1) return null
+            val builder = if (legacy.isEmpty()) cls("tv.danmaku.biliplayerv2.IPlayerContainer\$Builder") ?: return null else null
+            val playerParams = if (builder != null) cls("tv.danmaku.biliplayerv2.PlayerParamsV2") ?: return null else null
+            val ready = legacy.singleOrNull() ?: method(builder ?: return null, "build", container) ?: return null
+            val resolverType = cls("com.bilibili.lib.media.resolver2.IResolveParams") ?: return null
+            val resolver = cls("com.bilibili.app.gemini.base.player.GeminiCommonResolverParams") ?: return null
+            SharedAccess(ready, method(pointer, "getIndex", INT) ?: return null,
+                method(params, "getResolveParams", resolverType, abstractDispatch = true) ?: return null,
+                resolver, method(resolver, "getAvid", Long::class.javaPrimitiveType!!) ?: return null,
+                method(resolver, "getCid", Long::class.javaPrimitiveType!!) ?: return null,
+                if (builder != null) typedField(owner, container) ?: return null else null,
+                if (builder != null) typedField(builder, playerParams ?: return null) ?: return null else null,
+                if (playerParams != null) method(playerParams, "getSharingBundle", bundle) ?: return null else null)
+        }.getOrNull()
+
         private fun concrete(method: Method) = !Modifier.isStatic(method.modifiers) && !Modifier.isAbstract(method.modifiers) && !method.isBridge
         private fun typedField(owner: Class<*>, type: Class<*>): Field? =
             Lookup.declaredFields(owner, true) { !Modifier.isStatic(it.modifiers) && it.type == type }.singleOrNull()
-        private fun method(owner: Class<*>, name: String, returns: Class<*>, vararg args: Class<*>, static: Boolean = false, allowAbstract: Boolean = false): Method? =
+        private fun method(owner: Class<*>, name: String, returns: Class<*>, vararg args: Class<*>, static: Boolean = false,
+                           abstractDispatch: Boolean = false): Method? =
             Lookup.methods(owner, includeSuperclasses = true, makeAccessible = true) {
                 it.name == name && it.returnType == returns && it.parameterTypes.contentEquals(args) &&
-                    Modifier.isStatic(it.modifiers) == static && (allowAbstract || !Modifier.isAbstract(it.modifiers)) && !it.isBridge
+                    Modifier.isStatic(it.modifiers) == static &&
+                    (!Modifier.isAbstract(it.modifiers) || (!static && abstractDispatch)) && !it.isBridge
             }.distinctBy { it.name to it.parameterTypes.toList() }.singleOrNull()
     }
 }

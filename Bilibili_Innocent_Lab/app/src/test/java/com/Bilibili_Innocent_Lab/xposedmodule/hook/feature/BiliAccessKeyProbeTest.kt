@@ -17,6 +17,22 @@ class BiliAccessKeyProbeTest {
     @After
     fun tearDown() {
         BiliAccounts.current = null
+        com.bilibili.lib.accounts.BiliAccounts.current = null
+        com.bilibili.lib.accounts.BiliAccounts.fail = false
+    }
+
+    @Test
+    fun `production locators use the public service return contract instead of its model`() {
+        com.bilibili.lib.accounts.BiliAccounts.fail = false
+        val hostProbe = checkNotNull(BiliAccessKeyProbe.resolve(javaClass.classLoader!!))
+        assertEquals(BiliAccessKeyState.NOT_LOGGED_IN, hostProbe.state(null))
+        com.bilibili.lib.accounts.BiliAccounts.current =
+            com.bilibili.lib.accounts.model.AccessToken("fixture-only-secret", true, false)
+        assertEquals(BiliAccessKeyState.READY, hostProbe.state(null))
+        assertEquals("ready", hostProbe.state(null).code)
+        com.bilibili.lib.accounts.BiliAccounts.current =
+            com.bilibili.lib.accounts.model.AccessToken("fixture-only-secret", true, true)
+        assertEquals(BiliAccessKeyState.EXPIRED, hostProbe.state(null))
     }
 
     @Test

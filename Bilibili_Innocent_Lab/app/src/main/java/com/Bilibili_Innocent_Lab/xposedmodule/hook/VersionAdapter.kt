@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.StartupTrace
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HostCardSemanticAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeChromeAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HomeChromeSemanticsPoint
@@ -21,6 +22,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStylePo
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptAssistGate
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptCoverage
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlan
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlanCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlanner
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LocateObserver
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PointFamily
@@ -205,7 +207,9 @@ object VersionAdapter {
     enum class AdaptState {
         FOUND,
         MISSING,
-        NOT_APPLICABLE
+        NOT_APPLICABLE,
+        /** Startup-only omitted locator; never serialized into the complete adaptation cache. */
+        NOT_REQUESTED
     }
 
     data class AdaptDiagnostic(
@@ -1874,6 +1878,8 @@ object VersionAdapter {
         val playerPopupPromotion: PlayerPopupPromotionPoints? = null,
         val brandSplashDecoder: HookPoint? = null,
         val followFeedStyle: FollowFeedPoints? = null,
+        /** Ephemeral startup projection, excluded from all persisted cache schemas. */
+        val startupExcluded: Set<String> = emptySet(),
         val playerSpeedMenu: PlayerSpeedMenuPoints? = null,
         val pageBoundaries: PageBoundaryPoints? = null,
         val homeChrome: Map<String, HookPoint> = emptyMap(),
@@ -1918,6 +1924,9 @@ object VersionAdapter {
         }
 
         fun toJson(): JSONObject = JSONObject().apply {
+            check(startupExcluded.isEmpty() && diagnostics.none { it.state == AdaptState.NOT_REQUESTED }) {
+                "Partial startup adaptation cannot be persisted"
+            }
             put("sv", SCHEMA_VERSION)
             put("v", biliVersionCode)
             put("ts", ts)
@@ -1967,13 +1976,14 @@ object VersionAdapter {
         }
 
         fun isUsableWith(expectedFingerprint: String): Boolean =
-            hostFingerprint == expectedFingerprint && isStructurallyValid()
+            startupExcluded.isEmpty() && diagnostics.none { it.state == AdaptState.NOT_REQUESTED } &&
+                hostFingerprint == expectedFingerprint && isStructurallyValid()
 
         fun diagnosticSummary(): String = diagnostics
             .groupingBy { it.state }
             .eachCount()
             .let { counts ->
-                AdaptState.entries.joinToString(",") { state ->
+                AdaptState.entries.filter { it != AdaptState.NOT_REQUESTED || (counts[it] ?: 0) > 0 }.joinToString(",") { state ->
                     "${state.name.lowercase()}=${counts[state] ?: 0}"
                 }
             }
@@ -1983,7 +1993,8 @@ object VersionAdapter {
                 paramClassNames?.all { it.isNotBlank() } != false
 
         private fun isStructurallyValid(): Boolean =
-            biliVersionCode >= 0 && hostFingerprint.isNotBlank() &&
+            startupExcluded.isEmpty() && diagnostics.none { it.state == AdaptState.NOT_REQUESTED } &&
+                biliVersionCode >= 0 && hostFingerprint.isNotBlank() &&
                 (dexSourceFingerprint == DEX_SOURCE_UNAVAILABLE ||
                     dexSourceFingerprint.matches(DEX_SOURCE_FINGERPRINT_PATTERN)) &&
                 protocolFingerprint.matches(PROTOCOL_FINGERPRINT_PATTERN) &&
@@ -2931,6 +2942,26 @@ object VersionAdapter {
         else -> AdaptDecision.REUSE
     }
 
+    /** Only called after current NPatch authorization, on the adaptation worker; never an admission cache. */
+    internal fun rebindRepackedCache(
+        previous: AdaptResult, identity: HostIdentity, resetTimestamp: Long, actualDex: String?
+    ): AdaptResult? {
+        if (previous.hostFingerprint == identity.fingerprint || previous.ts < resetTimestamp.coerceAtLeast(0L) ||
+            previous.biliVersionCode != identity.versionCode || !previous.isUsableWith(previous.hostFingerprint)) return null
+        fun logicalIdentity(fingerprint: String): List<String>? {
+            val parts = fingerprint.split('|')
+            if (parts.size != 6 || parts[0] != "tv.danmaku.bili" ||
+                parts[1].toLongOrNull() != identity.versionCode.toLong() || parts[3].toLongOrNull()?.let { it > 0L } != true ||
+                parts[4].toLongOrNull()?.let { it > 0L } != true || parts[5] != ADAPTER_RULE_VERSION.toString()) return null
+            return parts.take(3) + parts.last()
+        }
+        val expected = logicalIdentity(identity.fingerprint) ?: return null
+        if (logicalIdentity(previous.hostFingerprint) != expected || actualDex == null ||
+            !actualDex.matches(DEX_SOURCE_FINGERPRINT_PATTERN) || previous.dexSourceFingerprint != actualDex) return null
+        // Preserve the original timestamp so a manual reset cannot be bypassed by renewing old results.
+        return previous.copy(hostFingerprint = identity.fingerprint)
+    }
+
     /** 只在同一次 attach 安装栈内复用；不持有 Context，不作为进程级永久缓存。 */
     internal data class StartupCacheSnapshot(
         val identity: HostIdentity,
@@ -3074,6 +3105,7 @@ object VersionAdapter {
                     stored == null -> live
                     // 本进程的计划没有要求该家族：不能用「未请求」盖掉缓存里真实尝试过的结论（找到/确认缺失）。
                     live.state == AdaptState.NOT_APPLICABLE && live.detail == PLAN_NOT_REQUESTED -> stored
+                    live.state == AdaptState.NOT_REQUESTED -> live
                     stored.state == AdaptState.FOUND && live.state != AdaptState.FOUND -> stored
                     id.startsWith(DEX_ASSIST_ID_PREFIX) &&
                         stored.state == AdaptState.FOUND -> stored
@@ -3141,6 +3173,33 @@ object VersionAdapter {
             homeChrome = cached.homeChrome + runtime.homeChrome,
             homeChromeSemantics = runtime.homeChromeSemantics ?: cached.homeChromeSemantics,
             coverage = AdaptCoverage.merge(runtime.coverage, cached.coverage),
+        ).applyStartupExclusions()
+    }
+
+    internal fun AdaptResult.applyStartupExclusions(): AdaptResult {
+        if (startupExcluded.isEmpty()) return this
+        fun requested(family: StartupAdapterPlan.Family) = family.name !in startupExcluded
+        return copy(
+            dynamicTabs = dynamicTabs.takeIf { requested(StartupAdapterPlan.Family.DYNAMIC_TABS) },
+            fullNumbers = fullNumbers.takeIf { requested(StartupAdapterPlan.Family.FULL_NUMBERS) },
+            playerPortrait = playerPortrait.takeIf { requested(StartupAdapterPlan.Family.PLAYER_PORTRAIT) },
+            playerInteractiveOverlays = playerInteractiveOverlays.takeIf { requested(StartupAdapterPlan.Family.PLAYER_INTERACTIVE) },
+            pgcAutoActivityPopup = pgcAutoActivityPopup.takeIf { requested(StartupAdapterPlan.Family.PGC_POPUP) },
+            playerStatusBar = playerStatusBar.takeIf { requested(StartupAdapterPlan.Family.PLAYER_STATUS_BAR) },
+            playerQuality = playerQuality.takeIf { requested(StartupAdapterPlan.Family.PLAYER_QUALITY) },
+            teenagersMode = teenagersMode.takeIf { requested(StartupAdapterPlan.Family.TEENAGERS) },
+            commentPurify = commentPurify.takeIf { requested(StartupAdapterPlan.Family.COMMENT_PURIFY) },
+            commentFilter = commentFilter.takeIf { requested(StartupAdapterPlan.Family.COMMENT_FILTER) },
+            commentTopology = commentTopology.takeIf { requested(StartupAdapterPlan.Family.COMMENT_TOPOLOGY) },
+            commentSection = commentSection.takeIf { requested(StartupAdapterPlan.Family.COMMENT_SECTION) },
+            splashAds = splashAds.takeIf { requested(StartupAdapterPlan.Family.SPLASH) },
+            videoRelate = videoRelate.takeIf { requested(StartupAdapterPlan.Family.VIDEO_RELATE) },
+            diagnostics = diagnostics.map { diagnostic ->
+                val family = StartupAdapterPlan.diagnosticFamily(diagnostic.id)
+                if (diagnostic.id == "protocol.structure" || family?.name in startupExcluded)
+                    diagnostic.copy(state = AdaptState.NOT_REQUESTED, detail = "startup-not-requested")
+                else diagnostic
+            }
         )
     }
 
@@ -3192,10 +3251,19 @@ object VersionAdapter {
      * **为什么读不出来时保留缓存**：一次 I/O 失败不足以推翻一份正在正常工作的适配结果，
      * 失败放行优于误删。
      *
-     * 这条通道覆盖 [buildHostFingerprint] 看不到的两种情况：变化只发生在带 DEX 的 split
-     * APK 里（宿主指纹只取 `sourceDir`），以及 base APK 的 `lastModified` 因重装而变化但
-     * 内容其实没变（内容指纹稳定，可避免无谓重适配）。
+     * 这条通道覆盖只发生在带 DEX 的 split APK 中的变化（启动身份只取 `sourceDir`）。
+     * NPatch 重新修补导致启动身份变化时，另在适配工作线程按内容核对并重绑定缓存，
+     * 不能声称本审计会恢复已被启动身份拒绝的缓存。
      */
+    @androidx.annotation.WorkerThread
+    private fun inspectHostDexSource(context: Context): DexSourceFingerprint.Result? = runCatching {
+        val info = context.packageManager.getPackageInfo("tv.danmaku.bili", 0).applicationInfo
+        val patched = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRuntimeProfiles
+            .read(context, "tv.danmaku.bili").markerPresent ||
+            com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.LspatchRuntimeProfiles.read(context, "tv.danmaku.bili").modern
+        DexSourceFingerprint.inspect(info, File(context.codeCacheDir, "bil-host-dex"), materializeArchiveView = patched)
+    }.getOrNull()
+
     private fun auditDexSourceAsync(context: Context, cached: AdaptResult) {
         val expected = cached.dexSourceFingerprint
         if (!dexAuditRunning.compareAndSet(false, true)) return
@@ -3208,9 +3276,7 @@ object VersionAdapter {
                     runCatching { if (!cacheFile().exists()) writeCache(cached) }
                         .onFailure { ModernHookLog.error("[BIL] 后台适配缓存维护失败", it) }
                     if (expected == DEX_SOURCE_UNAVAILABLE) return@run
-                    val actual = runCatching {
-                        context.packageManager.getPackageInfo("tv.danmaku.bili", 0).applicationInfo
-                    }.getOrNull()?.let(DexSourceFingerprint::inspect)?.value
+                    val actual = inspectHostDexSource(context)?.value
                     when (actual) {
                         null -> ModernHookLog.info("[BIL] DEX 指纹不可读，保留现有适配缓存")
                         expected -> Unit
@@ -3349,8 +3415,7 @@ object VersionAdapter {
         }
         // 有效缓存里计划要求、却从未尝试过的家族（旧缓存没有覆盖范围 = 全部待补）。
         val coverageMissing = if (usable != null) AdaptPlanner.missing(usable.coverage, adaptPlan) else emptySet()
-        var refreshRequested = false
-        val cached = usable?.takeUnless { value ->
+        fun requiresFeatureRefresh(value: AdaptResult): Boolean {
             val pageRefresh = PageBoundaryAdapter.planned(classLoader, value.pageBoundaries,
                 searchHomeRecommendEnabled, playerEndPageRecommendEnabled, pageAttempted, styleEnabled = followFeedStyleEnabled).isNotEmpty()
             val popupRefresh = playerPopupPromotionEnabled &&
@@ -3364,7 +3429,7 @@ object VersionAdapter {
                 SponsorPlayerLocator.direct(classLoader) != null,
                 value.sponsorPlayer?.let { SponsorPlayerLocator.resolve(classLoader, it) } != null,
                 value.diagnostics.any { it.id == SponsorPlayerLocator.DIAGNOSTIC && it.state == AdaptState.MISSING })
-            val refresh = PlayerSpeedMenuAdapter.needsQuery(classLoader, value.playerSpeedMenu, playerSpeedMenuEnabled,
+            return PlayerSpeedMenuAdapter.needsQuery(classLoader, value.playerSpeedMenu, playerSpeedMenuEnabled,
                 value.diagnostics.any { it.id == PlayerSpeedMenuAdapter.DIAGNOSTIC && it.state in setOf(AdaptState.FOUND, AdaptState.MISSING) }) ||
             StoryQualityLocator.planned(classLoader, value.playerQuality?.story, playerQualityEnabled,
                 value.diagnostics.any { it.id == StoryQualityLocator.DIAGNOSTIC && it.state == AdaptState.MISSING }).isNotEmpty() ||
@@ -3382,9 +3447,9 @@ object VersionAdapter {
                 cachedFound = value.homeTopBar?.kotlinDefaultWords != null,
                 attempted = value.diagnostics.any { it.id == KotlinDefaultWordsLocator.DIAGNOSTIC && it.state == AdaptState.MISSING }
             )
-            refreshRequested = refresh
-            refresh || coverageMissing.isNotEmpty()
         }
+        val refreshRequested = usable?.let(::requiresFeatureRefresh) ?: false
+        val cached = usable?.takeUnless { refreshRequested || coverageMissing.isNotEmpty() }
         if (cached != null) {
             // 缓存命中后的文件维护和 DEX 内容比对一并下沉；不一致只作废缓存。
             auditDexSourceAsync(context, cached)
@@ -3410,7 +3475,27 @@ object VersionAdapter {
                 // `adapt` 已自带 runCatching，但 writeCache 与日志不在其中；宿主进程内
                 // 线程的逃逸异常一律杀进程，整段必须过防波堤。
                 HostThreadGuard.run("adapter.adapt_worker") {
-                    result = runCatching { adapt(context, classLoader, kotlinDefaultWordsEnabled, sponsorBlockEnabled,
+                    // One original-source inspection shared by repack validation and normal adaptation.
+                    // No new disk work or unvalidated cached members enter Application.attach.
+                    val dexSource by lazy(LazyThreadSafetyMode.NONE) { inspectHostDexSource(context) }
+                    val repacked = if (startup.cached == null &&
+                        com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootRuntimeDetector.detect(context,
+                            io.github.libxposed.api.XposedModule::class.java.classLoader, VersionAdapter::class.java.classLoader) ==
+                        com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HookRuntimeMode.NPATCH_LEGACY &&
+                        com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRuntimeProfiles.read(context).metadataValid) {
+                        loadCached(context, resetTimestamp, identity = null)?.let { previous ->
+                            rebindRepackedCache(previous, startup.identity, resetTimestamp, dexSource?.value)
+                        }?.takeIf { value ->
+                            StartupCacheSnapshot(startup.identity, resetTimestamp.coerceAtLeast(0L), value)
+                                .usableCache(highCandidateExists) != null && !requiresFeatureRefresh(value) &&
+                                AdaptPlanner.missing(value.coverage, adaptPlan).isEmpty()
+                        }
+                    } else null
+                    if (repacked != null) {
+                        lastCacheStatus = "npatch-content-rebound"
+                        ModernHookLog.info("[BIL] NPatch 原版 DEX 未变，后台复用适配缓存；下次冷启动生效 dex=${repacked.dexSourceFingerprint}")
+                    }
+                    result = repacked ?: runCatching { adapt(context, classLoader, kotlinDefaultWordsEnabled, sponsorBlockEnabled,
                         commentClassicStyleEnabled, playerPopupPromotionEnabled, previousPopup, previouslyMissingPopup,
                         brandSplashCustomEnabled, previousBrand, previouslyMissingBrand,
                         followFeedStyleEnabled, previousFollow, previouslyMissingFollow,
@@ -3419,7 +3504,7 @@ object VersionAdapter {
                         searchHomeRecommendEnabled, playerEndPageRecommendEnabled, previousPages, pageAttempted,
                         homeChromeEnabled, previousChrome, chromeAttempted, homeChromeIconOnly,
                         previousChromeSemantics, semanticsAttempted, homeTopTabCenteringEnabled,
-                        blockUpdateEnabled, commentTopologyEnabled, assistHistory, adaptPlan, popupHistory) }.getOrNull()
+                        blockUpdateEnabled, commentTopologyEnabled, assistHistory, adaptPlan, popupHistory, dexSource) }.getOrNull()
                     result?.let { adapted ->
                         // 写文件缓存（loadApp 快路径载体）；校验后原子替换，旧缓存不会被半截 JSON 覆盖。
                         if (!writeCache(adapted)) {
@@ -3487,8 +3572,50 @@ object VersionAdapter {
      * NOT_REQUESTED，不会为了凑齐诊断去求值。[observer] 给测试和 A/B 对照计数、计时用，正式路径传 null。
      * 结果不持久化，覆盖范围只描述本轮尝试过什么。
      */
-    internal fun quickLocate(loader: ClassLoader, plan: AdaptPlan, observer: LocateObserver? = null): AdaptResult? {
-        val locators = SyncLocatorRun(plan, observer)
+    internal fun quickLocate(loader: ClassLoader, plan: AdaptPlan, observer: LocateObserver? = null): AdaptResult? =
+        quickLocatePlanned(loader, plan, observer, emptySet())
+
+    /** Apply NPatch's process exclusions without dropping families required by the upstream plan. */
+    internal fun quickLocateForStartup(
+        loader: ClassLoader,
+        excluded: Set<String>,
+        plan: AdaptPlan = AdaptPlan.full(),
+        observer: LocateObserver? = null,
+        allowPruneRequested: Boolean = true
+    ): AdaptResult? {
+        val mapping = mapOf(
+            StartupAdapterPlan.Family.DYNAMIC_TABS to PointFamily.DYNAMIC_TABS,
+            StartupAdapterPlan.Family.FULL_NUMBERS to PointFamily.FULL_NUMBERS,
+            StartupAdapterPlan.Family.PLAYER_PORTRAIT to PointFamily.PLAYER_PORTRAIT,
+            StartupAdapterPlan.Family.PLAYER_INTERACTIVE to PointFamily.PLAYER_INTERACTIVE_OVERLAYS,
+            StartupAdapterPlan.Family.PGC_POPUP to PointFamily.PGC_AUTO_ACTIVITY_POPUP,
+            StartupAdapterPlan.Family.PLAYER_STATUS_BAR to PointFamily.PLAYER_STATUS_BAR,
+            StartupAdapterPlan.Family.PLAYER_QUALITY to PointFamily.PLAYER_QUALITY,
+            StartupAdapterPlan.Family.TEENAGERS to PointFamily.TEENAGERS_MODE,
+            StartupAdapterPlan.Family.COMMENT_PURIFY to PointFamily.COMMENT_PURIFY,
+            StartupAdapterPlan.Family.COMMENT_FILTER to PointFamily.COMMENT_FILTER,
+            StartupAdapterPlan.Family.COMMENT_TOPOLOGY to PointFamily.COMMENT_TOPOLOGY,
+            StartupAdapterPlan.Family.COMMENT_SECTION to PointFamily.COMMENT_SECTION,
+            StartupAdapterPlan.Family.SPLASH to PointFamily.SPLASH_ADS,
+            StartupAdapterPlan.Family.VIDEO_RELATE to PointFamily.VIDEO_RELATE
+        )
+        val names = mapping.keys.associateBy { it.name }
+        val valid = if (excluded.all { it in names }) excluded else emptySet()
+        val requestedOmissions = valid.mapNotNull { names[it]?.let(mapping::get) }
+            .filterTo(linkedSetOf()) { allowPruneRequested || !plan.needs(it) }
+        val required = AdaptPlanCatalog.closure((plan.required - requestedOmissions) + plan.always)
+        val effectiveExcluded = valid.filterTo(linkedSetOf()) { name -> mapping.getValue(names.getValue(name)) !in required }
+        val effectivePlan = AdaptPlan(plan.configRevision, required, plan.always)
+        return quickLocatePlanned(loader, effectivePlan, observer, effectiveExcluded)
+    }
+
+    private fun quickLocatePlanned(
+        loader: ClassLoader,
+        plan: AdaptPlan,
+        observer: LocateObserver?,
+        excluded: Set<String>
+    ): AdaptResult? {
+        val locators = SyncLocatorRun(plan, observer, traceStartup = true)
         val low = locators.locate(PointFamily.COMMENT_LOW) { locateCommentLow(loader) }
         val high = locators.locate(PointFamily.COMMENT_HIGH) { locateCommentHigh(loader) }
         val mine = locators.locate(PointFamily.MINE_ENTRY) { locateMineEntry(loader) }
@@ -3524,7 +3651,7 @@ object VersionAdapter {
         val commentTopology = commentTopologyOutcome?.points
         val commentSection = locators.locate(PointFamily.COMMENT_SECTION) { locateCommentSection(loader) }
         val splashAds = locators.locate(PointFamily.SPLASH_ADS) { locateSplashAds(loader) }
-        if (low == null && high == null && mine == null &&
+        if (excluded.isEmpty() && low == null && high == null && mine == null &&
             pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
             pause.panelShow == null && pause.countdown == null && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
@@ -3536,10 +3663,12 @@ object VersionAdapter {
             playerQuality == null && teenagersMode == null && commentPurify == null &&
             commentFilter == null && commentTopology == null && commentSection == null &&
             splashAds == null) return null
-        val protocolFingerprint = buildProtocolStructureFingerprint(
-            loader, homeRecommendFeed, videoRelate, commentFilter, playerQuality,
-            splashAds, mineAccountMine
-        )
+        val protocolFingerprint = StartupTrace.measure("adapter.protocol") {
+            buildProtocolStructureFingerprint(
+                loader, homeRecommendFeed, videoRelate, commentFilter, playerQuality,
+                splashAds, mineAccountMine
+            )
+        }
         val located = AdaptResult(
             biliVersionCode = 0,
             ts = 0L,
@@ -3602,14 +3731,15 @@ object VersionAdapter {
                 AdaptDiagnostic(StoryQualityLocator.DIAGNOSTIC, AdaptState.NOT_APPLICABLE, "quick-locate")
             ) + PlayerPopupPromotionAdapter.Family.entries.map {
                 AdaptDiagnostic(it.diagnostic, AdaptState.NOT_APPLICABLE, "quick-locate")
-            }
-        )
+            },
+            startupExcluded = excluded
+        ).applyStartupExclusions()
     }
 
     private val EMPTY_PAUSE_POINTS = PausePoints(emptyList(), null, null, null)
 
     /** 智能定位核心：对内置候选类做存在性验证 + 方法签名特征匹配。
-     * 全部在内存中完成（MeguvizRef ClassLoader/成员解析），无任何反编译/文件解压开销。
+     * 成员定位在内存中完成；NPatch 的原版 APK 来源只在后台工作线程准备只读快照。
      * 成功标准放宽：任一候选类存在即算成功——运行期注册有 classExists 双路径回退，
      * 适配结果主要用于快路径签名（定位不到签名不影响运行期内置候选注册），
      * 避免「功能可用但报适配失败」的误导（8.90.2 实测）。
@@ -3629,11 +3759,11 @@ object VersionAdapter {
                       homeTopTabCenteringEnabled: Boolean,
                       blockUpdateEnabled: Boolean = false, commentTopologyEnabled: Boolean = false,
                       assistHistory: AssistHistory = AssistHistory.EMPTY,
-                      plan: AdaptPlan = AdaptPlan.full(), previous: AdaptResult? = null): AdaptResult? {
+                      plan: AdaptPlan = AdaptPlan.full(), previous: AdaptResult? = null,
+                      dexSource: DexSourceFingerprint.Result?): AdaptResult? {
         val vc = biliVersionCode(context)
-        val dexSource = runCatching {
-            context.packageManager.getPackageInfo("tv.danmaku.bili", 0).applicationInfo
-        }.getOrNull()?.let(DexSourceFingerprint::inspect)
+        ModernHookLog.info("[BIL] DEX source count=${dexSource?.dexEntryCount ?: 0}, " +
+            "isolated=${dexSource?.codePaths?.all { File(it).parentFile?.name == "bil-host-dex" } == true}")
         // 只对计划内家族调用定位器；计划外的家族沿用此前有覆盖证明的缓存点，没有证明就是未请求（null）。
         val locators = SyncLocatorRun(plan)
         val previousCoverage = previous?.coverage ?: AdaptCoverage.EMPTY
@@ -5640,6 +5770,53 @@ object VersionAdapter {
         )
     }.getOrNull()
 
+    internal fun selectDetailRelateComponentFactory(serviceClass: Class<*>): Method? {
+        fun verifiedCurrentDispatcher(method: Method): Boolean {
+            // 8.90.2 DEX：C0 按 r2.y() 分发；同签名的 J0/P0 等只构建单一类型。
+            if (method.name != "C0" || method.returnType.name !=
+                "com.bilibili.app.gemini.ui.RunningUIComponent") return false
+            val item = method.parameterTypes.single()
+            if (item.name != "$DETAIL_RELATE_SERVICE_PACKAGE.r2") return false
+            val type = KavaMemberLookup.fieldOrNull(item, "a")
+                ?.takeIf { !it.isStatic }?.type ?: return false
+            if (type.name != "$DETAIL_RELATE_SERVICE_PACKAGE.RelateCardType" || !type.isEnum) return false
+            val names = KavaMemberLookup.fields(type, includeSuperclasses = false) { it.isEnumConstant }
+                .map { it.name }.toSet()
+            if (!names.containsAll(setOf("AV", "CM", "GAME", "LIVE", "COURSE"))) return false
+            val getter = KavaMemberLookup.methodOrNull(item, "y") ?: return false
+            return !getter.isStatic && getter.returnType == type
+        }
+        val scored = KavaMemberLookup.methods(serviceClass,
+            includeSuperclasses = true, makeAccessible = true) { method ->
+            !method.isStatic && !method.isAbstract && method.parameterCount == 1 &&
+                method.returnType != Void.TYPE && !method.returnType.isPrimitive
+        }.distinctBy(Method::toGenericString).map { method ->
+            val parameterName = method.parameterTypes.single().name
+            val score = (if (parameterName.endsWith("D0") ||
+                parameterName.startsWith("$DETAIL_RELATE_SERVICE_PACKAGE.")) 4 else 0) +
+                (if (method.returnType.name.contains("RunningUIComponent")) 4 else 0) +
+                (if (method.name == "d") 1 else 0) +
+                (if (verifiedCurrentDispatcher(method)) 16 else 0)
+            method to score
+        }.filter { it.second > 0 }
+        val highest = scored.maxOfOrNull { it.second } ?: return null
+        return scored.filter { it.second == highest }.map { it.first }.singleOrNull()
+    }
+
+    /** 8.90.2 C0/r2 DTO 的 H() 只返回对应卡型的推荐理由；不读取标题或 toString。 */
+    internal fun selectDetailRelateServiceReasonGetter(factory: Method): Method? {
+        if (factory.name != "C0" || factory.isStatic || factory.parameterCount != 1 ||
+            factory.returnType.name != "com.bilibili.app.gemini.ui.RunningUIComponent"
+        ) return null
+        val itemClass = factory.parameterTypes.single()
+        if (itemClass.name != "$DETAIL_RELATE_SERVICE_PACKAGE.r2") return null
+        return KavaMemberLookup.methods(itemClass,
+            includeSuperclasses = true, makeAccessible = true) { method ->
+            method.name == "H" && method.isPublic && !method.isStatic &&
+                method.parameterCount == 0 && method.returnType == classOf<String>()
+        }.distinctBy(Method::toGenericString).singleOrNull()
+    }
+
     /** 精确定位相关推荐列表以及公开的直接/嵌套类型读取方法。 */
     fun locateVideoRelate(loader: ClassLoader): VideoRelatePoints? = runCatching {
         fun responseListField(getter: Method): Field? {
@@ -5732,26 +5909,11 @@ object VersionAdapter {
             return scored.filter { it.second == highest }.map { it.first }.singleOrNull()
         }
 
-        val detailRelateService = KavaMemberLookup.classOrNull(
+        val detailRelateFactory = KavaMemberLookup.classOrNull(
             loader,
             DETAIL_RELATE_SERVICE_CLASS
-        )?.let { serviceClass ->
-            val factory = selectUniqueHighestScore(
-                KavaMemberLookup.methods(
-                    serviceClass,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method ->
-                    !method.isStatic && !method.isAbstract && method.parameterCount == 1 &&
-                        method.returnType != Void.TYPE && !method.returnType.isPrimitive
-                }.distinctBy(Method::toGenericString)
-            ) { method ->
-                val parameterName = method.parameterTypes.single().name
-                (if (parameterName.endsWith("D0") ||
-                    parameterName.startsWith("$DETAIL_RELATE_SERVICE_PACKAGE.")) 4 else 0) +
-                    (if (method.returnType.name.contains("RunningUIComponent")) 4 else 0) +
-                    (if (method.name == "d") 1 else 0)
-            } ?: return@let null
+        )?.let(::selectDetailRelateComponentFactory)
+        val detailRelateService = detailRelateFactory?.let { factory ->
             val itemClass = factory.parameterTypes.single()
             val itemFields = KavaMemberLookup.fields(
                 itemClass,
@@ -5935,26 +6097,47 @@ object VersionAdapter {
                 reasonChain(listOf(itemGetter, reasonGetter))
             }
         }
-        val reasonChains = (directReasonChains + nestedReasonChains).distinctBy { chain ->
+        val serviceReasonChains = detailRelateFactory?.let(::selectDetailRelateServiceReasonGetter)
+            ?.let { listOf(ReasonMethodChain(listOf(it.toHookPoint()))) }.orEmpty()
+        val reasonChains = (directReasonChains + nestedReasonChains + serviceReasonChains).distinctBy { chain ->
             chain.steps.joinToString("->") { it.label() }
         }
-        // 作者与标签维度。`getTagName` 直接是 String，`getAuthor` 要再下一级。
-        // 数值 mid 不能走 reasonChain（它只认文本），所以单独建一条两级链。
-        val tagNameChains = itemMethods("getTagName")
-            .mapNotNull { reasonChain(listOf(it)) }
+        // 作者与标签维度。新版作者位于 CardBasicInfo；旧版仍直接持有 Author。
+        // 数值 mid 不能走 reasonChain（它只认文本），因此保留完整的类型化成员链。
+        // 8.90.2 新版游戏卡标签由宿主 j.y(RelateGameCard) 映射；缺少标签的普通卡不作推断。
+        val tagNameChains = (itemMethods("getTagName").map(::listOf) +
+            itemMethods("getGame").mapNotNull { gameGetter ->
+                uniquePublicGetter(gameGetter.returnType, "getTagName", ::isStringMethod)
+                    ?.let { listOf(gameGetter, it) }
+            }).mapNotNull(::reasonChain)
             .distinctBy { chain -> chain.steps.joinToString("->") { it.label() } }
-        val authorGetters = itemMethods("getAuthor")
-        fun authorLeaf(name: String, accept: (Method) -> Boolean): List<ReasonMethodChain> =
-            authorGetters.mapNotNull { authorGetter ->
-                val leaf = KavaMemberLookup.methods(
-                    authorGetter.returnType,
+        val authorGetterPaths = itemMethods("getAuthor").map(::listOf) +
+            itemMethods("getBasicInfo").mapNotNull { basicGetter ->
+                KavaMemberLookup.methods(
+                    basicGetter.returnType,
                     includeSuperclasses = true,
                     makeAccessible = true
                 ) { method ->
-                    method.name == name && method.parameterCount == 0 &&
+                    method.name == "getAuthor" && method.parameterCount == 0 &&
+                        method.isPublic && !method.isStatic && !method.returnType.isPrimitive
+                }.distinctBy(Method::toGenericString).singleOrNull()
+                    ?.let { listOf(basicGetter, it) }
+            }
+        fun authorLeaf(name: String, accept: (Method) -> Boolean): List<ReasonMethodChain> =
+            authorGetterPaths.mapNotNull { authorPath ->
+                val authorClass = authorPath.last().returnType
+                // 8.90.2 Owner#getTitle 是作者显示名，不能将任意卡片标题当作者名。
+                val leafName = if (name == "getName" && authorClass.name ==
+                    "com.bapis.bilibili.app.viewunite.common.Owner") "getTitle" else name
+                val leaf = KavaMemberLookup.methods(
+                    authorClass,
+                    includeSuperclasses = true,
+                    makeAccessible = true
+                ) { method ->
+                    method.name == leafName && method.parameterCount == 0 &&
                         method.isPublic && !method.isStatic && accept(method)
                 }.distinctBy(Method::toGenericString).singleOrNull() ?: return@mapNotNull null
-                ReasonMethodChain(listOf(authorGetter.toHookPoint(), leaf.toHookPoint()))
+                ReasonMethodChain((authorPath + leaf).map { it.toHookPoint() })
             }.distinctBy { chain -> chain.steps.joinToString("->") { it.label() } }
         val authorNameChains = authorLeaf("getName") { it.returnType == classOf<String>() }
         val authorMidChains = authorLeaf("getMid") { method ->

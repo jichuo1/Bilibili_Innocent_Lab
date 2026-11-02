@@ -764,7 +764,7 @@
    "state": "NOT_APPLICABLE"
   }
  ],
- "fp": "runtime-no-context|rules=81",
+ "fp": "runtime-no-context|rules=82",
  "full_numbers": {
   "methods": [
    {
@@ -1459,8 +1459,76 @@
  "ts": 0,
  "v": 0,
  "video_relate": {
-  "author_mid_chains": [],
-  "author_name_chains": [],
+  "author_mid_chains": [
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.archive.v1.Author",
+      "m": "getMid",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.view.v1.Relate",
+      "m": "getAuthor",
+      "params": []
+     }
+    ]
+   },
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.CardBasicInfo",
+      "m": "getAuthor",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.Owner",
+      "m": "getMid",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+      "m": "getBasicInfo",
+      "params": []
+     }
+    ]
+   }
+  ],
+  "author_name_chains": [
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.archive.v1.Author",
+      "m": "getName",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.view.v1.Relate",
+      "m": "getAuthor",
+      "params": []
+     }
+    ]
+   },
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.CardBasicInfo",
+      "m": "getAuthor",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.Owner",
+      "m": "getTitle",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+      "m": "getBasicInfo",
+      "params": []
+     }
+    ]
+   }
+  ],
   "case": [
    {
     "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
@@ -1826,7 +1894,31 @@
     }
    }
   ],
-  "tag_name_chains": [],
+  "tag_name_chains": [
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.view.v1.Relate",
+      "m": "getTagName",
+      "params": []
+     }
+    ]
+   },
+   {
+    "steps": [
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateCard",
+      "m": "getGame",
+      "params": []
+     },
+     {
+      "cls": "com.bapis.bilibili.app.viewunite.common.RelateGameCard",
+      "m": "getTagName",
+      "params": []
+     }
+    ]
+   }
+  ],
   "type": []
  }
 }

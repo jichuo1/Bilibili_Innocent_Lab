@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries>
+        <package android:name="com.Bilibili_Innocent_Lab.xposedmodule" />
+    </queries>
+    <application>
+        <activity
+            android:name="com.Bilibili_Innocent_Lab.xposedmodule.runtime.NoRootPayloadTestActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:process=":no_root_payload_test"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <!-- Test-only process; Binder validates the instrumentation target UID before decoding. -->
+        <service
+            android:name="com.Bilibili_Innocent_Lab.xposedmodule.runtime.NoRootPayloadTestService"
+            android:exported="true"
+            android:process=":no_root_payload_test" />
+    </application>
+</manifest>

@@ -34,7 +34,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 69
+    const val CATALOG_VERSION = 70
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_PLAYER_SPEED_MENU = "player.speed_menu.percents"
@@ -932,6 +932,12 @@ internal object SettingsCatalog {
             introducedCatalogVersion = 11
         ),
         bool(
+            "share.wechat.resigned_compat",
+            FeaturePreferences.WECHAT_SHARE_COMPAT,
+            R.string.wechat_share_compat,
+            introducedCatalogVersion = 70
+        ),
+        bool(
             "links.external_browser.enabled",
             FeaturePreferences.FORCE_EXTERNAL_BROWSER,
             R.string.force_external_browser,
@@ -1064,7 +1070,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 251) { "Expected 251 catalog settings, found ${specs.size}" }
+        check(specs.size == 252) { "Expected 252 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

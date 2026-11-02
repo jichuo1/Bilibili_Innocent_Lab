@@ -3,7 +3,9 @@ package com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostConfigState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostInstallChainState
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.frameworkHasSystemCapability
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.isNpatchConfigChannel
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.isRootFramework
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatus
 import io.github.libxposed.service.XposedService
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -12,6 +14,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NoRootSupportStateTest {
+
+    @Test fun `embedded gate takes precedence over matching historical activation evidence`() {
+        val snapshot = snapshot()
+        val matching = status(desired = true, state = NoRootSupportStore.SyncState.ACTIVE,
+            heartbeatRevision = snapshot.revision, heartbeatModuleVersion = snapshot.moduleVersionCode,
+            heartbeatTargetVersion = TARGET_VERSION, heartbeatTargetUpdateTime = TARGET_UPDATE_TIME,
+            heartbeatTargetPackage = NoRootSupportState.TARGET_PACKAGE, heartbeatReceivedAt = 1_700_000_000_000L)
+        val blocked = NoRootSupportState.displayState(28, matching, snapshot, TARGET_VERSION,
+            TARGET_UPDATE_TIME, probe = HostRuntimeProbeStatus.CONFIRMED, embeddedModeBlocked = true)
+        assertEquals(NoRootDisplayState.EMBEDDED_UNSUPPORTED, blocked)
+        for (npatch in listOf(false, true)) {
+            assertEquals(ActivationDisplayState.EMBEDDED_UNSUPPORTED,
+                NoRootSupportState.activationDisplayState(rootActive = true, frameworkCheckPending = false,
+                    displayState = blocked, lspatchFramework = !npatch, nPatchFramework = npatch,
+                    lspatchHostState = LspatchHostReceiptState.CONFIRMED))
+        }
+        assertEquals(ActivationDisplayState.ACTIVE_LSPOSED,
+            NoRootSupportState.activationDisplayState(rootActive = true, frameworkCheckPending = false,
+                displayState = blocked))
+    }
 
     @Test
     fun `unsupported OS and disabled intent take precedence`() {
@@ -58,7 +80,8 @@ class NoRootSupportStateTest {
                 matching,
                 snapshot,
                 TARGET_VERSION,
-                TARGET_UPDATE_TIME
+                TARGET_UPDATE_TIME,
+                probe = HostRuntimeProbeStatus.CONFIRMED
             )
         )
         assertEquals(
@@ -68,7 +91,8 @@ class NoRootSupportStateTest {
                 matching.copy(heartbeatRevision = snapshot.revision - 1L),
                 snapshot,
                 TARGET_VERSION,
-                TARGET_UPDATE_TIME
+                TARGET_UPDATE_TIME,
+                probe = HostRuntimeProbeStatus.CONFIRMED
             )
         )
         assertEquals(
@@ -78,7 +102,8 @@ class NoRootSupportStateTest {
                 matching,
                 currentSnapshot = null,
                 currentTargetVersionCode = TARGET_VERSION,
-                currentTargetUpdateTime = TARGET_UPDATE_TIME
+                currentTargetUpdateTime = TARGET_UPDATE_TIME,
+                probe = HostRuntimeProbeStatus.CONFIRMED
             )
         )
         assertEquals(
@@ -88,7 +113,8 @@ class NoRootSupportStateTest {
                 matching,
                 snapshot,
                 currentTargetVersionCode = TARGET_VERSION + 1L,
-                currentTargetUpdateTime = TARGET_UPDATE_TIME
+                currentTargetUpdateTime = TARGET_UPDATE_TIME,
+                probe = HostRuntimeProbeStatus.CONFIRMED
             )
         )
         assertEquals(
@@ -98,9 +124,297 @@ class NoRootSupportStateTest {
                 matching,
                 snapshot,
                 currentTargetVersionCode = TARGET_VERSION,
-                currentTargetUpdateTime = TARGET_UPDATE_TIME + 1L
+                currentTargetUpdateTime = TARGET_UPDATE_TIME + 1L,
+                probe = HostRuntimeProbeStatus.CONFIRMED
             )
         )
+    }
+
+    @Test
+    fun `scope removal overrides a matching heartbeat but unknown keeps it`() {
+        val snapshot = snapshot()
+        val matching = status(
+            desired = true,
+            state = NoRootSupportStore.SyncState.ACTIVE,
+            heartbeatRevision = snapshot.revision,
+            heartbeatModuleVersion = snapshot.moduleVersionCode,
+            heartbeatTargetVersion = TARGET_VERSION,
+            heartbeatTargetUpdateTime = TARGET_UPDATE_TIME,
+            heartbeatTargetPackage = NoRootSupportState.TARGET_PACKAGE,
+            heartbeatReceivedAt = 1_700_000_000_000L
+        )
+
+        assertEquals(
+            NoRootDisplayState.SCOPE_MISSING,
+            NoRootSupportState.displayState(
+                28,
+                matching,
+                snapshot,
+                TARGET_VERSION,
+                TARGET_UPDATE_TIME,
+                scope = NPatchScopeProbe.ScopeState.OUT_OF_SCOPE
+            )
+        )
+        // Provider 读不到只能算未知；不能让一次临时查询失败把已激活降级。
+        assertEquals(
+            NoRootDisplayState.ACTIVE,
+            NoRootSupportState.displayState(
+                28,
+                matching,
+                snapshot,
+                TARGET_VERSION,
+                TARGET_UPDATE_TIME,
+                scope = NPatchScopeProbe.ScopeState.UNKNOWN,
+                probe = HostRuntimeProbeStatus.CONFIRMED
+            )
+        )
+        assertEquals(
+            NoRootDisplayState.ACTIVE,
+            NoRootSupportState.displayState(
+                28,
+                matching,
+                snapshot,
+                TARGET_VERSION,
+                TARGET_UPDATE_TIME,
+                scope = NPatchScopeProbe.ScopeState.IN_SCOPE,
+                probe = HostRuntimeProbeStatus.CONFIRMED
+            )
+        )
+        // 开关已关闭时作用域不再影响状态文案。
+        assertEquals(
+            NoRootDisplayState.DISABLED,
+            NoRootSupportState.displayState(
+                28,
+                matching.copy(desiredEnabled = false),
+                snapshot,
+                TARGET_VERSION,
+                TARGET_UPDATE_TIME,
+                scope = NPatchScopeProbe.ScopeState.OUT_OF_SCOPE
+            )
+        )
+    }
+
+    @Test
+    fun `a live probe is required before claiming activation`() {
+        val snapshot = snapshot()
+        val matching = status(
+            desired = true,
+            state = NoRootSupportStore.SyncState.ACTIVE,
+            heartbeatRevision = snapshot.revision,
+            heartbeatModuleVersion = snapshot.moduleVersionCode,
+            heartbeatTargetVersion = TARGET_VERSION,
+            heartbeatTargetUpdateTime = TARGET_UPDATE_TIME,
+            heartbeatTargetPackage = NoRootSupportState.TARGET_PACKAGE,
+            heartbeatReceivedAt = 1_700_000_000_000L
+        )
+
+        assertEquals(
+            NoRootDisplayState.ACTIVE,
+            NoRootSupportState.displayState(
+                28,
+                matching,
+                snapshot,
+                TARGET_VERSION,
+                TARGET_UPDATE_TIME,
+                probe = HostRuntimeProbeStatus.CONFIRMED
+            )
+        )
+        assertEquals(
+            NoRootDisplayState.CONFIRMING,
+            NoRootSupportState.displayState(
+                28,
+                matching,
+                snapshot,
+                TARGET_VERSION,
+                TARGET_UPDATE_TIME,
+                probe = HostRuntimeProbeStatus.PROBING
+            )
+        )
+        assertEquals(
+            NoRootDisplayState.UNCONFIRMED,
+            NoRootSupportState.displayState(
+                28,
+                matching,
+                snapshot,
+                TARGET_VERSION,
+                TARGET_UPDATE_TIME,
+                probe = HostRuntimeProbeStatus.IDLE
+            )
+        )
+        assertEquals(
+            NoRootDisplayState.UNCONFIRMED,
+            NoRootSupportState.displayState(
+                28,
+                matching,
+                snapshot,
+                TARGET_VERSION,
+                TARGET_UPDATE_TIME,
+                probe = HostRuntimeProbeStatus.UNCONFIRMED
+            )
+        )
+        assertEquals(
+            NoRootDisplayState.NOT_RUNNING,
+            NoRootSupportState.displayState(
+                28,
+                matching,
+                snapshot,
+                TARGET_VERSION,
+                TARGET_UPDATE_TIME,
+                probe = HostRuntimeProbeStatus.NOT_RUNNING
+            )
+        )
+    }
+
+    @Test
+    fun `a live probe never overrides a stale config heartbeat`() {
+        val snapshot = snapshot()
+        val matching = status(
+            desired = true,
+            state = NoRootSupportStore.SyncState.ACTIVE,
+            heartbeatRevision = snapshot.revision - 1L,
+            heartbeatModuleVersion = snapshot.moduleVersionCode,
+            heartbeatTargetVersion = TARGET_VERSION,
+            heartbeatTargetUpdateTime = TARGET_UPDATE_TIME,
+            heartbeatTargetPackage = NoRootSupportState.TARGET_PACKAGE,
+            heartbeatReceivedAt = 1_700_000_000_000L
+        )
+
+        assertEquals(
+            NoRootDisplayState.RESTART_REQUIRED,
+            NoRootSupportState.displayState(
+                28,
+                matching,
+                snapshot,
+                TARGET_VERSION,
+                TARGET_UPDATE_TIME,
+                probe = HostRuntimeProbeStatus.CONFIRMED
+            )
+        )
+    }
+
+    @Test
+    fun `scope removal wins over a live probe`() {
+        val snapshot = snapshot()
+        val matching = status(
+            desired = true,
+            state = NoRootSupportStore.SyncState.ACTIVE,
+            heartbeatRevision = snapshot.revision,
+            heartbeatModuleVersion = snapshot.moduleVersionCode,
+            heartbeatTargetVersion = TARGET_VERSION,
+            heartbeatTargetUpdateTime = TARGET_UPDATE_TIME,
+            heartbeatTargetPackage = NoRootSupportState.TARGET_PACKAGE,
+            heartbeatReceivedAt = 1_700_000_000_000L
+        )
+
+        assertEquals(
+            NoRootDisplayState.SCOPE_MISSING,
+            NoRootSupportState.displayState(
+                28,
+                matching,
+                snapshot,
+                TARGET_VERSION,
+                TARGET_UPDATE_TIME,
+                scope = NPatchScopeProbe.ScopeState.OUT_OF_SCOPE,
+                probe = HostRuntimeProbeStatus.CONFIRMED
+            )
+        )
+    }
+
+    @Test
+    fun `runtime states win over a modern framework activation claim`() {
+        for (display in listOf(
+            NoRootDisplayState.NOT_RUNNING,
+            NoRootDisplayState.UNCONFIRMED,
+            NoRootDisplayState.CONFIRMING
+        )) {
+            val expected = when (display) {
+                NoRootDisplayState.NOT_RUNNING -> ActivationDisplayState.NOT_RUNNING
+                NoRootDisplayState.UNCONFIRMED -> ActivationDisplayState.UNCONFIRMED
+                else -> ActivationDisplayState.CONFIRMING
+            }
+            assertEquals(
+                expected,
+                NoRootSupportState.activationDisplayState(
+                    rootActive = true,
+                    frameworkCheckPending = false,
+                    displayState = display,
+                    lspatchFramework = true,
+                    lspatchHostState = LspatchHostReceiptState.CONFIRMED
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `scope removal wins over a confirmed LSPatch receipt`() {
+        assertEquals(
+            ActivationDisplayState.SCOPE_MISSING,
+            NoRootSupportState.activationDisplayState(
+                rootActive = true,
+                frameworkCheckPending = false,
+                displayState = NoRootDisplayState.SCOPE_MISSING,
+                lspatchFramework = true,
+                lspatchHostState = LspatchHostReceiptState.CONFIRMED
+            )
+        )
+    }
+
+    @Test
+    fun `root activation ignores stale NPatch scope and runtime states`() {
+        val rootFlags = XposedService.PROP_CAP_REMOTE or XposedService.PROP_CAP_SYSTEM
+        for (name in listOf("LSPosed", "Vector", "Irena")) {
+            for (properties in listOf(rootFlags, null)) {
+                val framework = ModernFrameworkStatus(
+                    connected = true, capable = true, name = name,
+                    apiVersion = 102, properties = properties
+                )
+                for (state in listOf(
+                    NoRootDisplayState.SCOPE_MISSING,
+                    NoRootDisplayState.CONFIRMING,
+                    NoRootDisplayState.UNCONFIRMED,
+                    NoRootDisplayState.NOT_RUNNING
+                )) {
+                    assertEquals(
+                        "$name properties=$properties state=$state",
+                        ActivationDisplayState.ACTIVE_LSPOSED,
+                        NoRootSupportState.activationDisplayState(
+                            rootActive = framework.capable,
+                            frameworkCheckPending = false,
+                            displayState = state,
+                            nPatchFramework = isNpatchConfigChannel(framework)
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `NPatch modern services cannot override scope and runtime failures`() {
+        val expectedStates = mapOf(
+            NoRootDisplayState.SCOPE_MISSING to ActivationDisplayState.SCOPE_MISSING,
+            NoRootDisplayState.CONFIRMING to ActivationDisplayState.CONFIRMING,
+            NoRootDisplayState.UNCONFIRMED to ActivationDisplayState.UNCONFIRMED,
+            NoRootDisplayState.NOT_RUNNING to ActivationDisplayState.NOT_RUNNING
+        )
+        for (name in listOf("NPatch", "RenamedPatch")) {
+            val framework = ModernFrameworkStatus(
+                connected = true, capable = true, name = name,
+                apiVersion = 102, properties = XposedService.PROP_CAP_REMOTE
+            )
+            for ((state, expected) in expectedStates) {
+                assertEquals(
+                    "$name state=$state",
+                    expected,
+                    NoRootSupportState.activationDisplayState(
+                        rootActive = framework.capable,
+                        frameworkCheckPending = false,
+                        displayState = state,
+                        nPatchFramework = isNpatchConfigChannel(framework)
+                    )
+                )
+            }
+        }
     }
 
     @Test
@@ -314,140 +628,16 @@ class NoRootSupportStateTest {
         )
     }
 
-    @Test
-    fun `NPatch that hands the module a modern service still uses the no-root restart flow`() {
-        // 2026-09-30 TB320FC 真机：NPatch v1.0.8 下 capable=true、desired=true，
-        // 旧判据 `capable → false` 给出 Root 版重启（su 不存在，点了无效且不落盘）。
-        assertTrue(
-            NoRootSupportState.useNoRootRestartFlow(
-                standardCapable = true,
-                frameworkName = "NPatch",
-                desiredEnabled = true,
-                displayState = NoRootDisplayState.RESTART_REQUIRED
-            )
-        )
-        // 名称按包含且忽略大小写匹配，与 frameworkManagerTargets 同口径。
-        assertTrue(
-            NoRootSupportState.useNoRootRestartFlow(
-                standardCapable = true,
-                frameworkName = "npatch-manager",
-                desiredEnabled = true,
-                displayState = NoRootDisplayState.SYNCING
-            )
-        )
-        // 关闭免 Root 后仍待重启：tombstone 同样要经手动重启并落盘。
-        for (pending in listOf(
-            NoRootDisplayState.DISABLE_RESTART_REQUIRED,
-            NoRootDisplayState.DISABLE_RESTART_REQUIRED_ACTIVE
-        )) {
-            assertTrue(
-                NoRootSupportState.useNoRootRestartFlow(
-                    standardCapable = true,
-                    frameworkName = "NPatch",
-                    desiredEnabled = false,
-                    displayState = pending
-                )
-            )
+    @Test fun lspatchEmbeddedWithoutManagerStillRequiresARealHostReceipt() {
+        for (receipt in LspatchHostReceiptState.entries) {
+            assertEquals(when (receipt) {
+                LspatchHostReceiptState.CONFIRMED -> ActivationDisplayState.ACTIVE_LSPATCH
+                LspatchHostReceiptState.FAILED -> ActivationDisplayState.LSPATCH_HOST_FAILED
+                LspatchHostReceiptState.WAITING -> ActivationDisplayState.LSPATCH_WAITING_FOR_HOST
+            }, NoRootSupportState.activationDisplayState(
+                rootActive = false, frameworkCheckPending = true, displayState = NoRootDisplayState.DISABLED,
+                lspatchFramework = true, lspatchHostState = receipt))
         }
-    }
-
-    @Test
-    fun `a real root framework keeps the root restart even with a stale no-root flag`() {
-        for (name in listOf("LSPosed", "Vector", "Irena")) {
-            for (desired in listOf(false, true)) {
-                assertFalse(
-                    "$name desired=$desired",
-                    NoRootSupportState.useNoRootRestartFlow(
-                        standardCapable = true,
-                        frameworkName = name,
-                        desiredEnabled = desired,
-                        displayState = NoRootDisplayState.RESTART_REQUIRED
-                    )
-                )
-            }
-        }
-    }
-
-    @Test
-    fun `restart flow without a modern service follows the no-root intent only`() {
-        // 旧 NPatch / 无框架服务：capable=false，沿用重构前的行为。
-        assertTrue(
-            NoRootSupportState.useNoRootRestartFlow(
-                standardCapable = false,
-                frameworkName = "",
-                desiredEnabled = true,
-                displayState = NoRootDisplayState.CHECKING
-            )
-        )
-        assertFalse(
-            NoRootSupportState.useNoRootRestartFlow(
-                standardCapable = false,
-                frameworkName = "",
-                desiredEnabled = false,
-                displayState = NoRootDisplayState.DISABLED
-            )
-        )
-        // 已知边界（本条不改）：LSPatch 与“未选免 Root 的 NPatch”仍是 Root 版重启。
-        assertFalse(
-            NoRootSupportState.useNoRootRestartFlow(
-                standardCapable = true,
-                frameworkName = "LSPatch",
-                desiredEnabled = false,
-                displayState = NoRootDisplayState.DISABLED
-            )
-        )
-        assertFalse(
-            NoRootSupportState.useNoRootRestartFlow(
-                standardCapable = true,
-                frameworkName = "NPatch",
-                desiredEnabled = false,
-                displayState = NoRootDisplayState.DISABLED
-            )
-        )
-    }
-
-    @Test
-    fun `a renamed no-root framework is still recognised by its missing system capability bit`() {
-        // 名字不含 npatch，也没有 PROP_CAP_SYSTEM：只有 CAP_REMOTE，说明不是 Root 框架。
-        assertTrue(
-            NoRootSupportState.useNoRootRestartFlow(
-                standardCapable = true,
-                frameworkName = "SomeRenamedPatch",
-                desiredEnabled = true,
-                displayState = NoRootDisplayState.RESTART_REQUIRED,
-                frameworkProperties = XposedService.PROP_CAP_REMOTE
-            )
-        )
-        // 真 Root 框架声明了 SYSTEM，即使带陈旧免 Root 标记也仍是 Root 版重启。
-        assertFalse(
-            NoRootSupportState.useNoRootRestartFlow(
-                standardCapable = true,
-                frameworkName = "LSPosed",
-                desiredEnabled = true,
-                displayState = NoRootDisplayState.RESTART_REQUIRED,
-                frameworkProperties = XposedService.PROP_CAP_SYSTEM or XposedService.PROP_CAP_REMOTE
-            )
-        )
-        // 属性读取失败（null）= 未知，不额外否决：与只看名字时完全一致。
-        assertFalse(
-            NoRootSupportState.useNoRootRestartFlow(
-                standardCapable = true,
-                frameworkName = "SomeRenamedPatch",
-                desiredEnabled = true,
-                displayState = NoRootDisplayState.RESTART_REQUIRED,
-                frameworkProperties = null
-            )
-        )
-        // 没开免 Root 开关的无 SYSTEM 框架用户不受影响。
-        assertFalse(
-            NoRootSupportState.useNoRootRestartFlow(
-                standardCapable = true,
-                frameworkName = "SomeRenamedPatch",
-                desiredEnabled = false,
-                displayState = NoRootDisplayState.DISABLED,
-                frameworkProperties = XposedService.PROP_CAP_REMOTE
-            )
-        )
     }
 
     @Test
