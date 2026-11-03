@@ -60,7 +60,16 @@ import android.widget.TextView as NativeTextView
  * 弹窗采用 scale + alpha 动画（GPU 加速、不触发布局重绘，低功耗），
  * 符合 Material 3 的 emphasized easing 标准。
  */
-internal fun MainActivity.showRestartConfirmDialog(anchor: View? = null, resumeNoRoot: Boolean = false) {
+/**
+ * @param origin / @param cover 从另一张面板里打开时（例如 NPatch 向导的「重启并验证」），
+ *   本面板从被点的按钮长出来、盖住那张面板而不关闭它，取消后露出它；为 null 时按 [anchor] 以气泡弹出。
+ */
+internal fun MainActivity.showRestartConfirmDialog(
+    anchor: View? = null,
+    resumeNoRoot: Boolean = false,
+    origin: SettingsBackupMotionRect? = null,
+    cover: SettingsBackupMotionRect? = null
+) {
     val density = resources.displayMetrics.density
     val dialog = Dialog(this).also { installDialogElasticInteraction(it) }
     // 这里只决定配置保存通道；恢复手动向导不会把 LSPosed/LSPatch 切成 NPatch 配置。
@@ -85,6 +94,8 @@ internal fun MainActivity.showRestartConfirmDialog(anchor: View? = null, resumeN
         setLineSpacing(3 * density, 1f)
     }
     container.addView(hint, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (10 * density).toInt() })
+    // 盖在更高的面板上时卡片会被撑到那张面板的高度：空档放在说明与按钮之间，按钮落在底部。
+    if (cover != null) container.addView(android.widget.Space(this), NativeLinearLayout.LayoutParams(-1, 0, 1f))
     // 每种重启方式独占一整行（Root 在上、Shizuku 在下），底部一行左右均分「打开应用详情」与「取消」。
     var checking = true
     var rootPath: String? = null
@@ -133,9 +144,11 @@ internal fun MainActivity.showRestartConfirmDialog(anchor: View? = null, resumeN
     routes.addView(shizukuAction, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (8 * density).toInt() })
     routes.addView(retry, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (8 * density).toInt() })
     container.addView(routes, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (20 * density).toInt() })
+    // 两个按钮等高：某一个折行时另一个跟着变高，底边对齐。
     val row = NativeLinearLayout(this).apply {
         orientation = NativeLinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
+        isBaselineAligned = false
     }
     val manual = createRestartActionButton(if (resumeNoRoot) R.string.no_root_restart_launch_verify else R.string.no_root_restart_open_app_details).apply {
         setOnClickListener {
@@ -150,8 +163,8 @@ internal fun MainActivity.showRestartConfirmDialog(anchor: View? = null, resumeN
     val cancel = createRestartActionButton(R.string.dialog_cancel).apply {
         setOnClickListener { dismissWithAnimation(dialog, container) {} }
     }
-    row.addView(manual, NativeLinearLayout.LayoutParams(0, -2, 1f))
-    row.addView(cancel, NativeLinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = (8 * density).toInt() })
+    row.addView(manual, NativeLinearLayout.LayoutParams(0, -1, 1f))
+    row.addView(cancel, NativeLinearLayout.LayoutParams(0, -1, 1f).apply { marginStart = (8 * density).toInt() })
     container.addView(row, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (20 * density).toInt() })
 
     var observing = true
@@ -230,7 +243,9 @@ internal fun MainActivity.showRestartConfirmDialog(anchor: View? = null, resumeN
         override fun onDestroy(owner: LifecycleOwner) { dialog.dismiss() }
     }
     lifecycle.addObserver(observer)
-    presentModalDialog(dialog, container, anchor, AnchorStyle.BUBBLE, onDismissed = {
+    presentModalDialog(dialog, container, anchor.takeIf { cover == null },
+        if (cover == null) AnchorStyle.BUBBLE else AnchorStyle.CONTAINER,
+        morphAnchorBounds = origin, coverBounds = cover, onDismissed = {
         observing = false
         subscription.close()
         lifecycle.removeObserver(observer)

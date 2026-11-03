@@ -164,6 +164,7 @@ internal fun MainActivity.showPrivilegedRestartDialog(
     val footer = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
+        isBaselineAligned = false
     }
     createRestartActionButton(R.string.restart_change_method).also { other ->
         styleRestartActionButton(other, false)
@@ -172,7 +173,7 @@ internal fun MainActivity.showPrivilegedRestartDialog(
             if (coveredParentShowing()) dismissWithAnimation(dialog, container) {}
             else dismissWithAnimation(dialog, container) { showRestartConfirmDialog() }
         }
-        footer.addView(other, LinearLayout.LayoutParams(0, -2, 1f))
+        footer.addView(other, LinearLayout.LayoutParams(0, -1, 1f))
     }
     createRestartActionButton(R.string.dialog_cancel).also { cancel ->
         styleRestartActionButton(cancel, false)
@@ -182,7 +183,7 @@ internal fun MainActivity.showPrivilegedRestartDialog(
             closeCoveredParent()
             dismissWithAnimation(dialog, container) {}
         }
-        footer.addView(cancel, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = (8 * density).toInt() })
+        footer.addView(cancel, LinearLayout.LayoutParams(0, -1, 1f).apply { marginStart = (8 * density).toInt() })
     }
     container.addView(footer, LinearLayout.LayoutParams(-1, -2))
     val observer = object : DefaultLifecycleObserver {
