@@ -56,6 +56,19 @@ class GuestFollowGroupCloneHooksTest {
         assertNull(port.invoke(Any::class.java.name, unrelated) { Any() })
     }
 
+    @Test fun aThrowingLocalCloneCannotBeRetriedWithoutItsMarker() {
+        val bindings = GuestFollowGroupBindings<Any>(newMarker = { "test" })
+        val source = Call()
+        bindings.tag(source, bindings.register(Any(), 42))
+        val port = PlayerPortTestRegistrar()
+        assertTrue(GuestFollowGroupCloneHooks.install(registrar(port, Call::class.java), Call::class.java, bindings))
+        var attempts = 0
+        assertNull(port.invoke(Call::class.java.name, source) {
+            attempts++
+            throw IllegalStateException("clone failed")
+        })
+        assertEquals(1, attempts)
+    }
     @Test fun unsupportedCloneShapesAreNotInstalled() {
         val port = PlayerPortTestRegistrar()
         val bindings = GuestFollowGroupBindings<Any>()

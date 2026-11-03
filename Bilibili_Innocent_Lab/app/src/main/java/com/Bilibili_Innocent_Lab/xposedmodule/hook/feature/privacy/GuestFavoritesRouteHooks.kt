@@ -3,7 +3,9 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 import android.content.Context
 import android.content.Intent
 import androidx.core.net.toUri
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import java.util.concurrent.atomic.AtomicBoolean
@@ -76,16 +78,24 @@ internal class GuestFavoritesRouteHooks(
         val routeTo = requireNotNull(PrivacyStructuralResolver.method(router, "routeTo", request, fragment))
         val getTargetUri = requireNotNull(PrivacyStructuralResolver.method(request, "getTargetUri"))
         val answered = AtomicBoolean(false)
-        env.registrar.exact("guest.favorites.folder_route", router, routeTo.name, *routeTo.parameterTypes) {
+        // This overload is also used by the session-bound follow-group route. A protective retry could
+        // discard its modified arguments, so preserve host exceptions without replaying the route.
+        env.registrar.adapted("guest.favorites.folder_route",
+            VersionAdapter.HookPoint(router.name, routeTo.name, routeTo.parameterTypes.map { it.name }),
+            HookExceptionPolicy.DELIVER_TO_HOST) {
             before {
-                if (!runCatching { isGuest() }.getOrDefault(false)) return@before
-                val routeRequest = argOrNull(0) ?: return@before
-                val uri = runCatching { getTargetUri.invoke(routeRequest)?.toString() }.getOrNull() ?: return@before
-                val id = folderIdOf(uri) ?: return@before
-                val handled = runCatching { newResponse.newInstance(ok, routeRequest) }.getOrNull() ?: return@before
-                if (!runCatching { openFolder(argOrNull(1), uri, id) }.getOrDefault(false)) return@before
-                result = handled
-                if (answered.compareAndSet(false, true)) env.reportStatus("guest_favorites_folder_route_opened", "seen")
+                try {
+                    if (!isGuest()) return@before
+                    val routeRequest = argOrNull(0) ?: return@before
+                    val uri = getTargetUri.invoke(routeRequest)?.toString() ?: return@before
+                    val id = folderIdOf(uri) ?: return@before
+                    val handled = newResponse.newInstance(ok, routeRequest)
+                    if (!openFolder(argOrNull(1), uri, id)) return@before
+                    result = handled
+                    if (answered.compareAndSet(false, true)) env.reportStatus("guest_favorites_folder_route_opened", "seen")
+                } catch (_: Throwable) {
+                    // The unrelated host route remains available when this optional folder adapter fails.
+                }
             }
         }
         env.reportStatus("guest_favorites_folder_route", "installed")

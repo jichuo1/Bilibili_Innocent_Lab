@@ -24,16 +24,22 @@ internal object GuestFollowGroupCloneHooks {
                 }
             }
             after {
-                if (hasThrowable || getObjectExtra(TAGGED) != true) return@after
-                val clone = result ?: return@after
-                // Set failure first: no exceptional path may leak the copied request without its session.
-                result = null
                 try {
+                    if (getObjectExtra(TAGGED) != true) return@after
+                    if (hasThrowable) {
+                        // Protective mode would retry a throwing original clone without this hook.
+                        result = null
+                        return@after
+                    }
+                    val clone = result ?: return@after
+                    // Set failure first: no exceptional path may leak the copied request without its session.
+                    result = null
                     require(call.isInstance(clone))
                     bindings.forward(requireNotNull(instance), clone)
                     result = clone
                 } catch (_: Throwable) {
                     // Null aborts this clone; the original host request is never returned to the caller.
+                    result = null
                 }
             }
         }

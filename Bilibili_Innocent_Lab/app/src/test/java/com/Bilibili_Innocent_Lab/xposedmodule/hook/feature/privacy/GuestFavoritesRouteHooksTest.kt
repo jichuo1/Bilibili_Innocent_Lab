@@ -1,6 +1,10 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPortTestRegistrar
 import fixtures.privacy.videofavorite.storyrouter.StoryCode
@@ -12,6 +16,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
+import java.io.IOException
 import org.junit.Before
 import org.junit.Test
 
@@ -20,6 +26,7 @@ class GuestFavoritesRouteHooksTest {
     private val opened = mutableListOf<Any?>()
     private var kntr = false
     private var canOpen = true
+    private var folderPolicy: HookExceptionPolicy? = null
     private val context = Any()
     private val fragment = StoryFragment()
     private val openedFolders = mutableListOf<Triple<Any?, String, Long>>()
@@ -31,11 +38,22 @@ class GuestFavoritesRouteHooksTest {
         StoryRouter.routed.clear()
         kntr = false
         canOpen = true
+        folderPolicy = null
     }
 
-    private fun environment(registrar: PlayerPortTestRegistrar, loader: ClassLoader = javaClass.classLoader!!) =
-        HookEnvironment("tv.danmaku.bili", loader, HookPointRegistry(loader), registrar,
+    private fun environment(registrar: PlayerPortTestRegistrar, loader: ClassLoader = javaClass.classLoader!!): HookEnvironment {
+        val recording = object : HookRegistrar by registrar {
+            override fun adapted(id: String, point: VersionAdapter.HookPoint, exceptionPolicy: HookExceptionPolicy,
+                                 block: ModernMemberHookCreator.() -> Unit) {
+                assertEquals("guest.favorites.folder_route", id)
+                folderPolicy = exceptionPolicy
+                val method = StoryRouter::class.java.getDeclaredMethod("routeTo", StoryRequest::class.java, StoryFragment::class.java)
+                registrar.hooks[id] = PlayerPortTestRegistrar.Entry(method, ModernMemberHookCreator(method).apply(block))
+            }
+        }
+        return HookEnvironment("tv.danmaku.bili", loader, HookPointRegistry(loader), recording,
             { _, _ -> }, { _, _ -> }, { key, value -> statuses[key] = value })
+    }
 
     private fun hooks(guest: () -> Boolean = { true }, names: GuestVideoFavoriteHooks.RouterNames = ROUTER) =
         GuestFavoritesRouteHooks(guest, names, { target -> opened += target; canOpen }, { kntr })
@@ -70,6 +88,20 @@ class GuestFavoritesRouteHooksTest {
         assertEquals("seen", statuses["guest_favorites_folder_route_opened"])
     }
 
+    @Test fun sharedFragmentRoutePropagatesHostErrorsWithoutRetrying() {
+        val registrar = PlayerPortTestRegistrar()
+        folderHooks().install(environment(registrar))
+        assertEquals(HookExceptionPolicy.DELIVER_TO_HOST, folderPolicy)
+        var calls = 0
+        assertThrows(IOException::class.java) {
+            registrar.invoke("guest.favorites.folder_route", null,
+                arrayOf(StoryRequest("bilibili://relation/create-group"), fragment)) {
+                calls++
+                throw IOException("host route failed")
+            }
+        }
+        assertEquals(1, calls)
+    }
     @Test fun onlyPlaylistDetailRoutesAreTakenOverByTheFolderHook() {
         val registrar = PlayerPortTestRegistrar()
         folderHooks().install(environment(registrar))
