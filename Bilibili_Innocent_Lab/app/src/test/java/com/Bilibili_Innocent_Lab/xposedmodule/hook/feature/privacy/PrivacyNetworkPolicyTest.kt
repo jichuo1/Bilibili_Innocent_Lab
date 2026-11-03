@@ -51,6 +51,16 @@ class PrivacyNetworkPolicyTest {
         assertTrue(PrivacyNetworkPolicy.isBiliHost("line3-h5-mobile-api.biligame.com"))
     }
 
+    @Test fun observedAdMeasurementIsWithheldAndItsPathIsRedactedInDiagnostics() {
+        val path = "/x/k=sample&m1a=example-device-hash&m11=example-id"
+        assertTrue(PrivacyNetworkPolicy.blockHttp("G.CN.MIAOZHEN.COM.", path, "GET"))
+        assertTrue(PrivacyNetworkPolicy.blockHttp("g.cn.miaozhen.com", path, "POST"))
+        assertEquals("g.cn.miaozhen.com/x/[redacted]", PrivacyNetworkPolicy.diagnosticTarget("g.cn.miaozhen.com", path))
+        assertFalse(PrivacyNetworkPolicy.blockHttp("g.cn.miaozhen.com", "/collector/config", "GET"))
+        assertFalse(PrivacyNetworkPolicy.blockHttp("g.cn.miaozhen.com", "/x/keys", "GET"))
+        assertFalse(PrivacyNetworkPolicy.blockHttp("g.cn.miaozhen.com.example.org", path, "GET"))
+        assertFalse(PrivacyNetworkPolicy.blockHttp("evil-g.cn.miaozhen.com", path, "GET"))
+    }
     @Test fun protobufHeartbeatsFeedbackAndHistoryWritesAreBlockedButReadsRemain() {
         listOf("bilibili.api.player.v1.Heartbeat/Mobile",
             "bilibili.app.history.v1.History/Report", "bilibili.app.interface.v1.Reply/Add",

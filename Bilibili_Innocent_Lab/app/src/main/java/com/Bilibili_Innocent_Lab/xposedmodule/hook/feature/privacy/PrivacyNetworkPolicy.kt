@@ -12,9 +12,17 @@ internal object PrivacyNetworkPolicy {
             path.lowercase().trimEnd('/') == "/collector/api/report"
     }
 
+    /** Observed ad measurement beacon puts device-like identifiers directly in the URL path. */
+    fun isAdMeasurementBeacon(host: String, path: String): Boolean =
+        host.lowercase().trimEnd('.') == "g.cn.miaozhen.com" && path.startsWith("/x/k=", ignoreCase = true)
+
+    /** Unlike a query string, the path of this beacon itself contains identifier values. */
+    fun diagnosticTarget(host: String, path: String): String =
+        if (isAdMeasurementBeacon(host, path)) host + "/x/[redacted]" else host + path
+
     fun blockHttp(host: String, path: String, method: String): Boolean {
-        // Withhold only the confirmed upload endpoint, whose body can contain device identifiers.
-        if (isGameTrackerReport(host, path)) return true
+        // Withhold the confirmed game upload and observed third-party measurement beacon.
+        if (isGameTrackerReport(host, path) || isAdMeasurementBeacon(host, path)) return true
         val normalizedHost = host.lowercase().trimEnd('.')
         if (!isBiliHost(normalizedHost)) return false
         if (normalizedHost == "data.bilibili.com" || normalizedHost.endsWith(".data.bilibili.com") ||

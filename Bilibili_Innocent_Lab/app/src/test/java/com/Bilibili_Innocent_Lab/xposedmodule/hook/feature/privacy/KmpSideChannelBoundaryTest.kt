@@ -90,6 +90,14 @@ class KmpSideChannelBoundaryTest {
         assertEquals("withheld-ignet", h.statuses["incognito_game_tracker_report"])
     }
 
+    @Test fun thirdPartyMeasurementWithIdentifiersInThePathIsWithheld() {
+        val h = ignet()
+        val request = h.request("https://g.cn.miaozhen.com/x/k=sample&m1a=example-device-hash&m11=example-id")
+        assertTrue(h.execute(request).exceptionOrNull() is IOException)
+        assertEquals(0, request.executed)
+        assertTrue(request.closed)
+        assertEquals("withheld", h.statuses["incognito_ad_measurement_ignet"])
+    }
     @Test fun unsealedOrEarlyRequestsNeverLeave() {
         val h = ignet()
         val unsealed = IgHttpRequest.Builder().url("https://api.bilibili.com/x/v2/view?aid=1").build()

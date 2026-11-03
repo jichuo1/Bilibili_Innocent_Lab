@@ -134,6 +134,7 @@ internal class IncognitoNetworkHooks(
         }
         val seenHttp = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
         val gameTrackerEvidence = java.util.concurrent.atomic.AtomicBoolean()
+        val adMeasurementEvidence = java.util.concurrent.atomic.AtomicBoolean()
         val proxy = Proxy.newProxyInstance(host.loader, arrayOf(interceptor)) { p, method, args ->
             when (method.name) {
                 "toString" -> "BIL incognito network boundary"
@@ -153,16 +154,20 @@ internal class IncognitoNetworkHooks(
                                 gameTrackerEvidence.compareAndSet(false, true)) {
                                 runCatching { env.reportStatus("incognito_game_tracker_report", "withheld-okhttp") }
                             }
-                            // Debug builds only: names of what an incognito session keeps off the network, once each.
+                            if (PrivacyNetworkPolicy.isAdMeasurementBeacon(targetHost, targetPath) &&
+                                adMeasurementEvidence.compareAndSet(false, true)) {
+                                runCatching { env.reportStatus("incognito_ad_measurement_okhttp", "withheld") }
+                            }
+                            // Some third-party paths contain identifiers, so redact the observed beacon before logging.
                             if (BuildConfig.DEBUG && seenHttp.size < MAX_SEEN_HTTP) {
-                                val target = targetHost + targetPath
+                                val target = PrivacyNetworkPolicy.diagnosticTarget(targetHost, targetPath)
                                 if (seenHttp.add("blocked:$target")) env.logInfo("incognito_http_blocked:$target", "[BIL] HTTP withheld locally: $target")
                             }
                             success(original)
                         } else {
                             // Debug builds only: host and path (never the query) of what is sent on, once each.
                             if (BuildConfig.DEBUG && seenHttp.size < MAX_SEEN_HTTP) {
-                                val target = targetHost + targetPath
+                                val target = PrivacyNetworkPolicy.diagnosticTarget(targetHost, targetPath)
                                 if (seenHttp.add(target)) env.logInfo("incognito_http_seen:$target", "[BIL] HTTP sealed and sent: $target")
                             }
                             proceed.invoke(chain, sanitize(original, requireNotNull(session.identity())))

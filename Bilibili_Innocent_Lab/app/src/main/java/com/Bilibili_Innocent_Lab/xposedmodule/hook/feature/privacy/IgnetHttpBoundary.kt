@@ -53,6 +53,7 @@ internal class IgnetHttpBoundary(
         val sealed: MutableMap<Any, Boolean> = Collections.synchronizedMap(WeakHashMap())
         val seen = ConcurrentHashMap.newKeySet<String>()
         val gameTrackerEvidence = java.util.concurrent.atomic.AtomicBoolean()
+        val adMeasurementEvidence = java.util.concurrent.atomic.AtomicBoolean()
 
         return@runCatching {
             env.registrar.exact("incognito.ignet.http.build", builder, build.name) {
@@ -89,11 +90,16 @@ internal class IgnetHttpBoundary(
                             gameTrackerEvidence.compareAndSet(false, true)) {
                             runCatching { env.reportStatus("incognito_game_tracker_report", "withheld-ignet") }
                         }
-                        if (allowed && BuildConfig.DEBUG && seen.size < MAX_SEEN && seen.add(host + path)) {
-                            env.logInfo("incognito_ignet_seen:$host$path", "[BIL] ignet HTTP sealed and sent: $host$path")
+                        if (!allowed && PrivacyNetworkPolicy.isAdMeasurementBeacon(host, path) &&
+                            adMeasurementEvidence.compareAndSet(false, true)) {
+                            runCatching { env.reportStatus("incognito_ad_measurement_ignet", "withheld") }
                         }
-                        if (!allowed && BuildConfig.DEBUG && seen.size < MAX_SEEN && seen.add("blocked:$host$path")) {
-                            env.logInfo("incognito_ignet_blocked:$host$path", "[BIL] ignet HTTP withheld: $host$path")
+                        val target = PrivacyNetworkPolicy.diagnosticTarget(host, path)
+                        if (allowed && BuildConfig.DEBUG && seen.size < MAX_SEEN && seen.add(target)) {
+                            env.logInfo("incognito_ignet_seen:$target", "[BIL] ignet HTTP sealed and sent: $target")
+                        }
+                        if (!allowed && BuildConfig.DEBUG && seen.size < MAX_SEEN && seen.add("blocked:$target")) {
+                            env.logInfo("incognito_ignet_blocked:$target", "[BIL] ignet HTTP withheld: $target")
                         }
                         allowed
                     }.getOrDefault(false)
