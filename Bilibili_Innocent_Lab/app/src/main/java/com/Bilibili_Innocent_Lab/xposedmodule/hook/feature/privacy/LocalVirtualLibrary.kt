@@ -29,6 +29,7 @@ class LocalVirtualLibrary(
     }
 
     data class Follow(val mid: Long, val name: String, val face: String = "")
+    data class FollowGroup(val id: Long, val name: String)
     data class FolderInfo(val id: Long, val intro: String = "", val cover: String = "", val pinned: Boolean = false)
 
     // 视频以 aid + cid 唯一；列表按最近写入在前排列，收藏夹名称作为本地键。
@@ -38,7 +39,11 @@ class LocalVirtualLibrary(
         val watchLater: List<Video> = emptyList(),
         val follows: List<Follow> = emptyList(),
         val folderInfo: Map<String, FolderInfo> = emptyMap(),
-        val favoriteOrder: List<Long> = emptyList()
+        val favoriteOrder: List<Long> = emptyList(),
+        val followGroups: List<FollowGroup> = emptyList(),
+        val followGroupAssignments: Map<Long, Set<Long>> = emptyMap(),
+        val specialFollows: Set<Long> = emptySet(),
+        val nextFollowGroupId: Long = 1
     )
 
     data class Snapshot internal constructor(
@@ -223,7 +228,59 @@ class LocalVirtualLibrary(
 
     fun unfollow(mid: Long) = update {
         validateId(mid)
-        it.copy(follows = it.follows.filterNot { follow -> follow.mid == mid })
+        it.copy(
+            follows = it.follows.filterNot { follow -> follow.mid == mid },
+            followGroupAssignments = it.followGroupAssignments - mid,
+            specialFollows = it.specialFollows - mid
+        )
+    }
+
+    /** Within one library lifetime, deleted group IDs are not reused by a later group. */
+    fun createFollowGroup(name: String): FollowGroup = locked {
+        validateFolderName(name)
+        val before = current()
+        require(before.followGroups.size < MAX_FOLLOW_GROUPS) { "Follow group limit reached" }
+        require(before.followGroups.none { it.name == name }) { "Follow group already exists" }
+        require(before.nextFollowGroupId < MAX_ID) { "Follow group id limit reached" }
+        val group = FollowGroup(before.nextFollowGroupId, name)
+        commit(before, before.copy(followGroups = before.followGroups + group, nextFollowGroupId = group.id + 1))
+        group
+    }
+
+    fun renameFollowGroup(id: Long, name: String) = update { before ->
+        validateId(id)
+        validateFolderName(name)
+        require(before.followGroups.any { it.id == id }) { "Follow group does not exist" }
+        require(before.followGroups.none { it.id != id && it.name == name }) { "Follow group already exists" }
+        before.copy(followGroups = before.followGroups.map { if (it.id == id) it.copy(name = name) else it })
+    }
+
+    fun deleteFollowGroup(id: Long) = update { before ->
+        validateId(id)
+        before.copy(
+            followGroups = before.followGroups.filterNot { it.id == id },
+            followGroupAssignments = before.followGroupAssignments.mapValues { (_, groups) -> groups - id }
+                .filterValues { it.isNotEmpty() }
+        )
+    }
+
+    /** Replaces each selected author's group assignments in one atomic library update. */
+    fun setFollowGroups(mids: Set<Long>, groupIds: Set<Long>) = update { before ->
+        require(mids.isNotEmpty()) { "No authors selected" }
+        mids.forEach(::validateId)
+        groupIds.forEach(::validateId)
+        val followed = before.follows.mapTo(HashSet()) { it.mid }
+        val groups = before.followGroups.mapTo(HashSet()) { it.id }
+        require(mids.all { it in followed } && groupIds.all { it in groups }) { "Follow or group does not exist" }
+        val assignments = before.followGroupAssignments.toMutableMap()
+        mids.forEach { mid -> if (groupIds.isEmpty()) assignments.remove(mid) else assignments[mid] = groupIds }
+        before.copy(followGroupAssignments = assignments)
+    }
+
+    fun setSpecialFollow(mid: Long, special: Boolean) = update { before ->
+        validateId(mid)
+        require(before.follows.any { it.mid == mid }) { "Follow does not exist" }
+        before.copy(specialFollows = if (special) before.specialFollows + mid else before.specialFollows - mid)
     }
 
     private fun update(transform: (Collections) -> Collections) = locked {
@@ -300,6 +357,24 @@ class LocalVirtualLibrary(
             validateFollow(it)
             require(mids.add(it.mid)) { "Duplicate follow" }
         }
+        require(source.followGroups.size <= MAX_FOLLOW_GROUPS) { "Follow group limit exceeded" }
+        require(source.nextFollowGroupId in 1..MAX_ID) { "Invalid next follow group id" }
+        val groupIds = HashSet<Long>()
+        val groupNames = HashSet<String>()
+        source.followGroups.forEach { group ->
+            validateId(group.id)
+            validateFolderName(group.name)
+            require(group.id < source.nextFollowGroupId && groupIds.add(group.id) && groupNames.add(group.name)) { "Invalid follow group" }
+        }
+        require(source.specialFollows.all { it in mids }) { "Special follow is not followed" }
+        require(source.followGroupAssignments.size <= maxEntries) { "Too many follow assignments" }
+        val assignments = LinkedHashMap<Long, Set<Long>>()
+        source.followGroupAssignments.forEach { (mid, groups) ->
+            require(mid in mids && groups.isNotEmpty() && groups.size <= MAX_FOLLOW_GROUPS && groups.all { it in groupIds }) {
+                "Invalid follow assignment"
+            }
+            assignments[mid] = Immutable.unmodifiableSet(LinkedHashSet(groups))
+        }
         require(source.favoriteOrder.size <= maxEntries * maxFolders && source.favoriteOrder.distinct().size == source.favoriteOrder.size)
         source.favoriteOrder.forEach(::validateId)
         val ids = HashSet<Long>()
@@ -315,7 +390,11 @@ class LocalVirtualLibrary(
             watchLater = videos(source.watchLater),
             follows = Immutable.unmodifiableList(ArrayList(source.follows)),
             folderInfo = Immutable.unmodifiableMap(LinkedHashMap(source.folderInfo)),
-            favoriteOrder = Immutable.unmodifiableList(ArrayList(source.favoriteOrder))
+            favoriteOrder = Immutable.unmodifiableList(ArrayList(source.favoriteOrder)),
+            followGroups = Immutable.unmodifiableList(ArrayList(source.followGroups)),
+            followGroupAssignments = Immutable.unmodifiableMap(assignments),
+            specialFollows = Immutable.unmodifiableSet(LinkedHashSet(source.specialFollows)),
+            nextFollowGroupId = source.nextFollowGroupId
         )
     }
 
@@ -357,7 +436,8 @@ class LocalVirtualLibrary(
     private fun encode(collections: Collections): String {
         val extended = collections.favoriteOrder.isNotEmpty() || collections.follows.any { it.face.isNotEmpty() } || collections.folderInfo.values.any { it.pinned } ||
             (collections.history + collections.watchLater + collections.favorites.values.flatten()).any { it.authorFace.isNotEmpty() }
-        val version = if (extended) 3 else if (collections.folderInfo.isEmpty()) 1 else 2
+        val followGroups = collections.followGroups.isNotEmpty() || collections.specialFollows.isNotEmpty() || collections.nextFollowGroupId != 1L
+        val version = if (followGroups) 4 else if (extended) 3 else if (collections.folderInfo.isEmpty()) 1 else 2
         fun videoJson(video: Video) = JSONObject()
             .put("aid", video.aid).put("cid", video.cid).put("title", video.title)
             .put("durationMs", video.durationMs).put("positionMs", video.positionMs)
@@ -382,6 +462,18 @@ class LocalVirtualLibrary(
                 collections.follows.forEach { put(JSONObject().put("mid", it.mid).put("name", it.name).apply { if (version >= 3) put("face", it.face) }) }
             })
         if (version >= 3) root.put("favoriteOrder", JSONArray(collections.favoriteOrder))
+        if (version >= 4) {
+            root.put("followGroups", JSONArray().apply {
+                collections.followGroups.forEach { put(JSONObject().put("id", it.id).put("name", it.name)) }
+            })
+            root.put("followGroupAssignments", JSONArray().apply {
+                collections.followGroupAssignments.toSortedMap().forEach { (mid, groups) ->
+                    put(JSONObject().put("mid", mid).put("groupIds", JSONArray(groups.sorted())))
+                }
+            })
+            root.put("specialFollows", JSONArray(collections.specialFollows.sorted()))
+            root.put("nextFollowGroupId", collections.nextFollowGroupId)
+        }
         return root.toString().also { require(it.length <= MAX_JSON_LENGTH) { "Library JSON limit exceeded" } }
     }
 
@@ -389,8 +481,11 @@ class LocalVirtualLibrary(
         validateJsonSyntax(text)
         val root = JSONObject(text)
         val version = number(root, "version")
-        requireKeys(root, setOf("version", "history", "favorites", "watchLater", "follows") + if (version >= 3) setOf("favoriteOrder") else emptySet())
-        require(version in 1L..3L)
+        require(version in 1L..4L)
+        val rootKeys = setOf("version", "history", "favorites", "watchLater", "follows") +
+            (if (version >= 3) setOf("favoriteOrder") else emptySet()) +
+            (if (version >= 4) setOf("followGroups", "followGroupAssignments", "specialFollows", "nextFollowGroupId") else emptySet())
+        requireKeys(root, rootKeys)
         fun videos(array: JSONArray): List<Video> {
             require(array.length() <= maxEntries)
             return List(array.length()) { index ->
@@ -427,6 +522,34 @@ class LocalVirtualLibrary(
         require(version != 2L || folderInfo.isNotEmpty())
         val follows = root.getJSONArray("follows")
         require(follows.length() <= maxEntries)
+        fun idSet(array: JSONArray, limit: Int): Set<Long> {
+            require(array.length() <= limit)
+            val values = List(array.length()) { index ->
+                (array.get(index).also { require(it is Int || it is Long) } as Number).toLong()
+            }
+            require(values.distinct().size == values.size) { "Duplicate id" }
+            return values.toSet()
+        }
+        val groups = if (version >= 4) root.getJSONArray("followGroups").let { array ->
+            require(array.length() <= MAX_FOLLOW_GROUPS)
+            List(array.length()) { index ->
+                val group = array.getJSONObject(index)
+                requireKeys(group, setOf("id", "name"))
+                FollowGroup(number(group, "id"), string(group, "name"))
+            }
+        } else emptyList()
+        val assignments = LinkedHashMap<Long, Set<Long>>()
+        if (version >= 4) {
+            val array = root.getJSONArray("followGroupAssignments")
+            require(array.length() <= maxEntries)
+            repeat(array.length()) { index ->
+                val assignment = array.getJSONObject(index)
+                requireKeys(assignment, setOf("mid", "groupIds"))
+                val mid = number(assignment, "mid")
+                require(mid !in assignments)
+                assignments[mid] = idSet(assignment.getJSONArray("groupIds"), MAX_FOLLOW_GROUPS)
+            }
+        }
         freeze(Collections(
             history = videos(root.getJSONArray("history")),
             favorites = favorites,
@@ -439,7 +562,11 @@ class LocalVirtualLibrary(
                 val follow = follows.getJSONObject(index)
                 requireKeys(follow, setOf("mid", "name") + if (version >= 3) setOf("face") else emptySet())
                 Follow(number(follow, "mid"), string(follow, "name"), if (version >= 3) string(follow, "face") else "")
-            }
+            },
+            followGroups = groups,
+            followGroupAssignments = assignments,
+            specialFollows = if (version >= 4) idSet(root.getJSONArray("specialFollows"), maxEntries) else emptySet(),
+            nextFollowGroupId = if (version >= 4) number(root, "nextFollowGroupId") else 1
         ))
     } catch (_: JSONException) {
         // 不保留解析异常的 cause：Android 的异常消息可能含整段库正文。
@@ -541,6 +668,7 @@ class LocalVirtualLibrary(
         const val DEFAULT_FOLDER = "默认收藏夹"
         const val MAX_ENTRIES = 500
         const val MAX_FOLDERS = 20
+        const val MAX_FOLLOW_GROUPS = 100
         const val MAX_ID = 9_007_199_254_740_991L
         const val MAX_MEDIA_MS = 30L * 24 * 60 * 60 * 1000
         const val MAX_TIMESTAMP_MS = 253_402_300_799_999L
