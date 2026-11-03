@@ -2,7 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.invoke
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareCompatAccess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareVersionProfile
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import com.bilibili.socialize.share.core.BiliShareConfiguration
 import com.tencent.mm.opensdk.openapi.BaseWXApiImplV10
@@ -37,7 +37,7 @@ class WeChatShareCompatFeatureInstallerTest {
 
     @Before fun before() = Runtime.reset()
     @After fun after() = Runtime.reset()
-    private fun install(enabled: Boolean = true, version: Int = WeChatShareCompatAccess.HOST_VERSION,
+    private fun install(enabled: Boolean = true, version: Int = 8902100,
         env: HookEnvironment = environment) = WeChatShareCompatFeatureInstaller(enabled) { version }.install(env)
 
     @Test fun `both share wrappers relax install register and send without changing unrelated instances`() {
@@ -156,6 +156,47 @@ class WeChatShareCompatFeatureInstallerTest {
         assertTrue(install(env = environment.copy(classLoader = missingSdk,
             hookPoints = HookPointRegistry(missingSdk))) is FeatureInstallResult.Skipped)
         assertTrue(Runtime.hooks.isEmpty())
+    }
+
+    @Test fun `older host with one share wrapper installs completely`() {
+        assertEquals(FeatureInstallResult.Installed(2), install(version = 8840200))
+        val legacy = ft3.a(null, BiliShareConfiguration())
+        legacy.t()
+        assertTrue(legacy.api!!.sendReq())
+        assertFalse((legacy.api as BaseWXApiImplV10).checkSignature)
+        assertTrue((WXAPIFactory.createWXAPI(null, "login") as BaseWXApiImplV10).checkSignature)
+    }
+
+    @Test fun `newer host uses its verified wrappers and leaves unrelated instances alone`() {
+        assertEquals(FeatureInstallResult.Installed(3), install(version = 8970300))
+        val legacy = Ov0.a()
+        legacy.l()
+        val modern = kntr.common.share.common.handler.wx.i(null, WeChatShareType.TIMELINE)
+        assertTrue(modern.b())
+        assertTrue(legacy.api!!.sendReq())
+        assertTrue(modern.api!!.sendReq())
+        assertTrue((WXAPIFactory.createWXAPI(null, "payment") as BaseWXApiImplV10).checkSignature)
+    }
+
+    @Test fun `newer host reports partial when the legacy share signature cannot be verified`() {
+        val noPage = object : ClassLoader(loader) {
+            override fun loadClass(className: String, resolve: Boolean): Class<*> {
+                if (className == "com.bilibili.socialize.share.core.shareparam.ShareParamWebPage") {
+                    throw ClassNotFoundException(className)
+                }
+                return super.loadClass(className, resolve)
+            }
+        }
+        assertEquals(FeatureInstallResult.Installed(2, false), install(version = 8970300,
+            env = environment.copy(classLoader = noPage, hookPoints = HookPointRegistry(noPage))))
+        assertFalse(Runtime.hooks.containsKey("legacy"))
+        assertTrue(Runtime.hooks.containsKey("kntr"))
+    }
+
+    @Test fun `audited profile includes the locally verified build and distinguishes nearby variants`() {
+        assertEquals("gz0.a", WeChatShareVersionProfile.forVersion(9130500)?.legacyOwner)
+        assertEquals("kntr.common.share.common.handler.wx.l", WeChatShareVersionProfile.forVersion(9170300)?.modernOwner)
+        assertNull(WeChatShareVersionProfile.forVersion(9130400))
     }
 
     private class Chain(private val member: Executable, private val receiver: Any?,

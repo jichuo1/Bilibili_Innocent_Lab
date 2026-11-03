@@ -68,7 +68,7 @@ internal class WeChatShareCompatFeatureInstaller(
         }
         if (installedWrappers == 0) return FeatureInstallResult.Skipped("registration-failed")
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
-        val complete = installedWrappers == WeChatShareCompatAccess.EXPECTED_WRAPPERS
+        val complete = installedWrappers == access.expectedWrappers
         environment.reportStatus("wechat_share_compat_status", if (complete) "success" else "partial")
         return FeatureInstallResult.Installed(installedWrappers + 1, complete)
     }
