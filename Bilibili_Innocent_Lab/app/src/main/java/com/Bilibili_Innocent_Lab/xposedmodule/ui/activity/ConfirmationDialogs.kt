@@ -15,6 +15,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import androidx.core.graphics.ColorUtils
+import androidx.core.view.isVisible
 import androidx.core.view.setPadding
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -27,6 +28,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannels
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.ShizukuAvailability
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.RestartCapabilities
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.RestartConfigBarrier
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.RestartProbeState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.RestartRoute
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.RestartRoutePolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.restart.RootRestartAccess
@@ -83,12 +85,57 @@ internal fun MainActivity.showRestartConfirmDialog(anchor: View? = null, resumeN
         setLineSpacing(3 * density, 1f)
     }
     container.addView(hint, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (10 * density).toInt() })
+    // 每种重启方式独占一整行（Root 在上、Shizuku 在下），底部一行左右均分「打开应用详情」与「取消」。
+    var checking = true
+    var rootPath: String? = null
+    // 被三级面板盖住时不重排：覆盖矩形是点击那一刻取的，底下的面板变高变矮会从覆盖层边缘露出来。
+    // 期间到达的最新状态先存着，三级面板收起时再补渲染。
+    var covered = false
+    var pending: RestartProbeState.Snapshot? = null
+    lateinit var render: (RestartProbeState.Snapshot) -> Unit
+    // 三级面板从被点的那一行长出来、盖住本面板而不关闭它，收起时再露出本面板（同 GitHub 面板的更新渠道）。
+    // 两张矩形都必须在点击那一刻取。
+    fun open(route: RestartRoute, source: View) {
+        if (checking) return
+        if (route == RestartRoute.ROOT && rootPath == null) {
+            RestartCapabilities.warm(applicationContext, force = true)
+            return
+        }
+        val origin = modalAnchorBounds(source)
+        val cover = modalSurfaceBounds(dialog, container)
+        covered = true
+        showPrivilegedRestartDialog(
+            usesNoRootConfig(), route,
+            origin = origin,
+            cover = cover,
+            parentDialog = dialog,
+            parentContainer = container,
+            onClosed = {
+                covered = false
+                pending?.let { latest ->
+                    pending = null
+                    if (dialog.isShowing) render(latest)
+                }
+            }
+        )
+    }
+    val routes = NativeLinearLayout(this).apply { orientation = NativeLinearLayout.VERTICAL }
+    val rootAction = createRestartActionButton(R.string.restart_capabilities_checking_short).apply {
+        setOnClickListener { open(RestartRoute.ROOT, it) }
+    }
+    val shizukuAction = createRestartActionButton(R.string.shizuku_restart_button).apply {
+        setOnClickListener { open(RestartRoute.SHIZUKU, it) }
+    }
+    val retry = createRestartActionButton(R.string.restart_capabilities_retry).apply {
+        setOnClickListener { RestartCapabilities.warm(applicationContext, force = true) }
+    }
+    routes.addView(rootAction, NativeLinearLayout.LayoutParams(-1, -2))
+    routes.addView(shizukuAction, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (8 * density).toInt() })
+    routes.addView(retry, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (8 * density).toInt() })
+    container.addView(routes, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (20 * density).toInt() })
     val row = NativeLinearLayout(this).apply {
         orientation = NativeLinearLayout.HORIZONTAL
-        gravity = Gravity.END or Gravity.CENTER_VERTICAL
-    }
-    val cancel = createRestartActionButton(R.string.dialog_cancel).apply {
-        setOnClickListener { dismissWithAnimation(dialog, container) {} }
+        gravity = Gravity.CENTER_VERTICAL
     }
     val manual = createRestartActionButton(if (resumeNoRoot) R.string.no_root_restart_launch_verify else R.string.no_root_restart_open_app_details).apply {
         setOnClickListener {
@@ -100,62 +147,44 @@ internal fun MainActivity.showRestartConfirmDialog(anchor: View? = null, resumeN
             }
         }
     }
-    var selected: RestartRoute? = null
-    var secondary: RestartRoute? = null
-    var checking = true
-    var rootPath: String? = null
-    fun open(route: RestartRoute?) {
-        if (checking || route == null) return
-        if (route == RestartRoute.ROOT && rootPath == null) {
-            RestartCapabilities.warm(applicationContext, force = true)
-        } else dismissWithAnimation(dialog, container) { showPrivilegedRestartDialog(usesNoRootConfig(), route) }
+    val cancel = createRestartActionButton(R.string.dialog_cancel).apply {
+        setOnClickListener { dismissWithAnimation(dialog, container) {} }
     }
-    val primary = createRestartActionButton(R.string.restart_capabilities_checking_short).apply { setOnClickListener { open(selected) } }
-    row.addView(cancel, NativeLinearLayout.LayoutParams(0, -2, 0.6f))
-    row.addView(manual, NativeLinearLayout.LayoutParams(0, -2, 1.2f).apply { marginStart = (4 * density).toInt() })
-    row.addView(primary, NativeLinearLayout.LayoutParams(0, -2, 1.2f).apply { marginStart = (4 * density).toInt() })
-    container.addView(row, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (22 * density).toInt() })
-    // 混合场景把次选方式放在同一弹窗，主行仍保留取消、手动底线和首选方式。
-    val alternate = createRestartActionButton(R.string.shizuku_restart_button).apply { setOnClickListener { open(secondary) } }
-    container.addView(alternate, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (8 * density).toInt() })
-    val retry = createRestartActionButton(R.string.restart_capabilities_retry).apply {
-        setOnClickListener { RestartCapabilities.warm(applicationContext, force = true) }
-    }
-    container.addView(retry, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (8 * density).toInt() })
+    row.addView(manual, NativeLinearLayout.LayoutParams(0, -2, 1f))
+    row.addView(cancel, NativeLinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = (8 * density).toInt() })
+    container.addView(row, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (20 * density).toInt() })
 
     var observing = true
-    val subscription = RestartCapabilities.observe(applicationContext) { snapshot ->
-        if (!observing || isFinishing || isDestroyed) return@observe
+    render = { snapshot ->
         checking = snapshot.preferred == null
         rootPath = snapshot.root?.path
         val root = snapshot.root
         val shizuku = snapshot.shizuku
-        selected = when {
-            checking -> null
-            snapshot.preferred != RestartRoute.MANUAL -> snapshot.preferred
-            root?.visible == true -> RestartRoute.ROOT
-            shizuku?.visible == true -> RestartRoute.SHIZUKU
-            else -> null
-        }
-        secondary = when (selected) {
-            RestartRoute.ROOT -> RestartRoute.SHIZUKU.takeIf { shizuku?.visible == true }
-            RestartRoute.SHIZUKU -> RestartRoute.ROOT.takeIf { root?.visible == true }
-            else -> null
-        }
-        fun renderAction(button: android.widget.Button, route: RestartRoute?, isPrimary: Boolean) {
-            button.visibility = if (route != null || checking && isPrimary) View.VISIBLE else View.GONE
+        fun renderRoute(button: android.widget.Button, route: RestartRoute, shown: Boolean) {
+            button.visibility = if (shown) View.VISIBLE else View.GONE
+            if (!shown) return
             button.setText(when {
-                checking -> R.string.restart_capabilities_checking_short
                 route == RestartRoute.ROOT && rootPath == null -> R.string.restart_root_retry
                 route == RestartRoute.ROOT -> R.string.restart_root_button
                 else -> R.string.shizuku_restart_button
             })
-            button.isEnabled = canOpenRestartControls(checking, route, shizuku)
-            styleRestartActionButton(button, !checking && isPrimary && snapshot.preferred == route)
+            button.isEnabled = canOpenRestartControls(false, route, shizuku)
+            styleRestartActionButton(button, snapshot.preferred == route)
             button.alpha = if (button.isEnabled) 1f else 0.38f
         }
-        renderAction(primary, selected, true)
-        renderAction(alternate, secondary, false)
+        if (checking) {
+            // 检测期间只占一行：Root 行暂作占位，结果出来后再决定两行各自是否出现。
+            rootAction.visibility = View.VISIBLE
+            rootAction.setText(R.string.restart_capabilities_checking_short)
+            rootAction.isEnabled = false
+            styleRestartActionButton(rootAction, false)
+            rootAction.alpha = 0.38f
+            shizukuAction.visibility = View.GONE
+        } else {
+            renderRoute(rootAction, RestartRoute.ROOT, root?.visible == true || snapshot.preferred == RestartRoute.ROOT)
+            renderRoute(shizukuAction, RestartRoute.SHIZUKU,
+                shizuku?.visible == true || snapshot.preferred == RestartRoute.SHIZUKU)
+        }
         styleRestartActionButton(cancel, false)
         styleRestartActionButton(manual, !checking && snapshot.preferred == RestartRoute.MANUAL)
         message.setText(when {
@@ -184,6 +213,17 @@ internal fun MainActivity.showRestartConfirmDialog(anchor: View? = null, resumeN
         retry.visibility = if (!checking && root?.status != RootRestartAccess.Status.UNKNOWN &&
             snapshot.preferred != RestartRoute.ROOT && shizuku?.status == ShizukuAvailability.Status.DISCONNECTED) View.VISIBLE else View.GONE
         styleRestartActionButton(retry, false)
+        // 没有可用的特权方式时整组收起，底部一行直接接在说明下面。
+        val anyRoute = rootAction.isVisible || shizukuAction.isVisible || retry.isVisible
+        routes.isVisible = anyRoute
+        (shizukuAction.layoutParams as NativeLinearLayout.LayoutParams).topMargin =
+            if (rootAction.isVisible) (8 * density).toInt() else 0
+        (row.layoutParams as NativeLinearLayout.LayoutParams).topMargin = ((if (anyRoute) 10 else 20) * density).toInt()
+        row.requestLayout()
+    }
+    val subscription = RestartCapabilities.observe(applicationContext) { snapshot ->
+        if (!observing || isFinishing || isDestroyed) return@observe
+        if (covered) pending = snapshot else render(snapshot)
     }
     val observer = object : DefaultLifecycleObserver {
         override fun onStart(owner: LifecycleOwner) { RestartCapabilities.warm(applicationContext) }

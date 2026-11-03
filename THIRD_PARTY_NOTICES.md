@@ -10,13 +10,19 @@ provided in `third_party/Shizuku-API-LICENSE.txt`.
 
 ## Material Design Icons
 
-The enhancement, appearance and compatibility section icons use Google's
+The enhancement, appearance and compatibility section icons, and the entry-row
+icons in the compatibility section, use Google's
 [Material Design Icons](https://github.com/google/material-design-icons), pinned
 to commit `0cbb08816df07faaae3dca060d4ebb10b66c214f`:
 
 - `src/image/auto_fix_high/materialicons/24px.svg`
 - `src/image/palette/materialicons/24px.svg`
 - `src/action/extension/materialicons/24px.svg`
+- `src/action/build/materialicons/24px.svg`
+- `src/action/cached/materialicons/24px.svg`
+- `src/image/auto_awesome/materialicons/24px.svg`
+- `src/image/flash_on/materialicons/24px.svg`
+- `src/hardware/smart_toy/materialicons/24px.svg`
 
 The SVG paths were converted to Android VectorDrawable resources with their
 original 24-by-24 geometry. Non-drawing SVG bounds were omitted, and the fill is

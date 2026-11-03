@@ -1,7 +1,7 @@
 <resources>
     <string name="shizuku_restart_button">Shizuku 重启</string>
     <string name="shizuku_restart_entry">使用 Shizuku 重启</string>
-    <string name="shizuku_restart_description">保存当前配置后，强停并重新打开哔哩哔哩，再检查新进程和当前配置回执。可取消或使用手动重启向导。</string>
+    <string name="shizuku_restart_description">保存配置后强停并重新打开哔哩哔哩，并确认新进程已载入当前配置。</string>
     <string name="shizuku_missing">尚未安装 Shizuku。</string>
     <string name="shizuku_stopped">请先在 Shizuku 中启动服务，再返回此处。</string>
     <string name="shizuku_unsupported">需要 Shizuku API 13 或更新版本。</string>

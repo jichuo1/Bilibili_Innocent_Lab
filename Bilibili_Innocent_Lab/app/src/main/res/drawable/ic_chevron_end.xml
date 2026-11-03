@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 条目行尾的箭头：复用 ic_chevron_down 并转向行尾，作为复合图标挂在标题上，省一个 ImageView。 -->
+<rotate xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/ic_chevron_down"
+    android:fromDegrees="-90"
+    android:toDegrees="-90"
+    android:pivotX="50%"
+    android:pivotY="50%" />

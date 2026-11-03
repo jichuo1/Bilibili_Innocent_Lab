@@ -653,7 +653,7 @@ class MainActivity : SkinnedActivity() {
     internal var noRootPrefsBridge: SharedPreferences? = null
     internal var liveApplyStatusView: NativeTextView? = null
     internal var roamingCacheStatusView: NativeTextView? = null
-    internal var roamingCacheRestartView: NativeTextView? = null
+    internal var roamingCacheRestartView: View? = null
     private var roamingCacheQueryPending = false
 
     internal fun checkRoamingCache() {
