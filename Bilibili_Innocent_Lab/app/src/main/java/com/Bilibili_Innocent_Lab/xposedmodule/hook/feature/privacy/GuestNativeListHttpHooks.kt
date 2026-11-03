@@ -1,6 +1,10 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import androidx.core.net.toUri
 import com.highcapable.kavaref.extension.classOf
@@ -21,13 +25,25 @@ internal class GuestNativeListHttpHooks(private val library: GuestLibraryRuntime
         val media = host.static(host.type("okhttp3.MediaType"), "parse", "application/json; charset=utf-8")
         val createBody = requireNotNull(Lookup.methodOrNull(host.type("okhttp3.ResponseBody"), "create", host.type("okhttp3.MediaType"), classOf<String>()))
         val protocol = requireNotNull(Lookup.fieldOrNull(host.type("okhttp3.Protocol"), "HTTP_1_1")).get(null)
-        env.registrar.exact("guest.native.lists.http", call, "execute") {
+        registerExecute(env.registrar, call) {
             before {
-                if (!isGuest()) return@before
-                val target = instance ?: return@before
-                val request = requireNotNull(host.call(target, "request"))
-                val url = requireNotNull(host.call(request, "url"))
-                val path = host.call(url, "encodedPath") as String
+                val guest = try { isGuest() } catch (failure: Exception) {
+                    throwable = IOException("Local session unavailable", failure)
+                    return@before
+                }
+                if (!guest) return@before
+                val target = instance ?: run {
+                    throwable = IOException("Local request unavailable")
+                    return@before
+                }
+                val (request, url, path) = try {
+                    val request = requireNotNull(host.call(target, "request"))
+                    val url = requireNotNull(host.call(request, "url"))
+                    Triple(request, url, host.call(url, "encodedPath") as String)
+                } catch (failure: Exception) {
+                    throwable = IOException("Unable to inspect local request", failure)
+                    return@before
+                }
                 if (!NativeFavoriteProtocol.handles(path) && !NativeWatchLaterProtocol.handles(path)) return@before
                 // Set a failure BEFORE parsing local data: an adapter exception must never run the real request.
                 throwable = IOException("Local library response unavailable")
@@ -146,6 +162,11 @@ internal class GuestNativeListHttpHooks(private val library: GuestLibraryRuntime
     }
 
     companion object {
+        /** An IOException must reach the caller; protective mode would retry the original network request. */
+        internal fun registerExecute(registrar: HookRegistrar, call: Class<*>, block: ModernMemberHookCreator.() -> Unit) {
+            registrar.adapted("guest.native.lists.http", VersionAdapter.HookPoint(call.name, "execute", emptyList()),
+                HookExceptionPolicy.DELIVER_TO_HOST, block)
+        }
         /**
          * `BiliCall`'s `(okhttp3.Response) -> retrofit2.Response` converter. 8.84 to 8.96 declare it as `p` next to a
          * private `q` of the same shape; 8.97 and later keep one public final instance method, renamed `a`

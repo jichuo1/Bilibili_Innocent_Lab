@@ -1,5 +1,10 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPortTestRegistrar
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import fixtures.privacy.nativelist.AmbiguousCall
 import fixtures.privacy.nativelist.FakeCache
 import fixtures.privacy.nativelist.NewCall
@@ -9,6 +14,7 @@ import fixtures.privacy.nativelist.Result
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.lang.reflect.Type
 
@@ -17,6 +23,35 @@ class GuestNativeListHttpHooksTest {
         const val PKG = "fixtures.privacy.nativelist."
     }
 
+    private class NetworkCall { fun execute(): String = "network" }
+
+    @Test
+    fun failingLocalResponsesDeliverAnIoExceptionWithoutExecutingTheHostRequest() {
+        val port = PlayerPortTestRegistrar()
+        var policy: HookExceptionPolicy? = null
+        val registrar = object : HookRegistrar by port {
+            override fun adapted(id: String, point: VersionAdapter.HookPoint, exceptionPolicy: HookExceptionPolicy,
+                                 block: ModernMemberHookCreator.() -> Unit) {
+                policy = exceptionPolicy
+                val method = NetworkCall::class.java.getDeclaredMethod(point.methodName)
+                port.hooks[id] = PlayerPortTestRegistrar.Entry(method, ModernMemberHookCreator(method).apply(block))
+            }
+        }
+        var localFailure = true
+        GuestNativeListHttpHooks.registerExecute(registrar, NetworkCall::class.java) {
+            before { if (localFailure) throwable = java.io.IOException("local response unavailable") }
+        }
+        var networkCalls = 0
+        val error = assertThrows(java.io.IOException::class.java) {
+            port.invoke("guest.native.lists.http", NetworkCall()) { networkCalls++; "network" }
+        }
+        assertEquals("local response unavailable", error.message)
+        assertEquals(HookExceptionPolicy.DELIVER_TO_HOST, policy)
+        assertEquals(0, networkCalls)
+        localFailure = false
+        assertEquals("network", port.invoke("guest.native.lists.http", NetworkCall()) { networkCalls++; "network" })
+        assertEquals(1, networkCalls)
+    }
     @Test
     fun theConverterKeepsItsStableNameWhereTheBuildStillHasIt() {
         // 8.84 to 8.96: `p` and a same-shaped private `q`; the name decides, the shape is never consulted.
