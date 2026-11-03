@@ -259,8 +259,14 @@ internal class GuestLibraryRuntime(
 
     /** BiliCall.execute already runs on the host network executor; disk IO stays on our serial executor. */
     internal fun <T> nativeBlocking(operation: (LocalVirtualLibrary) -> T): T {
-        check(Looper.myLooper() != Looper.getMainLooper()) { "Local library IO on main thread" }
         val requestToken = token() ?: throw java.io.IOException("Local session unavailable")
+        return nativeBlocking(requestToken, operation)
+    }
+
+    /** Use the token captured when a host UI was opened, never the token current when its queued call runs. */
+    internal fun <T> nativeBlocking(requestToken: Token, operation: (LocalVirtualLibrary) -> T): T {
+        check(Looper.myLooper() != Looper.getMainLooper()) { "Local library IO on main thread" }
+        checkActive(requestToken)
         val value = io.submit<T> { nativeOperation(requestToken, operation) }.get()
         checkActive(requestToken)
         return value
