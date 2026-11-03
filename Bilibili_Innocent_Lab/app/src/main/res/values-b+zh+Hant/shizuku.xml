@@ -1,7 +1,7 @@
 <resources>
     <string name="shizuku_restart_button">Shizuku 重啟</string>
     <string name="shizuku_restart_entry">使用 Shizuku 重新啟動</string>
-    <string name="shizuku_restart_description">儲存目前設定後，強制停止並重新開啟嗶哩嗶哩，再檢查新處理程序及目前設定回條。可取消或使用手動重新啟動指引。</string>
+    <string name="shizuku_restart_description">儲存設定後強制停止並重新開啟嗶哩嗶哩，並確認新程序已載入目前設定。</string>
     <string name="shizuku_missing">尚未安裝 Shizuku。</string>
     <string name="shizuku_stopped">請先在 Shizuku 中啟動服務，再返回此處。</string>
     <string name="shizuku_unsupported">需要 Shizuku API 13 或更新版本。</string>

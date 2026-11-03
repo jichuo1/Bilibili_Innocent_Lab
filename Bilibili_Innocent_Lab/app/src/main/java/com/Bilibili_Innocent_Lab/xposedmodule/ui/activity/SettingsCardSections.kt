@@ -15,7 +15,10 @@ import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
+import androidx.core.widget.doAfterTextChanged
 import androidx.core.view.setPadding
 import androidx.core.view.updateMargins
 import androidx.core.view.updatePadding
@@ -943,8 +946,14 @@ internal fun MainActivity.experimentalFeaturesCard(
                     orientation = LinearLayout.VERTICAL
                     visibility = View.GONE
                     appearanceContent = this
-                    // 所有行共用内容边距，避免入口容器与 Switch 各自增加水平缩进。
-                    updatePadding(left = 4.dp, right = 4.dp, bottom = 10.dp)
+                    // 所有行共用内容边距，避免入口容器与 Switch 各自增加水平缩进；与下方兼容子卡同一缩进，
+                    // 两个子卡的开关、说明与条目上下对齐。
+                    val contentPadding = SettingsMenuSpacing.matchingContentPaddingPx(
+                        referenceShellPx = SettingsMenuSpacing.ADVANCED_SHELL_DP.dp,
+                        ownShellPx = SettingsMenuSpacing.EXPERIMENTAL_SHELL_DP.dp,
+                        density = resources.displayMetrics.density
+                    )
+                    updatePadding(left = contentPadding, right = contentPadding, bottom = 10.dp)
                 }
             ) {
                 // 步骤：外观 · 风格与配色
@@ -1284,7 +1293,7 @@ internal fun MainActivity.experimentalFeaturesCard(
                         updatePadding(left = contentPadding, right = contentPadding, bottom = 10.dp)
                     }
                 ) {
-                    // 步骤：兼容 · 通信兼容、授权、语义判定与 Agent 入口
+                    // 步骤：兼容 · 通信兼容、授权与 AI Insight
                     deferStep {
                         materialSwitch(key = "SettingsCardSections:1372", lparams = params(widthMatchParent = true) { bottomMargin = 5.dp }) {
                             settingsDestinations.bind(RuntimeSettingsNavigationCatalog.COMMUNICATION_COMPATIBILITY, this)
@@ -1361,34 +1370,31 @@ internal fun MainActivity.experimentalFeaturesCard(
                             isChecked = prefs().getBoolean(FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS, false)
                             setOnCheckedChangeListener { button, checked -> applyModeledToggle(FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS, checked, button) }
                         }
+                    }
+                    // 步骤：兼容 · 语义判定与 Agent 入口
+                    deferStep {
                         // JEV 语义判定配置：Key / 地址 / 灵敏度 / 首屏等待，都在同一个面板里保存。
-                        textView(key = "SettingsCardSections:1422", lparams = params(widthMatchParent = true) { bottomMargin = 5.dp }) {
-                            semanticJevSummaryView = this
-                            settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_ENDPOINT, this)
-                            settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_SENSITIVITY, this)
-                            settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_WAIT_FIRST_SCREEN, this)
-                            settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_CACHE_DAYS, this)
-                            settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_PROVIDER, this)
-                            settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_MODEL, this)
-                            settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_TIMEOUT_MS, this)
-                            settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_GUIDANCE, this)
-                            (2..SemanticSource.MAX_SOURCES).forEach { index ->
-                                listOf("provider", "endpoint", "model").forEach { field ->
-                                    settingsDestinations.bind("compat.semantic_source.$index.$field", this)
+                        settingsEntryRow(this, key = "SettingsCardSections:1422", icon = R.drawable.ic_auto_awesome,
+                            title = stringResource(R.string.semantic_jev_settings), summary = semanticJevSummaryText(),
+                            row = {
+                                settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_ENDPOINT, this)
+                                settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_SENSITIVITY, this)
+                                settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_WAIT_FIRST_SCREEN, this)
+                                settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_CACHE_DAYS, this)
+                                settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_PROVIDER, this)
+                                settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_MODEL, this)
+                                settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_TIMEOUT_MS, this)
+                                settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_GUIDANCE, this)
+                                (2..SemanticSource.MAX_SOURCES).forEach { index ->
+                                    listOf("provider", "endpoint", "model").forEach { field ->
+                                        settingsDestinations.bind("compat.semantic_source.$index.$field", this)
+                                    }
                                 }
-                            }
-                            text = semanticJevEntryText()
-                            textColor = colorResource(R.color.colorTextGray)
-                            textSize = 15f
-                            setLineSpacing(5f, 1f)
-                            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-                            background = selfRippleBackground(10f)
-                            isClickable = true
-                            isFocusable = true
-                            setOnClickListener {
-                                showSemanticJevSettingsDialog(anchor = it) {
-                                    semanticJevSummaryView?.text = semanticJevEntryText()
-                                }
+                            },
+                            label = { semanticJevSummaryView = this }
+                        ) {
+                            showSemanticJevSettingsDialog(anchor = it) {
+                                semanticJevSummaryView?.text = semanticJevEntryText()
                             }
                         }
                         textView(key = "SettingsCardSections:1451", lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }) {
@@ -1398,17 +1404,10 @@ internal fun MainActivity.experimentalFeaturesCard(
                             textColor = colorResource(R.color.colorTextDark)
                             textSize = 12f
                         }
-                        textView(key = "SettingsCardSections:1458", lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }) {
-                            text = stringResource(R.string.agent_title)
-                            textColor = colorResource(R.color.colorTextGray)
-                            textSize = 15f
-                            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-                            background = selfRippleBackground(10f)
-                            isClickable = true
-                            isFocusable = true
-                            bindSettingDestination(this, com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentPreferences.ENABLED)
-                            setOnClickListener { showAgentDialog(anchor = it) }
-                        }
+                        settingsEntryRow(this, key = "SettingsCardSections:1458", icon = R.drawable.ic_smart_toy,
+                            title = stringResource(R.string.agent_title), bottomMargin = 6.dp,
+                            row = { bindSettingDestination(this, com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentPreferences.ENABLED) }
+                        ) { showAgentDialog(anchor = it) }
                     }
                     // 步骤：兼容 · 免 Root 与漫游兼容
                     deferStep {
@@ -1449,7 +1448,7 @@ internal fun MainActivity.experimentalFeaturesCard(
                         textView(key = "SettingsCardSections:1501",
                             lparams = params(widthMatchParent = true) {
                                 topMargin = 4.dp
-                                bottomMargin = 10.dp
+                                bottomMargin = 6.dp
                             }
                         ) {
                             alpha = 0.8f
@@ -1461,57 +1460,41 @@ internal fun MainActivity.experimentalFeaturesCard(
                         }
                         } else {
                             textView(key = "SettingsCardSections:lspatchSetupDirect",
-                                lparams = params(widthMatchParent = true) { bottomMargin = 10.dp }
+                                lparams = params(widthMatchParent = true) { bottomMargin = 6.dp }
                             ) {
+                                alpha = 0.6f
                                 text = stringResource(R.string.lspatch_setup_direct)
-                                textColor = colorResource(R.color.colorTextGray)
+                                textColor = colorResource(R.color.colorTextDark)
                                 textSize = 12f
                                 setLineSpacing(6f, 1f)
                             }
                         }
-                        textView(key = "SettingsCardSections:noRootSetup",
-                            lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }
-                        ) {
-                            if (!noRootSetup.needsOptIn) settingsDestinations.bind(RuntimeSettingsNavigationCatalog.NO_ROOT_SUPPORT, this)
-                            text = stringResource(if (noRootSetup.lspatch) R.string.lspatch_setup_title else R.string.npatch_setup_title)
-                            textColor = colorResource(R.color.colorTextGray)
-                            textSize = 15f
-                            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-                            background = selfRippleBackground(10f)
-                            isClickable = true
-                            isFocusable = true
-                            setOnClickListener { showNPatchSetupDialog(anchor = it) }
-                        }
-                        textView(key = "SettingsCardSections:noRootLiveApply",
-                            lparams = params(widthMatchParent = true) { bottomMargin = 5.dp }
-                        ) {
-                            text = stringResource(R.string.npatch_live_apply)
-                            textColor = colorResource(R.color.colorTextGray)
-                            textSize = 15f
-                            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-                            background = selfRippleBackground(10f)
-                            isClickable = true
-                            isFocusable = true
-                            setOnClickListener { applyNPatchValues() }
-                        }
-                        textView(key = "SettingsCardSections:noRootLiveTip",
-                            lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }
-                        ) {
-                            text = stringResource(R.string.npatch_live_tip)
-                            textColor = colorResource(R.color.colorTextGray)
-                            textSize = 12f
-                            setLineSpacing(6f, 1f)
-                        }
-                        textView(key = "SettingsCardSections:noRootLiveStatus",
-                            lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }
-                        ) {
-                            textColor = colorResource(R.color.colorTextGray)
-                            textSize = 12f
-                            setLineSpacing(6f, 1f)
-                            liveApplyStatusView = this
-                        }
+                        // 免 Root 的三个入口挨在一起：使用向导、热更新、漫游缓存检查；各自的结果行只在有内容时出现。
+                        settingsEntryRow(this, key = "SettingsCardSections:noRootSetup", icon = R.drawable.ic_build,
+                            title = stringResource(if (noRootSetup.lspatch) R.string.lspatch_setup_title else R.string.npatch_setup_title),
+                            row = { if (!noRootSetup.needsOptIn) settingsDestinations.bind(RuntimeSettingsNavigationCatalog.NO_ROOT_SUPPORT, this) }
+                        ) { showNPatchSetupDialog(anchor = it) }
+                        settingsEntryRow(this, key = "SettingsCardSections:noRootLiveApply", icon = R.drawable.ic_flash_on,
+                            title = stringResource(R.string.npatch_live_apply), summary = stringResource(R.string.npatch_live_tip)
+                        ) { applyNPatchValues() }
+                        entryStatusLine(this, key = "SettingsCardSections:noRootLiveStatus") { liveApplyStatusView = this }
+                    }
+                    // 步骤：兼容 · 漫游缓存检查与漫游兼容
+                    deferStep {
+                        settingsEntryRow(this, key = "SettingsCardSections:roamingCacheCheck", icon = R.drawable.ic_cached,
+                            title = stringResource(R.string.roaming_cache_check)
+                        ) { checkRoamingCache() }
+                        entryStatusLine(this, key = "SettingsCardSections:roamingCacheStatus") { roamingCacheStatusView = this }
+                        settingsEntryRow(this, key = "SettingsCardSections:roamingCacheRestart", icon = R.drawable.ic_restart,
+                            title = stringResource(R.string.roaming_cache_restart),
+                            row = {
+                                visibility = View.GONE
+                                roamingCacheRestartView = this
+                            }
+                        ) { showRestartConfirmDialog(it) }
                         materialSwitch(key = "SettingsCardSections:1514",
                             lparams = params(widthMatchParent = true) {
+                                topMargin = 8.dp
                                 bottomMargin = 5.dp
                             }
                         ) {
@@ -1522,53 +1505,17 @@ internal fun MainActivity.experimentalFeaturesCard(
                             textSize = 15f
                             isChecked = roamingCompatEnabled
                             setOnCheckedChangeListener { button, checked ->
-                    applyModeledToggle(HookEntry.PREF_ROAMING_COMPAT_ENABLED, checked, button)
-                }
+                                applyModeledToggle(HookEntry.PREF_ROAMING_COMPAT_ENABLED, checked, button)
+                            }
                         }
                         textView(key = "SettingsCardSections:1545",
-                            lparams = params(widthMatchParent = true) {
-                                topMargin = 5.dp
-                            }
+                            lparams = params(widthMatchParent = true) { bottomMargin = 6.dp }
                         ) {
                             alpha = 0.6f
                             setLineSpacing(6f, 1f)
                             text = stringResource(R.string.roaming_compat_tip)
                             textColor = colorResource(R.color.colorTextDark)
                             textSize = 12f
-                        }
-                        textView(key = "SettingsCardSections:roamingCacheCheck",
-                            lparams = params(widthMatchParent = true)
-                        ) {
-                            text = stringResource(R.string.roaming_cache_check)
-                            textColor = colorResource(R.color.colorTextGray)
-                            textSize = 15f
-                            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-                            background = selfRippleBackground(10f)
-                            isClickable = true
-                            isFocusable = true
-                            setOnClickListener { checkRoamingCache() }
-                        }
-                        textView(key = "SettingsCardSections:roamingCacheStatus",
-                            lparams = params(widthMatchParent = true)
-                        ) {
-                            textColor = colorResource(R.color.colorTextGray)
-                            textSize = 12f
-                            setLineSpacing(6f, 1f)
-                            roamingCacheStatusView = this
-                        }
-                        textView(key = "SettingsCardSections:roamingCacheRestart",
-                            lparams = params(widthMatchParent = true)
-                        ) {
-                            text = stringResource(R.string.roaming_cache_restart)
-                            textColor = colorResource(R.color.colorTextGray)
-                            textSize = 15f
-                            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-                            background = selfRippleBackground(10f)
-                            visibility = View.GONE
-                            isClickable = true
-                            isFocusable = true
-                            setOnClickListener { showRestartConfirmDialog(it) }
-                            roamingCacheRestartView = this
                         }
                     }
                     // 步骤：兼容 · 预见式返回与手动重新适配
@@ -1607,52 +1554,11 @@ internal fun MainActivity.experimentalFeaturesCard(
                                 textSize = 12f
                             }
                         }
-                        // 手动重新适配：清除版本适配缓存，重启哔哩哔哩后自动重新定位 hook 点。
-                        // 风格与「实验性功能」分区标题行统一：图标 + 文字 + 水波纹点击反馈；
-                        // 点击弹出二级确认菜单（与「重启哔哩哔哩」确认弹窗同规格）
-                        linearLayout(key = "SettingsCardSections:1600",
-                            lparams = params(widthMatchParent = true) {
-                                topMargin = 12.dp
-                                bottomMargin = 2.dp
-                            },
-                            init = {
-                                gravity = Gravity.CENTER or Gravity.START
-                                // 自绘涟漪（不解析主题属性 selectableItemBackground）：
-                                // 客户设备上的全局主题模块（Monet-All 等）可能把该主题属性
-                                // 解析为不透明实心 drawable，整行盖住内容 →「只剩空位但可点击」
-                                background = selfRippleBackground(10f)
-                                updatePadding(horizontal = 0.dp, vertical = 9.dp)
-                                setOnClickListener { showAdaptConfirmDialog(it) }
-                            }
-                        ) {
-                            imageView(key = "SettingsCardSections:1615",
-                                lparams = params(17.dp, 17.dp) {
-                                    marginEnd = 9.dp
-                                }
-                            ) {
-                                setImageResource(R.drawable.ic_restart)
-                                imageTintList = stateColorResource(R.color.colorTextGray)
-                                alpha = 0.8f
-                            }
-                            textView(key = "SettingsCardSections:1624",
-                                lparams = params {
-                                    weight = 1f
-                                }
-                            ) {
-                                isSingleLine = true
-                                text = stringResource(R.string.adapt_manual)
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 14f
-                            }
-                            imageView(key = "SettingsCardSections:1634",
-                                lparams = params(16.dp, 16.dp)
-                            ) {
-                                alpha = 0.55f
-                                setImageResource(R.drawable.ic_chevron_down)
-                                imageTintList = stateColorResource(R.color.colorTextGray)
-                                rotation = -90f
-                            }
-                        }
+                        // 手动重新适配：清除版本适配缓存，重启哔哩哔哩后自动重新定位 hook 点；
+                        // 点击弹出二级确认菜单（与「重启哔哩哔哩」确认弹窗同规格）。
+                        settingsEntryRow(this, key = "SettingsCardSections:1600", icon = R.drawable.ic_restart,
+                            title = stringResource(R.string.adapt_manual), topMargin = 6.dp
+                        ) { showAdaptConfirmDialog(it) }
                     }
                 }
             }
@@ -1785,5 +1691,114 @@ internal fun MainActivity.logSettingsCard(scope: LinearSettingsScope) = with(sco
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
+    }
+}
+
+/**
+ * 兼容子卡里的可点条目，与「重新适配当前版本」同一排法：左侧图标、标题（可带一行说明）、行尾箭头。
+ * 行本身不留水平内边距，图标占住原来的文字缩进，标题因此与上下开关的文字左对齐，箭头与开关右缘对齐。
+ * 只挂三个视图（行、图标、标题）：说明用样式跨度写在标题里，箭头是标题的行尾复合图标，
+ * 这样拆分后的每个构建步骤仍在挂载上限之内。
+ * 涟漪自绘（不解析主题的 selectableItemBackground）：全局主题模块可能把该属性解析成不透明色块盖住整行。
+ */
+private fun MainActivity.settingsEntryRow(
+    scope: LinearSettingsScope,
+    key: String,
+    @DrawableRes icon: Int,
+    title: String,
+    summary: String? = null,
+    topMargin: Int = 0,
+    bottomMargin: Int = 0,
+    row: LinearLayout.() -> Unit = {},
+    label: TextView.() -> Unit = {},
+    onClick: (View) -> Unit
+): LinearLayout = with(scope) {
+    // 图标跟标题字号走：系统字体放大时一起放大，不会显得又小又偏。
+    val iconSize = (android.util.TypedValue.applyDimension(
+        android.util.TypedValue.COMPLEX_UNIT_SP, 15f, resources.displayMetrics) * 1.2f).toInt()
+    linearLayout(key = key,
+        lparams = params(widthMatchParent = true) {
+            this.topMargin = topMargin
+            this.bottomMargin = bottomMargin
+        },
+        init = {
+            // 图标、文字与行尾箭头都在整行内上下居中：标题折行或带说明时，图标对着整个条目的中线。
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = 48.dp
+            background = selfRippleBackground(10f)
+            updatePadding(horizontal = 0.dp, vertical = 10.dp)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener(onClick)
+            row()
+        }
+    ) {
+        imageView(key = "$key:icon", lparams = params(iconSize, iconSize) { marginEnd = 10.dp }) {
+            setImageResource(icon)
+            imageTintList = stateColorResource(R.color.colorTextGray)
+            alpha = 0.8f
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        textView(key = "$key:title", lparams = params { weight = 1f }) {
+            text = entryRowText(title, summary)
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            setLineSpacing(2.dp.toFloat(), 1f)
+            compoundDrawablePadding = 8.dp
+            setCompoundDrawablesRelative(null, null, entryChevron(), null)
+            label()
+        }
+    }
+}
+
+/** 条目标题与可选说明合成一段文字：说明换行、缩小、减淡，与开关下方的说明同一观感。 */
+private fun MainActivity.entryRowText(title: String, summary: String?): CharSequence {
+    if (summary.isNullOrEmpty()) return title
+    val muted = androidx.core.graphics.ColorUtils.setAlphaComponent(getColor(R.color.colorTextDark), 0x99)
+    return android.text.SpannableStringBuilder(title).append('\n').apply {
+        val start = length
+        append(summary)
+        // 15sp 标题里的 12sp 说明：用相对字号，跟随系统字体缩放。
+        setSpan(android.text.style.RelativeSizeSpan(12f / 15f), start, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        setSpan(android.text.style.ForegroundColorSpan(muted), start, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
+}
+
+private fun MainActivity.entryChevron(): android.graphics.drawable.Drawable? =
+    androidx.appcompat.content.res.AppCompatResources.getDrawable(this, R.drawable.ic_chevron_end)?.mutate()?.apply {
+        val size = (16 * resources.displayMetrics.density).toInt()
+        setBounds(0, 0, size, size)
+        setTint(getColor(R.color.colorTextGray))
+        alpha = 0x8C
+    }
+
+/** 语义判定条目在设置面板保存后刷新说明。 */
+internal fun MainActivity.semanticJevEntryText(): CharSequence =
+    entryRowText(getString(R.string.semantic_jev_settings), semanticJevSummaryText())
+
+/**
+ * 条目下方的结果行：与条目标题对齐（让出图标位），没有文字时整行收起，不留空白；
+ * 写入方只管 setText，显隐跟着内容走。
+ */
+private fun MainActivity.entryStatusLine(
+    scope: LinearSettingsScope,
+    key: String,
+    init: TextView.() -> Unit
+): TextView = with(scope) {
+    // 与条目标题左对齐：让出与条目相同的图标位（图标随字号缩放）。
+    val iconSize = (android.util.TypedValue.applyDimension(
+        android.util.TypedValue.COMPLEX_UNIT_SP, 15f, resources.displayMetrics) * 1.2f).toInt()
+    textView(key = key,
+        lparams = params(widthMatchParent = true) {
+            marginStart = iconSize + 10.dp
+            bottomMargin = 6.dp
+        }
+    ) {
+        visibility = View.GONE
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 12f
+        setLineSpacing(6f, 1f)
+        doAfterTextChanged { visibility = if (it.isNullOrEmpty()) View.GONE else View.VISIBLE }
+        init()
     }
 }

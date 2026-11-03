@@ -653,7 +653,7 @@ class MainActivity : SkinnedActivity() {
     internal var noRootPrefsBridge: SharedPreferences? = null
     internal var liveApplyStatusView: NativeTextView? = null
     internal var roamingCacheStatusView: NativeTextView? = null
-    internal var roamingCacheRestartView: NativeTextView? = null
+    internal var roamingCacheRestartView: View? = null
     private var roamingCacheQueryPending = false
 
     internal fun checkRoamingCache() {
@@ -2820,11 +2820,14 @@ class MainActivity : SkinnedActivity() {
             // [278,314][1398,3078]，而父面板底边是 2337）。
             // 先按目标宽度量一次自然高度：内容比父面板矮就取父面板高度（完全覆盖，
             // 空档由关闭行上方的弹性占位吸收），更高就取内容高度（不裁内容）。
+            // 但不能超出窗口：从父面板顶边到 root 底边（已让开系统栏）再留 16dp 是上限，
+            // 超出时由面板里的滚动区承担（如 NPatch 向导的正文），底部按钮不会被挤出屏幕。
             container.measure(
                 View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
             )
-            val height = maxOf(target.height.toInt(), container.measuredHeight)
+            val available = root.height - top - (16 * density).toInt()
+            val height = maxOf(target.height.toInt(), minOf(container.measuredHeight, available))
             var changed = false
             if (params.width != width) { params.width = width; changed = true }
             if (params.height != height) { params.height = height; changed = true }

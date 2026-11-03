@@ -57,7 +57,28 @@ internal fun MainActivity.styleRestartActionButton(button: TextView, primary: Bo
     skinActionButton(button, filled = primary)
 }
 
-internal fun MainActivity.showPrivilegedRestartDialog(noRoot: Boolean, route: RestartRoute) {
+/**
+ * @param origin / @param cover / @param parentDialog / @param parentContainer 与
+ *   [showUpdateChannelDialog] 同义：从重启确认面板里打开时，本面板从被点的那一行长出来、盖住确认面板
+ *   而不关闭它；「更换方式」或返回只收起本面板、露出确认面板，「取消」两张一起收。
+ *   全部为 null 时退回居中缩放入场，「更换方式」重新打开确认面板。
+ */
+internal fun MainActivity.showPrivilegedRestartDialog(
+    noRoot: Boolean,
+    route: RestartRoute,
+    origin: SettingsBackupMotionRect? = null,
+    cover: SettingsBackupMotionRect? = null,
+    parentDialog: Dialog? = null,
+    parentContainer: LinearLayout? = null,
+    onClosed: (() -> Unit)? = null
+) {
+    fun coveredParentShowing() = parentDialog?.isShowing == true && parentContainer != null
+    // 与本面板的退场并行，不串行等：两张卡片一起收。
+    fun closeCoveredParent() {
+        val parent = parentDialog ?: return
+        val parentView = parentContainer ?: return
+        if (parent.isShowing) dismissWithAnimation(parent, parentView) {}
+    }
     val dialog = Dialog(this).also { installDialogElasticInteraction(it) }
     val container = createModalContainer()
     val density = resources.displayMetrics.density
@@ -75,7 +96,10 @@ internal fun MainActivity.showPrivilegedRestartDialog(noRoot: Boolean, route: Re
     val status = label(14f)
     val action = createRestartActionButton(R.string.shizuku_save_restart).also {
         styleRestartActionButton(it, true)
-        container.addView(it, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = (12 * density).toInt() })
+        container.addView(it, LinearLayout.LayoutParams(-1, -2).apply {
+            topMargin = (8 * density).toInt()
+            bottomMargin = (10 * density).toInt()
+        })
     }
     var lastState = State.STOPPED
     val controller = PrivilegedRestartController(applicationContext, noRootPrefsBridge ?: prefs(), noRoot,
@@ -136,23 +160,32 @@ internal fun MainActivity.showPrivilegedRestartDialog(noRoot: Boolean, route: Re
             else -> controller.act()
         }
     }
+    // 底部一行左右均分「更换方式」与「取消」，与确认面板的底部一行同一排法。
+    val footer = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        isBaselineAligned = false
+    }
     createRestartActionButton(R.string.restart_change_method).also { other ->
         styleRestartActionButton(other, false)
         other.setOnClickListener {
             controller.close()
-            dismissWithAnimation(dialog, container) { showRestartConfirmDialog() }
+            if (coveredParentShowing()) dismissWithAnimation(dialog, container) {}
+            else dismissWithAnimation(dialog, container) { showRestartConfirmDialog() }
         }
-        container.addView(other, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = (12 * density).toInt() })
+        footer.addView(other, LinearLayout.LayoutParams(0, -1, 1f))
     }
     createRestartActionButton(R.string.dialog_cancel).also { cancel ->
         styleRestartActionButton(cancel, false)
         cancel.setOnClickListener {
             // 用户点击时立即取消；不能等退场动画结束后才撤销在途的特权请求。
             controller.close()
+            closeCoveredParent()
             dismissWithAnimation(dialog, container) {}
         }
-        container.addView(cancel, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = (12 * density).toInt() })
+        footer.addView(cancel, LinearLayout.LayoutParams(0, -1, 1f).apply { marginStart = (8 * density).toInt() })
     }
+    container.addView(footer, LinearLayout.LayoutParams(-1, -2))
     val observer = object : DefaultLifecycleObserver {
         override fun onStart(owner: LifecycleOwner) {
             if (lastState !in setOf(State.CONFIRMED, State.DISABLED_CONFIRMED, State.RECEIPT_TIMEOUT)) controller.refresh()
@@ -161,10 +194,11 @@ internal fun MainActivity.showPrivilegedRestartDialog(noRoot: Boolean, route: Re
         override fun onDestroy(owner: LifecycleOwner) { dialog.dismiss() }
     }
     lifecycle.addObserver(observer)
-    // 与现有重启确认共用模态容器、皮肤及动画。
-    presentModalDialog(dialog, container, onDismissed = {
+    // 与现有重启确认共用模态容器、皮肤及动画；有来源与覆盖矩形时走同一套覆盖式展开。
+    presentModalDialog(dialog, container, morphAnchorBounds = origin, coverBounds = cover, onDismissed = {
         lifecycle.removeObserver(observer)
         controller.close()
+        onClosed?.invoke()
     })
     controller.refresh()
 }

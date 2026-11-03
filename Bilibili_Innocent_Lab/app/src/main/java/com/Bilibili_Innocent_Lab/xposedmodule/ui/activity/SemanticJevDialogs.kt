@@ -89,9 +89,6 @@ internal fun parseTimeoutSeconds(raw: String): Int? {
 }
 
 /** 兼容区入口行：标题 + 摘要两行，与规则入口行同一结构。 */
-internal fun MainActivity.semanticJevEntryText(): String =
-    getString(R.string.semantic_jev_settings) + "\n" + semanticJevSummaryText()
-
 private val semanticProviders = listOf(
     SemanticBackend.JEV to R.string.semantic_jev_provider_jev,
     SemanticBackend.OPENAI to R.string.semantic_jev_provider_openai,

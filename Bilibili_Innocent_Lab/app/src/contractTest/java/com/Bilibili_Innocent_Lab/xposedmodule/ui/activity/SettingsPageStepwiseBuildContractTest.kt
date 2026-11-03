@@ -118,9 +118,10 @@ class SettingsPageStepwiseBuildContractTest {
         // 模型必须真的识别到了推迟块，否则上面的断言在空树上通过。
         assertEquals(9 + 0, counts.getValue("purifySettingsCard"))
         assertEquals(6, counts.getValue("enhancementSettingsCard"))
-        // 美化卡：6 个区段（含省电）+ 底栏构建函数里再推迟的 1 段；实验性卡：外观 2 + 兼容子卡 1 + 兼容内容 3。
+        // 美化卡：6 个区段（含省电）+ 底栏构建函数里再推迟的 1 段；实验性卡：外观 2 + 兼容子卡 1 + 兼容内容 5
+        //（条目行化后拆成通信与 AI Insight、语义判定与 Agent、免 Root、漫游、预见式返回与重新适配，各步仍在挂载上限内）。
         assertEquals(7, counts.getValue("beautificationSettingsCard"))
-        assertEquals(6, counts.getValue("experimentalFeaturesCard"))
+        assertEquals(8, counts.getValue("experimentalFeaturesCard"))
         assertEquals(1, counts.getValue("hostBottomBarAppearanceRows"))
     }
 
@@ -157,16 +158,16 @@ class SettingsPageStepwiseBuildContractTest {
         val model = SettingsStepModel()
         val executed = (1..4).map { model.execute(model.pageSteps(it, expand = true)) }
         // 净化 = 壳 + 9 个分类；增强 = 壳 + 6 个；美化 = 壳 + 6 个区段（含省电）+ 底栏再推迟的 1 段；
-        // 模块 = 活动与备份 + 实验性（壳 + 外观 2 + 兼容子卡 + 兼容 3）+ 日志 + 关于。
-        assertEquals(listOf(10, 7, 8, 10), executed.map { it.executedSteps })
-        assertEquals("steps plus one finish unit each", listOf(11, 8, 9, 11), executed.map { it.units })
+        // 模块 = 活动与备份 + 实验性（壳 + 外观 2 + 兼容子卡 + 兼容 5）+ 日志 + 关于。
+        assertEquals(listOf(10, 7, 8, 12), executed.map { it.executedSteps })
+        assertEquals("steps plus one finish unit each", listOf(11, 8, 9, 13), executed.map { it.units })
         // 控件挂载数是上界（分支按存在计）。拆分前美化页是一个约 50 个控件的步骤，实验性卡约 57 个。
         val beautification = executed[2].stepSizes
         val module = executed[3].stepSizes
         assertTrue("beautification steps: $beautification", beautification.max() <= BEAUTIFICATION_STEP_MAX)
-        // 模块页第 2~8 个步骤是实验性卡（壳 + 6 段）。
-        val experimental = module.subList(1, 8)
-        assertEquals(7, experimental.size)
+        // 模块页第 2~10 个步骤是实验性卡（壳 + 8 段）。
+        val experimental = module.subList(1, 10)
+        assertEquals(9, experimental.size)
         assertTrue("experimental steps: $experimental", experimental.max() <= EXPERIMENTAL_STEP_MAX)
     }
 

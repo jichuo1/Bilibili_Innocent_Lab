@@ -1,7 +1,7 @@
 <resources>
     <string name="shizuku_restart_button">Shizuku restart</string>
     <string name="shizuku_restart_entry">Restart with Shizuku</string>
-    <string name="shizuku_restart_description">Saves your current configuration, force stops Bilibili and opens it again, then checks the new process and current configuration receipt. You can cancel or use the manual restart guide.</string>
+    <string name="shizuku_restart_description">Saves your settings, force stops and reopens Bilibili, then confirms the new process loaded them.</string>
     <string name="shizuku_missing">Shizuku is not installed.</string>
     <string name="shizuku_stopped">Start the Shizuku service in its manager, then return here.</string>
     <string name="shizuku_unsupported">Shizuku API 13 or later is required.</string>
