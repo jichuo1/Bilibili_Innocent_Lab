@@ -906,7 +906,7 @@
     <string name="purify_share_content_tip">開啟後，清理分享內容中嗶哩嗶哩連結的追蹤參數，保留分頁與時間點；不展開短連結、不連網。</string>
     <string name="share_mini_program_direct_link">小程式卡片轉為普通連結</string>
     <string name="wechat_share_compat">相容重新簽署的微信分享</string>
-    <string name="wechat_share_compat_tip">僅在信任本機重新簽署的微信時開啟。保留微信好友和朋友圈原生分享，僅略過嗶哩嗶哩分享實例對微信憑證的比較。修改後需重新啟動嗶哩嗶哩；目前適配 8.90.2，其他版本保留原行為。不變更登入或付款驗證。</string>
+    <string name="wechat_share_compat_tip">僅在信任本機重新簽署的微信時開啟。保留微信好友和朋友圈原生分享，僅略過嗶哩嗶哩分享實例對微信憑證的比較。修改後需重新啟動嗶哩嗶哩；支援已核驗的 8.84.0 至 9.18.0 宿主版本，未適配版本保留原行為。不變更登入或付款驗證。</string>
     <string name="share_mini_program_direct_link_tip">開啟後，分享到微信或 QQ 時改用普通連結卡片，標題僅有應用名稱時補上影片標題。</string>
     <string name="force_external_browser">站外連結用系統瀏覽器開啟</string>
     <string name="force_external_browser_tip">開啟後，用系統瀏覽器開啟站外網頁；站內連結和支付連結不變，無可用瀏覽器時依原方式開啟。</string>
