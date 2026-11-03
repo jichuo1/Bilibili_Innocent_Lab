@@ -11,6 +11,12 @@ class GuestVideoFollowInitialStateTest {
     class OwnerCallback : Callback()
     class LegacyOwnerCallback : Callback()
     class OtherCallback : Callback()
+    open class SimpleCallback : Callback()
+    class FutureOwnerService {
+        class RenamedCallback : SimpleCallback()
+        class WrongBaseCallback : Callback()
+    }
+    class OtherService { class RenamedCallback : SimpleCallback() }
     class Config(private val mid: Long, private val callback: Callback?, private val guest: Boolean?) {
         fun getMid(): Long = mid
         fun getCallback(): Callback? = callback
@@ -31,7 +37,10 @@ class GuestVideoFollowInitialStateTest {
         val requests = mutableListOf<Pair<Long, (Boolean) -> Unit>>()
         override fun read(mid: Long, callback: (Boolean) -> Unit) { requests += mid to callback }
     }
-    private inner class Harness {
+    private inner class Harness(
+        knownOwners: Boolean = true,
+        ownerServiceName: String = FutureOwnerService::class.java.name
+    ) {
         val registrar = PlayerPortTestRegistrar()
         val source = Source()
         var guest = true
@@ -42,7 +51,11 @@ class GuestVideoFollowInitialStateTest {
             { _, _ -> }, { _, _ -> }, { key, value -> statuses[key] = value })
         init {
             GuestVideoFollowInitialState(source, { guest }, GuestVideoFollowInitialState.Names(
-                Button::class.java.name, Config::class.java.name, Helper::class.java.name, OwnerCallback::class.java.name, LegacyOwnerCallback::class.java.name
+                Button::class.java.name, Config::class.java.name, Helper::class.java.name,
+                if (knownOwners) OwnerCallback::class.java.name else "missing.OwnerCallback",
+                if (knownOwners) LegacyOwnerCallback::class.java.name else "missing.LegacyOwnerCallback",
+                SimpleCallback::class.java.name,
+                ownerServiceName
             )).install(env)
         }
         fun bind(config: Config) = registrar.invoke("guest.video.follow.initial", button, arrayOf(config)) { args ->
@@ -66,6 +79,26 @@ class GuestVideoFollowInitialStateTest {
         h.source.requests.single().second(true)
         assertTrue(h.button.following)
         assertEquals(false, h.button.secondary)
+    }
+
+    @Test fun renamedOwnerCallbackReceivesLocalStateWithoutMatchingOtherCallbacks() {
+        val h = Harness(knownOwners = false)
+        assertEquals("owner-scope", h.statuses["guest_video_follow_initial_callback_match"])
+        h.bind(Config(42, FutureOwnerService.WrongBaseCallback(), false))
+        h.bind(Config(43, OtherService.RenamedCallback(), false))
+        assertTrue(h.source.requests.isEmpty())
+
+        h.bind(Config(44, FutureOwnerService.RenamedCallback(), false))
+        assertEquals(44L, h.source.requests.single().first)
+        h.source.requests.single().second(true)
+        assertTrue(h.button.following)
+        assertEquals(false, h.button.secondary)
+    }
+
+    @Test fun missingOwnerServiceAndKnownCallbacksDoNotInstallInitialStateHook() {
+        assertThrows(IllegalArgumentException::class.java) {
+            Harness(knownOwners = false, ownerServiceName = "missing.OwnerService")
+        }
     }
 
     @Test fun delayedReadsCannotChangeAReboundButton() {

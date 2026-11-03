@@ -72,12 +72,13 @@ internal class GuestHostFollowConfirmation(
 
     internal data class Names(
         val helper: String = "com.bilibili.relation.utils.FollowFlowHelper",
-        val callbackBase: String = "com.bilibili.relation.utils.FollowFlowHelper\$SimpleCallback",
+        val callbackBase: String = GuestVideoOwnerCallbacks.CALLBACK_BASE,
         val ownerCallbacks: List<String> = listOf(
             "com.bilibili.ship.theseus.united.page.intro.module.owner.OwnerService\$a",
             "com.bilibili.ship.theseus.united.page.intro.module.owner.OwnerService\$b"
         ),
-        val context: Class<*> = Context::class.java
+        val context: Class<*> = Context::class.java,
+        val ownerService: String = GuestVideoOwnerCallbacks.OWNER_CLASS
     )
 
     private data class Pending(
@@ -93,7 +94,7 @@ internal class GuestHostFollowConfirmation(
     private lateinit var mid: java.lang.reflect.Field
     private lateinit var callback: java.lang.reflect.Field
     private var confirmation: Method? = null
-    private lateinit var ownerCallbacks: List<Class<*>>
+    private lateinit var ownerCallbacks: GuestVideoOwnerCallbacks
     private lateinit var env: HookEnvironment
     private val reportedShown = AtomicBoolean()
     private val reportedConfirmed = AtomicBoolean()
@@ -106,9 +107,13 @@ internal class GuestHostFollowConfirmation(
         val callbackBase = requireNotNull(Lookup.classOrNull(loader, names.callbackBase))
         mid = requireNotNull(Lookup.fieldOrNull(helper, "c")).also { require(!it.isStatic && it.type == Long::class.javaPrimitiveType) }
         callback = requireNotNull(Lookup.fieldOrNull(helper, "i")).also { require(!it.isStatic && it.type.isAssignableFrom(callbackBase)) }
-        ownerCallbacks = names.ownerCallbacks.mapNotNull { Lookup.classOrNull(loader, it) }
+        val knownCallbacks = names.ownerCallbacks.mapNotNull { Lookup.classOrNull(loader, it) }
             .filter { callbackBase.isAssignableFrom(it) }
-        require(ownerCallbacks.isNotEmpty()) { "Video owner callback missing" }
+        if (knownCallbacks.isEmpty()) {
+            requireNotNull(Lookup.classOrNull(loader, names.ownerService)) { "Video owner service missing" }
+            environment.reportStatus("guest_video_follow_callback_match", "owner-scope")
+        }
+        ownerCallbacks = GuestVideoOwnerCallbacks(knownCallbacks, callbackBase, names.ownerService)
         val methods = resolveMethods(helper, names.context)
         if (methods == null) {
             environment.reportStatus("guest_video_follow_confirm_mode", "fallback")
@@ -145,7 +150,7 @@ internal class GuestHostFollowConfirmation(
 
     fun canHandle(target: Any): Boolean = runCatching {
         val owner = callback.get(target) ?: return@runCatching false
-        ownerCallbacks.any { it.isInstance(owner) }
+        ownerCallbacks.matches(owner)
     }.getOrDefault(false)
 
     fun click(target: Any, context: Any, uid: Long, announce: Boolean, done: (Boolean) -> Unit) {

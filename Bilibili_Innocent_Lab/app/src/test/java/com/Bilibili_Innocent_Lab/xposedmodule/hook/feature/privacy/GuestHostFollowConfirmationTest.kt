@@ -11,6 +11,7 @@ class GuestHostFollowConfirmationTest {
     class VideoOwner : Callback()
     class LegacyVideoOwner : Callback()
     class OtherPage : Callback()
+    class FutureOwnerService { class RenamedCallback : Callback() }
     class HostContext
 
     class NewHelper(@JvmField var c: Long, @JvmField var i: Callback) {
@@ -62,7 +63,11 @@ class GuestHostFollowConfirmationTest {
         fun finishRead() { reads.removeAt(0)(following) }
     }
 
-    private class Harness(failId: String? = null) {
+    private class Harness(
+        failId: String? = null,
+        knownOwners: Boolean = true,
+        ownerServiceName: String = FutureOwnerService::class.java.name
+    ) {
         val store = Store()
         val registrar = PlayerPortTestRegistrar(failId)
         val statuses = mutableMapOf<String, String>()
@@ -76,8 +81,9 @@ class GuestHostFollowConfirmationTest {
         val controller = GuestHostFollowConfirmation(store, { guest }, GuestHostFollowConfirmation.Names(
             NewHelper::class.java.name,
             Callback::class.java.name,
-            listOf(VideoOwner::class.java.name, LegacyVideoOwner::class.java.name),
-            HostContext::class.java
+            if (knownOwners) listOf(VideoOwner::class.java.name, LegacyVideoOwner::class.java.name) else listOf("missing.OwnerCallback"),
+            HostContext::class.java,
+            ownerServiceName
         )).also { it.install(env) }
 
         fun click() = controller.click(helper, context, helper.c, announce = false) { results += it }
@@ -166,6 +172,30 @@ class GuestHostFollowConfirmationTest {
         h.store.finishRead()
         assertEquals(0, h.helper.dialogs)
         assertTrue(h.store.writes.isEmpty())
+    }
+
+    @Test fun renamedOwnerCallbackKeepsTheHostConfirmationWhenKnownClassesAreMissing() {
+        val h = Harness(knownOwners = false)
+        h.helper.i = FutureOwnerService.RenamedCallback()
+        h.store.following = true
+        assertTrue(h.controller.canHandle(h.helper))
+        assertEquals("owner-scope", h.statuses["guest_video_follow_callback_match"])
+        assertFalse(h.controller.canHandle(NewHelper(43, OtherPage())))
+
+        h.click()
+        h.store.finishRead()
+        assertEquals(1, h.helper.dialogs)
+        assertTrue(h.store.writes.isEmpty())
+        h.confirm()
+        assertEquals(listOf(42L to false), h.store.writes)
+        assertEquals(listOf(false), h.results)
+        assertEquals(0, h.helper.network)
+    }
+
+    @Test fun missingOwnerServiceAndKnownCallbacksDoNotInstallConfirmation() {
+        assertThrows(IllegalArgumentException::class.java) {
+            Harness(knownOwners = false, ownerServiceName = "missing.OwnerService")
+        }
     }
 
     @Test fun unknownHostShapeUsesFallbackAndDoesNotUnfollowUntilConfirmed() {

@@ -30,7 +30,9 @@ internal class GuestVideoFollowInitialState(
         val config: String = "com.bilibili.relation.widget.FollowButtonConfig",
         val helper: String = "com.bilibili.relation.utils.FollowFlowHelper",
         val ownerCallback: String = "com.bilibili.ship.theseus.united.page.intro.module.owner.OwnerService\$a",
-        val legacyOwnerCallback: String = "com.bilibili.ship.theseus.united.page.intro.module.owner.OwnerService\$b"
+        val legacyOwnerCallback: String = "com.bilibili.ship.theseus.united.page.intro.module.owner.OwnerService\$b",
+        val callbackBase: String = GuestVideoOwnerCallbacks.CALLBACK_BASE,
+        val ownerService: String = GuestVideoOwnerCallbacks.OWNER_CLASS
     )
 
     fun install(env: HookEnvironment) {
@@ -45,10 +47,17 @@ internal class GuestVideoFollowInitialState(
         val configCallback = requireNotNull(Lookup.methodOrNull(config, "getCallback"))
             .takeIf { !it.isStatic } ?: error("FollowButtonConfig callback")
         // 8.84–8.96 use OwnerService$b; the newer $a class is merely a companion in those versions.
-        val ownerCallbacks = listOf(names.ownerCallback, names.legacyOwnerCallback)
+        val knownCallbacks = listOf(names.ownerCallback, names.legacyOwnerCallback)
             .mapNotNull { Lookup.classOrNull(loader, it) }
             .filter { configCallback.returnType.isAssignableFrom(it) }
-        require(ownerCallbacks.isNotEmpty()) { "Video owner callback missing" }
+        val fallbackBase = Lookup.classOrNull(loader, names.callbackBase)
+            ?.takeIf { configCallback.returnType.isAssignableFrom(it) }
+        require(knownCallbacks.isNotEmpty() || fallbackBase != null) { "Video owner callback missing" }
+        if (knownCallbacks.isEmpty()) {
+            requireNotNull(Lookup.classOrNull(loader, names.ownerService)) { "Video owner service missing" }
+            env.reportStatus("guest_video_follow_initial_callback_match", "owner-scope")
+        }
+        val ownerCallbacks = GuestVideoOwnerCallbacks(knownCallbacks, fallbackBase, names.ownerService)
         val guestAttention = requireNotNull(Lookup.methodOrNull(config, "isGuestAttention"))
             .takeIf { !it.isStatic && it.returnType == Boolean::class.javaObjectType } ?: error("FollowButtonConfig guest state")
         val currentHelper = requireNotNull(Lookup.methodOrNull(button, "getMFollowFlowHelper"))
@@ -75,7 +84,7 @@ internal class GuestVideoFollowInitialState(
                     val target = instance ?: return@bindCheck
                     val options = argOrNull(0) ?: return@bindCheck
                     val boundCallback = configCallback.invoke(options) ?: return@bindCheck
-                    if (ownerCallbacks.none { it.isInstance(boundCallback) }) return@bindCheck
+                    if (!ownerCallbacks.matches(boundCallback)) return@bindCheck
                     val mid = (configMid.invoke(options) as? Long)?.takeIf { it > 0 } ?: return@bindCheck
                     val secondary = guestAttention.invoke(options) as? Boolean
                     val boundHelper = currentHelper.invoke(target) ?: return@bindCheck
