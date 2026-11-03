@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Reuses the host's own single-action unfollow confirmation for a video's locally followed author.
- * Local follows do not yet support groups or special follows, so the host's group menu is not opened.
+ * The host group menu can be supplied once its session-bound page and route guards are installed.
  *
  * The two verified host shapes contain exactly three Context-only methods: q/w/y (private, 8.84–8.96)
  * and a/b/c (public final, 8.97–9.17). HostLab matrix 2d33f3dd0ded450fbc7061b00e9def12 identifies
@@ -70,6 +70,12 @@ internal class GuestHostFollowConfirmation(
         fun fail(token: Any)
     }
 
+    internal interface FollowedMenu {
+        fun open(target: Any, context: Any, uid: Long, token: Any, expected: WeakReference<Any>,
+                 announce: Boolean, done: (Boolean) -> Unit): Boolean
+    }
+
+    internal var followedMenu: FollowedMenu? = null
     internal data class Names(
         val helper: String = "com.bilibili.relation.utils.FollowFlowHelper",
         val callbackBase: String = GuestVideoOwnerCallbacks.CALLBACK_BASE,
@@ -169,24 +175,39 @@ internal class GuestHostFollowConfirmation(
                 return@read
             }
             val hostContext = weakContext.get() ?: return@read
-            val request = Pending(token, uid, weakCallback, done, announce)
-            val nativeConfirmation = confirmation
-            if (nativeConfirmation == null) {
-                showFallback(current, hostContext, request)
-                return@read
+            val menu = followedMenu
+            if (menu != null) {
+                val handled = try { menu.open(current, hostContext, uid, token, weakCallback, announce, done) }
+                    catch (_: Exception) { source.fail(token); true }
+                if (handled) return@read
             }
-            synchronized(pending) { pending[current] = request }
-            runCatching { nativeConfirmation.invoke(current, hostContext) }.onSuccess {
-                if (reportedShown.compareAndSet(false, true)) env.reportStatus("guest_video_follow_confirmation", "shown")
-            }.onFailure {
-                // A throwing host method might already have shown its dialog. Keep the guard to block any late host action.
-                synchronized(pending) { if (pending[current] === request) request.claimed = true }
-                if (reportedFailure.compareAndSet(false, true)) env.reportStatus("guest_video_follow_confirmation_error", "fallback")
-                showFallback(current, hostContext, request)
-            }
+            showConfirmation(current, hostContext, Pending(token, uid, weakCallback, done, announce))
         }
     }
 
+    /** The menu must retain the token from its opening, not capture the session current at the later click. */
+    internal fun confirmFromMenu(target: Any, context: Any, uid: Long, token: Any, expected: WeakReference<Any>,
+                                 announce: Boolean, done: (Boolean) -> Unit) {
+        if (!bound(target, uid, expected, token)) return
+        showConfirmation(target, context, Pending(token, uid, expected, done, announce))
+    }
+
+    private fun showConfirmation(target: Any, context: Any, request: Pending) {
+        val nativeConfirmation = confirmation
+        if (nativeConfirmation == null) {
+            showFallback(target, context, request)
+            return
+        }
+        synchronized(pending) { pending[target] = request }
+        runCatching { nativeConfirmation.invoke(target, context) }.onSuccess {
+            if (reportedShown.compareAndSet(false, true)) env.reportStatus("guest_video_follow_confirmation", "shown")
+        }.onFailure {
+            // A throwing host method might already have shown its dialog. Keep the guard to block any late host action.
+            synchronized(pending) { if (pending[target] === request) request.claimed = true }
+            if (reportedFailure.compareAndSet(false, true)) env.reportStatus("guest_video_follow_confirmation_error", "fallback")
+            showFallback(target, context, request)
+        }
+    }
     private fun showFallback(target: Any, context: Any, request: Pending) {
         val weakTarget = WeakReference(target)
         val claimed = AtomicBoolean()
@@ -208,7 +229,7 @@ internal class GuestHostFollowConfirmation(
         }
     }
 
-    private fun bound(target: Any, uid: Long, expected: WeakReference<Any>, token: Any): Boolean = runCatching {
+    internal fun bound(target: Any, uid: Long, expected: WeakReference<Any>, token: Any): Boolean = runCatching {
         isGuest() && source.valid(token) && mid.getLong(target) == uid &&
             expected.get()?.let { callback.get(target) === it } == true
     }.getOrDefault(false)

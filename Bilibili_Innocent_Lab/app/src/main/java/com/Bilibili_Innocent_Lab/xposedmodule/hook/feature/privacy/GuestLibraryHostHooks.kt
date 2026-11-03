@@ -158,9 +158,12 @@ internal class GuestLibraryHostHooks(
         attempt("native_watch_later_add") { GuestNativeWatchLaterAddHooks(library, isGuest).install(env) }
         val nativeLists = GuestNativeListHttpHooks(library, isGuest, followGroupBindings)
         val localLists = attempt("native_list_http") { nativeLists.install(env) }
-        if (localLists && nativeLists.followGroupClonesInstalled) {
+        val groupPages = if (localLists && nativeLists.followGroupClonesInstalled) {
             attempt("native_follow_group_pages") { GuestNativeFollowGroupPages(library, isGuest, followGroupBindings).install(env) }
-        } else env.reportStatus("guest_library_native_follow_group_pages", "skipped-no-local-boundary")
+        } else {
+            env.reportStatus("guest_library_native_follow_group_pages", "skipped-no-local-boundary")
+            false
+        }
         // The 8.97+ add flow posts a real request once the login gate is passed; only the short circuit keeps it local.
         if (localLists) attempt("watch_later_login_scope") { GuestWatchLaterLoginScope(isGuest).install(env) }
         else env.reportStatus("guest_library_watch_later_login_scope", "skipped-no-local-lists")
@@ -172,6 +175,10 @@ internal class GuestLibraryHostHooks(
         attempt("video_follow_confirmation") {
             videoFollowConfirmation = GuestHostFollowConfirmation(library, isGuest).also { it.install(env) }
         }
+        val confirmation = videoFollowConfirmation
+        if (groupPages && confirmation != null) attempt("native_follow_group_menu") {
+            confirmation.followedMenu = GuestNativeFollowGroupMenu(library, followGroupBindings, confirmation).also { it.install(env) }
+        } else env.reportStatus("guest_library_native_follow_group_menu", "skipped-no-safe-pages")
         attempt("follow_button") {
             val access = PrivacyHostAccess(loader)
             val helper = access.type("com.bilibili.relation.utils.FollowFlowHelper")

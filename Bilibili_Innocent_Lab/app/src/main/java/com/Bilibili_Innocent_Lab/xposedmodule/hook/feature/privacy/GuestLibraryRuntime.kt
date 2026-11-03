@@ -388,6 +388,18 @@ internal class GuestLibraryRuntime(
         }
     }
 
+    /** A menu action uses the session that opened it, even if the user changes modes before tapping. */
+    internal fun setHostSpecialFollow(token: Token, mid: Long, special: Boolean, done: () -> Unit) {
+        execute(token) {
+            checkActive(token)
+            library.setSpecialFollow(mid, special)
+            val updated = library.readSnapshot().collections
+            onMain(token) {
+                notifyCollections(updated)
+                done()
+            }
+        }
+    }
     /**
      * A host follow click is local even when no video has started. Callback must hold host objects weakly. With
      * [announce] false the caller gives the host's own feedback instead of the module's "saved" toast.

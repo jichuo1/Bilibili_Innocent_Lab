@@ -5,6 +5,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPortTestRegistrar
 import org.junit.Assert.*
 import org.junit.Test
+import java.lang.ref.WeakReference
 
 class GuestHostFollowConfirmationTest {
     open class Callback
@@ -115,6 +116,47 @@ class GuestHostFollowConfirmationTest {
         assertEquals(0, h.helper.network)
     }
 
+    @Test fun menuUnfollowUsesTheOriginalSessionAndHostConfirmation() {
+        val h = Harness()
+        h.store.following = true
+        var action: (() -> Unit)? = null
+        h.controller.followedMenu = object : GuestHostFollowConfirmation.FollowedMenu {
+            override fun open(target: Any, context: Any, uid: Long, token: Any, expected: WeakReference<Any>,
+                              announce: Boolean, done: (Boolean) -> Unit): Boolean {
+                action = { h.controller.confirmFromMenu(target, context, uid, token, expected, announce, done) }
+                return true
+            }
+        }
+        h.click()
+        h.store.finishRead()
+        assertEquals(0, h.helper.dialogs)
+        requireNotNull(action).invoke()
+        assertEquals(1, h.helper.dialogs)
+        h.confirm()
+        assertEquals(listOf(42L to false), h.store.writes)
+        assertEquals(0, h.helper.network)
+    }
+
+    @Test fun menuUnfollowCannotUseANewerSessionOrReboundCallback() {
+        val h = Harness()
+        h.store.following = true
+        var action: (() -> Unit)? = null
+        h.controller.followedMenu = object : GuestHostFollowConfirmation.FollowedMenu {
+            override fun open(target: Any, context: Any, uid: Long, token: Any, expected: WeakReference<Any>,
+                              announce: Boolean, done: (Boolean) -> Unit): Boolean {
+                action = { h.controller.confirmFromMenu(target, context, uid, token, expected, announce, done) }
+                return true
+            }
+        }
+        h.click()
+        h.store.finishRead()
+        h.store.currentToken = Any()
+        h.helper.i = VideoOwner()
+        requireNotNull(action).invoke()
+        assertEquals(0, h.helper.dialogs)
+        assertTrue(h.store.writes.isEmpty())
+        assertEquals(0, h.helper.network)
+    }
     @Test fun unfollowedAuthorIsFollowedWithoutShowingTheUnfollowDialog() {
         val h = Harness()
         h.click()
