@@ -7,6 +7,7 @@ import android.widget.Toast
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import org.json.JSONObject
+import java.lang.ref.WeakReference
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import java.util.concurrent.atomic.AtomicBoolean
@@ -29,11 +30,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * coroutine class `FavorRepository$favor$1` (its constructor takes the cache class first) and the writer is the single public
  * static `void(long, boolean)` on it, so a tap repaints the star from the toggle result: added turns it on, a second tap
  * turns it off. When the writer cannot be located the guest gets a "saved" toast instead, since nothing else shows the tap
- * worked. The host's own folder picker opens ([HostDialog], [GuestHostFavoriteDialog]; one shape on all 38 builds) and
- * writes the library itself through the local favorite protocol. Only when it cannot be built or shown does the module
- * show its own [FolderPicker], listing the local folders as checkboxes, and commit the exact selection (an empty selection
- * un-favorites). Without a live
- * Activity to attach the dialog to, the tap falls back to toggling the default folder. The favorite count moves too when the
+ * worked. For a recognised video-page click, the default folder is toggled and the host's snackbar opens the folder picker;
+ * a recognised long-press opens that picker without first changing the library. An unknown event keeps the earlier picker
+ * behavior. The host's own picker ([HostDialog], [GuestHostFavoriteDialog]) writes through the local favorite protocol;
+ * the module's [FolderPicker] is the fallback when it cannot be shown. The favorite count moves too when the
  * host's page repository for the video can be reached ([PageFavoriteSource]): its own favorite method then changes the count,
  * writes the star cache and sends the bus message, so the cache writer above is only the fallback.
  * Status keys, kept apart because the channel keeps only the first value per key: `guest_video_favorite` is the install
@@ -70,6 +70,13 @@ internal class GuestVideoFavoriteHooks(
     private val pageFavorite: PageFavoriteSource? = null,
     /** The host's own folder picker, preferred over [picker] where this build has it; null means the module's picker only. */
     private val hostDialog: HostDialog? = null,
+    /** Identifies the host's separate click and long-press events, without changing their login gate. */
+    private val interactionSource: InteractionSource? = null,
+    /** Reuses the host's own success snackbar and cancel toast for one-click favorites. */
+    private val hostSnackbar: HostSnackbar? = null,
+    private val notifyRemoved: (Context?) -> Unit = { context ->
+        if (context != null) Toast.makeText(context, GuestLibraryStrings.resolve(context).favoriteRemoved, Toast.LENGTH_SHORT).show()
+    },
     /** Whether a call stack belongs to the Story player's favorite star; replaceable for the same reason. */
     private val isStoryStar: (Array<StackTraceElement>) -> Boolean = ::fromStoryFavoriteWidget
 ) {
@@ -90,6 +97,8 @@ internal class GuestVideoFavoriteHooks(
         fun install(env: HookEnvironment, loader: ClassLoader): Boolean
         /** The tap that is happening now, or null when the video behind it cannot be told. */
         fun tapped(): StoryTap?
+        /** True only while the host is synchronously handling a long press on its Story favorite widget. */
+        fun isLongPress(): Boolean = false
     }
     /** The host's page repository for the video on screen: it changes the favorite count and the star state together. */
     internal interface PageFavoriteSource {
@@ -100,6 +109,19 @@ internal class GuestVideoFavoriteHooks(
          * caller writes the star cache itself. [onFailed] runs when the scheduled call threw, for the same fallback.
          */
         fun apply(aid: Long, favorited: Boolean, onFailed: () -> Unit): Boolean
+    }
+
+    internal enum class Interaction { CLICK, LONG_PRESS, UNKNOWN }
+
+    internal interface InteractionSource {
+        fun install(env: HookEnvironment, loader: ClassLoader): Boolean
+        fun current(): Interaction
+    }
+
+    internal interface HostSnackbar {
+        fun install(env: HookEnvironment, loader: ClassLoader): Boolean
+        fun showAdded(context: Context?, video: LocalVirtualLibrary.Video, story: Boolean, onModify: () -> Unit): Boolean
+        fun showRemoved(context: Context?): Boolean
     }
 
     /** One local favorite folder and whether the video is already in it. */
@@ -120,7 +142,7 @@ internal class GuestVideoFavoriteHooks(
         /** Finds what this build needs from the host; false when it does not have the expected shape. */
         fun install(env: HookEnvironment, loader: ClassLoader): Boolean
         /** False when it cannot be shown here (no host Activity, or the build lacks it), so the caller uses its own picker. */
-        fun show(context: Context?, video: LocalVirtualLibrary.Video, favorited: Boolean, onClosed: () -> Unit): Boolean
+        fun show(context: Context?, video: LocalVirtualLibrary.Video, favorited: Boolean, story: Boolean, onClosed: () -> Unit): Boolean
     }
 
     /** Shows the folder choice. Returns false when it cannot be shown, so the caller falls back to the default folder. */
@@ -135,6 +157,8 @@ internal class GuestVideoFavoriteHooks(
 
     /** What this hook needs from the local library. */
     internal interface FavoriteStore {
+        /** Captures the current local session so a later snackbar callback cannot act on a new session. */
+        fun sessionGuard(): (() -> Boolean)? = { true }
         fun metadata(aid: Long): LocalVirtualLibrary.Video?
         fun toggle(video: LocalVirtualLibrary.Video, onSaved: (added: Boolean) -> Unit, onFailed: () -> Unit)
         /** Every local folder, with [Folder.checked] set for the ones that already hold the video. Calls back on the main thread. */
@@ -174,25 +198,30 @@ internal class GuestVideoFavoriteHooks(
         val hostReady = hostDialog?.let { runCatching { it.install(env, loader) }.getOrDefault(false) } == true
         if (hostDialog != null) env.reportStatus("guest_video_favorite_host_dialog", if (hostReady) "installed" else "absent")
         val hosted = AtomicBoolean(false)
+        val interactionReady = interactionSource?.let { runCatching { it.install(env, loader) }.getOrDefault(false) } == true
+        if (interactionSource != null) env.reportStatus("guest_video_favorite_interaction", if (interactionReady) "installed" else "absent")
+        val snackbarReady = hostSnackbar?.let { runCatching { it.install(env, loader) }.getOrDefault(false) } == true
+        if (hostSnackbar != null) env.reportStatus("guest_video_favorite_snackbar", if (snackbarReady) "installed" else "absent")
 
         /** Repaints the star from the result, or says "saved" when there is no star writer. */
-        fun paintStar(context: Context?, aid: Long, favorited: Boolean) {
-            if (stateWriter == null) notify(context, true)
+        fun paintStar(context: Context?, aid: Long, favorited: Boolean, announceFallback: Boolean = true) {
+            if (stateWriter == null) { if (announceFallback) notify(context, true) }
             else runCatching { stateWriter.write(aid, favorited) }
                 .onSuccess { if (painted.compareAndSet(false, true)) env.reportStatus("guest_video_favorite_repainted", "seen") }
                 .onFailure { env.logError("guest_video_favorite_state", "[BIL] Favorite star state not updated: ${it.javaClass.simpleName}") }
         }
 
         /** The local write committed: let the page repository move the count and the star, or repaint the star alone. */
-        fun onCommitted(context: Context?, aid: Long, favorited: Boolean, after: (Boolean) -> Unit = {}) {
+        fun onCommitted(context: Context?, aid: Long, favorited: Boolean, after: (Boolean) -> Unit = {},
+                        announceFallback: Boolean = true) {
             if (saved.compareAndSet(false, true)) env.reportStatus("guest_video_favorite_saved", "seen")
             after(favorited)
             val handed = pageReady && runCatching {
-                pageFavorite!!.apply(aid, favorited) { paintStar(context, aid, favorited) }
+                pageFavorite!!.apply(aid, favorited) { paintStar(context, aid, favorited, announceFallback) }
             }.getOrDefault(false)
             if (handed) {
                 if (counted.compareAndSet(false, true)) env.reportStatus("guest_video_favorite_counted", "seen")
-            } else paintStar(context, aid, favorited)
+            } else paintStar(context, aid, favorited, announceFallback)
         }
 
         fun onFailure(context: Context?) {
@@ -201,48 +230,89 @@ internal class GuestVideoFavoriteHooks(
             notify(context, false)
         }
 
-        fun toggleDefault(context: Context?, video: LocalVirtualLibrary.Video, after: (Boolean) -> Unit) =
-            store.toggle(video, { added -> onCommitted(context, video.aid, added, after) }, { onFailure(context) })
+        fun toggleDefault(context: Context?, video: LocalVirtualLibrary.Video, after: (Boolean) -> Unit,
+                          feedback: ((Boolean) -> Unit)? = null) =
+            store.toggle(video, { added ->
+                onCommitted(context, video.aid, added, after, announceFallback = feedback == null)
+                feedback?.invoke(added)
+            }, { onFailure(context) })
 
-        /** Opens the folder choice; a picker that cannot show (no live Activity) hands the tap to the default folder instead. */
-        fun pick(context: Context?, video: LocalVirtualLibrary.Video, folders: List<Folder>, after: (Boolean) -> Unit) {
+        /** Opens the folder choice, optionally retaining the old toggle fallback for unrecognised events. */
+        fun pick(context: Context?, video: LocalVirtualLibrary.Video, folders: List<Folder>, after: (Boolean) -> Unit,
+                 valid: () -> Boolean, toggleOnFailure: Boolean) {
             val shown = picker?.show(context, folders,
-                { selected ->
+                confirm@ { selected ->
+                    if (!valid()) return@confirm
                     store.save(video, selected, { onCommitted(context, video.aid, selected.isNotEmpty(), after) }, { onFailure(context) })
                 },
-                { name, selected ->
+                create@ { name, selected ->
+                    if (!valid()) return@create
                     store.createFolder(name, {
-                        // Back to the picker with the new folder ticked and the earlier ticks kept.
                         store.folders(video.aid) { fresh ->
-                            pick(context, video, fresh.map { it.copy(checked = it.name in selected || it.name == name) }, after)
+                            if (valid()) pick(context, video, fresh.map { it.copy(checked = it.name in selected || it.name == name) },
+                                after, valid, toggleOnFailure)
                         }
                     }, { onFailure(context) })
                 }) == true
             if (shown) {
                 if (picked.compareAndSet(false, true)) env.reportStatus("guest_video_favorite_picker", "seen")
-            } else toggleDefault(context, video, after)
+            } else if (toggleOnFailure) toggleDefault(context, video, after) else onFailure(context)
         }
 
         /** The host's picker writes the library itself; once it closes, the star and count follow a changed state. */
-        fun hostPick(context: Context?, video: LocalVirtualLibrary.Video, folders: List<Folder>, after: (Boolean) -> Unit): Boolean {
+        fun hostPick(context: Context?, video: LocalVirtualLibrary.Video, folders: List<Folder>, after: (Boolean) -> Unit,
+                     valid: () -> Boolean, story: Boolean): Boolean {
             val before = folders.any { it.checked }
-            val shown = hostDialog!!.show(context, video, before) {
-                store.folders(video.aid) { now ->
+            val shown = hostDialog!!.show(context, video, before, story) {
+                if (valid()) store.folders(video.aid) { now ->
                     val favorited = now.any { it.checked }
-                    if (favorited != before) onCommitted(context, video.aid, favorited, after)
+                    if (valid() && favorited != before) onCommitted(context, video.aid, favorited, after)
                 }
             }
             if (shown && hosted.compareAndSet(false, true)) env.reportStatus("guest_video_favorite_host_picker", "seen")
             return shown
         }
 
-        /** One star tap on a known video: the host's folder choice, else the module's, otherwise the default folder. */
-        fun startTap(context: Context?, video: LocalVirtualLibrary.Video, after: (Boolean) -> Unit = {}) {
+        fun openPicker(context: Context?, video: LocalVirtualLibrary.Video, after: (Boolean) -> Unit,
+                       valid: () -> Boolean, toggleOnFailure: Boolean, story: Boolean) {
+            if (!valid()) return
+            if (picker == null && !hostReady) {
+                if (toggleOnFailure) toggleDefault(context, video, after) else onFailure(context)
+            } else store.folders(video.aid) { folders ->
+                if (!valid()) return@folders
+                if (!(hostReady && hostPick(context, video, folders, after, valid, story))) {
+                    if (picker == null) {
+                        if (toggleOnFailure) toggleDefault(context, video, after) else onFailure(context)
+                    } else pick(context, video, folders, after, valid, toggleOnFailure)
+                }
+            }
+        }
+
+        /** A recognised click toggles the default folder; long-press and the snackbar open the folder choice. */
+        fun startTap(context: Context?, video: LocalVirtualLibrary.Video, after: (Boolean) -> Unit = {},
+                     interaction: Interaction = Interaction.UNKNOWN, story: Boolean = false) {
+            val session = store.sessionGuard() ?: return
+            val valid = { session() && runCatching { isGuest() }.getOrDefault(false) }
+            if (!valid()) return
             if (applied.compareAndSet(false, true)) env.reportStatus("guest_video_favorite_applied", "seen")
-            if (picker == null && !hostReady) toggleDefault(context, video, after)
-            else store.folders(video.aid) { folders ->
-                if (!(hostReady && hostPick(context, video, folders, after))) {
-                    if (picker == null) toggleDefault(context, video, after) else pick(context, video, folders, after)
+            if (interaction != Interaction.CLICK) {
+                openPicker(context, video, after, valid, toggleOnFailure = interaction == Interaction.UNKNOWN, story = story)
+                return
+            }
+            val contextRef = context?.let(::WeakReference)
+            toggleDefault(context, video, after) { added ->
+                if (valid()) {
+                    if (added) {
+                        val shown = snackbarReady && runCatching {
+                            hostSnackbar!!.showAdded(context, video, story) {
+                                val live = contextRef?.get()
+                                if (live != null && valid()) openPicker(live, video, after, valid, toggleOnFailure = false, story = story)
+                            }
+                        }.getOrDefault(false)
+                        if (shown) env.reportStatus("guest_video_favorite_snackbar_shown", "seen") else notify(context, true)
+                    } else if (!(snackbarReady && runCatching { hostSnackbar!!.showRemoved(context) }.getOrDefault(false))) {
+                        notifyRemoved(context)
+                    }
                 }
             }
         }
@@ -260,12 +330,16 @@ internal class GuestVideoFavoriteHooks(
                     val aid = favoriteAid(route, scene, extend) ?: return@before
                     val video = store.metadata(aid) ?: return@before
                     result = null
-                    startTap(context, video)
+                    val interaction = if (interactionReady) runCatching { interactionSource.current() }.getOrDefault(Interaction.UNKNOWN)
+                        else Interaction.UNKNOWN
+                    startTap(context, video, interaction = interaction)
                 }
             }
             hooks++
         }
-        hooks += installStoryStar(env, loader) { tap -> startTap(tap.context, tap.video, tap.markFavorite) }
+        hooks += installStoryStar(env, loader) { tap, longPress ->
+            startTap(tap.context, tap.video, tap.markFavorite, if (longPress) Interaction.LONG_PRESS else Interaction.CLICK, story = true)
+        }
         env.reportStatus("guest_video_favorite", "installed")
         hooks
     }.getOrElse {
@@ -282,7 +356,7 @@ internal class GuestVideoFavoriteHooks(
      * hook answers `RouteResponse(OK, request)` and the login screen is never started. When the video cannot be told, the login
      * screen stays, so a tap is never swallowed without an effect.
      */
-    private fun installStoryStar(env: HookEnvironment, loader: ClassLoader, tap: (StoryTap) -> Unit): Int = runCatching {
+    private fun installStoryStar(env: HookEnvironment, loader: ClassLoader, tap: (StoryTap, Boolean) -> Unit): Int = runCatching {
         val source = storyStar ?: return@runCatching 0
         val router = PrivacyStructuralResolver.type(loader, routerNames.router) ?: return@runCatching 0
         val request = PrivacyStructuralResolver.type(loader, routerNames.request) ?: return@runCatching 0
@@ -299,7 +373,8 @@ internal class GuestVideoFavoriteHooks(
                 val routeRequest = argOrNull(0) ?: return@before
                 val uri = runCatching { getTargetUri.invoke(routeRequest)?.toString() }.getOrNull() ?: return@before
                 if (uri.substringBefore('?').trimEnd('/') !in LOGIN_ROUTES) return@before
-                if (!isStoryStar(Throwable().stackTrace)) return@before
+                val longPress = runCatching { source.isLongPress() }.getOrDefault(false)
+                if (!longPress && !isStoryStar(Throwable().stackTrace)) return@before
                 val tapped = runCatching { source.tapped() }.getOrNull()
                 if (tapped == null) {
                     env.reportStatus("guest_video_favorite_story_unknown", "seen")
@@ -307,7 +382,7 @@ internal class GuestVideoFavoriteHooks(
                 }
                 result = runCatching { newResponse.newInstance(ok, routeRequest) }.getOrNull() ?: return@before
                 env.reportStatus("guest_video_favorite_story", "seen")
-                tap(tapped)
+                tap(tapped, longPress)
             }
         }
         1
@@ -342,6 +417,7 @@ internal class GuestVideoFavoriteHooks(
 
         /** The production store: the guest library's cached view metadata and its serialized write path. */
         fun storeFor(library: GuestLibraryRuntime): FavoriteStore = object : FavoriteStore {
+            override fun sessionGuard(): (() -> Boolean)? = library.currentToken()?.let { token -> { library.accepts(token) } }
             override fun metadata(aid: Long) = library.videoMetadata(aid, 0)
             override fun toggle(video: LocalVirtualLibrary.Video, onSaved: (Boolean) -> Unit, onFailed: () -> Unit) {
                 // The mutation runs on the library's IO thread and the callback on another, so the result crosses threads.

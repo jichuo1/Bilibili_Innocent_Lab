@@ -45,6 +45,8 @@ internal class GuestStoryStar(
     )
 
     private val widgets = ArrayList<WeakReference<View>>()
+    private val longPress = StoryPressScope<View>()
+    private class PreviousPress(val view: View?)
     @Volatile private var reader: Reader? = null
     @Volatile private var report: (String) -> Unit = {}
 
@@ -89,8 +91,34 @@ internal class GuestStoryStar(
             }
         }
         reader = read
+        // Long presses are infrequent; scope only the actual Story widget while Android invokes its listener. This also
+        // handles merged host listener classes without guessing their obfuscated names or retaining a View after dispatch.
+        val longMethods = listOfNotNull(
+            Lookup.methodOrNull(View::class.java, "performLongClick"),
+            Lookup.methodOrNull(View::class.java, "performLongClick", java.lang.Float.TYPE, java.lang.Float.TYPE)
+        ).filter { it.returnType == java.lang.Boolean.TYPE }.distinct()
+        val hooked = longMethods.count { method ->
+            runCatching {
+                env.registrar.exact("guest.video.favorite.story.long.${method.parameterCount}",
+                    method.declaringClass, method.name, *method.parameterTypes) {
+                    before {
+                        val target = instance as? View ?: return@before
+                        if (!widget.isInstance(target)) return@before
+                        setObjectExtra(PRESS_MARK, PreviousPress(longPress.enter(target)))
+                    }
+                    after {
+                        val previous = getObjectExtra(PRESS_MARK) as? PreviousPress ?: return@after
+                        longPress.exit(previous.view)
+                    }
+                }
+                true
+            }.getOrDefault(false)
+        }
+        env.reportStatus("guest_video_favorite_story_long_scope", if (hooked > 0) "installed" else "absent")
         true
     }.getOrDefault(false).also { env.reportStatus("guest_video_favorite_story_source", if (it) "installed" else "absent") }
+
+    override fun isLongPress(): Boolean = longPress.current() != null
 
     private fun register(view: View) = synchronized(widgets) {
         widgets.removeAll { it.get() == null }
@@ -139,7 +167,12 @@ internal class GuestStoryStar(
      */
     override fun tapped(): GuestVideoFavoriteHooks.StoryTap? {
         val read = reader ?: return why("no-reader")
-        val visible = visibleWidgets()
+        val pressed = longPress.current()
+        val visible = if (pressed == null) visibleWidgets() else {
+            val rect = Rect()
+            if (pressed.isShown && pressed.isAttachedToWindow && pressed.getGlobalVisibleRect(rect))
+                listOf(pressed to rect.width().toLong() * rect.height()) else emptyList()
+        }
         if (visible.isEmpty()) return why("no-widget:registered=${synchronized(widgets) { widgets.count { it.get() != null } }},${describeWidgets()}")
         return runCatching {
             val candidates = visible.mapNotNull { (view, area) -> candidate(read, view, area) }
@@ -154,13 +187,16 @@ internal class GuestStoryStar(
             GuestVideoFavoriteHooks.StoryTap(chosen.view.context, chosen.video) { favorited ->
                 // The Story star paints from the item's own request-user state, so keep every copy of this item in step.
                 same.forEach { match ->
+                    // The host can recycle a Story widget while the local write is in flight.
+                    if (!stillBound(read, match)) return@forEach
                     val user = runCatching { read.requestUser.invoke(match.detail) }.getOrNull()
                     // The count moves only when the star state really changes, so a second "done" with the same ticks adds nothing.
                     val changed = user != null && runCatching { read.getFavorite?.invoke(user) as? Boolean }.getOrNull()?.let { it != favorited } == true
                     runCatching { user?.let { read.setFavorite.invoke(it, favorited) } }
                     if (changed) runCatching { shiftCount(read, match.detail, if (favorited) 1 else -1) }
                     // The icon and the count are painted from the widget's views; set them on the UI thread.
-                    match.view.post {
+                    match.view.post paint@ {
+                        if (!stillBound(read, match)) return@paint
                         runCatching { (read.iconField?.apply { isAccessible = true }?.get(match.view) as? android.widget.ImageView)?.isSelected = favorited }
                         if (changed) runCatching { nudgeCountText(read, match.view, if (favorited) 1 else -1) }
                     }
@@ -169,6 +205,12 @@ internal class GuestStoryStar(
         }.getOrElse { why("read-failed:${it.javaClass.simpleName}") }
     }
 
+    /** Check again before painting: a recycled view may now represent a different video. */
+    private fun stillBound(read: Reader, match: Candidate): Boolean = runCatching {
+        val controller = read.controllerField.get(match.view) ?: return@runCatching false
+        val detail = read.getData.invoke(controller) ?: return@runCatching false
+        detail === match.detail && (read.aid.invoke(detail) as? Number)?.toLong() == match.video.aid
+    }.getOrDefault(false)
     /** Moves the item's own favorite count by [delta] (never below zero). Does nothing when this build lacks the stat members. */
     private fun shiftCount(read: Reader, detail: Any, delta: Int) {
         val getStat = read.getStat ?: return
@@ -190,6 +232,7 @@ internal class GuestStoryStar(
     }
 
     companion object {
+        private const val PRESS_MARK = "guest.video.favorite.story.long.previous"
         const val WIDGET = "com.bilibili.video.story.action.widget.StoryFavoriteWidget"
         const val DETAIL = "com.bilibili.video.story.StoryDetail"
 
@@ -205,4 +248,12 @@ internal class GuestStoryStar(
             return (shown + delta).coerceAtLeast(0).toString()
         }
     }
+}
+
+/** Restores nested gesture dispatches and never keeps a view after the callback returns. */
+internal class StoryPressScope<T : Any> {
+    private val value = ThreadLocal<T>()
+    fun current(): T? = value.get()
+    fun enter(target: T): T? = value.get().also { value.set(target) }
+    fun exit(previous: T?) { if (previous == null) value.remove() else value.set(previous) }
 }

@@ -6,10 +6,13 @@ import android.content.Context
 import android.content.Intent
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
+import com.highcapable.betterandroid.ui.extension.component.hostActivity
 import com.highcapable.kavaref.extension.classOf
 import com.highcapable.kavaref.extension.isStatic
 import java.lang.ref.WeakReference
 import java.lang.reflect.Constructor
+import java.lang.reflect.Method
+import java.util.concurrent.atomic.AtomicReference
 import java.util.Collections
 import java.util.WeakHashMap
 
@@ -26,7 +29,8 @@ import java.util.WeakHashMap
  * nothing outside the dialog sees it. A build without that shape keeps the module's picker.
  */
 internal class GuestHostFavoriteDialog : GuestVideoFavoriteHooks.HostDialog {
-    private class Parts(val params: Constructor<*>, val dialog: Constructor<*>, val activity: Class<*>, val ugc: Any, val scene: Any)
+    private class Parts(val params: Constructor<*>, val dialog: Constructor<*>, val activity: Class<*>, val ugc: Any,
+                        val scene: Any, val storyScene: Any)
 
     private var parts: Parts? = null
     private var watchResults: ((Class<*>) -> Unit)? = null
@@ -52,8 +56,9 @@ internal class GuestHostFavoriteDialog : GuestVideoFavoriteHooks.HostDialog {
         // Up to 8.96 the 19 fields have a plain constructor; from 8.97 the only one also takes the defaults mask (passed 0).
         val paramsConstructor = requireNotNull(Lookup.constructorOrNull(params, *fields)
             ?: Lookup.constructorOrNull(params, *fields, classOf<Int>())) { "FavoriteDialog params" }
-        val ugc = requireNotNull(Lookup.fieldOrNull(bizType, "UGC")).get(null)
-        val detail = requireNotNull(Lookup.fieldOrNull(scene, "DetailPage")).get(null)
+        val ugc = requireNotNull(requireNotNull(Lookup.fieldOrNull(bizType, "UGC")).get(null))
+        val detail = requireNotNull(requireNotNull(Lookup.fieldOrNull(scene, "DetailPage")).get(null))
+        val story = requireNotNull(requireNotNull(Lookup.fieldOrNull(scene, "Story")).get(null))
         val accounts = host.type("com.bilibili.lib.accounts.BiliAccounts")
         val isLogin = requireNotNull(Lookup.methodOrNull(accounts, "isLogin")) { "BiliAccounts.isLogin" }
         val methods = Lookup.declaredMethods(dialog) { !java.lang.reflect.Modifier.isAbstract(it.modifiers) }
@@ -73,15 +78,30 @@ internal class GuestHostFavoriteDialog : GuestVideoFavoriteHooks.HostDialog {
         env.registrar.exact("guest.host.favorite.login", accounts, isLogin.name) {
             before { if (GuestLoginScope.active) result = true }
         }
-        // The dialog's "new folder" page reports back as the video page's activity result; the page reloads only its own
-        // dialog (its `FavoriteDialog` field), so a dialog opened here reloads through the same list method. That method is
-        // the dialog's only own no-argument one (overrides such as `onStart` keep their names); none means no reload.
-        val reload = Lookup.declaredMethods(dialog, makeAccessible = true) {
+        // Newer builds have a unique own no-arg list method. Older builds have several, so learn the actual caller when
+        // the dialog constructs its named updateFavBoxList coroutine. Only our own open dialog may teach this method.
+        val reload = AtomicReference(Lookup.declaredMethods(dialog, makeAccessible = true) {
             !it.isStatic && it.returnType == Void.TYPE && it.parameterCount == 0 &&
                 Lookup.inheritedMethodOrNull(requireNotNull(dialog.superclass), it.name) == null
-        }.singleOrNull()
+        }.singleOrNull())
+        if (reload.get() == null) runCatching {
+            val marker = host.type("$DIALOG\$updateFavBoxList\$1")
+            val constructor = requireNotNull(Lookup.declaredConstructors(marker) {
+                it.parameterTypes.count { type -> type == dialog } == 1
+            }.singleOrNull()) { "FavoriteDialog update coroutine constructor" }
+            val dialogArgument = constructor.parameterTypes.indexOf(dialog)
+            env.registrar.constructor("guest.host.favorite.reload.marker", constructor) {
+                before {
+                    if (reload.get() != null) return@before
+                    val target = argOrNull(dialogArgument) ?: return@before
+                    if (!opened.containsKey(target)) return@before
+                    val method = resolveReloadFromStack(dialog, Throwable().stackTrace) ?: return@before
+                    if (reload.compareAndSet(null, method)) env.reportStatus("guest_video_favorite_reload_learned", "seen")
+                }
+            }
+        }.onFailure { env.reportStatus("guest_video_favorite_reload_marker", "absent") }
         // The page's own override need not call up the chain, so the override that runs is hooked when a dialog first opens.
-        watchResults = if (reload == null) null else { page ->
+        watchResults = { page ->
             val method = Lookup.inheritedMethodOrNull(page, "onActivityResult", classOf<Int>(), classOf<Int>(), classOf<Intent>())
             if (method != null && synchronized(watched) { watched.add(method) }) {
                 env.registrar.exact("guest.host.favorite.result.${method.declaringClass.name}", method.declaringClass, method.name,
@@ -89,29 +109,32 @@ internal class GuestHostFavoriteDialog : GuestVideoFavoriteHooks.HostDialog {
                     after {
                         if (argOrNull(0) != REQUEST_CODE || argOrNull(1) != Activity.RESULT_OK) return@after
                         val owner = instance ?: return@after
+                        val method = reload.get() ?: return@after
                         synchronized(opened) { opened.filter { (_, page) -> page.get() === owner }.keys.toList() }
-                            .filterIsInstance<Dialog>().filter { it.isShowing }.forEach { reload.invoke(it) }
+                            .filterIsInstance<Dialog>().filter { it.isShowing }.forEach { method.invoke(it) }
                     }
                 }
             }
         }
-        parts = Parts(paramsConstructor, dialogConstructor, activity, ugc, detail)
+        parts = Parts(paramsConstructor, dialogConstructor, activity, ugc, detail, story)
         true
     }.getOrElse {
         env.reportStatus("guest_video_favorite_host_dialog", "absent:${it.javaClass.simpleName}")
         false
     }
 
-    override fun show(context: Context?, video: LocalVirtualLibrary.Video, favorited: Boolean, onClosed: () -> Unit): Boolean {
+    override fun show(context: Context?, video: LocalVirtualLibrary.Video, favorited: Boolean, story: Boolean,
+                      onClosed: () -> Unit): Boolean {
         val found = parts ?: return false
-        if (context == null || !found.activity.isInstance(context)) return false
+        val activity = context?.hostActivity?.takeUnless { it.isFinishing || it.isDestroyed } ?: return false
+        if (!found.activity.isInstance(activity)) return false
         return runCatching {
             val values = arrayOf<Any?>(video.aid, video.cid, found.ugc, favorited, REQUEST_CODE, false, false, false,
-                emptyMap<String, String>(), "", "", "", found.scene, false, false, false, "", "", null)
+                emptyMap<String, String>(), "", "", "", if (story) found.storyScene else found.scene, false, false, false, "", "", null)
             val params = found.params.newInstance(*(if (found.params.parameterCount == values.size) values else values + 0))
-            val dialog = found.dialog.newInstance(context, params, null) as Dialog
-            opened[dialog] = WeakReference(context)
-            runCatching { watchResults?.invoke(context.javaClass) }
+            val dialog = found.dialog.newInstance(activity, params, null) as Dialog
+            opened[dialog] = WeakReference(activity)
+            runCatching { watchResults?.invoke(activity.javaClass) }
             dialog.setOnDismissListener { onClosed() }
             GuestLoginScope.enter()
             try { dialog.show() } finally { GuestLoginScope.exit() }
@@ -119,8 +142,19 @@ internal class GuestHostFavoriteDialog : GuestVideoFavoriteHooks.HostDialog {
         }.getOrDefault(false)
     }
 
-    private companion object {
-        const val DIALOG = "com.bilibili.playset.widget.favorite.FavoriteDialog"
+    internal companion object {
+        /** The closest dialog frame is the method that constructed its list-update coroutine. */
+        fun resolveReloadFromStack(dialog: Class<*>, stack: Array<StackTraceElement>): Method? {
+            val parent = dialog.superclass ?: return null
+            val candidates = Lookup.declaredMethods(dialog, makeAccessible = true) {
+                !it.isStatic && it.returnType == Void.TYPE && it.parameterCount == 0 &&
+                    Lookup.inheritedMethodOrNull(parent, it.name) == null
+            }.groupBy { it.name }
+            return stack.asSequence().filter { it.className == dialog.name }
+                .mapNotNull { candidates[it.methodName]?.singleOrNull() }.firstOrNull()
+        }
+
+        private const val DIALOG = "com.bilibili.playset.widget.favorite.FavoriteDialog"
         const val MARK = "guest.host.favorite.depth"
         /** What the video page passes; the dialog only hands it back in its activity result. */
         const val REQUEST_CODE = 209

@@ -7,6 +7,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.highcapable.kavaref.extension.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import java.lang.ref.WeakReference
+import java.lang.reflect.InvocationTargetException
 import java.util.WeakHashMap
 
 /** 8.90.2 native favorite state, animations, snackbars and folder sheet; only storage is replaced. */
@@ -28,6 +29,8 @@ internal class GuestNativeFavoriteHooks(
         val pageConstructor = requireNotNull(Lookup.constructorOrNull(page, classOf<Int>(), classOf<List<*>>(),
             host.type("com.bilibili.playset.widget.favorite.PlaySeason"), classOf<Boolean>()))
         val json = host.type("com.google.gson.JsonObject")
+        val snackbar = GuestHostFavoriteSnackbar()
+        val snackbarReady = snackbar.install(env, host.loader)
         fun field(target: Any, name: String): Any? = requireNotNull(Lookup.fieldOrNull(target.javaClass, name)).get(target)
         fun aid(target: Any): Long = (host.call(requireNotNull(field(target, "c")), "a") as Number).toLong()
         fun selected(aid: Long, state: LocalVirtualLibrary.Collections = snapshot) =
@@ -84,11 +87,39 @@ internal class GuestNativeFavoriteHooks(
                     // Commit first, then use the host's own state/animation/snackbar path.
                     snapshot = state
                     weak.get()?.let { live ->
-                        val context = field(live, "b") as Context
-                        if (added) host.call(live, "D0", true, resource(context, "p5"), 0)
-                        else {
-                            host.call(requireNotNull(field(live, "i")), "I", false)
-                            host.static(host.type("com.bilibili.ship.theseus.united.utils.s"), "d", resource(context, "d1"))
+                        var stage = "context"
+                        try {
+                            val context = field(live, "b") as Context
+                            if (added) {
+                                stage = "added_resource"
+                                val message = resource(context, "p5")
+                                stage = "added_feedback"
+                                withMissingRepositoryFallback({ host.call(live, "D0", true, message, 0) }) {
+                                    val token = library.currentToken()
+                                    val shown = token != null && snackbarReady && snackbar.showAdded(context, target, false) {
+                                        val current = weak.get()
+                                        if (current != null && library.accepts(token) && isGuest()) host.call(current, "V0", false)
+                                    }
+                                    if (shown) env.reportStatus("guest_native_favorite_feedback_fallback", "seen")
+                                    shown
+                                }
+                            } else {
+                                stage = "removed_state"
+                                var missingCache = false
+                                withMissingRepositoryFallback({ host.call(requireNotNull(field(live, "i")), "I", false) }) {
+                                    missingCache = true
+                                    true
+                                }
+                                stage = "removed_feedback"
+                                if (missingCache && snackbarReady && snackbar.showRemoved(context)) {
+                                    env.reportStatus("guest_native_favorite_removed_fallback", "seen")
+                                } else host.static(host.type("com.bilibili.ship.theseus.united.utils.s"), "d", resource(context, "d1"))
+                            }
+                        } catch (error: Exception) {
+                            val missing = (error.cause as? NoClassDefFoundError)?.message?.take(160).orEmpty()
+                            env.logError("guest_native_favorite_feedback", "[BIL] Native favorite feedback failed at $stage: " +
+                                "${error.javaClass.simpleName}/${error.cause?.javaClass?.simpleName ?: "none"} $missing")
+                            throw error
                         }
                     }
                 })
@@ -216,6 +247,16 @@ internal class GuestNativeFavoriteHooks(
     }
 
     companion object {
+        /** Some 8.90.2 installations lack FavorRepository: keep the committed local write and use the host snackbar directly. */
+        internal fun withMissingRepositoryFallback(native: () -> Unit, fallback: () -> Boolean) {
+            try {
+                native()
+            } catch (error: InvocationTargetException) {
+                val missing = error.targetException as? NoClassDefFoundError
+                if (missing?.message?.replace('/', '.') != "com.bilibili.community.favorite.FavorRepository" || !fallback()) throw error
+            }
+        }
+
         private const val KING = "com.bilibili.ship.theseus.united.page.intro.module.kingposition.KingPositionService"
         private const val RELATION = "com.bilibili.ship.theseus.united.page.view.RelationRepository"
         private const val DIALOG = "com.bilibili.playset.widget.favorite.FavoriteDialog"

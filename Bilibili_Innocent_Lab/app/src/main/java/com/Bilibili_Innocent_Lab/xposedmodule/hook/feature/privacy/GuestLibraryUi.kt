@@ -17,23 +17,23 @@ internal data class GuestLibraryStrings(
     val folder: String, val noVideo: String, val signIn: String, val incognitoTitle: String,
     val exitToSignIn: String,
     /** The host's own follow feedback text, for a follow the module stored instead of the host. */
-    val followed: String, val unfollowed: String
+    val followed: String, val unfollowed: String, val favoriteRemoved: String
 ) {
     companion object {
         fun resolve(context: Context): GuestLibraryStrings = when (InjectedUiLocale.resolveEffectiveTag(context)) {
             "zh-CN" -> GuestLibraryStrings("本地账号", "历史记录", "本地收藏夹", "稍后再看", "本地关注",
                 "暂无记录", "已保存到本地", "本地资料操作失败", "已刷新无痕身份", "刷新无痕身份",
                 "清空历史", "移除", "新建收藏夹", "请先播放一个视频", "登录账号", "无痕会话",
-                "请先关闭无痕模式并重启哔哩哔哩，再登录账号。", "关注成功~", "已取消关注")
+                "请先关闭无痕模式并重启哔哩哔哩，再登录账号。", "关注成功~", "已取消关注", "已取消收藏")
             "zh-Hant" -> GuestLibraryStrings("本機帳號", "歷史記錄", "本機收藏夾", "稍後再看", "本機關注",
                 "尚無記錄", "已儲存至本機", "本機資料操作失敗", "已更新無痕身分", "更新無痕身分",
                 "清空歷史", "移除", "新增收藏夾", "請先播放一部影片", "登入帳號", "無痕工作階段",
-                "請先關閉無痕模式並重新啟動嗶哩嗶哩，再登入帳號。", "關注成功~", "已取消關注")
+                "請先關閉無痕模式並重新啟動嗶哩嗶哩，再登入帳號。", "關注成功~", "已取消關注", "已取消收藏")
             else -> GuestLibraryStrings("Local account", "History", "Local favorites", "Watch later", "Local follows",
                 "No records", "Saved locally", "Local library operation failed", "Incognito identity refreshed",
                 "Refresh incognito identity", "Clear history", "Remove", "New folder", "Play a video first",
                 "Sign in", "Incognito session", "Turn off incognito and restart Bilibili before signing in.",
-                "Followed", "Unfollowed")
+                "Followed", "Unfollowed", "Removed from favorites")
         }
     }
 }

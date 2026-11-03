@@ -23,6 +23,11 @@ class GuestVideoFavoriteHooksTest {
         val folderChecks = linkedMapOf("默认收藏夹" to false)
         val savedSelections = mutableListOf<Set<String>>()
         val created = mutableListOf<String>()
+        var generation = 0
+        override fun sessionGuard(): () -> Boolean {
+            val captured = generation
+            return { captured == generation }
+        }
         override fun metadata(aid: Long) =
             if (aid in known) LocalVirtualLibrary.Video(aid, 1L, "t$aid", 1000L, 0L, 1L) else null
         override fun toggle(video: LocalVirtualLibrary.Video, onSaved: (Boolean) -> Unit, onFailed: () -> Unit) {
@@ -82,9 +87,39 @@ class GuestVideoFavoriteHooksTest {
         router: GuestVideoFavoriteHooks.RouterNames = NO_ROUTER,
         story: GuestVideoFavoriteHooks.StoryStarSource? = null,
         fromStoryStar: Boolean = true,
-        page: GuestVideoFavoriteHooks.PageFavoriteSource? = null
+        page: GuestVideoFavoriteHooks.PageFavoriteSource? = null,
+        interaction: GuestVideoFavoriteHooks.InteractionSource? = null,
+        snackbar: GuestVideoFavoriteHooks.HostSnackbar? = null
     ) = GuestVideoFavoriteHooks(store, guest, proxyClass, { scene to extend }, locate, { _, saved -> notified += saved }, picker,
-        router, story, page) { fromStoryStar }
+        router, story, page, interactionSource = interaction, hostSnackbar = snackbar,
+        notifyRemoved = { notified += true }) { fromStoryStar }
+
+    private class FakeInteraction(var action: GuestVideoFavoriteHooks.Interaction, var installs: Boolean = true) :
+        GuestVideoFavoriteHooks.InteractionSource {
+        override fun install(env: HookEnvironment, loader: ClassLoader) = installs
+        override fun current() = action
+    }
+
+    private class FakeSnackbar(var installs: Boolean = true, var canShow: Boolean = true) : GuestVideoFavoriteHooks.HostSnackbar {
+        val added = mutableListOf<Long>()
+        val storySurfaces = mutableListOf<Boolean>()
+        var removed = 0
+        var modify: (() -> Unit)? = null
+        override fun install(env: HookEnvironment, loader: ClassLoader) = installs
+        override fun showAdded(context: android.content.Context?, video: LocalVirtualLibrary.Video, story: Boolean,
+                               onModify: () -> Unit): Boolean {
+            if (!canShow) return false
+            added += video.aid
+            storySurfaces += story
+            modify = onModify
+            return true
+        }
+        override fun showRemoved(context: android.content.Context?): Boolean {
+            if (!canShow) return false
+            removed++
+            return true
+        }
+    }
 
     /** Stands in for the host's page repository: records what it was given and answers as the test says. */
     private class FakePage(var installs: Boolean = true, var takes: Boolean = true, var throwsLater: Boolean = false) :
@@ -101,9 +136,10 @@ class GuestVideoFavoriteHooksTest {
 
     /** Stands in for the Story widget lookup: reports a fixed tap (or none) and records the star state it was told to paint. */
     private class FakeStory(var tap: LocalVirtualLibrary.Video? = LocalVirtualLibrary.Video(555L, 1L, "story video", 1000L, 0L, 1L),
-                            var installs: Boolean = true) : GuestVideoFavoriteHooks.StoryStarSource {
+                            var installs: Boolean = true, var longPress: Boolean = false) : GuestVideoFavoriteHooks.StoryStarSource {
         val painted = mutableListOf<Boolean>()
         override fun install(env: HookEnvironment, loader: ClassLoader) = installs
+        override fun isLongPress() = longPress
         override fun tapped() = tap?.let { video -> GuestVideoFavoriteHooks.StoryTap(null, video) { painted += it } }
     }
 
@@ -357,6 +393,73 @@ class GuestVideoFavoriteHooksTest {
         assertNull(statuses["guest_video_favorite_saved"])
     }
 
+    @Test fun recognizedClickTogglesTheDefaultFolderAndUsesTheHostSnackbar() {
+        val store = FakeStore()
+        val picker = FakePicker()
+        val snackbar = FakeSnackbar()
+        val registrar = PlayerPortTestRegistrar()
+        hooks(store, picker = picker, interaction = FakeInteraction(GuestVideoFavoriteHooks.Interaction.CLICK),
+            snackbar = snackbar).install(environment(registrar))
+
+        registrar.openString("activity://main/login/")
+        assertEquals(listOf(100L), store.toggled)
+        assertEquals(listOf(100L), snackbar.added)
+        assertTrue(picker.shown.isEmpty())
+        assertTrue(notified.isEmpty())
+        assertEquals("seen", statuses["guest_video_favorite_snackbar_shown"])
+
+        store.added = false
+        registrar.openString("activity://main/login/")
+        assertEquals(1, snackbar.removed)
+        assertEquals(listOf(100L, 100L), store.toggled)
+    }
+
+    @Test fun recognizedLongPressOpensThePickerWithoutChangingFavorites() {
+        val store = FakeStore()
+        val picker = FakePicker()
+        val registrar = PlayerPortTestRegistrar()
+        hooks(store, picker = picker, interaction = FakeInteraction(GuestVideoFavoriteHooks.Interaction.LONG_PRESS))
+            .install(environment(registrar))
+        registrar.openString("activity://main/login/")
+        assertEquals(1, picker.shown.size)
+        assertTrue(store.toggled.isEmpty())
+        assertTrue(store.savedSelections.isEmpty())
+    }
+
+    @Test fun longPressWithNoPickerNeverTogglesAnExistingFavorite() {
+        val store = FakeStore()
+        val registrar = PlayerPortTestRegistrar()
+        hooks(store, picker = FakePicker(canShow = false),
+            interaction = FakeInteraction(GuestVideoFavoriteHooks.Interaction.LONG_PRESS)).install(environment(registrar))
+        registrar.openString("activity://main/login/")
+        assertTrue(store.toggled.isEmpty())
+        assertEquals(listOf(false), notified)
+    }
+
+    @Test fun aPickerFromAnOldSessionCannotWriteIntoTheNewSession() {
+        val store = FakeStore()
+        val picker = FakePicker()
+        val registrar = PlayerPortTestRegistrar()
+        hooks(store, picker = picker, interaction = FakeInteraction(GuestVideoFavoriteHooks.Interaction.LONG_PRESS))
+            .install(environment(registrar))
+        registrar.openString("activity://main/login/")
+        store.generation++
+        picker.confirm(setOf("默认收藏夹"))
+        picker.create("新夹", emptySet())
+        assertTrue(store.savedSelections.isEmpty())
+        assertTrue(store.created.isEmpty())
+    }
+
+    @Test fun anUnavailableSnackbarFallsBackToLocalFeedbackAfterTheWrite() {
+        val store = FakeStore()
+        val registrar = PlayerPortTestRegistrar()
+        hooks(store, interaction = FakeInteraction(GuestVideoFavoriteHooks.Interaction.CLICK),
+            snackbar = FakeSnackbar(canShow = false)).install(environment(registrar))
+        registrar.openString("activity://main/login/")
+        assertEquals(listOf(100L), store.toggled)
+        assertEquals(listOf(true), notified)
+    }
+
     @Test fun confirmingSavesExactlyTheTickedFoldersAndRepaintsTheStarOn() {
         com.bilibili.community.favorite.e.calls.clear()
         val store = FakeStore().apply { folderChecks["旅行"] = false }
@@ -464,17 +567,39 @@ class GuestVideoFavoriteHooksTest {
         assertEquals(listOf("activity://main/login/"), proxy.opened)
     }
 
-    @Test fun theStoryStarLoginRequestIsAnsweredOkAndOpensTheFolderChoiceForTheTappedVideo() {
+    @Test fun storySingleClickTogglesAndUsesTheStorySnackbar() {
+        val store = FakeStore()
+        val picker = FakePicker()
+        val snackbar = FakeSnackbar()
+        val story = FakeStory()
+        val registrar = PlayerPortTestRegistrar()
+        hooks(store, picker = picker, router = STORY_ROUTER, story = story, snackbar = snackbar).install(environment(registrar))
+
+        registrar.routeTo("bilibili://login")
+        assertEquals(listOf(555L), store.toggled)
+        assertEquals(listOf(true), story.painted)
+        assertEquals(listOf(555L), snackbar.added)
+        assertEquals(listOf(true), snackbar.storySurfaces)
+        assertTrue(picker.shown.isEmpty())
+
+        store.added = false
+        registrar.routeTo("bilibili://login")
+        assertEquals(listOf(true, false), story.painted)
+        assertEquals(1, snackbar.removed)
+    }
+
+    @Test fun storyLongPressOpensTheFolderChoiceWithoutToggling() {
         com.bilibili.community.favorite.e.calls.clear()
         val store = FakeStore()
         val picker = FakePicker()
-        val story = FakeStory()
+        val story = FakeStory(longPress = true)
         val registrar = PlayerPortTestRegistrar()
-        hooks(store, locate = { GuestVideoFavoriteHooks.locateStateWriter(it) }, picker = picker, router = STORY_ROUTER, story = story)
-            .install(environment(registrar))
+        hooks(store, locate = { GuestVideoFavoriteHooks.locateStateWriter(it) }, picker = picker, router = STORY_ROUTER, story = story,
+            fromStoryStar = false).install(environment(registrar))
 
         val response = registrar.routeTo("bilibili://login")
 
+        assertTrue(store.toggled.isEmpty())
         assertEquals(fixtures.privacy.videofavorite.storyrouter.StoryCode.OK, response.code)   // answered, so the caller sees a handled route
         assertTrue(fixtures.privacy.videofavorite.storyrouter.StoryRouter.routed.isEmpty())    // the login screen was never routed to
         assertEquals(1, picker.shown.size)
@@ -487,7 +612,7 @@ class GuestVideoFavoriteHooksTest {
     }
 
     @Test fun unfavoritingFromTheStoryPickerPaintsTheStoryStarOff() {
-        val story = FakeStory()
+        val story = FakeStory(longPress = true)
         val picker = FakePicker()
         val registrar = PlayerPortTestRegistrar()
         hooks(FakeStore(), picker = picker, router = STORY_ROUTER, story = story).install(environment(registrar))
