@@ -9,6 +9,7 @@ import org.junit.Test
 class GuestVideoFollowInitialStateTest {
     open class Callback
     class OwnerCallback : Callback()
+    class LegacyOwnerCallback : Callback()
     class OtherCallback : Callback()
     class Config(private val mid: Long, private val callback: Callback?, private val guest: Boolean?) {
         fun getMid(): Long = mid
@@ -41,7 +42,7 @@ class GuestVideoFollowInitialStateTest {
             { _, _ -> }, { _, _ -> }, { key, value -> statuses[key] = value })
         init {
             GuestVideoFollowInitialState(source, { guest }, GuestVideoFollowInitialState.Names(
-                Button::class.java.name, Config::class.java.name, Helper::class.java.name, OwnerCallback::class.java.name
+                Button::class.java.name, Config::class.java.name, Helper::class.java.name, OwnerCallback::class.java.name, LegacyOwnerCallback::class.java.name
             )).install(env)
         }
         fun bind(config: Config) = registrar.invoke("guest.video.follow.initial", button, arrayOf(config)) { args ->
@@ -57,6 +58,14 @@ class GuestVideoFollowInitialStateTest {
         assertTrue(h.button.following)
         assertEquals(true, h.button.secondary)
         assertEquals("applied", h.statuses["guest_video_follow_initial"])
+    }
+
+    @Test fun legacyOwnerCallbackReceivesTheLocalState() {
+        val h = Harness()
+        h.bind(Config(42, LegacyOwnerCallback(), false))
+        h.source.requests.single().second(true)
+        assertTrue(h.button.following)
+        assertEquals(false, h.button.secondary)
     }
 
     @Test fun delayedReadsCannotChangeAReboundButton() {

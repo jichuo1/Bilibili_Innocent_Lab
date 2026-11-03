@@ -356,6 +356,26 @@ internal class GuestLibraryRuntime(
     }
 
 
+    /** Sets a host action to an explicit state within the session that opened its confirmation. */
+    internal fun setHostFollow(token: Token, mid: Long, following: Boolean, announce: Boolean, done: () -> Unit) {
+        execute(token) {
+            val existing = library.readSnapshot().collections.follows.firstOrNull { it.mid == mid }
+            if (following && existing == null) {
+                val author = synchronized(gate) { metadata.values.lastOrNull { it.authorMid == mid } }
+                val name = author?.authorName?.takeIf { it.isNotBlank() } ?: "UID $mid"
+                library.follow(LocalVirtualLibrary.Follow(mid, name, author?.authorFace.orEmpty()))
+            } else if (!following && existing != null) {
+                library.unfollow(mid)
+            }
+            val updated = library.readSnapshot().collections
+            onMain(token) {
+                notifyCollections(updated)
+                if (announce) toast(GuestLibraryStrings.resolve(application).saved)
+                done()
+            }
+        }
+    }
+
     /**
      * A host follow click is local even when no video has started. Callback must hold host objects weakly. With
      * [announce] false the caller gives the host's own feedback instead of the module's "saved" toast.

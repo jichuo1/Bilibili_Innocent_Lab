@@ -163,6 +163,10 @@ internal class GuestLibraryHostHooks(
         // The host's follow broadcast: mirrors H5 and other host follow buttons into the library, and the space page back.
         attempt("space_follow") { GuestSpaceFollowSync(library, isGuest).install(env) }
         attempt("video_follow_initial") { GuestVideoFollowInitialState(library, isGuest).install(env) }
+        var videoFollowConfirmation: GuestHostFollowConfirmation? = null
+        attempt("video_follow_confirmation") {
+            videoFollowConfirmation = GuestHostFollowConfirmation(library, isGuest).also { it.install(env) }
+        }
         attempt("follow_button") {
             val access = PrivacyHostAccess(loader)
             val helper = access.type("com.bilibili.relation.utils.FollowFlowHelper")
@@ -198,7 +202,8 @@ internal class GuestLibraryHostHooks(
                         if (uid <= 0) return@before
                         val weak = java.lang.ref.WeakReference(current)
                         val context = argOrNull(0) as? android.content.Context
-                        library.toggleFollow(uid, announce = !native) { following ->
+                        val weakContext = context?.let { java.lang.ref.WeakReference(it) }
+                        val finish: (Boolean) -> Unit = { following ->
                             weak.get()?.let { target ->
                                 if (mid.getLong(target) == uid) {
                                     access.call(target, "setIsAttention", following)
@@ -206,12 +211,19 @@ internal class GuestLibraryHostHooks(
                                         access.call(cb, if (following) "onFollowSuccess" else "onUnFollowSuccess")
                                     } == true
                                     if (native) {
-                                        val strings = context?.let(GuestLibraryStrings::resolve)
-                                        if (!handled && strings != null) toast!!.invoke(null, context, if (following) strings.followed else strings.unfollowed)
+                                        val hostContext = weakContext?.get()
+                                        val strings = hostContext?.let(GuestLibraryStrings::resolve)
+                                        if (!handled && strings != null) toast!!.invoke(null, hostContext, if (following) strings.followed else strings.unfollowed)
                                         broadcast!!.invoke(getInstance!!.invoke(null), uid, following, changed!!.get(target))
                                     }
                                 }
                             }
+                        }
+                        val confirmation = videoFollowConfirmation
+                        if (context != null && confirmation?.canHandle(current) == true) {
+                            confirmation.click(current, context, uid, announce = !native, done = finish)
+                        } else {
+                            library.toggleFollow(uid, announce = !native, done = finish)
                         }
                     }
                 }
