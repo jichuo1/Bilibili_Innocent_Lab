@@ -906,7 +906,7 @@
     <string name="purify_share_content_tip">开启后，清理分享内容中哔哩哔哩链接的追踪参数，保留分页和时间点；不展开短链、不联网。</string>
     <string name="share_mini_program_direct_link">小程序卡片转为普通链接</string>
     <string name="wechat_share_compat">兼容重签名微信分享</string>
-    <string name="wechat_share_compat_tip">仅在信任本机重签名微信时开启。保留微信好友和朋友圈原生分享，仅跳过哔哩哔哩分享实例对微信证书的比较。修改后需重启哔哩哔哩；当前适配 8.90.2，其他版本保留原行为。不改变登录或支付校验。</string>
+    <string name="wechat_share_compat_tip">仅在信任本机重签名微信时开启。保留微信好友和朋友圈原生分享，仅跳过哔哩哔哩分享实例对微信证书的比较。修改后需重启哔哩哔哩；支持已核验的 8.84.0 至 9.18.0 宿主版本，未适配版本保留原行为。不改变登录或支付校验。</string>
     <string name="share_mini_program_direct_link_tip">开启后，分享到微信或 QQ 时改用普通链接卡片，标题仅有应用名时补上视频标题。</string>
     <string name="force_external_browser">站外链接用系统浏览器打开</string>
     <string name="force_external_browser_tip">开启后，用系统浏览器打开站外网页；站内链接和支付链接不变，无可用浏览器时按原方式打开。</string>
