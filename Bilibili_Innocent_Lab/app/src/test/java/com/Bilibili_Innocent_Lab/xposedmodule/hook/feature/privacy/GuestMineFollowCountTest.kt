@@ -26,6 +26,44 @@ class GuestMineFollowCountTest {
         }
     }
 
+    private data class LegacyAccount(
+        val s: Long,
+        val label: String,
+        val flags: List<String>,
+        val p01: Int = 1,
+        val p02: Int = 2,
+        val p03: Int = 3,
+        val p04: Int = 4,
+        val p05: Int = 5,
+        val p06: Int = 6,
+        val p07: Int = 7,
+        val p08: Int = 8,
+        val p09: Int = 9,
+        val p10: Int = 10,
+        val p11: Int = 11,
+        val p12: Int = 12,
+        val p13: Int = 13,
+        val p14: Int = 14,
+        val p15: Int = 15,
+        val p16: Int = 16,
+        val p17: Int = 17,
+        val p18: Int = 18,
+        val p19: Int = 19,
+        val p20: Int = 20,
+        val p21: Int = 21,
+        val p22: Int = 22,
+        val p23: Int = 23,
+        val p24: Int = 24,
+        val p25: Int = 25,
+        val p26: Int = 26,
+        val p27: Int = 27,
+        val p28: Int = 28,
+        val p29: Int = 29,
+        val p30: Int = 30,
+        val p31: Int = 31
+    )
+    private data class LegacyState(val account: LegacyAccount?, val title: String)
+
     private class BrokenState(val account: Account?, val label: String) {
         companion object {
             @JvmStatic fun copyState(original: BrokenState, account: Account?, mask: Int): BrokenState =
@@ -84,6 +122,19 @@ class GuestMineFollowCountTest {
         assertSame(original.label, result.label)
         assertEquals(original.revision, result.revision)
         assertSame(result, adapter()?.rewrite(result, 3))
+    }
+
+    @Test fun legacyAccountCopyPreservesBothDefaultMasksAndOriginalValues() {
+        val original = LegacyAccount(4, "legacy", listOf("same"), p01 = 91, p31 = 93)
+        val state = LegacyState(original, "title")
+        val plan = requireNotNull(GuestMineFollowStateAdapter.accountPlan(LegacyAccount::class.java))
+        assertEquals(2, plan.defaultMasks)
+        val adapter = requireNotNull(GuestMineFollowStateAdapter.resolve(LegacyState::class.java, plan))
+        val result = requireNotNull(adapter.rewrite(state, 7)) as LegacyState
+        assertEquals(original.copy(s = 7), result.account)
+        assertSame(original.flags, result.account!!.flags)
+        assertSame(state.title, result.title)
+        assertEquals(4L, original.s)
     }
 
     @Test fun missingOrWrongStateCopiesAreSafelyIgnored() {

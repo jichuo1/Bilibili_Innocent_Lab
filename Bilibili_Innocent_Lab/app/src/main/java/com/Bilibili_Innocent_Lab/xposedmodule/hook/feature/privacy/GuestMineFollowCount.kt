@@ -185,7 +185,8 @@ internal class GuestMineFollowStateAdapter private constructor(
         val fields: List<Field>,
         val following: Field,
         val copy: Method,
-        val lists: List<Field>
+        val lists: List<Field>,
+        val defaultMasks: Int
     )
 
     fun rewrite(state: Any, count: Int): Any? = runCatching {
@@ -193,10 +194,16 @@ internal class GuestMineFollowStateAdapter private constructor(
         val original = accountField.get(state) ?: return@runCatching state
         if (account.following.getLong(original) == count.toLong()) return@runCatching state
         val before = account.following.getLong(original)
-        val cloned = account.lists.firstNotNullOfOrNull { field ->
+        val cloned = if (account.defaultMasks > 0) {
+            val args = account.copy.parameterTypes.map(::defaultValue).toTypedArray()
+            args[0] = original
+            for (index in args.lastIndex - account.defaultMasks until args.lastIndex) args[index] = -1
+            account.copy.invoke(null, *args)?.takeIf { it !== original && sameFields(account.fields, original, it) }
+        } else account.lists.firstNotNullOfOrNull { field ->
             runCatching { account.copy.invoke(null, original, field.get(original)) }.getOrNull()
                 ?.takeIf { it !== original && sameFields(account.fields, original, it) }
-        } ?: return@runCatching null
+        }
+        if (cloned == null) return@runCatching null
         account.following.setLong(cloned, count.toLong())
         require(account.following.getLong(original) == before && account.following.getLong(cloned) == count.toLong())
         require(sameFields(account.fields, original, cloned, account.following))
@@ -214,11 +221,23 @@ internal class GuestMineFollowStateAdapter private constructor(
             val fields = Lookup.declaredFields(type, makeAccessible = true) { !it.isStatic }
             val following = requireNotNull(Lookup.fieldOrNull(type, "s"))
                 .takeIf { !it.isStatic && it.type == classOf<Long>() } ?: return@runCatching null
-            val copy = Lookup.declaredMethods(type, makeAccessible = true) {
-                it.isStatic && it.returnType == type && it.parameterTypes.toList() == listOf(type, classOf<List<*>>())
-            }.singleOrNull() ?: return@runCatching null
             val lists = fields.filter { classOf<List<*>>().isAssignableFrom(it.type) }
-            if (lists.isEmpty()) null else AccountPlan(type, fields, following, copy, lists)
+            val methods = Lookup.declaredMethods(type, makeAccessible = true) { it.isStatic && it.returnType == type }
+            val compact = methods.singleOrNull { it.parameterTypes.toList() == listOf(type, classOf<List<*>>()) }
+            if (compact != null && lists.isNotEmpty()) return@runCatching AccountPlan(type, fields, following, compact, lists, 0)
+
+            // Older Kotlin data classes retain copy$default with one mask per 32 properties. With all bits set,
+            // every argument comes from the original. Verify the resulting fields before changing the copied count.
+            val masks = (fields.size + 31) / 32
+            val fieldTypes = fields.groupingBy { it.type }.eachCount()
+            val defaultCopy = methods.singleOrNull { method ->
+                val p = method.parameterTypes
+                method.isSynthetic && masks > 0 && p.size == fields.size + masks + 2 && p[0] == type &&
+                    p.last() == classOf<Any>() &&
+                    p.slice(p.lastIndex - masks until p.lastIndex).all { it == classOf<Int>() } &&
+                    p.slice(1..fields.size).groupingBy { it }.eachCount() == fieldTypes
+            } ?: return@runCatching null
+            AccountPlan(type, fields, following, defaultCopy, emptyList(), masks)
         }.getOrNull()
 
         fun resolve(type: Class<*>, account: AccountPlan): GuestMineFollowStateAdapter? = runCatching {
