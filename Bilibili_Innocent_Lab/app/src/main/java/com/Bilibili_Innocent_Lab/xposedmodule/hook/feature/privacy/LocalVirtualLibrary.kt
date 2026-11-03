@@ -266,6 +266,16 @@ class LocalVirtualLibrary(
 
     /** Replaces each selected author's group assignments in one atomic library update. */
     fun setFollowGroups(mids: Set<Long>, groupIds: Set<Long>) = update { before ->
+        assignFollowGroups(before, mids, groupIds)
+    }
+
+    /** The host's selection includes both custom groups and its special-follow group. */
+    fun setFollowSelection(mids: Set<Long>, groupIds: Set<Long>, special: Boolean) = update { before ->
+        val assigned = assignFollowGroups(before, mids, groupIds)
+        assigned.copy(specialFollows = if (special) assigned.specialFollows + mids else assigned.specialFollows - mids)
+    }
+
+    private fun assignFollowGroups(before: Collections, mids: Set<Long>, groupIds: Set<Long>): Collections {
         require(mids.isNotEmpty()) { "No authors selected" }
         mids.forEach(::validateId)
         groupIds.forEach(::validateId)
@@ -274,7 +284,7 @@ class LocalVirtualLibrary(
         require(mids.all { it in followed } && groupIds.all { it in groups }) { "Follow or group does not exist" }
         val assignments = before.followGroupAssignments.toMutableMap()
         mids.forEach { mid -> if (groupIds.isEmpty()) assignments.remove(mid) else assignments[mid] = groupIds }
-        before.copy(followGroupAssignments = assignments)
+        return before.copy(followGroupAssignments = assignments)
     }
 
     fun setSpecialFollow(mid: Long, special: Boolean) = update { before ->
