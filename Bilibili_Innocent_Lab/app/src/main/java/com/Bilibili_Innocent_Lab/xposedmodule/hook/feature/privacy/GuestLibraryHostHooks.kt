@@ -17,6 +17,7 @@ internal class GuestLibraryHostHooks(
     private val history: GuestNativeHistoryHooks
 ) {
     private val followPage = GuestFollowListPage(library, isGuest)
+    private val followGroupBindings = GuestFollowGroupBindings<GuestLibraryRuntime.Token>()
 
     fun install(env: HookEnvironment): Int {
         val loader = env.classLoader ?: return 0
@@ -155,7 +156,7 @@ internal class GuestLibraryHostHooks(
         attempt("native_history") { history.install(env) }
         attempt("native_watch_later") { GuestNativeWatchLaterHooks(library, isGuest).install(env) }
         attempt("native_watch_later_add") { GuestNativeWatchLaterAddHooks(library, isGuest).install(env) }
-        val localLists = attempt("native_list_http") { GuestNativeListHttpHooks(library, isGuest).install(env) }
+        val localLists = attempt("native_list_http") { GuestNativeListHttpHooks(library, isGuest, followGroupBindings).install(env) }
         // The 8.97+ add flow posts a real request once the login gate is passed; only the short circuit keeps it local.
         if (localLists) attempt("watch_later_login_scope") { GuestWatchLaterLoginScope(isGuest).install(env) }
         else env.reportStatus("guest_library_watch_later_login_scope", "skipped-no-local-lists")

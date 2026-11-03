@@ -11,9 +11,17 @@ import com.highcapable.kavaref.extension.classOf
 import java.io.IOException
 
 /** Short circuit before interceptors, signing, HTTP cache and network; retain the host converter/callback executor. */
-internal class GuestNativeListHttpHooks(private val library: GuestLibraryRuntime, private val isGuest: () -> Boolean) {
+internal class GuestNativeListHttpHooks(
+    private val library: GuestLibraryRuntime,
+    private val isGuest: () -> Boolean,
+    private val followGroupBindings: GuestFollowGroupBindings<GuestLibraryRuntime.Token>
+) {
+    var followGroupClonesInstalled: Boolean = false
+        private set
+
     fun install(env: HookEnvironment) {
         val host = PrivacyHostAccess(requireNotNull(env.classLoader))
+        val groupGuard = GuestFollowGroupCallGuard(followGroupBindings, library::accepts)
         val call = host.type("com.bilibili.okretro.call.BiliCall")
         val response = host.type("okhttp3.Response")
         val convert = requireNotNull(locateConverter(call, response, host.type("retrofit2.Response"))) {
@@ -27,15 +35,21 @@ internal class GuestNativeListHttpHooks(private val library: GuestLibraryRuntime
         val protocol = requireNotNull(Lookup.fieldOrNull(host.type("okhttp3.Protocol"), "HTTP_1_1")).get(null)
         registerExecute(env.registrar, call) {
             before {
+                val target = instance ?: run {
+                    throwable = IOException("Local request unavailable")
+                    return@before
+                }
+                val group = groupGuard.decide(target)
+                if (group !is GuestFollowGroupCallGuard.Decision.Unrelated) {
+                    // This call belongs to our dialog, even if the user is no longer a guest.
+                    throwable = IOException("Local follow group session unavailable")
+                    if (group !is GuestFollowGroupCallGuard.Decision.Local) return@before
+                }
                 val guest = try { isGuest() } catch (failure: Exception) {
                     throwable = IOException("Local session unavailable", failure)
                     return@before
                 }
                 if (!guest) return@before
-                val target = instance ?: run {
-                    throwable = IOException("Local request unavailable")
-                    return@before
-                }
                 val (request, url, path) = try {
                     val request = requireNotNull(host.call(target, "request"))
                     val url = requireNotNull(host.call(request, "url"))
@@ -44,7 +58,9 @@ internal class GuestNativeListHttpHooks(private val library: GuestLibraryRuntime
                     throwable = IOException("Unable to inspect local request", failure)
                     return@before
                 }
-                if (!NativeFavoriteProtocol.handles(path) && !NativeWatchLaterProtocol.handles(path)) return@before
+                if (group is GuestFollowGroupCallGuard.Decision.Local) {
+                    if (!NativeFollowGroupProtocol.handles(path)) return@before
+                } else if (!NativeFavoriteProtocol.handles(path) && !NativeWatchLaterProtocol.handles(path)) return@before
                 // Set a failure BEFORE parsing local data: an adapter exception must never run the real request.
                 throwable = IOException("Local library response unavailable")
                 try {
@@ -68,7 +84,12 @@ internal class GuestNativeListHttpHooks(private val library: GuestLibraryRuntime
                     val archives = adds.filter { library.videoMetadata(it, 0) == null }
                         .mapNotNull { aid -> runCatching { aid to PrivacyVideoMetadata.fetch(host, aid) }.getOrNull() }.toMap()
                     val metadata = { aid: Long -> library.videoMetadata(aid, 0) ?: archives[aid] }
-                    val json = library.nativeBlocking {
+                    val json = if (group is GuestFollowGroupCallGuard.Decision.Local) {
+                        val binding = group.binding
+                        library.nativeBlocking(binding.token) {
+                            NativeFollowGroupProtocol.respond(path, params, it, binding.mid, library.followGroupLabels())
+                        }
+                    } else library.nativeBlocking {
                         if (NativeWatchLaterProtocol.handles(path)) NativeWatchLaterProtocol.respond(path, params, it, metadata)
                         else NativeFavoriteProtocol.respond(path, params, it, metadata)
                     }
@@ -84,7 +105,11 @@ internal class GuestNativeListHttpHooks(private val library: GuestLibraryRuntime
                     host.call(builder, "message", "OK")
                     host.call(builder, "header", "Cache-Control", "no-store")
                     host.call(builder, "body", createBody.invoke(null, media, payload))
-                    result = convert.invoke(target, host.call(builder, "build"))
+                    val converted = convert.invoke(target, host.call(builder, "build"))
+                    if (group is GuestFollowGroupCallGuard.Decision.Local && !library.accepts(group.binding.token)) {
+                        throw IOException("Local follow group session changed")
+                    }
+                    result = converted
                 } catch (failure: Exception) {
                     throwable = IOException("Local library response unavailable", failure)
                     env.logError("guest_native_list_response", "[BIL] Native local list response failed")
@@ -96,6 +121,10 @@ internal class GuestNativeListHttpHooks(private val library: GuestLibraryRuntime
         val missing = mutableListOf<String>()
         fun optional(name: String, action: () -> Unit) {
             runCatching(action).onFailure { missing += name }
+        }
+        optional("follow_group_clone") {
+            check(GuestFollowGroupCloneHooks.install(env.registrar, call, followGroupBindings))
+            followGroupClonesInstalled = true
         }
         val cacheDropped = java.util.concurrent.atomic.AtomicBoolean(false)
         for ((name, method) in mapOf("FavoritesActivityViewModel" to "P2", "FolderListViewModel" to "Q2", "FavoritesListViewModel" to "Z2")) {

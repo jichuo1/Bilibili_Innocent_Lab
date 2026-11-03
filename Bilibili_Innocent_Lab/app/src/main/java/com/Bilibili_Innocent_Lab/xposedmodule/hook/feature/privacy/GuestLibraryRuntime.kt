@@ -257,6 +257,12 @@ internal class GuestLibraryRuntime(
         }
     }
 
+    internal fun followGroupLabels(): NativeFollowGroupProtocol.Labels =
+        when (com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale.resolveEffectiveTag(application)) {
+            "zh-CN" -> NativeFollowGroupProtocol.Labels("默认分组", "特别关注")
+            "zh-Hant" -> NativeFollowGroupProtocol.Labels("預設分組", "特別關注")
+            else -> NativeFollowGroupProtocol.Labels("Default", "Special follows")
+        }
     /** BiliCall.execute already runs on the host network executor; disk IO stays on our serial executor. */
     internal fun <T> nativeBlocking(operation: (LocalVirtualLibrary) -> T): T {
         val requestToken = token() ?: throw java.io.IOException("Local session unavailable")
