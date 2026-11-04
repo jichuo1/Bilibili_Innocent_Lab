@@ -126,6 +126,17 @@ class LiquidControlStyleTest {
         assertTrue(controls.contains("view.foreground = RippleDrawable"))
     }
 
+    @Test fun `control outline stays pinned to the viewport of scrolled inputs`() {
+        val skin = source("ui/skin/activity/SkinnedActivity.kt")
+        val outline = skin.after("private fun controlOutline(").before("/** 让一个")
+        assertTrue(outline.contains("return ViewportForegroundDrawable(StateListDrawable()"))
+        val wrapper = source("ui/skin/geometry/ViewportForegroundDrawable.kt")
+        val draw = wrapper.after("override fun draw(canvas: Canvas)").before("canvas.restoreToCount(saved)")
+        assertTrue(draw.contains("view?.foreground === outer) view.scrollX"))
+        assertTrue(draw.contains("view?.foreground === outer) view.scrollY"))
+        assertTrue(draw.contains("canvas.translate(x.toFloat(), y.toFloat())"))
+    }
+
     @Test fun `choice drawing caches geometry and has no animator or capture loop`() {
         val drawable = source("ui/skin/liquid/LiquidChoiceDrawable.kt")
         val draw = drawable.after("override fun draw(canvas: Canvas)").before("override fun setAlpha")
