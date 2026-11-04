@@ -36,6 +36,9 @@ internal object AiDeclaredVideoRegistry {
 
     fun contains(aid: Long?): Boolean = aid != null && aid > 0 && aid in aids
 
+    /** 当前快照；新增与合并都换成新集合，调用方可按身份判断登记表是否变化。 */
+    val current: Set<Long> get() = aids
+
     /** 返回 true 表示这次确实新增了。 */
     @Synchronized
     fun add(aid: Long?): Boolean {

@@ -914,6 +914,8 @@
     <string name="system_media_notification_tip">開啟後，背景播放啟用嗶哩嗶哩內建的系統媒體控制樣式。重新啟動嗶哩嗶哩後生效。</string>
     <string name="home_frame_legacy_lock">固定使用舊版首頁框架</string>
     <string name="home_frame_legacy_lock_tip">雲控可能把手機首頁切到新版框架，使依賴舊版首頁的功能失效。開啟後固定使用舊版首頁，大螢幕裝置不受影響。重新啟動嗶哩嗶哩後生效。</string>
+    <string name="home_recommend_early_load">首頁推薦提前載入</string>
+    <string name="home_recommend_early_load_tip">首頁推薦離末尾約四列時就請求下一頁，滑到底時很少再停在「載入中」。列數按目前欄數計算，手機與平板都適用。會略微多用一些流量。重新啟動嗶哩嗶哩後生效。</string>
     <string name="cloud_key_freeze">凍結指定雲控鍵</string>
     <string name="cloud_key_freeze_tip">頁面和按鈕常由雲控決定，一變就可能突然出現或消失。開啟後，勾選的和手寫規則裡的雲控鍵會被固定成指定值，其它不受影響；網路、登入、風控與初始化類鍵不可凍結。重新啟動嗶哩嗶哩後生效。</string>
     <string name="cloud_key_freeze_rules">雲控鍵規則</string>

@@ -142,6 +142,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SplashAutoNightFeatur
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BrandSplashSkipFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BrandSplashCustomFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeFrameLockFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeRecommendEarlyLoadFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SystemMediaNotificationFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCodecForceFeatureInstaller
@@ -3787,6 +3788,12 @@ class HookEntry : XposedModule() {
                     HomeFrameLockFeatureInstaller(
                         enabled = prefs.getBoolean(
                             FeaturePreferences.HOME_FRAME_LEGACY_LOCK,
+                            false
+                        )
+                    ),
+                    HomeRecommendEarlyLoadFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD,
                             false
                         )
                     ),

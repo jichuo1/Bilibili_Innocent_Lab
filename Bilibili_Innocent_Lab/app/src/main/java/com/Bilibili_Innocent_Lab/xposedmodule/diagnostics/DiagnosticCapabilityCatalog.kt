@@ -20,7 +20,7 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 35
+    const val VERSION = 36
     val definitions = listOf(
         DiagnosticCapabilityDefinition("ai_insight", "ai_insight", R.string.ai_insight_title,
             setOf("compat.ai_insight.enabled", "compat.ai_insight.auto_chapters"), introducedCatalogVersion = 35),
@@ -206,6 +206,8 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("external_browser", "external_browser", R.string.force_external_browser, setOf("links.external_browser.enabled")),
         DiagnosticCapabilityDefinition("system_media_notification", "system_media_notification", R.string.system_media_notification, setOf("system.media_notification.enabled")),
         DiagnosticCapabilityDefinition("home_frame_lock", "home_frame_lock", R.string.home_frame_legacy_lock, setOf("home.frame.legacy_lock.enabled"), introducedCatalogVersion = 34),
+        DiagnosticCapabilityDefinition("home_recommend_early_load", "home_recommend_early_load", R.string.home_recommend_early_load,
+            setOf("home.recommend.early_load.enabled"), introducedCatalogVersion = 36),
         DiagnosticCapabilityDefinition("cloud_key_freeze", "cloud_key_freeze", R.string.cloud_key_freeze, setOf("cloud.key_freeze.enabled", "cloud.key_freeze.rules", "cloud.key_freeze.observe", "cloud.key_freeze.picked"), introducedCatalogVersion = 34),
         DiagnosticCapabilityDefinition("bv_to_av", "bv_to_av", R.string.show_bv_as_av, setOf("numbers.bv_as_av.enabled")),
         DiagnosticCapabilityDefinition("free_copy_comment_enabled", "free_copy", R.string.free_copy_enable, setOf("free_copy.comment.enabled")),

@@ -53,7 +53,7 @@ class HomeExtraCardIntegrationTest {
                 continue
             }
             assertTrue(result is FeatureInstallResult.Installed && result.complete)
-            for (id in recorded.hooks.keys) {
+            for (id in getterHooks(recorded)) {
                 val filtered = recorded.invoke(id) { source }
                 assertEquals(source.filterNot { (removePgc && (it === pgc || it === specialFilm)) ||
                     (removeSpecial && it === special) }, filtered)
@@ -86,6 +86,13 @@ class HomeExtraCardIntegrationTest {
         assertTrue((records.last { it.id == "home_recommend_pgc_removed" }.result as FeatureInstallResult.Installed).complete)
         assertTrue(records.last { it.id == "home_recommend_special_cards_removed" }.result is FeatureInstallResult.Skipped)
         val source = listOf(Card("av", "bilibili://bangumi/play/ep123"), Card("special"))
-        for (id in recorded.hooks.keys) assertEquals(listOf(source[1]), recorded.invoke(id) { source })
+        for (id in getterHooks(recorded)) assertEquals(listOf(source[1]), recorded.invoke(id) { source })
     }
+
+    /**
+     * 只取列表 getter。同一安装器还挂了宿主凑组入口（avoidEmptyWindow），它不是 getter，
+     * 不按列表断言；宿主异常照常透传由上面的身份用例覆盖到全部 Hook。
+     */
+    private fun getterHooks(recorded: PlayerPortTestRegistrar) =
+        recorded.hooks.keys.filter { it != HomeFeedSmallCards.GROUPING_HOOK_ID }.also { assertTrue(it.isNotEmpty()) }
 }

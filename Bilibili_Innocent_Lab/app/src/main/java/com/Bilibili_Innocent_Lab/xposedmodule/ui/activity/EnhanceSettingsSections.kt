@@ -104,6 +104,31 @@ internal fun MainActivity.enhanceSystemCategory(scope: LinearSettingsScope) = wi
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
+    materialSwitch(key = "EnhanceSettingsSections:1125",
+        lparams = params(widthMatchParent = true) {
+            topMargin = 12.dp
+            bottomMargin = 5.dp
+        }
+    ) {
+        bindFavoriteSwitch(this, FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD, directToggle = true)
+        text = stringResource(R.string.home_recommend_early_load)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = homeRecommendEarlyLoad
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD, checked, button)
+        }
+    }
+    textView(key = "EnhanceSettingsSections:1126",
+        lparams = params(widthMatchParent = true)
+    ) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.home_recommend_early_load_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
     materialSwitch(key = "EnhanceSettingsSections:1130",
         lparams = params(widthMatchParent = true) {
             topMargin = 12.dp

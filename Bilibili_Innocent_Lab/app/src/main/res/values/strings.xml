@@ -914,6 +914,8 @@
     <string name="system_media_notification_tip">Turns on the background-playback media style that Bilibili already ships but keeps gated. Restart Bilibili to apply.</string>
     <string name="home_frame_legacy_lock">Keep the legacy home frame</string>
     <string name="home_frame_legacy_lock_tip">A remote flag may move phones to the new home frame and break features that rely on the legacy home. Turn this on to keep the legacy home. Large screens are unaffected. Restart Bilibili to apply.</string>
+    <string name="home_recommend_early_load">Load home recommendations early</string>
+    <string name="home_recommend_early_load_tip">Requests the next page of home recommendations when about four rows remain, so scrolling to the end rarely stops on the loading spinner. Rows follow the current column count on phones and tablets. Uses slightly more data. Restart Bilibili to apply.</string>
     <string name="cloud_key_freeze">Freeze chosen remote flags</string>
     <string name="cloud_key_freeze_tip">Pages and buttons are often switched by remote flags and can appear or vanish overnight. Turn this on to pin the flags you tick below and those in your own rules. Other flags are untouched, and network, sign-in, risk-control and startup flags cannot be frozen. Restart Bilibili to apply.</string>
     <string name="cloud_key_freeze_rules">Remote flag rules</string>

@@ -32,6 +32,15 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             homeFrameLegacyLock = outcome.confirmed
             homeFrameLegacyLock
         }
+        FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD -> {
+            val checked = requested
+            val outcome = SettingWritePolicy.attempt(homeRecommendEarlyLoad, checked) {
+                prefs().edit { putBoolean(FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD, checked) }
+            }
+            outcome.failure?.let { Log.e("BilibiliInnocentLab", "write home recommend early load prefs failed", it) }
+            homeRecommendEarlyLoad = outcome.confirmed
+            homeRecommendEarlyLoad
+        }
         FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED -> {
             val checked = requested
             val outcome = SettingWritePolicy.attempt(cloudKeyFreeze, checked) {
@@ -1618,6 +1627,7 @@ internal val modeledToggleKeys = setOf(
     FeaturePreferences.BRAND_SPLASH_SKIP,
     FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION,
     FeaturePreferences.HOME_FRAME_LEGACY_LOCK,
+    FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD,
     FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED,
     FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE,
     FeaturePreferences.FORCE_EXTERNAL_BROWSER,
@@ -1737,6 +1747,7 @@ internal fun MainActivity.synchronizeSettingField(key: String, confirmed: Boolea
         FeaturePreferences.BRAND_SPLASH_SKIP -> brandSplashSkip = confirmed
         FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION -> systemMediaNotification = confirmed
         FeaturePreferences.HOME_FRAME_LEGACY_LOCK -> homeFrameLegacyLock = confirmed
+        FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD -> homeRecommendEarlyLoad = confirmed
         FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED -> cloudKeyFreeze = confirmed
         FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE -> cloudKeyFreezeObserve = confirmed
         FeaturePreferences.FORCE_EXTERNAL_BROWSER -> forceExternalBrowser = confirmed

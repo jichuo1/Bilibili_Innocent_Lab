@@ -211,6 +211,11 @@ internal object DiagnosticFeatureRegistry {
             runtimeEvidenceExpected = true
         ),
         DiagnosticFeatureDescriptor(
+            "home_recommend_early_load",
+            DiagnosticFeatureCategory.GENERAL,
+            runtimeEvidenceExpected = true
+        ),
+        DiagnosticFeatureDescriptor(
             "cloud_key_freeze",
             DiagnosticFeatureCategory.GENERAL,
             runtimeEvidenceExpected = true

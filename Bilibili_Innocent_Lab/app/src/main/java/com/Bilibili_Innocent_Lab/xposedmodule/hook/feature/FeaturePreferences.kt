@@ -289,6 +289,9 @@ internal object FeaturePreferences {
     /** 固定使用旧版首页框架，屏蔽云控把首页切到新版框架。 */
     const val HOME_FRAME_LEGACY_LOCK = "home_frame_legacy_lock"
 
+    /** 首页推荐离末尾约四行时提前请求下一页，减少滑到底停在“加载中”的等待。 */
+    const val HOME_RECOMMEND_EARLY_LOAD = "home_recommend_early_load"
+
     /** 冻结指定云控键：总开关、规则文本（`键名=取值`）与「记录读取到的云控键名」。 */
     const val CLOUD_KEY_FREEZE_ENABLED = "cloud_key_freeze_enabled"
     const val CLOUD_KEY_FREEZE_RULES = "cloud_key_freeze_rules"

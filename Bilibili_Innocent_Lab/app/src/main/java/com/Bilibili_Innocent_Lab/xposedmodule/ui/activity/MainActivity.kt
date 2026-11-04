@@ -491,6 +491,7 @@ class MainActivity : SkinnedActivity() {
     internal var forceExternalBrowser = false
     internal var systemMediaNotification = false
     internal var homeFrameLegacyLock = false
+    internal var homeRecommendEarlyLoad = false
     internal var cloudKeyFreeze = false
     internal var cloudKeyFreezeRules = ""
     internal var cloudKeyFreezeObserve = false
@@ -4767,6 +4768,7 @@ class MainActivity : SkinnedActivity() {
         forceExternalBrowser = uiSettings.bool(FeaturePreferences.FORCE_EXTERNAL_BROWSER)
         systemMediaNotification = uiSettings.bool(FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION)
         homeFrameLegacyLock = uiSettings.bool(FeaturePreferences.HOME_FRAME_LEGACY_LOCK)
+        homeRecommendEarlyLoad = uiSettings.bool(FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD)
         cloudKeyFreeze = uiSettings.bool(FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED)
         cloudKeyFreezeRules = uiSettings.string(FeaturePreferences.CLOUD_KEY_FREEZE_RULES)
         cloudKeyFreezeObserve = uiSettings.bool(FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE)

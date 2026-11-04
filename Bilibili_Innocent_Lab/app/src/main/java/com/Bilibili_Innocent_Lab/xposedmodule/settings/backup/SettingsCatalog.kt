@@ -34,7 +34,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 72
+    const val CATALOG_VERSION = 73
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_PLAYER_SPEED_MENU = "player.speed_menu.percents"
@@ -963,6 +963,12 @@ internal object SettingsCatalog {
             introducedCatalogVersion = 66
         ),
         bool(
+            "home.recommend.early_load.enabled",
+            FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD,
+            R.string.home_recommend_early_load,
+            introducedCatalogVersion = 73
+        ),
+        bool(
             "cloud.key_freeze.enabled",
             FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED,
             R.string.cloud_key_freeze,
@@ -1077,7 +1083,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 255) { "Expected 255 catalog settings, found ${specs.size}" }
+        check(specs.size == 256) { "Expected 256 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

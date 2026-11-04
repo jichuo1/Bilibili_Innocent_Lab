@@ -1041,6 +1041,7 @@ class DiagnosticsActivity : SkinnedActivity(),
             "external_browser" -> R.string.force_external_browser
             "system_media_notification" -> R.string.system_media_notification
             "home_frame_lock" -> R.string.home_frame_legacy_lock
+            "home_recommend_early_load" -> R.string.home_recommend_early_load
             "cloud_key_freeze" -> R.string.cloud_key_freeze
             "splash_auto_night" -> R.string.splash_auto_night
             "bv_to_av" -> R.string.show_bv_as_av

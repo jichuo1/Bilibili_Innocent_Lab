@@ -914,6 +914,8 @@
     <string name="system_media_notification_tip">开启后，后台播放启用哔哩哔哩自带的系统媒体控制样式。重启哔哩哔哩后生效。</string>
     <string name="home_frame_legacy_lock">固定使用旧版首页框架</string>
     <string name="home_frame_legacy_lock_tip">云控可能把手机首页切到新版框架，使依赖旧版首页的功能失效。开启后固定使用旧版首页，大屏设备不受影响。重启哔哩哔哩后生效。</string>
+    <string name="home_recommend_early_load">首页推荐提前加载</string>
+    <string name="home_recommend_early_load_tip">首页推荐离末尾约四行时就请求下一页，滑到底时很少再停在“加载中”。行数按当前列数计算，手机与平板都适用。会略微多用一些流量。重启哔哩哔哩后生效。</string>
     <string name="cloud_key_freeze">冻结指定云控键</string>
     <string name="cloud_key_freeze_tip">页面和按钮常由云控决定，一变就可能突然出现或消失。开启后，勾选的和手写规则里的云控键会被固定成指定值，其它不受影响；网络、登录、风控与初始化类键不可冻结。重启哔哩哔哩后生效。</string>
     <string name="cloud_key_freeze_rules">云控键规则</string>

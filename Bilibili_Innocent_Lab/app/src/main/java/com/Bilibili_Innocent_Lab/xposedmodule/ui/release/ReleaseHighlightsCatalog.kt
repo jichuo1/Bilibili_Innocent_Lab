@@ -43,7 +43,8 @@ internal object ReleaseHighlightsCatalog {
     const val REVIEWED_VERSION_CODE = 22
     const val SETTINGS_BASELINE_VERSION = 13
     // 历史已达 64 项；新增功能时保留已有公告，目录继续以 96 项为硬上限。
-    const val MAX_BUNDLED_ENTRIES = 96
+    // 2026-11-04：批次 38（首页推荐提前加载）使条目达到 97，经确认上限调到 128，仍保留全部已有公告。
+    const val MAX_BUNDLED_ENTRIES = 128
     val batches = listOf(ReleaseHighlightsBatch(1, listOf(
         ReleaseHighlight("player-end-page-recommend", HighlightKind.NEW,
             R.string.hide_player_end_page_recommend_tip,
@@ -359,7 +360,10 @@ internal object ReleaseHighlightsCatalog {
     ), automatic = false), ReleaseHighlightsBatch(37, listOf(
         ReleaseHighlight("host-ui-power-saving", HighlightKind.NEW, R.string.host_ui_power_saving_tip,
             HighlightDestination("host.ui.power_saving.enabled"))
-    ), automatic = false))
+    ), automatic = false), ReleaseHighlightsBatch(38, listOf(
+        ReleaseHighlight("home-recommend-early-load", HighlightKind.NEW, R.string.home_recommend_early_load_tip,
+            HighlightDestination("home.recommend.early_load.enabled"))
+    )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }
         .mapNotNull { it.destination }.distinctBy { it.settingId }
