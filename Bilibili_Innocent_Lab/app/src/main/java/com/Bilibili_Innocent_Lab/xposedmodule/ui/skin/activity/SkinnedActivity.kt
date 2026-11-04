@@ -21,6 +21,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidChoiceDrawabl
 import androidx.annotation.MainThread
 import androidx.appcompat.app.AppCompatActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowEngine
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.ViewportForegroundDrawable
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.ActivitySkinSession
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinSessionDiagnostics
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SkinId
@@ -291,11 +292,12 @@ abstract class SkinnedActivity : AppCompatActivity() {
             setStroke(((if (active) 2f else 1f) * resources.displayMetrics.density).toInt().coerceAtLeast(1),
                 ColorUtils.setAlphaComponent(monetColors.primary, if (active || emphasized) 0x72 else 0x22))
         }
-        return StateListDrawable().apply {
+        // 前景不享受 View 对背景的滚动补偿：长文本 EditText 横向滚动后描边会随内容左移，包一层钉回视口。
+        return ViewportForegroundDrawable(StateListDrawable().apply {
             addState(intArrayOf(android.R.attr.state_focused), border(true))
             addState(intArrayOf(android.R.attr.state_pressed), border(true))
             addState(intArrayOf(), border(false))
-        }
+        })
     }
 
     /** 让一个已在层级中的滚动 View 仅以前景内容参与系统 stretch；Material/低版本为 no-op。 */
