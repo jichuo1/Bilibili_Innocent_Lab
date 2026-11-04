@@ -44,15 +44,17 @@ def verified_upstream(run_id, channel):
     return json.loads(result.stdout)
 
 
-def find_scheduled_build(day):
-    query = urlencode({"branch": "main", "event": "schedule", "per_page": 100})
+def find_scheduled_build(upstream_id):
+    query = urlencode({"branch": "main", "event": "workflow_run", "per_page": 100})
     runs = api_json(f"repos/{REPOSITORY}/actions/workflows/embedded-build.yml/runs?{query}")["workflow_runs"]
     candidates = [run for run in runs if run.get("path") == ".github/workflows/embedded-build.yml"
-                  and run.get("head_branch") == "main" and run.get("event") == "schedule"
-                  and timestamp(run["created_at"]).astimezone(timezone.utc).date() == day]
+                  and run.get("head_branch") == "main" and run.get("event") == "workflow_run"
+                  and run.get("display_title", "").startswith(f"Embedded build for Canary {upstream_id} · ")]
     if not candidates:
         return None
-    return max(candidates, key=lambda run: timestamp(run["created_at"]))
+    if len(candidates) != 1:
+        raise ValueError("Embedded build for this Canary run is ambiguous")
+    return candidates[0]
 
 
 def select(event, run_id, channel, upstream_id=0, upstream_channel="", run_url="", expected_digest="", wait=True,
@@ -76,9 +78,6 @@ def select(event, run_id, channel, upstream_id=0, upstream_channel="", run_url="
             return {"should_publish": "false", "reason": "原 Canary 未实际发送，跳过自动发布。"}
         now = datetime.now(BEIJING)
         day = timestamp(upstream["created_at"]).date()
-        # Both schedules target 14:00 UTC. Their actual start times can straddle
-        # Beijing midnight independently; match the UTC schedule day instead.
-        schedule_day = timestamp(upstream["created_at"]).astimezone(timezone.utc).date()
         if now.date() != day or timestamp(current["created_at"]).date() != day:
             return {"should_publish": "false", "reason": "定时发布跨越北京时间日期边界。"}
         if manual_today(now):
@@ -92,7 +91,7 @@ def select(event, run_id, channel, upstream_id=0, upstream_channel="", run_url="
             now = datetime.now(BEIJING)
             if now.date() != day:
                 return {"should_publish": "false", "reason": "等待构建时跨越北京时间日期边界。"}
-            scheduled = find_scheduled_build(schedule_day)
+            scheduled = find_scheduled_build(upstream_id)
             if scheduled and scheduled.get("status") == "completed" and scheduled.get("conclusion") != "success":
                 raise ValueError("Today's scheduled embedded build did not succeed")
             if scheduled and scheduled.get("status") == "completed" and now >= due:

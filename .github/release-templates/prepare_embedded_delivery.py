@@ -17,7 +17,7 @@ LIMIT = 50_000_000
 
 def select_artifact(run: dict, artifacts: dict, run_id: int) -> dict:
     if (run.get("id") != run_id or run.get("status") != "completed" or run.get("conclusion") != "success"
-            or run.get("head_branch") != "main" or run.get("event") not in {"schedule", "workflow_dispatch"}
+            or run.get("head_branch") != "main" or run.get("event") not in {"workflow_run", "workflow_dispatch"}
             or run.get("path") != ".github/workflows/embedded-build.yml"
             or run.get("repository", {}).get("full_name") != REPOSITORY
             or run.get("head_repository", {}).get("full_name") != REPOSITORY

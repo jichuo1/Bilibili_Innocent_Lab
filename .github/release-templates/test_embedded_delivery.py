@@ -15,7 +15,8 @@ from select_embedded_delivery import find_scheduled_build, select
 class EmbeddedArtifactTest(unittest.TestCase):
     def fixture(self):
         sha = "a" * 40
-        run = {"id": 7, "run_number": 4, "head_sha": sha, "head_branch": "main", "event": "schedule",
+        run = {"id": 7, "run_number": 4, "head_sha": sha, "head_branch": "main", "event": "workflow_run",
+               "display_title": "Embedded build for Canary 20 · " + sha,
                "status": "completed", "conclusion": "success", "path": ".github/workflows/embedded-build.yml",
                "repository": {"full_name": REPOSITORY}, "head_repository": {"full_name": REPOSITORY},
                "html_url": f"https://github.com/{REPOSITORY}/actions/runs/7"}
@@ -109,12 +110,13 @@ class EmbeddedPolicyTest(unittest.TestCase):
             result = select("workflow_dispatch", 90, "@test_channel", run_url=self.build["html_url"])
         self.assertEqual(result["should_publish"], "true")
 
-    def test_schedule_pairing_survives_beijing_midnight(self):
-        from datetime import timezone
-        self.build["created_at"] = "2026-11-03T14:05:00Z"
+    def test_schedule_pairing_uses_exact_upstream_run(self):
         with patch("select_embedded_delivery.api_json", return_value={"workflow_runs": [self.build]}):
-            self.assertEqual(find_scheduled_build(datetime.fromisoformat("2026-11-03T20:21:28+00:00")
-                                                  .astimezone(timezone.utc).date())["id"], 7)
+            self.assertEqual(find_scheduled_build(20)["id"], 7)
+            self.assertIsNone(find_scheduled_build(21))
+        with patch("select_embedded_delivery.api_json", return_value={"workflow_runs": [self.build, self.build]}), \
+             self.assertRaises(ValueError):
+            find_scheduled_build(20)
 
 
 class UpstreamTriggerTest(unittest.TestCase):
