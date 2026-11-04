@@ -277,6 +277,10 @@ class DexSourceFingerprintTest {
             cached.setLastModified(published + 5_000)
             cached.setReadOnly()
             assertFalse(DexSourceFingerprint.isVerified(cached))
+            // 修复靠原子 rename 用新发布的来源替换坏副本。Android/Linux 的 rename 只看目录权限，只读的坏副本照样
+            // 被替换（生产只跑在 Android，CI 也按这一场景验证）；Windows 的 MoveFileEx 拒绝替换只读目标，
+            // 所以只在 Windows 上放开坏副本的只读属性，修复路径本身照样走完。
+            if (System.getProperty("os.name").orEmpty().contains("Windows", ignoreCase = true)) cached.setWritable(true)
             assertEquals(first, DexSourceFingerprint.inspectCodePaths(listOf(outer.path), cache))
             assertTrue("the repaired source must match the original again", File(first.codePaths.single()).readBytes().contentEquals(good))
             assertTrue(DexSourceFingerprint.isVerified(File(first.codePaths.single())))
