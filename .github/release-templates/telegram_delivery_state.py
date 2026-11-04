@@ -16,13 +16,18 @@ from pathlib import Path
 from telegram_receipt import validate_receipt, confirmed_receipt
 
 REPOSITORY = "jichuo1/Bilibili_Innocent_Lab"
-ENVIRONMENT = "canary-telegram"
-TASK = "canary-telegram"
-SEND_STEP = "Send the selected Canary APK to Telegram"
+PROFILE = os.environ.get("TELEGRAM_DELIVERY_PROFILE", "canary")
+if PROFILE not in {"canary", "embedded"}:
+    raise ValueError("Invalid Telegram delivery profile")
+ENVIRONMENT = f"{PROFILE}-telegram"
+TASK = ENVIRONMENT
+WORKFLOW = f".github/workflows/{PROFILE}-telegram.yml"
+EVENTS = {"workflow_dispatch", "schedule"} if PROFILE == "canary" else {"workflow_dispatch", "workflow_run"}
+SEND_STEP = f"Send the selected {PROFILE.capitalize()} APK to Telegram"
 SHA = re.compile(r"[0-9a-f]{40}")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 MAX_PAGES = 20
-SEND_JOB = "Verify selected Canary and send its APK"
+SEND_JOB = f"Verify selected {PROFILE.capitalize()} and send its APK"
 
 
 def completed_send(run_id: int, attempt: int) -> str:
@@ -99,8 +104,8 @@ def recover_receipt(run: dict, job: dict, step: dict) -> dict:
     attempt = job.get("run_attempt")
     if (type(attempt) is not int or not 1 <= attempt <= run.get("run_attempt", 1)
             or job.get("name") != SEND_JOB or job.get("run_id") != run["id"]
-            or run.get("path") != ".github/workflows/canary-telegram.yml"
-            or run.get("head_branch") != "main" or run.get("event") not in {"workflow_dispatch", "schedule"}
+            or run.get("path") != WORKFLOW
+            or run.get("head_branch") != "main" or run.get("event") not in EVENTS
             or run.get("repository", {}).get("full_name") != REPOSITORY
             or run.get("head_repository", {}).get("full_name") != REPOSITORY
             or not SHA.fullmatch(run.get("head_sha", ""))):
@@ -109,7 +114,7 @@ def recover_receipt(run: dict, job: dict, step: dict) -> dict:
     rows = artifacts.get("artifacts", [])
     if artifacts.get("total_count", len(rows)) > 100:
         raise ValueError("Telegram receipt artifact history exceeds the inspection budget")
-    name = f"canary-telegram-notes-{run['id']}-{attempt}"
+    name = f"{PROFILE}-telegram-notes-{run['id']}-{attempt}"
     matches = [row for row in rows if row.get("name") == name]
     if not matches:
         return {}
@@ -139,14 +144,21 @@ def recover_receipt(run: dict, job: dict, step: dict) -> dict:
             raise ValueError("Legacy Telegram receipt lacks an exact successful send time")
         receipt = dict(receipt, delivered_at=step["completed_at"], delivery_run_url=delivery_url,
                        delivery_run_attempt=attempt)
-    from prepare_canary_delivery import select_artifact, parse_run_url
+    from prepare_canary_delivery import parse_run_url
+    if PROFILE == "embedded":
+        from prepare_embedded_delivery import select_artifact
+    else:
+        from prepare_canary_delivery import select_artifact
     source_id, _ = parse_run_url(receipt.get("source_run_url", ""))
     source = github(f"actions/runs/{source_id}")
     source_artifact = select_artifact(source, github(f"actions/runs/{source_id}/artifacts?per_page=100"), source_id)
+    embedded_tag = (f"v{source_artifact['name'].removeprefix('BIL-embedded-v').rsplit('-', 1)[0]}"
+                    f"-embedded.{source.get('run_number')}") if PROFILE == "embedded" else ""
     if (receipt["source_commit"] != source["head_sha"]
-            or source_artifact["name"] != f"Bilibili_Innocent_Lab-{receipt.get('release_tag')}-{source['head_sha'][:8]}"
+            or (PROFILE == "canary" and source_artifact["name"] != f"Bilibili_Innocent_Lab-{receipt.get('release_tag')}-{source['head_sha'][:8]}")
+            or (PROFILE == "embedded" and receipt.get("release_tag") != embedded_tag)
             or ("receipt_schema" in receipt and receipt["source_artifact_digest"] != source_artifact["digest"])):
-        raise ValueError("Telegram receipt disagrees with its verified Canary build")
+        raise ValueError(f"Telegram receipt disagrees with its verified {PROFILE.capitalize()} build")
     if "receipt_schema" not in receipt:
         # A replacement artifact uploaded after this send cannot identify what was delivered.
         if (not source_artifact.get("created_at") or not source_artifact.get("updated_at")
@@ -258,8 +270,8 @@ def delivery_history(channel: str, checkpoints: list[dict], *, strict: bool = Fa
 
     def inspect(run: dict, *, active: bool = False) -> None:
         nonlocal cutoff
-        if (run.get("path") != ".github/workflows/canary-telegram.yml" or run.get("head_branch") != "main"
-                or run.get("event") not in {"workflow_dispatch", "schedule"}):
+        if (run.get("path") != WORKFLOW or run.get("head_branch") != "main"
+                or run.get("event") not in EVENTS):
             return
         attempts = run.get("run_attempt", 1)
         if type(attempts) is not int or not 1 <= attempts <= 100:
@@ -286,7 +298,7 @@ def delivery_history(channel: str, checkpoints: list[dict], *, strict: bool = Fa
             # The complete checkpoint already proves delivery. Recover only its exact send time,
             # not another success from whole-job logs (some gh/platform versions label all UNKNOWN STEP).
             candidates = [(job, step) for job in jobs["jobs"]
-                          if job.get("name") == "Verify selected Canary and send its APK"
+                          if job.get("name") == SEND_JOB
                           and job.get("run_id") == run["id"]
                           and type(job.get("run_attempt")) is int and 1 <= job["run_attempt"] <= attempts
                           and ("delivery_run_attempt" not in stored or job["run_attempt"] == stored["delivery_run_attempt"])
@@ -308,7 +320,7 @@ def delivery_history(channel: str, checkpoints: list[dict], *, strict: bool = Fa
             if cutoff is None or completed > cutoff:
                 cutoff = completed
         for job in jobs["jobs"]:
-            if job.get("name") != "Verify selected Canary and send its APK":
+            if job.get("name") != SEND_JOB:
                 continue
             attempt = job.get("run_attempt", 1)
             if type(attempt) is not int or not 1 <= attempt <= attempts or job.get("run_id", run["id"]) != run["id"]:
@@ -349,7 +361,7 @@ def delivery_history(channel: str, checkpoints: list[dict], *, strict: bool = Fa
                 r"\bDELIVERY_DRY_RUN: true\s*$", log, re.MULTILINE)
             if dry_run:
                 continue
-            success = re.search(r"Telegram delivered Canary APK, message ID ([1-9]\d*)", log)
+            success = re.search(r"Telegram delivered (?:Canary|Embedded) APK, message ID ([1-9]\d*)", log)
             posted = re.search(r"\bTELEGRAM_POST_ATTEMPT: (?:sendDocument|sendMessage)\s*$", log, re.MULTILINE)
             protocol = re.search(r"\bTELEGRAM_DELIVERY_PROTOCOL: [23]\s*$", log, re.MULTILINE)
             if success and re.search(r"\bTELEGRAM_DELIVERY_PROTOCOL: 3\s*$", log, re.MULTILINE):
@@ -364,7 +376,7 @@ def delivery_history(channel: str, checkpoints: list[dict], *, strict: bool = Fa
                 raise ValueError("Cannot identify the source of a confirmed or unconfirmed Telegram delivery")
             if channel_key(channels.pop()) != channel:
                 continue
-            marker = r"Telegram delivered Canary APK, message ID [1-9]\d*" if success else r"TELEGRAM_POST_ATTEMPT: (?:sendDocument|sendMessage)"
+            marker = r"Telegram delivered (?:Canary|Embedded) APK, message ID [1-9]\d*" if success else r"TELEGRAM_POST_ATTEMPT: (?:sendDocument|sendMessage)"
             times = re.findall(r"(\d{4}-\d\d-\d\dT\S+Z) " + marker, log)
             completed = times[-1] if times else step.get("completed_at", "")
             if not completed and not success:
@@ -398,7 +410,7 @@ def delivery_history(channel: str, checkpoints: list[dict], *, strict: bool = Fa
         inspect(active_run, active=True)
         seen.add(active_run["id"])
     for page in range(1, MAX_PAGES + 1) if include_completed else []:
-        result = github(f"actions/workflows/canary-telegram.yml/runs?status=completed&per_page=100&page={page}")
+        result = github(f"actions/workflows/{PROFILE}-telegram.yml/runs?status=completed&per_page=100&page={page}")
         runs = result["workflow_runs"]
         for run in runs:
             if run["id"] not in seen:
@@ -463,7 +475,7 @@ def record_delivery(receipt: dict, delivery_url: str, *, artifact_digest: str = 
     deployment = {"id": identity, "sha": commit} if identity is not None else github("deployments", {
         "ref": commit, "task": TASK, "environment": ENVIRONMENT,
         "auto_merge": False, "required_contexts": [], "production_environment": False,
-        "description": "Confirmed Canary Telegram delivery", "payload": payload,
+        "description": f"Confirmed {PROFILE.capitalize()} Telegram delivery", "payload": payload,
     })
     if type(deployment.get("id")) is not int or deployment.get("sha") != commit:
         raise ValueError("GitHub did not record the selected Telegram source")

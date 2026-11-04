@@ -1,7 +1,11 @@
 name: Build signed embedded APK
-run-name: Embedded test build ${{ github.sha }}
+run-name: Embedded build for Canary ${{ github.event.workflow_run.id || 'manual' }} · ${{ github.sha }}
 
 on:
+  workflow_run:
+    # 跟随 Canary 定时任务实际启动，避免两个 cron 分别延迟。
+    workflows: ['Sync Canary to Telegram']
+    types: [requested]
   workflow_dispatch:
 
 permissions:
@@ -22,10 +26,12 @@ env:
 jobs:
   verify:
     name: Build, test and validate Release minification
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'schedule' && github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
       contents: read
+      actions: read
     outputs:
       version_name: ${{ steps.identity.outputs.build_version_name }}
       version_code: ${{ steps.identity.outputs.version_code }}
@@ -58,6 +64,12 @@ jobs:
             echo "- Ref: \`$GITHUB_REF\`"
             echo "- Commit: \`$GITHUB_SHA\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Require successful Canary CI for the scheduled source
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/release-templates/verify_embedded_canary_ci.py --commit "$GITHUB_SHA" --summary "$GITHUB_STEP_SUMMARY"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v10.3.2
@@ -185,7 +197,7 @@ jobs:
 
   lint:
     name: Full Android Lint
-    if: github.repository == 'jichuo1/Bilibili_Innocent_Lab' && github.ref == 'refs/heads/main'
+    if: github.repository == 'jichuo1/Bilibili_Innocent_Lab' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'schedule' && github.event.workflow_run.head_branch == 'main'))
     permissions:
       contents: read
     uses: ./.github/workflows/android-lint.yml
