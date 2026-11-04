@@ -381,3 +381,12 @@
 - 新发现的独立入口：8.90.2 联合创作视频的「创作团队」关注按钮仍弹登录框，尚未适配；普通单作者视频按钮可用。普通免登录模式的重启持久化、本轮分组会话切换的实机行为、其余版本动态交互和登录账号回归均待验证。继续审计其他第三方身份通道；无痕隐私状态仍是 `partial`。
 - 最终 Debug APK 与上述实机候选包哈希一致；完整 JVM 测试 4330 项（0 失败、1 跳过）及快速 Lint 通过，262 条警告、3 条既有基线错误过滤；未运行完整 Lint。构建限制两个逻辑核心、单个 Gradle worker、4096m 堆和进程内 Kotlin 编译；Lint 阶段 Java 进程实际占用约 4.9 GB，结束后 Gradle / Kotlin 进程均已退出。
 - 联合创作入口的初步静态检索 `1c9f96eb6fea49ef86c8a5ac8373112c`、`79d168e01daf46d7b318f925e633456f` 查询了 8.90.2、9.16.1 中名称含 Cooper / Collabor / Team 的 Theseus 类及其关注调用，命中了 PUGV 的 `CheeseCooperatorComponent`；没有证据表明它就是本次普通视频的创作团队卡片，不能直接当作修复锚点。
+
+## 24. 2026-11-04：联合创作「创作团队」关注按钮接管
+
+- 宿主实现定位：普通视频「创作团队」卡片的关注按钮是 `tv.danmaku.bili.videopage.common.widget.view.VerifyLottieFollowButton`（另有 `com.mall` 同名变体用于商城视频页），与作者入口的 `FollowButton`/`FollowFlowHelper` 是两套路径，所以普通关注按钮的拦截对它无效。8.84–8.96 的点击入口是私有 `(String)V` 方法，9.16.1 已改写成共享 `Hu0.c` SAM 的内联分支；点击先过登录门（9.16.1 为 `bt1.o.b`），游客弹登录框，再调 `RelationApiManager.addAuthorAttentionV2(accessKey, …)`。宿主语义上该按钮只负责「关注」：已关注（`B`）或在途（`C`）时点击是空操作，关注成功后页面回调把它设为 `GONE`，取关走「创作团队」全列表等其他入口。
+- 关键兼容事实：回调接口的方法名 `onFollowSuccess()` / `onFollowError(Throwable)` 在 9.16.1 上未被混淆（`it1.d`），按钮字段 `getAuthorId()J`、回调字段、`FollowStateManager$FollowChangeListener` 字段结构在 8.84–9.16.1 均成立；按钮自身的 change listener 只把广播转发给页面回调 `dVar.a(z)`，不直接更新自己的 UI。HostLab 矩阵 `4610f0e8` 覆盖全部 38 个样本。
+- `c3a98c95` 实现接管：钩 `View.setOnClickListener`（所有版本绑定时唯一必走的调用），游客态下把宿主 listener 换成包装器——本地 `setFollow(mid, true)`、播放原 lottie 动画、调页面回调 `onFollowSuccess()`（宿主原生 toast「关注成功~」、页面将按钮设为 `GONE`）、经 `FollowStateManager.notify` 广播，保证其它已关注态入口一致。非游客时透传原 listener。回调接口缺 `onFollowSuccess` 形状的版本直接跳过该按钮类，不猜结构。`GuestLottieFollowButtonShapeTest` 覆盖形状判定。状态键：`guest_lottie_follow_targets`（本次 `+bili,-mall`）、`guest_lottie_follow=applied`。
+- 9.16.1 实机（无痕+免登录，`incognito_privacy_status=partial`，`guest_library_lottie_follow=installed`）：联合稿 BV11rpvzDE9K（UP主+参演双 staff）。两位成员的关注按钮均本地关注成功，弹宿主「关注成功~」，无登录框；「创作团队（共2位）」弹层显示两人「已关注」；弹层行内点「已关注」本地取关成功，弹「已取消关注」；再点卡片按钮可重新关注并再次隐藏。期间无任何 `relation`/`attention`/`modify` 网络调用。截图 `captures/compat-incognito/lottie-*-916.png`。
+- 已知渲染残留：外部入口取关后，卡片按钮重新显示但停在 ✓ 帧——该按钮的 change listener 只转发给页面回调、自身不重置 lottie 进度，页面只恢复可见性不重绑。真实账号同样路径很可能产生相同残留，属宿主自身行为；重新绑定（重开页面）后恢复 +。未单独验证登录账号回归。
+- 待验证：8.90.2 真机同样的点击链路（本机是 9.16.1，8.84–8.96 仅静态矩阵）、登录账号回归、`com.mall` 变体的真实触发。
