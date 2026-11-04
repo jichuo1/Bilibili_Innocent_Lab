@@ -135,17 +135,25 @@ private class SemanticForm(
         inputType = when {
             decimal -> InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             numeric -> InputType.TYPE_CLASS_NUMBER
-            secret -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            secret -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD or
+                InputType.TYPE_TEXT_FLAG_MULTI_LINE
             multiLine -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            else -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            else -> InputType.TYPE_CLASS_TEXT
         }
-        if (multiLine) {
-            isSingleLine = false
-            minLines = 2
-            maxLines = 6
-            gravity = Gravity.TOP or Gravity.START
-        } else {
-            isSingleLine = true
+        when {
+            multiLine -> {
+                isSingleLine = false
+                minLines = 2
+                maxLines = 6
+                gravity = Gravity.TOP or Gravity.START
+            }
+            secret -> {
+                // 长 API Key 自动增高但有上限，不再挤在单行密码框里跑出可视区域。
+                isSingleLine = false
+                minLines = 1
+                maxLines = 3
+            }
+            else -> isSingleLine = true
         }
         setPadding(dp(14), dp(10), dp(14), dp(10))
         background = GradientDrawable().apply {
@@ -466,6 +474,49 @@ internal fun MainActivity.showSemanticJevSettingsDialog(anchor: View? = null, on
     ) }
 }
 
+/** 长凭据的辅助行：切换明文 / 密文并显示字符数，便于核对粘贴是否完整。 */
+private fun MainActivity.createSemanticKeyRow(field: NativeEditText): View {
+    val density = resources.displayMetrics.density
+    val counter = NativeTextView(this).apply {
+        textSize = 12f
+        setTextColor(getColor(R.color.colorTextGray))
+        alpha = 0.72f
+        gravity = Gravity.END or Gravity.CENTER_VERTICAL
+    }
+    val toggle = NativeTextView(this).apply {
+        textSize = 13f
+        setTextColor(monetColors.primary)
+        setPadding((12 * density).toInt(), (8 * density).toInt(), (12 * density).toInt(), (8 * density).toInt())
+        background = selfRippleBackground(10f)
+        isClickable = true
+        isFocusable = true
+    }
+    var visible = false
+    fun refresh() {
+        counter.text = "${field.text?.length ?: 0} / ${RemoteHookConfigContract.MAX_SEMANTIC_JEV_API_KEY_LENGTH}"
+        toggle.text = getString(if (visible) R.string.semantic_jev_api_key_hide else R.string.semantic_jev_api_key_show)
+    }
+    toggle.setOnClickListener {
+        visible = !visible
+        field.transformationMethod = if (visible) null
+            else android.text.method.PasswordTransformationMethod.getInstance()
+        field.setSelection(field.text?.length ?: 0)
+        refresh()
+    }
+    field.addTextChangedListener(object : android.text.TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = refresh()
+        override fun afterTextChanged(s: android.text.Editable?) = Unit
+    })
+    refresh()
+    return NativeLinearLayout(this).apply {
+        orientation = NativeLinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        addView(toggle, NativeLinearLayout.LayoutParams(-2, -2))
+        addView(counter, NativeLinearLayout.LayoutParams(0, -2, 1f))
+    }
+}
+
 /**
  * 编辑一个判定来源：接口类型、Key（密码框，不进备份）、地址、模型。地址或模型不合格时不保存、不关闭，
  * 避免把 Key 发到错误的地方。「清除」把这个来源的 Key 置空（其余字段保留，方便以后再填 Key）。
@@ -504,6 +555,7 @@ internal fun MainActivity.showSemanticSourceDialog(
         form.help(getString(R.string.semantic_short_provider))
         form.label(R.string.semantic_jev_api_key, 14)
         keyField = form.field(semanticSourceKey(index), R.string.semantic_jev_api_key_hint_short, secret = true)
+        form.body.addView(createSemanticKeyRow(keyField), NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = form.dp(2) })
         form.help(getString(R.string.semantic_short_key))
         form.label(R.string.semantic_jev_endpoint, 12)
         endpointField = form.field(prefs.getString(endpointKey, "").orEmpty(), R.string.semantic_jev_endpoint_hint_short)
@@ -533,7 +585,17 @@ internal fun MainActivity.showSemanticSourceDialog(
         add(getString(R.string.dialog_cancel) to { dismiss {} })
         add(getString(R.string.semantic_jev_save) to save@{
             val endpoint = endpointField.textToString().trim()
-            val model = modelField.textToString().trim().take(SemanticBackend.MAX_MODEL_LENGTH)
+            val model = modelField.textToString().trim()
+            val key = keyField.textToString().trim()
+            // 超长时明确报错，不再静默截断后让请求因凭据不全而失败。
+            if (model.length > SemanticBackend.MAX_MODEL_LENGTH) {
+                toast(getString(R.string.semantic_jev_field_too_long, SemanticBackend.MAX_MODEL_LENGTH))
+                return@save
+            }
+            if (key.length > RemoteHookConfigContract.MAX_SEMANTIC_JEV_API_KEY_LENGTH) {
+                toast(getString(R.string.semantic_jev_field_too_long, RemoteHookConfigContract.MAX_SEMANTIC_JEV_API_KEY_LENGTH))
+                return@save
+            }
             val backend = SemanticBackend.of(provider, model)
             if (backend == null) {
                 toast(getString(R.string.semantic_jev_model_required))
@@ -543,7 +605,6 @@ internal fun MainActivity.showSemanticSourceDialog(
                 toast(getString(R.string.semantic_jev_endpoint_invalid))
                 return@save
             }
-            val key = keyField.textToString().trim().take(RemoteHookConfigContract.MAX_SEMANTIC_JEV_API_KEY_LENGTH)
             runCatching {
                 prefs.edit {
                     putString(RemoteHookConfigContract.semanticApiKey(index), key)

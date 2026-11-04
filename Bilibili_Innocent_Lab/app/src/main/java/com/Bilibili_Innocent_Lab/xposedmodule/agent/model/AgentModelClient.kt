@@ -12,7 +12,9 @@ internal class AgentModelClient(
     private val transport: AgentHttpTransport = AgentHttpsTransport,
     private val outputTokenBudget: Int = 2048,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val inputTextLimit: Int = 65_536
+    private val inputTextLimit: Int = 65_536,
+    /** AI Insight 走聚合中转时模型种类不固定，关闭思考控制参数注入，避免非推理模型被拒。 */
+    private val allowReasoningParams: Boolean = true
 ) {
     private val capabilities = AgentBoundedCache<String, AgentModelCapabilities>(clock = clock)
     private val tokenParameters = AgentBoundedCache<String, String>(clock = clock)
@@ -74,7 +76,8 @@ internal class AgentModelClient(
         val body = JSONObject().put("model", source.model).put("messages", JSONArray(messages.toString()))
             .put("stream", streaming)
         if (tools.length() > 0) body.put("tools", JSONArray(tools.toString())).put("tool_choice", "auto")
-        val optionalReasoning = knownReasoningParams(source)?.takeIf { rejectedReasoning[source.fingerprint] != true }
+        val optionalReasoning = if (allowReasoningParams) knownReasoningParams(source)
+            ?.takeIf { rejectedReasoning[source.fingerprint] != true } else null
         optionalReasoning?.keys()?.forEach { body.put(it, optionalReasoning.get(it)) }
         var removedReasoning = false
         var objectMode = schema != null && jsonObjectOnly[source.fingerprint] == true
@@ -111,7 +114,7 @@ internal class AgentModelClient(
                         checkNotNull(onDelta)(delta)
                     }
                 if (cancelled()) throw AgentModelException(AgentModelException.Reason.CANCELLED)
-                if (System.nanoTime() >= deadline) throw AgentModelException(AgentModelException.Reason.TIMEOUT)
+                // 响应已完整到达，不再因总时限丢弃；此前每个流式增量已经交付给界面。
                 val turn = decode(payload, allowed, historyIds)
                 tokenParameters[source.fingerprint] = parameter
                 if (removedReasoning) rejectedReasoning[source.fingerprint] = true

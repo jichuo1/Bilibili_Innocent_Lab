@@ -25,6 +25,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.updateLayoutParams
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.R
+import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentModelException
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import io.github.jichuo1.meguviz.android.extensions.toPx
@@ -329,11 +330,74 @@ internal class InsightCard(context: Context, private val repository: InsightRepo
             } }
         }
     }
-    private fun errorText(error: Throwable): String = when (error.message) {
-        "subtitle-context-too-large" -> insightText(context, "完整字幕超出请求容量，已停止生成，未抽样或截断。", "The complete transcript exceeds request capacity. Nothing was sampled or truncated.", "完整字幕超出請求容量，已停止生成，未抽樣或截斷。")
-        "no-comments" -> insightText(context, "暂未读取到可用评论，请稍后重试。", "No comments could be loaded. Please retry later.", "暫未讀取到可用評論，請稍後重試。")
-        "chapters-unavailable" -> insightText(context, "当前视频暂不支持生成章节。需要可用字幕、至少 3 分钟时长，且没有官方章节。", "Chapters need subtitles, at least 3 minutes, and no official chapters.", "目前影片暫不支援生成章節。需要可用字幕、至少 3 分鐘時長，且沒有官方章節。")
-        else -> insightText(context, "暂时无法生成，请重试。", "Could not generate. Please retry.", "暫時無法生成，請重試。")
+    /** 失败按原因分类，明确说明已生成的正文被保留，并给出下一步动作；不再一律「请重试」。 */
+    private fun errorText(error: Throwable): String {
+        val kept = insightText(context, "已保留已生成内容", "Kept what was generated", "已保留已生成內容")
+        val failure = error as? AgentModelException
+        val rule = (error as? InsightValidationException)?.rule
+        return when {
+            error.message == "subtitle-context-too-large" -> insightText(context,
+                "完整字幕超出请求容量，已停止生成，未抽样或截断。",
+                "The complete transcript exceeds request capacity. Nothing was sampled or truncated.",
+                "完整字幕超出請求容量，已停止生成，未抽樣或截斷。")
+            error.message == "no-comments" -> insightText(context,
+                "暂未读取到可用评论，请稍后重试。", "No comments could be loaded. Please retry later.",
+                "暫未讀取到可用評論，請稍後重試。")
+            error.message == "chapters-unavailable" -> insightText(context,
+                "当前视频暂不支持生成章节。需要可用字幕、至少 3 分钟时长，且没有官方章节。",
+                "Chapters need subtitles, at least 3 minutes, and no official chapters.",
+                "目前影片暫不支援生成章節。需要可用字幕、至少 3 分鐘時長，且沒有官方章節。")
+            failure != null -> failureText(failure, kept)
+            rule != null -> insightText(context,
+                "模型返回的内容未通过本地格式校验（$rule），$kept。可重试或换用更稳定的模型。",
+                "The model output failed local format checks ($rule). $kept. Retry or use a more reliable model.",
+                "模型回傳的內容未通過本機格式校驗（$rule），$kept。可重試或改用更穩定的模型。")
+            else -> insightText(context,
+                "暂时无法生成，$kept，可重试。", "Could not generate. $kept. Retry.",
+                "暫時無法生成，$kept，可重試。")
+        }
+    }
+
+    private fun failureText(failure: AgentModelException, kept: String): String = when (failure.reason) {
+        AgentModelException.Reason.TIMEOUT -> insightText(context,
+            "请求超时，$kept。可检查网络或延长超时后重试。",
+            "Request timed out. $kept. Check the network or raise the timeout and retry.",
+            "請求逾時，$kept。可檢查網路或延長逾時後重試。")
+        AgentModelException.Reason.OUTPUT_LIMIT -> insightText(context,
+            "模型输出达到上限被截断，$kept。可提高输出预算或换支持更长输出的模型后重试。",
+            "The model hit its output limit and was truncated. $kept. Raise the output budget or use a model with a longer limit.",
+            "模型輸出達到上限被截斷，$kept。可提高輸出預算或換支援更長輸出的模型後重試。")
+        AgentModelException.Reason.NETWORK -> insightText(context,
+            "网络请求失败，$kept。检查网络后重试。",
+            "Network request failed. $kept. Check the connection and retry.",
+            "網路請求失敗，$kept。檢查網路後重試。")
+        AgentModelException.Reason.HTTP, AgentModelException.Reason.REDIRECT -> insightText(context,
+            "模型接口拒绝请求（状态码 ${failure.status ?: 0}）。请检查 API Key、接口地址和模型名，$kept。",
+            "The API rejected the request (status ${failure.status ?: 0}). Check the API key, endpoint and model name. $kept.",
+            "模型介面拒絕請求（狀態碼 ${failure.status ?: 0}）。請檢查 API Key、介面位址與模型名稱，$kept。")
+        AgentModelException.Reason.INVALID_RESPONSE -> insightText(context,
+            "模型返回格式无法识别，$kept。可更换模型或接口类型后重试。",
+            "Unrecognized model response. $kept. Try another model or API type.",
+            "模型回傳格式無法辨識，$kept。可更換模型或介面類型後重試。")
+        AgentModelException.Reason.TOO_LARGE -> insightText(context,
+            "请求或响应超过大小限制，$kept。可缩短视频或减少上下文后重试。",
+            "The request or response exceeded the size limit. $kept. Try a shorter video.",
+            "請求或回應超過大小限制，$kept。可縮短影片或減少上下文後重試。")
+        AgentModelException.Reason.RESPONSE_FORMAT_PARAMETER -> insightText(context,
+            "该服务不支持当前结构化输出格式，已尝试回退，$kept。可更换接口类型或模型。",
+            "Structured output is unsupported here; fallback was attempted. $kept. Try another API type or model.",
+            "該服務不支援目前結構化輸出格式，已嘗試回退，$kept。可更換介面類型或模型。")
+        AgentModelException.Reason.STREAM_PARAMETER, AgentModelException.Reason.TOKEN_PARAMETER,
+        AgentModelException.Reason.OPTIONAL_PARAMETER -> insightText(context,
+            "该服务不接受部分可选参数，已自动回退，$kept。",
+            "Optional parameters were rejected; fallback was applied. $kept.",
+            "該服務不接受部分可選參數，已自動回退，$kept。")
+        AgentModelException.Reason.CANCELLED -> insightText(context,
+            "生成已取消，$kept。", "Generation cancelled. $kept.", "生成已取消，$kept。")
+        else -> insightText(context,
+            "模型服务返回错误（${failure.reason.description}），$kept，可重试。",
+            "Model service error (${failure.reason.name}). $kept. Retry.",
+            "模型服務回傳錯誤（${failure.reason.name}），$kept，可重試。")
     }
     private fun request(mode: InsightMode, current: InsightPlayerSession, failure: TextView?, retry: View?, query: String = "",
         response: InsightResponseText? = null, completed: (InsightCache.Entry) -> Unit) {

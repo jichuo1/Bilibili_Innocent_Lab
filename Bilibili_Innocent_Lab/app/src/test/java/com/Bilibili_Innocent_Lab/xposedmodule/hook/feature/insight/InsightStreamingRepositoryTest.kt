@@ -48,7 +48,7 @@ class InsightStreamingRepositoryTest {
         assertEquals(listOf("已收到一部分"), updates)
         assertTrue(root.listFiles().orEmpty().isEmpty()); assertNull(repo.cached(video, InsightMode.SUMMARY))
     }
-    @Test fun `format repair resets the preview and stores only the corrected result`() {
+    @Test fun `format repair keeps the first preview and stores only the corrected result`() {
         val root = temporary.newFolder(); val updates = mutableListOf<String>(); var calls = 0
         val repo = InsightRepository(source, InsightCache(root), { context.copy(comments = listOf("评论")) }, client { emit ->
             calls++
@@ -56,7 +56,8 @@ class InsightStreamingRepositoryTest {
             emit(json); json
         })
         assertEquals("方向\n正确讨论", repo.generate(video, InsightMode.COMMENTS, onProgress = updates::add).output.text)
-        assertTrue(updates.contains("")); assertEquals(2, calls)
+        // 修正重放不再清空用户已经看到的正文，也不发送第二轮增量预览。
+        assertTrue(updates.isNotEmpty()); assertFalse(updates.contains("")); assertEquals(2, calls)
         assertFalse(root.listFiles()!!.single().readText().contains("坏片段"))
     }
     @Test fun `cancellation discards late deltas without caching or completing the answer`() {

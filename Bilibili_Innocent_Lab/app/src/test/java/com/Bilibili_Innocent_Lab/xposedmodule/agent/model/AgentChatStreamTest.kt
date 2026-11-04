@@ -51,6 +51,16 @@ class AgentChatStreamTest {
         rejects(event(chunk(JSONObject().put("content", "partial"))) + "data: " + chunk(finish = "stop"))
         assertNotNull(read(event(chunk(JSONObject().put("content", "text"))) + event(chunk(finish = "stop"))))
     }
+    @Test fun `aggregator completion reasons are normalized to stop`() {
+        for (reason in listOf("end_turn", "stop_sequence")) {
+            val wire = event(chunk(JSONObject().put("content", "正文"))) +
+                event(chunk(finish = reason)) + event("[DONE]")
+            val result = read(wire)
+            assertEquals("stop", result.getJSONArray("choices").getJSONObject(0).getString("finish_reason"))
+            assertEquals("正文", result.getJSONArray("choices").getJSONObject(0)
+                .getJSONObject("message").getString("content"))
+        }
+    }
     @Test fun `length refusal tool calls and late content are never accepted as success`() {
         rejects(event(chunk(finish = "length")), AgentModelException.Reason.OUTPUT_LIMIT)
         rejects(event(chunk(JSONObject().put("refusal", "refused"))) + end())

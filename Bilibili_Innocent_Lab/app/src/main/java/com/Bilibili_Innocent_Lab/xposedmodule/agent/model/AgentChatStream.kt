@@ -57,8 +57,9 @@ internal object AgentChatStream {
             if (!choice.isNull("finish_reason")) {
                 val reason = choice.optString("finish_reason")
                 if (reason == "length") throw AgentModelException(AgentModelException.Reason.OUTPUT_LIMIT)
-                if (reason != "stop" || finish != null) invalid()
-                finish = reason
+                // 部分中转把其它完成态直接透传；统一收敛成 OpenAI 的 stop 交给原有 turn 契约。
+                if (reason !in setOf("stop", "end_turn", "stop_sequence") || finish != null) invalid()
+                finish = "stop"
             }
         }
         var firstLine = true
@@ -77,6 +78,7 @@ internal object AgentChatStream {
         // EOF 不能补发缺失空行的半个事件，否则截断响应可能被误当成完成。
         if (event.isNotEmpty()) invalid()
         checkAlive()
+        // 缺 stop 的半个响应仍不合成完成态：截断的 JSON 交给业务层校验后保留正文，不冒充成功。
         if (finish != "stop") invalid()
         return JSONObject().put("choices", JSONArray().put(JSONObject().put("finish_reason", finish)
             .put("message", JSONObject().put("role", "assistant").put("content", text.toString()))))

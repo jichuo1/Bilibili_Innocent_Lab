@@ -40,7 +40,10 @@ class SemanticBackendTest {
         assertEquals("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
             backend.resolveEndpoint("https://dashscope.aliyuncs.com/compatible-mode/v1"))
         assertEquals("http://127.0.0.1:11434/v1/chat/completions", backend.resolveEndpoint("http://127.0.0.1:11434/v1/chat/completions"))
-        assertNull(backend.resolveEndpoint("api.deepseek.com"))
+        // 说明里承诺「可以只填域名」：无协议时按 https 补全，不能再判无效。
+        assertEquals("https://api.deepseek.com/v1/chat/completions", backend.resolveEndpoint("api.deepseek.com"))
+        assertEquals("https://openrouter.ai/api/v1/chat/completions", backend.resolveEndpoint("openrouter.ai/api/v1/"))
+        assertEquals(JevBackend.OPENROUTER_DECISIONS, JevBackend().resolveEndpoint("openrouter.ai"))
         assertEquals(JevBackend.DEFAULT_ENDPOINT, JevBackend().resolveEndpoint(""))
     }
 

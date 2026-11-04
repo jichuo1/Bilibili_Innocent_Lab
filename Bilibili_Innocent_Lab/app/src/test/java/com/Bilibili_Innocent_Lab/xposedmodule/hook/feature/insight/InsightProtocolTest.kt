@@ -185,7 +185,8 @@ class InsightProtocolTest {
         assertTrue(prompt.contains(answer))
     }
     @Test fun `JSON fallback validation enforces the same bounded output schema`() {
-        rejects { InsightProtocol.decode(InsightMode.ASK, """{"answer":"a","extra":"unsupported"}""", input) }
+        // 中转或模型多给的字段忽略即可，不再整份拒绝。
+        assertEquals("a", InsightProtocol.decode(InsightMode.ASK, """{"answer":"a","extra":"unsupported"}""", input).text)
         rejects { InsightProtocol.decode(InsightMode.ASK, JSONObject().put("answer", "x".repeat(12001)).toString(), input) }
         rejects { InsightProtocol.decode(InsightMode.SUMMARY, JSONObject().put("overview", "x".repeat(501)).put("points", JSONArray().put("point")).toString(), input) }
     }

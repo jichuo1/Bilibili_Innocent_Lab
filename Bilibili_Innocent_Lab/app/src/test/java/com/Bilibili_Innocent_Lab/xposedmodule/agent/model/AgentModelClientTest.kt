@@ -38,6 +38,18 @@ class AgentModelClientTest {
         assertFalse(requests.last().has("reasoning_effort"))
     }
 
+    @Test fun `insight client omits reasoning controls on aggregator hosts`() {
+        val requests = mutableListOf<JSONObject>()
+        val client = AgentModelClient(AgentHttpTransport { _, bytes, _, _ ->
+            requests += JSONObject(String(bytes, Charsets.UTF_8)); response()
+        }, allowReasoningParams = false)
+        client.generate(source.copy(endpoint = "https://openrouter.ai/api/v1"), user, JSONArray(), false, 5000) { false }
+        // Claude Haiku 等非推理模型不接受 reasoning.effort=none；AI Insight 不应注入任何思考控制参数。
+        assertFalse(requests.single().has("reasoning"))
+        assertFalse(requests.single().has("reasoning_effort"))
+        assertFalse(requests.single().has("thinking"))
+    }
+
     @Test fun `explicit large input budget transmits complete text without relaxing output or default clients`() {
         val text = "完整字幕".repeat(20_000)
         var received = ""

@@ -1199,7 +1199,7 @@
     <string name="semantic_jev_tip">為智慧過濾提供判定服務。開啟智慧過濾後，待判斷的文字（只有動態正文，不含帳號、Cookie 或使用者 ID）會傳送到下方的介面位址。API Key 只儲存在本機，不進設定備份與診斷，只交給嗶哩嗶哩用於發起請求。重新啟動嗶哩嗶哩後生效。</string>
     <string name="semantic_jev_api_key">API Key</string>
     <string name="semantic_jev_endpoint">介面位址</string>
-    <string name="semantic_jev_endpoint_invalid">介面位址必須是 http(s) 位址</string>
+    <string name="semantic_jev_endpoint_invalid">介面位址無效，請填寫網域或完整的 http(s) 位址</string>
     <string name="semantic_jev_sensitivity">靈敏度</string>
     <string name="semantic_jev_sensitivity_low">低 · 只隱藏 JEV 非常確定的內容</string>
     <string name="semantic_jev_sensitivity_medium">中 · 均衡（建議）</string>
@@ -1227,8 +1227,11 @@
     <string name="semantic_rules_dialog_tip">勾選要隱藏的類型。變更勾選後，這一項先前的判定會作廢，不會沿用舊選擇的結果。</string>
     <string name="semantic_jev_api_key_hint_short">貼上 API Key</string>
     <string name="semantic_jev_api_key_help">所選服務的 Key（TypeSafe、相容中轉或 OpenAI 相容服務商）。只儲存在本機，不進備份。</string>
+    <string name="semantic_jev_api_key_show">顯示</string>
+    <string name="semantic_jev_api_key_hide">隱藏</string>
+    <string name="semantic_jev_field_too_long">內容超過 %1$d 字元上限，請檢查是否貼上完整</string>
     <string name="semantic_jev_endpoint_hint_short">留空使用官方位址</string>
-    <string name="semantic_jev_endpoint_help">JEV：留空為 api.typesafe.ai，只填主機自動補上 /v1/systemone。OpenAI 相容：留空為 api.openai.com；填 https://api.deepseek.com、…/compatible-mode/v1 這類 base_url 會自動補上 /chat/completions。 Cloudflare：填 32 位帳戶 ID，或 api.cloudflare.com / AI Gateway 位址。 OpenRouter 的判定模型（如 span-01-lite:free）：介面類型選 JEV，位址填 https://openrouter.ai 即可，會自動走它的判定介面。</string>
+    <string name="semantic_jev_endpoint_help">JEV：留空為 api.typesafe.ai；只填網域即可（可不帶協定，預設按 https 補全），自動補上 /v1/systemone。OpenAI 相容：留空為 api.openai.com；填 https://api.deepseek.com、…/compatible-mode/v1 這類 base_url 會自動補上 /chat/completions。 Cloudflare：填 32 位帳戶 ID，或 api.cloudflare.com / AI Gateway 位址。 OpenRouter 的判定模型（如 span-01-lite:free）：介面類型選 JEV，位址填 https://openrouter.ai 即可，會自動走它的判定介面。 AI Insight 需要 https 位址；填 http 的來源只能用於智慧過濾。</string>
     <string name="semantic_rule_dynamic_lottery">抽獎</string>
     <string name="semantic_rule_dynamic_lottery_desc">轉發抽獎、評論抽獎、互動抽獎、開獎公告</string>
     <string name="semantic_rule_dynamic_goods">帶貨</string>
@@ -1362,7 +1365,7 @@
     <string name="semantic_short_guidance">留空用預設說明。</string>
     <string name="semantic_short_provider">不知道選哪個？點右上角 ⓘ。</string>
     <string name="semantic_short_key">只存在本機，不進備份。</string>
-    <string name="semantic_short_endpoint">留空用預設；可以只填網域。</string>
+    <string name="semantic_short_endpoint">留空用預設；可只填網域，預設 https。</string>
     <string name="semantic_short_model">JEV 可留空，其他必填。</string>
     <string name="semantic_short_route">自動分流按速度分擔，也可固定一個。</string>
     <string name="semantic_short_custom">寫清「不包括什麼」能減少誤刪。</string>

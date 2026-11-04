@@ -11,6 +11,7 @@ import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 internal fun interface AgentHttpTransport {
@@ -49,33 +50,48 @@ internal object AgentHttpsTransport : AgentHttpTransport {
         if (body.size > MAX_REQUEST_BYTES) throw AgentModelException(AgentModelException.Reason.TOO_LARGE)
         if (cancelled()) throw AgentModelException(AgentModelException.Reason.CANCELLED)
         val connection = AtomicReference<HttpURLConnection?>()
-        val deadline = System.nanoTime() + timeoutMs.coerceIn(1, MAX_TIMEOUT_MS) * 1_000_000L
+        val started = System.nanoTime()
+        val budgetNs = timeoutMs.coerceIn(1, MAX_TIMEOUT_MS) * 1_000_000L
+        val deadlineNs = AtomicLong(started + budgetNs)
+        // 流式请求：每个 SSE 事件把空闲时限往后推，但不超过绝对上限，长总结不会被总时限拦腰截断。
+        val idleNs = minOf(budgetNs, 60_000_000_000L)
+        val hardCapNs = started + MAX_TIMEOUT_MS * 1_000_000L
+        fun touch() {
+            val now = System.nanoTime()
+            deadlineNs.updateAndGet { current -> minOf(maxOf(current, now + idleNs), hardCapNs) }
+        }
+        fun alive() {
+            if (cancelled() || Thread.currentThread().isInterrupted) throw AgentModelException(AgentModelException.Reason.CANCELLED)
+            if (System.nanoTime() >= deadlineNs.get()) throw AgentModelException(AgentModelException.Reason.TIMEOUT)
+        }
+        fun remainingMs(): Int = ((deadlineNs.get() - System.nanoTime()) / 1_000_000L)
+            .coerceIn(1, MAX_TIMEOUT_MS.toLong()).toInt()
         val task = try {
             workers.submit(Callable {
                 // Future完成到worker重新等待之间仍占用线程，有限队列吸收快速重试而不误报网络失败。
-                checkAlive(deadline, cancelled)
+                alive()
                 val http = connect(URL(source.resolvedEndpoint))
                 connection.set(http)
                 try {
-                    checkAlive(deadline, cancelled)
+                    alive()
                     http.instanceFollowRedirects = false
                     http.useCaches = false
                     http.requestMethod = "POST"
-                    http.connectTimeout = remaining(deadline)
-                    http.readTimeout = remaining(deadline)
+                    http.connectTimeout = remainingMs()
+                    http.readTimeout = remainingMs()
                     http.doOutput = true
                     http.setRequestProperty("Content-Type", "application/json; charset=utf-8")
                     http.setRequestProperty("Accept", if (onDelta == null) "application/json" else "text/event-stream, application/json")
                     http.setRequestProperty("Authorization", "Bearer ${source.apiKey}")
                     http.setFixedLengthStreamingMode(body.size)
                     http.outputStream.use { it.write(body) }
-                    checkAlive(deadline, cancelled)
+                    alive()
                     val status = http.responseCode
                     if (status in 300..399) throw AgentModelException(AgentModelException.Reason.REDIRECT, status)
                     if (status !in 200..299) {
                         val retryAfter = http.getHeaderField("Retry-After")?.toLongOrNull()
                             ?.coerceIn(0, 300)?.times(1000)
-                        val error = http.errorStream?.use { readBounded(it, 16_384, deadline, cancelled) }.orEmpty()
+                        val error = http.errorStream?.use { readBounded(it, 16_384, deadlineNs.get(), cancelled) }.orEmpty()
                         throw httpFailure(status, error, retryAfter)
                     }
                     val streaming = onDelta != null && http.contentType?.substringBefore(';')?.trim()
@@ -84,8 +100,8 @@ internal object AgentHttpsTransport : AgentHttpTransport {
                         throw AgentModelException(AgentModelException.Reason.TOO_LARGE)
                     }
                     http.inputStream.use { input ->
-                        if (streaming) AgentChatStream.read(input, { checkAlive(deadline, cancelled) }, checkNotNull(onDelta))
-                        else readBounded(input, MAX_RESPONSE_BYTES, deadline, cancelled)
+                        if (streaming) AgentChatStream.read(input, { touch(); alive() }, checkNotNull(onDelta))
+                        else readBounded(input, MAX_RESPONSE_BYTES, deadlineNs.get(), cancelled)
                     }
                 } finally {
                     http.disconnect()
@@ -97,9 +113,9 @@ internal object AgentHttpsTransport : AgentHttpTransport {
         }
         try {
             while (true) {
-                checkAlive(deadline, cancelled)
+                alive()
                 try {
-                    return task.get(minOf(100, remaining(deadline)).toLong(), TimeUnit.MILLISECONDS)
+                    return task.get(minOf(100, remainingMs()).toLong(), TimeUnit.MILLISECONDS)
                 } catch (_: TimeoutException) {
                     // 有界等待同时响应用户取消；真实 Socket 超时只是第二道防线。
                 } catch (e: ExecutionException) {
@@ -131,9 +147,6 @@ internal object AgentHttpsTransport : AgentHttpTransport {
         }
         return result.toString(Charsets.UTF_8.name())
     }
-
-    private fun remaining(deadline: Long): Int =
-        ((deadline - System.nanoTime()) / 1_000_000L).coerceIn(1, MAX_TIMEOUT_MS.toLong()).toInt()
 
     private fun checkAlive(deadline: Long, cancelled: () -> Boolean) {
         if (cancelled() || Thread.currentThread().isInterrupted) throw AgentModelException(AgentModelException.Reason.CANCELLED)
@@ -211,5 +224,6 @@ internal object AgentHttpsTransport : AgentHttpTransport {
 
     const val MAX_REQUEST_BYTES = 2 * 1024 * 1024
     const val MAX_RESPONSE_BYTES = 512 * 1024
-    const val MAX_TIMEOUT_MS = 120_000
+    /** 长字幕总结的流式输出可能持续数分钟；放宽绝对上限，空闲断流由 SSE 解析器单独检测。 */
+    const val MAX_TIMEOUT_MS = 300_000
 }
