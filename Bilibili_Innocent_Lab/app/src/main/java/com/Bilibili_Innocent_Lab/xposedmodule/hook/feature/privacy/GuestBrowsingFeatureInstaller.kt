@@ -25,7 +25,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 internal class GuestBrowsingFeatureInstaller(
     private val enabled: Boolean,
-    private val isGuest: () -> Boolean
+    private val isGuest: () -> Boolean,
+    private val commentDescriptionClass: String = COMMENT_DESCRIPTION
 ) : FeatureInstaller {
     override val id = ID
 
@@ -163,18 +164,33 @@ internal class GuestBrowsingFeatureInstaller(
             candidate = { argOrNull(0) == KEY_FORCE_LOGIN_QN }
         )
 
-        // classes6.dex / CommentSubjectDescription.java:1348-1350,1390: k() 返回 i=guestLimit。
-        // 只取消客户端分页遮罩判定；不修改模型、返回数据、hasNext 或网络请求。
-        // 8.97+ 把 guestLimit 改成公开字段、不再有 getter（9.16.1 唯一的 ()Z 是 b()=是否 UP 主本人），
-        // 没有可挂的方法入口，所以保持 8.90.2 名称并在新版本干净跳过，不去猜同形 ()Z。
-        register(
-            "comment-guest-limit",
-            exactMethod(
-                Lookup.classOrNull(loader, COMMENT_DESCRIPTION), "k", classOf<Boolean>(),
-                false
-            ),
-            false
-        )
+        // 评论游客上限：8.97+ 把 guestLimit 从私有字段 + k() getter 改成公开 final 字段，方法级拦截失效。
+        // 矩阵 20d5ad0e（38 版）：CommentSubjectDescription 的 <init> 38/38 存在且恰好一个 boolean
+        // 参数（guestLimit），12 个字段同序、唯一 Z 字段即该值。构造前把该参数置 false，宿主无论走
+        // getter 还是内联字段读取都拿到 false；不依赖 k() 或字段名，也不改返回数据、hasNext 与网络请求。
+        runCatching {
+            val description = requireNotNull(Lookup.classOrNull(loader, commentDescriptionClass))
+            val constructors = Lookup.declaredConstructors(description, makeAccessible = true) { ctor ->
+                !ctor.isSynthetic && ctor.parameterTypes.count { it == java.lang.Boolean.TYPE } == 1
+            }
+            require(constructors.size == 1) { "guestLimit constructor ambiguous" }
+            val constructor = constructors.single()
+            val index = constructor.parameterTypes.indexOfFirst { it == java.lang.Boolean.TYPE }
+            environment.registrar.constructor("$ID.comment-guest-limit", constructor) {
+                before {
+                    if (!enabled) return@before
+                    val guest = runCatching { isGuest() }.getOrElse {
+                        if (guardFailed.compareAndSet(false, true)) runtimeFailure(environment, "guest-state")
+                        false
+                    }
+                    if (!guest) return@before
+                    args[index] = false
+                    evidenceOnce(observed, FeatureRuntimeStage.OBSERVED)
+                    evidenceOnce(applied, FeatureRuntimeStage.APPLIED)
+                }
+            }
+            installed++
+        }.onFailure { missing += "comment-guest-limit" }
 
         // HomeLoginExpKt 里"拉起 bilibili://login/overseas_force 并返回是否成功"的静态 ()Z：8.90.2 是
         // 私有 n()，8.97+ 是公开 d()（两处反编译方法体一致）。该类 8.87+ 在每个版本都只有这一个

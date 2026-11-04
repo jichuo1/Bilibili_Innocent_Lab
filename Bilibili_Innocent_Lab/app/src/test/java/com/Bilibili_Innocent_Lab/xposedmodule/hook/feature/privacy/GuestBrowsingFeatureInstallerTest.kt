@@ -8,7 +8,9 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GuestBrowsingFeatureInstallerTest {
-    private class Harness {
+    private class Harness(
+        commentClass: String = "com.bilibili.app.comment3.data.model.CommentSubjectDescription"
+    ) {
         var guest = true
         var stateFailure = false
         val registrar = PlayerPortTestRegistrar()
@@ -18,12 +20,14 @@ class GuestBrowsingFeatureInstallerTest {
             { _, _ -> }, { _, _ -> }, { _, _ -> },
             runtimeEvidence = { _, stage, _ -> stages += stage })
         init {
-            GuestBrowsingFeatureInstaller(true) {
+            GuestBrowsingFeatureInstaller(true, {
                 check(!stateFailure)
                 guest
-            }.install(env)
+            }, commentClass).install(env)
         }
     }
+
+    private class AmbiguousCommentDescription(val first: Boolean, val second: Boolean)
 
     @Test fun onlyPassiveLoginGuideIsRejectedAndOtherDialogsKeepTheirOriginalResult() {
         val h = Harness()
@@ -63,13 +67,40 @@ class GuestBrowsingFeatureInstallerTest {
         assertEquals(1, ran)
     }
 
-    @Test fun commentGuardLeavesServerDataAndPaginationMetadataUnchanged() {
+    @Test fun commentGuestLimitIsClearedAtConstructionForGuestsOnly() {
         val h = Harness()
-        val subject = CommentSubjectDescription(data = listOf("reply"), hasNext = true)
-        assertEquals(false, h.registrar.invoke("guest_browsing.comment-guest-limit", subject) { subject.k() })
-        assertTrue(subject.guestLimit)
-        assertEquals(listOf("reply"), subject.data)
-        assertTrue(subject.hasNext)
+        var constructed: CommentSubjectDescription? = null
+        fun build(guestLimit: Boolean) {
+            val args = arrayOf<Any?>(guestLimit, listOf("reply"))
+            h.registrar.invoke("guest_browsing.comment-guest-limit", args = args) { a ->
+                @Suppress("UNCHECKED_CAST")
+                constructed = CommentSubjectDescription(a[0] as Boolean, a[1] as List<String>)
+                null
+            }
+        }
+        build(true)
+        val guestResult = requireNotNull(constructed)
+        assertFalse(guestResult.guestLimit)
+        assertEquals(listOf("reply"), guestResult.data)
+        assertFalse(guestResult.hasNext)
+        h.guest = false
+        build(true)
+        val hostResult = requireNotNull(constructed)
+        assertTrue(hostResult.guestLimit)
+        assertEquals(listOf("reply"), hostResult.data)
+    }
+
+    @Test fun commentLimitDoesNotBindTheVersionSpecificGetter() {
+        val h = Harness()
+        assertTrue(h.registrar.registrationAttempts.any { it.first == "guest_browsing.comment-guest-limit" })
+        assertFalse(h.registrar.registrationAttempts.any {
+            it.first.contains("comment") && it.second.name == "k"
+        })
+    }
+
+    @Test fun commentLimitFailsClosedWhenTheConstructorShapeIsAmbiguous() {
+        val h = Harness(AmbiguousCommentDescription::class.java.name)
+        assertFalse(h.registrar.registrationAttempts.any { it.first == "guest_browsing.comment-guest-limit" })
     }
 
     @Test fun playerLoginToastIsNotScheduledForGuestsAndOtherConfigReadsPassThrough() {
