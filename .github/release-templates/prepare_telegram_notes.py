@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 from pathlib import Path
 
@@ -17,7 +18,8 @@ MAX_NOTES_BYTES = 256 * 1024
 
 
 def generate(repo: Path, tag: str, commit: str, before: str = "") -> str:
-    if not TAG.fullmatch(tag) or not SHA.fullmatch(commit) or (before and not SHA.fullmatch(before)):
+    if (not (TAG.fullmatch(tag) or re.fullmatch(r"v\d+\.\d+\.\d+-embedded\.[1-9]\d*", tag))
+            or not SHA.fullmatch(commit) or (before and not SHA.fullmatch(before))):
         raise ValueError("Invalid Telegram changelog identity")
     for revision in [commit] + ([before] if before else []):
         subprocess.run(["git", "cat-file", "-e", revision + "^{commit}"], cwd=repo, check=True, capture_output=True)
@@ -33,7 +35,7 @@ def generate(repo: Path, tag: str, commit: str, before: str = "") -> str:
         entries.append(f"- {translate_subject(subject) or subject} ({short_sha})")
     start = f"上一次成功发布到 Telegram 的源码：{before}。" if before else "首次发布到 Telegram，包含所选源码的完整提交历史。"
     notes = f"{tag}\n\n{start}\n本次源码：{commit}。\n本次共 {len(entries)} 个提交。\n\n"
-    notes += "\n".join(entries) if entries else "本次没有新增提交，仅重新发布所选 Canary 构建。"
+    notes += "\n".join(entries) if entries else "本次没有新增提交，仅重新发布所选构建。"
     if len(notes.encode("utf-8")) > MAX_NOTES_BYTES:
         raise ValueError("Complete Telegram announcement exceeds the delivery budget; no entries were truncated")
     return notes + "\n"
