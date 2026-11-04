@@ -213,6 +213,32 @@ class GuestOnboardingHooksTest {
         assertNull(GuestOnboardingHooks.locateGate(NoStaticBoolean::class.java, NoStaticBoolean::class.java))
     }
 
+    @Test fun legacyGateIsTheFirstOfExactlyFourStaticBooleans() {
+        // 8.84-8.90 declare s/t/u/v; 8.91-8.95 declare r/s/t/u. The onCreate gate is the first by name in both.
+        assertEquals("s", GuestOnboardingHooks.locateLegacyGate(LegacyGateSTUV::class.java)?.name)
+        assertEquals("r", GuestOnboardingHooks.locateLegacyGate(LegacyGateRSTU::class.java)?.name)
+        assertNull(GuestOnboardingHooks.locateLegacyGate(null))
+        assertNull(GuestOnboardingHooks.locateLegacyGate(OneStaticBoolean::class.java))
+        assertNull(GuestOnboardingHooks.locateLegacyGate(TwoStaticBooleans::class.java))
+    }
+
+    @Test fun legacyLayoutInstallsTheGateOnPreV2Builds() {
+        val registrar = PlayerPortTestRegistrar()
+        val loader = object : ClassLoader(javaClass.classLoader) {
+            override fun loadClass(name: String?, resolve: Boolean): Class<*> = when (name) {
+                "com.bilibili.pegasus.request.ApiManagerKt" -> LegacyGateRSTU::class.java
+                "com.bilibili.pegasus.request.a", "com.bilibili.pegasus.request.b",
+                "com.bilibili.pegasus.request.c", "com.bilibili.pegasus.request.d" -> NoStaticBoolean::class.java
+                else -> super.loadClass(name, resolve)
+            }
+        }
+        GuestOnboardingHooks { true }.install(environment(registrar, loader))
+        assertEquals("installed", statuses["guest_onboarding_gate"])
+        assertEquals("r", registrar.hooks["guest.onboarding.gate"]?.member?.name)
+        assertEquals(false, registrar.callGate())
+        assertEquals("seen", statuses["guest_onboarding_gate_applied"])
+    }
+
     @Test fun reportsGateAbsentAndRegistersNothingWhenTheBuildHasNoSuchPredicate() {
         val registrar = PlayerPortTestRegistrar()
         val loader = object : ClassLoader(javaClass.classLoader) {
@@ -228,6 +254,20 @@ class GuestOnboardingHooksTest {
     class OneStaticBoolean { companion object { @JvmStatic fun only() = true } }
     class TwoStaticBooleans { companion object { @JvmStatic fun a() = true; @JvmStatic fun b() = false } }
     class StaticBooleanWithArgument { companion object { @JvmStatic fun withArg(a: Int) = a > 0 } }
+
+    // 8.84-8.96 ApiManagerKt layouts: four same-shaped static ()Z, the onCreate gate is first by name.
+    class LegacyGateSTUV { companion object {
+        @JvmStatic fun s() = true
+        @JvmStatic fun t() = true
+        @JvmStatic fun u() = true
+        @JvmStatic fun v() = true
+    } }
+    class LegacyGateRSTU { companion object {
+        @JvmStatic fun r() = true
+        @JvmStatic fun s() = true
+        @JvmStatic fun t() = true
+        @JvmStatic fun u() = true
+    } }
 
     // Entry-locator shapes: session -> runtime -> entry.
     class FourEntry { fun a(i: Int, s: String?, p: Any?, z: Boolean): Boolean = true }

@@ -14,14 +14,16 @@ import com.highcapable.kavaref.extension.isStatic
  *
  * 1. First-start wait gate ([installGate]). On a first start the host's `PegasusFragment.onCreate`
  *    does NOT load the home feed; it waits for the interest wizard to finish and loads the feed from
- *    the wizard's completion event. The same predicate ("first start and waiting for interest":
- *    a static `()Z` on `request.a`, `b`, `c` or `d`, renamed per build) decides whether the
- *    V2 plugin registry mounts the Compose wizard. Forcing it to false for a guest makes the host take
- *    its own non-first-start path: the feed loads immediately and the wizard never mounts. Nothing is
- *    faked, so no loading gate can be stranded. Verified on 9.0.0, 9.16.0 and 9.16.1; the other builds
- *    have only static evidence (matrices q60, q70, q73). On 8.84-8.96 the predicate sits in
- *    `ApiManagerKt` beside three other static `()Z`, so it cannot be told by shape; those builds report
- *    `guest_onboarding_gate=absent` and rely on the legacy plugin layer below.
+ *    the wizard's completion event. The same predicate ("first start and waiting for interest")
+ *    decides whether the V2 plugin registry mounts the Compose wizard. Forcing it to false for a guest
+ *    makes the host take its own non-first-start path: the feed loads immediately and the wizard never
+ *    mounts. Nothing is faked, so no loading gate can be stranded. Verified on 9.0.0, 9.16.0 and 9.16.1;
+ *    the other builds have only static evidence (matrices q60, q70, q73, 20d5ad0e).
+ *
+ *    Two mutually exclusive layouts cover all 38 archived builds: 8.97+ spread exactly one static
+ *    `()Z` over `request.a/b/c/d` ([locateGate]), while 8.84-8.96 keep four same-shaped static `()Z`
+ *    on `ApiManagerKt`, where the one `onCreate` calls is always the first by name ([locateLegacyGate]).
+ *    An ambiguous layout installs nothing rather than guessing.
  *
  * 2. Legacy plugins ([installPlugins]). The pre-V2 `NewUserInterestChoosePlugin` and
  *    `LowActiveInterestChoosePlugin` are located by version-stable ABI shape:
@@ -113,13 +115,15 @@ internal class GuestOnboardingHooks(private val isGuest: () -> Boolean) {
     }
 
     private fun installGate(env: HookEnvironment, loader: ClassLoader): Int = runCatching {
+        val legacy = PrivacyStructuralResolver.type(loader, LEGACY_REQUEST_CLASS)
         val requests = REQUEST_CLASSES.mapNotNull { PrivacyStructuralResolver.type(loader, it) }
         val fragment = PrivacyStructuralResolver.type(loader, FRAGMENT_CLASS)
-        // The predicate is the SINGLE static ()Z across request.a, b, c and d. On all 26 builds from 8.97 those four
-        // classes hold exactly one, the method PegasusFragment.onCreate calls and that reads isFirstStart (q70, q73);
-        // before 8.97 they hold none. Reflection cannot see call sites, so uniqueness is the guard: none, or more
-        // than one, installs nothing.
-        val gate = if (requests.isNotEmpty() && fragment != null) locateGate(*requests.toTypedArray()) else null
+        // Two mutually exclusive layouts, verified on all 38 archived builds (matrix 20d5ad0e):
+        // 8.84-8.96 keep four static ()Z on ApiManagerKt, 8.97+ spread exactly one over request.a/b/c/d.
+        // Reflection cannot see call sites, so each layout is identified by its exact shape and an
+        // ambiguous one installs nothing.
+        val gate = if (fragment == null) null else locateLegacyGate(legacy)
+            ?: if (requests.isNotEmpty()) locateGate(*requests.toTypedArray()) else null
         if (gate == null) {
             env.reportStatus("guest_onboarding_gate", "absent")
             return@runCatching 0
@@ -199,6 +203,7 @@ internal class GuestOnboardingHooks(private val isGuest: () -> Boolean) {
 
     internal companion object {
         private val REQUEST_CLASSES = listOf("a", "b", "c", "d").map { "com.bilibili.pegasus.request.$it" }
+        private const val LEGACY_REQUEST_CLASS = "com.bilibili.pegasus.request.ApiManagerKt"
         private const val FRAGMENT_CLASS = "com.bilibili.pegasus.PegasusFragment"
         private const val SESSION_CLASS = "com.bilibili.pegasus.components.interestv2.host.AndroidInterestChooseSession"
         private const val RESPONSE_CLASS = "com.bilibili.pegasus.data.base.PegasusResponse"
@@ -206,12 +211,22 @@ internal class GuestOnboardingHooks(private val isGuest: () -> Boolean) {
         private const val NEW_PLUGIN = "com.bilibili.pegasus.components.interest.NewUserInterestChoosePlugin"
         private const val LOW_PLUGIN = "com.bilibili.pegasus.components.interest.LowActiveInterestChoosePlugin"
 
-        /** The single static no-arg boolean across [requests]; null when none or more than one (fails closed). */
-        fun locateGate(vararg requests: Class<*>): Method? = requests.flatMap { request ->
-            Lookup.methods(request, includeSuperclasses = false, makeAccessible = true) { m ->
+        private fun staticBooleans(owner: Class<*>): List<Method> =
+            Lookup.methods(owner, includeSuperclasses = false, makeAccessible = true) { m ->
                 m.isStatic && m.returnType == java.lang.Boolean.TYPE && m.parameterCount == 0
             }
-        }.distinct().singleOrNull()
+
+        /** 8.97+: the single static no-arg boolean across [requests]; ambiguity fails closed. */
+        fun locateGate(vararg requests: Class<*>): Method? =
+            requests.flatMap(::staticBooleans).distinct().singleOrNull()
+
+        /**
+         * 8.84-8.96: `ApiManagerKt` declares exactly four static no-arg booleans, and the one
+         * `PegasusFragment.onCreate` calls is always the first by name (matrix 20d5ad0e, 12/12 builds).
+         * Any other count is ambiguous and installs nothing.
+         */
+        fun locateLegacyGate(legacy: Class<*>?): Method? =
+            legacy?.let(::staticBooleans)?.takeIf { it.size == 4 }?.minByOrNull { it.name }
 
         /**
          * The entry decision `(int, String, ref, boolean[, ref]): boolean` (the trailing step-session argument was
