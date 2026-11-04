@@ -171,6 +171,7 @@ internal class GuestLibraryHostHooks(
         // The host's follow broadcast: mirrors H5 and other host follow buttons into the library, and the space page back.
         attempt("space_follow") { GuestSpaceFollowSync(library, isGuest).install(env) }
         attempt("video_follow_initial") { GuestVideoFollowInitialState(library, isGuest).install(env) }
+        attempt("lottie_follow") { GuestLottieFollowButton(library, isGuest).install(env) }
         var videoFollowConfirmation: GuestHostFollowConfirmation? = null
         attempt("video_follow_confirmation") {
             videoFollowConfirmation = GuestHostFollowConfirmation(library, isGuest).also { it.install(env) }
