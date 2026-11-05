@@ -10,10 +10,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.reportRuntimeEvidence
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookParam
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
-import android.view.View
-import android.view.ViewGroup
-import androidx.core.view.isGone
-import androidx.core.view.updateLayoutParams
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import java.util.concurrent.atomic.AtomicBoolean
@@ -229,36 +225,13 @@ internal class GuestBrowsingFeatureInstaller(
             },
             false
         )
-        // 8.90.2 et1.c is exclusively the dynamic-feed login row (dy_login_bottom).
-        // Do not hide arbitrary views named "login" or alter the explicit Mine login route.
+        // 动态页（关注 Tab）未登录视图的登录引导：列表数据层过滤。旧 8.90.2 et1.c View 层隐藏
+        // 方案已删除——8.90.2 的 model.d5 与 9.x 的混淆登录 item 都在列表头部，数据层方案全版本同构，
+        // 见 GuestDynamicLoginRowFilter 与 captures/compat-incognito/DynamicNotLogin* 反编译。
         runCatching {
-            val holder = requireNotNull(Lookup.classOrNull(loader, "et1.c"))
-            val root = requireNotNull(Lookup.fieldOrNull(holder, "itemView", includeSuperclasses = true))
-            val saved = java.util.WeakHashMap<View, Pair<Int, Int>>()
-            fun update(target: Any?) {
-                val view = target?.let(root::get) as? View ?: return
-                if (isGuest()) {
-                    saved.putIfAbsent(view, view.visibility to (view.layoutParams?.height ?: ViewGroup.LayoutParams.WRAP_CONTENT))
-                    view.isGone = true
-                    view.layoutParams?.let { view.updateLayoutParams { height = 0 } }
-                    evidenceOnce(applied, FeatureRuntimeStage.APPLIED)
-                } else saved.remove(view)?.let { (visibility, height) ->
-                    view.visibility = visibility
-                    view.layoutParams?.let { view.updateLayoutParams { this.height = height } }
-                }
-            }
-            val constructor = requireNotNull(Lookup.constructorOrNull(holder, classOf<ViewGroup>()))
-            environment.registrar.constructor("$ID.dynamic-login-row-create", constructor) {
-                after { if (!hasThrowable) update(instance) }
-            }
-            installed++
-            val model = requireNotNull(Lookup.classOrNull(loader, "com.bilibili.bplus.followinglist.model.d5"))
-            val binder = requireNotNull(Lookup.classOrNull(loader, "et1.a"))
-            val service = requireNotNull(Lookup.classOrNull(loader, "com.bilibili.bplus.followinglist.service.i1"))
-            environment.registrar.exact("$ID.dynamic-login-row-bind", holder, "G0", model, binder, service, classOf<List<*>>()) {
-                after { if (!hasThrowable) update(instance) }
-            }
-            installed++
+            val liveDataClass = requireNotNull(Lookup.classOrNull(loader, "androidx.lifecycle.LiveData"))
+            val filter = GuestDynamicLoginRowFilter(enabled, isGuest, liveDataClass)
+            if (filter.install(environment)) installed++ else missing += "dynamic-login-row"
         }.onFailure { missing += "dynamic-login-row" }
         // Registration counts are separate from end-to-end feature coverage.
         runCatching {
