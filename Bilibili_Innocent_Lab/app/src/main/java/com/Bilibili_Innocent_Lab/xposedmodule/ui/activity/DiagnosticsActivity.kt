@@ -426,6 +426,7 @@ class DiagnosticsActivity : SkinnedActivity(),
         }
         scroll.addView(content, ViewGroup.LayoutParams(matchParent, wrapContent))
         root.addView(scroll, LinearLayout.LayoutParams(matchParent, 0, 1f))
+        bindPreparedSkinScrollHost(scroll)
         stretchScrollTarget = scroll
         return root
     }
