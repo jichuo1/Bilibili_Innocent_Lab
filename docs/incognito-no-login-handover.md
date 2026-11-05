@@ -19,8 +19,8 @@
 |---|---|
 | 提交 | 11-04 至 11-05 本地新增 6 个提交（静态销账、评论上限构造参数方案、引导页全版本门、触发状态键、KMP 双模型修复），最新 `735e821c`；fork 跟踪分支仍停在 `922de651`，本批提交尚未推送。 |
 | 门禁 | Debug APK、全量 JVM 测试（0 失败）、快速 Lint（262 条警告、3 条既有基线错误过滤）通过；未重跑完整 Lint。 |
-| 真机 | 小米 10（Android 16，root，LSPosed，ADB `192.168.1.78:5555`）。9.16.1 实测 `guest_browsing_status=partial:6/10`、`comment_guest_limit_models=java,kmp` 且 KMP 路径触发、引导页门 `installed/applied`；8.90.2 实测 `10/10` 全装、legacy 门 `installed/applied`、`+bili,+mall`。9.0.0 base APK 连续三次冷启动模块未注入，见第 25 节。 |
-| 其余版本 | 38 版 hostlab 静态证据（矩阵 `9b1ddfac`、`20d5ad0e`、`a5738826`、`4610f0e8`）；9.0.0 及 8.97–9.11 其余样本仍无本轮实机证据 |
+| 真机 | 小米 10（Android 16，root，APatch + LSPosed，ADB `192.168.1.78:5555`）。9.16.1 实测 `partial:6/10`、`models=java,kmp` 且 KMP 路径触发、引导页门 `installed/applied`；8.90.2 实测 `10/10` 全装、legacy 门 `installed/applied`、`+bili,+mall`、联合创作点击 `guest_lottie_follow=applied`；9.0.0（**64 位** `captures/r4/h900/base.apk`）实测 `partial:6/10`、`guest_favorites_route_opened=seen`、收藏页显示默认收藏夹且无登录框。`captures/host-900-base.apk` 是 32 位包，装上模块不注入，勿用，见第 25 节。 |
+| 其余版本 | 38 版 hostlab 静态证据（矩阵 `9b1ddfac`、`20d5ad0e`、`a5738826`、`4610f0e8`）；8.97–9.11 其余样本仍无本轮实机证据 |
 
 ## 3. 提交清单（时间正序，节选与本阶段相关的）
 
@@ -400,4 +400,5 @@
 - **`com.mall` 变体**：9.16.1 `-mall`（类不存在）、8.90.2 `+bili,+mall`（类存在且 `anchors()` 命中），坐实 `GuestLottieFollowButton.BUTTONS` 已纳管而非有意排除。
 - **触发证据**：`08f5e49c` 给每个 `guest_browsing` 入口与评论构造函数 hook 各报独立 `guest_browsing_<path>_applied=seen` 状态键；9.16.1 播放视频实机看到 `force_login_toast_config_applied` 与 `guest_quality_cap_config_applied`。
 - **8.90.2 联合创作点击链路复测通过**：覆盖安装 8.90.2 并打开两个开关后 `guest_browsing_status=partial:10/10`、`guest_lottie_follow_targets=+bili,+mall`、`guest_browsing_comment_guest_limit_models=java`（KMP 模型类不存在时只装 Java，符合 38 版矩阵）。用 raw 截图逐像素定位「创作团队」两个粉色「+」按钮（中心 `(341,1942)` / `(867,1942)`），点第二位后 16:33:44 出现 `guest_space_follow_synced=applied` 与 `guest_lottie_follow=applied`，该成员按钮按宿主原生逻辑消失、第一位仍是「+」，无登录框、无 `relation`/`attention`/`modify` 网络调用，与 9.16.1 一致。第 24 节的「8.90.2 点击链路」待办销账。
-- **未验证/限制**：9.0.0 `host-900-base.apk` 覆盖安装后 LSPosed 模块日志 0 行（三次冷启动 + 重新发布配置均如此），11-05 读 `modules_config.db` 确认 `scope` 与模块 APK 路径有效、verbose 日志里 9.0.0 主进程无框架记录而相邻 8.90.2 主/子进程都有，判定为 APatch/Zygisk 连续覆盖安装后的注入缓存/时序问题，按 AGENTS.md 不擅自重启整台手机；第 4 项 9.0.0 收藏入口未复测、8.97–9.11 其余 15 版仍只有静态锚点证据。`com.mall` 商城视频页入口真实点击、登录账号回归、分组弹窗会话切换 / 页面恢复、重启持久化、第三方请求审计仍待做。无痕状态仍为 `partial`。
+- **9.0.0 换 64 位包后第 4 项实机通过**：先前 `host-900-base.apk` 覆盖安装后模块日志 0 行，一度误判为 APatch/Zygisk 注入缓存问题；核对 ABI 才发现它是 `armeabi-v7a` + `x86` 的 32 位包，`captures/r4/h900/base.apk` 才是 `arm64-v8a` 的 64 位 9.0.0（`versionCode=9000200`）。换装后模块正常注入（175 行日志、`partial:6/10`、`models=java,kmp`）。无痕 + 免登录开启后用 `am start -a VIEW -d 'bilibili://user_center/favourite' -p tv.danmaku.bili` 打开收藏入口，出现 `guest_favorites_route_opened=seen`，页面是宿主「我的收藏」（收藏夹 / 视频 tab、默认收藏夹卡片、新建收藏夹按钮），无登录框、无加载失败。注意 9.0.0 游客态「我的」页显示「无痕会话」且不渲染收藏等入口行，故从菜单点入口未复现，改用路由直接验证；`guest_mine_menu=installed`，菜单项来源待查。
+- **未验证/限制**：第 4 项 8.97–9.11 其余 15 版仍只有静态锚点证据（本机仅 8.90.2 / 9.0.0 / 9.16.1 三份 64 位宿主包），游客态「我的」页菜单入口来源待查。`com.mall` 商城视频页入口真实点击、登录账号回归、分组弹窗会话切换 / 页面恢复、重启持久化、第三方请求审计仍待做。无痕状态仍为 `partial`。
