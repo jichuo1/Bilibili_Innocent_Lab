@@ -145,6 +145,7 @@ class FreeCopyActivity : SkinnedActivity() {
             }
         }
         liquidStretchViewport = liquidStretchScrollTarget?.let {
+            bindPreparedSkinScrollHost(it)
             installPreparedLiquidStretch(it)
         }
         bindPreparedSkinRoot(findViewById<View>(android.R.id.content)) {

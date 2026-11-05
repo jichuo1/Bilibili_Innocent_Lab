@@ -326,6 +326,18 @@ abstract class SkinnedActivity : AppCompatActivity() {
         if (!lifecycleEnded) skinSessionOrNull?.notifyScrollPositionChanged(scrollHost)
     }
 
+    /**
+     * 让普通 ScrollView / NestedScrollView 的真实偏移同步到引擎。惯性滑动的偏移在 computeScroll 里
+     * 推进，晚于 pre-draw；只靠窗口级 OnScrollChangedListener，玻璃会按上一帧原点采样，快速滑动时
+     * 控件内背景出现重影。占用 View 自身的 OnScrollChangeListener 槽位，调用方不得再另行设置。
+     */
+    @MainThread
+    protected fun bindPreparedSkinScrollHost(scrollHost: View) {
+        scrollHost.setOnScrollChangeListener(View.OnScrollChangeListener { view, x, y, oldX, oldY ->
+            if (x != oldX || y != oldY) notifyPreparedSkinScrollPositionChanged(view)
+        })
+    }
+
     /** 悬浮胶囊下方的内容层（必须是胶囊的兄弟而非祖先），供模糊/折射采样。 */
     @MainThread
     protected fun bindPreparedSkinContentSource(view: View) {

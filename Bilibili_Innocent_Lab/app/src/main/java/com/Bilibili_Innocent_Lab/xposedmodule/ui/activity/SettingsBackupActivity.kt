@@ -829,6 +829,7 @@ class SettingsBackupActivity : SkinnedActivity(),
             scrollView,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         )
+        bindPreparedSkinScrollHost(scrollView)
         pageStretchViewport = installPreparedLiquidStretch(
             scrollTarget = scrollView
         ) {
