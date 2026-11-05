@@ -15,9 +15,10 @@ class GuestBrowsingFeatureInstallerTest {
         var stateFailure = false
         val registrar = PlayerPortTestRegistrar()
         val stages = mutableListOf<FeatureRuntimeStage>()
+        val statuses = mutableMapOf<String, String>()
         val loader = GuestBrowsingFeatureInstallerTest::class.java.classLoader!!
         val env = HookEnvironment("tv.danmaku.bili", loader, HookPointRegistry(loader), registrar,
-            { _, _ -> }, { _, _ -> }, { _, _ -> },
+            { _, _ -> }, { _, _ -> }, { key, value -> statuses[key] = value },
             runtimeEvidence = { _, stage, _ -> stages += stage })
         init {
             GuestBrowsingFeatureInstaller(true, {
@@ -101,6 +102,24 @@ class GuestBrowsingFeatureInstallerTest {
     @Test fun commentLimitFailsClosedWhenTheConstructorShapeIsAmbiguous() {
         val h = Harness(AmbiguousCommentDescription::class.java.name)
         assertFalse(h.registrar.registrationAttempts.any { it.first == "guest_browsing.comment-guest-limit" })
+    }
+
+    @Test fun eachGuardedEntryReportsItsOwnAppliedEvidenceForGuestsOnly() {
+        val h = Harness()
+        h.guest = false
+        h.registrar.invoke("guest_browsing.login-dialog",
+            args = arrayOf(DialogManagerInfo("login_guide"), null)) { true }
+        assertFalse(h.statuses.containsKey("guest_browsing_login_dialog_applied"))
+        h.guest = true
+        h.registrar.invoke("guest_browsing.login-dialog",
+            args = arrayOf(DialogManagerInfo("login_guide"), null)) { true }
+        assertEquals("seen", h.statuses["guest_browsing_login_dialog_applied"])
+
+        val comment = Harness()
+        comment.registrar.invoke("guest_browsing.comment-guest-limit",
+            args = arrayOf<Any?>(true, listOf("reply"))) { null }
+        assertEquals("seen", comment.statuses["guest_browsing_comment_guest_limit_applied"])
+        assertFalse(comment.statuses.containsKey("guest_browsing_login_dialog_applied"))
     }
 
     @Test fun playerLoginToastIsNotScheduledForGuestsAndOtherConfigReadsPassThrough() {

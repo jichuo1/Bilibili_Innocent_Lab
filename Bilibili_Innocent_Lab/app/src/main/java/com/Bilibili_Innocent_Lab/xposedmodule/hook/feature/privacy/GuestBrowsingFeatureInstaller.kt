@@ -63,6 +63,8 @@ internal class GuestBrowsingFeatureInstaller(
                 return
             }
             val readFailed = AtomicBoolean(false)
+            val pathApplied = AtomicBoolean(false)
+            val appliedKey = "${ID}_${path.replace('-', '_')}_applied"
             val registered = runCatching {
                 environment.registrar.exact(
                     "$ID.$path", method.declaringClass, method.name, *method.parameterTypes
@@ -89,6 +91,8 @@ internal class GuestBrowsingFeatureInstaller(
                         result = returnValue
                         // APPLIED 仅证明该客户端入口被短路，不证明 UI、分页或播放流已解锁。
                         evidenceOnce(applied, FeatureRuntimeStage.APPLIED)
+                        // 独立状态键：共享的 OBSERVED/APPLIED 证据只保留第一次，无法分辨哪个入口真的触发过。
+                        if (pathApplied.compareAndSet(false, true)) environment.reportStatus(appliedKey, "seen")
                     }
                 }
             }.isSuccess
@@ -176,6 +180,7 @@ internal class GuestBrowsingFeatureInstaller(
             require(constructors.size == 1) { "guestLimit constructor ambiguous" }
             val constructor = constructors.single()
             val index = constructor.parameterTypes.indexOfFirst { it == java.lang.Boolean.TYPE }
+            val limitApplied = AtomicBoolean(false)
             environment.registrar.constructor("$ID.comment-guest-limit", constructor) {
                 before {
                     if (!enabled) return@before
@@ -187,6 +192,9 @@ internal class GuestBrowsingFeatureInstaller(
                     args[index] = false
                     evidenceOnce(observed, FeatureRuntimeStage.OBSERVED)
                     evidenceOnce(applied, FeatureRuntimeStage.APPLIED)
+                    if (limitApplied.compareAndSet(false, true)) {
+                        environment.reportStatus("${ID}_comment_guest_limit_applied", "seen")
+                    }
                 }
             }
             installed++

@@ -42,6 +42,7 @@
 - **8.90.2（pid 20011）**：`guest_browsing_status=partial:10/10`、覆盖日志 `hooks=10/10; missing=`（10 个入口全装，含 `comment-guest-limit` 与 `dynamic-login-row`）；**`guest_onboarding_gate=installed` + `guest_onboarding_gate_applied=seen`**，这是第 3 项 legacy 路径在 8.84–8.96 段的首次实机证据（旧代码该版本报 `absent`）；`guest_lottie_follow_targets=+bili,+mall`，坐实第 5 项「mall 类存在时已纳管」。
 - **第 2 项真机判定**：9.16.1 游客态「关注」页显示整页「你还未登录 / 登录账号，查看你关注的UP主内容」+ 登录按钮，下方是「猜你喜欢的UP主」推荐流，**没有列表底部登录条**。与静态结论一致：9.x 换成 `DynamicNotLoginFragment` 未登录整页，旧 `et1.c` ViewHolder 不存在。该引导是宿主整页内容而非可摘除的列表项，隐藏会改变整页布局，故先不基于稳定类做隐藏；保留为待办，待确认新页可安全定位的锚点后再补路径。
 - **9.0.0 环境限制**：覆盖安装 `captures/host-900-base.apk` 后，连续三次冷启动（含打开模块界面重新发布配置）该进程在模块日志中均为 0 行，模块未注入，无法复测第 4 项的 9.0.0 收藏入口。9.16.1 与 8.90.2 覆盖安装后注入正常，判断是该 9.0.0 base APK 与本机 LSPosed 作用域/签名缓存的问题，不是代码回归；第 4 项「其余 15 版实机证据」仍未补齐。
+- **触发证据（批次 2 待办之一）**：`GuestBrowsingFeatureInstaller` 现在给每个注册的入口和评论构造函数 hook 各报一个独立的 `guest_browsing_<path>_applied=seen` 状态键，共享的 OBSERVED/APPLIED 证据只保留第一次、无法分辨哪个入口触发过的问题已解决。9.16.1 播放视频后实机看到 `guest_browsing_force_login_toast_config_applied=seen` 与 `guest_browsing_guest_quality_cap_config_applied=seen`；但打开评论区并滚到页尾（底部显示「仅展示本 App 中可查看的评论」）后始终没有 `guest_browsing_comment_guest_limit_applied`，说明 9.x 评论区并不构造 Java 的 `CommentSubjectDescription`，第 1 项的实现在 9.x 上虽注册成功却未真正生效。正在用矩阵 `a5738826…` 核对 8.97+ 的 KMP 模型 `kntr.common.comment.common.model.SubjectDescription`，按结果补一条路径；这不改变 8.84–8.96 段已生效的结论。
 - **门禁**：本轮 Debug APK、全量 JVM 单测（0 失败）、FastLint（262 警告、3 条既有基线错误过滤）通过；未运行完整 Lint。
 
 ## 当前进度与推荐顺序（2026-11-04）
