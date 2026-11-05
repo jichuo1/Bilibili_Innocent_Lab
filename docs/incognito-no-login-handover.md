@@ -390,7 +390,7 @@
 - 9.16.1 实机（无痕+免登录，`incognito_privacy_status=partial`，`guest_library_lottie_follow=installed`）：联合稿 BV11rpvzDE9K（UP主+参演双 staff）。两位成员的关注按钮均本地关注成功，弹宿主「关注成功~」，无登录框；「创作团队（共2位）」弹层显示两人「已关注」；弹层行内点「已关注」本地取关成功，弹「已取消关注」；再点卡片按钮可重新关注并再次隐藏。期间无任何 `relation`/`attention`/`modify` 网络调用。截图 `captures/compat-incognito/lottie-*-916.png`。日志出现 `guest_lottie_follow=applied` 与 `guest_space_follow_synced=applied`。
 - 装包后首次启动的日志曾缺 `guest_library_lottie_follow`，排查确认不是安装失败：那次启动在无痕与免登录两个开关都关闭时进行，`guest_browsing` 整组 Hook 未装载；打开开关并重启宿主后，`incognito_privacy_status=partial`、`guest_library_lottie_follow=installed`（`+bili,-mall`）均出现。
 - 已知渲染残留：外部入口取关后，卡片按钮重新显示但停在 ✓ 帧——该按钮的 change listener 只转发给页面回调、自身不重置 lottie 进度，页面只恢复可见性不重绑。真实账号同样路径很可能产生相同残留，属宿主自身行为；重新绑定（重开页面）后恢复 +。未单独验证登录账号回归。
-- 待验证：8.90.2 真机同样的点击链路（本机只装了 9.16.1，其余 8.84–9.17 样本均为静态核对）、登录账号回归、`com.mall` 变体的真实触发。
+- 待验证：8.90.2 真机同样的点击链路（本机只装了 9.16.1，其余 8.84–9.17 样本均为静态核对）、登录账号回归、`com.mall` 变体的真实触发。（11-05 更新：8.90.2 普通按钮点击链路已复测通过，见第 25 节；登录账号回归与 `com.mall` 商城视频页入口仍待做。）
 
 ## 25. 2026-11-05：双模型评论上限、全版本引导页门与跨版本实机
 
@@ -399,4 +399,5 @@
 - **动态页登录条判定**：9.16.1 游客态「关注」页是 `DynamicNotLoginFragment` 未登录整页（「你还未登录 + 登录」按钮 + 推荐 UP 主流），没有旧 `et1.c` 那种列表底部登录条。9.16.1 反编译显示 `Vf` inflate `R.layout.dy_layout_not_login`，`dy_list` 是推荐流 RecyclerView、`dy_container_nologin` 是独立引导容器，`onViewCreated` 只操作 `dy_list`/`dy_intl_placeholder`，两者在 View 层可分离；但 `dy_container_nologin` 字段本版赋值后从未被读取，是否就是截图中的引导块未确认，资源名在 arsc 无法逐版静态核对，按不猜结构约定暂不落地隐藏 hook，见路线图第 2 项。
 - **`com.mall` 变体**：9.16.1 `-mall`（类不存在）、8.90.2 `+bili,+mall`（类存在且 `anchors()` 命中），坐实 `GuestLottieFollowButton.BUTTONS` 已纳管而非有意排除。
 - **触发证据**：`08f5e49c` 给每个 `guest_browsing` 入口与评论构造函数 hook 各报独立 `guest_browsing_<path>_applied=seen` 状态键；9.16.1 播放视频实机看到 `force_login_toast_config_applied` 与 `guest_quality_cap_config_applied`。
-- **未验证/限制**：9.0.0 `host-900-base.apk` 覆盖安装后 LSPosed 模块日志 0 行（三次冷启动 + 重新发布配置均如此），第 4 项 9.0.0 收藏入口未复测；8.97–9.11 其余 15 版仍只有静态锚点证据；联合创作 mall 变体真实点击、登录账号回归、分组弹窗会话切换 / 页面恢复、重启持久化、第三方请求审计仍待做。无痕状态仍为 `partial`。
+- **8.90.2 联合创作点击链路复测通过**：覆盖安装 8.90.2 并打开两个开关后 `guest_browsing_status=partial:10/10`、`guest_lottie_follow_targets=+bili,+mall`、`guest_browsing_comment_guest_limit_models=java`（KMP 模型类不存在时只装 Java，符合 38 版矩阵）。用 raw 截图逐像素定位「创作团队」两个粉色「+」按钮（中心 `(341,1942)` / `(867,1942)`），点第二位后 16:33:44 出现 `guest_space_follow_synced=applied` 与 `guest_lottie_follow=applied`，该成员按钮按宿主原生逻辑消失、第一位仍是「+」，无登录框、无 `relation`/`attention`/`modify` 网络调用，与 9.16.1 一致。第 24 节的「8.90.2 点击链路」待办销账。
+- **未验证/限制**：9.0.0 `host-900-base.apk` 覆盖安装后 LSPosed 模块日志 0 行（三次冷启动 + 重新发布配置均如此），11-05 读 `modules_config.db` 确认 `scope` 与模块 APK 路径有效、verbose 日志里 9.0.0 主进程无框架记录而相邻 8.90.2 主/子进程都有，判定为 APatch/Zygisk 连续覆盖安装后的注入缓存/时序问题，按 AGENTS.md 不擅自重启整台手机；第 4 项 9.0.0 收藏入口未复测、8.97–9.11 其余 15 版仍只有静态锚点证据。`com.mall` 商城视频页入口真实点击、登录账号回归、分组弹窗会话切换 / 页面恢复、重启持久化、第三方请求审计仍待做。无痕状态仍为 `partial`。
