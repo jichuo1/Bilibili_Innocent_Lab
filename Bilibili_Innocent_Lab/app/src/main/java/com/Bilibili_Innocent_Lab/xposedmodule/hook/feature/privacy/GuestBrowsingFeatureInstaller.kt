@@ -15,6 +15,7 @@ import android.view.ViewGroup
 import androidx.core.view.isGone
 import androidx.core.view.updateLayoutParams
 import java.lang.reflect.Method
+import java.lang.reflect.Modifier
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -168,37 +169,52 @@ internal class GuestBrowsingFeatureInstaller(
             candidate = { argOrNull(0) == KEY_FORCE_LOGIN_QN }
         )
 
-        // 评论游客上限：8.97+ 把 guestLimit 从私有字段 + k() getter 改成公开 final 字段，方法级拦截失效。
-        // 矩阵 20d5ad0e（38 版）：CommentSubjectDescription 的 <init> 38/38 存在且恰好一个 boolean
-        // 参数（guestLimit），12 个字段同序、唯一 Z 字段即该值。构造前把该参数置 false，宿主无论走
-        // getter 还是内联字段读取都拿到 false；不依赖 k() 或字段名，也不改返回数据、hasNext 与网络请求。
-        runCatching {
-            val description = requireNotNull(Lookup.classOrNull(loader, commentDescriptionClass))
-            val constructors = Lookup.declaredConstructors(description, makeAccessible = true) { ctor ->
-                !ctor.isSynthetic && ctor.parameterTypes.count { it == java.lang.Boolean.TYPE } == 1
-            }
-            require(constructors.size == 1) { "guestLimit constructor ambiguous" }
-            val constructor = constructors.single()
-            val index = constructor.parameterTypes.indexOfFirst { it == java.lang.Boolean.TYPE }
+        // 评论游客上限：8.96 起评论区数据由 KMP 模型 kntr.common.comment.common.model.SubjectDescription
+        // 承载（矩阵 a5738826：27 版存在），Java 的 CommentSubjectDescription 仍被旧数据源构造，两套并存。
+        // 两者都是 Kotlin data class，字段与构造参数顺序一致；guestLimit 是第一个 Z 字段/参数
+        // （9.01+ 多一个 Z 字段/参数，仍一一对应）。构造前把该参数置 false，宿主用哪套模型都拿到 false，
+        // 不依赖 getter、字段名或单版本混淆名，也不改返回数据、hasNext 与网络请求。
+        val commentModels = listOf("java" to commentDescriptionClass, "kmp" to KMP_COMMENT_MODEL)
+        val installedModels = mutableListOf<String>()
+        for ((tag, className) in commentModels) {
             val limitApplied = AtomicBoolean(false)
-            environment.registrar.constructor("$ID.comment-guest-limit", constructor) {
-                before {
-                    if (!enabled) return@before
-                    val guest = runCatching { isGuest() }.getOrElse {
-                        if (guardFailed.compareAndSet(false, true)) runtimeFailure(environment, "guest-state")
-                        false
-                    }
-                    if (!guest) return@before
-                    args[index] = false
-                    evidenceOnce(observed, FeatureRuntimeStage.OBSERVED)
-                    evidenceOnce(applied, FeatureRuntimeStage.APPLIED)
-                    if (limitApplied.compareAndSet(false, true)) {
-                        environment.reportStatus("${ID}_comment_guest_limit_applied", "seen")
+            runCatching {
+                val type = requireNotNull(Lookup.classOrNull(loader, className))
+                val booleanFields = Lookup.declaredFields(type, makeAccessible = true) { field ->
+                    !Modifier.isStatic(field.modifiers) && field.type == java.lang.Boolean.TYPE
+                }
+                val constructors = Lookup.declaredConstructors(type, makeAccessible = true) { !it.isSynthetic }
+                require(constructors.size == 1) { "comment model constructor ambiguous" }
+                val constructor = constructors.single()
+                val indexes = constructor.parameterTypes.indices.filter {
+                    constructor.parameterTypes[it] == java.lang.Boolean.TYPE
+                }
+                require(indexes.isNotEmpty() && indexes.size == booleanFields.size) {
+                    "comment boolean shape mismatch"
+                }
+                val index = indexes.first()
+                environment.registrar.constructor("$ID.comment-guest-limit.$tag", constructor) {
+                    before {
+                        if (!enabled) return@before
+                        val guest = runCatching { isGuest() }.getOrElse {
+                            if (guardFailed.compareAndSet(false, true)) runtimeFailure(environment, "guest-state")
+                            false
+                        }
+                        if (!guest) return@before
+                        args[index] = false
+                        evidenceOnce(observed, FeatureRuntimeStage.OBSERVED)
+                        evidenceOnce(applied, FeatureRuntimeStage.APPLIED)
+                        if (limitApplied.compareAndSet(false, true)) {
+                            environment.reportStatus("${ID}_comment_guest_limit_${tag}_applied", "seen")
+                        }
                     }
                 }
+                installedModels += tag
             }
-            installed++
-        }.onFailure { missing += "comment-guest-limit" }
+        }
+        environment.reportStatus("${ID}_comment_guest_limit_models",
+            installedModels.joinToString(",").ifEmpty { "absent" })
+        if (installedModels.isEmpty()) missing += "comment-guest-limit" else installed++
 
         // HomeLoginExpKt 里"拉起 bilibili://login/overseas_force 并返回是否成功"的静态 ()Z：8.90.2 是
         // 私有 n()，8.97+ 是公开 d()（两处反编译方法体一致）。该类 8.87+ 在每个版本都只有这一个
@@ -298,6 +314,7 @@ internal class GuestBrowsingFeatureInstaller(
         private const val ONE_PASS_COMPANION =
             "tv.danmaku.bili.ui.login.OnePassLoginGuideHelperV2\$Companion"
         private const val COMMENT_DESCRIPTION = "com.bilibili.app.comment3.data.model.CommentSubjectDescription"
+        private const val KMP_COMMENT_MODEL = "kntr.common.comment.common.model.SubjectDescription"
         private const val REMOTE_CONFIG = "com.bilibili.lib.config.BLRemoteConfig"
         private const val HOME_LOGIN_EXP = "tv.danmaku.bili.ui.main2.HomeLoginExpKt"
         private const val KEY_FORCE_LOGIN_TOAST = "enable_player_force_login_toast"

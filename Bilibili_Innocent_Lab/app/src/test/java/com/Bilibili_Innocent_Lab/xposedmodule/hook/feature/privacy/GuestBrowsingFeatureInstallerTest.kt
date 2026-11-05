@@ -28,7 +28,10 @@ class GuestBrowsingFeatureInstallerTest {
         }
     }
 
-    private class AmbiguousCommentDescription(val first: Boolean, val second: Boolean)
+    /** 两个 boolean 构造参数但只有一个 boolean 字段，形状不匹配应失败关闭。 */
+    private class MismatchedCommentDescription(first: Boolean, second: Boolean) {
+        @Suppress("UNUSED_PARAMETER") val flag: Boolean = first and second
+    }
 
     @Test fun onlyPassiveLoginGuideIsRejectedAndOtherDialogsKeepTheirOriginalResult() {
         val h = Harness()
@@ -73,7 +76,7 @@ class GuestBrowsingFeatureInstallerTest {
         var constructed: CommentSubjectDescription? = null
         fun build(guestLimit: Boolean) {
             val args = arrayOf<Any?>(guestLimit, listOf("reply"))
-            h.registrar.invoke("guest_browsing.comment-guest-limit", args = args) { a ->
+            h.registrar.invoke("guest_browsing.comment-guest-limit.java", args = args) { a ->
                 @Suppress("UNCHECKED_CAST")
                 constructed = CommentSubjectDescription(a[0] as Boolean, a[1] as List<String>)
                 null
@@ -93,15 +96,17 @@ class GuestBrowsingFeatureInstallerTest {
 
     @Test fun commentLimitDoesNotBindTheVersionSpecificGetter() {
         val h = Harness()
-        assertTrue(h.registrar.registrationAttempts.any { it.first == "guest_browsing.comment-guest-limit" })
+        assertTrue(h.registrar.registrationAttempts.any { it.first == "guest_browsing.comment-guest-limit.java" })
         assertFalse(h.registrar.registrationAttempts.any {
             it.first.contains("comment") && it.second.name == "k"
         })
+        assertEquals("java", h.statuses["guest_browsing_comment_guest_limit_models"])
     }
 
     @Test fun commentLimitFailsClosedWhenTheConstructorShapeIsAmbiguous() {
-        val h = Harness(AmbiguousCommentDescription::class.java.name)
-        assertFalse(h.registrar.registrationAttempts.any { it.first == "guest_browsing.comment-guest-limit" })
+        val h = Harness(MismatchedCommentDescription::class.java.name)
+        assertFalse(h.registrar.registrationAttempts.any { it.first.startsWith("guest_browsing.comment-guest-limit") })
+        assertEquals("absent", h.statuses["guest_browsing_comment_guest_limit_models"])
     }
 
     @Test fun eachGuardedEntryReportsItsOwnAppliedEvidenceForGuestsOnly() {
@@ -116,9 +121,9 @@ class GuestBrowsingFeatureInstallerTest {
         assertEquals("seen", h.statuses["guest_browsing_login_dialog_applied"])
 
         val comment = Harness()
-        comment.registrar.invoke("guest_browsing.comment-guest-limit",
+        comment.registrar.invoke("guest_browsing.comment-guest-limit.java",
             args = arrayOf<Any?>(true, listOf("reply"))) { null }
-        assertEquals("seen", comment.statuses["guest_browsing_comment_guest_limit_applied"])
+        assertEquals("seen", comment.statuses["guest_browsing_comment_guest_limit_java_applied"])
         assertFalse(comment.statuses.containsKey("guest_browsing_login_dialog_applied"))
     }
 
