@@ -1,8 +1,8 @@
 # 无痕与免登录：交接说明
 
-> 2026-11-04 更新：联合创作「创作团队」关注按钮接管与 9.16.1 实机验证见第 24 节；视频页原生关注菜单与本地分组见第 23 节。关注分组数据层、请求保护和隐私修复见第 21 节，视频作者回调兼容见第 20 节，收藏操作见第 18 节，无痕广播边界见第 12、13 节。
+> 2026-11-05 更新：评论游客上限改为 Java + KMP 双模型、引导页首启门覆盖全 38 版、以及 9.16.1 / 8.90.2 的实机证据见第 25 节。2026-11-04 更新：联合创作「创作团队」关注按钮接管与 9.16.1 实机验证见第 24 节；视频页原生关注菜单与本地分组见第 23 节。关注分组数据层、请求保护和隐私修复见第 21 节，视频作者回调兼容见第 20 节，收藏操作见第 18 节，无痕广播边界见第 12、13 节。
 
-最近更新于 2026-11-04。分支 `feature/incognito-no-login`，远端 `fork`。本文只写事实：哪些做了、在哪台机器上看到过、哪些没验证、哪些界面是官方的、哪些是模块自己画的。按时间追加的证据记录在 `docs/incognito-no-login-round3-plan.md`，其中 2026-10-28 的状态表与缺口表已过时，以本文为准。
+最近更新于 2026-11-05。分支 `feature/incognito-no-login`，远端 `fork`。本文只写事实：哪些做了、在哪台机器上看到过、哪些没验证、哪些界面是官方的、哪些是模块自己画的。按时间追加的证据记录在 `docs/incognito-no-login-round3-plan.md`，其中 2026-10-28 的状态表与缺口表已过时，以本文为准。
 
 ## 1. 目标
 
@@ -17,10 +17,10 @@
 
 | 项目 | 状态 |
 |---|---|
-| 提交 | 本地已提交原生分组菜单、会话绑定及联合创作「创作团队」关注按钮接管，最新提交 `b3bb4f62`（11-04）；fork 跟踪分支停在 `922de651`，`c3a98c95`、`b3bb4f62` 两个提交尚未推送。 |
-| 门禁 | 快速 Lint 通过（262 条警告、3 条既有基线错误过滤）；最近一次全量记录为 Debug 构建与 4330 项 JVM 测试（0 失败、1 跳过，第 23 节）。未重跑完整 Lint。 |
-| 真机 | 小米 10（Android 16，root，LSPosed）。9.16.1 实测原生分组菜单、特别关注、收藏与联合创作双成员关注（第 23、24 节）；8.90.2 实测分组新建 / 保存 / 回显。联合创作按钮、特别关注与取消确认在 8.90.2 仍待逐项复测。 |
-| 其余版本 | 只有 hostlab 静态证据（反编译、dex 形状查询），没有真机 |
+| 提交 | 11-04 至 11-05 本地新增 6 个提交（静态销账、评论上限构造参数方案、引导页全版本门、触发状态键、KMP 双模型修复），最新 `735e821c`；fork 跟踪分支仍停在 `922de651`，本批提交尚未推送。 |
+| 门禁 | Debug APK、全量 JVM 测试（0 失败）、快速 Lint（262 条警告、3 条既有基线错误过滤）通过；未重跑完整 Lint。 |
+| 真机 | 小米 10（Android 16，root，LSPosed，ADB `192.168.1.78:5555`）。9.16.1 实测 `guest_browsing_status=partial:6/10`、`comment_guest_limit_models=java,kmp` 且 KMP 路径触发、引导页门 `installed/applied`；8.90.2 实测 `10/10` 全装、legacy 门 `installed/applied`、`+bili,+mall`。9.0.0 base APK 连续三次冷启动模块未注入，见第 25 节。 |
+| 其余版本 | 38 版 hostlab 静态证据（矩阵 `9b1ddfac`、`20d5ad0e`、`a5738826`、`4610f0e8`）；9.0.0 及 8.97–9.11 其余样本仍无本轮实机证据 |
 
 ## 3. 提交清单（时间正序，节选与本阶段相关的）
 
@@ -391,3 +391,12 @@
 - 装包后首次启动的日志曾缺 `guest_library_lottie_follow`，排查确认不是安装失败：那次启动在无痕与免登录两个开关都关闭时进行，`guest_browsing` 整组 Hook 未装载；打开开关并重启宿主后，`incognito_privacy_status=partial`、`guest_library_lottie_follow=installed`（`+bili,-mall`）均出现。
 - 已知渲染残留：外部入口取关后，卡片按钮重新显示但停在 ✓ 帧——该按钮的 change listener 只转发给页面回调、自身不重置 lottie 进度，页面只恢复可见性不重绑。真实账号同样路径很可能产生相同残留，属宿主自身行为；重新绑定（重开页面）后恢复 +。未单独验证登录账号回归。
 - 待验证：8.90.2 真机同样的点击链路（本机只装了 9.16.1，其余 8.84–9.17 样本均为静态核对）、登录账号回归、`com.mall` 变体的真实触发。
+
+## 25. 2026-11-05：双模型评论上限、全版本引导页门与跨版本实机
+
+- **评论上限（`comment-guest-limit`）**：`cd1edb93` 只 hook Java `CommentSubjectDescription.<init>`；加上独立触发状态键后发现 9.16.1 打开评论区只有 config 类证据、评论 hook 从未触发。矩阵 `a5738826`（38 版）查明 8.96 起 27 版评论区走 KMP 模型 `kntr.common.comment.common.model.SubjectDescription`（`kntr.common.comment.common.data.b.c(KSubjectDescriptionReply)` 构造），Java 模型仍被旧数据源构造但不是主路径；两个模型 `toString()` 都含 `, guestLimit=`，都是 Kotlin data class 且 boolean 字段与构造参数一一对应（9.01+ 两个 `Z`）。`735e821c` 改为双模型分别验真后 hook 第一个 boolean 参数，实机 `guest_browsing_comment_guest_limit_models=java,kmp`、打开评论区后 `guest_browsing_comment_guest_limit_kmp_applied=seen`。页尾「仅展示本 App 中可查看的评论」footer 触发前后都在，未宣称 UI 已改变。
+- **引导页首启门**：`dfdbf869` 按两代精确形状分流覆盖全 38 版——8.84–8.96 的 `ApiManagerKt` 恰好 4 个同形静态 `()Z`，门总是按名字序最小的一个（12/12 版验证）；8.97+ 的 `request.a/b/c/d` 合起来恰好 1 个。歧义即跳过，不硬编码 `s`/`r`。8.90.2 实机首次看到 `guest_onboarding_gate=installed/applied`（旧代码该版报 `absent`）。
+- **动态页登录条判定**：9.16.1 游客态「关注」页是 `DynamicNotLoginFragment` 未登录整页（「你还未登录 + 登录」按钮 + 推荐 UP 主流），没有旧 `et1.c` 那种列表底部登录条；该引导是整页内容而非可摘除列表项，隐藏会破坏布局，暂不补路径，见路线图第 2 项。
+- **`com.mall` 变体**：9.16.1 `-mall`（类不存在）、8.90.2 `+bili,+mall`（类存在且 `anchors()` 命中），坐实 `GuestLottieFollowButton.BUTTONS` 已纳管而非有意排除。
+- **触发证据**：`08f5e49c` 给每个 `guest_browsing` 入口与评论构造函数 hook 各报独立 `guest_browsing_<path>_applied=seen` 状态键；9.16.1 播放视频实机看到 `force_login_toast_config_applied` 与 `guest_quality_cap_config_applied`。
+- **未验证/限制**：9.0.0 `host-900-base.apk` 覆盖安装后 LSPosed 模块日志 0 行（三次冷启动 + 重新发布配置均如此），第 4 项 9.0.0 收藏入口未复测；8.97–9.11 其余 15 版仍只有静态锚点证据；联合创作 mall 变体真实点击、登录账号回归、分组弹窗会话切换 / 页面恢复、重启持久化、第三方请求审计仍待做。无痕状态仍为 `partial`。
