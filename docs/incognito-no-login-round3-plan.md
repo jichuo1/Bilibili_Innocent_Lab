@@ -8,13 +8,13 @@
 
 ### 必须补齐（当前只在部分版本生效或被干净跳过）
 
-1. **评论游客上限**（`comment-guest-limit`）：仍写死 8.90.2 的 `CommentSubjectDescription.k()`；8.97+ 把 `guestLimit` 改成公开字段、无 getter，方法级拦截失效，26 版干净跳过。待办：做字段级方案（定位读取点内联处），跨 38 版核对后实机触发。取消「暂不排期」。（批次 2 记录；`GuestBrowsingFeatureInstaller.kt` 的 `comment-guest-limit` 注册）**【11-04 已实现：改为构造参数方案，38/38 版 `<init>` 唯一 boolean 参数即 guestLimit，见「2026-11-04 静态销账」；实机触发仍待做】**
-2. **动态页底部登录条**（`dynamic-login-row`）：仍写死 8.90.2 的 `et1.c`；9.16.1 上 `dy_login_bottom` 字符串已消失，9.x 干净跳过。待办：先判定 9.x 是该 UI 被移除、改名还是换成 Compose，再按 38 版重新定位；字符串消失不等于功能不存在，不能因旧名失效就只留一个版本。（批次 2 记录；`handover.md` 第 6 节第 7 条）**【11-04 判定完成，见「2026-11-04 静态销账」：换成另一套实现，补路径仍待实现与真机确认】**
-3. **引导页 8.84–8.96 共 12 版**：首启等待门在 `ApiManagerKt` 与另外 3 个同形静态 `()Z` 并列，按形状分不出，仍靠旧插件层且未验证；8.97 起 26 版已由 `56060759` 结构定位。待办：按调用栈或方法体指纹定位，或统一走 38/38 稳定的 `PegasusResponse.getInterestChoose()`。（`handover.md` 第 5、6 节）**【11-04 已实现：`GuestOnboardingHooks` 按两代精确形状分流，8.84–8.96 走 `ApiManagerKt` 四选一、8.97+ 走四类中唯一一个，见「2026-11-04 静态销账」；8.84–8.96 实机仍待做】**
-4. **「我的收藏」入口 8.97–9.11 共 16 版**：`GuestMineMenuHooks` 的收藏目标只在 9.12–9.17 登记，其余版本保持宿主行为；`GuestFavoritesRouteHooks` 仅在 9.0.0 实机绕开登录门，其余 15 版只有静态结论，原文明确「不交付只有静态证据的实现」。待办：做不依赖 `compose/favorites/kntr` 的通用放行方案，并在其余版本实机验证目标页能显示本地数据。（「8.97 到 9.11 的『我的收藏』入口调查」；`handover.md` 第 5 节）**【11-04 静态核对完成：通用放行方案 `c15fd96a` 已存在，其锚点 `FavoritesActivityV2`、`BLRouter.routeTo` 两个重载、`RouteResponse(Code, Request)` 构造器、`user_center/favourite` 字符串均 38/38 成立；待办收敛为补其余 15 版实机证据，见「2026-11-04 静态销账」】**
+1. **评论游客上限**（`comment-guest-limit`）：仍写死 8.90.2 的 `CommentSubjectDescription.k()`；8.97+ 把 `guestLimit` 改成公开字段、无 getter，方法级拦截失效，26 版干净跳过。待办：做字段级方案（定位读取点内联处），跨 38 版核对后实机触发。取消「暂不排期」。（批次 2 记录；`GuestBrowsingFeatureInstaller.kt` 的 `comment-guest-limit` 注册）**【11-04 已实现：改为构造参数方案，38/38 版 `<init>` 唯一 boolean 参数即 guestLimit；11-05 在 9.16.1 与 8.90.2 实机确认 hook 注册成功，触发证据仍待补，见「2026-11-05 实机验证」】**
+2. **动态页底部登录条**（`dynamic-login-row`）：仍写死 8.90.2 的 `et1.c`；9.16.1 上 `dy_login_bottom` 字符串已消失，9.x 干净跳过。待办：先判定 9.x 是该 UI 被移除、改名还是换成 Compose，再按 38 版重新定位；字符串消失不等于功能不存在，不能因旧名失效就只留一个版本。（批次 2 记录；`handover.md` 第 6 节第 7 条）**【11-04 判定完成、11-05 真机确认：9.x 换成 `DynamicNotLoginFragment` 未登录整页引导，无底部条；稳定类 38/38 存在但隐藏会改变整页布局，补路径仍待实现，见「2026-11-05 实机验证」】**
+3. **引导页 8.84–8.96 共 12 版**：首启等待门在 `ApiManagerKt` 与另外 3 个同形静态 `()Z` 并列，按形状分不出，仍靠旧插件层且未验证；8.97 起 26 版已由 `56060759` 结构定位。待办：按调用栈或方法体指纹定位，或统一走 38/38 稳定的 `PegasusResponse.getInterestChoose()`。（`handover.md` 第 5、6 节）**【11-04 已实现：`GuestOnboardingHooks` 按两代精确形状分流，8.84–8.96 走 `ApiManagerKt` 四选一、8.97+ 走四类中唯一一个，见「2026-11-04 静态销账」；11-05 在 8.90.2 实机确认 legacy gate 装并触发，见「2026-11-05 实机验证」】**
+4. **「我的收藏」入口 8.97–9.11 共 16 版**：`GuestMineMenuHooks` 的收藏目标只在 9.12–9.17 登记，其余版本保持宿主行为；`GuestFavoritesRouteHooks` 仅在 9.0.0 实机绕开登录门，其余 15 版只有静态结论，原文明确「不交付只有静态证据的实现」。待办：做不依赖 `compose/favorites/kntr` 的通用放行方案，并在其余版本实机验证目标页能显示本地数据。（「8.97 到 9.11 的『我的收藏』入口调查」；`handover.md` 第 5 节）**【11-04 静态核对完成：通用放行方案 `c15fd96a` 已存在，其锚点 `FavoritesActivityV2`、`BLRouter.routeTo` 两个重载、`RouteResponse(Code, Request)` 构造器、`user_center/favourite` 字符串均 38/38 成立；待办收敛为补其余 15 版实机证据；11-05 的 9.0.0 因模块未注入未能复测，见「2026-11-05 实机验证」】**
 5. **联合创作按钮 `com.mall` 变体**：商城视频页同名 `VerifyLottieFollowButton`，本次状态键为 `+bili,-mall`，真实触发待验证。待办：确认是有意排除还是未覆盖，覆盖后纳管。（`handover.md` 第 24 节）**【11-04 已销账：代码已纳管，9.16.1 的 `-mall` 是宿主类不存在的正确结果；商城页真实触发仍并入第 7 项，见「2026-11-04 静态销账」】**
 6. **`guest.follow-button` 8.84 一个重载**：批次 1 记「已 37/38，只差 8.84 一个重载，补上即可」，文档无销账记录。待办：确认是否已由后续 38 版结构核对覆盖，未补则补齐。（批次 1 记录）**【11-04 已销账：代码早已按形状 hook 每个构建声明的全部重载，批次 1 只是漏记，见「2026-11-04 静态销账」】**
-7. **跨版本实机验证**：以下已按版本分流、静态覆盖 38 版，但实机只有 9.16.1 / 9.0.0 / 8.90.2 三版——8.84–8.96 星标单例写入口与宿主弹窗「新建夹返回刷新」、8.92–8.96 关注数 `copy$default` 与 8.84–8.91 旧 TextView 路径、稍后再看添加、关注列表双实现、作者回调与取消确认双代际、空间页关系类双命名、分组菜单、联合创作按钮。待办：补其余版本证据，清单见 `handover.md` 第 5、6、18、19、23、24 节。
+7. **跨版本实机验证**：以下已按版本分流、静态覆盖 38 版，但实机只有 9.16.1 / 9.0.0 / 8.90.2 三版——8.84–8.96 星标单例写入口与宿主弹窗「新建夹返回刷新」、8.92–8.96 关注数 `copy$default` 与 8.84–8.91 旧 TextView 路径、稍后再看添加、关注列表双实现、作者回调与取消确认双代际、空间页关系类双命名、分组菜单、联合创作按钮。待办：补其余版本证据，清单见 `handover.md` 第 5、6、18、19、23、24 节。**【11-05 已补 9.16.1 与 8.90.2 两版的状态键/覆盖日志证据；9.0.0 模块未注入，其余版本仍缺，见「2026-11-05 实机验证」】**
 
 ### 有理由不按全版本适配（写明宿主事实，不算放弃）
 
@@ -33,6 +33,16 @@
 - **第 1 项字段级方案已定位**：`CommentSubjectDescription` 在 38/38 版都有 12 个同序字段，唯一 `Z` 布尔字段是 `i`（8.84–8.96 私有 final，8.97 起公开 final），`<init>` 38/38 存在且恰好一个 boolean 参数（对应 `guestLimit`）；`k()Z` getter 只在 8.84–8.96 有，8.97+ 消失，`toString()` 在 38 版都含 `, guestLimit=`。因此可在构造前把唯一 boolean 参数置 false，宿主无论走 getter 还是内联字段读取都拿到 false，不依赖 `k()` 或字段名，覆盖全 38 版。
 - **第 3 项门定位（已实现）**：38/38 版 `PegasusFragment.onCreate` 都恰好调用 `com.bilibili.pegasus.request` 包内一个静态 `()Z`：8.84–8.96 是 `ApiManagerKt.s()`（7 版）或 `ApiManagerKt.r()`（5 版），8.97+ 是 `request.a/b/c/d` 的 `f/g/h()Z` 之一。两代布局互斥且可精确验真：8.84–8.96 的 `ApiManagerKt` 恰好 4 个同形静态 `()Z`，门总是按名字序最小的一个（12/12 版验证）；8.97+ 四类合起来恰好 1 个。`GuestOnboardingHooks` 按这两种精确形状分流，歧义即跳过，不硬编码 `s`/`r` 等具体混淆名，覆盖全 38 版。`PegasusResponse.getInterestChoose()` 也在 38/38 版稳定。
 - **第 4 项锚点 38/38 静态成立**：`FavoritesActivityV2`、`BLRouter.routeTo(RouteRequest,Context)/(RouteRequest,Fragment)`、`RouteResponse(Code,RouteRequest)` 构造器、`user_center/favourite` 字符串在 38 版全部存在；`GuestFavoritesRouteHooks`（`c15fd96a`）本身就是不依赖 `compose/favorites/kntr` 的通用放行方案。该项待办收敛为「补其余 15 版实机证据」；本机只有 8.90.2 / 9.0.0 / 9.16.1 三份宿主 APK，其余归档样本只有静态索引，不能凭静态证据宣称已交付。
+
+### 2026-11-05 实机验证（9.16.1 / 8.90.2 / 9.0.0）
+
+用本轮新构建的 Debug APK（SHA-256 `640faeab…`）在默认测试机 `192.168.1.78:5555` 上，通过模块界面打开「免登录浏览」+「无痕模式」，冷启动后按当前宿主 PID 读 LSPosed 模块日志。证据只属于对应 APK 与实际加载过的路径。
+
+- **9.16.1（pid 17046 / 19821，两次冷启动一致）**：`incognito_privacy_status=partial`、`guest_browsing_status=partial:6/10`，覆盖日志 `hooks=6/10; missing=force-login-toast, dynamic-login-row`。与 11-03 的 `hooks=5/10; missing=…, comment-guest-limit, dynamic-login-row` 相比，**`comment-guest-limit` 已不再缺失**，第 1 项的构造函数 hook 在 9.16.1 注册成功；`guest_onboarding_gate=installed` 且 `guest_onboarding_gate_applied=seen`，`guest_lottie_follow_targets=+bili,-mall`，`guest_favorites_route=installed`。
+- **8.90.2（pid 20011）**：`guest_browsing_status=partial:10/10`、覆盖日志 `hooks=10/10; missing=`（10 个入口全装，含 `comment-guest-limit` 与 `dynamic-login-row`）；**`guest_onboarding_gate=installed` + `guest_onboarding_gate_applied=seen`**，这是第 3 项 legacy 路径在 8.84–8.96 段的首次实机证据（旧代码该版本报 `absent`）；`guest_lottie_follow_targets=+bili,+mall`，坐实第 5 项「mall 类存在时已纳管」。
+- **第 2 项真机判定**：9.16.1 游客态「关注」页显示整页「你还未登录 / 登录账号，查看你关注的UP主内容」+ 登录按钮，下方是「猜你喜欢的UP主」推荐流，**没有列表底部登录条**。与静态结论一致：9.x 换成 `DynamicNotLoginFragment` 未登录整页，旧 `et1.c` ViewHolder 不存在。该引导是宿主整页内容而非可摘除的列表项，隐藏会改变整页布局，故先不基于稳定类做隐藏；保留为待办，待确认新页可安全定位的锚点后再补路径。
+- **9.0.0 环境限制**：覆盖安装 `captures/host-900-base.apk` 后，连续三次冷启动（含打开模块界面重新发布配置）该进程在模块日志中均为 0 行，模块未注入，无法复测第 4 项的 9.0.0 收藏入口。9.16.1 与 8.90.2 覆盖安装后注入正常，判断是该 9.0.0 base APK 与本机 LSPosed 作用域/签名缓存的问题，不是代码回归；第 4 项「其余 15 版实机证据」仍未补齐。
+- **门禁**：本轮 Debug APK、全量 JVM 单测（0 失败）、FastLint（262 警告、3 条既有基线错误过滤）通过；未运行完整 Lint。
 
 ## 当前进度与推荐顺序（2026-11-04）
 
