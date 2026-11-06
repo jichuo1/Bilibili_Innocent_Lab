@@ -8,6 +8,7 @@ import com.bilibili.bplus.followinglist.model.GuestDynamicFeedItemFixture
 import com.bilibili.bplus.followinglist.model.GuestDynamicLoginRowFixture
 import com.bilibili.bplus.followinglist.model.GuestDynamicNoCtorItemFixture
 import com.bilibili.bplus.followinglist.other.GuestDynamicForeignStateFixture
+import com.bilibili.bplus.followinglist.page.nologin.GuestDynamicInheritedStateFixture
 import com.bilibili.bplus.followinglist.page.nologin.GuestDynamicNotLoginStateFixture
 import com.bilibili.bplus.followinglist.page.nologin.GuestDynamicPairValueFixture
 import androidx.lifecycle.LiveData
@@ -66,6 +67,34 @@ class GuestDynamicLoginRowFilterTest {
         assertEquals("seen", h.statuses["guest_browsing_dynamic_login_row_learned"])
         assertEquals("seen", h.statuses["guest_browsing_dynamic_login_row_applied"])
         assertTrue(FeatureRuntimeStage.APPLIED in h.stages)
+    }
+
+    @Test fun inheritedDataStatusStateAuthenticatesOn916Shape() {
+        // 9.16.1：结果 state 在 nologin 包内，但 DataStatus 字段声明在父类（Qi.b，非 nologin 包）。
+        // 只扫运行时类自身的 getDeclaredFields 会漏判，导致 learned/applied 永不触发、登录条不过滤。
+        val h = Harness()
+        val login = GuestDynamicLoginRowFixture()
+        val feed = GuestDynamicFeedItemFixture("t", "c", "u")
+        val list = mutableListOf<Any>(login, feed)
+        h.publish(GuestDynamicPairValueFixture(list, GuestDynamicInheritedStateFixture()))
+        assertEquals(listOf<Any>(feed), list)
+        assertEquals("seen", h.statuses["guest_browsing_dynamic_login_row_learned"])
+        assertEquals("seen", h.statuses["guest_browsing_dynamic_login_row_applied"])
+        assertTrue(FeatureRuntimeStage.APPLIED in h.stages)
+    }
+
+    @Test fun inheritedDataStatusCachesAuthenticationForLaterValues() {
+        // 认证后的 LiveData 对后续（含 foreign state 形状）发布仍按已学习类过滤。
+        val h = Harness()
+        h.publish(GuestDynamicPairValueFixture(
+            mutableListOf<Any>(GuestDynamicLoginRowFixture()),
+            GuestDynamicInheritedStateFixture()
+        ))
+        val feed = GuestDynamicFeedItemFixture("a", "b", "c")
+        val list = mutableListOf<Any>(GuestDynamicLoginRowFixture(), feed)
+        h.publish(GuestDynamicPairValueFixture(list, GuestDynamicNotLoginStateFixture(false)))
+        assertEquals(listOf<Any>(feed), list)
+        assertTrue(list.all { it is GuestDynamicFeedItemFixture })
     }
 
     @Test fun removesEveryLearnedRowIncludingDuplicates() {

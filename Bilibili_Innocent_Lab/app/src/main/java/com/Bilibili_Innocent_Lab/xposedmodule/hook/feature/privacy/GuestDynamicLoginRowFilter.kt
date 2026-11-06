@@ -21,8 +21,10 @@ import java.util.concurrent.ConcurrentHashMap
  * 本钩不依赖任何混淆名：
  * 1. 挂在 AndroidX 稳定类 `androidx.lifecycle.LiveData.setValue` 上，在观察者收到值之前改写列表；
  * 2. 只认证「值类恰好两个实例字段，且运行时非列表的那个字段（state）位于
- *    `com.bilibili.bplus.followinglist.page.nologin` 包、声明了 `DataStatus` 字段」的 LiveData 实例
- *    （`DynamicNotLoginViewModel` 及其 state 类的包名在 38 版稳定）；
+ *    `com.bilibili.bplus.followinglist.page.nologin` 包、其类层级声明了 `DataStatus` 字段」的
+ *    LiveData 实例（`DynamicNotLoginViewModel` 及其 state 类的包名在 38 版稳定）；
+ *    `DataStatus` 字段可能声明在 state 的父类上（9.16.1 的 `nologin.g` 继承声明该字段的
+ *    `Qi.b`），故按整条继承链枚举，不能只扫运行时类的 `getDeclaredFields`；
  * 3. 首个认证值从列表头部元素学习登录 item 类，形状（无参构造 + 单 boolean 自有字段）不符则不学不滤；
  * 4. 游客态 `removeIf`；非游客、未学习或读取失败时放行宿主原值。
  *
@@ -91,8 +93,13 @@ internal class GuestDynamicLoginRowFilter(
     }
 
     /**
-     * state 认证：非列表字段（构造时传入的 state）的运行时类在 nologin 包内且声明了
-     * `DataStatus` 字段。DataStatus 与 nologin 包名在 38 版归档样本均稳定存在。
+     * state 认证：非列表字段（构造时传入的 state）的运行时类在 nologin 包内，且其类层级
+     * 声明了 `DataStatus` 字段。DataStatus 与 nologin 包名在 38 版归档样本均稳定存在。
+     *
+     * 字段按整条继承链枚举：8.90.2/9.0.1 的 nologin state 自身声明 `DataStatus`，
+     * 而 9.16.1 的结果 state `nologin.g` 只声明一个 boolean，`DataStatus` 在父类 `Qi.b`
+     * 上；只扫 `getDeclaredFields` 会漏判后者。`makeAccessible = false`：这里只读字段类型，
+     * 不取值，无需开放访问。
      */
     private fun stateBelongsToNotLoginPage(value: Any): Boolean {
         val shape = pairShapeOf(value.javaClass) ?: return false
@@ -102,7 +109,7 @@ internal class GuestDynamicLoginRowFilter(
             .firstOrNull { it !is List<*> } ?: return false
         return stateShapeCache.computeIfAbsent(state.javaClass) { type ->
             type.name.startsWith(NOLOGIN_PREFIX) &&
-                Lookup.declaredFields(type, makeAccessible = false) { field ->
+                Lookup.fields(type, includeSuperclasses = true) { field ->
                     field.type.name == DATA_STATUS
                 }.isNotEmpty()
         }
