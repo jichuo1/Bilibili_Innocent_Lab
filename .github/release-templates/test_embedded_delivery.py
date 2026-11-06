@@ -1,4 +1,7 @@
 import hashlib
+import json
+import os
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -6,6 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+import publish_embedded_telegram as publisher
 from prepare_canary_delivery import REPOSITORY
 from prepare_embedded_delivery import inspect_archive, select_artifact
 from select_canary_delivery import BEIJING
@@ -170,6 +174,130 @@ class EmbeddedReceiptTest(unittest.TestCase):
              patch.object(state, "receipt_archive", return_value=dict(receipt, release_tag="v1.2.1-embedded.5")), \
              self.assertRaises(ValueError):
             state.recover_receipt(delivery, job, step)
+
+
+class EmbeddedPublisherTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        self.apk = root / "embedded.apk"
+        self.apk.write_bytes(b"verified embedded apk fixture")
+        self.digest = hashlib.sha256(self.apk.read_bytes()).hexdigest()
+        self.notes = root / "notes.txt"
+        self.notes.write_text("v1.2.1-embedded.4\n\n本次源码：" + "a" * 40
+                              + "。\n\n本次更新\n评论体验进一步优化。\n\n优化\n- 评论：优化了评论列表的显示效果。\n",
+                              encoding="utf-8")
+        self.receipt = root / "receipt.json"
+        self.source_url = f"https://github.com/{REPOSITORY}/actions/runs/7"
+        arguments = ["publish_embedded_telegram.py", "--tag", "v1.2.1-embedded.4", "--commit", "a" * 40,
+                     "--source-url", self.source_url, "--apk-sha256", self.digest,
+                     "--apk", str(self.apk), "--notes", str(self.notes), "--receipt", str(self.receipt)]
+        self.arguments = arguments
+        self.environment = {"TELEGRAM_BOT_TOKEN": "123:fixture", "TELEGRAM_CHAT_ID": "@test_channel",
+                            "GITHUB_REPOSITORY": REPOSITORY, "GITHUB_RUN_ID": "90", "GITHUB_RUN_ATTEMPT": "1",
+                            "SOURCE_ARTIFACT_DIGEST": "sha256:" + "b" * 64}
+        self.enterContext(patch.dict(os.environ, self.environment, clear=True))
+        self.enterContext(patch.object(sys, "argv", arguments))
+        # 保留真实 deliver/API 响应校验，仅将传输与节流等待替换为本地 mock。
+        self.telegram = self.enterContext(patch.object(publisher, "Telegram", autospec=True))
+        self.api = self.telegram.return_value
+        self.responses = [{"id": 42}, {"id": -100123, "type": "channel", "username": "test_channel"},
+                          {"status": "administrator", "can_post_messages": True},
+                          {"message_id": 10, "date": 1700000000}, {"message_id": 11, "date": 1700000001}]
+        self.api.call.side_effect = self.responses
+        self.enterContext(patch("publish_telegram.time.sleep"))
+        self.network = self.enterContext(patch("http.client.HTTPSConnection", side_effect=AssertionError("No network")))
+
+    def test_dry_run_validates_locally_without_telegram_or_receipt(self):
+        with patch.object(sys, "argv", self.arguments + ["--dry-run"]), patch.dict(os.environ, {}, clear=True):
+            publisher.main()
+        self.telegram.assert_not_called()
+        self.network.assert_not_called()
+        self.assertFalse(self.receipt.exists())
+
+    def test_ai_caption_and_complete_receipt_preserve_api_checks_and_prevent_duplicate_send(self):
+        publisher.main()
+        methods = [call.args[0] for call in self.api.call.call_args_list]
+        self.assertEqual(["getMe", "getChat", "getChatMember", "sendDocument", "sendMessage"], methods)
+        caption = self.api.call.call_args_list[3].args[1]["caption"]
+        self.assertIn("AI 更新总结见后续消息。", caption)
+        self.assertNotIn("完整更新记录见后续消息", caption)
+        self.assertIn("评论：优化了评论列表", caption)
+        self.assertIn(self.digest, caption)
+        self.assertIn(self.source_url, caption)
+        self.assertLessEqual(len(caption.encode("utf-16-le")) // 2, 1000)
+        sent = self.api.call.call_args_list[4].args[1]
+        self.assertTrue(sent["text"].startswith("AI 更新总结（1/1）"))
+        self.assertNotIn("完整更新记录", sent["text"])
+        self.assertIn(self.notes.read_text(encoding="utf-8").rstrip(), sent["text"])
+        self.assertEqual({"message_id": 10}, sent["reply_parameters"])
+        receipt = json.loads(self.receipt.read_text(encoding="utf-8"))
+        self.assertTrue(receipt["delivery_complete"])
+        self.assertEqual(2, receipt["receipt_schema"])
+        self.assertEqual("@test_channel", receipt["channel"])
+        self.assertEqual("a" * 40, receipt["source_commit"])
+        self.assertEqual("v1.2.1-embedded.4", receipt["release_tag"])
+        self.assertEqual(self.source_url, receipt["source_run_url"])
+        self.assertEqual(self.digest, receipt["apk_sha256"])
+        self.assertEqual("-100123", receipt["chat_id"])
+        self.assertEqual(10, receipt["document_message_id"])
+        self.assertEqual([11], receipt["announcement_message_ids"])
+        self.assertEqual("2023-11-14T22:13:21Z", receipt["delivered_at"])
+        self.assertEqual(f"https://github.com/{REPOSITORY}/actions/runs/90", receipt["delivery_run_url"])
+        self.assertEqual(1, receipt["delivery_run_attempt"])
+        self.assertEqual("sha256:" + "b" * 64, receipt["source_artifact_digest"])
+        self.telegram.reset_mock()
+        previous = self.receipt.read_bytes()
+        publisher.main()
+        self.telegram.assert_not_called()
+        self.assertEqual(previous, self.receipt.read_bytes())
+        self.network.assert_not_called()
+
+    def test_api_permission_failure_never_sends_or_writes_receipt(self):
+        self.api.call.side_effect = [*self.responses[:2], {"status": "member"}]
+        with self.assertRaisesRegex(publisher.DeliveryError, "administrator permission"):
+            publisher.main()
+        self.assertEqual(["getMe", "getChat", "getChatMember"], [call.args[0] for call in self.api.call.call_args_list])
+        self.assertFalse(self.receipt.exists())
+
+    def test_unconfirmed_announcement_never_writes_a_complete_receipt_or_retries(self):
+        for response in [{"date": 1700000001}, {"message_id": 11}]:
+            with self.subTest(response=response):
+                self.api.reset_mock()
+                self.api.call.side_effect = [*self.responses[:4], response]
+                with self.assertRaisesRegex(publisher.DeliveryError, "announcement message"):
+                    publisher.main()
+                self.assertEqual(1, sum(call.args[0] == "sendDocument" for call in self.api.call.call_args_list))
+                self.assertEqual(1, sum(call.args[0] == "sendMessage" for call in self.api.call.call_args_list))
+                self.assertFalse(self.receipt.exists())
+
+    def test_invalid_existing_receipt_is_rejected_without_sending_again(self):
+        publisher.main()
+        receipt = json.loads(self.receipt.read_text(encoding="utf-8"))
+        for changes in [{"announcement_message_ids": []}, {"source_artifact_digest": "sha256:" + "c" * 64},
+                        {"delivery_run_attempt": 2}, {"source_commit": "d" * 40},
+                        {"release_tag": "v1.2.1-embedded.5"}]:
+            with self.subTest(changes=changes):
+                self.receipt.write_text(json.dumps(dict(receipt, **changes)), encoding="utf-8")
+                previous = self.receipt.read_bytes()
+                self.telegram.reset_mock()
+                with self.assertRaises((ValueError, publisher.DeliveryError)):
+                    publisher.main()
+                self.telegram.assert_not_called()
+                self.assertEqual(previous, self.receipt.read_bytes())
+
+    def test_dry_run_still_rejects_apk_mismatch_or_empty_notes(self):
+        with patch.object(sys, "argv", self.arguments + ["--dry-run"]):
+            self.apk.write_bytes(b"different apk")
+            with self.assertRaisesRegex(publisher.DeliveryError, "identity mismatch"):
+                publisher.main()
+            self.apk.write_bytes(b"verified embedded apk fixture")
+            self.notes.write_text("", encoding="utf-8")
+            with self.assertRaisesRegex(publisher.DeliveryError, "announcement is empty"):
+                publisher.main()
+        self.telegram.assert_not_called()
+        self.assertFalse(self.receipt.exists())
 
 
 if __name__ == "__main__":

@@ -29,11 +29,11 @@ def main():
         raise DeliveryError("Embedded APK identity mismatch")
     parse_run_url(args.source_url)
     notes = args.notes.read_text(encoding="utf-8")
-    messages = announcement_messages(notes)
+    messages = announcement_messages(notes, title="AI 更新总结")
     if not messages:
         raise DeliveryError("Complete announcement is empty")
     header = f"Bilibili Innocent Lab · Embedded\n{args.tag}\n\n"
-    footer = f"\n\n完整更新记录见后续消息。\n源码：{args.commit[:8]}\nSHA-256：{args.apk_sha256}\n构建：{args.source_url}"
+    footer = f"\n\nAI 更新总结见后续消息。\n源码：{args.commit[:8]}\nSHA-256：{args.apk_sha256}\n构建：{args.source_url}"
     budget = 1000 - len((header + footer).encode("utf-16-le")) // 2
     if budget <= 0:
         raise DeliveryError("Embedded caption exceeds its budget")
@@ -55,7 +55,7 @@ def main():
         if any(receipt.get(key) != value for key, value in expected.items()):
             raise DeliveryError("Existing receipt does not match this delivery")
     else:
-        result = deliver(Telegram(token), chat, args.apk, text, notes)
+        result = deliver(Telegram(token), chat, args.apk, text, notes, announcement_title="AI 更新总结")
         receipt = dict(expected, delivery_complete=True, chat_id=result["chat_id"],
                        document_message_id=result["message_id"], announcement_message_ids=result["announcement_message_ids"],
                        delivered_at=result["delivered_at"], **context)

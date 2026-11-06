@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from telegram_delivery_state import previous_commit, previous_delivery, legacy_previous_commit, record_delivery, github, REPOSITORY, SEND_STEP
+from telegram_delivery_state import previous_commit, previous_delivery, legacy_previous_commit, record_delivery, github, actual_send_log, REPOSITORY, SEND_STEP
 
 
 class TelegramDeliveryStateTest(unittest.TestCase):
@@ -374,6 +374,140 @@ class TelegramDeliveryStateTest(unittest.TestCase):
         log = self.history_log(["Telegram delivered Canary APK, message ID 49"]).replace(SEND_STEP, "UNKNOWN STEP")
         with patch("telegram_delivery_state.github", side_effect=[[], {"workflow_runs": [self.history_run()]}, jobs, log]), \
                 self.assertRaisesRegex(ValueError, "actual send log unavailable"):
+            previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+
+    def unknown_send_fixture(self, output, *, profile="canary"):
+        name = f"Verify selected {profile.capitalize()} and send its APK"
+        step = {"name": f"Send the selected {profile.capitalize()} APK to Telegram", "number": 14,
+                "started_at": "2026-11-04T21:13:53Z", "completed_at": "2026-11-04T21:14:29Z",
+                "conclusion": "failure"}
+        next_step = {"name": "Upload Telegram announcement and generation report", "number": 16,
+                     "started_at": "2026-11-04T21:14:29Z", "completed_at": "2026-11-04T21:14:30Z",
+                     "conclusion": "success"}
+        job = {"id": 7, "name": name, "run_id": 10, "run_attempt": 1, "steps": [step, next_step]}
+        script = "publish_embedded_telegram.py" if profile == "embedded" else "publish_telegram.py"
+        prologue = ["##[group]Run set -euo pipefail", "\x1b[36;1mset -euo pipefail\x1b[0m",
+                    f"\x1b[36;1mpython3 .github/release-templates/{script} \\\x1b[0m",
+                    "shell: /usr/bin/bash -e {0}", "env:", "  SOURCE_COMMIT: " + "b" * 40,
+                    "  TELEGRAM_CHAT_ID: @Bilibili_Innocent_LabRelease", "##[endgroup]"]
+        rows = [("2026-11-04T21:13:53.1000000Z", "##[group]Run unit tests"),
+                ("2026-11-04T21:13:53.1000001Z", "Telegram delivered Canary APK, message ID 999"),
+                ("2026-11-04T21:13:53.1000002Z", "##[endgroup]")]
+        rows += [("2026-11-04T21:13:53.8000000Z", text) for text in prologue]
+        rows += [("2026-11-04T21:14:29.1300000Z", text) for text in output]
+        rows += [("2026-11-04T21:14:29.1700000Z", "##[group]Run actions/upload-artifact@v7"),
+                 ("2026-11-04T21:14:29.1700001Z", "with:"),
+                 ("2026-11-04T21:14:29.1700002Z", "  name: announcement"),
+                 ("2026-11-04T21:14:29.1700003Z", "##[endgroup]"),
+                 ("2026-11-04T21:14:29.1700004Z", "SOURCE_COMMIT: " + "c" * 40),
+                 ("2026-11-04T21:14:29.1700005Z", "TELEGRAM_POST_ATTEMPT: sendDocument"),
+                 ("2026-11-04T21:14:29.1700006Z", "Telegram delivered Canary APK, message ID 888")]
+        log = "\n".join(f"{name}\tUNKNOWN STEP\t{stamp} {text}" for stamp, text in rows)
+        return job, step, log
+
+    def test_unknown_step_uses_command_and_time_boundaries_not_adjacent_same_second_steps(self):
+        job, step, log = self.unknown_send_fixture(["TELEGRAM_DELIVERY_PROTOCOL: 3", "preflight failed"])
+        selected = actual_send_log(log, job, step)
+        self.assertIn("preflight failed", selected)
+        self.assertIn("b" * 40, selected)
+        self.assertNotIn("c" * 40, selected)
+        self.assertNotIn("Telegram delivered", selected)
+        self.assertNotIn("TELEGRAM_POST_ATTEMPT", selected)
+        self.assertNotIn("\x1b", selected)
+        with patch("telegram_delivery_state.github", side_effect=[[], {"workflow_runs": [self.history_run()]},
+                   {"jobs": [job]}, log]):
+            self.assertEqual({}, previous_delivery("@Bilibili_Innocent_LabRelease", strict=True))
+
+    def test_unknown_step_recognizes_gh_escaped_ansi_sequences(self):
+        job, step, log = self.unknown_send_fixture(["TELEGRAM_DELIVERY_PROTOCOL: 3", "TELEGRAM_POST_ATTEMPT: sendDocument"])
+        selected = actual_send_log(log.replace("\x1b", "^["), job, step)
+        self.assertIn("TELEGRAM_POST_ATTEMPT: sendDocument", selected)
+        self.assertNotIn("^[[", selected)
+
+    def test_unknown_step_partial_send_remains_unconfirmed_and_identifies_the_run(self):
+        job, step, log = self.unknown_send_fixture(["TELEGRAM_DELIVERY_PROTOCOL: 3",
+            "TELEGRAM_POST_ATTEMPT: sendDocument", "TELEGRAM_POST_ATTEMPT: sendMessage",
+            "Telegram rejected sendMessage: Too Many Requests: retry after 31"])
+        responses = [[], {"workflow_runs": [self.history_run()]}, {"jobs": [job]}, log]
+        with patch("telegram_delivery_state.github", side_effect=responses), \
+                self.assertRaisesRegex(ValueError, "check the channel.*runs/10, attempt 1"):
+            previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+        with patch("telegram_delivery_state.github", side_effect=responses):
+            self.assertEqual("", previous_commit("@Bilibili_Innocent_LabRelease"))
+
+    def test_unknown_step_internal_groups_do_not_hide_partial_posts(self):
+        for header in ["##[group]Upload", "##[group]Run Upload"]:
+            job, step, log = self.unknown_send_fixture(["TELEGRAM_DELIVERY_PROTOCOL: 3", header,
+                "TELEGRAM_POST_ATTEMPT: sendDocument", "TELEGRAM_POST_ATTEMPT: sendMessage", "##[endgroup]",
+                "Telegram rejected sendMessage: Too Many Requests: retry after 31"])
+            with self.subTest(header=header), patch("telegram_delivery_state.github", side_effect=[[],
+                    {"workflow_runs": [self.history_run()]}, {"jobs": [job]}, log]), \
+                    self.assertRaisesRegex(ValueError, "check the channel.*runs/10"):
+                previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+
+    def test_unknown_step_ambiguous_next_runner_prologue_fails_closed(self):
+        job, step, log = self.unknown_send_fixture(["TELEGRAM_DELIVERY_PROTOCOL: 3",
+            "##[group]Run internal upload", "shell: /usr/bin/bash", "##[endgroup]",
+            "TELEGRAM_POST_ATTEMPT: sendDocument"])
+        with patch("telegram_delivery_state.github", side_effect=[[], {"workflow_runs": [self.history_run()]},
+                   {"jobs": [job]}, log]), self.assertRaisesRegex(ValueError, "actual send log unavailable"):
+            previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+
+    def test_unknown_step_missing_next_prologue_does_not_accept_adjacent_output(self):
+        job, step, log = self.unknown_send_fixture(["TELEGRAM_DELIVERY_PROTOCOL: 3"])
+        log = log.replace("with:", "unexpected:")
+        with patch("telegram_delivery_state.github", side_effect=[[], {"workflow_runs": [self.history_run()]},
+                   {"jobs": [job]}, log]), self.assertRaisesRegex(ValueError, "actual send log unavailable"):
+            previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+
+    def test_unknown_step_modern_success_still_requires_bound_receipt(self):
+        job, step, log = self.unknown_send_fixture(["TELEGRAM_DELIVERY_PROTOCOL: 3",
+                                                  "Telegram delivered Canary APK, message ID 49"])
+        step["conclusion"] = "success"
+        with patch("telegram_delivery_state.github", side_effect=[[], {"workflow_runs": [self.history_run()]},
+                   {"jobs": [job]}, log]), self.assertRaisesRegex(ValueError, "bound receipt unavailable"):
+            previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+
+    def test_unknown_step_legacy_success_is_scoped_to_its_exact_command(self):
+        job, step, log = self.unknown_send_fixture(["Telegram delivered Canary APK, message ID 49"])
+        step["conclusion"] = "success"
+        with patch("telegram_delivery_state.github", side_effect=[[], {"workflow_runs": [self.history_run()]},
+                   {"jobs": [job]}, log]):
+            result = previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+        self.assertEqual(49, result["document_message_id"])
+        self.assertEqual("b" * 40, result["source_commit"])
+        self.assertEqual("2026-11-04T21:14:29.1300000Z", result["delivered_at"])
+
+    def test_unknown_step_requires_exact_metadata_and_runner_command_prologue(self):
+        for mutation in ["number", "missing_start", "missing_end", "reversed", "time_mismatch", "duplicate_number",
+                         "missing_command", "quoted_command", "missing_shell", "missing_endgroup", "other_job",
+                         "wrong_profile", "duplicate_group"]:
+            job, step, log = self.unknown_send_fixture(["TELEGRAM_DELIVERY_PROTOCOL: 3"])
+            if mutation == "number": step["number"] = True
+            if mutation == "missing_start": step.pop("started_at")
+            if mutation == "missing_end": step.pop("completed_at")
+            if mutation == "reversed": step["completed_at"] = "2026-11-04T21:00:00Z"
+            if mutation == "time_mismatch": step["started_at"] = "2026-11-04T21:13:54Z"
+            if mutation == "duplicate_number": job["steps"].append(dict(step, name="another step"))
+            if mutation == "missing_command": log = log.replace("publish_telegram.py", "unit_tests.py")
+            if mutation == "quoted_command": log = log.replace("python3 .github", "echo python3 .github")
+            if mutation == "missing_shell": log = log.replace("shell: ", "other: ")
+            if mutation == "missing_endgroup": log = log.replace("##[endgroup]", "")
+            if mutation == "other_job": log = log.replace(job["name"], "another job")
+            if mutation == "wrong_profile": log = log.replace("publish_telegram.py", "publish_embedded_telegram.py")
+            if mutation == "duplicate_group": log += "\n" + log
+            with self.subTest(mutation=mutation):
+                self.assertEqual("", actual_send_log(log, job, step))
+
+    def test_embedded_unknown_step_partial_send_is_identified_without_confirming_delivery(self):
+        import telegram_delivery_state as state
+        job, step, log = self.unknown_send_fixture(["TELEGRAM_DELIVERY_PROTOCOL: 3",
+                                                   "TELEGRAM_POST_ATTEMPT: sendDocument"], profile="embedded")
+        run = dict(self.history_run(), path=".github/workflows/embedded-telegram.yml", event="workflow_run")
+        with patch.multiple(state, PROFILE="embedded", WORKFLOW=run["path"], EVENTS={"workflow_run", "workflow_dispatch"},
+                            SEND_JOB=job["name"], SEND_STEP=step["name"]), \
+                patch.object(state, "github", side_effect=[[], {"workflow_runs": [run]}, {"jobs": [job]}, log]), \
+                self.assertRaisesRegex(ValueError, "check the channel.*runs/10"):
             previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
 
     def test_old_unknown_network_failure_is_superseded_by_later_actual_confirmation(self):

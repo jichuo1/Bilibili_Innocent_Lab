@@ -201,6 +201,228 @@ class TelegramNotesTest(unittest.TestCase):
         self.assertIn("规则版", report.read_text(encoding="utf-8"))
         self.assertEqual(report.read_bytes(), summary.read_bytes())
 
+    def test_embedded_outputs_only_ai_summary_and_categories_from_confirmed_baseline(self):
+        source = self.repo / "src/feature.txt"
+        source.parent.mkdir()
+        source.write_text("toggle_on\n", encoding="utf-8")
+        self.git("add", "src/feature.txt")
+        first = self.commit("feat: comments toggle")
+        self.git("tag", "v9.0.0", first)
+        source.write_text("toggle_on\nui_fix\n", encoding="utf-8")
+        self.git("add", "src/feature.txt")
+        current = self.commit("fix: comment display")
+        reply = json.loads(payload([first]))
+        reply["summary"] = ["评论体验进一步优化。"]
+        reply["items"].append({"category": "fixed", "group": "", "text": "修复了评论显示异常。",
+                               "commits": [current[:7]]})
+        with patch.object(llm_providers, "complete", return_value=json.dumps(reply, ensure_ascii=False)) as complete, \
+             patch.object(telegram_notes, "build_context", wraps=telegram_notes.build_context) as context, \
+             patch.object(telegram_notes, "generate", side_effect=AssertionError("Embedded must not build an archive")):
+            result = generate_announcement(self.repo, "v1.2.1-embedded.3", current, self.before,
+                                           config=CONFIG, slots=[SLOT])
+        self.assertEqual(self.before, context.call_args.kwargs["baseline_commit"])
+        self.assertFalse(context.call_args.kwargs["fetch_published"])
+        evidence = complete.call_args.args[2][0]["content"]
+        for text in [self.before, first[:7], current[:7], "+toggle_on", "+ui_fix"]:
+            self.assertIn(text, evidence)
+        expected = f"v1.2.1-embedded.3\n\n本次源码：{current}。\n\n本次更新\n评论体验进一步优化。"
+        for category, title in telegram_notes.release_notes.CATEGORY_KEYS.items():
+            for item in [item for item in reply["items"] if item["category"] == category]:
+                expected += "\n\n" + title + "\n- " + (item["group"] + "：" if item["group"] else "") + item["text"]
+        self.assertEqual(expected + "\n", result.changelog)
+        self.assertEqual("评论体验进一步优化。", result.summary)
+        self.assertIn("槽位 2", result.source)
+        self.assertEqual(self.before, result.previous_tag)
+        self.assertEqual(2, result.commit_count)
+
+    def test_embedded_first_delivery_uses_all_evidence_but_never_appends_history(self):
+        self.git("tag", "v1.2.0", self.before)
+        current = self.commit("fix: comments")
+        with patch.object(llm_providers, "complete", return_value=payload([self.before, current])) as complete, \
+             patch.object(telegram_notes, "build_context", wraps=telegram_notes.build_context) as context, \
+             patch.object(telegram_notes, "generate", side_effect=AssertionError("Embedded must not build an archive")):
+            result = generate_announcement(self.repo, "v1.2.1-embedded.1", current, config=CONFIG, slots=[SLOT])
+        self.assertEqual("", context.call_args.kwargs["baseline_commit"])
+        self.assertIsNone(result.previous_tag)
+        self.assertEqual(2, result.commit_count)
+        self.assertIn(self.before[:7], complete.call_args.args[2][0]["content"])
+        self.assertIn("优化了评论列表的显示效果。", result.changelog)
+        for archive in ["首次发布", "完整提交", "上一次", "本次共", "previous published change", "fix: comments", self.before[:7]]:
+            self.assertNotIn(archive, result.changelog)
+        self.assertNotIn(current[:7], result.changelog.replace(current, ""))
+
+    def test_embedded_failed_ai_or_incomplete_coverage_raises_without_archive_fallback(self):
+        self.commit("feat: first")
+        current = self.commit("fix: second")
+        for reply in [payload([current]), "invalid JSON", llm_providers.ProviderError("unavailable")]:
+            with self.subTest(reply=type(reply).__name__), \
+                 patch.object(llm_providers, "complete", side_effect=reply if isinstance(reply, Exception) else None,
+                              return_value=reply if isinstance(reply, str) else None) as complete, \
+                 patch.object(telegram_notes, "generate", side_effect=AssertionError("No archive fallback")), \
+                 self.assertRaisesRegex(ValueError, "Embedded.*完整覆盖校验"):
+                generate_announcement(self.repo, "v1.2.1-embedded.3", current, self.before, config=CONFIG, slots=[SLOT])
+            self.assertTrue(complete.called)
+
+    def test_embedded_missing_models_raise_without_fallback(self):
+        current = self.commit("fix: comments")
+        with patch.object(llm_providers, "load_slots", return_value=([], ["No usable model"])) as slots, \
+             patch.object(llm_providers, "complete") as complete, \
+             patch.object(telegram_notes, "generate", side_effect=AssertionError("No archive fallback")):
+            for configured in [None, []]:
+                with self.subTest(slots=configured), self.assertRaisesRegex(ValueError, "Embedded.*未配置可用模型"):
+                    generate_announcement(self.repo, "v1.2.1-embedded.3", current, self.before,
+                                          config=CONFIG, slots=configured)
+        slots.assert_called_once_with()
+        complete.assert_not_called()
+
+    def test_embedded_summary_budget_failure_raises_without_fallback(self):
+        current = self.commit("fix: comments")
+        with patch.object(llm_providers, "complete", return_value=payload([current])) as complete:
+            result = generate_announcement(self.repo, "v1.2.1-embedded.3", current, self.before,
+                                           config=CONFIG, slots=[SLOT])
+            size = len(result.changelog.encode("utf-8"))
+            with patch.object(telegram_notes, "MAX_NOTES_BYTES", size):
+                self.assertEqual(result.changelog, generate_announcement(
+                    self.repo, "v1.2.1-embedded.3", current, self.before, config=CONFIG, slots=[SLOT]).changelog)
+            with patch.object(telegram_notes, "MAX_NOTES_BYTES", size - 1), \
+                 patch.object(telegram_notes, "generate", side_effect=AssertionError("No archive fallback")), \
+                 self.assertRaisesRegex(ValueError, "Embedded.*摘要超出公告预算"):
+                generate_announcement(self.repo, "v1.2.1-embedded.3", current, self.before, config=CONFIG, slots=[SLOT])
+        self.assertEqual(3, complete.call_count)
+
+    def test_embedded_short_summary_survives_history_larger_than_delivery_budget(self):
+        commits = [self.before]
+        # 通过 stdin 创建长标题，避免 Windows 命令行长度限制；不放宽任何生产预算。
+        for index in range(2):
+            subprocess.run(["git", "commit", "--allow-empty", "-q", "--file=-"], cwd=self.repo,
+                           input=f"chore: archive-{index} " + "维护" * 25000, text=True, encoding="utf-8", check=True)
+            commits.append(self.git("rev-parse", "HEAD"))
+        with self.assertRaisesRegex(ValueError, "delivery budget"):
+            generate(self.repo, "v1.2.1-canary.3", commits[-1])
+        with patch.object(llm_providers, "complete", return_value=payload(commits)) as complete, \
+             patch.object(telegram_notes, "generate", side_effect=AssertionError("No history budget gate")):
+            result = generate_announcement(self.repo, "v1.2.1-embedded.1", commits[-1], config=CONFIG, slots=[SLOT])
+        complete.assert_called_once()
+        self.assertIn("槽位 2", result.source)
+        self.assertLess(len(result.changelog.encode("utf-8")), 1000)
+        self.assertNotIn("archive-", result.changelog)
+        for commit in commits:
+            self.assertIn(commit[:7], complete.call_args.args[2][0]["content"])
+
+    def test_embedded_dry_run_and_unchanged_build_are_short_and_never_load_models(self):
+        current = self.commit("fix: current")
+        with patch.object(llm_providers, "load_slots") as slots, patch.object(llm_providers, "complete") as complete, \
+             patch.object(telegram_notes, "generate", side_effect=AssertionError("No archive")):
+            dry = generate_announcement(self.repo, "v1.2.1-embedded.3", current, self.before, use_llm=False)
+            unchanged = generate_announcement(self.repo, "v1.2.1-embedded.3", current, current)
+        slots.assert_not_called()
+        complete.assert_not_called()
+        self.assertIn("仅验证，未调用AI", dry.changelog)
+        self.assertEqual("仅验证", dry.source)
+        self.assertIn("本次没有新增提交", unchanged.changelog)
+        self.assertEqual("无新增提交", unchanged.source)
+        for result in [dry, unchanged]:
+            self.assertEqual("", result.summary)
+            self.assertLess(len(result.changelog.encode("utf-8")), 300)
+            self.assertNotIn("完整提交", result.changelog)
+            self.assertNotIn("fix: current", result.changelog)
+
+    def test_embedded_non_successor_is_rejected_before_empty_range_or_dry_run(self):
+        current = self.commit("fix: current")
+        self.git("checkout", "-qb", "diverged", self.before)
+        diverged = self.commit("fix: diverged")
+        with patch.object(llm_providers, "load_slots") as slots, patch.object(llm_providers, "complete") as complete:
+            for selected in [self.before, diverged]:
+                for enabled in [True, False]:
+                    with self.subTest(selected=selected, enabled=enabled), self.assertRaisesRegex(ValueError, "不是.*后继"):
+                        generate_announcement(self.repo, "v1.2.1-embedded.3", selected, current, use_llm=enabled)
+        slots.assert_not_called()
+        complete.assert_not_called()
+
+    def test_embedded_merge_only_range_is_not_reported_as_unchanged(self):
+        self.git("checkout", "-qb", "feature")
+        self.commit("fix: feature")
+        self.git("checkout", "-qb", "other", self.before)
+        self.commit("fix: other")
+        self.git("merge", "--no-ff", "-qm", "Merge feature", "feature")
+        baseline = self.git("rev-parse", "HEAD")
+        # 第二个 merge 复用已交付的父提交：新增范围非空，但不含非合并提交。
+        merge = subprocess.check_output(["git", "commit-tree", "HEAD^{tree}", "-p", baseline, "-p", self.before],
+                                        cwd=self.repo, input="Merge only\n", text=True).strip()
+        with patch.object(llm_providers, "load_slots") as slots, patch.object(llm_providers, "complete") as complete, \
+             self.assertRaisesRegex(ValueError, "仅含合并提交"):
+            generate_announcement(self.repo, "v1.2.1-embedded.3", merge, baseline)
+        slots.assert_not_called()
+        complete.assert_not_called()
+
+    def test_embedded_identity_and_revision_checks_cannot_be_skipped(self):
+        with patch.object(llm_providers, "load_slots") as slots, patch.object(llm_providers, "complete") as complete:
+            for tag, commit, before in [("v1.2.1-embedded.0", self.before, ""),
+                                        ("v1.2.1-embedded.1-extra", self.before, ""),
+                                        ("v1.2.1-embedded.1", "--all", ""),
+                                        ("v1.2.1-embedded.1", self.before, "--all")]:
+                with self.subTest(tag=tag, commit=commit, before=before), self.assertRaisesRegex(ValueError, "identity"):
+                    generate_announcement(self.repo, tag, commit, before, use_llm=False)
+            for commit, before in [("f" * 40, ""), (self.before, "f" * 40)]:
+                with self.subTest(commit=commit, before=before), self.assertRaises(subprocess.CalledProcessError):
+                    generate_announcement(self.repo, "v1.2.1-embedded.1", commit, before, use_llm=False)
+        slots.assert_not_called()
+        complete.assert_not_called()
+
+    def test_embedded_ai_maintenance_without_items_keeps_existing_explanation(self):
+        current = self.commit("chore: build maintenance")
+        with patch.object(llm_providers, "complete", return_value=payload([current], items=False)) as complete:
+            result = generate_announcement(self.repo, "v1.2.1-embedded.3", current, self.before,
+                                           config=CONFIG, slots=[SLOT])
+        complete.assert_called_once()
+        self.assertIn("功能与界面没有可感知的变化", result.changelog)
+        self.assertIn("槽位 2", result.source)
+        self.assertEqual("", result.summary)
+        self.assertNotIn("build maintenance", result.changelog)
+        self.assertNotIn("完整提交", result.changelog)
+        self.assertNotIn("没有新增提交", result.changelog)
+
+    def test_embedded_cli_dry_run_and_ai_success_report_the_embedded_channel(self):
+        current = self.commit("fix: comments")
+        for dry_run in [True, False]:
+            with self.subTest(dry_run=dry_run):
+                output = self.repo / f"output/notes-{dry_run}.txt"
+                report = self.repo / f"output/report-{dry_run}.md"
+                summary = self.repo / f"summary-{dry_run}.md"
+                arguments = ["prepare_telegram_notes.py", "--repo-root", str(self.repo), "--tag", "v1.2.1-embedded.3",
+                             "--commit", current, "--channel", "@embedded_channel", "--output", str(output),
+                             "--report-output", str(report), "--summary", str(summary)]
+                with patch.object(sys, "argv", arguments + (["--no-llm"] if dry_run else [])), \
+                     patch.object(telegram_notes, "previous_commit", return_value=self.before) as previous, \
+                     patch.object(telegram_notes, "load_config", return_value=CONFIG), \
+                     patch.object(llm_providers, "load_slots", return_value=([SLOT], [])) as slots, \
+                     patch.object(llm_providers, "complete", return_value=payload([current])) as complete:
+                    telegram_notes.main()
+                previous.assert_called_once_with("@embedded_channel")
+                if dry_run:
+                    slots.assert_not_called()
+                    complete.assert_not_called()
+                    self.assertIn("仅验证，未调用AI", output.read_text(encoding="utf-8"))
+                else:
+                    slots.assert_called_once_with()
+                    complete.assert_called_once()
+                    self.assertIn("优化了评论列表", output.read_text(encoding="utf-8"))
+                self.assertIn("(embedded)", report.read_text(encoding="utf-8"))
+                self.assertEqual(report.read_bytes(), summary.read_bytes())
+                self.assertNotIn("完整提交记录", output.read_text(encoding="utf-8"))
+
+    def test_embedded_cli_failure_does_not_write_an_announcement(self):
+        current = self.commit("fix: comments")
+        output = self.repo / "notes.txt"
+        arguments = ["prepare_telegram_notes.py", "--repo-root", str(self.repo), "--tag", "v1.2.1-embedded.3",
+                     "--commit", current, "--channel", "@embedded_channel", "--output", str(output)]
+        with patch.object(sys, "argv", arguments), patch.object(telegram_notes, "previous_commit", return_value=self.before), \
+             patch.object(llm_providers, "load_slots", return_value=([], [])), \
+             patch.object(llm_providers, "complete") as complete, self.assertRaisesRegex(ValueError, "未配置可用模型"):
+            telegram_notes.main()
+        complete.assert_not_called()
+        self.assertFalse(output.exists())
+
     def test_only_eligible_telegram_delivery_uses_the_same_provider_configuration(self):
         workflows = Path(__file__).resolve().parents[1] / "workflows"
         telegram = (workflows / "canary-telegram.yml").read_text(encoding="utf-8")

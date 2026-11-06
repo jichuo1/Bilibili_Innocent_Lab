@@ -11,7 +11,7 @@ import re
 import subprocess
 import time
 import zipfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from telegram_receipt import validate_receipt, confirmed_receipt
 
@@ -177,8 +177,7 @@ def github(path: str, payload: dict | None = None, *, raw: bool = False, run_id:
         match = re.fullmatch(r"actions/jobs/([1-9]\d*)/logs", path)
         if match is None or payload is not None or type(run_id) is not int or run_id <= 0:
             raise ValueError("Unexpected Telegram job log request")
-        # gh api 会拒绝输出日志里的 ANSI 控制字符；run view 专门处理 Actions 日志。
-        # 显式提供 run ID 才能保留步骤名称；仅 --job 会把步骤标为 UNKNOWN STEP。
+        # run view 可读取 ANSI 日志，但平台缺少分步归档时仍会返回 UNKNOWN STEP。
         command = ["gh", "run", "view", str(run_id), "--repo", REPOSITORY, "--job", match[1], "--log"]
         if attempt:
             command += ["--attempt", str(attempt)]
@@ -259,6 +258,74 @@ def legacy_previous_commit(channel: str, checkpoint_run: int = 0, fallback: str 
 def legacy_previous_delivery(channel: str, checkpoint_run: int = 0, fallback: dict | None = None) -> dict:
     checkpoints = [dict(fallback or {}, _run_id=checkpoint_run, _legacy_boundary=True)] if checkpoint_run or fallback else []
     return delivery_history(channel_key(channel), checkpoints)
+
+
+def actual_send_log(job_log: str, job: dict, step: dict) -> str:
+    rows = [parts for line in job_log.splitlines()
+            if len(parts := line.split("\t", 2)) == 3 and parts[0] == SEND_JOB]
+    named = "\n".join(parts[2] for parts in rows if parts[1] == SEND_STEP)
+    if named:
+        return named
+    if (job.get("name") != SEND_JOB or step.get("name") != SEND_STEP
+            or type(step.get("number")) is not int or step["number"] <= 0
+            or sum(row.get("number") == step["number"] for row in job.get("steps", [])) != 1
+            or not step.get("started_at") or not step.get("completed_at")
+            or step.get("conclusion") not in {"success", "failure", "cancelled"}):
+        return ""
+    started, completed = instant(step["started_at"]), instant(step["completed_at"])
+    if completed < started:
+        return ""
+    lines = []
+    for _, label, content in rows:
+        if label != "UNKNOWN STEP":
+            continue
+        content = re.sub(r"(?:\x1b|\^\[)\[[0-?]*[ -/]*[@-~]", "", content)
+        match = re.fullmatch(r"(\d{4}-\d\d-\d\dT\S+Z) (.*)", content)
+        if match:
+            lines.append((instant(match[1]), match[2], content))
+    script = "publish_embedded_telegram.py" if PROFILE == "embedded" else "publish_telegram.py"
+    command = re.compile(r"^python3 \.github/release-templates/" + re.escape(script) + r"(?:\s|$)")
+    prologues = []
+    for begin, (_, header, _) in enumerate(lines):
+        if not header.startswith("##[group]Run "):
+            continue
+        end = next((index for index in range(begin + 1, len(lines))
+                    if lines[index][1].startswith("##[group]") or lines[index][1] == "##[endgroup]"), None)
+        if end is None or lines[end][1] != "##[endgroup]":
+            continue
+        text = [row[1].removeprefix("##[group]Run ") for row in lines[begin:end]]
+        if any(row.startswith("shell: ") or row == "with:" for row in text):
+            prologues.append((begin, end, text))
+    successors = [row for row in job.get("steps", []) if type(row.get("number")) is int
+                  and row["number"] > step["number"] and row.get("conclusion") != "skipped"]
+    successor = min(successors, key=lambda row: row["number"], default=None)
+    send_prologues = [(begin, end) for begin, end, text in prologues
+                      if started <= lines[begin][0] < started + timedelta(seconds=1)
+                      and any(command.match(row) for row in text) and any(row.startswith("shell: ") for row in text)]
+    if len(send_prologues) != 1:
+        return ""
+    begin, prologue_end = send_prologues[0]
+    end = len(lines)
+    # 只有与下一步骤时间吻合的 runner 前导块才是边界，脚本内部日志分组仍属发送步骤。
+    if successor:
+        if not successor.get("started_at"):
+            return ""
+        next_started = instant(successor["started_at"])
+        if next_started < completed:
+            return ""
+        if next_started < completed + timedelta(seconds=1):
+            boundaries = [index for index, _, _ in prologues if index > prologue_end
+                          and next_started <= lines[index][0] < next_started + timedelta(seconds=1)]
+            if len(boundaries) != 1:
+                return ""
+            end = boundaries[0]
+    elif any(index > prologue_end and lines[index][0] < completed + timedelta(seconds=1)
+             for index, _, _ in prologues):
+        return ""
+    selected = [row for row in lines[begin:end] if started <= row[0] < completed + timedelta(seconds=1)]
+    if len(selected) <= prologue_end - begin + 1 or any(a[0] > b[0] for a, b in zip(selected, selected[1:])):
+        return ""
+    return "\n".join(row[2] for row in selected)
 
 
 def delivery_history(channel: str, checkpoints: list[dict], *, strict: bool = False,
@@ -351,11 +418,10 @@ def delivery_history(channel: str, checkpoints: list[dict], *, strict: bool = Fa
                     cutoff = completed
                 continue
             job_log = github(f"actions/jobs/{job['id']}/logs", raw=True, run_id=run["id"], attempt=attempt)
-            log = "\n".join(parts[2] for line in job_log.splitlines()
-                            if len(parts := line.split("\t", 2)) == 3 and parts[1] == SEND_STEP)
+            log = actual_send_log(job_log, job, step)
             if not log:
                 if strict:
-                    raise ValueError("Unconfirmed Telegram delivery: actual send log unavailable")
+                    raise ValueError(f"Unconfirmed Telegram delivery: actual send log unavailable (run {run['id']}, attempt {attempt})")
                 continue
             dry_run = re.search(r"Validated Telegram payload.*dry-run only", log) or re.search(
                 r"\bDELIVERY_DRY_RUN: true\s*$", log, re.MULTILINE)
@@ -428,8 +494,11 @@ def delivery_history(channel: str, checkpoints: list[dict], *, strict: bool = Fa
             if not row.get("delivered_at") and (latest is None or not row.get("_created_at")
                     or instant(row["_created_at"]) >= instant(latest["delivered_at"])):
                 raise ValueError("Unconfirmed Telegram delivery: checkpoint lacks an actual send time")
-        if any(latest is None or instant(row["delivered_at"]) >= instant(latest["delivered_at"]) for row in uncertain):
-            raise ValueError("Unconfirmed Telegram delivery: check the channel before automatic retry")
+        unresolved = [row for row in uncertain if latest is None or instant(row["delivered_at"]) >= instant(latest["delivered_at"])]
+        if unresolved:
+            latest_uncertain = max(unresolved, key=lambda row: instant(row["delivered_at"]))
+            raise ValueError("Unconfirmed Telegram delivery: check the channel before automatic retry "
+                             f"({latest_uncertain['delivery_run_url']}, attempt {latest_uncertain['delivery_run_attempt']})")
     # Old checkpoints remain usable for explicit manual notes even when old logs have expired.
     undated = [row for row in confirmed if not row.get("delivered_at")]
     fallback = max(undated, key=lambda row: row.get("_checkpoint_id", 0), default=None)
