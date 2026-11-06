@@ -1,8 +1,8 @@
 # 无痕与免登录：交接说明
 
-> 2026-11-05 更新（最新状态见第 25 节与第 2 节状态一览表）：评论游客上限改为 Java + KMP 双模型并在 9.16.1 触发；引导页首启门覆盖全 38 版并在 8.90.2 实机生效；9.0.0（64 位包）收藏路由放行实机通过；8.90.2 联合创作点击链路复测；登录账号回归；各 hook 独立触发状态键；第三方请求审计；第 2 项 `dy_container_nologin` 候选锚点经三版反编译证伪、方向改为列表数据层。**验证策略（用户 11-05 明确）：38 版覆盖以 Hostlab 静态分析为主，实机只在 9.16.1 / 8.90.2 / 9.0.0 三份 arm64 包抽样，不逐版装机。** 2026-11-04 更新：联合创作「创作团队」关注按钮接管与 9.16.1 实机验证见第 24 节；视频页原生关注菜单与本地分组见第 23 节。关注分组数据层、请求保护和隐私修复见第 21 节，视频作者回调兼容见第 20 节，收藏操作见第 18 节，无痕广播边界见第 12、13 节。
+> 2026-11-06 更新（最新状态见第 26 节、第 25 节与第 2 节状态一览表）：**第 2 项「动态页登录引导」列表数据层过滤已落地并 9.16.1 实机验证通过**——修复了 `getDeclaredFields` 漏判父类 `DataStatus` 的认证 bug，静态锚点 38/38 复核成立；改动按用户要求暂不提交、待 review 后授权。2026-11-05 更新：评论游客上限改为 Java + KMP 双模型并在 9.16.1 触发；引导页首启门覆盖全 38 版并在 8.90.2 实机生效；9.0.0（64 位包）收藏路由放行实机通过；8.90.2 联合创作点击链路复测；登录账号回归；各 hook 独立触发状态键；第三方请求审计；第 2 项 `dy_container_nologin` 候选锚点经三版反编译证伪、方向改为列表数据层。**验证策略（用户 11-05 明确）：38 版覆盖以 Hostlab 静态分析为主，实机只在 9.16.1 / 8.90.2 / 9.0.0 三份 arm64 包抽样，不逐版装机。** 2026-11-04 更新：联合创作「创作团队」关注按钮接管与 9.16.1 实机验证见第 24 节；视频页原生关注菜单与本地分组见第 23 节。关注分组数据层、请求保护和隐私修复见第 21 节，视频作者回调兼容见第 20 节，收藏操作见第 18 节，无痕广播边界见第 12、13 节。
 
-最近更新于 2026-11-05。分支 `feature/incognito-no-login`，远端 `fork`。本文只写事实：哪些做了、在哪台机器上看到过、哪些没验证、哪些界面是官方的、哪些是模块自己画的。按时间追加的证据记录在 `docs/incognito-no-login-round3-plan.md`，其中 2026-10-28 的状态表与缺口表已过时，以本文为准。**本文第 6 节「已知问题与剩余工作」原为 11-04 前的快照，其中多条已被 11-05 工作推翻，现已逐条核对更新；其余按时间追加的章节（第 3 ~ 24 节）保留作历史记录，现状以第 2 节与第 25 节为准。**
+最近更新于 2026-11-06。分支 `feature/incognito-no-login`，远端 `fork`。本文只写事实：哪些做了、在哪台机器上看到过、哪些没验证、哪些界面是官方的、哪些是模块自己画的。按时间追加的证据记录在 `docs/incognito-no-login-round3-plan.md`，其中 2026-10-28 的状态表与缺口表已过时，以本文为准。**本文第 6 节「已知问题与剩余工作」原为 11-04 前的快照，其中多条已被 11-05 / 11-06 工作推翻，现已逐条核对更新；其余按时间追加的章节（第 3 ~ 24 节）保留作历史记录，现状以第 2 节、第 25 节与第 26 节为准。**
 
 ## 1. 目标
 
@@ -17,10 +17,10 @@
 
 | 项目 | 状态 |
 |---|---|
-| 提交 | 11-04 至 11-05 本地新增 **16 个**原子提交（静态销账、评论上限构造参数方案、引导页全版本门、触发状态键、KMP 双模型修复、多次实机/静态证据同步），最新 `69b28547`；fork 跟踪分支仍停在 `922de651`，领先 17 个提交（含 `02d16b71`），**全部未推送**。 |
-| 门禁 | Debug APK、全量 JVM 测试（0 失败）、快速 Lint（262 条警告、3 条既有基线错误过滤）通过；未重跑完整 `lintDebug`（按 AGENTS.md 只在 CI / 发布验收时跑）。 |
-| 真机（抽样） | 小米 10（Android 16，root，APatch + LSPosed，ADB `192.168.1.78:5555`）。9.16.1 实测 `partial:6/10`、`models=java,kmp` 且 KMP 路径触发、引导页门 `installed/applied`、登录账号回归；8.90.2 实测 `10/10` 全装、legacy 门 `installed/applied`、`+bili,+mall`、联合创作点击 `guest_lottie_follow=applied`；9.0.0（**64 位** `captures/r4/h900/base.apk`）实测 `partial:6/10`、`guest_favorites_route_opened=seen`、收藏页显示默认收藏夹且无登录框。`captures/host-900-base.apk` 是 32 位包，装上模块不注入，勿用，见第 25 节。 |
-| 其余版本 | **按 11-05 验证策略，38 版覆盖以 Hostlab 静态分析为主**（结构矩阵 `9b1ddfac`、`20d5ad0e`、`a5738826`、`4610f0e8` + 反编译 + 字段/方法形状逐版核对），实机只在上述三份 arm64 包抽样，**不逐版装机**；「其余版本缺实机」不再列为待办缺口 |
+| 提交 | 分支 `feature/incognito-no-login` HEAD `ce972518`（动态页登录引导列表数据层过滤），领先 fork `1cd1f492` **19 个**本地提交，**全部未推送**。11-06 修复「注册但未生效」的认证 bug（`stateBelongsToNotLoginPage` 只看 `getDeclaredFields` 漏判父类 `DataStatus` 字段），修复 + 回归单测 + 两份文档改动已于 11-06 原子化提交（fix + docs 两个 commit）；push 仍需单独授权。详见第 26 节。 |
+| 门禁 | Debug APK、全量 JVM 测试（11-06 复核 4356 用例 0 失败 / 1 跳过）、快速 Lint（262 条警告、3 条既有基线错误过滤）通过；未重跑完整 `lintDebug`（按 AGENTS.md 只在 CI / 发布验收时跑）。11-06 新 Debug APK SHA-256 `23cf8dfdfd3feb48394b56329e14b5df80983493d5c094cc49a483fc34c5758e`。 |
+| 真机（抽样） | 小米 10（Android 16，root，APatch + LSPosed，ADB `192.168.1.78:5555`）。9.16.1 实测 `partial:6/10`、`models=java,kmp` 且 KMP 路径触发、引导页门 `installed/applied`、登录账号回归；8.90.2 实测 `10/10` 全装、legacy 门 `installed/applied`、`+bili,+mall`、联合创作点击 `guest_lottie_follow=applied`；9.0.0（**64 位** `captures/r4/h900/base.apk`）实测 `partial:6/10`、`guest_favorites_route_opened=seen`、收藏页显示默认收藏夹且无登录框。`captures/host-900-base.apk` 是 32 位包，装上模块不注入，勿用，见第 25 节。**11-06 修复后 9.16.1 复测**：新 APK `23cf8dfd…` 覆盖安装，冷启动 `partial:7/10`、切「关注」后 `guest_browsing_dynamic_login_row_learned=seen` / `_applied=seen`（修复前这两个键从未出现过），截图确认「你还未登录 / 登录」引导块已消失、只剩「猜你喜欢的 UP 主」推荐流；关两开关重启后登录账号正常、该进程无 `guest_browsing_status`（游客组整体跳过、无过滤、无账号污染）；两开关已恢复开、手机留在修复后的「关注」页。见第 26 节。 |
+| 其余版本 | **按 11-05 验证策略，38 版覆盖以 Hostlab 静态分析为主**（结构矩阵 `9b1ddfac`、`20d5ad0e`、`a5738826`、`4610f0e8` + 反编译 + 字段/方法形状逐版核对），实机只在上述三份 arm64 包抽样，**不逐版装机**；「其余版本缺实机」不再列为待办缺口。**11-06 新增修正后锚点 38/38 静态复核（Hostlab dexsql 矩阵 `3ff99a14`、`5e99f0fd`）：每版 `doRequest$2` 的 nologin 结果 state 类的继承链（自身或父类 `comm.list.common.data.b` / `Qi.b`）均能解析到 `DataStatus` 字段，确认父类字段扫描的认证在全 38 版成立，见第 26 节。** |
 
 ## 3. 提交清单（时间正序，节选与本阶段相关的）
 
@@ -185,9 +185,9 @@
 
 ## 6. 剩余工作（2026-11-05 逐条核对）
 
-> 本节原为 11-04 前的快照，其中「引导页 8.84–8.96 没验证」「批次 2 只有已注册证据」「评论上限 / 登录条 9.x 没做」「登录用户只有单测」四条已在 11-05 被推翻或完成。下面只列仍成立的项，并标注哪些按 **11-05 验证策略（Hostlab 静态为主、实机只抽样）** 处理，不再要求逐版装机。
+> 本节原为 11-04 前的快照，其中「引导页 8.84–8.96 没验证」「批次 2 只有已注册证据」「评论上限 / 登录条 9.x 没做」「登录用户只有单测」四条已在 11-05 被推翻或完成。下面只列仍成立的项，并标注哪些按 **11-05 验证策略（Hostlab 静态为主、实机只抽样）** 处理，不再要求逐版装机。**11-06 更新：原第 1 项（动态页登录引导）已实现并实机验证通过，见第 26 节，已从剩余工作销账。**
 
-1. **第 2 项：动态页登录引导（唯一未落地的「必须补齐」项）**：9.x 换成 `DynamicNotLoginFragment` 的 RecyclerView 列表项引导；`dy_container_nologin` 候选锚点经 8.90.2 / 9.0.1 / 9.16.1 三版反编译证伪（只是赋值后从未读取的遗留字段），列表 item 类型逐版混淆（`List<followinglist.model.j0>` / `List<MQ.F>` / `List<xS.G>`）。待做：按 item 结构特征逐版 Hostlab 验真后，在列表数据层过滤引导 item。见第 25 节、路线图第 2 项。
+1. ~~**第 2 项：动态页登录引导~~ → **【已销账 / 11-06 已实现并实机验证通过】**：列表数据层过滤已实现（`ce972518` + 11-06 认证修复），9.16.1 实机 `learned/applied=seen` 且引导块消失；修正后认证锚点经 Hostlab 矩阵 `3ff99a14` / `5e99f0fd` 复核在全 38 版成立（父类字段扫描），按验证策略不逐版实机。实现、DEX 根因、矩阵、实机证据见第 26 节；历史证伪过程仍保留在第 25 节、路线图第 2 项。
 2. **视频关注分组与适配边界**：本地关注分组、特别关注与宿主完整分组菜单已接入，9.16.1 / 8.90.2 实测（第 23 节）；联合创作按钮 9.16.1 实测（第 24 节）、8.90.2 点击链路 11-05 复测通过（第 25 节）。仍待（抽样机可做）：8.90.2 的特别关注与取消确认逐项复测、分组弹窗打开期间的身份 / 模式切换与 Activity 恢复、`com.mall` 商城视频页入口真实点击、外部取关后按钮停在 ✓ 帧的残留确认。
 3. **官方收藏操作**：普通视频页和 Story 星标已恢复一键收藏 / 取消 / 宿主选夹，38 版完成关键结构核对（第 18、19 节）。仍待：8.84–8.96 由模块打开的宿主弹窗「新建夹返回刷新」路径，按策略以 Hostlab 结构核对为主。
 4. **空间页关注按钮**：9.0.0 / 9.16.1 本地关注、重进、取消已实机验证（第 16 节），视频页作者按钮重进状态已补（第 17 节）。仍待：搜索、评论区等其他位置的关注按钮重进状态（只要发 `FollowStateManager.notify` 就会同步本地库，但重进按服务端显示，未逐个看）。
@@ -198,7 +198,7 @@
 9. **KMP 广播**：8.90.2 / 9.0.0 / 9.16.1 测试窗口未观察到已知广播建连（第 12 节）。仍待：其他版本的 Hostlab 结构核对、网络切换与长时间行为（长跑类按策略不强求逐版实机）。
 10. **普通游客库重启持久化**：代码走查确认 `load()` / `save()` / `preload()` 恢复链成立（第 25 节），但无痕时拒绝写盘、普通库只在「无痕关 + 账号未登录」生效；本机账号已登录，需用户配合退出登录才能实机触发（不擅自做）。
 11. **8.97 / 9.17 的 `onFollowSuccess` owner 缺失**：矩阵 `9b1ddfac` 的静态发现，按策略做 Hostlab 结构复核，不需实机（第 25 节、路线图第 5 项）。
-12. **工程收尾**：完整 `lintDebug`（按 AGENTS.md 只在 CI / 发布验收时跑）；16 个本地提交待单独授权推送。
+12. **工程收尾**：完整 `lintDebug`（按 AGENTS.md 只在 CI / 发布验收时跑）；提交已原子化完成（fix + docs 两个 commit），push 待单独授权。
 
 **已完成、不再列为待办**（11-05）：引导页 8.84–8.96 首启门（已实现并在 8.90.2 实机 `installed/applied`）、批次 2 触发状态键基础设施、评论游客上限 9.x「干净跳过」、登录用户真机回归、8.90.2 联合创作点击链路、9.0.0 收藏路由放行、路线图第 4 / 5 / 6 项销账。按 11-05 验证策略，其余 15 版及 38 版其他样本均以 Hostlab 静态覆盖为准，不逐版实机。
 
@@ -414,3 +414,14 @@
 - **第三方请求审计（11-05 本轮日志）**：2480 条 HTTP 日志里非 B 站域名只有 `g.cn.miaozhen.com`，18 次全部 `withheld locally`（`/x/k=` 的 path 含 IP / `__IESID__` / `__OPENUDID__` 等标识宏，日志已脱敏）；`line1-log.biligame.net` 配置放行、上报拦截，符合 11-01 设计。11-03/11-04 出现过的 `adtrack.qianwen.com`、`unet.quark.cn`、`rtx.smzdm.com`、`im-x.jd.com`、`adim.pinduoduo.com`、`mapitd.yiche.com` 本轮未复现，其 path 无可见标识但模块日志不打印 query，不能断定无泄露；`blockHttp` 对非 B 站域名默认放行、`parameters()` 只清洗已知身份/追踪键，path 内标识只对 miaozhen 特判。其余第三方仍需专门触发广告场景逐条看 query 才能普查完。
 - **普通游客库「重启持久化」的环境限制**：代码走查确认 `LocalVirtualLibrary.current()` → `load()` 从 `noBackupFilesDir/bil_guest_library.json` 恢复、`commit()` 非无痕时 `save()` 原子写盘、`preload()` 冷启动触发首次读取，逻辑成立；但无痕时 `checkDiskAccess()` 拒绝写盘，普通游客库只在「无痕关 + 账号未登录」时生效。本机账号已登录，要触发写盘必须退出登录（重大账号状态变更，不擅自做），故该项仍待用户配合；本机 `no_backup/bil_guest_library.json` 当前不存在与此一致。
 - **未验证/限制（按 11-05 验证策略）**：第 4 项 8.97–9.11 其余 15 版以 Hostlab 静态锚点核对为覆盖证据，**不再列「缺实机」**（本机仅 8.90.2 / 9.0.0 / 9.16.1 三份 64 位宿主包，也不再视为阻塞）。仍待做：`com.mall` 商城视频页入口真实点击、分组弹窗会话切换 / 页面恢复（抽样机可做）；普通游客库重启持久化需账号未登录、待用户配合。完整剩余清单见第 6 节。无痕状态仍为 `partial`。
+
+## 26. 2026-11-06：第 2 项落地、认证 bug 修复与 9.16.1 实机复测
+
+- **起点**：`ce972518` 已实现动态页登录引导「列表数据层过滤」——hook AndroidX 稳定类 `LiveData.setValue`，把 `DynamicNotLoginViewModel$doRequest$2` 发布的 `(list, state)` 对值在观察者收到前从列表移除登录 item。11-05 交接时静态验证声称 38/38 成立（矩阵 `55f724e5` / `85c745a4`），但**代码中从未实机触发过**。本轮实机复测发现该 hook **只注册、不生效**：9.16.1 冷启动只有 `guest_browsing_dynamic_login_row=installed`，`_learned` / `_applied` 两个状态键从未出现，「你还未登录」引导块仍在。config / 无痕 / 账号态均已排除（`incognito_privacy_status=partial`、`guest_browsing_guest_quality_cap_config_applied=seen` 证明 `isGuest()` true、首页左上角「登录」= 未登录态；宿主进程已用新 SHA 重装、`adb install -r` 保留数据；ABI 为 arm64-v8a，详见 `captures/dynlogin/HANDOVER-20261105.md`）。
+- **DEX 根因（安装包 `captures/host-9161100-official.apk`，versionCode 9161100）**：`doRequest$2` 的字节码 `invoke-virtual MutableLiveData.setValue(Object)`（method@23b0）经 `super.setValue` → `LiveData.setValue`（即 hook 点，注册无误）。数据对值类 `Qi.d<T>` 恰 2 个实例字段（`a:Object`=list、`b:Qi.b`=state）。**state 字段的声明类型 `Qi.b` 才声明 `DataStatus` 字段 `e`**；结果态 state 的运行时类是 `nologin.g extends Qi.b`，自身只声明 `h:Z`；加载态是 plain `Qi.b`（不在 nologin 包）。原 `stateBelongsToNotLoginPage` 用 `getDeclaredFields(state.javaClass)` 只扫运行时类自有字段 + nologin 包名前缀，两种 state 都认证失败 → LiveData 永不认证 → 不学习、不过滤。用 `dexdump`（SDK build-tools 36.0.0）对 `classes5.dex`（`Qi.b`/`Qi.d`）、`classes8.dex`（`nologin.g` / doRequest$2 反汇编）交叉确认；`captures/compat-incognito/DynamicNotLoginDoRequest2-{890,901,916}.java`、`NologinObserverB-916.java`、`ValueD-Qi-916.java` 佐证三版同构。
+- **修复（版本无关、不写死混淆名）**：`GuestDynamicLoginRowFilter.stateBelongsToNotLoginPage` 把 `Lookup.declaredFields(type)` 改为 `Lookup.fields(type, includeSuperclasses = true)`，按 state 整条继承链枚举 `DataStatus` 字段；`Lookup` 走 `runtime/KavaMemberLookup.kt` 的 `fields(includeSuperclasses)`，不新增散反射。失败仍全部干净放行。配套回归单测：`GuestDynamicStateBaseFixture`（other 包，声明 `DataStatus`）+ `GuestDynamicInheritedStateFixture`（nologin 包，只带一个 boolean，复现 9.16.1 父类字段形状），新增 `inheritedDataStatusStateAuthenticatesOn916Shape` / `inheritedDataStatusCachesAuthenticationForLaterValues` 两个用例；`GuestDynamicLoginRowFilterTest` 共 16 用例全过。
+- **门禁与构建**：按 AGENTS.md（JDK17 / `ANDROID_HOME=G:/AndroidSdk` / `GRADLE_USER_HOME` 指主仓库缓存）。`lintFast` 与 `--tests` 不能合并到一次调用（build.gradle.kts 有守卫），故分开跑：`testDebugUnitTest --tests '*GuestDynamicLoginRowFilterTest*'` 单独验证修复，再用 `:app:lintFast :app:assembleDebug :app:testDebugUnitTest` 一次跑完整门禁。结果：全量 JVM 4356 用例 0 失败 / 1 跳过，FastLint 262 警告 + 3 条既有基线错误（不变），Debug APK SHA-256 `23cf8dfdfd3feb48394b56329e14b5df80983493d5c094cc49a483fc34c5758e`。Gradle 守护进程全部 `--stop`，无残留。
+- **Hostlab 静态复核（38/38，验证策略 = 全版本覆盖以 Hostlab 为主、实机只抽样）**：两轮 dexsql 矩阵——`3ff99a149ac246fa938604fbfb1c289f`（`doRequest$2` 的 `<init>` 构造清单 + nologin 类继承链）、`5e99f0fd23fe4b7ab1a1229bfc6b7767`（声明 `DataStatus` 类型字段的 carrier 类；注意 `class_fields.field_descriptor` 是完整 DEX 形式 `Lcls;->name:Ltype;`，用 `LIKE '%:Lcom/bilibili/app/comm/list/common/data/DataStatus;'` 匹配）。判定：**38/38 版** `doRequest$2` 的 nologin 结果 state 类（`j` 8.84–8.96 / `i,g,e,f,h` 8.97–9.17）继承链上都能解析到一个声明 `DataStatus` 的父类（`comm.list.common.data.b` 8.x、`Qi.b`/`Mh/b` 9.x），确认「父类字段扫描」的认证锚点在全 38 版成立，`dynlogin-matrix34-final.json` 为汇总。8.84–8.96 的 `nologin/h` 是 LOADING `Function1` lambda（父类 `Object`、只有 `invoke`、无 `DataStatus`），本就不是 state 对象、认证跳过属设计行为，不是缺口（8.90.2 本地 APK dexdump 直接确认）。
+- **9.16.1 实机复测（修复后，手机 ADB `192.168.1.78:5555`）**：覆盖安装 `23cf8dfd…`（`install -r` 保留数据），打开「免登录浏览」「无痕模式」两开关并让模块界面前台发布配置，`am force-stop` + 冷启动 `MainActivityV2`。日志（按当前 PID）：`incognito_privacy_status=partial`、`guest_browsing_status=partial:7/10`（覆盖日志 `missing=force-login-toast`，dynamic-login-row 已不在 missing）、`guest_browsing_dynamic_login_row=installed`；切「关注」tab 后 `guest_browsing_dynamic_login_row_learned=seen` + `_applied=seen`（19:04:52，两键修复前从未出现）。截图 `captures/dynlogin/dynamic_filtered_9161.png` / `final_9161_fixed.png`：「你还未登录 / 登录账号…」引导块与大「登录」按钮消失，只剩「猜你喜欢的 UP 主」推荐流。
+- **回归（交接 A5）**：关两开关重启（宿主回到登录账号态、首页头像），该进程无 `guest_browsing_status`（游客组整体 `Skipped("disabled")`，不装任何 visitor hook、不触发 `learned/applied`、无过滤、无账号污染）——证明功能关闭时宿主原生行为不变。随后**两开关恢复开**（与进场前一致）、冷启动、`incognito_privacy_status=partial` / `guest_browsing_dynamic_login_row=installed` 复现，手机留在修复后的「关注」页。截图 `captures/dynlogin/dynamic_featureoff_9161.png`（feature-off）、`mod_off.png` / `mod_restored.png`（开关状态）。
+- **结论**：路线图第 2 项「动态页登录引导过滤」**已落地并实机验证通过**，静态锚点 38/38 成立，按验证策略不逐版装机。改动（主源码 1 文件 + 测试 3 文件）与两份文档已原子化提交（2 个 commit），push 仍需单独授权。已知边界：学习依赖「登录 item 在列表头部」，宿主未来若把引导 item 移到中部则干净跳过、不误滤；`LiveData.setValue` 是全局热路径，未认证值只做 2 次字段读取，已有形状缓存与单测覆盖。无痕状态仍为 `partial`。
