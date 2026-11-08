@@ -252,11 +252,11 @@
 
 - **S1-5 失败处理止血** + **S1-2 端点归一化** + **S1-4 长凭据控件**：失败保留已流式正文、错误按 Reason 分类、两次生成独立计时、repair 不清空预览、统一校验异常、放宽字段集合、完整响应后不再按 deadline 丢弃、SSE 流尾兼容、聚合中转不再注入思考参数；纯域名按 https 补全、三语矛盾文案消除；API Key 可增高 + 显隐切换 + 字符数 + 超长明确报错。
 - **S1-3 Anthropic 协议适配**：`AgentSourceProtocol.ANTHROPIC`、`/v1/messages`、`x-api-key` + `anthropic-version`、非流式 `content[].text` 与 SSE `content_block_delta`/`message_delta`/`message_stop` 映射。
-- **S1-1 独立服务配置**（本次）：新增专用偏好键 `ai_insight_protocol` / `ai_insight_base_url` / `ai_insight_model`（进 `SettingsCatalog` v74，可备份）与签名保护的运行时凭据 `ai_insight_api_key`（不进备份/诊断/目录）。`InsightConfig.resolve` 把四项解析成**单一** `AgentModelSource`；`HookEntry` 不再传 `semanticSettings.sources`，`AiInsightFeatureInstaller` 改收单一来源，删除 `InsightSources.resolve`。设置页在现有兼容步骤内新增独立入口行（不新建 deferStep，避免破坏设置页分步构建的结构契约）与专用面板：协议选择、Base URL、长凭据 Key、模型、当前生效来源回显、从判定来源一次性可见导入、清除。`ai_insight_help` 与卡片未配置引导同步改为指向独立面板。
+- **S1-1 独立服务配置**：新增专用偏好键 `ai_insight_protocol` / `ai_insight_base_url` / `ai_insight_model`（进 `SettingsCatalog` v74，可备份）与签名保护的运行时凭据 `ai_insight_api_key`（不进备份/诊断/目录）。`InsightConfig.resolve` 把四项解析成**单一** `AgentModelSource`；`HookEntry` 不再传 `semanticSettings.sources`，`AiInsightFeatureInstaller` 改收单一来源，删除 `InsightSources.resolve`。设置页在现有兼容步骤内新增独立入口行（不新建 deferStep，避免破坏设置页分步构建的结构契约）与专用面板：协议选择、Base URL、长凭据 Key、模型、当前生效来源回显、从判定来源一次性可见导入、清除。`ai_insight_help` 与卡片未配置引导同步改为指向独立面板。
+- **C3 测试连接走真实路径**（本次）：新增 `InsightConnectivity.probe`，复用与宿主 AI Insight 生成完全相同的 `AgentModelClient.generateStructuredStreaming` 入口（协议适配 / 鉴权头 / 端点补全 / `json_schema` / SSE 流式及参数自动回退），只把 prompt 换成一条极短探针，因此「通过」等价于宿主里能用。结果按 `AgentModelException.Reason` 分类（鉴权 / 地址 404 / 限流 / 网络 / 超时 / 解析 / 其它），复用通用 `semantic_test_*` 文案，不新增三语文案。面板用当前框值探测，无需先保存；注入 transport 的 JVM 单测覆盖 OpenAI / Anthropic 两种协议与各类失败，不联网。
 
-阶段 2（P1 体验）与阶段 3（验证与全版本）仍待后续逻辑单元推进，其中较重要的：
+阶段 2 其余项与阶段 3 仍待后续逻辑单元推进，其中较重要的：
 
-- C3：面板「测试连接」需走 AI Insight 真实请求路径（`chat/completions` / `messages` + SSE + schema），不能复用 JEV 判定探针（否则依旧"测了没用"）。当前面板不含测试连接，避免放置误导性的半成品探针。
 - C5 用量可见、A6 配置热更新（当前仍需重启宿主）、命名统一（Agent 面板的「配置 API 来源」入口）、自动请求告知、D10 输出预算/超时可配置。
 - 阶段 3：全版本静态核对、真实 OpenAI 兼容与真实 Anthropic 端点各一轮实机验收。
 

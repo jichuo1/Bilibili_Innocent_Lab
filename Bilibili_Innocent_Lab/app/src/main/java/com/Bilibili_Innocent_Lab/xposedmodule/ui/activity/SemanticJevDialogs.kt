@@ -25,6 +25,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSensitivity
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSettings
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSurface
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConnectivity
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.MaxHeightScrollView
@@ -742,6 +743,14 @@ internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSave
             updateEffective()
         }
         form.body.addView(importButton, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = form.dp(10) })
+        // 测试连接走 AI Insight 真实请求路径，用当前框里的值，不必先保存。
+        form.body.addView(createAiInsightConnectivityTester(
+            protocol = { protocol },
+            key = { keyField.textToString().trim() },
+            endpoint = { endpointField.textToString().trim() },
+            model = { modelField.textToString().trim() }
+        ), NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = form.dp(6) })
+        form.help(getString(R.string.semantic_test_note), top = 2)
         fieldsReady = true
         updateEffective()
     }) { dismiss -> buildList {
@@ -854,21 +863,90 @@ private fun MainActivity.createSemanticConnectivityTester(
     return row
 }
 
-private fun MainActivity.semanticTestMessage(result: SemanticConnectivity.Result): String {
-    if (result.ok) {
-        return getString(R.string.semantic_test_ok, formatSeconds(result.elapsedMs.toInt().coerceAtLeast(100)), result.variant)
+private fun MainActivity.semanticTestMessage(result: SemanticConnectivity.Result): String =
+    connectivityTestMessage(result.ok, result.outcome, result.elapsedMs, result.variant)
+
+private fun MainActivity.insightTestMessage(result: InsightConnectivity.Result): String =
+    connectivityTestMessage(result.ok, result.outcome, result.elapsedMs, result.variant)
+
+/** 两套探针共用同一组结果文案（outcome 约定一致：http-<status> / network / parse / deadline / 其它）。 */
+private fun MainActivity.connectivityTestMessage(ok: Boolean, outcome: String, elapsedMs: Long, variant: String): String {
+    if (ok) {
+        return getString(R.string.semantic_test_ok, formatSeconds(elapsedMs.toInt().coerceAtLeast(100)), variant)
     }
-    val status = result.outcome.removePrefix("http-").toIntOrNull()
+    val status = outcome.removePrefix("http-").toIntOrNull()
     return when {
         status == 401 || status == 402 || status == 403 -> getString(R.string.semantic_test_fail_auth, status)
         status == 404 || status == 405 -> getString(R.string.semantic_test_fail_address, status)
         status == 429 -> getString(R.string.semantic_test_fail_rate)
         status != null -> getString(R.string.semantic_test_fail_http, status)
-        result.outcome == "network" -> getString(R.string.semantic_test_fail_network)
-        result.outcome == "parse" -> getString(R.string.semantic_test_fail_parse)
-        result.outcome == "deadline" -> getString(R.string.semantic_test_fail_timeout)
-        else -> getString(R.string.semantic_test_fail_other, result.outcome)
+        outcome == "network" -> getString(R.string.semantic_test_fail_network)
+        outcome == "parse" -> getString(R.string.semantic_test_fail_parse)
+        outcome == "deadline" -> getString(R.string.semantic_test_fail_timeout)
+        else -> getString(R.string.semantic_test_fail_other, outcome)
     }
+}
+
+/**
+ * AI Insight 面板的「测试连接」：用 [InsightConnectivity] 走与宿主完全相同的结构化流式请求，
+ * 所以「通过」代表 AI Insight 真能用，而不是只测了判定接口。结构与判定探针一致，后台线程执行。
+ */
+private fun MainActivity.createAiInsightConnectivityTester(
+    protocol: () -> String,
+    key: () -> String,
+    endpoint: () -> String,
+    model: () -> String
+): View {
+    val density = resources.displayMetrics.density
+    val dark = ColorUtils.calculateLuminance(monetColors.surface) < 0.5
+    val row = NativeLinearLayout(this).apply {
+        orientation = NativeLinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+    }
+    val status = NativeTextView(this).apply {
+        textSize = 13f
+        setLineSpacing(2 * density, 1f)
+    }
+    var running = false
+    val button = NativeTextView(this).apply {
+        text = getString(R.string.semantic_test_connect)
+        textColor = monetColors.primary
+        textSize = 14f
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        setPadding((12 * density).toInt(), (9 * density).toInt(), (12 * density).toInt(), (9 * density).toInt())
+        background = selfRippleBackground(12f)
+        isClickable = true
+        isFocusable = true
+    }
+    fun show(ok: Boolean?, message: String) {
+        status.text = when (ok) { true -> "✓ $message"; false -> "! $message"; null -> message }
+        status.textColor = when (ok) {
+            true -> DiagnosticStatusPalette.color(DiagnosticStatusTone.OK, dark)
+            false -> DiagnosticStatusPalette.color(DiagnosticStatusTone.ACTION_REQUIRED, dark)
+            null -> getColor(R.color.colorTextGray)
+        }
+    }
+    button.setOnClickListener {
+        if (running) return@setOnClickListener
+        val source = InsightConfig.resolve(protocol(), endpoint(), key(), model())
+        if (source == null) {
+            show(false, getString(R.string.semantic_test_fail_config))
+            return@setOnClickListener
+        }
+        running = true
+        show(null, getString(R.string.semantic_test_running))
+        Thread({
+            val result = InsightConnectivity.probe(source)
+            runOnUiThread {
+                running = false
+                if (isFinishing || isDestroyed || !row.isAttachedToWindow) return@runOnUiThread
+                show(result.ok, insightTestMessage(result))
+            }
+        }, "BIL-InsightTest").apply { isDaemon = true }.start()
+    }
+    row.addView(button, NativeLinearLayout.LayoutParams(-2, -2))
+    row.addView(status, NativeLinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = (8 * density).toInt() })
+    return row
 }
 
 /** 过滤面的「判定来源」入口文字：标题 + 当前选择。 */
