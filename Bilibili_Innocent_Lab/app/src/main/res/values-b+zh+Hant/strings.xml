@@ -18,6 +18,12 @@
     <string name="ai_insight_service_imported">已從判定來源匯入，請核對後儲存</string>
     <string name="ai_insight_service_import_none">沒有可匯入的對話來源</string>
     <string name="ai_insight_service_invalid">請填寫介面位址、API Key 和模型，並使用有效的 https 位址。</string>
+    <string name="ai_insight_output_budget">輸出預算（token）</string>
+    <string name="ai_insight_output_budget_help">單次生成允許的最大輸出 token，256–8192，預設 8192。調小更省錢，但過長的總結或章節可能被截斷。</string>
+    <string name="ai_insight_timeout">請求逾時（秒）</string>
+    <string name="ai_insight_timeout_help">30–300 秒，預設 180。串流輸出按每個增量自動續期，不會在生成中途被硬截止掐斷。</string>
+    <string name="ai_insight_value_hint">留空使用預設</string>
+    <string name="ai_insight_tuning_invalid">輸出預算需為 256–8192，逾時需為 30–300 秒。</string>
     <string name="app_name">Bilibili_Innocent_Lab</string>
     <string name="xposed_desc">讓 Bilibili 介面更加純淨</string>
     <string name="about_module">此模組使用 libxposed Modern API 102 建構。\n瞭解更多 https://github.com/libxposed/api</string>

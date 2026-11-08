@@ -73,11 +73,13 @@ class RemoteHookConfigContractTest {
         assertTrue(RemoteHookConfigContract.decode(encoded - FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT)
             is RemoteHookConfigDecodeResult.Invalid)
         assertEquals("jev-test-key", snapshot.values[RemoteHookConfigContract.KEY_SEMANTIC_JEV_API_KEY])
-        // 目录外只有两个运行时修订字段和全部运行时凭据（判定来源 + AI Insight），不能遗漏或多导出其它偏好。
+        // 目录外是运行时修订字段、全部运行时凭据（判定来源 + AI Insight）与两项生成调参，不能遗漏或多导出其它偏好。
         val runtimeKeys = setOf(RemoteHookConfigContract.KEY_FREE_COPY_CONFIG_REVISION,
-            RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP) + RemoteHookConfigContract.RUNTIME_API_KEYS
+            RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP) + RemoteHookConfigContract.RUNTIME_API_KEYS +
+            RemoteHookConfigContract.INSIGHT_TUNING_KEYS
         assertEquals(runtimeKeys, snapshot.values.keys - SettingsCatalog.specs.map { it.storageKey }.toSet())
-        assertEquals(SettingsCatalog.specs.size + 2 + RemoteHookConfigContract.RUNTIME_API_KEYS.size, snapshot.values.size)
+        assertEquals(SettingsCatalog.specs.size + 2 + RemoteHookConfigContract.RUNTIME_API_KEYS.size +
+            RemoteHookConfigContract.INSIGHT_TUNING_KEYS.size, snapshot.values.size)
     }
 
     /** JEV API Key：随 hook_config 下发且受摘要保护，但不是目录项（不进备份），超长/非字符串按未配置处理。 */
@@ -207,6 +209,37 @@ class RemoteHookConfigContractTest {
             (decoded as RemoteHookConfigDecodeResult.Invalid).reason,
             decoded.reason.startsWith(reasonPrefix)
         )
+    }
+
+    /** AI Insight 生成调参是签名下发的 Int 运行时键：缺省回落默认、越界夹到范围、不进目录与备份。 */
+    @Test
+    fun `insight tuning keys are clamped signed runtime integers outside the backup catalog`() {
+        val budgetKey = RemoteHookConfigContract.KEY_INSIGHT_OUTPUT_BUDGET
+        val timeoutKey = RemoteHookConfigContract.KEY_INSIGHT_TIMEOUT_MS
+        val config = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig
+        assertTrue(budgetKey in RemoteHookConfigContract.hookValueKeys)
+        assertTrue(timeoutKey in RemoteHookConfigContract.hookValueKeys)
+        assertTrue(SettingsCatalog.specs.none { it.storageKey == budgetKey || it.storageKey == timeoutKey })
+        assertEquals(config.DEFAULT_OUTPUT_BUDGET, defaultValues()[budgetKey])
+        assertEquals(config.DEFAULT_TIMEOUT_MS, defaultValues()[timeoutKey])
+        // 越界 Int 夹到范围边界，错误类型回落默认值，绝不把极端值下发到宿主。
+        assertEquals(8192, RemoteHookConfigContract.resolveSourceValues(mapOf(budgetKey to 99999))[budgetKey])
+        assertEquals(30_000, RemoteHookConfigContract.resolveSourceValues(mapOf(timeoutKey to 1))[timeoutKey])
+        assertEquals(defaultValues()[budgetKey], RemoteHookConfigContract.resolveSourceValues(mapOf(budgetKey to "512"))[budgetKey])
+        assertEquals(defaultValues()[timeoutKey], RemoteHookConfigContract.resolveSourceValues(mapOf(timeoutKey to 30_000L))[timeoutKey])
+        val inRange = RemoteHookConfigContract.resolveSourceValues(mapOf(budgetKey to 512, timeoutKey to 60_000))
+        assertEquals(512, inRange[budgetKey]); assertEquals(60_000, inRange[timeoutKey])
+        // 改调参不重签 ⇒ 摘要不符，宿主整组拒收。
+        val encoded = RemoteHookConfigContract.encode(
+            generation = 1L,
+            moduleVersionCode = BuildConfig.VERSION_CODE.toLong(),
+            deliveryEnabled = true,
+            noRootRevision = 0L,
+            decision = UserTermsDecision.ACCEPTED,
+            values = inRange
+        )
+        assertTrue(RemoteHookConfigContract.decode(encoded) is RemoteHookConfigDecodeResult.Ready)
+        assertTrue(RemoteHookConfigContract.decode(encoded + (budgetKey to 4096)) is RemoteHookConfigDecodeResult.Invalid)
     }
 
     /** 2–8 号判定来源的 Key 与 1 号同等对待：签名保护、不进目录、超长按未配置。 */

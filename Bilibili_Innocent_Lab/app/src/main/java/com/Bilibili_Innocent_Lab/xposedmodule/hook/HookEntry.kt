@@ -2790,6 +2790,10 @@ class HookEntry : XposedModule() {
                 automaticChapters = prefs.getBoolean(FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS, false),
                 source = insightSource,
                 cacheRoot = java.io.File(attachedContext.filesDir, "bil_insight"),
+                outputBudget = prefs.getInt(RemoteHookConfigContract.KEY_INSIGHT_OUTPUT_BUDGET,
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig.DEFAULT_OUTPUT_BUDGET),
+                timeoutMs = prefs.getInt(RemoteHookConfigContract.KEY_INSIGHT_TIMEOUT_MS,
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig.DEFAULT_TIMEOUT_MS),
                 cachedClasses = { sponsorClassesRef.get() }
             )
             // 判定结果硬盘缓存：宿主私有 files/bil_semantic/<面>.bin。启动时先在后台删掉未启用面的文件，

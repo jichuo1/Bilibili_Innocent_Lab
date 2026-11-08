@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.settings.remote
 
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingValue
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
@@ -98,6 +99,14 @@ internal object RemoteHookConfigContract {
     /** 所有需要签名/校验/裁剪的运行时凭据；判定来源按编号，AI Insight 是独立的一个。 */
     val RUNTIME_API_KEYS: List<String> = SEMANTIC_API_KEYS + KEY_AI_INSIGHT_API_KEY
 
+    /**
+     * AI Insight 生成调参（Int）：随 hook_config 签名下发、受摘要保护，不进设置目录/备份/诊断。
+     * 不进备份是刻意的：避免把某台设备的大预算/长超时恢复到别的设备产生意外费用。
+     */
+    const val KEY_INSIGHT_OUTPUT_BUDGET = "insight_output_budget"
+    const val KEY_INSIGHT_TIMEOUT_MS = "insight_timeout_ms"
+    val INSIGHT_TUNING_KEYS: List<String> = listOf(KEY_INSIGHT_OUTPUT_BUDGET, KEY_INSIGHT_TIMEOUT_MS)
+
     private val metadataKeys = setOf(
         KEY_READY,
         KEY_SCHEMA_VERSION,
@@ -113,7 +122,7 @@ internal object RemoteHookConfigContract {
     private val runtimeKeys = linkedSetOf(
         KEY_FREE_COPY_CONFIG_REVISION,
         KEY_ADAPTER_RESET_TIMESTAMP
-    ) + RUNTIME_API_KEYS
+    ) + RUNTIME_API_KEYS + INSIGHT_TUNING_KEYS
     val hookValueKeys: Set<String> = SettingsCatalog.specs
         .mapTo(linkedSetOf()) { it.storageKey }
         .apply { addAll(runtimeKeys) }
@@ -156,6 +165,11 @@ internal object RemoteHookConfigContract {
                         ?.takeIf { it.length <= MAX_SEMANTIC_JEV_API_KEY_LENGTH }.orEmpty()
                 )
             }
+            // 调参键始终以 Int 下发并夹到合法范围，缺省回落默认值，宿主永远拿到可用值。
+            put(KEY_INSIGHT_OUTPUT_BUDGET, (raw[KEY_INSIGHT_OUTPUT_BUDGET] as? Int)
+                ?.coerceIn(InsightConfig.OUTPUT_BUDGET_RANGE) ?: InsightConfig.DEFAULT_OUTPUT_BUDGET)
+            put(KEY_INSIGHT_TIMEOUT_MS, (raw[KEY_INSIGHT_TIMEOUT_MS] as? Int)
+                ?.coerceIn(InsightConfig.TIMEOUT_RANGE) ?: InsightConfig.DEFAULT_TIMEOUT_MS)
         }
 
     fun encode(
@@ -301,6 +315,12 @@ internal object RemoteHookConfigContract {
                 return "runtime-value:$key"
             }
         }
+        val budget = values[KEY_INSIGHT_OUTPUT_BUDGET] as? Int
+            ?: return "runtime-type:$KEY_INSIGHT_OUTPUT_BUDGET"
+        if (budget !in InsightConfig.OUTPUT_BUDGET_RANGE) return "runtime-value:$KEY_INSIGHT_OUTPUT_BUDGET"
+        val timeoutMs = values[KEY_INSIGHT_TIMEOUT_MS] as? Int
+            ?: return "runtime-type:$KEY_INSIGHT_TIMEOUT_MS"
+        if (timeoutMs !in InsightConfig.TIMEOUT_RANGE) return "runtime-value:$KEY_INSIGHT_TIMEOUT_MS"
         return null
     }
 
@@ -344,6 +364,7 @@ internal object RemoteHookConfigContract {
                 output.writeLong(values.getValue(KEY_FREE_COPY_CONFIG_REVISION) as Long)
                 output.writeLong(values.getValue(KEY_ADAPTER_RESET_TIMESTAMP) as Long)
                 RUNTIME_API_KEYS.forEach { key -> output.writeString(values.getValue(key) as String) }
+                INSIGHT_TUNING_KEYS.forEach { key -> output.writeInt(values.getValue(key) as Int) }
             }
             bytes.toByteArray()
         }

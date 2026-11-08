@@ -18,6 +18,13 @@ internal object InsightConfig {
     val IDS: Set<String> = linkedSetOf(PROTOCOL_OPENAI, PROTOCOL_ANTHROPIC)
     const val DEFAULT_PROTOCOL = PROTOCOL_OPENAI
 
+    // 生成调参（预算/时限）作为签名下发的运行时键，不进备份：避免异常预算被恢复到别的设备。
+    // 范围与 AgentModelClient(256..8192) 及 AgentHttpsTransport.MAX_TIMEOUT_MS 对齐。
+    const val DEFAULT_OUTPUT_BUDGET = 8192
+    val OUTPUT_BUDGET_RANGE: IntRange = 256..8192
+    const val DEFAULT_TIMEOUT_MS = 180_000
+    val TIMEOUT_RANGE: IntRange = 30_000..300_000
+
     /**
      * 把四项专用配置解析成单一对话来源。
      *

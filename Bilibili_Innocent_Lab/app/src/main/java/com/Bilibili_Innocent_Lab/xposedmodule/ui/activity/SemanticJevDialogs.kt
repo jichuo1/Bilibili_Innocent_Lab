@@ -653,6 +653,8 @@ internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSave
     lateinit var endpointField: NativeEditText
     lateinit var modelField: NativeEditText
     lateinit var keyField: NativeEditText
+    lateinit var budgetField: NativeEditText
+    lateinit var timeoutField: NativeEditText
     lateinit var effectiveView: NativeTextView
     lateinit var protocolSelector: com.lumen.coacervation.engine.widget.LumenSlidingSelection
     // 滑动选择控件在构造时会回调 onSelected；字段就绪前不回显，避免读到未初始化的输入框。
@@ -702,6 +704,16 @@ internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSave
             R.string.semantic_jev_api_key_hint_short, secret = true)
         form.body.addView(createSemanticKeyRow(keyField), NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = form.dp(2) })
         form.help(getString(R.string.semantic_short_key))
+
+        // 生成调参：预算（token）与超时（秒），留空回落默认值，夹到合法范围。
+        form.label(R.string.ai_insight_output_budget, 12)
+        budgetField = form.field(prefs.getInt(RemoteHookConfigContract.KEY_INSIGHT_OUTPUT_BUDGET,
+            InsightConfig.DEFAULT_OUTPUT_BUDGET).toString(), R.string.ai_insight_value_hint, numeric = true)
+        form.help(getString(R.string.ai_insight_output_budget_help))
+        form.label(R.string.ai_insight_timeout, 12)
+        timeoutField = form.field((prefs.getInt(RemoteHookConfigContract.KEY_INSIGHT_TIMEOUT_MS,
+            InsightConfig.DEFAULT_TIMEOUT_MS) / 1000).toString(), R.string.ai_insight_value_hint, numeric = true)
+        form.help(getString(R.string.ai_insight_timeout_help))
 
         effectiveView = NativeTextView(this).apply {
             textSize = 12f
@@ -762,6 +774,8 @@ internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSave
                         putString(FeaturePreferences.AI_INSIGHT_BASE_URL, "")
                         putString(FeaturePreferences.AI_INSIGHT_MODEL, "")
                         putString(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY, "")
+                        putInt(RemoteHookConfigContract.KEY_INSIGHT_OUTPUT_BUDGET, InsightConfig.DEFAULT_OUTPUT_BUDGET)
+                        putInt(RemoteHookConfigContract.KEY_INSIGHT_TIMEOUT_MS, InsightConfig.DEFAULT_TIMEOUT_MS)
                     }
                 }.onFailure { Log.e("BilibiliInnocentLab", "clear AI Insight config failed", it) }
                 dismiss { toast(getString(R.string.semantic_source_cleared)); onSaved() }
@@ -778,6 +792,20 @@ internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSave
                     minOf(SemanticBackend.MAX_MODEL_LENGTH, RemoteHookConfigContract.MAX_SEMANTIC_JEV_API_KEY_LENGTH)))
                 return@save
             }
+            // 调参留空回落默认；非空时必须在合法范围内，避免把极端值下发到宿主。
+            fun tuning(raw: String, fallback: Int, range: IntRange): Int? {
+                if (raw.isEmpty()) return fallback
+                val value = raw.toIntOrNull() ?: return null
+                return value.takeIf { it in range }
+            }
+            val budget = tuning(budgetField.textToString().trim(), InsightConfig.DEFAULT_OUTPUT_BUDGET,
+                InsightConfig.OUTPUT_BUDGET_RANGE)
+            val timeoutSec = tuning(timeoutField.textToString().trim(), InsightConfig.DEFAULT_TIMEOUT_MS / 1000,
+                InsightConfig.TIMEOUT_RANGE.first / 1000..InsightConfig.TIMEOUT_RANGE.last / 1000)
+            if (budget == null || timeoutSec == null) {
+                toast(getString(R.string.ai_insight_tuning_invalid))
+                return@save
+            }
             // 允许全空（等于清除配置，卡片给出引导）；非空时必须能解析出合法来源。
             val filled = listOf(endpoint, model, key).any { it.isNotEmpty() }
             if (filled && InsightConfig.resolve(protocol, endpoint, key, model) == null) {
@@ -790,6 +818,8 @@ internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSave
                     putString(FeaturePreferences.AI_INSIGHT_BASE_URL, endpoint)
                     putString(FeaturePreferences.AI_INSIGHT_MODEL, model)
                     putString(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY, key)
+                    putInt(RemoteHookConfigContract.KEY_INSIGHT_OUTPUT_BUDGET, budget)
+                    putInt(RemoteHookConfigContract.KEY_INSIGHT_TIMEOUT_MS, timeoutSec * 1000)
                 }
             }.onFailure { Log.e("BilibiliInnocentLab", "write AI Insight config failed", it) }
             dismiss { toast(getString(R.string.semantic_jev_saved)); onSaved() }

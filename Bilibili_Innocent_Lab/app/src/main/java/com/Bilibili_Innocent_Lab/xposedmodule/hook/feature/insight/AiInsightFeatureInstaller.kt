@@ -6,6 +6,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.host.HostAgentContentRpc
+import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentModelClient
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentModelSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerClasses
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerLocator
@@ -27,6 +28,8 @@ import java.util.WeakHashMap
  */
 internal class AiInsightFeatureInstaller(private val enabled: Boolean, private val automaticChapters: Boolean,
     private val source: AgentModelSource?, private val cacheRoot: File,
+    private val outputBudget: Int = InsightConfig.DEFAULT_OUTPUT_BUDGET,
+    private val timeoutMs: Int = InsightConfig.DEFAULT_TIMEOUT_MS,
     private val cachedClasses: () -> SponsorPlayerClasses? = { null }) : FeatureInstaller {
     /** 直接定位失败且尚无后台适配缓存时为 true；适配完成后由 HookEntry 重试，与 SponsorBlock 相同。 */
     @Volatile var requiresAdaptationRetry = false
@@ -69,8 +72,11 @@ internal class AiInsightFeatureInstaller(private val enabled: Boolean, private v
                 (0 until rows.length()).mapNotNull { index -> rows.optJSONObject(index)?.optString("message") }
                     .filter { it.isNotBlank() }.distinct().take(40)
             })::load,
+            client = AgentModelClient(outputTokenBudget = outputBudget,
+                inputTextLimit = InsightProtocol.MAX_CONTEXT, allowReasoningParams = false),
             trace = trace,
-            contextRevision = snapshot::revision) }
+            contextRevision = snapshot::revision,
+            timeoutMs = timeoutMs) }
         val generated = object : LinkedHashMap<InsightVideo, InsightCache.Entry>() {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<InsightVideo, InsightCache.Entry>?) = size > 32
         }

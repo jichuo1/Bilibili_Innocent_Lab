@@ -17,6 +17,12 @@
     <string name="ai_insight_service_imported">Imported from a judge source. Review and save.</string>
     <string name="ai_insight_service_import_none">No configured chat model to import</string>
     <string name="ai_insight_service_invalid">Fill in Base URL, API key and model with a valid https endpoint.</string>
+    <string name="ai_insight_output_budget">Output budget (tokens)</string>
+    <string name="ai_insight_output_budget_help">Max output tokens per generation, 256–8192 (default 8192). Lower saves money, but long summaries or chapters may be cut short.</string>
+    <string name="ai_insight_timeout">Request timeout (seconds)</string>
+    <string name="ai_insight_timeout_help">30–300 seconds (default 180). Streaming renews on each chunk, so it is not cut by a hard deadline mid-generation.</string>
+    <string name="ai_insight_value_hint">Leave empty for default</string>
+    <string name="ai_insight_tuning_invalid">Output budget must be 256–8192 and timeout 30–300 seconds.</string>
     <string name="app_name">Bilibili_Innocent_Lab</string>
     <string name="xposed_desc">A cleaner, more complete Bilibili interface</string>
     <string name="about_module">This module uses libxposed Modern API 102.\nLearn more https://github.com/libxposed/api</string>

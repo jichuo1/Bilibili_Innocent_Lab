@@ -259,10 +259,11 @@
 
 - **C5 用量可见**（本次）：`InsightCache.Entry` 增加不落盘的 `usage`（本次请求的输入/输出 token），`InsightRepository.generate` 累加两次生成（含格式修正重放）的用量并随结果返回，落盘缓存时剥离、缓存命中不显示；`InsightCard.render` 在结果末尾追加一行三语用量文字。仅改纯模块侧的结果渲染，不触及宿主 Hook 锚点与 UIComponent 契约，38 版结构不受影响。单测覆盖「两次重放累加、不落盘、缓存命中无用量」。
 
-阶段 2 仍有两项属于**架构级或 P2 打磨**，与已验证通过的链路存在冲突或收益有限，需单独设计、不并入本批草率实现：
+- **D10 输出预算/超时可配置**（本次）：新增两个签名下发的 Int 运行时调参键 `insight_output_budget`（256–8192，默认 8192）与 `insight_timeout_ms`（30–300 秒，默认 180）。它们随 hook_config 下发、受摘要保护、fail-closed 校验并夹到合法范围，刻意**不进设置目录/备份/诊断**，避免把某台设备的大预算恢复到别的设备产生意外费用；不 bump catalog 版本，新增键已让旧快照因 key-set 校验失效。专用面板新增两个数值输入（留空回落默认、越界明确报错），`HookEntry` 读取后经 installer 传给 `AgentModelClient(outputTokenBudget=…)` 与 `InsightRepository(timeoutMs=…)`。契约测试覆盖缺省回落、越界裁剪、错误类型、篡改拒收。
+
+阶段 2 仍有一项属于**架构级**，与已验证通过的链路存在冲突，需单独设计、不并入本批草率实现：
 
 - A6 热更新：宿主进程在启动时读取签名下发、fail-closed 的 hook_config 快照组装 installer；要「改配置后立即生效」需打破快照一致性或新增跨进程通道，与免 Root/NPatch 的签名模型冲突，风险最高，须独立评估。
-- D10 输出预算/超时可配置：S1-5 已把 90 秒硬截止改为按 SSE 增量续期、默认 `DEFAULT_TIMEOUT_MS=180_000`，8192 token 预算保留常量；做成 UI 可配属 P2 打磨，收益边际。
 
 阶段 3 按项目约定处理：本轮改动未触及宿主 Hook 锚点或 UIComponent 契约，全版本覆盖以 Hostlab 静态核对为主；Debug APK、全量 JVM 单测、FastLint 门禁已逐提交通过；真实 OpenAI 兼容 / Anthropic 端点的实机观感由用户人工抽样验收，不逐版本装机复测。
 
