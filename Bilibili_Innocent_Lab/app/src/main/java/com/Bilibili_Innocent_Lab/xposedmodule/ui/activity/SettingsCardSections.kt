@@ -1370,6 +1370,23 @@ internal fun MainActivity.experimentalFeaturesCard(
                             isChecked = prefs().getBoolean(FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS, false)
                             setOnCheckedChangeListener { button, checked -> applyModeledToggle(FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS, checked, button) }
                         }
+                        // AI Insight 专用服务配置入口：与下方「AI 语义判定」来源表相互独立。
+                        lateinit var insightSummaryView: android.widget.TextView
+                        settingsEntryRow(this, key = "SettingsCardSections:AiInsightService", icon = R.drawable.ic_auto_awesome,
+                            title = stringResource(R.string.ai_insight_service_title), summary = aiInsightServiceSummary(),
+                            bottomMargin = 4.dp,
+                            row = {
+                                settingsDestinations.bind(SettingsCatalog.ID_AI_INSIGHT_PROTOCOL, this)
+                                settingsDestinations.bind(SettingsCatalog.ID_AI_INSIGHT_BASE_URL, this)
+                                settingsDestinations.bind(SettingsCatalog.ID_AI_INSIGHT_MODEL, this)
+                            },
+                            label = { insightSummaryView = this }
+                        ) { anchor ->
+                            showAiInsightConfigDialog(anchor = anchor) {
+                                insightSummaryView.text = entryRowText(
+                                    getString(R.string.ai_insight_service_title), aiInsightServiceSummary())
+                            }
+                        }
                     }
                     // 步骤：兼容 · 语义判定与 Agent 入口
                     deferStep {

@@ -4,6 +4,11 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 internal object FeaturePreferences {
     const val AI_INSIGHT_ENABLED = "ai_insight_enabled"
     const val AI_INSIGHT_AUTO_CHAPTERS = "ai_insight_auto_chapters"
+    // AI Insight 专用服务配置：与智能判定的「来源 1–8」彻底分开，避免昂贵模型被自动过滤面重复调用。
+    // API Key 是签名保护的运行时凭据（RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY），不进目录、备份与诊断。
+    const val AI_INSIGHT_PROTOCOL = "ai_insight_protocol"
+    const val AI_INSIGHT_BASE_URL = "ai_insight_base_url"
+    const val AI_INSIGHT_MODEL = "ai_insight_model"
     const val PLAYER_SUBTITLE_STYLE = "player_subtitle_style"
     const val PLAYER_AI_SUBTITLE = "player_ai_subtitle"
     const val HIDE_VIDEO_DETAIL_APP_PROMOTION = "hide_video_detail_app_promotion"

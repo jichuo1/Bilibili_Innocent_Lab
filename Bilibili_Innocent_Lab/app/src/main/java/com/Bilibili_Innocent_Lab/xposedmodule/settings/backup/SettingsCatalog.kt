@@ -6,6 +6,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerBufferConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig
@@ -34,7 +35,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 73
+    const val CATALOG_VERSION = 74
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_PLAYER_SPEED_MENU = "player.speed_menu.percents"
@@ -81,6 +82,9 @@ internal object SettingsCatalog {
     const val ID_DANMAKU_SEMANTIC_CUSTOM_RULES = "player.danmaku.semantic_filter.custom_rules"
     const val ID_COMMENT_SEMANTIC_CUSTOM_RULES = "comments.semantic_filter.custom_rules"
     const val ID_VIDEO_SEMANTIC_CUSTOM_RULES = "video.semantic_filter.custom_rules"
+    const val ID_AI_INSIGHT_PROTOCOL = "ai_insight.protocol"
+    const val ID_AI_INSIGHT_BASE_URL = "ai_insight.base_url"
+    const val ID_AI_INSIGHT_MODEL = "ai_insight.model"
 
     /** 各过滤面的"判定来源 / 自定义类型"目录 id。 */
     fun semanticRouteId(surface: SemanticSurface): String = when (surface) {
@@ -1068,7 +1072,15 @@ internal object SettingsCatalog {
             R.string.log_level_label,
             default = HookEntry.LOG_LEVEL_COMPLETE,
             allowed = setOf(HookEntry.LOG_LEVEL_MINIMAL, HookEntry.LOG_LEVEL_COMPLETE)
-        )
+        ),
+        // v74：AI Insight 专用服务配置（与判定来源分离）。API Key 是运行时凭据，不进目录、备份与诊断。
+        // 放在列表末尾，避免改变 ModuleUiSettings 对「首个 text 默认值为空」的既有位置约定。
+        text(ID_AI_INSIGHT_PROTOCOL, FeaturePreferences.AI_INSIGHT_PROTOCOL, R.string.ai_insight_protocol,
+            default = InsightConfig.DEFAULT_PROTOCOL, allowed = InsightConfig.IDS, introducedCatalogVersion = 74),
+        text(ID_AI_INSIGHT_BASE_URL, FeaturePreferences.AI_INSIGHT_BASE_URL, R.string.ai_insight_base_url,
+            maxStringLength = SemanticJudge.MAX_ENDPOINT_LENGTH, introducedCatalogVersion = 74),
+        text(ID_AI_INSIGHT_MODEL, FeaturePreferences.AI_INSIGHT_MODEL, R.string.ai_insight_model,
+            maxStringLength = SemanticBackend.MAX_MODEL_LENGTH, introducedCatalogVersion = 74)
     )
 
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
@@ -1083,7 +1095,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 256) { "Expected 256 catalog settings, found ${specs.size}" }
+        check(specs.size == 259) { "Expected 259 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

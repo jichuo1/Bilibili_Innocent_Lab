@@ -24,6 +24,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticPresets
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSensitivity
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSettings
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSurface
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.MaxHeightScrollView
@@ -617,6 +618,172 @@ internal fun MainActivity.showSemanticSourceDialog(
                 toast(getString(R.string.semantic_jev_saved))
                 onSaved()
             }
+        })
+    } }
+}
+
+/** AI Insight 入口行摘要：只显示协议 + 模型，Key 和完整地址不回显到列表。 */
+internal fun MainActivity.aiInsightServiceSummary(): String {
+    val prefs = prefs()
+    val protocol = prefs.getString(FeaturePreferences.AI_INSIGHT_PROTOCOL, InsightConfig.DEFAULT_PROTOCOL)
+        ?.takeIf { it in InsightConfig.IDS } ?: InsightConfig.DEFAULT_PROTOCOL
+    val source = InsightConfig.resolve(
+        protocol,
+        prefs.getString(FeaturePreferences.AI_INSIGHT_BASE_URL, "") ?: "",
+        prefs.getString(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY, "") ?: "",
+        prefs.getString(FeaturePreferences.AI_INSIGHT_MODEL, "") ?: ""
+    ) ?: return getString(R.string.ai_insight_service_summary_unconfigured)
+    val name = getString(if (protocol == InsightConfig.PROTOCOL_ANTHROPIC) R.string.ai_insight_protocol_anthropic
+        else R.string.ai_insight_protocol_openai)
+    return getString(R.string.ai_insight_service_summary_configured, name, source.model)
+}
+
+/**
+ * AI Insight 独立服务配置面板：协议 / Base URL / API Key / 模型一次写入专用键，
+ * 与智能判定的「来源 1–8」完全隔离。面板实时回显规范化后的真实请求地址（协议决定
+ * /chat/completions 或 /v1/messages），避免"测试通过但功能不能用"。
+ * 「从判定来源导入」是一次性可见迁移，不自动继承、不静默复制。
+ */
+internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSaved: () -> Unit) {
+    val prefs = prefs()
+    var protocol = prefs.getString(FeaturePreferences.AI_INSIGHT_PROTOCOL, InsightConfig.DEFAULT_PROTOCOL)
+        ?.takeIf { it in InsightConfig.IDS } ?: InsightConfig.DEFAULT_PROTOCOL
+    val protocolIds = listOf(InsightConfig.PROTOCOL_OPENAI, InsightConfig.PROTOCOL_ANTHROPIC)
+    lateinit var endpointField: NativeEditText
+    lateinit var modelField: NativeEditText
+    lateinit var keyField: NativeEditText
+    lateinit var effectiveView: NativeTextView
+    lateinit var protocolSelector: com.lumen.coacervation.engine.widget.LumenSlidingSelection
+    // 滑动选择控件在构造时会回调 onSelected；字段就绪前不回显，避免读到未初始化的输入框。
+    var fieldsReady = false
+    fun updateEffective() {
+        if (!fieldsReady) return
+        val source = InsightConfig.resolve(protocol,
+            endpointField.textToString().trim(), keyField.textToString().trim(), modelField.textToString().trim())
+        effectiveView.text = if (source == null) getString(R.string.ai_insight_service_summary_unconfigured)
+        else getString(R.string.ai_insight_service_effective, source.resolvedEndpoint,
+            getString(if (protocol == InsightConfig.PROTOCOL_ANTHROPIC) R.string.ai_insight_protocol_anthropic
+                else R.string.ai_insight_protocol_openai))
+    }
+    fun fieldWatcher() = object : android.text.TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = updateEffective()
+        override fun afterTextChanged(s: android.text.Editable?) = Unit
+    }
+    val configuredBefore = prefs.getString(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY, "").orEmpty().isNotBlank()
+    presentSemanticDialog(getString(R.string.ai_insight_service_title), anchor, info = {
+        semanticInfo(
+            R.string.ai_insight_protocol to getString(R.string.ai_insight_service_help),
+            R.string.ai_insight_base_url to getString(R.string.semantic_short_endpoint),
+            R.string.semantic_jev_api_key to getString(R.string.semantic_short_key)
+        )
+    }, form = { form ->
+        form.label(R.string.ai_insight_protocol, 10)
+        protocolSelector = createSlidingChoice(
+            labels = protocolIds.map { getString(if (it == InsightConfig.PROTOCOL_ANTHROPIC)
+                R.string.ai_insight_protocol_anthropic else R.string.ai_insight_protocol_openai) },
+            selectedIndex = protocolIds.indexOf(protocol).coerceAtLeast(0)
+        ) { choice -> protocol = protocolIds[choice]; updateEffective() }
+            as com.lumen.coacervation.engine.widget.LumenSlidingSelection
+        form.body.addView(protocolSelector, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = form.dp(4) })
+
+        form.label(R.string.ai_insight_base_url, 14)
+        endpointField = form.field(prefs.getString(FeaturePreferences.AI_INSIGHT_BASE_URL, "").orEmpty(),
+            R.string.ai_insight_base_url_hint)
+        form.help(getString(R.string.semantic_short_endpoint))
+
+        form.label(R.string.ai_insight_model, 12)
+        modelField = form.field(prefs.getString(FeaturePreferences.AI_INSIGHT_MODEL, "").orEmpty(),
+            R.string.semantic_jev_model_hint)
+
+        form.label(R.string.semantic_jev_api_key, 14)
+        keyField = form.field(prefs.getString(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY, "").orEmpty(),
+            R.string.semantic_jev_api_key_hint_short, secret = true)
+        form.body.addView(createSemanticKeyRow(keyField), NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = form.dp(2) })
+        form.help(getString(R.string.semantic_short_key))
+
+        effectiveView = NativeTextView(this).apply {
+            textSize = 12f
+            setTextColor(getColor(R.color.colorTextGray))
+            alpha = 0.78f
+            setLineSpacing(3 * resources.displayMetrics.density, 1f)
+        }
+        form.body.addView(effectiveView, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = form.dp(12) })
+        endpointField.addTextChangedListener(fieldWatcher())
+        modelField.addTextChangedListener(fieldWatcher())
+        keyField.addTextChangedListener(fieldWatcher())
+
+        // 一次性可见导入：把某个 OpenAI 兼容判定来源的地址 / 模型 / Key 填进输入框，用户核对后再保存。
+        val importButton = NativeTextView(this).apply {
+            text = getString(R.string.ai_insight_service_import)
+            textColor = monetColors.primary
+            textSize = 13f
+            setPadding(form.dp(12), form.dp(9), form.dp(12), form.dp(9))
+            background = selfRippleBackground(10f)
+            isClickable = true
+            isFocusable = true
+        }
+        importButton.setOnClickListener {
+            val index = configuredSemanticSources().firstOrNull { candidate ->
+                val (providerKey, _, _) = FeaturePreferences.semanticSourceKeys(candidate)
+                prefs.getString(providerKey, SemanticBackend.JEV) == SemanticBackend.OPENAI
+            }
+            if (index == null) {
+                toast(getString(R.string.ai_insight_service_import_none))
+                return@setOnClickListener
+            }
+            val (_, endpointKey, modelKey) = FeaturePreferences.semanticSourceKeys(index)
+            endpointField.setText(prefs.getString(endpointKey, "").orEmpty())
+            modelField.setText(prefs.getString(modelKey, "").orEmpty())
+            keyField.setText(semanticSourceKey(index))
+            protocol = InsightConfig.PROTOCOL_OPENAI
+            protocolSelector.select(0, animate = false)
+            toast(getString(R.string.ai_insight_service_imported))
+            updateEffective()
+        }
+        form.body.addView(importButton, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = form.dp(10) })
+        fieldsReady = true
+        updateEffective()
+    }) { dismiss -> buildList {
+        if (configuredBefore) {
+            add(getString(R.string.semantic_source_clear) to {
+                runCatching {
+                    prefs.edit {
+                        putString(FeaturePreferences.AI_INSIGHT_PROTOCOL, InsightConfig.DEFAULT_PROTOCOL)
+                        putString(FeaturePreferences.AI_INSIGHT_BASE_URL, "")
+                        putString(FeaturePreferences.AI_INSIGHT_MODEL, "")
+                        putString(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY, "")
+                    }
+                }.onFailure { Log.e("BilibiliInnocentLab", "clear AI Insight config failed", it) }
+                dismiss { toast(getString(R.string.semantic_source_cleared)); onSaved() }
+            })
+        }
+        add(getString(R.string.dialog_cancel) to { dismiss {} })
+        add(getString(R.string.semantic_jev_save) to save@{
+            val endpoint = endpointField.textToString().trim()
+            val model = modelField.textToString().trim()
+            val key = keyField.textToString().trim()
+            if (model.length > SemanticBackend.MAX_MODEL_LENGTH ||
+                key.length > RemoteHookConfigContract.MAX_SEMANTIC_JEV_API_KEY_LENGTH) {
+                toast(getString(R.string.semantic_jev_field_too_long,
+                    minOf(SemanticBackend.MAX_MODEL_LENGTH, RemoteHookConfigContract.MAX_SEMANTIC_JEV_API_KEY_LENGTH)))
+                return@save
+            }
+            // 允许全空（等于清除配置，卡片给出引导）；非空时必须能解析出合法来源。
+            val filled = listOf(endpoint, model, key).any { it.isNotEmpty() }
+            if (filled && InsightConfig.resolve(protocol, endpoint, key, model) == null) {
+                toast(getString(R.string.ai_insight_service_invalid))
+                return@save
+            }
+            runCatching {
+                prefs.edit {
+                    putString(FeaturePreferences.AI_INSIGHT_PROTOCOL, protocol)
+                    putString(FeaturePreferences.AI_INSIGHT_BASE_URL, endpoint)
+                    putString(FeaturePreferences.AI_INSIGHT_MODEL, model)
+                    putString(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY, key)
+                }
+            }.onFailure { Log.e("BilibiliInnocentLab", "write AI Insight config failed", it) }
+            dismiss { toast(getString(R.string.semantic_jev_saved)); onSaved() }
         })
     } }
 }

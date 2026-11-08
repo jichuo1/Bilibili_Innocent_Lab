@@ -73,11 +73,11 @@ class RemoteHookConfigContractTest {
         assertTrue(RemoteHookConfigContract.decode(encoded - FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT)
             is RemoteHookConfigDecodeResult.Invalid)
         assertEquals("jev-test-key", snapshot.values[RemoteHookConfigContract.KEY_SEMANTIC_JEV_API_KEY])
-        // 目录外只有两个运行时修订字段和每个来源的凭据，不能遗漏或多导出其它偏好。
+        // 目录外只有两个运行时修订字段和全部运行时凭据（判定来源 + AI Insight），不能遗漏或多导出其它偏好。
         val runtimeKeys = setOf(RemoteHookConfigContract.KEY_FREE_COPY_CONFIG_REVISION,
-            RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP) + RemoteHookConfigContract.SEMANTIC_API_KEYS
+            RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP) + RemoteHookConfigContract.RUNTIME_API_KEYS
         assertEquals(runtimeKeys, snapshot.values.keys - SettingsCatalog.specs.map { it.storageKey }.toSet())
-        assertEquals(SettingsCatalog.specs.size + 2 + RemoteHookConfigContract.SEMANTIC_API_KEYS.size, snapshot.values.size)
+        assertEquals(SettingsCatalog.specs.size + 2 + RemoteHookConfigContract.RUNTIME_API_KEYS.size, snapshot.values.size)
     }
 
     /** JEV API Key：随 hook_config 下发且受摘要保护，但不是目录项（不进备份），超长/非字符串按未配置处理。 */
@@ -232,5 +232,31 @@ class RemoteHookConfigContractTest {
             assertEquals("secret", (decoded as RemoteHookConfigDecodeResult.Ready).snapshot.values[key])
             assertTrue(RemoteHookConfigContract.decode(encoded + (key to "other")) is RemoteHookConfigDecodeResult.Invalid)
         }
+    }
+
+    /** AI Insight 的 Key 与判定来源 Key 同等对待：签名保护、不进目录、超长或非字符串按未配置处理。 */
+    @Test
+    fun `ai insight api key is a signed runtime credential outside the backup catalog`() {
+        val key = RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY
+        assertTrue(key in RemoteHookConfigContract.hookValueKeys)
+        assertTrue(key in RemoteHookConfigContract.RUNTIME_API_KEYS)
+        assertTrue(SettingsCatalog.specs.none { it.storageKey == key })
+        assertEquals("", defaultValues()[key])
+        assertEquals("", RemoteHookConfigContract.resolveSourceValues(mapOf(key to 42))[key])
+        assertEquals("", RemoteHookConfigContract.resolveSourceValues(
+            mapOf(key to "x".repeat(RemoteHookConfigContract.MAX_SEMANTIC_JEV_API_KEY_LENGTH + 1)))[key])
+        assertEquals("secret", RemoteHookConfigContract.resolveSourceValues(mapOf(key to "  secret  "))[key])
+        val encoded = RemoteHookConfigContract.encode(
+            generation = 1L,
+            moduleVersionCode = BuildConfig.VERSION_CODE.toLong(),
+            deliveryEnabled = true,
+            noRootRevision = 0L,
+            decision = UserTermsDecision.ACCEPTED,
+            values = RemoteHookConfigContract.resolveSourceValues(mapOf(key to "secret"))
+        )
+        assertEquals("secret", (RemoteHookConfigContract.decode(encoded)
+                as RemoteHookConfigDecodeResult.Ready).snapshot.values[key])
+        // 改 Key 不重签 ⇒ 摘要不符，宿主整组拒收（与其它运行时凭据一样 fail-closed）。
+        assertTrue(RemoteHookConfigContract.decode(encoded + (key to "other")) is RemoteHookConfigDecodeResult.Invalid)
     }
 }

@@ -89,6 +89,15 @@ internal object RemoteHookConfigContract {
 
     fun semanticApiKey(index: Int): String = SEMANTIC_API_KEYS[index - 1]
 
+    /**
+     * AI Insight 专用服务配置的 API Key。与判定来源的 Key 一样是签名保护的运行时凭据：
+     * 随 hook_config 下发、受摘要保护，但不进 SettingsCatalog、备份与诊断。为空表示未配置。
+     */
+    const val KEY_AI_INSIGHT_API_KEY = "ai_insight_api_key"
+
+    /** 所有需要签名/校验/裁剪的运行时凭据；判定来源按编号，AI Insight 是独立的一个。 */
+    val RUNTIME_API_KEYS: List<String> = SEMANTIC_API_KEYS + KEY_AI_INSIGHT_API_KEY
+
     private val metadataKeys = setOf(
         KEY_READY,
         KEY_SCHEMA_VERSION,
@@ -104,7 +113,7 @@ internal object RemoteHookConfigContract {
     private val runtimeKeys = linkedSetOf(
         KEY_FREE_COPY_CONFIG_REVISION,
         KEY_ADAPTER_RESET_TIMESTAMP
-    ) + SEMANTIC_API_KEYS
+    ) + RUNTIME_API_KEYS
     val hookValueKeys: Set<String> = SettingsCatalog.specs
         .mapTo(linkedSetOf()) { it.storageKey }
         .apply { addAll(runtimeKeys) }
@@ -140,7 +149,7 @@ internal object RemoteHookConfigContract {
                 KEY_ADAPTER_RESET_TIMESTAMP,
                 (raw[KEY_ADAPTER_RESET_TIMESTAMP] as? Long)?.coerceAtLeast(0L) ?: 0L
             )
-            SEMANTIC_API_KEYS.forEach { key ->
+            RUNTIME_API_KEYS.forEach { key ->
                 put(
                     key,
                     (raw[key] as? String)?.trim()
@@ -286,7 +295,7 @@ internal object RemoteHookConfigContract {
             ?: return "runtime-type:$KEY_ADAPTER_RESET_TIMESTAMP"
         if (freeCopyRevision < 0L) return "runtime-value:$KEY_FREE_COPY_CONFIG_REVISION"
         if (adapterResetTimestamp < 0L) return "runtime-value:$KEY_ADAPTER_RESET_TIMESTAMP"
-        SEMANTIC_API_KEYS.forEach { key ->
+        RUNTIME_API_KEYS.forEach { key ->
             val apiKey = values[key] as? String ?: return "runtime-type:$key"
             if (apiKey.length > MAX_SEMANTIC_JEV_API_KEY_LENGTH || apiKey != apiKey.trim()) {
                 return "runtime-value:$key"
@@ -334,7 +343,7 @@ internal object RemoteHookConfigContract {
                 }
                 output.writeLong(values.getValue(KEY_FREE_COPY_CONFIG_REVISION) as Long)
                 output.writeLong(values.getValue(KEY_ADAPTER_RESET_TIMESTAMP) as Long)
-                SEMANTIC_API_KEYS.forEach { key -> output.writeString(values.getValue(key) as String) }
+                RUNTIME_API_KEYS.forEach { key -> output.writeString(values.getValue(key) as String) }
             }
             bytes.toByteArray()
         }

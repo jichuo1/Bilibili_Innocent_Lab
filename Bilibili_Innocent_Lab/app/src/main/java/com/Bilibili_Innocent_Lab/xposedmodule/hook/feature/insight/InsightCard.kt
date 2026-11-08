@@ -102,7 +102,9 @@ internal class InsightCard(context: Context, private val repository: InsightRepo
         }
         body.addView(actions, LayoutParams(-1, -2))
         hint.textSize = 12f
-        hint.text = insightText(context, "请先在模块 AI 配置中设置文本生成模型。", "Set up a text generation model in module settings.", "請先在模組 AI 設定中設定文字生成模型。")
+        hint.text = insightText(context, "请先在模块设置 →「AI Insight 服务配置」里填写接口协议、地址、API Key 和模型。",
+            "Set the protocol, URL, API key and model in module settings → \"AI Insight service config\".",
+            "請先在模組設定 →「AI Insight 服務設定」填寫協定、位址、API Key 和模型。")
         body.addView(hint, LayoutParams(-1, -2))
         addView(body, LayoutParams(-1, -2))
         heading.setOnClickListener { toggleExpanded() }

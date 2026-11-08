@@ -356,7 +356,12 @@ internal object ReleaseHighlightsCatalog {
             HighlightDestination("share.wechat.resigned_compat"))
     )), ReleaseHighlightsBatch(36, listOf(
         ReleaseHighlight("ai-insight", HighlightKind.NEW, R.string.ai_insight_help,
-            HighlightDestination("compat.ai_insight.enabled", alsoCovers = setOf("compat.ai_insight.auto_chapters")))
+            HighlightDestination("compat.ai_insight.enabled", alsoCovers = setOf(
+                "compat.ai_insight.auto_chapters",
+                // v74：独立服务配置作为同一功能的配套项一并复核。
+                SettingsCatalog.ID_AI_INSIGHT_PROTOCOL,
+                SettingsCatalog.ID_AI_INSIGHT_BASE_URL,
+                SettingsCatalog.ID_AI_INSIGHT_MODEL)))
     ), automatic = false), ReleaseHighlightsBatch(37, listOf(
         ReleaseHighlight("host-ui-power-saving", HighlightKind.NEW, R.string.host_ui_power_saving_tip,
             HighlightDestination("host.ui.power_saving.enabled"))

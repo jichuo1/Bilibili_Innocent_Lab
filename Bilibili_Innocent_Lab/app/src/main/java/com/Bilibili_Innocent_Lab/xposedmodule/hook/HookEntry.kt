@@ -2776,10 +2776,19 @@ class HookEntry : XposedModule() {
 
             // 已授权安装链所需的宿主 Context；只在当前调用栈使用，不进入长期缓存。
             val attachedContext = authorizationContext.applicationContext ?: authorizationContext
+            // AI Insight 用独立服务配置（协议 / 地址 / Key / 模型）解析出单一来源，
+            // 不再复用智能判定的来源表，避免专用模型被四个自动过滤面重复调用。
+            val insightSource = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig.resolve(
+                protocol = prefs.getString(FeaturePreferences.AI_INSIGHT_PROTOCOL,
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig.DEFAULT_PROTOCOL),
+                baseUrl = prefs.getString(FeaturePreferences.AI_INSIGHT_BASE_URL, ""),
+                apiKey = prefs.getString(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY, ""),
+                model = prefs.getString(FeaturePreferences.AI_INSIGHT_MODEL, "")
+            )
             val insightInstaller = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.AiInsightFeatureInstaller(
                 enabled = prefs.getBoolean(FeaturePreferences.AI_INSIGHT_ENABLED, false),
                 automaticChapters = prefs.getBoolean(FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS, false),
-                sources = semanticSettings?.sources.orEmpty(),
+                source = insightSource,
                 cacheRoot = java.io.File(attachedContext.filesDir, "bil_insight"),
                 cachedClasses = { sponsorClassesRef.get() }
             )

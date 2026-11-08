@@ -3,7 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentHttpTransport
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentModelClient
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentModelSource
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSource
+import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentSourceProtocol
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -211,12 +211,18 @@ class InsightRepositoryTest {
         snapshot.comments(42, listOf("late comment"))
         assertEquals(revision, snapshot.revision())
     }
-    @Test fun `decision sources are excluded and existing chat configuration is reused`() {
-        val decision = SemanticSource.from(1, "key", "", "jev", "")!!
-        val chat = SemanticSource.from(2, "chat-key", "https://example.test/v1", "openai", "chat-model")!!
-        assertNull(InsightSources.resolve(listOf(decision)))
-        assertEquals(2, InsightSources.resolve(listOf(chat, decision))?.index)
-        assertEquals("chat-model", InsightSources.resolve(listOf(decision, chat))?.model)
+    @Test fun `insight config is isolated from the semantic judge source table`() {
+        // 独立配置解析只认专用四项；与判定来源（JEV/多来源）彻底解耦，未配好一律返回 null。
+        assertNull(InsightConfig.resolve("openai", "", "key", "model"))
+        assertNull(InsightConfig.resolve("openai", "https://example.test/v1", "", "model"))
+        assertNull(InsightConfig.resolve("openai", "https://example.test/v1", "key", ""))
+        assertNull(InsightConfig.resolve("openai", "not a url", "key", "model"))
+        val chat = InsightConfig.resolve("openai", "api.example.com", "key", "chat-model")!!
+        assertEquals("https://api.example.com/v1/chat/completions", chat.resolvedEndpoint)
+        assertEquals("chat-model", chat.model)
+        val anthropic = InsightConfig.resolve("anthropic", "https://api.example.com", "key", "claude-haiku")!!
+        assertEquals("https://api.example.com/v1/messages", anthropic.resolvedEndpoint)
+        assertEquals(AgentSourceProtocol.ANTHROPIC, anthropic.protocol)
     }
     @Test fun `cache key does not persist credentials embedded in an endpoint query`() {
         val configured = source.copy(endpoint = "https://example.test/v1?api_key=endpoint-token")
