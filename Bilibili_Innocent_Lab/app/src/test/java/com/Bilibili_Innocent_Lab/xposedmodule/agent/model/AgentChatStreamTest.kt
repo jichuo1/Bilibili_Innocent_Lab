@@ -61,6 +61,22 @@ class AgentChatStreamTest {
                 .getJSONObject("message").getString("content"))
         }
     }
+    @Test fun `anthropic streamed text blocks are normalized to a chat completion`() {
+        val wire = event("""{"type":"message_start","message":{}}""") +
+            event("""{"type":"content_block_start","content_block":{"type":"text"}}""") +
+            event("""{"type":"content_block_delta","delta":{"type":"text_delta","text":"你好"}}""") +
+            event("""{"type":"content_block_stop"}""") +
+            event("""{"type":"message_delta","delta":{"stop_reason":"end_turn"}}""") +
+            event("""{"type":"message_stop"}""")
+        val deltas = mutableListOf<String>()
+        val result = JSONObject(AgentChatStream.read(wire.byteInputStream(), {}, deltas::add,
+            AgentSourceProtocol.ANTHROPIC))
+        assertEquals(listOf("你好"), deltas)
+        val choice = result.getJSONArray("choices").getJSONObject(0)
+        assertEquals("你好", choice.getJSONObject("message").getString("content"))
+        assertEquals("stop", choice.getString("finish_reason"))
+    }
+
     @Test fun `length refusal tool calls and late content are never accepted as success`() {
         rejects(event(chunk(finish = "length")), AgentModelException.Reason.OUTPUT_LIMIT)
         rejects(event(chunk(JSONObject().put("refusal", "refused"))) + end())

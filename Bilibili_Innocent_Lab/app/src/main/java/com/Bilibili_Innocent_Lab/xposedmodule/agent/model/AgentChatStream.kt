@@ -8,7 +8,8 @@ import java.io.InputStream
 /** SSE 只承载正文增量；推理字段不进入 UI。完成标记仍交由原有 turn/业务契约校验。 */
 internal object AgentChatStream {
     const val MAX_WIRE_BYTES = 4 * 1024 * 1024
-    fun read(input: InputStream, checkAlive: () -> Unit, onDelta: (String) -> Unit): String {
+    fun read(input: InputStream, checkAlive: () -> Unit, onDelta: (String) -> Unit,
+        protocol: AgentSourceProtocol = AgentSourceProtocol.CHAT): String {
         val bounded = object : FilterInputStream(input) {
             var bytes = 0
             fun counted(count: Int): Int {
@@ -27,10 +28,41 @@ internal object AgentChatStream {
         var reasoningChars = 0
         var usage: JSONObject? = null
         fun invalid(): Nothing = throw AgentModelException(AgentModelException.Reason.INVALID_RESPONSE)
+        /** Anthropic Messages 的事件形状；统一收敛成本模块内部的 OpenAI 形状再交给 decode。 */
+        fun dispatchAnthropic(root: JSONObject) {
+            if (root.has("error")) invalid()
+            when (root.optString("type")) {
+                "content_block_delta" -> {
+                    val delta = root.optJSONObject("delta") ?: return
+                    if (delta.optString("type") != "text_delta") return
+                    val piece = delta.optString("text")
+                    if (piece.isEmpty()) return
+                    if (text.length + piece.length > 65_536) throw AgentModelException(AgentModelException.Reason.TOO_LARGE)
+                    text.append(piece)
+                    onDelta(piece)
+                }
+                "message_delta" -> {
+                    val reason = root.optJSONObject("delta")?.optString("stop_reason")
+                    if (reason == "max_tokens") throw AgentModelException(AgentModelException.Reason.OUTPUT_LIMIT)
+                    if (reason in setOf("end_turn", "stop_sequence")) finish = "stop"
+                    root.optJSONObject("usage")?.let { usage = it }
+                }
+                "message_stop" -> {
+                    done = true
+                    if (finish == null) finish = "stop"
+                }
+                "message_start", "content_block_start", "content_block_stop", "ping" -> Unit
+            }
+        }
         fun dispatch() {
             if (event.isEmpty()) return
             checkAlive()
             val data = event.toString(); event.setLength(0)
+            if (protocol == AgentSourceProtocol.ANTHROPIC) {
+                if (done) invalid()
+                dispatchAnthropic(AgentJson.objectOf(data, AgentHttpsTransport.MAX_RESPONSE_BYTES))
+                return
+            }
             if (data == "[DONE]") { if (finish == null) invalid(); done = true; return }
             if (done) invalid()
             val root = AgentJson.objectOf(data, AgentHttpsTransport.MAX_RESPONSE_BYTES)

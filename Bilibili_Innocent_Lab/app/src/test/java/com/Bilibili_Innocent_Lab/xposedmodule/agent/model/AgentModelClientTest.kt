@@ -50,6 +50,40 @@ class AgentModelClientTest {
         assertFalse(requests.single().has("thinking"))
     }
 
+    @Test fun `anthropic endpoints resolve to the messages path`() {
+        assertEquals("https://api.anthropic.com/v1/messages",
+            AgentModelSource(1, "https://api.anthropic.com", "key", "m",
+                AgentSourceProtocol.ANTHROPIC).resolvedEndpoint)
+        assertEquals("https://api.anthropic.com/v1/messages",
+            AgentModelSource(1, "https://api.anthropic.com/v1", "key", "m",
+                AgentSourceProtocol.ANTHROPIC).resolvedEndpoint)
+        assertEquals("https://api.anthropic.com/v1/messages",
+            AgentModelSource(1, "https://api.anthropic.com/v1/messages", "key", "m",
+                AgentSourceProtocol.ANTHROPIC).resolvedEndpoint)
+    }
+
+    @Test fun `anthropic messages keep system separate and decode content blocks`() {
+        val requests = mutableListOf<JSONObject>()
+        val client = AgentModelClient(AgentHttpTransport { _, bytes, _, _ ->
+            requests += JSONObject(String(bytes, Charsets.UTF_8))
+            JSONObject().put("role", "assistant").put("content", JSONArray().put(
+                JSONObject().put("type", "text").put("text", "答案")))
+                .put("stop_reason", "end_turn").put("usage", JSONObject()
+                    .put("input_tokens", 10).put("output_tokens", 5)).toString()
+        })
+        val anthropic = source.copy(endpoint = "https://api.anthropic.com/v1",
+            protocol = AgentSourceProtocol.ANTHROPIC)
+        val withSystem = JSONArray().put(JSONObject().put("role", "system").put("content", "SYS"))
+            .put(JSONObject().put("role", "user").put("content", "Q"))
+        val turn = client.generate(anthropic, withSystem, JSONArray(), false, 5000) { false }
+        assertEquals("答案", turn.text)
+        assertEquals("SYS", requests.single().getString("system"))
+        assertEquals(1, requests.single().getJSONArray("messages").length())
+        assertEquals("user", requests.single().getJSONArray("messages").getJSONObject(0).getString("role"))
+        assertFalse(requests.single().has("response_format"))
+        assertEquals(5L, turn.usage?.outputTokens)
+    }
+
     @Test fun `explicit large input budget transmits complete text without relaxing output or default clients`() {
         val text = "完整字幕".repeat(20_000)
         var received = ""

@@ -82,7 +82,12 @@ internal object AgentHttpsTransport : AgentHttpTransport {
                     http.doOutput = true
                     http.setRequestProperty("Content-Type", "application/json; charset=utf-8")
                     http.setRequestProperty("Accept", if (onDelta == null) "application/json" else "text/event-stream, application/json")
-                    http.setRequestProperty("Authorization", "Bearer ${source.apiKey}")
+                    if (source.protocol == AgentSourceProtocol.ANTHROPIC) {
+                        http.setRequestProperty("x-api-key", source.apiKey)
+                        http.setRequestProperty("anthropic-version", "2023-06-01")
+                    } else {
+                        http.setRequestProperty("Authorization", "Bearer ${source.apiKey}")
+                    }
                     http.setFixedLengthStreamingMode(body.size)
                     http.outputStream.use { it.write(body) }
                     alive()
@@ -100,7 +105,7 @@ internal object AgentHttpsTransport : AgentHttpTransport {
                         throw AgentModelException(AgentModelException.Reason.TOO_LARGE)
                     }
                     http.inputStream.use { input ->
-                        if (streaming) AgentChatStream.read(input, { touch(); alive() }, checkNotNull(onDelta))
+                        if (streaming) AgentChatStream.read(input, { touch(); alive() }, checkNotNull(onDelta), source.protocol)
                         else readBounded(input, MAX_RESPONSE_BYTES, deadlineNs.get(), cancelled)
                     }
                 } finally {
