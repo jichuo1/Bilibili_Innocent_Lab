@@ -1211,7 +1211,7 @@
     <string name="semantic_jev_settings">AI 语义判定</string>
     <string name="semantic_jev_summary_unconfigured">未配置</string>
     <string name="semantic_jev_summary_configured">已配置 · %1$s · %2$s</string>
-    <string name="semantic_jev_tip">为智能过滤提供判定服务。开启智能过滤后，待判断的文字（只有动态正文，不含账号、Cookie 或用户 ID）会发送到下面的接口地址。API Key 只保存在本机，不进设置备份和诊断，只交给哔哩哔哩用于发起请求。重启哔哩哔哩生效。</string>
+    <string name="semantic_jev_tip">为智能过滤提供判定服务（与「AI Insight 服务配置」相互独立）。开启智能过滤后，待判断的文字（只有动态正文，不含账号、Cookie 或用户 ID）会在后台自动发起请求；配置多个来源时，同一批内容可能因对冲与复核发给多个来源、重复计费，昂贵模型尤其要注意。各过滤面可在自己的设置里单独指定判定来源。API Key 只保存在本机，不进设置备份和诊断，只交给哔哩哔哩用于发起请求。重启哔哩哔哩生效。</string>
     <string name="semantic_jev_api_key">API Key</string>
     <string name="semantic_jev_endpoint">接口地址</string>
     <string name="semantic_jev_endpoint_invalid">接口地址无效，请填写域名或完整的 http(s) 地址</string>
@@ -1451,7 +1451,7 @@
     <string name="agent_help">开启模块无障碍后，助手可在哔哩哔哩界面内点击、滑动、输入普通文本和返回；未开启时仍可使用原有搜索及视频工具。密码、实名验证和付款等敏感操作受保护。目标与必要的界面内容会发送给所选 API，可随时点击停止接管。时间和步数均可设为无限。</string>
     <string name="agent_enable">启用宿主任务接口</string>
     <string name="agent_restart_hint">任务接口开关需重启哔哩哔哩后生效</string>
-    <string name="agent_configure_sources">配置 API 来源（最多 8 个）</string>
+    <string name="agent_configure_sources">配置智能过滤判定来源（最多 8 个）</string>
     <string name="agent_source_scope">允许本任务使用的来源</string>
     <string name="agent_source_capability">来源 %1$d · %2$s\n工具：%3$s　决策：%4$s\n视觉：%5$s　文本规划：%6$s</string>
     <string name="agent_detected">已检测通过</string>

@@ -255,9 +255,14 @@
 - **S1-1 独立服务配置**：新增专用偏好键 `ai_insight_protocol` / `ai_insight_base_url` / `ai_insight_model`（进 `SettingsCatalog` v74，可备份）与签名保护的运行时凭据 `ai_insight_api_key`（不进备份/诊断/目录）。`InsightConfig.resolve` 把四项解析成**单一** `AgentModelSource`；`HookEntry` 不再传 `semanticSettings.sources`，`AiInsightFeatureInstaller` 改收单一来源，删除 `InsightSources.resolve`。设置页在现有兼容步骤内新增独立入口行（不新建 deferStep，避免破坏设置页分步构建的结构契约）与专用面板：协议选择、Base URL、长凭据 Key、模型、当前生效来源回显、从判定来源一次性可见导入、清除。`ai_insight_help` 与卡片未配置引导同步改为指向独立面板。
 - **C3 测试连接走真实路径**（本次）：新增 `InsightConnectivity.probe`，复用与宿主 AI Insight 生成完全相同的 `AgentModelClient.generateStructuredStreaming` 入口（协议适配 / 鉴权头 / 端点补全 / `json_schema` / SSE 流式及参数自动回退），只把 prompt 换成一条极短探针，因此「通过」等价于宿主里能用。结果按 `AgentModelException.Reason` 分类（鉴权 / 地址 404 / 限流 / 网络 / 超时 / 解析 / 其它），复用通用 `semantic_test_*` 文案，不新增三语文案。面板用当前框值探测，无需先保存；注入 transport 的 JVM 单测覆盖 OpenAI / Anthropic 两种协议与各类失败，不联网。
 
-阶段 2 其余项与阶段 3 仍待后续逻辑单元推进，其中较重要的：
+- **自动请求告知 + 入口去歧义**（本次）：`semantic_jev_tip` 三语明确「智能过滤开启后会在后台自动发判定请求、多来源时同一批可能因对冲/复核发给多个来源而重复计费、与『AI Insight 服务配置』相互独立、各过滤面可在自己设置里指定来源」；`agent_configure_sources` 三语由泛化的「配置 API 来源」改为「配置智能过滤判定来源」，避免与刚独立的 AI Insight 服务配置混淆。两者均为纯文案，零 UI/逻辑改动。
 
-- C5 用量可见、A6 配置热更新（当前仍需重启宿主）、命名统一（Agent 面板的「配置 API 来源」入口）、自动请求告知、D10 输出预算/超时可配置。
-- 阶段 3：全版本静态核对、真实 OpenAI 兼容与真实 Anthropic 端点各一轮实机验收。
+阶段 2 仍有三项属于**架构级或 P2 打磨**，与已验证通过的链路存在冲突或收益有限，需单独设计、不并入本批草率实现：
+
+- A6 热更新：宿主进程在启动时读取签名下发、fail-closed 的 hook_config 快照组装 installer；要「改配置后立即生效」需打破快照一致性或新增跨进程通道，与免 Root/NPatch 的签名模型冲突，风险最高，须独立评估。
+- C5 用量可见：`AgentModelTurn.usage` 已有数据，但「设置页本次会话累计」需跨宿主/模块进程持久化；只做「结果旁显示本次 token」又需在注入宿主的结果回调里带用量，两者都是独立改动。
+- D10 输出预算/超时可配置：S1-5 已把 90 秒硬截止改为按 SSE 增量续期、默认 `DEFAULT_TIMEOUT_MS=180_000`，8192 token 预算保留常量；做成 UI 可配属 P2 打磨，收益边际。
+
+阶段 3 按项目约定处理：本轮改动未触及宿主 Hook 锚点或 UIComponent 契约，全版本覆盖以 Hostlab 静态核对为主；Debug APK、全量 JVM 单测、FastLint 门禁已逐提交通过；真实 OpenAI 兼容 / Anthropic 端点的实机观感由用户人工抽样验收，不逐版本装机复测。
 
 全版本支持仍是硬要求：本轮 S1-1 未改动宿主 Hook 锚点或 UIComponent 契约，仅调整模块设置与配置读取，38 版宿主结构不受影响；`InsightCard` 的宿主注入仍沿用 `InsightComponentContract` / `KavaMemberLookup` 边界。

@@ -1211,7 +1211,7 @@
     <string name="semantic_jev_settings">AI semantic judging</string>
     <string name="semantic_jev_summary_unconfigured">Not configured</string>
     <string name="semantic_jev_summary_configured">Configured · %1$s · %2$s</string>
-    <string name="semantic_jev_tip">Provides the service used by smart filters. When a smart filter is on, the text being judged (dynamic text only, never your account, cookies or user IDs) is sent to the endpoint below. The API key stays on this device, is excluded from settings backups and diagnostics, and is only passed to Bilibili so it can make the request. Restart Bilibili to apply.</string>
+    <string name="semantic_jev_tip">Provides the judging service for smart filters (separate from \"AI Insight service config\"). With a smart filter on, judged text (dynamic text only, never your account, cookies or user IDs) is sent automatically in the background; with several sources, the same batch may be sent to more than one source for hedging and review, so an expensive model can be billed repeatedly. Each filter chooses its own source in its own settings. The API key stays on this device, is excluded from backups and diagnostics, and is only passed to Bilibili to make the request. Restart Bilibili to apply.</string>
     <string name="semantic_jev_api_key">API key</string>
     <string name="semantic_jev_endpoint">Endpoint</string>
     <string name="semantic_jev_endpoint_invalid">Invalid endpoint. Enter a domain or a full http(s) URL.</string>
@@ -1451,7 +1451,7 @@
     <string name="agent_help">The assistant can click, scroll, enter ordinary text and go back in Bilibili after you enable its accessibility service. Without it, search and video tools remain available. Passwords, identity verification and payments are protected. Your goal and necessary on-screen content go to selected APIs. Use Stop to take over. Time and step budgets can be unlimited.</string>
     <string name="agent_enable">Enable host task interface</string>
     <string name="agent_restart_hint">Restart Bilibili to apply this interface setting</string>
-    <string name="agent_configure_sources">Configure API sources (up to 8)</string>
+    <string name="agent_configure_sources">Configure smart-filter judge sources (up to 8)</string>
     <string name="agent_source_scope">Sources allowed for this task</string>
     <string name="agent_source_capability">Source %1$d · %2$s\nTools: %3$s   Decisions: %4$s\nVision: %5$s   Text planning: %6$s</string>
     <string name="agent_detected">Verified</string>

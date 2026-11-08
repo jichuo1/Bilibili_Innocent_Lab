@@ -1211,7 +1211,7 @@
     <string name="semantic_jev_settings">AI 語意判定</string>
     <string name="semantic_jev_summary_unconfigured">未設定</string>
     <string name="semantic_jev_summary_configured">已設定 · %1$s · %2$s</string>
-    <string name="semantic_jev_tip">為智慧過濾提供判定服務。開啟智慧過濾後，待判斷的文字（只有動態正文，不含帳號、Cookie 或使用者 ID）會傳送到下方的介面位址。API Key 只儲存在本機，不進設定備份與診斷，只交給嗶哩嗶哩用於發起請求。重新啟動嗶哩嗶哩後生效。</string>
+    <string name="semantic_jev_tip">為智慧過濾提供判定服務（與「AI Insight 服務設定」相互獨立）。開啟智慧過濾後，待判斷的文字（只有動態正文，不含帳號、Cookie 或使用者 ID）會在背景自動發起請求；設定多個來源時，同一批內容可能因對沖與複核發給多個來源、重複計費，昂貴模型尤其要注意。各過濾面可在自己的設定裡單獨指定判定來源。API Key 只儲存在本機，不進設定備份與診斷，只交給嗶哩嗶哩用於發起請求。重新啟動嗶哩嗶哩後生效。</string>
     <string name="semantic_jev_api_key">API Key</string>
     <string name="semantic_jev_endpoint">介面位址</string>
     <string name="semantic_jev_endpoint_invalid">介面位址無效，請填寫網域或完整的 http(s) 位址</string>
@@ -1451,7 +1451,7 @@
     <string name="agent_help">開啟模組無障礙後，助手可在嗶哩嗶哩介面內點擊、滑動、輸入一般文字和返回；未開啟時仍可使用原有搜尋及影片工具。密碼、實名驗證和付款等敏感操作受保護。目標與必要的介面內容會傳送給所選 API，可隨時點擊停止接管。時間和步數均可設為無限。</string>
     <string name="agent_enable">啟用宿主任務介面</string>
     <string name="agent_restart_hint">任務介面開關需重新啟動嗶哩嗶哩後生效</string>
-    <string name="agent_configure_sources">設定 API 來源（最多 8 個）</string>
+    <string name="agent_configure_sources">設定智慧過濾判定來源（最多 8 個）</string>
     <string name="agent_source_scope">允許本任務使用的來源</string>
     <string name="agent_source_capability">來源 %1$d · %2$s\n工具：%3$s　決策：%4$s\n視覺：%5$s　文字規劃：%6$s</string>
     <string name="agent_detected">已檢測通過</string>
