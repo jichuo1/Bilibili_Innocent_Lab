@@ -64,6 +64,25 @@ class InsightRepositoryTest {
         assertFalse(requests.last().toString().contains("ARTIFACT_MARKER"))
         assertFalse(root.listFiles()!!.single().readText().contains("ARTIFACT_MARKER"))
     }
+    @Test fun `usage accumulates across a repair and is never persisted or shown on cache hits`() {
+        val root = temporary.newFolder(); var calls = 0
+        val model = AgentModelClient(AgentHttpTransport { _, _, _, _ ->
+            calls++
+            val prose = if (calls == 1) "坏片段},{" else "正确讨论"
+            val content = JSONObject().put("topics", JSONArray().put(JSONObject().put("title", "方向").put("summary", prose)))
+            JSONObject().put("choices", JSONArray().put(JSONObject().put("finish_reason", "stop").put("message",
+                JSONObject().put("role", "assistant").put("content", content.toString()))))
+                .put("usage", JSONObject().put("prompt_tokens", 100).put("completion_tokens", 10)
+                    .put("total_tokens", 110)).toString()
+        })
+        val repo = InsightRepository(source, InsightCache(root), { input.copy(comments = listOf("评论")) }, model)
+        val generated = repo.generate(video, InsightMode.COMMENTS)
+        assertEquals(2, calls)
+        assertEquals(InsightUsage(200, 20), generated.usage)
+        val cached = repo.cached(video, InsightMode.COMMENTS)
+        assertNotNull(cached); assertNull(cached!!.usage)
+        assertFalse(root.listFiles()!!.single().readText().contains("prompt_tokens"))
+    }
     @Test fun `second opening loads summary from disk without context or model requests`() {
         val root = temporary.newFolder(); val posts = AtomicInteger(); val contexts = AtomicInteger()
         val first = InsightRepository(source, InsightCache(root), { contexts.incrementAndGet(); input }, client(posts))

@@ -479,6 +479,12 @@ internal class InsightCard(context: Context, private val repository: InsightRepo
             "无可用字幕：仅依据标题、简介及讨论内容，不提供情节定位。\n\n",
             "No subtitles: based on metadata and discussion only. Scene timestamps are unavailable.\n\n",
             "無可用字幕：僅依據標題、簡介及討論內容，不提供情節定位。\n\n"))
+        entry.usage?.let { usage ->
+            builder.append("\n\n").append(insightText(context,
+                "本次生成用量：输入 ${usage.inputTokens} / 输出 ${usage.outputTokens} token（不含缓存命中）。",
+                "This generation: ${usage.inputTokens} input / ${usage.outputTokens} output tokens (cached results excluded).",
+                "本次生成用量：輸入 ${usage.inputTokens} / 輸出 ${usage.outputTokens} token（不含快取命中）。"))
+        }
         return builder
     }
     companion object {

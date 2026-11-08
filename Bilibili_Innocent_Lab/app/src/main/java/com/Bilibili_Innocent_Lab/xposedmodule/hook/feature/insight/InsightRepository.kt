@@ -10,9 +10,13 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 
+/** 一次生成的用量，只附在本次结果上供面板显示，不落盘、不进缓存文件。 */
+internal data class InsightUsage(val inputTokens: Long, val outputTokens: Long)
+
 /** 只存生成结果，不持久化原始字幕、评论、问题或凭据。按视频+分 P+模型+协议隔离。 */
 internal class InsightCache(private val directory: File, private val clock: () -> Long = System::currentTimeMillis) {
-    data class Entry(val output: InsightOutput, val duration: Int, val timed: Boolean)
+    data class Entry(val output: InsightOutput, val duration: Int, val timed: Boolean,
+        val usage: InsightUsage? = null)
     private val memory = object : LinkedHashMap<String, Entry>(16, .75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Entry>?) = size > 32
     }
@@ -122,6 +126,8 @@ internal class InsightRepository(
                 .put(JSONObject().put("role", "user").put("content", prompt))
             var messages = original
             var decoded: InsightOutput? = null
+            // 修正重放会再发一次请求，两次用量都真实产生，累加后随本次结果回显，不落盘。
+            var usage: InsightUsage? = null
             for (attempt in 0..1) {
                 stage = "model"
                 // 每次生成独立计时；修正重放不能只拿到上一轮的残余时间。
@@ -135,6 +141,10 @@ internal class InsightRepository(
                         val text = preview.append(delta)
                         if (text != previous) { previous = text; onProgress?.invoke(text) }
                     }
+                }
+                turn.usage?.let { u ->
+                    usage = InsightUsage((usage?.inputTokens ?: 0) + u.inputTokens,
+                        (usage?.outputTokens ?: 0) + u.outputTokens)
                 }
                 check(!cancelled())
                 stage = "decode"
@@ -150,8 +160,9 @@ internal class InsightRepository(
                         .put("content", "本地校验拒绝上次输出：${invalid.hint} 请据原材料修正输出。"))
                 }
             }
-            val result = InsightCache.Entry(checkNotNull(decoded), input.duration, input.timed)
-            if (mode != InsightMode.ASK) cache.write(key, result)
+            val result = InsightCache.Entry(checkNotNull(decoded), input.duration, input.timed, usage)
+            // 缓存只存结果本身，不把本次用量写进磁盘；缓存命中时 usage 为 null，不显示用量。
+            if (mode != InsightMode.ASK) cache.write(key, result.copy(usage = null))
             trace("success mode=$mode timed=${result.timed}")
             return result
         } catch (error: Exception) {
