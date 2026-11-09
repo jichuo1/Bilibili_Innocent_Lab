@@ -39,6 +39,31 @@ class LocalizationResourcesTest {
     }
 
     @Test
+    fun `guest browsing copy states restart boundaries and incomplete verification in every locale`() {
+        val notices = mapOf(
+            "values" to listOf("Off by default", "independent", "restarting Bilibili", "not all paths have been verified"),
+            "values-zh-rCN" to listOf("默认关闭", "独立", "重启哔哩哔哩", "尚未验证所有链路"),
+            "values-b+zh+Hant" to listOf("預設關閉", "獨立", "重新啟動嗶哩嗶哩", "尚未驗證所有路徑")
+        )
+        notices.forEach { (locale, required) ->
+            val strings = readStrings(File(resRoot, "$locale/strings.xml"))
+            listOf("no_login_enabled", "incognito_enabled").forEach { key ->
+                assertTrue(strings.getValue(key).isNotBlank())
+                required.forEach { phrase ->
+                    assertTrue("$locale $key missing $phrase", strings.getValue("${key}_tip").contains(phrase))
+                }
+            }
+        }
+        val chinese = readStrings(File(resRoot, "values-zh-rCN/strings.xml"))
+        val browsing = chinese.getValue("no_login_enabled_tip")
+        listOf("仅移除客户端登录引导", "保留主动登录入口", "画质限游客可获得的资源", "本地历史、收藏与关注不上传")
+            .forEach { assertTrue(browsing.contains(it)) }
+        val incognito = chinese.getValue("incognito_enabled_tip")
+        listOf("临时游客会话", "关闭并重启后恢复账号", "退出会话", "宿主本地资料库刷新时丢弃", "不能保证服务端不留日志")
+            .forEach { assertTrue(incognito.contains(it)) }
+    }
+
+    @Test
     fun `default English resources do not contain Han characters`() {
         val base = readStrings(File(resRoot, "values/strings.xml"))
         val unexpected = base.filterValues { HAN_REGEX.containsMatchIn(it) }.keys

@@ -20,12 +20,16 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 36
+    const val VERSION = 37
     val definitions = listOf(
         DiagnosticCapabilityDefinition("ai_insight", "ai_insight", R.string.ai_insight_title,
             setOf("compat.ai_insight.enabled", "compat.ai_insight.auto_chapters",
                 // v74：独立服务配置（协议/地址/模型）；API Key 是运行时凭据不进目录。
                 "ai_insight.protocol", "ai_insight.base_url", "ai_insight.model"), introducedCatalogVersion = 35),
+        DiagnosticCapabilityDefinition("guest_browsing", "guest_browsing", R.string.no_login_enabled,
+            setOf("browsing.no_login.enabled"), introducedCatalogVersion = 37),
+        DiagnosticCapabilityDefinition("incognito_privacy", "incognito_privacy", R.string.incognito_enabled,
+            setOf("privacy.incognito.enabled"), introducedCatalogVersion = 37),
         DiagnosticCapabilityDefinition("player_buffer_strategy", "player_buffer", R.string.player_buffer_mode,
             setOf("player.buffer.mode", "player.buffer.seconds", "player.buffer.memory_mb"),
             introducedCatalogVersion = 22),
@@ -259,6 +263,8 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("home_recommend_ai_declared_removed", "home_recommend_purify", R.string.block_ai_declared_videos, setOf("video.ai_declared.blocked"), introducedCatalogVersion = 14)
     )
     val localOnlySettings = mapOf(
+        // Shared guest_browsing prerequisite; installation and runtime coverage belong to that parent adapter.
+        "browsing.guest.skip_onboarding" to "HOST_GATE",
         "communication.compatibility.enabled" to "LOCAL_DIAGNOSTICS",
         "free_copy.light_mode.enabled" to "LOCAL_APPEARANCE",
         "free_copy.auto_light.enabled" to "LOCAL_APPEARANCE",

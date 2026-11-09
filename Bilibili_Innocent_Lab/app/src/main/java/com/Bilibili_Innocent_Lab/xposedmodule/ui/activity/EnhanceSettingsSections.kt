@@ -784,6 +784,85 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: LinearSettingsScope) = 
         textSize = 12f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
+    materialSwitch(key = "EnhanceSettingsSections:no-login", lparams = params(widthMatchParent = true) {
+        topMargin = 12.dp
+        bottomMargin = 5.dp
+    }) {
+        bindFavoriteSwitch(this, FeaturePreferences.NO_LOGIN_ENABLED, directToggle = true)
+        text = stringResource(R.string.no_login_enabled)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = noLoginEnabled
+        setOnCheckedChangeListener { _, checked ->
+            runCatching { prefs().edit { putBoolean(FeaturePreferences.NO_LOGIN_ENABLED, checked) } }
+                .onSuccess { noLoginEnabled = checked }
+                .onFailure {
+                    Log.e("BilibiliInnocentLab", "write noLoginEnabled prefs failed", it)
+                    isChecked = noLoginEnabled
+                }
+        }
+    }
+    textView(key = "EnhanceSettingsSections:no-login-tip", lparams = params(widthMatchParent = true)) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.no_login_enabled_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
+    materialSwitch(key = "EnhanceSettingsSections:incognito", lparams = params(widthMatchParent = true) {
+        topMargin = 12.dp
+        bottomMargin = 5.dp
+    }) {
+        bindFavoriteSwitch(this, FeaturePreferences.INCOGNITO_ENABLED, directToggle = true)
+        text = stringResource(R.string.incognito_enabled)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = incognitoEnabled
+        setOnCheckedChangeListener { _, checked ->
+            runCatching { prefs().edit { putBoolean(FeaturePreferences.INCOGNITO_ENABLED, checked) } }
+                .onSuccess { incognitoEnabled = checked }
+                .onFailure {
+                    Log.e("BilibiliInnocentLab", "write incognitoEnabled prefs failed", it)
+                    isChecked = incognitoEnabled
+                }
+        }
+    }
+    textView(key = "EnhanceSettingsSections:incognito-tip", lparams = params(widthMatchParent = true)) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.incognito_enabled_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
+    materialSwitch(key = "EnhanceSettingsSections:skip-guest-onboarding", lparams = params(widthMatchParent = true) {
+        marginStart = 16.dp
+        topMargin = 8.dp
+        bottomMargin = 5.dp
+    }) {
+        bindFavoriteSwitch(this, FeaturePreferences.SKIP_GUEST_ONBOARDING, directToggle = true)
+        text = stringResource(R.string.skip_guest_onboarding)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 14f
+        isChecked = skipGuestOnboarding
+        setOnCheckedChangeListener { _, checked ->
+            runCatching { prefs().edit { putBoolean(FeaturePreferences.SKIP_GUEST_ONBOARDING, checked) } }
+                .onSuccess { skipGuestOnboarding = checked }
+                .onFailure {
+                    Log.e("BilibiliInnocentLab", "write skipGuestOnboarding prefs failed", it)
+                    isChecked = skipGuestOnboarding
+                }
+        }
+    }
+    textView(key = "EnhanceSettingsSections:skip-guest-onboarding-tip", lparams = params(widthMatchParent = true) { marginStart = 16.dp }) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.skip_guest_onboarding_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
     materialSwitch(key = "EnhanceSettingsSections:804", lparams = params(widthMatchParent = true) {
         topMargin = 12.dp
         bottomMargin = 5.dp

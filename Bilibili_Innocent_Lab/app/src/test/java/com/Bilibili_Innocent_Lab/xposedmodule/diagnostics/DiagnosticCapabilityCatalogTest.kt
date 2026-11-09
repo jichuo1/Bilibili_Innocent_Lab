@@ -69,6 +69,24 @@ class DiagnosticCapabilityCatalogTest {
         assertEquals(expected, DiagnosticCapabilityCatalog.byLocatorKey.keys)
     }
 
+    @Test fun guestBrowsingAndIncognitoHaveIndependentV37Capabilities() {
+        assertEquals(37, DiagnosticCapabilityCatalog.VERSION)
+        val added = DiagnosticCapabilityCatalog.definitions.filter { it.introducedCatalogVersion == 37 }
+        val expected = mapOf(
+            "guest_browsing" to "browsing.no_login.enabled",
+            "incognito_privacy" to "privacy.incognito.enabled"
+        )
+        assertEquals(expected.keys, added.map { it.id }.toSet())
+        added.forEach { capability ->
+            assertEquals(capability.id, capability.parentId)
+            assertEquals(setOf(expected.getValue(capability.id)), capability.settingIds)
+            assertEquals(SettingsCatalog.byId.getValue(expected.getValue(capability.id)).labelRes,
+                capability.labelRes)
+            assertEquals(2, DiagnosticCapabilityCatalog.runtimeSupport(capability.id))
+            assertFalse(capability.id in DiagnosticCapabilityCatalog.splitParents)
+        }
+    }
+
     @Test fun codecPreferenceAndDecodeModeHaveIndependentCapabilityLeaves() {
         val codec = DiagnosticCapabilityCatalog.byId.getValue("player_codec_preference")
         val decode = DiagnosticCapabilityCatalog.byId.getValue("player_decode_mode")
