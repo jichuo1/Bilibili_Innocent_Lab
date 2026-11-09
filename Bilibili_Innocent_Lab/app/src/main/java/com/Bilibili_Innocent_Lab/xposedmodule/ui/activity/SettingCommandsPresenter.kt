@@ -282,6 +282,30 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             }
             preferDynamicVideoTab
         }
+        FeaturePreferences.NO_LOGIN_ENABLED -> {
+            val outcome = SettingWritePolicy.attempt(noLoginEnabled, requested) {
+                prefs().edit { putBoolean(FeaturePreferences.NO_LOGIN_ENABLED, requested) }
+            }
+            outcome.failure?.let { Log.e("BilibiliInnocentLab", "write no-login prefs failed", it) }
+            noLoginEnabled = outcome.confirmed
+            noLoginEnabled
+        }
+        FeaturePreferences.INCOGNITO_ENABLED -> {
+            val outcome = SettingWritePolicy.attempt(incognitoEnabled, requested) {
+                prefs().edit { putBoolean(FeaturePreferences.INCOGNITO_ENABLED, requested) }
+            }
+            outcome.failure?.let { Log.e("BilibiliInnocentLab", "write incognito prefs failed", it) }
+            incognitoEnabled = outcome.confirmed
+            incognitoEnabled
+        }
+        FeaturePreferences.SKIP_GUEST_ONBOARDING -> {
+            val outcome = SettingWritePolicy.attempt(skipGuestOnboarding, requested) {
+                prefs().edit { putBoolean(FeaturePreferences.SKIP_GUEST_ONBOARDING, requested) }
+            }
+            outcome.failure?.let { Log.e("BilibiliInnocentLab", "write skip guest onboarding prefs failed", it) }
+            skipGuestOnboarding = outcome.confirmed
+            skipGuestOnboarding
+        }
         FeaturePreferences.HOST_BOTTOM_BAR_COMPACT -> {
             val checked = requested
             if (!hostBottomBarLiquidGlass) {
@@ -1643,6 +1667,9 @@ internal val modeledToggleKeys = setOf(
     FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS,
     FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL,
     FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB,
+    FeaturePreferences.NO_LOGIN_ENABLED,
+    FeaturePreferences.INCOGNITO_ENABLED,
+    FeaturePreferences.SKIP_GUEST_ONBOARDING,
     FeaturePreferences.HOST_BOTTOM_BAR_COMPACT,
     FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY,
     FeaturePreferences.HOST_MINE_GARB_DIM,
@@ -1763,6 +1790,9 @@ internal fun MainActivity.synchronizeSettingField(key: String, confirmed: Boolea
         FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS -> blockAiDeclaredVideos = confirmed
         FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL -> homeVerticalOpenDetail = confirmed
         FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB -> preferDynamicVideoTab = confirmed
+        FeaturePreferences.NO_LOGIN_ENABLED -> noLoginEnabled = confirmed
+        FeaturePreferences.INCOGNITO_ENABLED -> incognitoEnabled = confirmed
+        FeaturePreferences.SKIP_GUEST_ONBOARDING -> skipGuestOnboarding = confirmed
         FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS -> hostBottomBarLiquidGlass = confirmed
         FeaturePreferences.HOST_BOTTOM_BAR_COMPACT -> hostBottomBarCompact = confirmed
         FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY -> hostBottomBarIconOnly = confirmed

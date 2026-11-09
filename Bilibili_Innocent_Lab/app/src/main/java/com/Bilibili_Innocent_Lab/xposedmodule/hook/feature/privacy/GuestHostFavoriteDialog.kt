@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import android.app.Activity
 import android.app.Dialog
 import android.content.Context
@@ -135,7 +136,7 @@ internal class GuestHostFavoriteDialog : GuestVideoFavoriteHooks.HostDialog {
             val dialog = found.dialog.newInstance(activity, params, null) as Dialog
             opened[dialog] = WeakReference(activity)
             runCatching { watchResults?.invoke(activity.javaClass) }
-            dialog.setOnDismissListener { onClosed() }
+            dialog.setOnDismissListener { HostThreadGuard.run("guest.favorite.dialog.dismiss") { onClosed() } }
             GuestLoginScope.enter()
             try { dialog.show() } finally { GuestLoginScope.exit() }
             true

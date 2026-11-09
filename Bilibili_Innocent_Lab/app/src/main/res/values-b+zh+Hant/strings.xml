@@ -924,11 +924,11 @@
     <string name="comment_user_filter_rules_current">目前：%1$s</string>
     <string name="comment_user_filter_dialog_hint">每項填寫一個 UID 或使用者名稱，以逗號、分號或換行分隔；使用者名稱需完全一致。</string>
     <string name="no_login_enabled">免登入瀏覽</string>
-    <string name="no_login_enabled_tip">預設關閉，兩個功能為獨立開關。未登入時使用持久化本機資料庫；已登入時保留帳號功能。同時開啟無痕模式時，以無痕工作階段為準，本機資料只暫存於記憶體。修改設定須重新啟動嗶哩嗶哩才會生效。僅移除客戶端登入引導，保留主動登入入口；畫質限訪客可取得的資源。本機歷史、收藏與追蹤不上傳。涵蓋範圍取決於宿主版本，尚未驗證所有路徑。</string>
+    <string name="no_login_enabled_tip">未登入時隱藏登入引導，保留主動登入入口；歷史、收藏與追蹤只存於本機，不上傳。已登入時保留帳號功能。畫質以訪客可用為限。與無痕模式同時開啟時以無痕為準。重新啟動嗶哩嗶哩後生效。</string>
     <string name="skip_guest_onboarding">略過基本資料與興趣引導</string>
-    <string name="skip_guest_onboarding_tip">免登入瀏覽與無痕模式的共用子項，預設關閉。任一模式開啟且宿主處於訪客狀態時，略過自動彈出的性別、年齡與興趣選擇，直接進入首頁，不代填或提交資料。修改後重新啟動嗶哩嗶哩才會生效。</string>
+    <string name="skip_guest_onboarding_tip">任一瀏覽模式開啟且處於訪客狀態時，略過性別、年齡與興趣選擇，直接進入首頁，不代填資料。重新啟動嗶哩嗶哩後生效。</string>
     <string name="incognito_enabled">無痕模式</string>
-    <string name="incognito_enabled_tip">預設關閉，與免登入瀏覽獨立。修改設定須重新啟動嗶哩嗶哩才會生效。使用臨時訪客工作階段，關閉並重新啟動後恢復帳號；階段內歷史、收藏與追蹤在結束階段或於宿主本機資料庫重新整理時捨棄。無痕期間內嵌網頁停用連線，避免重用真實帳號的網頁憑證。部分直播互動和即時更新可能無法使用。連線使用無法保證伺服器不留日誌。涵蓋範圍取決於宿主版本，尚未驗證所有路徑。</string>
+    <string name="incognito_enabled_tip">使用臨時訪客工作階段，關閉並重新啟動後恢復帳號。工作階段內的歷史、收藏與追蹤只存於記憶體，結束即捨棄。內嵌網頁在無痕期間離線，避免帶上帳號憑證。部分直播互動與即時更新無法使用，伺服器仍可能記錄存取。重新啟動嗶哩嗶哩後生效。</string>
     <string name="purify_share_content">淨化分享連結</string>
     <string name="purify_share_content_tip">開啟後，清理分享內容中嗶哩嗶哩連結的追蹤參數，保留分頁與時間點；不展開短連結、不連網。</string>
     <string name="share_mini_program_direct_link">小程式卡片轉為普通連結</string>

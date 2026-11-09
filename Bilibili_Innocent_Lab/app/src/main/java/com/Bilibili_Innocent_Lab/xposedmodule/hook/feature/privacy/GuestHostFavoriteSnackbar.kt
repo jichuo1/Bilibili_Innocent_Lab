@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.hostProxyDefaultValue
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import android.content.Context
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
@@ -48,11 +50,11 @@ internal class GuestHostFavoriteSnackbar : GuestVideoFavoriteHooks.HostSnackbar 
             require(message != 0 && action != 0)
             val listener = Proxy.newProxyInstance(found.callback.classLoader, arrayOf(found.callback)) { proxy, method, args ->
                 when (method.name) {
-                    "onClick" -> { onModify(); null }
+                    "onClick" -> { HostThreadGuard.run("guest.favorite.snackbar.click") { onModify() }; null }
                     "hashCode" -> System.identityHashCode(proxy)
                     "equals" -> proxy === args?.firstOrNull()
                     "toString" -> "GuestFavoriteSnackbarCallback"
-                    else -> null
+                    else -> hostProxyDefaultValue(method.returnType)
                 }
             }
             found.show.method.invoke(found.show.receiver, activity, if (story) found.storyScene else found.scene,

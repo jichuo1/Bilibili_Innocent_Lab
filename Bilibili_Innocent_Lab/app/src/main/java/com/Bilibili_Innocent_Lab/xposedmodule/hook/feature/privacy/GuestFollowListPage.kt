@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -180,7 +181,9 @@ internal class GuestFollowListPage(private val library: GuestLibraryRuntime, pri
                 val follow = pageFor(activity)?.follows?.getOrNull(argOrNull(1) as? Int ?: return@after) ?: return@after
                 relabel(root, follow.name, GuestFollowListStrings.resolve(activity).following)
                 root.setOnClickListener {
-                    activity.startActivity(Intent(Intent.ACTION_VIEW, "bilibili://space/${follow.mid}".toUri()).setPackage(activity.packageName))
+                    HostThreadGuard.run("guest.follow_list.row.click") {
+                        activity.startActivity(Intent(Intent.ACTION_VIEW, "bilibili://space/${follow.mid}".toUri()).setPackage(activity.packageName))
+                    }
                 }
             }
         }
@@ -265,12 +268,16 @@ internal class GuestMineFollowEntry(private val isGuest: () -> Boolean, private 
 }
 
 /** Page title and row label in the host's own wording. */
-internal data class GuestFollowListStrings(val title: String, val following: String) {
+/** 本地关注列表借宿主页面展示；文案随注入界面的语言切换（`%s` 为 UP 主昵称）。 */
+internal data class GuestFollowListStrings(
+    val title: String, val following: String,
+    val unfollowDescription: String, val unfollowConfirm: String, val cancel: String, val confirm: String
+) {
     companion object {
         fun resolve(context: Context): GuestFollowListStrings = when (InjectedUiLocale.resolveEffectiveTag(context)) {
-            "zh-CN" -> GuestFollowListStrings("我的关注", "已关注")
-            "zh-Hant" -> GuestFollowListStrings("我的關注", "已關注")
-            else -> GuestFollowListStrings("Following", "Following")
+            "zh-CN" -> GuestFollowListStrings("我的关注", "已关注", "取消关注%s", "确定取消关注%s？", "取消", "确定")
+            "zh-Hant" -> GuestFollowListStrings("我的關注", "已關注", "取消關注%s", "確定取消關注%s？", "取消", "確定")
+            else -> GuestFollowListStrings("Following", "Following", "Unfollow %s", "Unfollow %s?", "Cancel", "OK")
         }
     }
 }

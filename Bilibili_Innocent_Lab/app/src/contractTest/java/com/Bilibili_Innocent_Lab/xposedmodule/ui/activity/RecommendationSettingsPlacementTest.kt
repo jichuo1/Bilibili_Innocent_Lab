@@ -17,7 +17,7 @@ class RecommendationSettingsPlacementTest {
             val field = if (key == "NO_LOGIN_ENABLED") "noLoginEnabled" else "incognitoEnabled"
             assertTrue(block.contains("isChecked = $field"))
             assertTrue(SettingsUiSource.file("MainActivity").contains("$field = uiSettings.bool(FeaturePreferences.$key)"))
-            assertTrue(block.contains("prefs().edit { putBoolean(FeaturePreferences.$key, checked) }"))
+            assertTrue(block.contains("applyModeledToggle(FeaturePreferences.$key, checked, button)"))
             assertTrue(block.contains("R.string.$label)"))
             assertTrue(block.contains("R.string.${label}_tip)"))
             settings.filter { it.first != key }.forEach { (otherKey, _) ->

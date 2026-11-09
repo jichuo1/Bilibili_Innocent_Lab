@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
@@ -47,7 +48,9 @@ internal class GuestLibraryUi(
     private fun dialog(title: String, labels: List<String>, selected: (Int) -> Unit) {
         val activity = reference.get()?.takeUnless { it.isFinishing || it.isDestroyed } ?: return
         AlertDialog.Builder(activity).setTitle(title)
-            .setItems(labels.toTypedArray()) { _, index -> runtime.onMain(token) { selected(index) } }
+            .setItems(labels.toTypedArray()) { _, index ->
+                HostThreadGuard.run("guest.library.dialog.item") { runtime.onMain(token) { selected(index) } }
+            }
             .setNegativeButton(android.R.string.cancel, null).show()
     }
     fun show(section: String) {
@@ -87,7 +90,9 @@ internal class GuestLibraryUi(
                 val edit = EditText(activity)
                 AlertDialog.Builder(activity).setTitle(strings.folder).setView(edit)
                     .setPositiveButton(android.R.string.ok) { _, _ ->
-                        runtime.mutate(token, mutation = { it.createFavoriteFolder(edit.textToString().trim()) }) { show("favorites") }
+                        HostThreadGuard.run("guest.library.folder.create") {
+                            runtime.mutate(token, mutation = { it.createFavoriteFolder(edit.textToString().trim()) }) { show("favorites") }
+                        }
                     }.setNegativeButton(android.R.string.cancel, null).show()
             } else names.getOrNull(index)?.let { name ->
                 videos(name, collections.favorites.getValue(name)) { l, v -> l.removeFavorite(v.aid, v.cid, name) }

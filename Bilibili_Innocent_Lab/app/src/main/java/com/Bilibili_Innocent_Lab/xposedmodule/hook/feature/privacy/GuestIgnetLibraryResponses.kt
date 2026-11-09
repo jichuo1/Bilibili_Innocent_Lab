@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import java.net.URI
@@ -65,7 +66,7 @@ internal class GuestIgnetLibraryResponses(
             val produce = stream ?: return query
             val out = java.io.ByteArrayOutputStream()
             val failure = arrayOfNulls<Throwable>(1)
-            val reader = Thread({
+            val reader = Thread(HostThreadGuard.runnable("guest.ignet.form_drain") {
                 runCatching {
                     while (true) {
                         val chunk = produce(CHUNK) ?: break

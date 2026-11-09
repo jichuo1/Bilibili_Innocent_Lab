@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import android.app.AlertDialog
 import android.content.Context
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
@@ -50,7 +51,7 @@ internal class GuestHostFollowConfirmation(
                 return runCatching {
                     AlertDialog.Builder(activity)
                         .setMessage(message)
-                        .setPositiveButton(action) { _, _ -> confirm() }
+                        .setPositiveButton(action) { _, _ -> HostThreadGuard.run("guest.follow.confirm") { confirm() } }
                         .setNegativeButton(android.R.string.cancel, null)
                         .show()
                     true

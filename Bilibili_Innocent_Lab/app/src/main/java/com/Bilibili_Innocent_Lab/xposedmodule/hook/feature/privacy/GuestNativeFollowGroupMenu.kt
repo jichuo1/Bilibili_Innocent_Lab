@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.hostProxyDefaultValue
 import android.app.Activity
 import android.content.Context
 import android.os.Bundle
@@ -110,15 +111,16 @@ internal class GuestNativeFollowGroupMenu(
                         done: (Boolean) -> Unit): Any =
         Proxy.newProxyInstance(adapter.menuCallback.classLoader, arrayOf(adapter.menuCallback)) { proxy, method, args ->
             if (method.declaringClass == Any::class.java) return@newProxyInstance objectMethod(proxy, method, args)
-            val current = target.get() ?: return@newProxyInstance null
-            val ui = context.get() ?: return@newProxyInstance null
-            if (!confirmation.bound(current, uid, expected, token)) return@newProxyInstance null
+            val fallback = hostProxyDefaultValue(method.returnType)
+            val current = target.get() ?: return@newProxyInstance fallback
+            val ui = context.get() ?: return@newProxyInstance fallback
+            if (!confirmation.bound(current, uid, expected, token)) return@newProxyInstance fallback
             runCatching {
                 when (method.name) {
                     "a" -> showDialog(target, context, uid, token, expected)
                     "b" -> confirmation.confirmFromMenu(current, ui, uid, token, expected, announce, done)
                     "c" -> {
-                        val special = !(args?.singleOrNull() as? Boolean ?: return@newProxyInstance null)
+                        val special = !(args?.singleOrNull() as? Boolean ?: return@newProxyInstance fallback)
                         library.setHostSpecialFollow(token, uid, special) {
                             val updated = target.get() ?: return@setHostSpecialFollow
                             val hostContext = context.get() ?: return@setHostSpecialFollow
@@ -129,7 +131,7 @@ internal class GuestNativeFollowGroupMenu(
                     }
                 }
             }.onFailure { library.failure(token) }
-            null
+            fallback
         }
 
     private fun showDialog(target: WeakReference<Any>, context: WeakReference<Context>, uid: Long,
@@ -149,11 +151,12 @@ internal class GuestNativeFollowGroupMenu(
         adapter.setArguments.invoke(dialog, arguments)
         val callback = Proxy.newProxyInstance(adapter.dialogCallback.classLoader, arrayOf(adapter.dialogCallback)) { proxy, method, args ->
             if (method.declaringClass == Any::class.java) return@newProxyInstance objectMethod(proxy, method, args)
-            val item = target.get() ?: return@newProxyInstance null
-            if (!confirmation.bound(item, uid, expected, token)) return@newProxyInstance null
-            val special = args?.singleOrNull() as? Boolean ?: return@newProxyInstance null
+            val fallback = hostProxyDefaultValue(method.returnType)
+            val item = target.get() ?: return@newProxyInstance fallback
+            if (!confirmation.bound(item, uid, expected, token)) return@newProxyInstance fallback
+            val special = args?.singleOrNull() as? Boolean ?: return@newProxyInstance fallback
             runCatching { expected.get()?.let { adapter.host.call(it, "onSpecialStatusChange", special) } }
-            null
+            fallback
         }
         adapter.dialogCallbackField.set(dialog, callback)
         if (!confirmation.bound(current, uid, expected, token)) return
@@ -166,7 +169,7 @@ internal class GuestNativeFollowGroupMenu(
         "equals" -> proxy === args?.firstOrNull()
         "hashCode" -> System.identityHashCode(proxy)
         "toString" -> "LocalFollowGroupCallback"
-        else -> null
+        else -> hostProxyDefaultValue(method.returnType)
     }
 
     private fun specialMessage(context: Context, special: Boolean): String =

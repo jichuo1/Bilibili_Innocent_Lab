@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.hostProxyDefaultValue
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar
@@ -236,7 +237,7 @@ internal class GuestNativeListHttpHooks(
                         "hashCode" -> System.identityHashCode(proxy)
                         "equals" -> proxy === args?.firstOrNull()
                         "toString" -> "NoFallbackCache"
-                        else -> null
+                        else -> hostProxyDefaultValue(method.returnType)
                     }
                 }
                 if (runCatching { field.set(viewModel, empty) }.isSuccess) dropped++

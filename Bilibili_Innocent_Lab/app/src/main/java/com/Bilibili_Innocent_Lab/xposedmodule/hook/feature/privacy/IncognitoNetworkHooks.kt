@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.hostProxyDefaultValue
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.*
@@ -288,7 +289,7 @@ internal class IncognitoNetworkHooks(
                                     "toString" -> "BIL local incognito stream"
                                     "onNextForAck" -> sink.acceptForAck()
                                     "onCompleted", "onError" -> { sink.close(); null }
-                                    else -> null
+                                    else -> hostProxyDefaultValue(m.returnType)
                                 }
                             }
                             applied("stream")

@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import android.view.View
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
@@ -64,7 +65,8 @@ internal class GuestLottieFollowButton(
                     if (!isGuest()) {
                         original.onClick(view)
                     } else {
-                        click(env, anchors, applied, view, notify, getInstance)
+                        // 只守卫模块自己的分支；宿主原监听器的异常原样留给宿主。
+                        HostThreadGuard.run("guest.lottie.follow.click") { click(env, anchors, applied, view, notify, getInstance) }
                     }
                 }
             }

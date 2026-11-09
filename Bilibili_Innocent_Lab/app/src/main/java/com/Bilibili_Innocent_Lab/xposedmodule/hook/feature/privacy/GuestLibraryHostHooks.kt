@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import android.app.Activity
 import android.os.Bundle
@@ -92,7 +93,7 @@ internal class GuestLibraryHostHooks(
             val number = requireNotNull(Lookup.fieldOrNull(fragment, "p0"))
             val numbers = java.util.WeakHashMap<TextView, Unit>()
             fun update(state: LocalVirtualLibrary.Collections) {
-                if (isGuest()) numbers.keys.toList().forEach { it.text = state.follows.size.toString() }
+                if (isGuest()) numbers.keys.toList().forEach { it.text = String.format(java.util.Locale.ROOT, "%d", state.follows.size) }
             }
             library.observeCollections(::update)
             fun bind(target: Any?) {
@@ -292,21 +293,23 @@ internal class GuestLibraryHostHooks(
         fun view(name: String): View? = root.findViewById(root.resources.getIdentifier(name, "id", "tv.danmaku.bili"))
         val strings = GuestLibraryStrings.resolve(root.context)
         view("mine_user_info_layout")?.setOnLongClickListener {
-            if (!isGuest()) return@setOnLongClickListener false
-            library.show(it.context)
-            true
+            HostThreadGuard.call("guest.mine.header.long_click", false) {
+                if (isGuest()) { library.show(it.context); true } else false
+            }
         }
         view("avatar_layout")?.apply {
             contentDescription = strings.title
-            setOnClickListener { if (isGuest()) library.show(it.context) }
+            setOnClickListener { HostThreadGuard.run("guest.mine.avatar.click") { if (isGuest()) library.show(it.context) } }
         }
         (view("tv_login") as? TextView)?.apply {
             // Incognito names the session (tapping explains how to sign in); a plain guest keeps the sign-in prompt.
             text = if (library.incognito) strings.incognitoTitle else strings.signIn
             contentDescription = text
             if (library.incognito) setOnClickListener {
-                if (isGuest()) android.app.AlertDialog.Builder(it.context)
-                    .setMessage(strings.exitToSignIn).setPositiveButton(android.R.string.ok, null).show()
+                HostThreadGuard.run("guest.mine.sign_in.click") {
+                    if (isGuest()) android.app.AlertDialog.Builder(it.context)
+                        .setMessage(strings.exitToSignIn).setPositiveButton(android.R.string.ok, null).show()
+                }
             }
         }
     }

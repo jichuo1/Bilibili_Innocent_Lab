@@ -26,9 +26,11 @@ import java.lang.reflect.Modifier
  * Every instance registers itself weakly at construction; the one for the tapped video is the most recent with that aid.
  * The call runs on the main thread. Nothing here keeps a host instance beyond a weak reference.
  */
+private val pageFavoriteMain by lazy { guardedMainHandler("guest.page_favorite.main") }
+
 internal class GuestPageFavorite(
     private val repositoryName: String = REPOSITORY,
-    private val postToMain: (Runnable) -> Unit = { Handler(Looper.getMainLooper()).post(it) }
+    private val postToMain: (Runnable) -> Unit = { pageFavoriteMain.post(it) }
 ) : GuestVideoFavoriteHooks.PageFavoriteSource {
 
     /** How to read the aid of a repository and which of its methods toggles the favorite. */

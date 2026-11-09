@@ -39,28 +39,26 @@ class LocalizationResourcesTest {
     }
 
     @Test
-    fun `guest browsing copy states restart boundaries and incomplete verification in every locale`() {
-        val notices = mapOf(
-            "values" to listOf("Off by default", "independent", "restarting Bilibili", "not all paths have been verified"),
-            "values-zh-rCN" to listOf("默认关闭", "独立", "重启哔哩哔哩", "尚未验证所有链路"),
-            "values-b+zh+Hant" to listOf("預設關閉", "獨立", "重新啟動嗶哩嗶哩", "尚未驗證所有路徑")
+    fun `guest browsing copy states the restart boundary in every locale`() {
+        val restart = mapOf(
+            "values" to "Restart Bilibili to apply.",
+            "values-zh-rCN" to "重启哔哩哔哩后生效。",
+            "values-b+zh+Hant" to "重新啟動嗶哩嗶哩後生效。"
         )
-        notices.forEach { (locale, required) ->
+        restart.forEach { (locale, phrase) ->
             val strings = readStrings(File(resRoot, "$locale/strings.xml"))
-            listOf("no_login_enabled", "incognito_enabled").forEach { key ->
+            listOf("no_login_enabled", "incognito_enabled", "skip_guest_onboarding").forEach { key ->
                 assertTrue(strings.getValue(key).isNotBlank())
-                required.forEach { phrase ->
-                    assertTrue("$locale $key missing $phrase", strings.getValue("${key}_tip").contains(phrase))
-                }
+                assertTrue("$locale $key missing $phrase", strings.getValue("${key}_tip").endsWith(phrase))
             }
         }
         val chinese = readStrings(File(resRoot, "values-zh-rCN/strings.xml"))
         val browsing = chinese.getValue("no_login_enabled_tip")
-        listOf("仅移除客户端登录引导", "保留主动登录入口", "画质限游客可获得的资源", "本地历史、收藏与关注不上传")
-            .forEach { assertTrue(browsing.contains(it)) }
+        listOf("保留主动登录入口", "只存于本机，不上传", "画质以游客可用为限", "以无痕为准")
+            .forEach { assertTrue(it, browsing.contains(it)) }
         val incognito = chinese.getValue("incognito_enabled_tip")
-        listOf("临时游客会话", "关闭并重启后恢复账号", "退出会话", "宿主本地资料库刷新时丢弃", "不能保证服务端不留日志")
-            .forEach { assertTrue(incognito.contains(it)) }
+        listOf("临时游客会话", "关闭并重启后恢复账号", "会话结束即丢弃", "服务端仍可能记录访问")
+            .forEach { assertTrue(it, incognito.contains(it)) }
     }
 
     @Test

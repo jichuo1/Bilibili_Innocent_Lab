@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import android.app.AlertDialog
 import android.content.Context
 import android.widget.EditText
@@ -38,20 +39,24 @@ internal class GuestFavoriteFolderPicker : GuestVideoFavoriteHooks.FolderPicker 
         AlertDialog.Builder(activity)
             .setTitle(strings.title)
             .setMultiChoiceItems(folders.map { it.name }.toTypedArray(), checked) { _, index, on -> checked[index] = on }
-            .setPositiveButton(strings.done) { _, _ -> onConfirm(selected()) }
+            .setPositiveButton(strings.done) { _, _ -> HostThreadGuard.run("guest.folder_picker.done") { onConfirm(selected()) } }
             .setNeutralButton(GuestLibraryStrings.resolve(activity).folder) { _, _ ->
                 val input = EditText(activity).apply { hint = strings.namePrompt; setSingleLine() }
                 AlertDialog.Builder(activity)
                     .setTitle(GuestLibraryStrings.resolve(activity).folder)
                     .setView(input)
                     .setPositiveButton(strings.create) { _, _ ->
-                        val name = input.textToString().trim()
-                        // An empty name creates nothing, so the picker simply comes back with the same selection.
-                        if (name.isEmpty()) show(activity, folders.mapIndexed { i, f -> f.copy(checked = checked[i]) }, onConfirm, onCreate)
-                        else onCreate(name, selected())
+                        HostThreadGuard.run("guest.folder_picker.create") {
+                            val name = input.textToString().trim()
+                            // An empty name creates nothing, so the picker simply comes back with the same selection.
+                            if (name.isEmpty()) show(activity, folders.mapIndexed { i, f -> f.copy(checked = checked[i]) }, onConfirm, onCreate)
+                            else onCreate(name, selected())
+                        }
                     }
                     .setNegativeButton(android.R.string.cancel) { _, _ ->
-                        show(activity, folders.mapIndexed { i, f -> f.copy(checked = checked[i]) }, onConfirm, onCreate)
+                        HostThreadGuard.run("guest.folder_picker.back") {
+                            show(activity, folders.mapIndexed { i, f -> f.copy(checked = checked[i]) }, onConfirm, onCreate)
+                        }
                     }
                     .show()
             }

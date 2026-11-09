@@ -26,11 +26,9 @@ internal class GuestLibraryRuntime(
     // No fallback to the supplied Context: it may be an Activity or an Activity wrapper.
     private val contextReference = WeakReference(context)
     private val application by lazy { requireNotNull(contextReference.get()?.applicationContext) { "application-not-attached" } }
-    private val main = Handler(Looper.getMainLooper())
+    private val main = guardedMainHandler("guest.library.main")
     private val gate = Any()
-    private val io = Executors.newSingleThreadExecutor { task ->
-        Thread(task, "BIL-GuestLibrary").apply { isDaemon = true }
-    }
+    private val io = guardedSingleThreadExecutor("guest.library.io", "BIL-GuestLibrary")
     var session = IncognitoSession()
         private set
 

@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.hostProxyDefaultValue
 import android.os.Bundle
 import android.view.View
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureRuntimeStage
@@ -195,7 +196,7 @@ internal class GuestMineFollowStateAdapter private constructor(
         if (account.following.getLong(original) == count.toLong()) return@runCatching state
         val before = account.following.getLong(original)
         val cloned = if (account.defaultMasks > 0) {
-            val args = account.copy.parameterTypes.map(::defaultValue).toTypedArray()
+            val args = account.copy.parameterTypes.map(::hostProxyDefaultValue).toTypedArray()
             args[0] = original
             for (index in args.lastIndex - account.defaultMasks until args.lastIndex) args[index] = -1
             account.copy.invoke(null, *args)?.takeIf { it !== original && sameFields(account.fields, original, it) }
@@ -207,7 +208,7 @@ internal class GuestMineFollowStateAdapter private constructor(
         account.following.setLong(cloned, count.toLong())
         require(account.following.getLong(original) == before && account.following.getLong(cloned) == count.toLong())
         require(sameFields(account.fields, original, cloned, account.following))
-        val arguments = stateCopy.parameterTypes.map(::defaultValue).toTypedArray()
+        val arguments = stateCopy.parameterTypes.map(::hostProxyDefaultValue).toTypedArray()
         arguments[0] = state
         arguments[1] = cloned
         arguments[maskIndex] = -2 // Preserve every original property except the first account property.
@@ -259,16 +260,5 @@ internal class GuestMineFollowStateAdapter private constructor(
             field == except || if (field.type.isPrimitive) field.get(first) == field.get(second) else field.get(first) === field.get(second)
         }
 
-        private fun defaultValue(type: Class<*>): Any? = when (type) {
-            java.lang.Boolean.TYPE -> false
-            java.lang.Byte.TYPE -> 0.toByte()
-            java.lang.Short.TYPE -> 0.toShort()
-            java.lang.Character.TYPE -> '\u0000'
-            java.lang.Integer.TYPE -> 0
-            java.lang.Long.TYPE -> 0L
-            java.lang.Float.TYPE -> 0f
-            java.lang.Double.TYPE -> 0.0
-            else -> null
-        }
     }
 }

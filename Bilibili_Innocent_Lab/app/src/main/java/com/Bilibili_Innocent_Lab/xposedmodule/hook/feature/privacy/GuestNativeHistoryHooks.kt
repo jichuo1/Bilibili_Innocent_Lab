@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import android.os.Bundle
 import android.view.View
 import android.view.ViewTreeObserver
@@ -173,17 +174,22 @@ internal class GuestNativeHistoryHooks(
      * shows it; the host's own visibility logic is left untouched. The listener lives only while the banner is attached.
      */
     private fun installBannerGuard(banner: View) {
+        // 预绘制故障开放：守卫里出错按 true 放行，宿主照常绘制。
         val guard = ViewTreeObserver.OnPreDrawListener {
-            if (isGuest() && banner.visibility != View.GONE) {
-                banner.visibility = View.GONE
-                false
-            } else true
+            HostThreadGuard.call("guest.history.banner.predraw", true) {
+                if (isGuest() && banner.visibility != View.GONE) {
+                    banner.visibility = View.GONE
+                    false
+                } else true
+            }
         }
         fun attach(view: View) = view.viewTreeObserver.addOnPreDrawListener(guard)
         if (banner.isAttachedToWindow) attach(banner)
         banner.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(view: View) = attach(view)
-            override fun onViewDetachedFromWindow(view: View) = view.viewTreeObserver.removeOnPreDrawListener(guard)
+            override fun onViewAttachedToWindow(view: View) =
+                HostThreadGuard.run("guest.history.banner.attach") { attach(view) }
+            override fun onViewDetachedFromWindow(view: View) =
+                HostThreadGuard.run("guest.history.banner.detach") { view.viewTreeObserver.removeOnPreDrawListener(guard) }
         })
     }
 

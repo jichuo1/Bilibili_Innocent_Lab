@@ -5,7 +5,6 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.LinearSettingsScope
 
 import android.graphics.Typeface
-import android.util.Log
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
@@ -794,13 +793,8 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: LinearSettingsScope) = 
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = noLoginEnabled
-        setOnCheckedChangeListener { _, checked ->
-            runCatching { prefs().edit { putBoolean(FeaturePreferences.NO_LOGIN_ENABLED, checked) } }
-                .onSuccess { noLoginEnabled = checked }
-                .onFailure {
-                    Log.e("BilibiliInnocentLab", "write noLoginEnabled prefs failed", it)
-                    isChecked = noLoginEnabled
-                }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.NO_LOGIN_ENABLED, checked, button)
         }
     }
     textView(key = "EnhanceSettingsSections:no-login-tip", lparams = params(widthMatchParent = true)) {
@@ -820,13 +814,8 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: LinearSettingsScope) = 
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = incognitoEnabled
-        setOnCheckedChangeListener { _, checked ->
-            runCatching { prefs().edit { putBoolean(FeaturePreferences.INCOGNITO_ENABLED, checked) } }
-                .onSuccess { incognitoEnabled = checked }
-                .onFailure {
-                    Log.e("BilibiliInnocentLab", "write incognitoEnabled prefs failed", it)
-                    isChecked = incognitoEnabled
-                }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.INCOGNITO_ENABLED, checked, button)
         }
     }
     textView(key = "EnhanceSettingsSections:incognito-tip", lparams = params(widthMatchParent = true)) {
@@ -837,26 +826,20 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: LinearSettingsScope) = 
         textSize = 12f
     }
     materialSwitch(key = "EnhanceSettingsSections:skip-guest-onboarding", lparams = params(widthMatchParent = true) {
-        marginStart = 16.dp
-        topMargin = 8.dp
+        topMargin = 12.dp
         bottomMargin = 5.dp
     }) {
         bindFavoriteSwitch(this, FeaturePreferences.SKIP_GUEST_ONBOARDING, directToggle = true)
         text = stringResource(R.string.skip_guest_onboarding)
         isAllCaps = false
         textColor = colorResource(R.color.colorTextGray)
-        textSize = 14f
+        textSize = 15f
         isChecked = skipGuestOnboarding
-        setOnCheckedChangeListener { _, checked ->
-            runCatching { prefs().edit { putBoolean(FeaturePreferences.SKIP_GUEST_ONBOARDING, checked) } }
-                .onSuccess { skipGuestOnboarding = checked }
-                .onFailure {
-                    Log.e("BilibiliInnocentLab", "write skipGuestOnboarding prefs failed", it)
-                    isChecked = skipGuestOnboarding
-                }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.SKIP_GUEST_ONBOARDING, checked, button)
         }
     }
-    textView(key = "EnhanceSettingsSections:skip-guest-onboarding-tip", lparams = params(widthMatchParent = true) { marginStart = 16.dp }) {
+    textView(key = "EnhanceSettingsSections:skip-guest-onboarding-tip", lparams = params(widthMatchParent = true)) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
         text = stringResource(R.string.skip_guest_onboarding_tip)

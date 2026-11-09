@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import android.app.Activity
 import android.content.Context
 import android.content.DialogInterface
@@ -67,26 +68,33 @@ internal class GuestNativeFollowListHooks(private val library: GuestLibraryRunti
                 val name = field(row, "uname") as String
                 val cell = requireNotNull(field(target, "a"))
                 val action = field(cell, "c") as TextView
-                action.text = "已关注"
-                action.contentDescription = "取消关注$name"
+                val strings = GuestFollowListStrings.resolve(activity)
+                action.text = strings.following
+                action.contentDescription = strings.unfollowDescription.format(name)
                 root.setOnClickListener {
-                    activity.startActivity(Intent(Intent.ACTION_VIEW, "bilibili://space/$mid".toUri()).setPackage(activity.packageName))
+                    HostThreadGuard.run("guest.native_follow_list.row.click") {
+                        activity.startActivity(Intent(Intent.ACTION_VIEW, "bilibili://space/$mid".toUri()).setPackage(activity.packageName))
+                    }
                 }
                 action.setOnClickListener {
-                    // Host AppCompat dialog uses the same typography, buttons and theme as its native screens.
-                    val builderType = host.type("androidx.appcompat.app.AlertDialog\$Builder")
-                    val builder = requireNotNull(Lookup.constructorOrNull(builderType, classOf<Context>())).newInstance(activity)
-                    host.call(builder, "setMessage", "确定取消关注$name？")
-                    host.call(builder, "setNegativeButton", "取消", DialogInterface.OnClickListener { _, _ -> })
-                    val weak = WeakReference(activity)
-                    host.call(builder, "setPositiveButton", "确定", DialogInterface.OnClickListener { _, _ ->
-                        library.nativeRequest({ data -> data.unfollow(mid) }) { outcome ->
-                            weak.get()?.takeUnless { it.isFinishing || it.isDestroyed }?.let { live ->
-                                if (outcome.isSuccess) refresh(live) else host.call(live, "P")
+                    HostThreadGuard.run("guest.native_follow_list.unfollow.click") {
+                        // Host AppCompat dialog uses the same typography, buttons and theme as its native screens.
+                        val builderType = host.type("androidx.appcompat.app.AlertDialog\$Builder")
+                        val builder = requireNotNull(Lookup.constructorOrNull(builderType, classOf<Context>())).newInstance(activity)
+                        host.call(builder, "setMessage", strings.unfollowConfirm.format(name))
+                        host.call(builder, "setNegativeButton", strings.cancel, DialogInterface.OnClickListener { _, _ -> })
+                        val weak = WeakReference(activity)
+                        host.call(builder, "setPositiveButton", strings.confirm, DialogInterface.OnClickListener { _, _ ->
+                            HostThreadGuard.run("guest.native_follow_list.unfollow.confirm") {
+                                library.nativeRequest({ data -> data.unfollow(mid) }) { outcome ->
+                                    weak.get()?.takeUnless { it.isFinishing || it.isDestroyed }?.let { live ->
+                                        if (outcome.isSuccess) refresh(live) else host.call(live, "P")
+                                    }
+                                }
                             }
-                        }
-                    })
-                    host.call(builder, "show")
+                        })
+                        host.call(builder, "show")
+                    }
                 }
             }
         }

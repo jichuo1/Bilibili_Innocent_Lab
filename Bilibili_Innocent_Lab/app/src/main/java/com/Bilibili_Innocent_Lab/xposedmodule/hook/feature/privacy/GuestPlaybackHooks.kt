@@ -16,7 +16,7 @@ internal class GuestPlaybackHooks(
     private data class Playback(val aid: Long, val cid: Long, var last: Long = -1,
         var restored: Boolean = false, var resume: Long? = null)
     private val players = WeakHashMap<Any, Playback>()
-    private val main = Handler(Looper.getMainLooper())
+    private val main = guardedMainHandler("guest.playback.main")
     private val diagSeen = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     internal companion object {
