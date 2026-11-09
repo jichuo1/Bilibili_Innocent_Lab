@@ -23,6 +23,24 @@ class ScrollPositionRefreshContractTest {
         assertTrue(source("skin/runtime/ActivitySkinSession").contains("activeEngine.notifyScrollPositionChanged(scrollHost)"))
     }
 
+    @Test fun secondaryPagesForwardActualScrollOffsetsLikeTheHomePage() {
+        val bind = source("skin/activity/SkinnedActivity")
+            .after("protected fun bindPreparedSkinScrollHost(scrollHost: View)")
+            .before("/** 悬浮胶囊下方的内容层")
+        assertTrue(bind.contains("setOnScrollChangeListener(View.OnScrollChangeListener"))
+        assertTrue(bind.contains("if (x != oldX || y != oldY) notifyPreparedSkinScrollPositionChanged(view)"))
+        assertFalse(bind.contains("post"))
+        val diagnostics = source("activity/DiagnosticsActivity").after("private fun buildRoot(): View")
+            .before("private fun buildToolbar(): View")
+        assertTrue(diagnostics.contains("bindPreparedSkinScrollHost(scroll)"))
+        val backup = source("activity/SettingsBackupActivity").after("val scrollView = NestedScrollView(this)")
+            .before("private fun finishPageStretch()")
+        assertTrue(backup.contains("bindPreparedSkinScrollHost(scrollView)"))
+        val freeCopy = source("activity/FreeCopyActivity").after("liquidStretchViewport = liquidStretchScrollTarget?.let")
+            .before("override fun onDestroy()")
+        assertTrue(freeCopy.contains("bindPreparedSkinScrollHost(it)"))
+    }
+
     @Test fun scopedRefreshOnlyInvalidatesOldVisibleDescendantRecords() {
         val scoped = source("skin/liquid/LiquidActivityRenderer")
             .after("override fun notifyScrollPositionChanged(scrollHost: View)")

@@ -6,9 +6,10 @@ import androidx.core.view.isGone
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LegacyStoryDanmakuAccess
 
 /**
- * 隐藏 Story 竖屏流右侧的互动图标（每个图标单独开关），见 [StoryActionIcon]。
+ * 隐藏 Story 竖屏流的互动图标（每个图标单独开关），见 [StoryActionIcon]。
  *
  * 每个组件类挂两处：
  * - 构造之后 `post` 一次折叠——布局填充完、第一帧之前生效，滑到下一条时不会先闪出来；
@@ -20,13 +21,16 @@ internal class StoryActionIconsFeatureInstaller(
     /** 单测替换：把宿主实例变成可折叠的盒子；真机走 [ViewActionIconBox]。 */
     private val boxOf: (Any) -> ActionIconBox? = { (it as? View)?.let(::ViewActionIconBox) },
     /** 单测替换：构造后延迟到下一帧执行；真机走 `View.post`。 */
-    private val postToView: (Any, () -> Unit) -> Unit = { target, block -> (target as? View)?.post { block() } }
+    private val postToView: (Any, () -> Unit) -> Unit = { target, block -> (target as? View)?.post { block() } },
+    private val legacyResolver: (ClassLoader) -> LegacyStoryDanmakuAccess? = { LegacyStoryDanmakuAccess.resolve(it) }
 ) : FeatureInstaller {
 
     override val id: String = ID
 
     /** 已排过构造后折叠的实例；弱引用，不让组件活过它的页面。 */
     private val posted: MutableSet<Any> = java.util.Collections.newSetFromMap(java.util.WeakHashMap())
+    private val legacyReady = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val legacyRegistered = hashSetOf<String>()
     override val capabilityIds: List<String> get() = hidden.map { it.capabilityId }
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
@@ -45,10 +49,27 @@ internal class StoryActionIconsFeatureInstaller(
             var installedForIcon = 0
             var expectedForIcon = 0
             var primaryInstalled = false
-            if (icon.widgetClasses.none { KavaMemberLookup.classOrNull(loader, it) != null }) {
-                // 整个图标在该宿主上都不存在（弹幕开关 9.4.0 起才有）：没有东西可藏，不算缺失。
+            val hasWidgets = icon.widgetClasses.any { KavaMemberLookup.classOrNull(loader, it) != null }
+            val legacyOwner = if (icon == StoryActionIcon.DANMAKU_TOGGLE)
+                KavaMemberLookup.classOrNull(loader, LegacyStoryDanmakuAccess.OWNER) else null
+            if (!hasWidgets && legacyOwner == null) {
+                // 新旧载体均不存在：没有可定位的图标，不把某一种组件类缺失直接当成成功。
                 environment.reportCapability(icon.capabilityId, FeatureInstallResult.Skipped("not-applicable-host"))
                 return@forEach
+            }
+            if (legacyOwner != null) {
+                val legacy = legacyResolver(loader)
+                val legacyAccessorPresent = KavaMemberLookup.declaredMethods(legacyOwner) {
+                    it.name == "getMDanmakuToggle" && it.parameterCount == 0
+                }.isNotEmpty()
+                // 新版可能已移除旧访问器；有新版 widget 时不把已删除的旧形态算成缺失。
+                if (legacy != null || legacyAccessorPresent || !hasWidgets) {
+                    expectedForIcon += 1
+                    if (legacy != null && installLegacyDanmaku(environment, legacy)) {
+                        installedForIcon += 1
+                        primaryInstalled = true
+                    }
+                }
             }
             icon.widgetClasses.forEachIndexed { index, className ->
                 val widget = KavaMemberLookup.classOrNull(loader, className) ?: return@forEachIndexed
@@ -81,6 +102,42 @@ internal class StoryActionIconsFeatureInstaller(
         }
         return FeatureInstallResult.Installed(total, complete = complete)
     }
+
+    private fun installLegacyDanmaku(environment: HookEnvironment, access: LegacyStoryDanmakuAccess): Boolean = runCatching {
+        val icon = StoryActionIcon.DANMAKU_TOGGLE
+        fun collapseController(controller: Any) {
+            val toggle = runCatching { access.toggle(controller) }.getOrElse { throwable ->
+                environment.reportRuntimeEvidence(icon.capabilityId, FeatureRuntimeStage.ERROR)
+                environment.logError("story_action_legacy_danmaku_read", "[BIL] 旧版竖屏弹幕开关读取失败: $throwable")
+                return
+            }
+            toggle?.let { collapse(environment, icon, it) }
+        }
+        fun register(key: String, method: java.lang.reflect.Method,
+                     block: com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator.() -> Unit) {
+            if (key in legacyRegistered) return
+            environment.registrar.exact(key, method.declaringClass, method.name, *method.parameterTypes, block = block)
+            legacyRegistered += key
+        }
+        register("$ID.legacy_danmaku.setter", access.setter) {
+            after {
+                if (hasThrowable || !legacyReady.get()) return@after
+                argOrNull(0)?.let { collapse(environment, icon, it) }
+                val controller = instance ?: return@after
+                if (synchronized(posted) { posted.add(controller) }) {
+                    postToView(controller) { collapseController(controller) }
+                }
+            }
+        }
+        register("$ID.legacy_danmaku.bind", access.bind) {
+            after { if (!hasThrowable && legacyReady.get()) instance?.let(::collapseController) }
+        }
+        legacyReady.set(true)
+        true
+    }.onFailure { throwable ->
+        legacyReady.set(false)
+        environment.logError("story_action_legacy_danmaku", "[BIL] 旧版竖屏弹幕开关 Hook 注册失败: $throwable")
+    }.getOrDefault(false)
 
     /** 一个组件类：`onStart(int)` 必须装上才算这个类可用；构造后的提前折叠是锦上添花。 */
     private fun installWidget(environment: HookEnvironment, icon: StoryActionIcon, widget: Class<*>): Boolean {

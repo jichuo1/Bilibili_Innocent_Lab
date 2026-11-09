@@ -15,7 +15,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppe
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassMaterial
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassRenderer
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
-import com.highcapable.betterandroid.ui.extension.view.textColor
+import io.github.jichuo1.meguviz.android.extensions.textColor
 
 private fun MainActivity.glassAppearance(bottom: Boolean) =
     if (bottom) hostBottomBarGlassAppearance else hostTopBarGlassAppearance

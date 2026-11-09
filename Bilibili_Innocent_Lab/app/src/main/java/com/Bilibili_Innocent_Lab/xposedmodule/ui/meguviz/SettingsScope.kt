@@ -13,7 +13,7 @@ import android.widget.TextView
 import androidx.core.widget.NestedScrollView
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.LogSegmentScrubBar
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch
-import com.highcapable.betterandroid.ui.extension.component.base.toPx
+import io.github.jichuo1.meguviz.android.extensions.toPx
 import io.github.jichuo1.meguviz.ui.ComponentType
 import io.github.jichuo1.meguviz.ui.CreationEnvironment
 import io.github.jichuo1.meguviz.ui.ParentPolicy

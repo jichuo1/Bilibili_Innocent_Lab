@@ -6,7 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Process
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatus
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 
 /**
  * libxposed Service API 没有标准管理器启动接口。这里只返回当前设备上能够解析且允许
@@ -27,6 +27,15 @@ internal object FrameworkManagerLauncher {
             if (isLaunchable(context, intent)) return intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         return null
+    }
+
+    /** 只按包名解析入口；框架名不可用（如 Manager 已被回收）时的兜底。 */
+    fun resolvePackage(context: Context, packageName: String): Intent? {
+        val intent = runCatching {
+            context.packageManager.getLaunchIntentForPackage(packageName)
+        }.getOrNull() ?: return null
+        return if (isLaunchable(context, intent)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        else null
     }
 
     private fun isLaunchable(context: Context, intent: Intent): Boolean {

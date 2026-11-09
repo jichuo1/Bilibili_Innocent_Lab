@@ -1,0 +1,480 @@
+{
+  "order": "BAABABBA",
+  "seconds": 60,
+  "phases": [
+    {
+      "index": 0,
+      "variant": "B",
+      "startElapsedNs": 250721675648388,
+      "endElapsedNs": 250781698440449,
+      "startMonotonicNs": 145469193429194,
+      "endMonotonicNs": 145529216222296,
+      "frames": 5316,
+      "elapsedMs": 60022.792061,
+      "brightness": 0.15,
+      "displayHz": 90,
+      "thermalStatus": 0,
+      "mainCpuMs": 27960.614203,
+      "gpuMeanMs": 9.365316873589165,
+      "gpuP95Ms": 15.221927,
+      "drawMeanMs": 1.746184514108352,
+      "drawP95Ms": 2.91125,
+      "totalP95Ms": 38.031975,
+      "deadlineMetricUsable": false,
+      "deadlineP50Ms": 37373.707717,
+      "missedDeadlineFrames": null,
+      "droppedMetricReports": 5,
+      "before": {
+        "materialRecordings": 269,
+        "cards": {
+          "contentRecordings": 261,
+          "proxyRecordings": 268,
+          "effectChainBuilds": 1
+        },
+        "top": {
+          "contentRecordings": 261,
+          "proxyRecordings": 266,
+          "effectChainBuilds": 1
+        },
+        "bottom": {
+          "contentRecordings": 261,
+          "proxyRecordings": 266,
+          "effectChainBuilds": 1
+        }
+      },
+      "after": {
+        "materialRecordings": 2051,
+        "cards": {
+          "contentRecordings": 2041,
+          "proxyRecordings": 2050,
+          "effectChainBuilds": 1
+        },
+        "top": {
+          "contentRecordings": 2038,
+          "proxyRecordings": 2035,
+          "effectChainBuilds": 1
+        },
+        "bottom": {
+          "contentRecordings": 2036,
+          "proxyRecordings": 2024,
+          "effectChainBuilds": 1
+        }
+      }
+    },
+    {
+      "index": 1,
+      "variant": "A",
+      "startElapsedNs": 250792017079612,
+      "endElapsedNs": 250852047507505,
+      "startMonotonicNs": 145539534859115,
+      "endMonotonicNs": 145599565290603,
+      "frames": 5309,
+      "elapsedMs": 60030.427893,
+      "brightness": 0.15,
+      "displayHz": 90,
+      "thermalStatus": 0,
+      "mainCpuMs": 30037.218118,
+      "gpuMeanMs": 9.303314758146543,
+      "gpuP95Ms": 15.243385,
+      "drawMeanMs": 2.3406221173479,
+      "drawP95Ms": 3.892187,
+      "totalP95Ms": 38.605272,
+      "deadlineMetricUsable": false,
+      "deadlineP50Ms": 102072.178544,
+      "missedDeadlineFrames": null,
+      "droppedMetricReports": 5,
+      "before": {
+        "materialRecordings": 251,
+        "cards": {
+          "contentRecordings": 240,
+          "proxyRecordings": 535,
+          "effectChainBuilds": 1
+        },
+        "top": {
+          "contentRecordings": 242,
+          "proxyRecordings": 248,
+          "effectChainBuilds": 1
+        },
+        "bottom": {
+          "contentRecordings": 239,
+          "proxyRecordings": 246,
+          "effectChainBuilds": 1
+        }
+      },
+      "after": {
+        "materialRecordings": 2016,
+        "cards": {
+          "contentRecordings": 2004,
+          "proxyRecordings": 4065,
+          "effectChainBuilds": 1
+        },
+        "top": {
+          "contentRecordings": 2005,
+          "proxyRecordings": 2001,
+          "effectChainBuilds": 1
+        },
+        "bottom": {
+          "contentRecordings": 1997,
+          "proxyRecordings": 1978,
+          "effectChainBuilds": 1
+        }
+      }
+    },
+    {
+      "index": 2,
+      "variant": "A",
+      "startElapsedNs": 250862319272866,
+      "endElapsedNs": 250922342533572,
+      "startMonotonicNs": 145609837050443,
+      "endMonotonicNs": 145669860309691,
+      "frames": 5311,
+      "elapsedMs": 60023.260706,
+      "brightness": 0.15,
+      "displayHz": 90,
+      "thermalStatus": 0,
+      "mainCpuMs": 29994.737679,
+      "gpuMeanMs": 9.286761188853323,
+      "gpuP95Ms": 15.176354,
+      "drawMeanMs": 2.3209910026360383,
+      "drawP95Ms": 3.80849,
+      "totalP95Ms": 38.184433,
+      "deadlineMetricUsable": false,
+      "deadlineP50Ms": 167249.381626,
+      "missedDeadlineFrames": null,
+      "droppedMetricReports": 1,
+      "before": {
+        "materialRecordings": 249,
+        "cards": {
+          "contentRecordings": 239,
+          "proxyRecordings": 528,
+          "effectChainBuilds": 1
+        },
+        "top": {
+          "contentRecordings": 240,
+          "proxyRecordings": 249,
+          "effectChainBuilds": 1
+        },
+        "bottom": {
+          "contentRecordings": 238,
+          "proxyRecordings": 246,
+          "effectChainBuilds": 1
+        }
+      },
+      "after": {
+        "materialRecordings": 2025,
+        "cards": {
+          "contentRecordings": 2015,
+          "proxyRecordings": 4080,
+          "effectChainBuilds": 1
+        },
+        "top": {
+          "contentRecordings": 2013,
+          "proxyRecordings": 2013,
+          "effectChainBuilds": 1
+        },
+        "bottom": {
+          "contentRecordings": 2008,
+          "proxyRecordings": 1989,
+          "effectChainBuilds": 1
+        }
+      }
+    },
+    {
+      "index": 3,
+      "variant": "B",
+      "startElapsedNs": 250932618049975,
+      "endElapsedNs": 250992653421202,
+      "startMonotonicNs": 145680135826145,
+      "endMonotonicNs": 145740171197737,
+      "frames": 5320,
+      "elapsedMs": 60035.371227,
+      "brightness": 0.15,
+      "displayHz": 90,
+      "thermalStatus": 0,
+      "mainCpuMs": 26008.758063,
+      "gpuMeanMs": 9.321716317293232,
+      "gpuP95Ms": 15.35974,
+      "drawMeanMs": 1.6233610742481202,
+      "drawP95Ms": 2.626719,
+      "totalP95Ms": 37.879217,
+      "deadlineMetricUsable": false,
+      "deadlineP50Ms": 232487.432594,
+      "missedDeadlineFrames": null,
+      "droppedMetricReports": 3,
+      "before": {
+        "materialRecordings": 267,
+        "cards": {
+          "contentRecordings": 260,
+          "proxyRecordings": 266,
+          "effectChainBuilds": 1
+        },
+        "top": {
+          "contentRecordings": 260,
+          "proxyRecordings": 268,
+          "effectChainBuilds": 1
+        },
+        "bottom": {
+          "contentRecordings": 260,
+          "proxyRecordings": 265,
+          "effectChainBuilds": 1
+        }
+      },
+      "after": {
+        "materialRecordings": 2049,
+        "cards": {
+          "contentRecordings": 2040,
+          "proxyRecordings": 2048,
+          "effectChainBuilds": 1
+        },
+        "top": {
+          "contentRecordings": 2036,
+          "proxyRecordings": 2040,
+          "effectChainBuilds": 1
+        },
+        "bottom": {
+          "contentRecordings": 2031,
+          "proxyRecordings": 2018,
+          "effectChainBuilds": 1
+        }
+      }
+    },
+    {
+      "index": 4,
+      "variant": "A",
+      "startElapsedNs": 251002940307969,
+      "endElapsedNs": 251062962353258,
+      "startMonotonicNs": 145750458083670,
+      "endMonotonicNs": 145810480128647,
+      "frames": 5319,
+      "elapsedMs": 60022.045289,
+      "brightness": 0.15,
+      "displayHz": 90,
+      "thermalStatus": 0,
+      "mainCpuMs": 29560.990222,
+      "gpuMeanMs": 9.165908832675315,
+      "gpuP95Ms": 14.855052,
+      "drawMeanMs": 2.2851254273359656,
+      "drawP95Ms": 3.744479,
+      "totalP95Ms": 37.736178,
+      "deadlineMetricUsable": false,
+      "deadlineP50Ms": 297364.648023,
+      "missedDeadlineFrames": null,
+      "droppedMetricReports": 3,
+      "before": {
+        "materialRecordings": 254,
+        "cards": {
+          "contentRecordings": 243,
+          "proxyRecordings": 542,
+          "effectChainBuilds": 1
+        },
+        "top": {
+          "contentRecordings": 244,
+          "proxyRecordings": 252,
+          "effectChainBuilds": 1
+        },
+        "bottom": {
+          "contentRecordings": 243,
+          "proxyRecordings": 250,
+          "effectChainBuilds": 1
+        }
+      },
+      "after": {
+        "materialRecordings": 2032,
+        "cards": {
+          "contentRecordings": 2019,
+          "proxyRecordings": 4098,
+          "effectChainBuilds": 1
+        },
+        "top": {
+          "contentRecordings": 2021,
+          "proxyRecordings": 2020,
+          "effectChainBuilds": 1
+        },
+        "bottom": {
+          "contentRecordings": 2016,
+          "proxyRecordings": 1993,
+          "effectChainBuilds": 1
+        }
+      }
+    },
+    {
+      "index": 5,
+      "variant": "B",
+      "startElapsedNs": 251073240513619,
+      "endElapsedNs": 251133250797554,
+      "startMonotonicNs": 145820758288696,
+      "endMonotonicNs": 145880768575339,
+      "frames": 5312,
+      "elapsedMs": 60010.283935,
+      "brightness": 0.15,
+      "displayHz": 90,
+      "thermalStatus": 0,
+      "mainCpuMs": 25569.711878,
+      "gpuMeanMs": 9.21552029066265,
+      "gpuP95Ms": 15.08625,
+      "drawMeanMs": 1.612096419239458,
+      "drawP95Ms": 2.598177,
+      "totalP95Ms": 38.263336,
+      "deadlineMetricUsable": false,
+      "deadlineP50Ms": 362522.601629,
+      "missedDeadlineFrames": null,
+      "droppedMetricReports": 2,
+      "before": {
+        "materialRecordings": 258,
+        "cards": {
+          "contentRecordings": 248,
+          "proxyRecordings": 257,
+          "effectChainBuilds": 1
+        },
+        "top": {
+          "contentRecordings": 250,
+          "proxyRecordings": 254,
+          "effectChainBuilds": 1
+        },
+        "bottom": {
+          "contentRecordings": 250,
+          "proxyRecordings": 250,
+          "effectChainBuilds": 1
+        }
+      },
+      "after": {
+        "materialRecordings": 2044,
+        "cards": {
+          "contentRecordings": 2034,
+          "proxyRecordings": 2043,
+          "effectChainBuilds": 1
+        },
+        "top": {
+          "contentRecordings": 2036,
+          "proxyRecordings": 2031,
+          "effectChainBuilds": 1
+        },
+        "bottom": {
+          "contentRecordings": 2028,
+          "proxyRecordings": 2007,
+          "effectChainBuilds": 1
+        }
+      }
+    },
+    {
+      "index": 6,
+      "variant": "B",
+      "startElapsedNs": 251143606747446,
+      "endElapsedNs": 251203635063309,
+      "startMonotonicNs": 145891124528513,
+      "endMonotonicNs": 145951152840313,
+      "frames": 5324,
+      "elapsedMs": 60028.315863,
+      "brightness": 0.15,
+      "displayHz": 90,
+      "thermalStatus": 0,
+      "mainCpuMs": 25293.277322,
+      "gpuMeanMs": 9.260445561232157,
+      "gpuP95Ms": 15.051875,
+      "drawMeanMs": 1.6033090396318557,
+      "drawP95Ms": 2.577656,
+      "totalP95Ms": 38.091457,
+      "deadlineMetricUsable": false,
+      "deadlineP50Ms": 428830.829793,
+      "missedDeadlineFrames": null,
+      "droppedMetricReports": 2,
+      "before": {
+        "materialRecordings": 270,
+        "cards": {
+          "contentRecordings": 260,
+          "proxyRecordings": 269,
+          "effectChainBuilds": 1
+        },
+        "top": {
+          "contentRecordings": 261,
+          "proxyRecordings": 269,
+          "effectChainBuilds": 1
+        },
+        "bottom": {
+          "contentRecordings": 261,
+          "proxyRecordings": 264,
+          "effectChainBuilds": 1
+        }
+      },
+      "after": {
+        "materialRecordings": 2056,
+        "cards": {
+          "contentRecordings": 2044,
+          "proxyRecordings": 2055,
+          "effectChainBuilds": 1
+        },
+        "top": {
+          "contentRecordings": 2044,
+          "proxyRecordings": 2043,
+          "effectChainBuilds": 1
+        },
+        "bottom": {
+          "contentRecordings": 2040,
+          "proxyRecordings": 2017,
+          "effectChainBuilds": 1
+        }
+      }
+    },
+    {
+      "index": 7,
+      "variant": "A",
+      "startElapsedNs": 251213901261065,
+      "endElapsedNs": 251273922091615,
+      "startMonotonicNs": 145961419037965,
+      "endMonotonicNs": 146021439869817,
+      "frames": 5329,
+      "elapsedMs": 60020.83055,
+      "brightness": 0.15,
+      "displayHz": 90,
+      "thermalStatus": 0,
+      "mainCpuMs": 28960.701253,
+      "gpuMeanMs": 9.13161991780822,
+      "gpuP95Ms": 15.063437,
+      "drawMeanMs": 2.2680434734471757,
+      "drawP95Ms": 3.690625,
+      "totalP95Ms": 37.928697,
+      "deadlineMetricUsable": false,
+      "deadlineP50Ms": 493936.200552,
+      "missedDeadlineFrames": null,
+      "droppedMetricReports": 4,
+      "before": {
+        "materialRecordings": 258,
+        "cards": {
+          "contentRecordings": 246,
+          "proxyRecordings": 552,
+          "effectChainBuilds": 1
+        },
+        "top": {
+          "contentRecordings": 248,
+          "proxyRecordings": 258,
+          "effectChainBuilds": 1
+        },
+        "bottom": {
+          "contentRecordings": 249,
+          "proxyRecordings": 258,
+          "effectChainBuilds": 1
+        }
+      },
+      "after": {
+        "materialRecordings": 2033,
+        "cards": {
+          "contentRecordings": 2020,
+          "proxyRecordings": 4102,
+          "effectChainBuilds": 1
+        },
+        "top": {
+          "contentRecordings": 2018,
+          "proxyRecordings": 2021,
+          "effectChainBuilds": 1
+        },
+        "bottom": {
+          "contentRecordings": 2016,
+          "proxyRecordings": 2000,
+          "effectChainBuilds": 1
+        }
+      }
+    }
+  ],
+  "complete": true,
+  "comparison": "card proxy draw and direct-child mapping; A=bf1d4f5c"
+}

@@ -78,10 +78,10 @@ internal object KavaMemberLookup {
         cache: ConcurrentHashMap<K, CachedValue<V>>,
         key: K,
         resolver: () -> V?
-    ): V? {
+    ): V? = StartupTrace.measure("lookup.value") {
         cache[key]?.let {
             cacheHits.incrementAndGet()
-            return it.value
+            return@measure it.value
         }
         cacheMisses.incrementAndGet()
         val resolved = try {
@@ -89,21 +89,21 @@ internal object KavaMemberLookup {
         } catch (failure: Throwable) {
             if (failure is VirtualMachineError) throw failure
             lookupFailures.incrementAndGet()
-            if (failure is IncompleteMemberLookup) return null
+            if (failure is IncompleteMemberLookup) return@measure null
             null
         }
         val value = CachedValue(resolved)
-        return cache.putIfAbsent(key, value)?.value ?: resolved
+        cache.putIfAbsent(key, value)?.value ?: resolved
     }
 
     private fun <K, V> cachedList(
         cache: ConcurrentHashMap<K, List<V>>,
         key: K,
         resolver: () -> List<V>
-    ): List<V> {
+    ): List<V> = StartupTrace.measure("lookup.list") {
         cache[key]?.let {
             cacheHits.incrementAndGet()
-            return it
+            return@measure it
         }
         cacheMisses.incrementAndGet()
         val resolved = try {
@@ -111,10 +111,10 @@ internal object KavaMemberLookup {
         } catch (failure: Throwable) {
             if (failure is VirtualMachineError) throw failure
             lookupFailures.incrementAndGet()
-            if (failure is IncompleteMemberLookup) return emptyList()
+            if (failure is IncompleteMemberLookup) return@measure emptyList()
             emptyList()
         }
-        return cache.putIfAbsent(key, resolved) ?: resolved
+        cache.putIfAbsent(key, resolved) ?: resolved
     }
 
     /** 通过指定宿主 ClassLoader 加载类，不触发类初始化；版本漂移时返回 null。 */
@@ -176,7 +176,36 @@ internal object KavaMemberLookup {
         includeSuperclasses: Boolean,
         makeAccessible: Boolean = false,
         predicate: (Method) -> Boolean = { true }
-    ): List<Method> = cachedList(
+    ): List<Method> = methodCollection(declaringClass, includeSuperclasses).asSequence()
+        .filter(predicate)
+        .filter { !makeAccessible || it.makeAccessible() }
+        .toList()
+
+    /**
+     * 只要第一个满足条件的方法：在已缓存的成员集合上短路，不为只用 firstOrNull 的调用方物化整份过滤结果。
+     * 返回的就是 [methods] 结果的第一项（顺序、可访问性跳过规则一致）；只对找到之前的候选调用 makeAccessible。
+     */
+    fun firstMethodOrNull(
+        declaringClass: Class<*>,
+        includeSuperclasses: Boolean,
+        makeAccessible: Boolean = false,
+        predicate: (Method) -> Boolean = { true }
+    ): Method? {
+        val all = methodCollection(declaringClass, includeSuperclasses)
+        for (index in all.indices) {
+            val candidate = all[index]
+            if (predicate(candidate) && (!makeAccessible || candidate.makeAccessible())) return candidate
+        }
+        return null
+    }
+
+    fun firstDeclaredMethodOrNull(
+        declaringClass: Class<*>,
+        makeAccessible: Boolean = false,
+        predicate: (Method) -> Boolean = { true }
+    ): Method? = firstMethodOrNull(declaringClass, includeSuperclasses = false, makeAccessible = makeAccessible, predicate = predicate)
+
+    private fun methodCollection(declaringClass: Class<*>, includeSuperclasses: Boolean): List<Method> = cachedList(
         methodCollectionCache,
         MethodCollectionKey(declaringClass, includeSuperclasses)
     ) {
@@ -188,10 +217,7 @@ internal object KavaMemberLookup {
         owners.flatMap { owner ->
             rawMembers(owner, MemberKind.METHOD).map { it as Method }
         }
-    }.asSequence()
-        .filter(predicate)
-        .filter { !makeAccessible || it.makeAccessible() }
-        .toList()
+    }
 
     /** 精确定位字段；可选择向父类查找，缺失或不可访问时返回 null。 */
     fun fieldOrNull(
@@ -223,7 +249,33 @@ internal object KavaMemberLookup {
         includeSuperclasses: Boolean,
         makeAccessible: Boolean = false,
         predicate: (Field) -> Boolean = { true }
-    ): List<Field> = cachedList(
+    ): List<Field> = fieldCollection(declaringClass, includeSuperclasses).asSequence()
+        .filter(predicate)
+        .filter { !makeAccessible || it.makeAccessible() }
+        .toList()
+
+    /** 字段版 [firstMethodOrNull]：在已缓存的集合上短路，只对找到之前的候选调用 makeAccessible。 */
+    fun firstFieldOrNull(
+        declaringClass: Class<*>,
+        includeSuperclasses: Boolean,
+        makeAccessible: Boolean = false,
+        predicate: (Field) -> Boolean = { true }
+    ): Field? {
+        val all = fieldCollection(declaringClass, includeSuperclasses)
+        for (index in all.indices) {
+            val candidate = all[index]
+            if (predicate(candidate) && (!makeAccessible || candidate.makeAccessible())) return candidate
+        }
+        return null
+    }
+
+    fun firstDeclaredFieldOrNull(
+        declaringClass: Class<*>,
+        makeAccessible: Boolean = false,
+        predicate: (Field) -> Boolean = { true }
+    ): Field? = firstFieldOrNull(declaringClass, includeSuperclasses = false, makeAccessible = makeAccessible, predicate = predicate)
+
+    private fun fieldCollection(declaringClass: Class<*>, includeSuperclasses: Boolean): List<Field> = cachedList(
         fieldCollectionCache,
         FieldCollectionKey(declaringClass, includeSuperclasses)
     ) {
@@ -235,10 +287,7 @@ internal object KavaMemberLookup {
         owners.flatMap { owner ->
             rawMembers(owner, MemberKind.FIELD).map { it as Field }
         }
-    }.asSequence()
-        .filter(predicate)
-        .filter { !makeAccessible || it.makeAccessible() }
-        .toList()
+    }
 
     /** 精确定位当前类声明的构造器；调用方继续缓存并直接 newInstance。 */
     fun constructorOrNull(

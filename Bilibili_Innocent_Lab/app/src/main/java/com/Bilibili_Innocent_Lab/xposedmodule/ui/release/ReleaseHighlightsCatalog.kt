@@ -43,7 +43,8 @@ internal object ReleaseHighlightsCatalog {
     const val REVIEWED_VERSION_CODE = 22
     const val SETTINGS_BASELINE_VERSION = 13
     // 历史已达 64 项；新增功能时保留已有公告，目录继续以 96 项为硬上限。
-    const val MAX_BUNDLED_ENTRIES = 96
+    // 2026-11-04：批次 38（首页推荐提前加载）使条目达到 97，经确认上限调到 128，仍保留全部已有公告。
+    const val MAX_BUNDLED_ENTRIES = 128
     val batches = listOf(ReleaseHighlightsBatch(1, listOf(
         ReleaseHighlight("player-end-page-recommend", HighlightKind.NEW,
             R.string.hide_player_end_page_recommend_tip,
@@ -337,6 +338,44 @@ internal object ReleaseHighlightsCatalog {
     )), ReleaseHighlightsBatch(30, listOf(
         ReleaseHighlight("host-mine-garb-dim", HighlightKind.NEW, R.string.host_mine_garb_dim_tip,
             HighlightDestination("host.mine.garb_dim.enabled"))
+    )), ReleaseHighlightsBatch(31, listOf(
+        ReleaseHighlight("home-frame-legacy-lock", HighlightKind.NEW, R.string.home_frame_legacy_lock_tip,
+            HighlightDestination("home.frame.legacy_lock.enabled"))
+    )), ReleaseHighlightsBatch(32, listOf(
+        ReleaseHighlight("cloud-key-freeze", HighlightKind.NEW, R.string.cloud_key_freeze_tip,
+            HighlightDestination("cloud.key_freeze.enabled",
+                alsoCovers = setOf("cloud.key_freeze.rules", "cloud.key_freeze.observe")))
+    )), ReleaseHighlightsBatch(33, listOf(
+        ReleaseHighlight("sponsorblock-story", HighlightKind.NEW, R.string.highlights_sponsorblock_story,
+            HighlightDestination("player.sponsorblock.story"))
+    )), ReleaseHighlightsBatch(34, listOf(
+        ReleaseHighlight("cloud-key-scan", HighlightKind.IMPROVED, R.string.highlights_cloud_key_scan,
+            HighlightDestination("cloud.key_freeze.picked"))
+    )), ReleaseHighlightsBatch(35, listOf(
+        ReleaseHighlight("wechat-resigned-sharing", HighlightKind.NEW, R.string.wechat_share_compat_tip,
+            HighlightDestination("share.wechat.resigned_compat"))
+    )), ReleaseHighlightsBatch(36, listOf(
+        ReleaseHighlight("ai-insight", HighlightKind.NEW, R.string.ai_insight_help,
+            HighlightDestination("compat.ai_insight.enabled", alsoCovers = setOf(
+                "compat.ai_insight.auto_chapters",
+                // v74：独立服务配置作为同一功能的配套项一并复核。
+                SettingsCatalog.ID_AI_INSIGHT_PROTOCOL,
+                SettingsCatalog.ID_AI_INSIGHT_BASE_URL,
+                SettingsCatalog.ID_AI_INSIGHT_MODEL)))
+    ), automatic = false), ReleaseHighlightsBatch(37, listOf(
+        ReleaseHighlight("host-ui-power-saving", HighlightKind.NEW, R.string.host_ui_power_saving_tip,
+            HighlightDestination("host.ui.power_saving.enabled"))
+    ), automatic = false), ReleaseHighlightsBatch(38, listOf(
+        ReleaseHighlight("home-recommend-early-load", HighlightKind.NEW, R.string.home_recommend_early_load_tip,
+            HighlightDestination("home.recommend.early_load.enabled"))
+    )), ReleaseHighlightsBatch(39, listOf(
+        ReleaseHighlight("guest-browsing", HighlightKind.NEW, R.string.no_login_enabled_tip,
+            HighlightDestination("browsing.no_login.enabled")),
+        ReleaseHighlight("incognito-mode", HighlightKind.NEW, R.string.incognito_enabled_tip,
+            HighlightDestination("privacy.incognito.enabled"))
+    )), ReleaseHighlightsBatch(40, listOf(
+        ReleaseHighlight("skip-guest-onboarding", HighlightKind.NEW, R.string.skip_guest_onboarding_tip,
+            HighlightDestination("browsing.guest.skip_onboarding"))
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

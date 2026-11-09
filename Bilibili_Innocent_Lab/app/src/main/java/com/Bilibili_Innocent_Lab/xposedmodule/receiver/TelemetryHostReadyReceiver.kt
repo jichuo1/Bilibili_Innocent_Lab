@@ -9,7 +9,7 @@ import android.os.Looper
 import androidx.core.content.IntentCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsQueryContract
 import com.Bilibili_Innocent_Lab.xposedmodule.telemetry.TelemetryVersionTrigger
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 

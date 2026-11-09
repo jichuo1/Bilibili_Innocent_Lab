@@ -15,11 +15,14 @@ import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.ContentRefreshCoalescer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeContentSource
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostUiPowerPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.ViewSamplingMatrix
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import com.lumen.coacervation.engine.host.LumenAcrylicOptions
 import com.lumen.coacervation.engine.host.LumenFluentControl
 import com.lumen.coacervation.engine.host.LumenFluentControlOptions
@@ -27,6 +30,9 @@ import com.lumen.coacervation.engine.host.LumenFluentElevation
 import com.lumen.coacervation.engine.host.LumenFluentElevationOptions
 import com.lumen.coacervation.engine.host.LumenSurfaceSession
 import com.lumen.coacervation.engine.host.LumenSurfaceSessionOptions
+import com.lumen.coacervation.engine.host.LumenSurfaceBackend
+import com.lumen.coacervation.engine.host.LumenSurfaceFailure
+import com.lumen.coacervation.engine.host.LumenSurfaceSampling
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 
@@ -34,7 +40,9 @@ import java.util.WeakHashMap
 internal open class HostCardMaterialScope(private val owner: ViewGroup, night: Boolean,
     private val context: Context = owner.context,
     internal val materialKind: HostCardMaterial = HostCardMaterial.ACRYLIC,
-    private val gpuScale: Float = .5f) : AutoCloseable,
+    private val gpuScale: Float = .5f,
+    private val reuseGpuFrames: Boolean = HostUiPowerPolicy.current.retainsGpuFrames,
+    private val optimizeCardRendering: Boolean = HostUiPowerPolicy.current.shortcutsCardRendering) : AutoCloseable,
     View.OnAttachStateChangeListener, ViewTreeObserver.OnPreDrawListener {
     private var palette = HostVideoCardSurface.palette(night, context)
     private val frameStrokeDp = if (materialKind == HostCardMaterial.ACRYLIC) .5f else 1f
@@ -51,6 +59,13 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     private var hardwareRecordedFrame = -1L
     private var softwareRecordedFrame = -1L
     private var version = Long.MIN_VALUE
+    // 离散变化立即刷新，连续变化在安静满一个引擎采样间隔后补一帧尾帧。
+    private val coalescer = ContentRefreshCoalescer(LumenSurfaceSampling().minIntervalMs)
+    // 挂在宿主 View 上的延迟入口不在框架保护范围内，必须过守卫；同一个实例也用于 removeCallbacks。
+    private val contentRefresh = HostThreadGuard.runnable("host.card.material.refresh") { onContentRefreshTimer() }
+    // 由引擎的取样面状态事件维护：唯一的取样面由 GPU 承载且没有失败。事件在绘制栈之外送达，
+    // 预绘制里不必再为每次内容变化取诊断快照。首个事件之前保持完整刷新。
+    private var gpuBacked = false
     private var visible: Boolean? = null
     private var observer: ViewTreeObserver? = null
     private var hardwareScene: HostCardMaterialScene? = null
@@ -66,6 +81,12 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     }.apply { alpha = 0f; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
     private val field = object : View(context) {
         override fun isShown(): Boolean = owner.isShown
+        override fun draw(canvas: Canvas) {
+            // This View supplies geometry, policy and invalidation only. The shared
+            // scene records its background explicitly; an empty clip still records
+            // that background into the Window display list and adds a second parent.
+            if (!optimizeCardRendering) super.draw(canvas)
+        }
         override fun invalidate() { super.invalidate(); changed() }
         override fun invalidateDrawable(drawable: Drawable) { super.invalidateDrawable(drawable); changed() }
     }.apply {
@@ -90,6 +111,9 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         if (session != null) owner.overlay.add(source)
         owner.overlay.add(field)
         material = if (session != null) LumenFluentControl(field, palette, materialOptions(), session, source) else null
+        session?.setListener { _, backend, failure, _ ->
+            gpuBacked = backend == LumenSurfaceBackend.GPU && failure == LumenSurfaceFailure.NONE
+        }
         mica = if (materialKind == HostCardMaterial.MICA) HostCardMicaField(owner, field, palette, ::changed) else null
         owner.addOnAttachStateChangeListener(this)
         if (owner.isAttachedToWindow) observe()
@@ -101,6 +125,27 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         owner.postInvalidateOnAnimation()
     }
 
+    /** 只有开关开启、API 32+ 且唯一的取样面由 GPU 承载并且没有失败时，才允许复用上一份输入。 */
+    internal fun canRetainGpuFrame(): Boolean =
+        HostUiPowerPolicy.canRetainGpuFrame(reuseGpuFrames, AndroidVersion.code) { gpuBacked }
+
+    private fun refreshContent() {
+        session?.notifyContentChanged()
+        changed()
+    }
+
+    private fun onContentRefreshTimer() {
+        if (closed || visible != true) { coalescer.cancel(); return }
+        val delay = coalescer.onTimer(SystemClock.uptimeMillis())
+        if (delay == ContentRefreshCoalescer.NOW) refreshContent()
+        else owner.postOnAnimationDelayed(contentRefresh, delay)
+    }
+
+    private fun cancelContentRefresh() {
+        if (coalescer.armed) owner.removeCallbacks(contentRefresh)
+        coalescer.cancel()
+    }
+
     private fun observe() {
         val next = owner.viewTreeObserver
         if (observer === next) return
@@ -108,13 +153,13 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         observer = next; next.addOnPreDrawListener(this)
     }
 
-    override fun onViewAttachedToWindow(view: View) = observe()
-    override fun onViewDetachedFromWindow(view: View) = close()
-    override fun onPreDraw(): Boolean {
-        if (closed) return true
+    override fun onViewAttachedToWindow(view: View) = HostThreadGuard.run("host.card.material.attach") { observe() }
+    override fun onViewDetachedFromWindow(view: View) = HostThreadGuard.run("host.card.material.detach") { close() }
+    override fun onPreDraw(): Boolean = HostThreadGuard.call("host.card.material.predraw", true) {
+        if (closed) return@call true
         frame++
         refresh(night)
-        if (visible != true) return true
+        if (visible != true) return@call true
         // 先更新一次共享节点，已有 View / Compose 显示列表可继续引用同一个节点。
         record(owner.isHardwareAccelerated)
         for ((view, paint) in cards) {
@@ -124,7 +169,7 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
                 paint.invalidateSelf()
             }
         }
-        return true
+        true
     }
 
     fun refresh(night: Boolean) {
@@ -142,7 +187,10 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
                     host.get()?.invalidate()
                 }
                 changed()
-            } else session?.pause()
+            } else {
+                cancelContentRefresh()
+                session?.pause()
+            }
         }
         if (!shown) return
         val now = SystemClock.uptimeMillis()
@@ -166,7 +214,21 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         mica?.refresh()
         val nextVersion = content?.contentVersion ?: return
         if (version != nextVersion) {
-            version = nextVersion; source.invalidate(); session?.notifyContentChanged(); changed()
+            version = nextVersion
+            source.invalidate()
+            // Keep source invalidations at display cadence. On API 32+ the glass can
+            // reuse its input between captures instead of rebuilding at every VSYNC.
+            // API 31 requires explicit filter refresh; software and recovery stay eager.
+            val retained = canRetainGpuFrame()
+            // Lumen already invalidates the field at its capture cadence during a burst.
+            // Flush isolated changes immediately and the final change after a quiet
+            // input interval. A second periodic notifier would duplicate that work.
+            val wasArmed = coalescer.armed
+            val decision = coalescer.onChange(now, coalesce = retained)
+            if (decision == ContentRefreshCoalescer.NOW) {
+                if (wasArmed) owner.removeCallbacks(contentRefresh)
+                refreshContent()
+            } else if (decision > 0L) owner.postOnAnimationDelayed(contentRefresh, decision)
         }
     }
 
@@ -259,18 +321,26 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
             clip.reset(); clip.addRoundRect(inner, (radiusPx - inset).coerceAtLeast(0f),
                 (radiusPx - inset).coerceAtLeast(0f), Path.Direction.CW)
         }
-        override fun draw(canvas: Canvas) {
-            if (disposed || composite.alpha == 0) return
+        override fun draw(canvas: Canvas) = HostThreadGuard.run("host.card.material.draw") {
+            if (disposed || composite.alpha == 0) return@run
             // 非默认透明度/滤镜必须作用于整个背景，不能只改变静态描边。
             val layer = if (composite.alpha != 255 || composite.colorFilter != null)
                 canvas.saveLayer(bounds.left.toFloat(), bounds.top.toFloat(), bounds.right.toFloat(),
                     bounds.bottom.toFloat(), composite) else canvas.save()
             try {
                 border.draw(canvas)
-                if (closed || inner.isEmpty) return
+                if (closed || inner.isEmpty) return@run
                 val scene = record(canvas.isHardwareAccelerated)
-                val view = host.get() ?: return
-                if (native) { if (!mapping.sourceToTarget(owner, view, matrix)) return }
+                val view = host.get() ?: return@run
+                if (native) {
+                    if (optimizeCardRendering && view.parent === owner && view.matrix.isIdentity) {
+                        // The common ancestor transform cancels for a direct child.
+                        // Use its exact local translation, without walking to the Window
+                        // twice and inverting that same ancestor matrix for every card.
+                        matrix.setTranslate((owner.scrollX.toLong() - view.left).toFloat(),
+                            (owner.scrollY.toLong() - view.top).toFloat())
+                    } else if (!mapping.sourceToTarget(owner, view, matrix)) return@run
+                }
                 else { owner.getLocationInWindow(location); matrix.setTranslate(location[0] - windowX, location[1] - windowY) }
                 canvas.clipPath(clip); canvas.concat(matrix); scene?.draw(canvas)
             } finally { canvas.restoreToCount(layer) }
@@ -293,6 +363,7 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     override fun close() {
         if (closed) return
         closed = true
+        cancelContentRefresh()
         observer?.takeIf { it.isAlive }?.removeOnPreDrawListener(this); observer = null
         owner.removeOnAttachStateChangeListener(this)
         paints.keys.toList().forEach { it.close() }; paints.clear(); cards.clear()

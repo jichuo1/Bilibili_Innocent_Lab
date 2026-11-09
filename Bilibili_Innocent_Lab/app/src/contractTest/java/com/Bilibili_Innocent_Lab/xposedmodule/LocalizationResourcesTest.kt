@@ -39,6 +39,29 @@ class LocalizationResourcesTest {
     }
 
     @Test
+    fun `guest browsing copy states the restart boundary in every locale`() {
+        val restart = mapOf(
+            "values" to "Restart Bilibili to apply.",
+            "values-zh-rCN" to "重启哔哩哔哩后生效。",
+            "values-b+zh+Hant" to "重新啟動嗶哩嗶哩後生效。"
+        )
+        restart.forEach { (locale, phrase) ->
+            val strings = readStrings(File(resRoot, "$locale/strings.xml"))
+            listOf("no_login_enabled", "incognito_enabled", "skip_guest_onboarding").forEach { key ->
+                assertTrue(strings.getValue(key).isNotBlank())
+                assertTrue("$locale $key missing $phrase", strings.getValue("${key}_tip").endsWith(phrase))
+            }
+        }
+        val chinese = readStrings(File(resRoot, "values-zh-rCN/strings.xml"))
+        val browsing = chinese.getValue("no_login_enabled_tip")
+        listOf("保留主动登录入口", "只存于本机，不上传", "画质以游客可用为限", "以无痕为准")
+            .forEach { assertTrue(it, browsing.contains(it)) }
+        val incognito = chinese.getValue("incognito_enabled_tip")
+        listOf("临时游客会话", "关闭并重启后恢复账号", "会话结束即丢弃", "服务端仍可能记录访问")
+            .forEach { assertTrue(it, incognito.contains(it)) }
+    }
+
+    @Test
     fun `default English resources do not contain Han characters`() {
         val base = readStrings(File(resRoot, "values/strings.xml"))
         val unexpected = base.filterValues { HAN_REGEX.containsMatchIn(it) }.keys

@@ -19,8 +19,8 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.core.graphics.withTranslation
-import com.highcapable.betterandroid.ui.extension.view.toast
-import com.highcapable.betterandroid.ui.extension.view.textToString
+import io.github.jichuo1.meguviz.android.extensions.toast
+import io.github.jichuo1.meguviz.android.extensions.textToString
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import java.util.Locale
 

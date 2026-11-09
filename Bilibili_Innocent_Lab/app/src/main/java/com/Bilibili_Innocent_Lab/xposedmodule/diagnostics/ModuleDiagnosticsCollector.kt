@@ -7,18 +7,21 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AndroidUserSpace
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.ActivationDisplayState
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostRuntimeProbeClient
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootDisplayState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchScopeProbe
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.RestorePolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.modulePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigPublishState
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.isLspatch
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannel
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannels
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinSessionDiagnostics
-import com.highcapable.betterandroid.system.extension.component.versionCodeCompat
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 
 internal object ModuleDiagnosticsCollector {
     @SuppressLint("UseKtx")
@@ -30,7 +33,13 @@ internal object ModuleDiagnosticsCollector {
         hostQueryState: DiagnosticHostQueryState = DiagnosticHostQueryState.TARGET_UNAVAILABLE,
         hostQueryFailure: com.Bilibili_Innocent_Lab.xposedmodule.runtime.ReceiptQueryFailure =
             com.Bilibili_Innocent_Lab.xposedmodule.runtime.ReceiptQueryFailure.NONE,
-        nowEpochMs: Long = System.currentTimeMillis()
+        nowEpochMs: Long = System.currentTimeMillis(),
+        nPatchProcesses: List<com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchProcessSnapshot> = emptyList(),
+        nPatchEmbeddedBuild: com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchEmbeddedBuildState =
+            com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchEmbeddedBuildState.UNKNOWN,
+        nPatchObservedModuleVersions: List<Long> = emptyList(),
+        nPatchManagerReachability: com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchManagerReachability =
+            com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchManagerReachability.UNKNOWN
     ): ModuleDiagnosticSnapshot {
         val appContext = context.applicationContext ?: context
         @Suppress("DEPRECATION")
@@ -45,9 +54,18 @@ internal object ModuleDiagnosticsCollector {
             status = noRootStatus,
             currentSnapshot = NoRootSupportStore.readSnapshot(appContext),
             currentTargetVersionCode = targetVersionCode,
-            currentTargetUpdateTime = targetUpdateTime
+            currentTargetUpdateTime = targetUpdateTime,
+            scope = if (noRootStatus.desiredEnabled) {
+                NPatchScopeProbe.cached(appContext)
+            } else {
+                NPatchScopeProbe.ScopeState.UNKNOWN
+            },
+            probe = HostRuntimeProbeClient.status(),
+            embeddedModeBlocked = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.EmbeddedModePolicy
+                .isSettingsBlocked(appContext)
         )
         val framework = RemoteHookConfigStore.status()
+        val channel = HostConfigChannels.read(appContext, framework)
         val lspatchHostState = NoRootSupportState.lspatchHostReceiptState(
             configState = hostRuntime?.bootstrap?.configState,
             installChainState = hostRuntime?.bootstrap?.installChainState
@@ -56,8 +74,9 @@ internal object ModuleDiagnosticsCollector {
             rootActive = framework.capable,
             frameworkCheckPending = frameworkCheckPending && !framework.connected,
             displayState = noRootState,
-            lspatchFramework = framework.isLspatch,
-            lspatchHostState = lspatchHostState
+            lspatchFramework = channel == HostConfigChannel.LSPATCH,
+            lspatchHostState = lspatchHostState,
+            nPatchFramework = channel == HostConfigChannel.NPATCH
         )
         val remote = RemoteHookConfigStore.diagnostics()
         val preferences = appContext.modulePreferences()
@@ -167,7 +186,16 @@ internal object ModuleDiagnosticsCollector {
                 hostFailedFeatureCount = hostRuntime?.failedFeatureCount ?: 0,
                 moduleUserId = userSpace.moduleUserId,
                 targetUserId = userSpace.targetUserId,
-                sameAndroidUser = userSpace.sameUser
+                sameAndroidUser = userSpace.sameUser,
+                nPatchEnvironment = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRuntimeProfiles
+                    .environment(appContext),
+                nPatchEmbeddedBuild = nPatchEmbeddedBuild,
+                noRootSyncDetail = noRootStatus.detail,
+                nPatchProcesses = nPatchProcesses,
+                nPatchObservedModuleVersions = nPatchObservedModuleVersions,
+                nPatchPreviousModuleVersion = noRootStatus.heartbeatModuleVersion,
+                nPatchPreviousModuleAt = noRootStatus.heartbeatReceivedAt,
+                nPatchManagerReachability = nPatchManagerReachability
             )
         )
     }
@@ -176,7 +204,8 @@ internal object ModuleDiagnosticsCollector {
         DiagnosticRemotePublishState.valueOf(name)
 
     private fun NoRootDisplayState.toDiagnosticState() =
-        DiagnosticNoRootState.valueOf(name)
+        if (this == NoRootDisplayState.EMBEDDED_UNSUPPORTED) DiagnosticNoRootState.ERROR
+        else DiagnosticNoRootState.valueOf(name)
 }
 
 /**
@@ -184,8 +213,13 @@ internal object ModuleDiagnosticsCollector {
  * LSPatch 身份和真实回执，不能仅因新增展示状态扩大诊断格式兼容面。
  */
 internal fun ActivationDisplayState.toDiagnosticActivationState() = when (this) {
+    ActivationDisplayState.EMBEDDED_UNSUPPORTED -> DiagnosticActivationState.UNAVAILABLE
     ActivationDisplayState.ACTIVE_LSPATCH -> DiagnosticActivationState.ACTIVE_LSPOSED
     ActivationDisplayState.LSPATCH_WAITING_FOR_HOST -> DiagnosticActivationState.CHECKING
     ActivationDisplayState.LSPATCH_HOST_FAILED -> DiagnosticActivationState.UNAVAILABLE
+    ActivationDisplayState.SCOPE_MISSING -> DiagnosticActivationState.UNAVAILABLE
+    ActivationDisplayState.CONFIRMING -> DiagnosticActivationState.CHECKING
+    ActivationDisplayState.UNCONFIRMED -> DiagnosticActivationState.CHECKING
+    ActivationDisplayState.NOT_RUNNING -> DiagnosticActivationState.UNAVAILABLE
     else -> DiagnosticActivationState.valueOf(name)
 }

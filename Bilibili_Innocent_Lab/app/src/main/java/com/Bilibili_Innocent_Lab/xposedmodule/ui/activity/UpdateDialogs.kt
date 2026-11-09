@@ -30,8 +30,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseHighlightsLayout
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseHighlightsStore
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseNotesMarkdownRenderer
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseNotesScrollView
-import com.highcapable.betterandroid.ui.extension.view.textColor
-import com.highcapable.betterandroid.ui.extension.view.toast
+import io.github.jichuo1.meguviz.android.extensions.textColor
+import io.github.jichuo1.meguviz.android.extensions.toast
 import java.lang.ref.WeakReference
 import android.widget.FrameLayout as NativeFrameLayout
 import android.widget.LinearLayout as NativeLinearLayout

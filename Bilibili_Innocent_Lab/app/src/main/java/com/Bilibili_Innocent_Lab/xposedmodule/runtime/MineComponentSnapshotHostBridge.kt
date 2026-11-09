@@ -4,13 +4,13 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageInfo
 import android.os.Build
 import androidx.core.content.ContextCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentScanEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshotCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ScanSnapshotContent
+import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 import java.util.concurrent.Executors
 
 /**
@@ -100,7 +100,8 @@ internal object MineComponentSnapshotHostBridge {
     ): Boolean {
         if (surface !in MineComponentSnapshotCodec.ALLOWED_SURFACES) return false
         if (content.processName != MineComponentSnapshotQueryContract.TARGET_PACKAGE ||
-            content.entries.isEmpty() || content.entries.size > MineComponentSnapshotCodec.MAX_ENTRY_COUNT) return false
+            content.entries.isEmpty() ||
+            content.entries.size > MineComponentSnapshotCodec.maxEntries(surface)) return false
         val accepted = publications.submit(surface, Publication(context.applicationContext ?: context, content))
         if (!accepted) logError("扫描快照后台调度失败，等待下次提交")
         return accepted
@@ -239,13 +240,9 @@ internal object MineComponentSnapshotHostBridge {
     private fun currentSource(context: Context): MineComponentSnapshotSource? = runCatching {
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
         MineComponentSnapshotSource(
-            targetVersionCode = info.versionCodeCompat(),
+            targetVersionCode = info.versionCodeCompat,
             targetUpdateTime = info.lastUpdateTime,
             moduleVersionCode = BuildConfig.VERSION_CODE.toLong()
         ).takeIf { it.isComplete }
     }.getOrNull()
-
-    @Suppress("DEPRECATION")
-    private fun PackageInfo.versionCodeCompat(): Long =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) longVersionCode else versionCode.toLong()
 }

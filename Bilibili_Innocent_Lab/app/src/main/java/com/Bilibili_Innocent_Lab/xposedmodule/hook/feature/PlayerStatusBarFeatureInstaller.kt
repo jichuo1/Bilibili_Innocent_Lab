@@ -6,7 +6,7 @@ import android.view.View
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 
 /** 仅在 Adapter 确认的视频详情 Activity 生命周期末尾应用透明播放器状态栏。 */
 internal class PlayerStatusBarFeatureInstaller(
@@ -60,12 +60,9 @@ internal class PlayerStatusBarFeatureInstaller(
         val window = activity.window ?: return
         window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
         // 仅改目标状态栏，不让控制器接管宿主导航栏与 Insets 生命周期。
-        //noinspection ReplaceWithSystemBarsController
         window.statusBarColor = Color.TRANSPARENT
         if (AndroidVersion.isAtLeast(AndroidVersion.R)) {
-            //noinspection ReplaceWithSystemBarsController
             window.setDecorFitsSystemWindows(false)
-            //noinspection ReplaceWithSystemBarsController
             window.insetsController?.setSystemBarsAppearance(
                 0,
                 WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS

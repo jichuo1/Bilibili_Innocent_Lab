@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <!-- 上游未提供 logo，这里是关于页使用的中性字母标识。 -->
+    <path
+        android:fillColor="#4A4E9C"
+        android:pathData="M128,0H384A128,128 0,0 1,512,128V384A128,128 0,0 1,384,512H128A128,128 0,0 1,0,384V128A128,128 0,0 1,128,0Z" />
+    <path
+        android:fillColor="#F4F7FC"
+        android:pathData="M136,368V144H184L256,256L328,144H376V368H328V224L256,332L184,224V368Z" />
+</vector>

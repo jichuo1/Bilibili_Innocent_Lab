@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -10,10 +11,11 @@ import java.util.concurrent.Executors
 /** 读取宿主已装备的装扮；只融合颜色，角色图标仍由宿主加载和播放。 */
 internal object HostGarbTheme {
     private class Access(loader: ClassLoader) {
-        private val manager = runCatching { loader.loadClass("com.bilibili.lib.ui.garb.GarbManager") }.getOrNull()
-        private val current = runCatching { manager?.getMethod("getCurGarb") }.getOrNull()
-        private val equipped = runCatching { manager?.getMethod("getGarbWithNightMode", Context::class.java) }.getOrNull()
-        private val garb = runCatching { loader.loadClass("com.bilibili.lib.ui.garb.Garb") }.getOrNull()
+        private val manager = KavaMemberLookup.classOrNull(loader, "com.bilibili.lib.ui.garb.GarbManager")
+        private val current = manager?.let { KavaMemberLookup.inheritedMethodOrNull(it, "getCurGarb") }
+        private val equipped = manager?.let { KavaMemberLookup.inheritedMethodOrNull(it, "getGarbWithNightMode", Context::class.java) }
+        private val garb = KavaMemberLookup.classOrNull(loader, "com.bilibili.lib.ui.garb.Garb")
+        // 门面只走类继承链；Garb 的实例方法是否全在类上无法静态确认，保留 getMethod 的接口查找范围。
         private fun method(name: String) = runCatching { garb?.getMethod(name) }.getOrNull()
         private val pure = method("isPure")
         private val selected = method("getTailSelectedColor")

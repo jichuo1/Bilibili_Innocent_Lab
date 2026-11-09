@@ -4,6 +4,8 @@ import android.content.Context
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.compat.CommunicationCompatibilityStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.modulePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRemoteGateway
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
 import java.util.UUID
@@ -21,11 +23,20 @@ internal data class AuthorityPublication(
     val decision: UserTermsDecision,
     val values: Map<String, Any>,
     val pending: Boolean,
-    val directAllowed: Boolean
+    val directAllowed: Boolean,
+    val noRootRevision: Long = 0L
 ) {
     fun document(): Map<String, Any> = RemoteHookConfigContract.encode(
         generation = identity.snapshotRevision, moduleVersionCode = BuildConfig.VERSION_CODE.toLong(),
         deliveryEnabled = true, noRootRevision = 0L, decision = decision, values = values)
+
+    /** NPatch 文档必须绑定本次本地快照；标准发布器继续使用 document()。 */
+    fun noRootDocument(): Map<String, Any> {
+        check(noRootRevision > 0L)
+        return RemoteHookConfigContract.encode(
+            generation = identity.snapshotRevision, moduleVersionCode = BuildConfig.VERSION_CODE.toLong(),
+            deliveryEnabled = true, noRootRevision = noRootRevision, decision = decision, values = values)
+    }
 }
 
 /**
@@ -49,14 +60,17 @@ internal object PublicationAuthorityStore {
             val consent = UserTermsConsentStore.readStateOrInitialize(context)
             if (consent.consentRevision <= 0L) return@runCatching null
             val noRootSelected = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore.isDesiredEnabled(context)
-            val raw = context.modulePreferences().all.toMutableMap()
-            if (noRootSelected) raw[RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP] =
-                com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore.adapterResetRevision(context)
-            val values = RemoteHookConfigContract.resolveSourceValues(raw)
+            val bridge = context.modulePreferences()
+            val raw = bridge.all
+            // 本地权威记录不等待 Manager；在同一授权锁内构造当前快照，关闭/条款变化会使租约失效。
+            val noRootSnapshot = if (noRootSelected) NoRootSupportStore.upsertEnabledSnapshot(context, bridge)
+                ?: return@runCatching null else null
+            val values = if (noRootSnapshot != null) NPatchRemoteGateway.resolveRemoteValues(noRootSnapshot, raw)
+                else RemoteHookConfigContract.resolveSourceValues(raw)
             val decision = consent.requestedRemoteDecision
             val fingerprint = RemoteHookConfigContract.contentFingerprint(BuildConfig.VERSION_CODE.toLong(), decision, values)
             val direct = CommunicationCompatibilityStore.isEnabled(context)
-            val policyInput = "${consent.consentRevision}:${CommunicationCompatibilityStore.epoch(context)}:$direct:$noRootSelected"
+            val policyInput = "${consent.consentRevision}:${CommunicationCompatibilityStore.epoch(context)}:$direct:$noRootSelected:${noRootSnapshot?.revision ?: 0L}"
             val prefs = context.getSharedPreferences(UserTermsConsentStore.PREF_FILE, Context.MODE_PRIVATE)
             val incarnation = prefs.getString(INCARNATION, null) ?: UUID.randomUUID().toString()
             var revision = prefs.getLong(REVISION, 0L)
@@ -70,7 +84,7 @@ internal object PublicationAuthorityStore {
                     .putLong(POLICY, policy).putString(INPUT, policyInput).putString(FINGERPRINT, fingerprint).commit())
             }
             AuthorityPublication(PublicationIdentity(incarnation, consent.consentRevision, policy, revision, fingerprint),
-                decision, values, consent.isAcceptancePending, direct)
+                decision, values, consent.isAcceptancePending, direct, noRootSnapshot?.revision ?: 0L)
         }.getOrElse { storageFault = true; null }
     }
 

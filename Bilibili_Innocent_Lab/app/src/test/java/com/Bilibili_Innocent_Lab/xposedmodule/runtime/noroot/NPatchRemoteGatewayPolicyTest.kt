@@ -7,9 +7,48 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigCo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class NPatchRemoteGatewayPolicyTest {
+    @Test fun `transient unavailable connection retries once and can recover`() {
+        var calls = 0
+        assertEquals("ready", NPatchRemoteGateway.connectWithRetry({ true }) {
+            if (++calls == 1) throw NPatchRemoteGateway.ManagerUnavailableException()
+            "ready"
+        })
+        assertEquals(2, calls)
+    }
+
+    @Test fun `unavailable connection stops after two attempts`() {
+        var calls = 0
+        assertThrows(NPatchRemoteGateway.ManagerUnavailableException::class.java) {
+            NPatchRemoteGateway.connectWithRetry({ true }) {
+                calls++
+                throw NPatchRemoteGateway.ManagerUnavailableException()
+            }
+        }
+        assertEquals(2, calls)
+    }
+
+    @Test fun `explicit identity denial is not retried`() {
+        var calls = 0
+        assertThrows(SecurityException::class.java) {
+            NPatchRemoteGateway.connectWithRetry({ true }) { calls++; throw SecurityException() }
+        }
+        assertEquals(1, calls)
+    }
+
+    @Test fun `superseded intent prevents the retry`() {
+        var current = true
+        var calls = 0
+        assertNull(NPatchRemoteGateway.connectWithRetry({ current }) {
+            calls++; current = false
+            throw NPatchRemoteGateway.ManagerUnavailableException()
+        })
+        assertEquals(1, calls)
+    }
 
     @Test
     fun `only the API 102 service descriptor is accepted`() {

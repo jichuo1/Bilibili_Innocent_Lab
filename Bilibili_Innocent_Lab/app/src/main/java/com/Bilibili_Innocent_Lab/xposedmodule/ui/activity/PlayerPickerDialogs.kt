@@ -22,9 +22,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerDecodeMode
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.MaxHeightScrollView
-import com.highcapable.betterandroid.ui.extension.view.textColor
-import com.highcapable.betterandroid.ui.extension.view.textToString
-import com.highcapable.betterandroid.ui.extension.view.toast
+import io.github.jichuo1.meguviz.android.extensions.textColor
+import io.github.jichuo1.meguviz.android.extensions.textToString
+import io.github.jichuo1.meguviz.android.extensions.toast
 import android.widget.EditText as NativeEditText
 import android.widget.FrameLayout as NativeFrameLayout
 import android.widget.LinearLayout as NativeLinearLayout

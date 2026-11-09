@@ -55,7 +55,8 @@ class CommentClassicStyleFeatureInstallerTest {
                 args[0] = key
                 args[1] = true
                 assertEquals(true, registrar.invoke(id, args = args) { forwarded ->
-                    assertSame(args, forwarded)
+                    // 内容不变即可：SDK 的可写参数形状在入口持有自己的数组，不再把调用方的数组原样交给下游。
+                    assertArrayEquals(args, forwarded)
                     true
                 })
             }

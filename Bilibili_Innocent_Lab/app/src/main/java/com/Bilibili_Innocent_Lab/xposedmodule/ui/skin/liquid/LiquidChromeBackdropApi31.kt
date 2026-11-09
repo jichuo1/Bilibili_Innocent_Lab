@@ -6,7 +6,7 @@ import androidx.annotation.RequiresApi
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowChromeBlurApi31
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowChromeGlassApi31
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.LiquidParameters
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import kotlin.math.ceil
 
 /**

@@ -46,6 +46,8 @@ jobs:
   sync:
     name: Validate and mirror published Release
     runs-on: ubuntu-latest
+    # 防卡死的宽松上限（约为常规耗时的 6 倍以上），不是性能预算；默认值是 360 分钟。
+    timeout-minutes: 30
 
     steps:
       - name: Resolve source Release

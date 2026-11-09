@@ -23,8 +23,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerBufferConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerBufferMode
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.MaxHeightScrollView
-import com.highcapable.betterandroid.ui.extension.view.textColor
-import com.highcapable.betterandroid.ui.extension.view.toast
+import io.github.jichuo1.meguviz.android.extensions.textColor
+import io.github.jichuo1.meguviz.android.extensions.toast
 
 /** 保存完整策略后再更新镜像；实际播放器选项在宿主下次启动时安装。 */
 internal fun MainActivity.showPlayerBufferDialog(anchor: View? = null) {

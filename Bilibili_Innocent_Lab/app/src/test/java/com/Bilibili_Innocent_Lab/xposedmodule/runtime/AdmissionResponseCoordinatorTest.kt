@@ -9,6 +9,20 @@ import org.junit.Test
 
 class AdmissionResponseCoordinatorTest {
     @Test
+    fun `unhandled delivery only ends stage with validated fallback`() {
+        val coordinator = AdmissionResponseCoordinator()
+        val prepare = coordinator.begin("prepare")
+        assertFalse(coordinator.completeUnhandled("prepare", false))
+        assertFalse(prepare.response.isDone)
+        assertTrue(coordinator.completeUnhandled("prepare", true))
+        assertTrue(prepare.response.isDone)
+        coordinator.clear(prepare)
+        val confirm = coordinator.begin("confirm")
+        assertFalse(coordinator.completeUnhandled("prepare", true))
+        assertFalse(confirm.response.isDone)
+    }
+
+    @Test
     fun `confirm response cannot consume a completed prepare future`() {
         val coordinator = AdmissionResponseCoordinator()
         val prepare = coordinator.begin("prepare")

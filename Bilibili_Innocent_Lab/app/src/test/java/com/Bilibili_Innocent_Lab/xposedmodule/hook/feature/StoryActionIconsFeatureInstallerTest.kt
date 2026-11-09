@@ -9,6 +9,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.IdentityHashMap
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LegacyStoryDanmakuAccess
+import com.bilibili.video.story.action.LegacyToggle
+import com.bilibili.video.story.action.StoryAbsController
 
 class StoryActionIconsFeatureInstallerTest {
 
@@ -82,18 +85,114 @@ class StoryActionIconsFeatureInstallerTest {
     @Test
     fun `missing widgets and drifted shapes are reported instead of guessed`() {
         val registrar = PlayerPortTestRegistrar()
+        val withoutLegacy = object : ClassLoader(loader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if (name == LegacyStoryDanmakuAccess.OWNER || name == "com.bilibili.video.story.action.widget.StoryDanmakuToggleWidget")
+                    throw ClassNotFoundException(name)
+                return super.loadClass(name, resolve)
+            }
+        }
         val result = installer(StoryActionIcon.COMMENT, StoryActionIcon.COIN, StoryActionIcon.DANMAKU_TOGGLE)
-            .install(environment(registrar))
+            .install(environment(registrar).copy(classLoader = withoutLegacy, hookPoints = HookPointRegistry(withoutLegacy)))
 
-        // 评论装上；投币没有 onStart(int)，弹幕开关类不存在（9.4.0 之前）。
+        // 评论装上；投币没有 onStart(int)，夹具刻意隐藏新旧两种弹幕开关载体。
         assertTrue(result is FeatureInstallResult.Installed && !result.complete)
         assertTrue(registrar.hooks.keys.any { it.endsWith("StoryCommentWidget.onStart") })
         assertFalse(registrar.hooks.keys.any { it.contains("StoryCoinWidget") })
         assertTrue(statuses.last().startsWith("partial:"))
-        // 投币是形状漂移 → 记为缺失；弹幕开关整类不存在 → 该宿主上不适用，不算缺失。
+        // 投币是形状漂移 → 记为缺失；弹幕开关两种载体均不存在 → 不适用，不算缺失。
         assertTrue(statuses.last().contains("coin"))
         assertFalse(statuses.last().contains("danmaku_toggle"))
         StoryCommentWidget(null).also { registrar.invoke(registrar.hooks.keys.first { k -> k.endsWith("StoryCommentWidget.onStart") }, it, arrayOf(1)) }
+    }
+
+    private fun legacyInstaller(posted: MutableList<() -> Unit> = mutableListOf()) = StoryActionIconsFeatureInstaller(
+        setOf(StoryActionIcon.DANMAKU_TOGGLE),
+        boxOf = { boxes.getOrPut(it) { FakeBox() } },
+        postToView = { _, block -> posted += block },
+        legacyResolver = { LegacyStoryDanmakuAccess.resolve(it, LegacyToggle::class.java) }
+    )
+
+    @Test fun `legacy toggle requires exact accessor types and a unique player binding signature`() {
+        assertTrue(LegacyStoryDanmakuAccess.resolve(loader, LegacyToggle::class.java) != null)
+        assertTrue(LegacyStoryDanmakuAccess.resolve(loader, String::class.java) == null)
+        val unavailable = object : ClassLoader(loader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if (name == LegacyStoryDanmakuAccess.OWNER) throw ClassNotFoundException(name)
+                return super.loadClass(name, resolve)
+            }
+        }
+        assertTrue(LegacyStoryDanmakuAccess.resolve(unavailable, LegacyToggle::class.java) == null)
+    }
+
+    @Test fun `legacy setter hides only its toggle and defers one reconciliation per controller`() {
+        val registrar = PlayerPortTestRegistrar()
+        val posted = mutableListOf<() -> Unit>()
+        val result = legacyInstaller(posted).install(environment(registrar))
+        assertTrue(result is FeatureInstallResult.Installed && result.complete)
+        val controller = StoryAbsController()
+        val first = LegacyToggle()
+        registrar.invoke("story_action_icons.legacy_danmaku.setter", controller, arrayOf(first)) { controller.toggle = first; Unit }
+        assertTrue(boxes.getValue(first).gone)
+        assertFalse(boxes.containsKey(controller))
+        val second = LegacyToggle()
+        registrar.invoke("story_action_icons.legacy_danmaku.setter", controller, arrayOf(second)) { controller.toggle = second; Unit }
+        assertTrue(boxes.getValue(second).gone)
+        assertEquals(1, posted.size)
+        posted.single().invoke()
+        assertTrue("story_action_danmaku_toggle_hidden" to FeatureRuntimeStage.APPLIED in evidence)
+    }
+
+    @Test fun `legacy player binding reapplies geometry after host reuse without touching the controller`() {
+        val registrar = PlayerPortTestRegistrar()
+        legacyInstaller().install(environment(registrar))
+        val controller = StoryAbsController().also { it.toggle = LegacyToggle() }
+        registrar.invoke("story_action_icons.legacy_danmaku.bind", controller, arrayOf(null, 0))
+        val toggle = requireNotNull(controller.toggle)
+        assertEquals(0, boxes.getValue(toggle).height)
+        boxes[toggle] = FakeBox()
+        registrar.invoke("story_action_icons.legacy_danmaku.bind", controller, arrayOf(null, 1))
+        assertEquals(0, boxes.getValue(toggle).width)
+        assertFalse(boxes.containsKey(controller))
+    }
+
+    @Test fun `legacy partial registration stays inactive and retry does not duplicate hooks`() {
+        val registrar = PlayerPortTestRegistrar("story_action_icons.legacy_danmaku.bind")
+        val installer = legacyInstaller()
+        installer.install(environment(registrar))
+        val controller = StoryAbsController().also { it.toggle = LegacyToggle() }
+        registrar.invoke("story_action_icons.legacy_danmaku.setter", controller, arrayOf(controller.toggle))
+        assertTrue(boxes.isEmpty())
+        registrar.failId = null
+        val result = installer.install(environment(registrar))
+        assertTrue(result is FeatureInstallResult.Installed && result.complete)
+        assertEquals(1, registrar.registrationAttempts.count { it.first == "story_action_icons.legacy_danmaku.setter" })
+        registrar.invoke("story_action_icons.legacy_danmaku.bind", controller, arrayOf(null, 0))
+        assertTrue(boxes.getValue(controller.toggle).gone)
+    }
+
+    @Test fun `legacy deferred accessor failure is contained and reported without changing unrelated views`() {
+        val registrar = PlayerPortTestRegistrar()
+        val posted = mutableListOf<() -> Unit>()
+        legacyInstaller(posted).install(environment(registrar))
+        val controller = StoryAbsController().also { it.toggle = LegacyToggle() }
+        registrar.invoke("story_action_icons.legacy_danmaku.setter", controller, arrayOf(controller.toggle))
+        controller.failure = IllegalStateException("access failed")
+        posted.single().invoke()
+        assertTrue("story_action_danmaku_toggle_hidden" to FeatureRuntimeStage.ERROR in evidence)
+        assertFalse(boxes.containsKey(controller))
+    }
+
+    @Test fun `invalid legacy contract stays partial even when the modern widget installs`() {
+        val registrar = PlayerPortTestRegistrar()
+        val states = mutableListOf<Pair<String, FeatureInstallResult>>()
+        installer(StoryActionIcon.DANMAKU_TOGGLE).install(environment(registrar).copy(
+            capabilityEvidence = { id, result -> states += id to result }
+        ))
+        assertTrue(registrar.hooks.keys.any { it.contains("StoryDanmakuToggleWidget") })
+        assertTrue(states.any { it.first == "story_action_danmaku_toggle_hidden" })
+        assertTrue(states.any { (_, result) -> result is FeatureInstallResult.Installed && !result.complete })
+        assertTrue(states.none { (_, result) -> result is FeatureInstallResult.Skipped && result.reason == "not-applicable-host" })
     }
 
     @Test

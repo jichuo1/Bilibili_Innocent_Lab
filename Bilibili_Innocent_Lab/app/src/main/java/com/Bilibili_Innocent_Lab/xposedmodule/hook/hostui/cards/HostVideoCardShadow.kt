@@ -1,7 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards
 
 import android.view.View
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 
 /** 关闭亚克力时保留原有轻量平台阴影。 */
 internal object HostVideoCardShadow {

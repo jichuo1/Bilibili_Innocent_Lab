@@ -17,7 +17,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotQueryClient
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
-import com.highcapable.betterandroid.ui.extension.view.toast
+import io.github.jichuo1.meguviz.android.extensions.toast
 
 /** 反馈面板点选落在宿主进程的观测快照里，打开管理面板时必须**主动拉取**这两个面。 */
 private val RECOMMENDATION_PICK_SURFACES = listOf(

@@ -26,7 +26,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity.AnchorSty
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity.Companion.SPONSOR_URL
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity.RuntimeSettingsSearchTarget
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.MaxHeightScrollView
-import com.highcapable.betterandroid.ui.extension.view.textColor
+import io.github.jichuo1.meguviz.android.extensions.textColor
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import android.widget.EditText as NativeEditText
 import android.widget.LinearLayout as NativeLinearLayout

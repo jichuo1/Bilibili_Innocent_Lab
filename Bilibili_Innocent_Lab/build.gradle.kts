@@ -1,3 +1,17 @@
+buildscript {
+    // P2-07 opt-in: the androidx.baselineprofile plugin (and its protobuf/proto transitives) joins the
+    // build classpath only for -PinnocentLab.baselineProfile=true runs; default builds stay unchanged.
+    if (providers.gradleProperty("innocentLab.baselineProfile").orNull == "true") {
+        repositories {
+            google()
+            mavenCentral()
+        }
+        dependencies {
+            classpath(libs.androidx.baselineprofile.plugin)
+        }
+    }
+}
+
 plugins {
     alias(libs.plugins.android.application) apply false
     // Keep KGP on the classpath as AGP's built-in Kotlin compiler version anchor.
@@ -7,11 +21,7 @@ plugins {
 }
 subprojects {
     configurations.configureEach {
-        resolutionStrategy.dependencySubstitution {
-            substitute(module("com.highcapable.betterandroid:system-extension")).using(project(":migration-system-extension"))
-            substitute(module("com.highcapable.betterandroid:ui-component")).using(project(":migration-ui-component"))
-            substitute(module("com.highcapable.betterandroid:ui-extension")).using(project(":migration-ui-extension"))
-        }
+        // 主线已移除 KavaRef；保留排除，防止其经传递依赖回流。
         exclude(group = "com.highcapable.kavaref")
     }
 }

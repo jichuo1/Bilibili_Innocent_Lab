@@ -43,10 +43,6 @@
 -keep class com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationNative { *; }
 # 弹幕 wire 内核的 JNI 导出同样依赖精确类名/方法名拼写（漏 keep 的失败是运行期静默回退）。
 -keep class com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.danmakuwire.DanmakuWireNative { *; }
-# API 101 的 HookBuilder 没有 setId；该版本桥不能被内联或合并到兼容路径。
--keep,allowobfuscation class com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookIdsApi102 {
-    *;
-}
 # 只允许改写 java_init.list 的**内容**（把入口类名换成混淆后的名字）。
 #
 # 曾经这里还有一条**无过滤器**的 `-adaptresourcefilenames`：它会把 Java 资源的路径

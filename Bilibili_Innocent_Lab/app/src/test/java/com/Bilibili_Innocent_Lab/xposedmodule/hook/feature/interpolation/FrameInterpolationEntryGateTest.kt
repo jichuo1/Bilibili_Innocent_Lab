@@ -35,11 +35,14 @@ class FrameInterpolationEntryGateTest {
     }
 
     @Test fun `production entry leaves only runtime enforced conditions to playback`() {
-        val verdict = FrameInterpolationEntryGate.production()
+        val verdict = FrameInterpolationEntryGate.production(nativeReady = false)
         assertFalse(verdict.open)
-        assertTrue(FrameInterpolationEntryGate.entryOpen())
+        assertTrue(FrameInterpolationEntryGate.entryOpen(nativeReady = false))
         assertEquals(FrameInterpolationEntryGate.RUNTIME_ENFORCED, verdict.missing.toSet())
         assertEquals(setOf(Condition.NATIVE_READY, Condition.MODEL_VERIFIED, Condition.MEDIA_PERMIT,
             Condition.INFERENCE_WITHIN_BUDGET), FrameInterpolationEntryGate.RUNTIME_ENFORCED)
+        val ready = FrameInterpolationEntryGate.production(nativeReady = true)
+        assertEquals(FrameInterpolationEntryGate.RUNTIME_ENFORCED - Condition.NATIVE_READY, ready.missing.toSet())
+        assertTrue(FrameInterpolationEntryGate.entryOpen(nativeReady = true))
     }
 }

@@ -73,10 +73,10 @@ def split_text(text: str, budget: int = 3800) -> list[str]:
     return parts
 
 
-def announcement_messages(notes: str) -> list[str]:
+def announcement_messages(notes: str, *, title: str="完整更新记录") -> list[str]:
     if len(notes.encode("utf-8"))>256*1024:raise DeliveryError("Complete announcement exceeds the delivery budget")
     parts=split_text(notes.rstrip())
-    return [f"完整更新记录（{index}/{len(parts)}）\n\n{part}" for index,part in enumerate(parts,1)]
+    return [f"{title}（{index}/{len(parts)}）\n\n{part}" for index,part in enumerate(parts,1)]
 
 def multipart(fields: dict[str,str], apk: Path) -> tuple[bytes,str]:
     boundary="CanaryUpload"+uuid.uuid4().hex
@@ -99,23 +99,33 @@ class Telegram:
         if apk is None:
             body=json.dumps(fields).encode();content_type="application/json"
         else:body,content_type=multipart(fields,apk)
-        connection=http.client.HTTPSConnection("api.telegram.org",timeout=180)
+        waited=0
         try:
-            if method in {"sendDocument","sendMessage"}:
-                print("TELEGRAM_POST_ATTEMPT: "+method,flush=True)
-            connection.request("POST",f"/bot{self.token}/{method}",body,{"Content-Type":content_type})
-            response=connection.getresponse();data=response.read(MAX_RESPONSE_BYTES+1)
-            if len(data)>MAX_RESPONSE_BYTES:raise DeliveryError("Telegram response exceeds budget")
-            value=json.loads(data)
-            if response.status!=200 or value.get("ok") is not True:
-                detail=str(value.get("description","request rejected")).replace(self.token,"[redacted]")[:200]
-                raise DeliveryError(f"Telegram rejected {method}: {detail}")
-            return value["result"]
+            for attempt in range(4):
+                connection=http.client.HTTPSConnection("api.telegram.org",timeout=180)
+                try:
+                    if method in {"sendDocument","sendMessage"}:
+                        print("TELEGRAM_POST_ATTEMPT: "+method,flush=True)
+                    connection.request("POST",f"/bot{self.token}/{method}",body,{"Content-Type":content_type})
+                    response=connection.getresponse();data=response.read(MAX_RESPONSE_BYTES+1)
+                    if len(data)>MAX_RESPONSE_BYTES:raise DeliveryError("Telegram response exceeds budget")
+                    value=json.loads(data)
+                    if response.status==200 and value.get("ok") is True:return value["result"]
+                    parameters=value.get("parameters")
+                    retry_after=parameters.get("retry_after") if isinstance(parameters,dict) else None
+                    # 只重试明确拒绝的 429；不能缩短服务端等待时间，也不能重发整个交付流程。
+                    if not (response.status==429 and value.get("ok") is False and value.get("error_code")==429
+                            and type(retry_after) is int and retry_after>0 and attempt<3 and waited+retry_after<=120):
+                        detail=str(value.get("description","request rejected")).replace(self.token,"[redacted]")[:200]
+                        raise DeliveryError(f"Telegram rejected {method}: {detail}")
+                finally:connection.close()
+                waited+=retry_after
+                print(f"Telegram rate limited {method}; waiting {retry_after}s before retry {attempt+1}/3",flush=True)
+                time.sleep(retry_after)
         except DeliveryError:raise
         except Exception:
             # 发送请求超时可能已经投递：不自动重发，避免频道出现重复 APK。异常不含带令牌 URL。
             raise DeliveryError("Telegram network/protocol failure; check delivery before retrying") from None
-        finally:connection.close()
 
 def message_time(value: int, label: str) -> datetime:
     if type(value) is not int or value<=0:
@@ -125,8 +135,8 @@ def message_time(value: int, label: str) -> datetime:
         raise DeliveryError(f"Telegram did not confirm the {label} message time") from None
 
 
-def deliver(api: Telegram,chat: str,apk: Path,text: str,notes: str="") -> dict:
-    messages=announcement_messages(notes)
+def deliver(api: Telegram,chat: str,apk: Path,text: str,notes: str="", *, announcement_title: str="完整更新记录") -> dict:
+    messages=announcement_messages(notes,title=announcement_title)
     if not re.fullmatch(r"@[A-Za-z][A-Za-z0-9_]{4,31}|-100\d+",chat):raise DeliveryError("Invalid Telegram channel ID")
     me=api.call("getMe",{});target=api.call("getChat",{"chat_id":chat})
     if target.get("type")!="channel":raise DeliveryError("Telegram destination must be a channel")

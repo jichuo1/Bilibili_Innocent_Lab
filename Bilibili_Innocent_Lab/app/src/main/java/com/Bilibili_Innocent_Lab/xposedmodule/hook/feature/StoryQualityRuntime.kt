@@ -35,7 +35,8 @@ internal class StoryQualityRuntime(qualityQn: Int) {
         var revision: Long = 0L,
         var admission: Admission = Admission.UNKNOWN,
         var selectedItem: ItemKey? = null,
-        var selectedIndex: Int? = null
+        var selectedIndex: Int? = null,
+        var sharedParameters: WeakReference<Any>? = null
     )
     private class Frames {
         val scopes = ArrayList<Scope>()
@@ -77,8 +78,21 @@ internal class StoryQualityRuntime(qualityQn: Int) {
         binding.admission = Admission.UNKNOWN
         binding.selectedItem = null
         binding.selectedIndex = null
+        binding.sharedParameters = null
         return binding.generation
     }
+
+    /** 仅已核对的共享接入回调调用；重复接入不重置相同条目的手动意图或失败代次。 */
+    @Synchronized fun confirmShared(owner: Any, parameters: Any, item: ItemKey, index: Int, admission: Admission): Boolean {
+        val binding = find(owner) ?: return false
+        if (binding.ownerThread?.get() !== Thread.currentThread() || admission != Admission.ALLOW) return false
+        if (select(owner, item, index) == null) return false
+        binding.sharedParameters = WeakReference(parameters)
+        return true
+    }
+
+    @Synchronized fun isShared(owner: Any, parameters: Any?): Boolean =
+        parameters != null && find(owner)?.sharedParameters?.get() === parameters
 
     /** 已确认的 handler select 入口：重复选择同条目不重置手动意图或已完成首播状态。 */
     @Synchronized fun select(owner: Any, item: ItemKey?, index: Int): Long? {

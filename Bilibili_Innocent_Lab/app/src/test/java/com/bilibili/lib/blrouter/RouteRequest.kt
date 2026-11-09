@@ -2,7 +2,7 @@ package com.bilibili.lib.blrouter
 
 import android.net.Uri
 
-/** 仅用于验证功能安装器能在无首页 Adapter 点时独立找到路由创建与最终冻结边界。 */
+/** 游客收藏路由查找与拦截测试共用的宿主请求形状。 */
 internal class RouteRequest(
     @Suppress("UNUSED_PARAMETER") builder: Builder
 ) {

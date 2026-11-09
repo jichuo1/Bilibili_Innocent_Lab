@@ -106,7 +106,10 @@ class TelemetryMenuStructureTest {
         // 高度必须算出来写死。WRAP_CONTENT + minimumHeight 会被 FrameLayout 的剩余空间
         // 撑到窗口底部（实测 [278,314][1398,3078]，父面板底边其实是 2337）。
         assertFalse("minimumHeight 撑不住，别再退回去", present.contains("container.minimumHeight ="))
-        assertTrue(present.contains("maxOf(target.height.toInt(), container.measuredHeight)"))
+        // 至少盖住父面板；但不能超出窗口（从父面板顶边到 root 底边），否则长内容的子面板
+        //（如 NPatch 向导的后一页）会把底部按钮挤出屏幕，多出的部分由面板里的滚动区承担。
+        assertTrue(present.contains("val available = root.height - top - (16 * density).toInt()"))
+        assertTrue(present.contains("maxOf(target.height.toInt(), minOf(container.measuredHeight, available))"))
         assertTrue(present.contains("View.MeasureSpec.UNSPECIFIED"))
         // 按可见表面对齐，不是容器矩形：气泡的小角在 padding 里，会多出 9dp。
         val row = SettingsUiSource.function("createTelemetryMenuRow")

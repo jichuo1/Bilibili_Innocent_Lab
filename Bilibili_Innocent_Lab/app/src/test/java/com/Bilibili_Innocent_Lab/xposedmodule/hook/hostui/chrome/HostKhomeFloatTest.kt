@@ -40,6 +40,11 @@ class HostKhomeFloatTest {
         assertEquals(0, old.value)
         assertEquals(-300, current.value)
         assertEquals(listOf(current), ledger.keys())
+        assertFalse("only the excepted key is left", ledger.restoreAll(except = current))
+        assertEquals(-300, current.value)
+        assertTrue(ledger.restoreAll())
+        assertEquals(0, current.value)
+        assertFalse("an empty ledger has nothing to restore", ledger.restoreAll())
     }
 
     @Test fun `restore can write an equivalent value instead of the raw base`() {

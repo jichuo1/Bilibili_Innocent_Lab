@@ -1,0 +1,17 @@
+<resources>
+    <string name="restart_capabilities_checking">Checking Root and Shizuku…</string>
+    <string name="restart_capabilities_checking_short">Checking…</string>
+    <string name="restart_capabilities_retry">Check again</string>
+    <string name="restart_root_retry">Check Root again</string>
+    <string name="restart_root_button">Root restart</string>
+    <string name="restart_root_authorize">Request Root access</string>
+    <string name="restart_root_candidate">Found su, but this module is not authorized yet. Authorizing does not restart anything.</string>
+    <string name="restart_root_ready">Root access confirmed. It is checked again before running.</string>
+    <string name="restart_root_requesting">Waiting for Root authorization…</string>
+    <string name="restart_root_unavailable">Root access was not granted last time. Check your Root manager and retry.</string>
+    <string name="restart_root_not_found">No usable su found. You can check again.</string>
+    <string name="restart_root_unknown">The Root check did not finish. You can check again.</string>
+    <string name="restart_root_first_message">Saves your settings, then force stops and reopens Bilibili. Root is recommended.</string>
+    <string name="restart_shizuku_fallback_message">Saves your settings, then force stops and reopens Bilibili.</string>
+    <string name="restart_change_method">Change restart method</string>
+</resources>

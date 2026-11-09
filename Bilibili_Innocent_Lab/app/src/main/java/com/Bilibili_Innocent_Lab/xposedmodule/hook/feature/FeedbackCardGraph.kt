@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.makeAccessible
 import java.lang.reflect.Modifier
 import java.util.Collections
 import java.util.IdentityHashMap
@@ -23,12 +25,11 @@ internal object FeedbackCardGraph {
                 }
                 var owner: Class<*>? = node.javaClass
                 while (owner != null && traversable(owner)) {
-                    for (field in owner.declaredFields) {
+                    for (field in KavaMemberLookup.declaredFields(owner)) {
                         if (Modifier.isStatic(field.modifiers) || field.type.isPrimitive) continue
                         if (++edges > 256) return null
                         val value = runCatching {
-                            field.isAccessible = true
-                            field.get(node)
+                            if (field.makeAccessible()) field.get(node) else null
                         }.getOrNull() ?: continue
                         if (accepts(value)) found.add(value)
                         else if (traversable(value.javaClass)) next.add(value)

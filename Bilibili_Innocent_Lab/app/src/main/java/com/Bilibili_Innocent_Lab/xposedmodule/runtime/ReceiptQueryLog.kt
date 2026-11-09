@@ -8,11 +8,20 @@ internal object ReceiptQueryLog {
     private val last = hashMapOf<String, Long>()
     @Synchronized fun failure(stage: String, reason: ReceiptQueryFailure) {
         if (reason == ReceiptQueryFailure.NONE) return
-        val key = "$stage:$reason"
-        val now = SystemClock.elapsedRealtime()
-        if (last[key]?.let { now - it < 60_000L } == true) return
-        last[key] = now
+        if (!claim("$stage:$reason")) return
         Log.w("BilibiliInnocentLab", "receipt stage=$stage reason=$reason")
+    }
+
+    @Synchronized fun superseded() {
+        if (claim("push:superseded")) Log.d("BilibiliInnocentLab", "receipt stage=push result=superseded")
+    }
+
+    /** 只在上述同步入口中访问限流表。 */
+    private fun claim(key: String): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        if (last[key]?.let { now - it < 60_000L } == true) return false
+        last[key] = now
+        return true
     }
 }
 

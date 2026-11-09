@@ -4,6 +4,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 
@@ -19,10 +20,12 @@ internal class HostTouchGlowBinding private constructor(
     private var x = 0f
     private var y = 0f
     private val preDraw = ViewTreeObserver.OnPreDrawListener {
-        glow.layout(0, 0, host.width, host.height)
-        glow.recolor(theme.read().accent)
-        if (touching) updateGlow()
-        true
+        HostThreadGuard.call("host.touch_glow.predraw", true) {
+            glow.layout(0, 0, host.width, host.height)
+            glow.recolor(theme.read().accent)
+            if (touching) updateGlow()
+            true
+        }
     }
 
     private fun connect() {
@@ -60,9 +63,9 @@ internal class HostTouchGlowBinding private constructor(
         }
     }
 
-    override fun onViewAttachedToWindow(v: View) = connect()
+    override fun onViewAttachedToWindow(v: View) = HostThreadGuard.run("host.touch_glow.attach") { connect() }
 
-    override fun onViewDetachedFromWindow(v: View) {
+    override fun onViewDetachedFromWindow(v: View) = HostThreadGuard.run("host.touch_glow.detach") {
         bindings.remove(host)
         observer?.takeIf { it.isAlive }?.removeOnPreDrawListener(preDraw)
         observer = null

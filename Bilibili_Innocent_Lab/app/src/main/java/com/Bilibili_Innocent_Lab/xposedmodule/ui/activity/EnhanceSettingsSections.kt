@@ -5,7 +5,6 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.LinearSettingsScope
 
 import android.graphics.Typeface
-import android.util.Log
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
@@ -14,11 +13,12 @@ import androidx.core.view.setPadding
 import androidx.core.view.updatePadding
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
-import com.highcapable.betterandroid.ui.extension.view.textColor
-import com.highcapable.betterandroid.ui.extension.view.updatePadding
+import io.github.jichuo1.meguviz.android.extensions.textColor
+import io.github.jichuo1.meguviz.android.extensions.updatePadding
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.ModuleUiSettings
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CloudKeyFreezeRules
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ExactRuleSetCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TidBlocklistCodec
 import android.widget.LinearLayout as NativeLinearLayout
@@ -75,6 +75,155 @@ internal fun MainActivity.enhanceSystemCategory(scope: LinearSettingsScope) = wi
         alpha = 0.6f
         setLineSpacing(6f, 1f)
         text = stringResource(R.string.system_media_notification_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
+    materialSwitch(key = "EnhanceSettingsSections:1120",
+        lparams = params(widthMatchParent = true) {
+            topMargin = 12.dp
+            bottomMargin = 5.dp
+        }
+    ) {
+        bindFavoriteSwitch(this, FeaturePreferences.HOME_FRAME_LEGACY_LOCK, directToggle = true)
+        text = stringResource(R.string.home_frame_legacy_lock)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = homeFrameLegacyLock
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HOME_FRAME_LEGACY_LOCK, checked, button)
+        }
+    }
+    textView(key = "EnhanceSettingsSections:1121",
+        lparams = params(widthMatchParent = true)
+    ) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.home_frame_legacy_lock_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
+    materialSwitch(key = "EnhanceSettingsSections:1125",
+        lparams = params(widthMatchParent = true) {
+            topMargin = 12.dp
+            bottomMargin = 5.dp
+        }
+    ) {
+        bindFavoriteSwitch(this, FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD, directToggle = true)
+        text = stringResource(R.string.home_recommend_early_load)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = homeRecommendEarlyLoad
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD, checked, button)
+        }
+    }
+    textView(key = "EnhanceSettingsSections:1126",
+        lparams = params(widthMatchParent = true)
+    ) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.home_recommend_early_load_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
+    materialSwitch(key = "EnhanceSettingsSections:1130",
+        lparams = params(widthMatchParent = true) {
+            topMargin = 12.dp
+            bottomMargin = 5.dp
+        }
+    ) {
+        bindFavoriteSwitch(this, FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED, directToggle = true)
+        text = stringResource(R.string.cloud_key_freeze)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = cloudKeyFreeze
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED, checked, button)
+        }
+    }
+    textView(key = "EnhanceSettingsSections:1131",
+        lparams = params(widthMatchParent = true)
+    ) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.cloud_key_freeze_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
+    textView(key = "EnhanceSettingsSections:1135",
+        lparams = params(widthMatchParent = true) {
+            topMargin = 4.dp
+        }
+    ) {
+        bindSettingDestination(this, FeaturePreferences.CLOUD_KEY_FREEZE_PICKED)
+        cloudKeyFreezePickedSummaryView = this
+        text = cloudKeyFreezePickedSummary()
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        maxLines = 3
+        ellipsize = TextUtils.TruncateAt.END
+        setLineSpacing(5f, 1f)
+        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+        background = selfRippleBackground(10f)
+        isClickable = true
+        isFocusable = true
+        setOnClickListener { openCloudKeyScanPanel() }
+    }
+    textView(key = "EnhanceSettingsSections:1132",
+        lparams = params(widthMatchParent = true) {
+            topMargin = 4.dp
+        }
+    ) {
+        bindSettingDestination(this, FeaturePreferences.CLOUD_KEY_FREEZE_RULES)
+        cloudKeyFreezeRulesSummaryView = this
+        text = cloudKeyFreezeRulesSummary()
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        maxLines = 3
+        ellipsize = TextUtils.TruncateAt.END
+        setLineSpacing(5f, 1f)
+        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+        background = selfRippleBackground(10f)
+        isClickable = true
+        isFocusable = true
+        setOnClickListener {
+            showRuleEditorDialog(
+                R.string.cloud_key_freeze_rules,
+                R.string.cloud_key_freeze_dialog_hint,
+                cloudKeyFreezeRules,
+                anchor = it
+            ) { value ->
+                cloudKeyFreezeRules = value
+                prefs().edit { putString(FeaturePreferences.CLOUD_KEY_FREEZE_RULES, value) }
+                cloudKeyFreezeRulesSummaryView?.text = cloudKeyFreezeRulesSummary()
+            }
+        }
+    }
+    materialSwitch(key = "EnhanceSettingsSections:1133",
+        lparams = params(widthMatchParent = true) {
+            topMargin = 8.dp
+            bottomMargin = 5.dp
+        }
+    ) {
+        bindFavoriteSwitch(this, FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE, directToggle = true)
+        text = stringResource(R.string.cloud_key_freeze_observe)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = cloudKeyFreezeObserve
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE, checked, button)
+        }
+    }
+    textView(key = "EnhanceSettingsSections:1134",
+        lparams = params(widthMatchParent = true)
+    ) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.cloud_key_freeze_observe_tip)
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
@@ -600,7 +749,8 @@ internal fun MainActivity.enhancePlaybackCategory(
         applyAdvancedSubsectionStyle()
     }
     listOf(FeaturePreferences.SPONSORBLOCK_ENABLED to R.string.sponsorblock_enabled,
-        FeaturePreferences.SPONSORBLOCK_AUTOMATIC to R.string.sponsorblock_automatic).forEach { (key, label) ->
+        FeaturePreferences.SPONSORBLOCK_AUTOMATIC to R.string.sponsorblock_automatic,
+        FeaturePreferences.SPONSORBLOCK_STORY to R.string.sponsorblock_story_enabled).forEach { (key, label) ->
         materialSwitch(key = "setting:$key", lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
@@ -632,6 +782,69 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: LinearSettingsScope) = 
         textColor = monetColors.primary
         textSize = 12f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    }
+    materialSwitch(key = "EnhanceSettingsSections:no-login", lparams = params(widthMatchParent = true) {
+        topMargin = 12.dp
+        bottomMargin = 5.dp
+    }) {
+        bindFavoriteSwitch(this, FeaturePreferences.NO_LOGIN_ENABLED, directToggle = true)
+        text = stringResource(R.string.no_login_enabled)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = noLoginEnabled
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.NO_LOGIN_ENABLED, checked, button)
+        }
+    }
+    textView(key = "EnhanceSettingsSections:no-login-tip", lparams = params(widthMatchParent = true)) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.no_login_enabled_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
+    materialSwitch(key = "EnhanceSettingsSections:incognito", lparams = params(widthMatchParent = true) {
+        topMargin = 12.dp
+        bottomMargin = 5.dp
+    }) {
+        bindFavoriteSwitch(this, FeaturePreferences.INCOGNITO_ENABLED, directToggle = true)
+        text = stringResource(R.string.incognito_enabled)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = incognitoEnabled
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.INCOGNITO_ENABLED, checked, button)
+        }
+    }
+    textView(key = "EnhanceSettingsSections:incognito-tip", lparams = params(widthMatchParent = true)) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.incognito_enabled_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
+    materialSwitch(key = "EnhanceSettingsSections:skip-guest-onboarding", lparams = params(widthMatchParent = true) {
+        topMargin = 12.dp
+        bottomMargin = 5.dp
+    }) {
+        bindFavoriteSwitch(this, FeaturePreferences.SKIP_GUEST_ONBOARDING, directToggle = true)
+        text = stringResource(R.string.skip_guest_onboarding)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = skipGuestOnboarding
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.SKIP_GUEST_ONBOARDING, checked, button)
+        }
+    }
+    textView(key = "EnhanceSettingsSections:skip-guest-onboarding-tip", lparams = params(widthMatchParent = true)) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.skip_guest_onboarding_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
     }
     materialSwitch(key = "EnhanceSettingsSections:804", lparams = params(widthMatchParent = true) {
         topMargin = 12.dp
@@ -910,5 +1123,16 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: LinearSettingsScope) = 
         text = stringResource(R.string.prefer_dynamic_video_tab_tip)
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
+    }
+}
+
+/** 规则行的摘要：标题加上规则条数；写错或被拒绝的条目单独计数，免得用户以为已经生效。 */
+internal fun MainActivity.cloudKeyFreezeRulesSummary(): String {
+    val parsed = CloudKeyFreezeRules.parse(cloudKeyFreezeRules)
+    val dropped = parsed.rejected + parsed.protectedRejected
+    return getString(R.string.cloud_key_freeze_rules) + "\n" + when {
+        parsed.isEmpty && dropped == 0 -> getString(R.string.cloud_key_freeze_rules_empty)
+        dropped == 0 -> getString(R.string.cloud_key_freeze_rules_current, parsed.rules.size)
+        else -> getString(R.string.cloud_key_freeze_rules_rejected, parsed.rules.size, dropped)
     }
 }

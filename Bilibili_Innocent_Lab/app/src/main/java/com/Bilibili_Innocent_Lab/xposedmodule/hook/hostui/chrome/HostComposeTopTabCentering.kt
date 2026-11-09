@@ -6,6 +6,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentComposeViewAcc
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostComposeCardPositionAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top.HostTopTabCenteringPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top.HostTopTabFadePolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import java.lang.ref.WeakReference
 import java.lang.reflect.Method
@@ -26,7 +27,7 @@ internal object HostComposeTopTabCentering {
     private val roots = HostChromeCompositionScope<Root>()
     private val docks = WeakHashMap<View, Dock>()
 
-    fun install(environment: HookEnvironment, points: Map<String, HookPoint>, onError: (Throwable) -> Unit,
+    fun install(environment: HookEnvironment, points: Map<String, HookPoint>, edgeFade: Boolean, onError: (Throwable) -> Unit,
                 onApplied: () -> Unit = {}, onObserved: () -> Unit = {}): Boolean = runCatching {
         val loader = environment.classLoader ?: return false
         val resolved = HomeChromeComposeLocator.resolve(loader, points)
@@ -36,9 +37,13 @@ internal object HostComposeTopTabCentering {
         val actions = point("top_right_actions") ?: return false
         val access = Access.resolve(loader) ?: return false
         val viewAccess = CommentComposeViewAccess.resolve(loader) ?: return false
+        // Optional: without the draw ABI the tabs keep the host's hard clip and centering still runs,
+        // so a fade failure gets its own log and never reports the centering as broken.
+        val fadeError: (Throwable) -> Unit = { environment.logError("home_top_tabs_fade_error", "[BIL] 首页标签渐隐失败: $it") }
+        val fade = if (edgeFade) HostComposeTopTabFade.resolve(loader, fadeError) else null
         fun dock(composer: Any): Dock? {
             val view = viewAccess.read(composer) ?: return null
-            return docks.getOrPut(view) { Dock(access, onError) }
+            return docks.getOrPut(view) { Dock(access, onError, view.resources.displayMetrics.density, fade) }
         }
         for ((method, role) in listOf(top to Role.TABS, actions to Role.ACTIONS)) {
             val index = method.parameterTypes.indexOfFirst { it.name == "androidx.compose.runtime.Composer" }
@@ -67,11 +72,25 @@ internal object HostComposeTopTabCentering {
                 val original = argOrNull(1) ?: return@before
                 runCatching {
                     val sized = if (root.role == Role.TABS) root.state.modifier(original) else original
-                    access.observe(sized, onError) { root.state.observe(root.role, it) }
+                    val faded = if (root.role == Role.TABS && fade != null) {
+                        runCatching { fade.decorate(sized, root.state::edges, fadeError) }.onFailure(fadeError).getOrDefault(sized)
+                    } else sized
+                    access.observe(faded, onError) { root.state.observe(root.role, it) }
                 }
                     .onSuccess { args[1] = it }.onFailure(onError)
             }
         }
+        // The tab row remembers its ScrollState inside the TABS root invocation (9.16.11 topbar/g).
+        // A failed registration only loses the fade; centering below must still install.
+        if (fade != null) runCatching {
+            environment.registrar.exact("home.top.fade.scroll", fade.remember.declaringClass,
+                fade.remember.name, *fade.remember.parameterTypes) {
+                after {
+                    if (hasThrowable) return@after
+                    runCatching { roots.peek { it.role == Role.TABS }?.state?.capture(result) }.onFailure(fadeError)
+                }
+            }
+        }.onFailure(fadeError)
         val contentKey = "home.top.centering.content"
         environment.registrar.exact(contentKey, content.declaringClass, content.name, *content.parameterTypes) {
             before {
@@ -124,10 +143,15 @@ internal object HostComposeTopTabCentering {
         fun contains(other: Bounds) = other.left >= left - 1 && other.right <= right + 1 &&
             other.top >= top - 1 && other.bottom <= bottom + 1
     }
-    private data class Geometry(val dockWidth: Int, val tabLeft: Int, val tabWidth: Int, val safeLeft: Int, val safeRight: Int)
+    private data class Geometry(val dockWidth: Int, val tabLeft: Int, val tabWidth: Int, val safeLeft: Int, val safeRight: Int,
+                                val dockHeight: Int = 0, val tabTop: Int = 0)
 
-    private class Dock(val access: Access, val onError: (Throwable) -> Unit) {
+    private class Dock(val access: Access, val onError: (Throwable) -> Unit, private val density: Float,
+                       private val fade: HostComposeTopTabFade?) {
         private var tabs: WeakReference<Any>? = null
+        private var scroll: WeakReference<Any>? = null
+        private var capsuleFor: Geometry? = null
+        private var capsuleRadius = 0f
         private var actions: WeakReference<Any>? = null
         private val signal = access.position.signal()
         private val width = HostTopTabWidthState(signal::invalidate)
@@ -153,6 +177,33 @@ internal object HostComposeTopTabCentering {
             if (!access.isAttached(actions?.get())) actions = null
             val next = access.geometry(tabs?.get(), actions?.get())
             if (next != geometry) { geometry = next; signal.invalidate() }
+        }
+        fun capture(state: Any?) {
+            if (state != null && scroll?.get() !== state) scroll = WeakReference(state)
+        }
+        /** Read inside the row's draw: geometry and scroll are snapshot reads, so both re-draw it. */
+        fun edges(): HostComposeTopTabFade.Edges? {
+            val fade = fade ?: return null
+            signal.read()
+            val g = geometry ?: return null
+            val state = scroll?.get() ?: return null
+            val max = fade.scrollMax(state)
+            if (max <= 0) return null
+            val value = fade.scrollValue(state)
+            val fadePx = HostTopTabFadePolicy.FADE_DP * density
+            // Fade ends at the action divider when a menu narrows the row, else at the row end.
+            val gap = if (g.safeRight < g.tabLeft + g.tabWidth) HostTopTabFadePolicy.ACTION_GAP_DP * density else 0f
+            val end = (g.safeRight - g.tabLeft - gap).coerceIn(0f, g.tabWidth.toFloat())
+            val start = (g.safeLeft - g.tabLeft).toFloat().coerceIn(0f, end)
+            // The boundary follows the outer capsule's end cap: same radius as the drawn capsule.
+            if (capsuleFor !== g) {
+                capsuleFor = g
+                capsuleRadius = HostChromeTopCapsule.fit(g.dockWidth.toFloat(), g.dockHeight.toFloat(), density)
+                    ?.cornerRadius(g.dockHeight.toFloat()) ?: (g.dockHeight / 2f)
+            }
+            return HostComposeTopTabFade.Edges(start, end, HostTopTabFadePolicy.leadingStrength(value, fadePx),
+                HostTopTabFadePolicy.trailingStrength(value, max, fadePx), fadePx,
+                g.dockHeight / 2f - g.tabTop, capsuleRadius, density)
         }
         fun center(count: Int, contentWidth: Int, viewportWidth: Int): Int? {
             signal.read()
@@ -238,9 +289,9 @@ internal object HostComposeTopTabCentering {
                     if (menu.left + menu.width / 2 >= d.width / 2) rightEdge = min(rightEdge, menu.left)
                     else left = max(left, menu.right)
                 }
-                return Geometry(d.width, t.left, t.width, left, rightEdge)
+                return Geometry(d.width, t.left, t.width, left, rightEdge, d.height, t.top)
             }
-            return if (!hasMenu) Geometry(nativeTop.width, 0, nativeTop.width, 0, nativeTop.width) else null
+            return if (!hasMenu) Geometry(nativeTop.width, 0, nativeTop.width, 0, nativeTop.width, nativeTop.height, 0) else null
         }
         companion object {
             fun resolve(loader: ClassLoader): Access? = runCatching {

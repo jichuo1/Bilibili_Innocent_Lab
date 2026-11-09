@@ -7,6 +7,28 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HostAdmissionCollectTest {
+    @Test fun explicitClosePreemptsAGrantWithoutTurningOrdinarySyncFailuresIntoPermanentDenials() {
+        val closed = HostAdmissionClient.Result(reason = HostAdmissionRouteClassifier.REASON_SYNC_REQUIRED, disabledRevision = 42L)
+        val results = listOf(
+            HostAdmissionCollect().accept(closed, true).accept(granted(), true),
+            HostAdmissionCollect().accept(granted(), true).accept(closed, false)
+        )
+        for (result in results) {
+            assertTrue(result.sawDenied)
+            assertTrue(result.fallbackBlocked)
+            assertNull(result.grant)
+            assertEquals(42L, result.failure.disabledRevision)
+        }
+    }
+    @Test fun aGenericDenialCannotEraseTheCurrentCloseRevision() {
+        val closed = HostAdmissionClient.Result(reason = HostAdmissionRouteClassifier.REASON_DENIED, disabledRevision = 42L)
+        val first = HostAdmissionCollect().accept(closed, acceptGrant = true).accept(denied(), acceptGrant = true)
+        val second = HostAdmissionCollect().accept(denied(), acceptGrant = true).accept(closed, acceptGrant = true)
+        assertEquals(42L, first.failure.disabledRevision)
+        assertEquals(42L, second.failure.disabledRevision)
+        assertNull(first.grant)
+        assertNull(second.grant)
+    }
     private fun unavailable() = HostAdmissionClient.Result()
     private fun denied() = HostAdmissionClient.Result(reason = HostAdmissionRouteClassifier.REASON_DENIED)
     private fun timeout() = HostAdmissionClient.Result(reason = "admission_timeout")

@@ -83,7 +83,7 @@ class SettingsHomeIntegrationTest {
         val home = SettingsUiSource.file("SettingsHomePresenter")
         val main = SettingsUiSource.file("MainActivity")
         assertTrue(home.contains("store.descriptors.filter { it.favoriteEligible }"))
-        assertTrue(home.contains("buildPage(index, contents[index])"))
+        assertTrue(home.contains("planPage(index, contents[index])"))
         assertTrue(home.contains("builtPages[index] = true"))
         assertFalse(home.contains("collect(originalContent)"))
         assertFalse(home.contains("originalContent.removeAllViews()"))

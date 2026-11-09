@@ -1,6 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot
 
-/** 重启前 flush 只能接受仍对应当前用户意图与精确快照 revision 的远端写入。 */
+/** 重启前 flush 接受精确快照的当前直达发布；远端镜像成功仍是兼容的独立证据。 */
 internal object NoRootRestartFlushGuard {
     fun accepts(
         generationMatches: Boolean,
@@ -9,8 +9,9 @@ internal object NoRootRestartFlushGuard {
         snapshotEnabled: Boolean?,
         snapshotRevision: Long,
         expectedRevision: Long,
-        remoteWriteConfirmed: Boolean
-    ): Boolean = remoteWriteConfirmed &&
+        remoteWriteConfirmed: Boolean,
+        directWriteConfirmed: Boolean = false
+    ): Boolean = (remoteWriteConfirmed || directWriteConfirmed) &&
         generationMatches &&
         desiredEnabled == expectedEnabled &&
         snapshotEnabled == expectedEnabled &&

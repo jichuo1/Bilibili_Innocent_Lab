@@ -24,4 +24,5 @@
     <string name="host_appearance_video_cards">影片卡片</string>
     <string name="host_appearance_splash">開屏外觀</string>
     <string name="host_appearance_player">播放器外觀</string>
+    <string name="host_appearance_power">省電</string>
 </resources>

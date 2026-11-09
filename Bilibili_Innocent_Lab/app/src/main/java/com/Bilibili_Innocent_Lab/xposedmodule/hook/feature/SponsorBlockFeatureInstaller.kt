@@ -11,6 +11,11 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor.SponsorSegmen
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 
 internal class SponsorBlockFeatureInstaller(private val enabled: Boolean, private val automatic: Boolean,
+    /** 与 Story 安装器共用同一个仓库，缓存和 429 退避状态才是一份。 */
+    private val repository: () -> SponsorSegmentRepository = {
+        SponsorSegmentRepository(SponsorBlockClient(BuildConfig.VERSION_NAME))
+    },
+    // 保持最后一个参数：现有调用方用尾随 lambda 传它。
     private val cachedClasses: () -> SponsorPlayerClasses? = { null }) : FeatureInstaller {
     @Volatile var requiresAdaptationRetry = false
         private set
@@ -39,10 +44,9 @@ internal class SponsorBlockFeatureInstaller(private val enabled: Boolean, privat
         }
         val seekMethod = Lookup.methodOrNull(player.wrapper.declaringClass, "seekTo", Int::class.javaPrimitiveType!!,
             Boolean::class.javaPrimitiveType!!) ?: return FeatureInstallResult.Skipped("missing-wrapper-seek")
-        val sessions = SponsorPlayerSessions(environment, player, seek, detail, automatic,
-            SponsorSegmentRepository(SponsorBlockClient(BuildConfig.VERSION_NAME)))
         // 只重试尚未解析的结构；注册开始后不重放部分 Hook 或重复创建会话。
         if (!registrationStarted.compareAndSet(false, true)) return FeatureInstallResult.Skipped("already-registered")
+        val sessions = SponsorPlayerSessions(environment, player, seek, detail, automatic, repository())
         val count = sessions.install(lifecycle, seekMethod)
         environment.reportStatus("sponsorblock_status", "success")
         return FeatureInstallResult.Installed(count)

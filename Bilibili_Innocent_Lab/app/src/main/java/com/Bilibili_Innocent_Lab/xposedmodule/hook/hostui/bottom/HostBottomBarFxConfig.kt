@@ -21,6 +21,16 @@ internal data class HostBottomBarFxConfig(
             else -> HostNavigationMotion.BAR_HEIGHT_DP.toFloat()
         }
 
+    /** 窄屏缩放的高度下限；各档上下限互不重叠，缩小后大小底栏仍可区分。 */
+    val minHeightDp: Float
+        get() = when {
+            !liquidGlass -> HostNavigationMotion.BAR_HEIGHT_DP.toFloat()
+            compact && iconOnly -> 42f
+            iconOnly -> 46f
+            compact -> 50f
+            else -> 56f
+        }
+
     fun horizontalMarginDp(parentWidthDp: Float, tabCount: Int): Float {
         if (!liquidGlass) return 0f
         val baseMargin = 16f

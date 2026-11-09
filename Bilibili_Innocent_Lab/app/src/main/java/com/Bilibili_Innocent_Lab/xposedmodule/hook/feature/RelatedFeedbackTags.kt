@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.reflect.Field
 import java.lang.reflect.Modifier
 import java.lang.reflect.ParameterizedType
@@ -80,8 +81,9 @@ internal class RelatedFeedbackTags private constructor(
             }
             val reasonClass = candidates.map { it.second }.distinct().singleOrNull()
                 ?: return@runCatching null
-            val ctor = reasonClass.declaredConstructors.single { it.parameterTypes.contentEquals(signature) }
-            ctor.isAccessible = true
+            val ctor = KavaMemberLookup.declaredConstructors(reasonClass, makeAccessible = true) {
+                it.parameterTypes.contentEquals(signature)
+            }.single()
             val sample = ctor.newInstance(101L, 202L, 303L, 404, "BILabReasonProbe")
             val tag = fields(reasonClass).single {
                 it.type == Long::class.javaPrimitiveType && it.getLong(sample) == 303L
@@ -92,8 +94,8 @@ internal class RelatedFeedbackTags private constructor(
             RelatedFeedbackTags(cardClass, candidates.map { it.first }, tag, name)
         }.getOrNull()
 
-        private fun fields(type: Class<*>): List<Field> = type.declaredFields.filter {
+        private fun fields(type: Class<*>): List<Field> = KavaMemberLookup.declaredFields(type, makeAccessible = true) {
             !Modifier.isStatic(it.modifiers) && !it.isSynthetic
-        }.onEach { it.isAccessible = true }
+        }
     }
 }

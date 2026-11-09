@@ -6,10 +6,10 @@ import android.content.SharedPreferences
 import android.util.AtomicFile
 import androidx.core.content.edit
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingValue
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ModuleSettingsStore
-import com.highcapable.betterandroid.system.extension.component.versionCodeCompat
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
+import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 import java.io.File
 import kotlin.math.max
 
@@ -30,6 +30,7 @@ internal object NoRootSupportStore {
     private const val KEY_HEARTBEAT_TARGET_UPDATE_TIME = "heartbeat_target_update_time"
     private const val KEY_HEARTBEAT_TARGET_PACKAGE = "heartbeat_target_package"
     private const val KEY_HEARTBEAT_RECEIVED_AT = "heartbeat_received_at"
+    private const val KEY_RUNTIME_REPLY_RECEIVED_AT = "runtime_reply_received_at"
     private const val KEY_DISABLE_WAS_ACTIVE = "disable_was_active"
 
     enum class SyncState {
@@ -68,8 +69,9 @@ internal object NoRootSupportStore {
         val payload: String?
     )
 
+    /** 保留 NPatch 用户偏好，但它不能接管当前 LSPatch 的发布、准入与重启。 */
     fun isDesiredEnabled(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_DESIRED_ENABLED, false)
+        prefs(context).getBoolean(KEY_DESIRED_ENABLED, false) && !LspatchRuntimeProfiles.usesDirectConfig(context)
 
     @SuppressLint("UseKtx") // 必须取得 commit 结果，KTX edit(Unit) 无法表达写入失败。
     fun setDesiredEnabled(context: Context, enabled: Boolean): Boolean = synchronized(ioLock) {
@@ -99,6 +101,7 @@ internal object NoRootSupportStore {
                 .remove(KEY_HEARTBEAT_TARGET_UPDATE_TIME)
                 .remove(KEY_HEARTBEAT_TARGET_PACKAGE)
                 .remove(KEY_HEARTBEAT_RECEIVED_AT)
+                .remove(KEY_RUNTIME_REPLY_RECEIVED_AT)
                 .remove(KEY_DISABLE_WAS_ACTIVE)
                 .commit()
         }
@@ -156,6 +159,7 @@ internal object NoRootSupportStore {
             .remove(KEY_HEARTBEAT_TARGET_UPDATE_TIME)
             .remove(KEY_HEARTBEAT_TARGET_PACKAGE)
             .remove(KEY_HEARTBEAT_RECEIVED_AT)
+            .remove(KEY_RUNTIME_REPLY_RECEIVED_AT)
             .commit()
     }
 
@@ -171,13 +175,14 @@ internal object NoRootSupportStore {
 
     fun readStatus(context: Context): Status {
         val prefs = prefs(context)
-        val desired = prefs.getBoolean(KEY_DESIRED_ENABLED, false)
+        val lspatch = LspatchRuntimeProfiles.usesDirectConfig(context)
+        val desired = prefs.getBoolean(KEY_DESIRED_ENABLED, false) && !lspatch
         val storedState = runCatching {
             SyncState.valueOf(prefs.getString(KEY_SYNC_STATE, null).orEmpty())
         }.getOrNull() ?: if (desired) SyncState.CHECKING else SyncState.DISABLED
         return Status(
             desiredEnabled = desired,
-            syncState = if (desired || storedState == SyncState.DISABLE_RESTART_REQUIRED) {
+            syncState = if (desired || !lspatch && storedState == SyncState.DISABLE_RESTART_REQUIRED) {
                 storedState
             } else {
                 SyncState.DISABLED
@@ -194,6 +199,23 @@ internal object NoRootSupportStore {
             heartbeatTargetPackage = prefs.getString(KEY_HEARTBEAT_TARGET_PACKAGE, null),
             heartbeatReceivedAt = prefs.getLong(KEY_HEARTBEAT_RECEIVED_AT, 0L),
             disableWasActive = prefs.getBoolean(KEY_DISABLE_WAS_ACTIVE, false)
+        )
+    }
+
+    /** 只记录已通过身份、nonce 和 Hook 安装校验的存活回执，不提升安装/同步状态。 */
+    fun recordRuntimeReply(context: Context, receivedAt: Long = System.currentTimeMillis()) =
+        synchronized(ioLock) {
+            if (isDesiredEnabled(context) && receivedAt > 0L) {
+                prefs(context).edit { putLong(KEY_RUNTIME_REPLY_RECEIVED_AT, receivedAt) }
+            }
+        }
+
+    /** 冷启动心跳与存活探测都算回执；旧版本尚无探测时间时回落到心跳时间。 */
+    fun lastReceiptReceivedAt(context: Context): Long {
+        val prefs = prefs(context)
+        return maxOf(
+            prefs.getLong(KEY_HEARTBEAT_RECEIVED_AT, 0L),
+            prefs.getLong(KEY_RUNTIME_REPLY_RECEIVED_AT, 0L)
         )
     }
 
@@ -299,12 +321,14 @@ internal object NoRootSupportStore {
         if (isDesiredEnabled(context) || revision <= 0L ||
             moduleVersionCode != BuildConfig.VERSION_CODE.toLong() ||
             targetVersionCode <= 0L || targetUpdateTime <= 0L ||
-            targetPackage.isBlank()
+            targetPackage != NoRootSupportState.TARGET_PACKAGE
         ) return@synchronized false
         val snapshot = readSnapshotLocked(context) ?: return@synchronized false
-        if (snapshot.enabled || snapshot.revision != revision ||
-            snapshot.moduleVersionCode != moduleVersionCode
-        ) return@synchronized false
+        if (!acceptsDisabledAck(snapshot, revision, moduleVersionCode)) return@synchronized false
+        val target = runCatching { context.packageManager.getPackageInfo(targetPackage, 0) }.getOrNull()
+            ?: return@synchronized false
+        if (target.versionCodeCompat != targetVersionCode || target.lastUpdateTime != targetUpdateTime)
+            return@synchronized false
         val committed = prefs(context).edit()
             .putString(KEY_SYNC_STATE, SyncState.DISABLED.name)
             .putLong(KEY_SYNC_REVISION, revision)
@@ -314,25 +338,17 @@ internal object NoRootSupportStore {
         committed
     }
 
+    internal fun acceptsDisabledAck(snapshot: NoRootConfigSnapshot, revision: Long, moduleVersion: Long): Boolean =
+        !snapshot.enabled && revision > 0L && snapshot.revision == revision &&
+            snapshot.moduleVersionCode == moduleVersion
+
     /** 从当前 70 项白名单构造完整快照；内容未变化时保留 revision。 */
     fun upsertEnabledSnapshot(
         context: Context,
         bridge: SharedPreferences
     ): NoRootConfigSnapshot? = synchronized(ioLock) {
         if (!isDesiredEnabled(context)) return@synchronized null
-        val settingsStore = ModuleSettingsStore(bridge)
-        val values = linkedMapOf<String, Any>()
-        SettingsCatalog.specs.forEach { spec ->
-            val storedValue = settingsStore.read(spec).value
-            // 与备份协议采用同一兼容语义：离散旧值回落默认、连续范围收敛；
-            // 无法可靠解释的损坏值也只在快照中回落，不反向改写用户原 prefs。
-            val value = spec.normalizeForBackup(storedValue) ?: spec.defaultValue
-            values[spec.storageKey] = when (value) {
-                is SettingValue.Bool -> value.value
-                is SettingValue.IntValue -> value.value
-                is SettingValue.Text -> value.value
-            }
-        }
+        val values = snapshotValues(bridge)
         val previous = readSnapshotLocked(context)
         val draft = NoRootConfigSnapshot(
             schemaVersion = NoRootConfigSnapshotCodec.CURRENT_SCHEMA_VERSION,
@@ -355,6 +371,15 @@ internal object NoRootSupportStore {
         resolved
     }
 
+    /** 与标准发布共用类型回落及旧键迁移，单次读取避免混合批量修改前后的配置。 */
+    internal fun snapshotValues(bridge: SharedPreferences): Map<String, Any> {
+        val normalized = RemoteHookConfigContract.resolveSourceValues(bridge.all)
+        // 运行时凭据继续只在发布时合并；免 Root 文件仍只包含可备份设置。
+        return SettingsCatalog.specs.associateTo(linkedMapOf()) { spec ->
+            spec.storageKey to normalized.getValue(spec.storageKey)
+        }
+    }
+
     fun readSnapshot(context: Context): NoRootConfigSnapshot? = synchronized(ioLock) {
         readSnapshotLocked(context)
     }
@@ -372,9 +397,8 @@ internal object NoRootSupportStore {
             )
         }
         val snapshot = readSnapshotLocked(context)
-        val remoteSynced = snapshot?.revision != null &&
-            prefs(context).getLong(KEY_REMOTE_SYNCED_REVISION, 0L) == snapshot.revision
-        val payload = if (snapshot?.enabled == true && remoteSynced) {
+        // 这是已验真的本地权威导出；Manager 镜像不再是可读取当前快照的前置条件。
+        val payload = if (snapshot?.enabled == true) {
             runCatching { NoRootConfigSnapshotCodec.encode(snapshot) }.getOrNull()
         } else {
             null
@@ -395,10 +419,49 @@ internal object NoRootSupportStore {
             remove(KEY_HEARTBEAT_TARGET_UPDATE_TIME)
             remove(KEY_HEARTBEAT_TARGET_PACKAGE)
             remove(KEY_HEARTBEAT_RECEIVED_AT)
+            remove(KEY_RUNTIME_REPLY_RECEIVED_AT)
         }
     }
 
-    private fun readSnapshotLocked(context: Context): NoRootConfigSnapshot? {
+    /** 只在原始关闭意图仍有效时修复停用文档；旧版本文件仅提供 revision 下界，不恢复配置。 */
+    @SuppressLint("UseKtx") // 修复完成须同时确认快照和状态持久化，不能丢弃 commit 结果。
+    fun ensureDisabledSnapshot(context: Context): NoRootConfigSnapshot? = synchronized(ioLock) {
+        val stored = prefs(context)
+        if (stored.getBoolean(KEY_DESIRED_ENABLED, false)) return@synchronized null
+        val current = readSnapshotLocked(context)?.takeUnless { it.enabled }
+        val syncRevision = stored.getLong(KEY_SYNC_REVISION, 0L).coerceAtLeast(0L)
+        val heartbeatRevision = stored.getLong(KEY_HEARTBEAT_REVISION, 0L).coerceAtLeast(0L)
+        if (current != null && current.revision == syncRevision && heartbeatRevision == 0L &&
+            stored.getString(KEY_SYNC_STATE, null) in setOf(SyncState.DISABLED.name, SyncState.DISABLE_RESTART_REQUIRED.name)) {
+            return@synchronized current
+        }
+        val previous = readSnapshotLocked(context, currentVersionOnly = false)
+        val lowerBound = maxOf(previous?.revision ?: 0L, syncRevision, heartbeatRevision)
+        val tombstone = current?.takeIf { it.revision >= lowerBound } ?: run {
+            if (lowerBound == Long.MAX_VALUE) return@synchronized null
+            NoRootConfigSnapshot(NoRootConfigSnapshotCodec.CURRENT_SCHEMA_VERSION, SettingsCatalog.CATALOG_VERSION,
+                BuildConfig.APPLICATION_ID, BuildConfig.VERSION_CODE.toLong(), nextRevision(lowerBound),
+                adapterResetRevision(context), false, emptyMap())
+        }
+        if (tombstone !== current && !writeSnapshotLocked(context, tombstone)) return@synchronized null
+        // 新文档必须取得自己的停用确认；保留 disableWasActive，不能把旧 Hook 描述为已退出。
+        val saved = stored.edit()
+            .putString(KEY_SYNC_STATE, SyncState.DISABLE_RESTART_REQUIRED.name)
+            .putLong(KEY_SYNC_REVISION, tombstone.revision)
+            .remove(KEY_SYNC_DETAIL)
+            .remove(KEY_REMOTE_SYNCED_REVISION)
+            .remove(KEY_HEARTBEAT_REVISION)
+            .remove(KEY_HEARTBEAT_MODULE_VERSION)
+            .remove(KEY_HEARTBEAT_TARGET_VERSION)
+            .remove(KEY_HEARTBEAT_TARGET_UPDATE_TIME)
+            .remove(KEY_HEARTBEAT_TARGET_PACKAGE)
+            .remove(KEY_HEARTBEAT_RECEIVED_AT)
+            .remove(KEY_RUNTIME_REPLY_RECEIVED_AT)
+            .commit()
+        tombstone.takeIf { saved }
+    }
+
+    private fun readSnapshotLocked(context: Context, currentVersionOnly: Boolean = true): NoRootConfigSnapshot? {
         val atomicFile = AtomicFile(File(context.filesDir, SNAPSHOT_FILE))
         if (!atomicFile.baseFile.isFile) return null
         val payload = runCatching {
@@ -407,7 +470,7 @@ internal object NoRootSupportStore {
         return NoRootConfigSnapshotCodec.decode(
             payload,
             expectedModulePackage = BuildConfig.APPLICATION_ID,
-            expectedModuleVersionCode = BuildConfig.VERSION_CODE.toLong()
+            expectedModuleVersionCode = if (currentVersionOnly) BuildConfig.VERSION_CODE.toLong() else null
         )
     }
 

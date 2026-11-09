@@ -14,7 +14,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import com.highcapable.betterandroid.ui.extension.view.childOrNull
+import io.github.jichuo1.meguviz.android.extensions.childOrNull
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
@@ -403,11 +403,11 @@ internal class CommentTopologyFeatureInstaller(
             return runCatching { field.get(owner) }.getOrNull()
         }
         if (owner.javaClass in noCommentItemFieldClasses) return null
-        val field = KavaMemberLookup.fields(
+        val field = KavaMemberLookup.firstFieldOrNull(
             owner.javaClass,
             includeSuperclasses = true,
             makeAccessible = true
-        ) { candidate -> candidate.type isSubclassOf commentItemClass }.firstOrNull()
+        ) { candidate -> candidate.type isSubclassOf commentItemClass }
         if (field == null) {
             noCommentItemFieldClasses += owner.javaClass
             return null

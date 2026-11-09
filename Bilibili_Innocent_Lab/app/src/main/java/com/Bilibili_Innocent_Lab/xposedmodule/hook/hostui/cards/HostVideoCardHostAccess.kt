@@ -34,16 +34,8 @@ internal class HostVideoCardHostAccess(loader: ClassLoader) {
     fun isDislikeHolder(holder: Any): Boolean {
         val itemType = dislikeItem ?: return false
         val fields = holderFields.getOrPut(holder.javaClass) {
-            buildList {
-                var type: Class<*>? = holder.javaClass
-                while (type != null && type != Any::class.java) {
-                    for (field in type.declaredFields) {
-                        if (Modifier.isStatic(field.modifiers) ||
-                            !field.type.isAssignableFrom(itemType)) continue
-                        if (runCatching { field.isAccessible = true }.isSuccess) add(field)
-                    }
-                    type = type.superclass
-                }
+            KavaMemberLookup.fields(holder.javaClass, includeSuperclasses = true, makeAccessible = true) { field ->
+                !Modifier.isStatic(field.modifiers) && field.type.isAssignableFrom(itemType)
             }
         }
         return fields.any { field -> runCatching { itemType.isInstance(field.get(holder)) }.getOrDefault(false) }

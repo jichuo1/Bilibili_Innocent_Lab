@@ -9,7 +9,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.RoamingCompatHook
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
-import com.highcapable.betterandroid.ui.extension.view.toast
+import io.github.jichuo1.meguviz.android.extensions.toast
 
 /** Extracted business operations; no source View or source setter is captured. */
 internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Boolean): Boolean {
@@ -22,6 +22,42 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             outcome.failure?.let { Log.e("BilibiliInnocentLab", "write brand splash skip prefs failed", it) }
             brandSplashSkip = outcome.confirmed
             brandSplashSkip
+        }
+        FeaturePreferences.HOME_FRAME_LEGACY_LOCK -> {
+            val checked = requested
+            val outcome = SettingWritePolicy.attempt(homeFrameLegacyLock, checked) {
+                prefs().edit { putBoolean(FeaturePreferences.HOME_FRAME_LEGACY_LOCK, checked) }
+            }
+            outcome.failure?.let { Log.e("BilibiliInnocentLab", "write home frame legacy lock prefs failed", it) }
+            homeFrameLegacyLock = outcome.confirmed
+            homeFrameLegacyLock
+        }
+        FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD -> {
+            val checked = requested
+            val outcome = SettingWritePolicy.attempt(homeRecommendEarlyLoad, checked) {
+                prefs().edit { putBoolean(FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD, checked) }
+            }
+            outcome.failure?.let { Log.e("BilibiliInnocentLab", "write home recommend early load prefs failed", it) }
+            homeRecommendEarlyLoad = outcome.confirmed
+            homeRecommendEarlyLoad
+        }
+        FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED -> {
+            val checked = requested
+            val outcome = SettingWritePolicy.attempt(cloudKeyFreeze, checked) {
+                prefs().edit { putBoolean(FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED, checked) }
+            }
+            outcome.failure?.let { Log.e("BilibiliInnocentLab", "write cloud key freeze prefs failed", it) }
+            cloudKeyFreeze = outcome.confirmed
+            cloudKeyFreeze
+        }
+        FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE -> {
+            val checked = requested
+            val outcome = SettingWritePolicy.attempt(cloudKeyFreezeObserve, checked) {
+                prefs().edit { putBoolean(FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE, checked) }
+            }
+            outcome.failure?.let { Log.e("BilibiliInnocentLab", "write cloud key freeze observe prefs failed", it) }
+            cloudKeyFreezeObserve = outcome.confirmed
+            cloudKeyFreezeObserve
         }
         FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION -> {
             val checked = requested
@@ -246,6 +282,30 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             }
             preferDynamicVideoTab
         }
+        FeaturePreferences.NO_LOGIN_ENABLED -> {
+            val outcome = SettingWritePolicy.attempt(noLoginEnabled, requested) {
+                prefs().edit { putBoolean(FeaturePreferences.NO_LOGIN_ENABLED, requested) }
+            }
+            outcome.failure?.let { Log.e("BilibiliInnocentLab", "write no-login prefs failed", it) }
+            noLoginEnabled = outcome.confirmed
+            noLoginEnabled
+        }
+        FeaturePreferences.INCOGNITO_ENABLED -> {
+            val outcome = SettingWritePolicy.attempt(incognitoEnabled, requested) {
+                prefs().edit { putBoolean(FeaturePreferences.INCOGNITO_ENABLED, requested) }
+            }
+            outcome.failure?.let { Log.e("BilibiliInnocentLab", "write incognito prefs failed", it) }
+            incognitoEnabled = outcome.confirmed
+            incognitoEnabled
+        }
+        FeaturePreferences.SKIP_GUEST_ONBOARDING -> {
+            val outcome = SettingWritePolicy.attempt(skipGuestOnboarding, requested) {
+                prefs().edit { putBoolean(FeaturePreferences.SKIP_GUEST_ONBOARDING, requested) }
+            }
+            outcome.failure?.let { Log.e("BilibiliInnocentLab", "write skip guest onboarding prefs failed", it) }
+            skipGuestOnboarding = outcome.confirmed
+            skipGuestOnboarding
+        }
         FeaturePreferences.HOST_BOTTOM_BAR_COMPACT -> {
             val checked = requested
             if (!hostBottomBarLiquidGlass) {
@@ -381,6 +441,12 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
                 )
             }
             shareMiniProgramDirectLink
+        }
+        FeaturePreferences.WECHAT_SHARE_COMPAT -> {
+            weChatShareCompat = requested
+            runCatching { prefs().edit { putBoolean(FeaturePreferences.WECHAT_SHARE_COMPAT, requested) } }
+                .onFailure { Log.e("BilibiliInnocentLab", "write WeChat share compatibility prefs failed", it) }
+            weChatShareCompat
         }
         FeaturePreferences.PURIFY_SPLASH_ADS -> {
             val checked = requested
@@ -1545,7 +1611,8 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             }
             requested
         }
-        FeaturePreferences.SPONSORBLOCK_ENABLED, FeaturePreferences.SPONSORBLOCK_AUTOMATIC -> {
+        FeaturePreferences.SPONSORBLOCK_ENABLED, FeaturePreferences.SPONSORBLOCK_AUTOMATIC,
+        FeaturePreferences.SPONSORBLOCK_STORY -> {
             runCatching { prefs().edit { putBoolean(storageKey, requested) } }.onFailure {
                 Log.e("BilibiliInnocentLab", "write sponsorblock prefs failed", it)
             }
@@ -1563,14 +1630,16 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             }
             requested
         }
-        FeaturePreferences.PLAYER_SUBTITLE_STYLE, FeaturePreferences.PLAYER_AI_SUBTITLE -> {
+        FeaturePreferences.PLAYER_SUBTITLE_STYLE, FeaturePreferences.PLAYER_AI_SUBTITLE,
+        FeaturePreferences.AI_INSIGHT_ENABLED, FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS,
+        FeaturePreferences.HOST_UI_POWER_SAVING -> {
             val store = checkNotNull(settingStore)
             val descriptor = store.descriptors.single { it.storageKey == storageKey }
             var savedChecked = store.state(descriptor.id).checked
             if (requested != savedChecked) {
                 runCatching { prefs().edit { putBoolean(storageKey, requested) } }
                     .onSuccess { savedChecked = requested }
-                    .onFailure { Log.e("BilibiliInnocentLab", "write subtitle prefs failed", it) }
+                    .onFailure { Log.e("BilibiliInnocentLab", "write feature prefs failed", it) }
             }
             savedChecked
         }
@@ -1581,6 +1650,10 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
 internal val modeledToggleKeys = setOf(
     FeaturePreferences.BRAND_SPLASH_SKIP,
     FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION,
+    FeaturePreferences.HOME_FRAME_LEGACY_LOCK,
+    FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD,
+    FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED,
+    FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE,
     FeaturePreferences.FORCE_EXTERNAL_BROWSER,
     FeaturePreferences.SHOW_FULL_NUMBERS,
     FeaturePreferences.SHOW_BV_AS_AV,
@@ -1594,6 +1667,9 @@ internal val modeledToggleKeys = setOf(
     FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS,
     FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL,
     FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB,
+    FeaturePreferences.NO_LOGIN_ENABLED,
+    FeaturePreferences.INCOGNITO_ENABLED,
+    FeaturePreferences.SKIP_GUEST_ONBOARDING,
     FeaturePreferences.HOST_BOTTOM_BAR_COMPACT,
     FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY,
     FeaturePreferences.HOST_MINE_GARB_DIM,
@@ -1601,6 +1677,7 @@ internal val modeledToggleKeys = setOf(
     FeaturePreferences.HOST_TOP_BAR_TOUCH_GLOW,
     FeaturePreferences.PURIFY_SHARE_CONTENT,
     FeaturePreferences.SHARE_MINI_PROGRAM_DIRECT_LINK,
+    FeaturePreferences.WECHAT_SHARE_COMPAT,
     FeaturePreferences.PURIFY_SPLASH_ADS,
     FeaturePreferences.BLOCK_TEENAGERS_MODE_PROMPT,
     FeaturePreferences.BLOCK_APP_UPDATE,
@@ -1682,16 +1759,24 @@ internal val modeledToggleKeys = setOf(
     FeaturePreferences.PLAYER_UNLOCK_CAST,
     FeaturePreferences.SPONSORBLOCK_ENABLED,
     FeaturePreferences.SPONSORBLOCK_AUTOMATIC,
+    FeaturePreferences.SPONSORBLOCK_STORY,
+    FeaturePreferences.AI_INSIGHT_ENABLED,
+    FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS,
     FeaturePreferences.PLAYER_FRAME_INTERPOLATION,
     FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST,
     FeaturePreferences.PLAYER_SUBTITLE_STYLE,
-    FeaturePreferences.PLAYER_AI_SUBTITLE
+    FeaturePreferences.PLAYER_AI_SUBTITLE,
+    FeaturePreferences.HOST_UI_POWER_SAVING
 )
 
 internal fun MainActivity.synchronizeSettingField(key: String, confirmed: Boolean) {
     when (key) {
         FeaturePreferences.BRAND_SPLASH_SKIP -> brandSplashSkip = confirmed
         FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION -> systemMediaNotification = confirmed
+        FeaturePreferences.HOME_FRAME_LEGACY_LOCK -> homeFrameLegacyLock = confirmed
+        FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD -> homeRecommendEarlyLoad = confirmed
+        FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED -> cloudKeyFreeze = confirmed
+        FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE -> cloudKeyFreezeObserve = confirmed
         FeaturePreferences.FORCE_EXTERNAL_BROWSER -> forceExternalBrowser = confirmed
         FeaturePreferences.SHOW_FULL_NUMBERS -> showFullNumbers = confirmed
         FeaturePreferences.SHOW_BV_AS_AV -> showBvAsAv = confirmed
@@ -1705,16 +1790,21 @@ internal fun MainActivity.synchronizeSettingField(key: String, confirmed: Boolea
         FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS -> blockAiDeclaredVideos = confirmed
         FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL -> homeVerticalOpenDetail = confirmed
         FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB -> preferDynamicVideoTab = confirmed
+        FeaturePreferences.NO_LOGIN_ENABLED -> noLoginEnabled = confirmed
+        FeaturePreferences.INCOGNITO_ENABLED -> incognitoEnabled = confirmed
+        FeaturePreferences.SKIP_GUEST_ONBOARDING -> skipGuestOnboarding = confirmed
         FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS -> hostBottomBarLiquidGlass = confirmed
         FeaturePreferences.HOST_BOTTOM_BAR_COMPACT -> hostBottomBarCompact = confirmed
         FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY -> hostBottomBarIconOnly = confirmed
         FeaturePreferences.HOST_MINE_GARB_DIM -> hostMineGarbDim = confirmed
+        FeaturePreferences.HOST_UI_POWER_SAVING -> hostUiPowerSaving = confirmed
         FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW -> hostBottomBarTouchGlow = confirmed
         FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS -> hostTopBarLiquidGlass = confirmed
         FeaturePreferences.HOST_TOP_BAR_TOUCH_GLOW -> hostTopBarTouchGlow = confirmed
         FeaturePreferences.HOST_VIDEO_CARDS -> hostVideoCards = confirmed
         FeaturePreferences.PURIFY_SHARE_CONTENT -> purifyShareContent = confirmed
         FeaturePreferences.SHARE_MINI_PROGRAM_DIRECT_LINK -> shareMiniProgramDirectLink = confirmed
+        FeaturePreferences.WECHAT_SHARE_COMPAT -> weChatShareCompat = confirmed
         FeaturePreferences.PURIFY_SPLASH_ADS -> purifySplashAds = confirmed
         FeaturePreferences.BLOCK_TEENAGERS_MODE_PROMPT -> blockTeenagersModePrompt = confirmed
         FeaturePreferences.BLOCK_APP_UPDATE -> blockAppUpdate = confirmed

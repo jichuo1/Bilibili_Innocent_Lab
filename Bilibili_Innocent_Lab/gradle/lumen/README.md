@@ -1,6 +1,8 @@
 # 凝光稳定版接入
 
-默认使用上游 [LumenCoacervationEngine 1.5.6](https://github.com/jichuo1/LumenCoacervationEngine/releases/tag/1.5.6)，`lumen-engine` 与 `lumen-motion` 在 `gradle/libs.versions.toml` 中共用同一个版本。普通构建直接从 JitPack 解析官方 Maven 产物，不下载源码归档，也不修改依赖缓存。
+默认使用上游 [LumenCoacervationEngine 1.6.1](https://github.com/jichuo1/LumenCoacervationEngine/releases/tag/1.6.1)，`lumen-engine` 与 `lumen-motion` 在 `gradle/libs.versions.toml` 中共用同一个版本。普通构建直接从 Maven Central 解析官方产物（坐标 `io.github.jichuo1:lumen-engine`、`io.github.jichuo1:lumen-motion`；1.5.6 及更早版本在 JitPack 的 `com.github.jichuo1.LumenCoacervationEngine` 下），不下载源码归档，也不修改依赖缓存。
+
+1.6.0 新增可选、默认关闭的原生 backdrop（`LumenSurfaceBinding.setRenderTargetBackdropEnabled`，仅在 Android 17 QPR2 / API 37.2 上生效），未开启时与 1.5.6 行为一致；1.6.1 是修订版，只修复引擎演示 Sample 与设备测试，九个库模块的源码与 1.6.0 相同。本模块尚未接入原生 backdrop。1.5.6 到 1.6.x 的逐类描述符比对上游尚未做；本次升级是否兼容以本仓库云端 CI 的构建、JVM 测试与契约测试为准。
 
 1.5.6 新增可选的材质浓度（`LumenMaterialOpacity` 系列，按材质分别消退，默认 `p = 1` 与原外观逐位相同），并收录透镜/模糊内核提速、随 AAR 提供的 Baseline Profile 与静止期采集唤醒优化；公开 API 只做新增，契约版本仍为 1，最低 SDK 仍为 27，存储协议与默认选项不变。本模块尚未接入材质浓度。
 

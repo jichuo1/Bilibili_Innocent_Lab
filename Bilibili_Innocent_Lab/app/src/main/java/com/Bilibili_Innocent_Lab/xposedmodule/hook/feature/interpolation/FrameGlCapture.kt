@@ -45,6 +45,11 @@ internal class FrameGlCapture(
     private var egl: FrameGl.Egl? = null
     private var pbuffer: EGLSurface = EGL14.EGL_NO_SURFACE
     private var program = 0
+    /**
+     * program 句柄缓存与 quad 视图，归本捕获线程的 GL 上下文独占（legacy 过渡补丁，见 FrameGlHandles.kt）：
+     * link 成功后查询一轮，稳态 read() 不再查 uniform / attrib、不再生成 quad 视图。
+     */
+    private val handles = FrameGlProgramHandles(FrameGlEs2, if (downscale) DOWNSCALE_UNIFORMS else BASE_UNIFORMS)
     private var oesTexture = 0
     private var framebuffer = 0
     private var readback: ByteBuffer? = null
@@ -83,6 +88,7 @@ internal class FrameGlCapture(
         if (pbuffer == EGL14.EGL_NO_SURFACE || !EGL14.eglMakeCurrent(created.display, pbuffer, pbuffer, created.context))
             return null
         program = FrameGl.program(OES_VERTEX, if (downscale) OES_DOWNSCALE_FRAGMENT else OES_FRAGMENT) ?: return null
+        handles.link(program)
         GLES20.glPixelStorei(GLES20.GL_PACK_ALIGNMENT, 1)
         oesTexture = FrameGl.texture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES)
         val target = FrameGl.texture(GLES20.GL_TEXTURE_2D)
@@ -126,10 +132,10 @@ internal class FrameGlCapture(
         GLES20.glUseProgram(program)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTexture)
-        GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(program, "uTransform"), 1, false, transform, 0)
+        GLES20.glUniformMatrix4fv(handles.uniform(program, UNIFORM_TRANSFORM), 1, false, transform, 0)
         // 四个样本位于输出像素中心 ±1/4 像素：双线性各覆盖 2×2 源像素，合起来约为输出像素的覆盖范围。
-        if (downscale) GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uOffset"), 0.25f / width, 0.25f / height)
-        FrameGl.bindQuad(program, FrameGl.FLIPPED_QUAD)
+        if (downscale) GLES20.glUniform2f(handles.uniform(program, UNIFORM_OFFSET), 0.25f / width, 0.25f / height)
+        handles.bindQuad(program)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         pixels.clear()
         GLES20.glReadPixels(0, 0, width, height, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels)
@@ -148,12 +154,19 @@ internal class FrameGlCapture(
             EGL14.eglDestroySurface(it.display, pbuffer)
         } }
         pbuffer = EGL14.EGL_NO_SURFACE
+        // 上下文随之销毁：program 名可能被新上下文复用，缓存的句柄不能留到下一个上下文。
+        handles.invalidate()
         FrameGl.release(egl)
         egl = null
         readback = null
     }
 
     private companion object {
+        const val UNIFORM_TRANSFORM = 0
+        const val UNIFORM_OFFSET = 1
+        val BASE_UNIFORMS = arrayOf("uTransform")
+        val DOWNSCALE_UNIFORMS = arrayOf("uTransform", "uOffset")
+
         // 坐标用 highp：mediump 的归一化坐标在 4K 源上只精确到约 2 个纹素。
         const val OES_VERTEX = "attribute vec2 aPosition; attribute vec2 aCoordinate; uniform mat4 uTransform;" +
             "varying highp vec2 vCoordinate; varying highp vec2 vBase;" +

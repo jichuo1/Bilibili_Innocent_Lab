@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.diagnostics
 
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.StandardPublisherPolicy
+
 internal enum class DiagnosticSeverity {
     OK,
     INFO,
@@ -45,6 +47,10 @@ internal enum class DiagnosticNoRootState {
     CHECKING,
     MANAGER_MISSING,
     MODULE_NOT_REGISTERED,
+    SCOPE_MISSING,
+    CONFIRMING,
+    UNCONFIRMED,
+    NOT_RUNNING,
     SYNCING,
     RESTART_REQUIRED,
     DISABLE_RESTART_REQUIRED,
@@ -59,6 +65,7 @@ internal enum class DiagnosticRemotePublishState {
     WAITING_FOR_SERVICE,
     PUBLISHING,
     READY,
+    BYPASSED,
     FAILED
 }
 
@@ -173,7 +180,19 @@ internal data class ModuleDiagnosticInputs(
     val frameworkProperties: Long? = null,
     val frameworkConnectionId: Long = 0L,
     val frameworkFailureCode: String? = null,
-    val remoteConnectionId: Long = 0L
+    val remoteConnectionId: Long = 0L,
+    /** 已安装宿主的补丁档案，仅用于本地详情；不扩展当前导出报告白名单。 */
+    val nPatchEnvironment: com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchEnvironment? = null,
+    val nPatchEmbeddedBuild: com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchEmbeddedBuildState =
+        com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchEmbeddedBuildState.UNKNOWN,
+    val noRootSyncDetail: String? = null,
+    /** 本次有界查询中实际响应的 NPatch 进程；支持包独立导出，不进入主报告或激活评估。 */
+    val nPatchProcesses: List<com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchProcessSnapshot> = emptyList(),
+    val nPatchObservedModuleVersions: List<Long> = emptyList(),
+    val nPatchPreviousModuleVersion: Long = 0L,
+    val nPatchPreviousModuleAt: Long = 0L,
+    val nPatchManagerReachability: com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchManagerReachability =
+        com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchManagerReachability.NOT_APPLICABLE
 )
 
 /**
@@ -183,7 +202,7 @@ internal data class ModuleDiagnosticInputs(
  * 都必须经过这一个入口，免得发布器的短路条件改了、诊断这边某一处没跟着改。
  */
 internal val ModuleDiagnosticInputs.standardPublisherBypassed: Boolean
-    get() = noRootDesiredEnabled
+    get() = StandardPublisherPolicy.isBypassed(noRootDesiredEnabled)
 
 /**
  * 标准发布器旁路期间"永远不会推进"的状态：既不是故障也不是"等待服务后发布"。
@@ -193,6 +212,7 @@ internal fun ModuleDiagnosticInputs.isIdleUnderStandardPublisherBypass(): Boolea
     standardPublisherBypassed && remotePublishState in BYPASSED_IDLE_PUBLISH_STATES
 
 private val BYPASSED_IDLE_PUBLISH_STATES = setOf(
+    DiagnosticRemotePublishState.BYPASSED,
     DiagnosticRemotePublishState.FAILED,
     DiagnosticRemotePublishState.WAITING_FOR_SERVICE,
     DiagnosticRemotePublishState.NOT_INITIALIZED
@@ -376,11 +396,14 @@ internal object ModuleHealthEvaluator {
         ) return DiagnosticSeverity.INFO
         return when (inputs.noRootState) {
             DiagnosticNoRootState.ACTIVE -> DiagnosticSeverity.OK
+            DiagnosticNoRootState.NOT_RUNNING -> DiagnosticSeverity.ACTION_REQUIRED
+            DiagnosticNoRootState.UNCONFIRMED,
             DiagnosticNoRootState.DISABLE_RESTART_REQUIRED_ACTIVE,
             DiagnosticNoRootState.DISABLE_RESTART_REQUIRED,
             DiagnosticNoRootState.RESTART_REQUIRED,
             DiagnosticNoRootState.MANAGER_MISSING,
             DiagnosticNoRootState.MODULE_NOT_REGISTERED,
+            DiagnosticNoRootState.SCOPE_MISSING,
             DiagnosticNoRootState.CONNECTION_TIMEOUT,
             DiagnosticNoRootState.ERROR -> DiagnosticSeverity.ATTENTION
             else -> DiagnosticSeverity.INFO

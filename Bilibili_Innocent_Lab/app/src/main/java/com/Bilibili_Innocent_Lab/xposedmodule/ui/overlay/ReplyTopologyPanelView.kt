@@ -13,7 +13,6 @@ import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
-import android.os.Build
 import android.text.TextUtils
 import android.text.Editable
 import android.text.TextWatcher
@@ -176,7 +175,7 @@ internal class ReplyTopologyPanelView(
         elevation = dp(12).toFloat()
         setBackgroundOpacity(currentOpacity, notify = false)
         contentDescription = strings.panelDescription
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) defaultFocusHighlightEnabled = false
+        defaultFocusHighlightEnabled = false
 
         addView(createHeader(), LayoutParams(LayoutParams.MATCH_PARENT, dp(48)))
         addView(opacityRow, LayoutParams(LayoutParams.MATCH_PARENT, dp(34)))
@@ -620,9 +619,7 @@ internal class ReplyTopologyPanelView(
         }
         opacitySeek.apply {
             max = 100
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                min = (config.minBackgroundOpacity * 100f).roundToInt()
-            }
+            min = (config.minBackgroundOpacity * 100f).roundToInt()
             progress = (currentOpacity * 100f).roundToInt()
             progressTintList = ColorStateList.valueOf(theme.accentColor)
             thumbTintList = ColorStateList.valueOf(theme.accentColor)

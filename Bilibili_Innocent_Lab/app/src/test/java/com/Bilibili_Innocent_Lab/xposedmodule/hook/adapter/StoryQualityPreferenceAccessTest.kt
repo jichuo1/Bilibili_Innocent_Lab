@@ -5,6 +5,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class StoryQualityPreferenceAccessTest {
+    interface IndirectInterface {
+        object Automatic : IndirectParent()
+        class Selected(val qn: Int) : IndirectInterface
+    }
+    open class IndirectParent : IndirectInterface
+
+    interface ExtraMarker
+    interface AdditionalInterface {
+        object Automatic : AdditionalInterface, ExtraMarker
+        class Selected(val qn: Int) : AdditionalInterface
+    }
+
+    interface ChangedInterface {
+        object Automatic : ChangedInterface
+        class Selected(qn: Int) : ChangedInterface { val value = qn + 1 }
+    }
     abstract class Plain {
         object Automatic : Plain()
         class Selected(val qn: Int) : Plain()
@@ -89,6 +105,29 @@ class StoryQualityPreferenceAccessTest {
     private val loader = javaClass.classLoader!!
     private fun resolve(base: Class<*>, hostLoader: ClassLoader = loader) =
         StoryQualityPreferenceAccess.resolve(hostLoader, base)
+
+    @Test fun `resolves actual host interface and private marker factory without guessing suffixes`() {
+        val access = requireNotNull(resolve(com.bilibili.player.tangram.basic.d::class.java))
+        assertSame(com.bilibili.player.tangram.basic.d.a.a, access.auto)
+        for (qn in listOf(0, 16, 32, 64, 80, 127)) {
+            val fixed = requireNotNull(access.fixed(qn))
+            assertEquals(qn, access.qualityOf(fixed))
+            assertFalse(access.isAuto(fixed))
+        }
+        assertNull(access.fixed(-1))
+    }
+
+    @Test fun `rejects indirect implementations of an interface family`() {
+        assertNull(resolve(IndirectInterface::class.java))
+    }
+
+    @Test fun `rejects additional interface contracts on family members`() {
+        assertNull(resolve(AdditionalInterface::class.java))
+    }
+
+    @Test fun `interface constructors still must preserve the requested quality`() {
+        assertNull(resolve(ChangedInterface::class.java))
+    }
 
     @Test fun `resolves structural subtypes and round trips supported qualities`() {
         val access = requireNotNull(resolve(Plain::class.java))

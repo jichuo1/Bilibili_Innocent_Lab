@@ -8,8 +8,7 @@ import org.junit.Test
 class DanmakuCopyOnWriteTest {
     private val errors = mutableListOf<String>()
     private val stages = mutableListOf<FeatureRuntimeStage>()
-    private fun purify(reply: DmSegMobileReply): DmSegMobileReply {
-        val installer = DanmakuPurifyFeatureInstaller(true, 5, true)
+    private fun purify(reply: DmSegMobileReply, installer: DanmakuPurifyFeatureInstaller = DanmakuPurifyFeatureInstaller(true, 5, true)): DmSegMobileReply {
         val environment = HookEnvironment("tv.danmaku.bili", javaClass.classLoader,
             HookPointRegistry(javaClass.classLoader), TestHookRegistrar,
             { _, _ -> }, { key, _ -> errors += key }, { _, _ -> },
@@ -19,6 +18,19 @@ class DanmakuCopyOnWriteTest {
         assertNotNull(members)
         return installer.javaClass.declaredMethods.single { it.name == "purify" }.apply { isAccessible = true }
             .invoke(installer, environment, reply, members, DmSegMobileReply.getDefaultInstance()) as DmSegMobileReply
+    }
+
+    @Test fun liveRulesChangeTheSameInstallerWithoutMutatingSourceMessages() {
+        var rules = com.Bilibili_Innocent_Lab.xposedmodule.hook.config.LiveDanmakuRules(1, false)
+        val installer = DanmakuPurifyFeatureInstaller(true, 5, true, liveRules = { rules })
+        val original = DmSegMobileReply(listOf(DanmakuElem(2, colorful = 60001), DanmakuElem(9, colorful = 60001)), listOf(DmColorful(60001)))
+        assertSame(original, purify(original, installer))
+        rules = rules.copy(minimum = 8, colorful = true)
+        val updated = purify(original, installer)
+        assertEquals(1, updated.elems.size); assertEquals(0, updated.elems.single().getColorfulValue())
+        assertTrue(updated.colorful.isEmpty()); assertEquals(2, original.elems.size)
+        rules = rules.copy(minimum = 1, colorful = false)
+        assertSame(original, purify(original, installer))
     }
 
     @Test fun `failure at either list or build retains original message and both lists`() {

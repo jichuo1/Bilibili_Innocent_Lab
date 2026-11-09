@@ -1,6 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
-import com.highcapable.betterandroid.ui.extension.view.childOrNull
+import io.github.jichuo1.meguviz.android.extensions.childOrNull
 import android.app.Dialog
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -24,12 +24,14 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticPresets
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSensitivity
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSettings
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSurface
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConnectivity
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.MaxHeightScrollView
-import com.highcapable.betterandroid.ui.extension.view.textColor
-import com.highcapable.betterandroid.ui.extension.view.textToString
-import com.highcapable.betterandroid.ui.extension.view.toast
+import io.github.jichuo1.meguviz.android.extensions.textColor
+import io.github.jichuo1.meguviz.android.extensions.textToString
+import io.github.jichuo1.meguviz.android.extensions.toast
 import android.widget.CheckBox as NativeCheckBox
 import android.widget.EditText as NativeEditText
 import android.widget.FrameLayout as NativeFrameLayout
@@ -89,9 +91,6 @@ internal fun parseTimeoutSeconds(raw: String): Int? {
 }
 
 /** 兼容区入口行：标题 + 摘要两行，与规则入口行同一结构。 */
-internal fun MainActivity.semanticJevEntryText(): String =
-    getString(R.string.semantic_jev_settings) + "\n" + semanticJevSummaryText()
-
 private val semanticProviders = listOf(
     SemanticBackend.JEV to R.string.semantic_jev_provider_jev,
     SemanticBackend.OPENAI to R.string.semantic_jev_provider_openai,
@@ -138,17 +137,25 @@ private class SemanticForm(
         inputType = when {
             decimal -> InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             numeric -> InputType.TYPE_CLASS_NUMBER
-            secret -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            secret -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD or
+                InputType.TYPE_TEXT_FLAG_MULTI_LINE
             multiLine -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            else -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            else -> InputType.TYPE_CLASS_TEXT
         }
-        if (multiLine) {
-            isSingleLine = false
-            minLines = 2
-            maxLines = 6
-            gravity = Gravity.TOP or Gravity.START
-        } else {
-            isSingleLine = true
+        when {
+            multiLine -> {
+                isSingleLine = false
+                minLines = 2
+                maxLines = 6
+                gravity = Gravity.TOP or Gravity.START
+            }
+            secret -> {
+                // 长 API Key 自动增高但有上限，不再挤在单行密码框里跑出可视区域。
+                isSingleLine = false
+                minLines = 1
+                maxLines = 3
+            }
+            else -> isSingleLine = true
         }
         setPadding(dp(14), dp(10), dp(14), dp(10))
         background = GradientDrawable().apply {
@@ -469,6 +476,50 @@ internal fun MainActivity.showSemanticJevSettingsDialog(anchor: View? = null, on
     ) }
 }
 
+/** 长凭据的辅助行：切换明文 / 密文并显示字符数，便于核对粘贴是否完整。 */
+private fun MainActivity.createSemanticKeyRow(field: NativeEditText): View {
+    val density = resources.displayMetrics.density
+    val counter = NativeTextView(this).apply {
+        textSize = 12f
+        setTextColor(getColor(R.color.colorTextGray))
+        alpha = 0.72f
+        gravity = Gravity.END or Gravity.CENTER_VERTICAL
+    }
+    val toggle = NativeTextView(this).apply {
+        textSize = 13f
+        setTextColor(monetColors.primary)
+        setPadding((12 * density).toInt(), (8 * density).toInt(), (12 * density).toInt(), (8 * density).toInt())
+        background = selfRippleBackground(10f)
+        isClickable = true
+        isFocusable = true
+    }
+    var visible = false
+    fun refresh() {
+        counter.text = getString(R.string.semantic_jev_api_key_counter,
+            field.text?.length ?: 0, RemoteHookConfigContract.MAX_SEMANTIC_JEV_API_KEY_LENGTH)
+        toggle.text = getString(if (visible) R.string.semantic_jev_api_key_hide else R.string.semantic_jev_api_key_show)
+    }
+    toggle.setOnClickListener {
+        visible = !visible
+        field.transformationMethod = if (visible) null
+            else android.text.method.PasswordTransformationMethod.getInstance()
+        field.setSelection(field.text?.length ?: 0)
+        refresh()
+    }
+    field.addTextChangedListener(object : android.text.TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = refresh()
+        override fun afterTextChanged(s: android.text.Editable?) = Unit
+    })
+    refresh()
+    return NativeLinearLayout(this).apply {
+        orientation = NativeLinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        addView(toggle, NativeLinearLayout.LayoutParams(-2, -2))
+        addView(counter, NativeLinearLayout.LayoutParams(0, -2, 1f))
+    }
+}
+
 /**
  * 编辑一个判定来源：接口类型、Key（密码框，不进备份）、地址、模型。地址或模型不合格时不保存、不关闭，
  * 避免把 Key 发到错误的地方。「清除」把这个来源的 Key 置空（其余字段保留，方便以后再填 Key）。
@@ -507,6 +558,7 @@ internal fun MainActivity.showSemanticSourceDialog(
         form.help(getString(R.string.semantic_short_provider))
         form.label(R.string.semantic_jev_api_key, 14)
         keyField = form.field(semanticSourceKey(index), R.string.semantic_jev_api_key_hint_short, secret = true)
+        form.body.addView(createSemanticKeyRow(keyField), NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = form.dp(2) })
         form.help(getString(R.string.semantic_short_key))
         form.label(R.string.semantic_jev_endpoint, 12)
         endpointField = form.field(prefs.getString(endpointKey, "").orEmpty(), R.string.semantic_jev_endpoint_hint_short)
@@ -536,7 +588,17 @@ internal fun MainActivity.showSemanticSourceDialog(
         add(getString(R.string.dialog_cancel) to { dismiss {} })
         add(getString(R.string.semantic_jev_save) to save@{
             val endpoint = endpointField.textToString().trim()
-            val model = modelField.textToString().trim().take(SemanticBackend.MAX_MODEL_LENGTH)
+            val model = modelField.textToString().trim()
+            val key = keyField.textToString().trim()
+            // 超长时明确报错，不再静默截断后让请求因凭据不全而失败。
+            if (model.length > SemanticBackend.MAX_MODEL_LENGTH) {
+                toast(getString(R.string.semantic_jev_field_too_long, SemanticBackend.MAX_MODEL_LENGTH))
+                return@save
+            }
+            if (key.length > RemoteHookConfigContract.MAX_SEMANTIC_JEV_API_KEY_LENGTH) {
+                toast(getString(R.string.semantic_jev_field_too_long, RemoteHookConfigContract.MAX_SEMANTIC_JEV_API_KEY_LENGTH))
+                return@save
+            }
             val backend = SemanticBackend.of(provider, model)
             if (backend == null) {
                 toast(getString(R.string.semantic_jev_model_required))
@@ -546,7 +608,6 @@ internal fun MainActivity.showSemanticSourceDialog(
                 toast(getString(R.string.semantic_jev_endpoint_invalid))
                 return@save
             }
-            val key = keyField.textToString().trim().take(RemoteHookConfigContract.MAX_SEMANTIC_JEV_API_KEY_LENGTH)
             runCatching {
                 prefs.edit {
                     putString(RemoteHookConfigContract.semanticApiKey(index), key)
@@ -559,6 +620,210 @@ internal fun MainActivity.showSemanticSourceDialog(
                 toast(getString(R.string.semantic_jev_saved))
                 onSaved()
             }
+        })
+    } }
+}
+
+/** AI Insight 入口行摘要：只显示协议 + 模型，Key 和完整地址不回显到列表。 */
+internal fun MainActivity.aiInsightServiceSummary(): String {
+    val prefs = prefs()
+    val protocol = prefs.getString(FeaturePreferences.AI_INSIGHT_PROTOCOL, InsightConfig.DEFAULT_PROTOCOL)
+        ?.takeIf { it in InsightConfig.IDS } ?: InsightConfig.DEFAULT_PROTOCOL
+    val source = InsightConfig.resolve(
+        protocol,
+        prefs.getString(FeaturePreferences.AI_INSIGHT_BASE_URL, "") ?: "",
+        prefs.getString(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY, "") ?: "",
+        prefs.getString(FeaturePreferences.AI_INSIGHT_MODEL, "") ?: ""
+    ) ?: return getString(R.string.ai_insight_service_summary_unconfigured)
+    val name = getString(if (protocol == InsightConfig.PROTOCOL_ANTHROPIC) R.string.ai_insight_protocol_anthropic
+        else R.string.ai_insight_protocol_openai)
+    return getString(R.string.ai_insight_service_summary_configured, name, source.model)
+}
+
+/**
+ * AI Insight 独立服务配置面板：协议 / Base URL / API Key / 模型一次写入专用键，
+ * 与智能判定的「来源 1–8」完全隔离。面板实时回显规范化后的真实请求地址（协议决定
+ * /chat/completions 或 /v1/messages），避免"测试通过但功能不能用"。
+ * 「从判定来源导入」是一次性可见迁移，不自动继承、不静默复制。
+ */
+internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSaved: () -> Unit) {
+    val prefs = prefs()
+    var protocol = prefs.getString(FeaturePreferences.AI_INSIGHT_PROTOCOL, InsightConfig.DEFAULT_PROTOCOL)
+        ?.takeIf { it in InsightConfig.IDS } ?: InsightConfig.DEFAULT_PROTOCOL
+    val protocolIds = listOf(InsightConfig.PROTOCOL_OPENAI, InsightConfig.PROTOCOL_ANTHROPIC)
+    lateinit var endpointField: NativeEditText
+    lateinit var modelField: NativeEditText
+    lateinit var keyField: NativeEditText
+    lateinit var budgetField: NativeEditText
+    lateinit var timeoutField: NativeEditText
+    lateinit var effectiveView: NativeTextView
+    lateinit var protocolSelector: com.lumen.coacervation.engine.widget.LumenSlidingSelection
+    // 滑动选择控件在构造时会回调 onSelected；字段就绪前不回显，避免读到未初始化的输入框。
+    var fieldsReady = false
+    fun updateEffective() {
+        if (!fieldsReady) return
+        val source = InsightConfig.resolve(protocol,
+            endpointField.textToString().trim(), keyField.textToString().trim(), modelField.textToString().trim())
+        effectiveView.text = if (source == null) getString(R.string.ai_insight_service_summary_unconfigured)
+        else getString(R.string.ai_insight_service_effective, source.resolvedEndpoint,
+            getString(if (protocol == InsightConfig.PROTOCOL_ANTHROPIC) R.string.ai_insight_protocol_anthropic
+                else R.string.ai_insight_protocol_openai))
+    }
+    fun fieldWatcher() = object : android.text.TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = updateEffective()
+        override fun afterTextChanged(s: android.text.Editable?) = Unit
+    }
+    val configuredBefore = prefs.getString(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY, "").orEmpty().isNotBlank()
+    presentSemanticDialog(getString(R.string.ai_insight_service_title), anchor, info = {
+        semanticInfo(
+            R.string.ai_insight_protocol to getString(R.string.ai_insight_service_help),
+            R.string.ai_insight_base_url to getString(R.string.semantic_short_endpoint),
+            R.string.semantic_jev_api_key to getString(R.string.semantic_short_key)
+        )
+    }, form = { form ->
+        form.label(R.string.ai_insight_protocol, 10)
+        protocolSelector = createSlidingChoice(
+            labels = protocolIds.map { getString(if (it == InsightConfig.PROTOCOL_ANTHROPIC)
+                R.string.ai_insight_protocol_anthropic else R.string.ai_insight_protocol_openai) },
+            selectedIndex = protocolIds.indexOf(protocol).coerceAtLeast(0)
+        ) { choice -> protocol = protocolIds[choice]; updateEffective() }
+            as com.lumen.coacervation.engine.widget.LumenSlidingSelection
+        form.body.addView(protocolSelector, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = form.dp(4) })
+
+        form.label(R.string.ai_insight_base_url, 14)
+        endpointField = form.field(prefs.getString(FeaturePreferences.AI_INSIGHT_BASE_URL, "").orEmpty(),
+            R.string.ai_insight_base_url_hint)
+        form.help(getString(R.string.semantic_short_endpoint))
+
+        form.label(R.string.ai_insight_model, 12)
+        modelField = form.field(prefs.getString(FeaturePreferences.AI_INSIGHT_MODEL, "").orEmpty(),
+            R.string.semantic_jev_model_hint)
+
+        form.label(R.string.semantic_jev_api_key, 14)
+        keyField = form.field(prefs.getString(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY, "").orEmpty(),
+            R.string.semantic_jev_api_key_hint_short, secret = true)
+        form.body.addView(createSemanticKeyRow(keyField), NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = form.dp(2) })
+        form.help(getString(R.string.semantic_short_key))
+
+        // 生成调参：预算（token）与超时（秒），留空回落默认值，夹到合法范围。
+        form.label(R.string.ai_insight_output_budget, 12)
+        budgetField = form.field(prefs.getInt(RemoteHookConfigContract.KEY_INSIGHT_OUTPUT_BUDGET,
+            InsightConfig.DEFAULT_OUTPUT_BUDGET).toString(), R.string.ai_insight_value_hint, numeric = true)
+        form.help(getString(R.string.ai_insight_output_budget_help))
+        form.label(R.string.ai_insight_timeout, 12)
+        timeoutField = form.field((prefs.getInt(RemoteHookConfigContract.KEY_INSIGHT_TIMEOUT_MS,
+            InsightConfig.DEFAULT_TIMEOUT_MS) / 1000).toString(), R.string.ai_insight_value_hint, numeric = true)
+        form.help(getString(R.string.ai_insight_timeout_help))
+
+        effectiveView = NativeTextView(this).apply {
+            textSize = 12f
+            setTextColor(getColor(R.color.colorTextGray))
+            alpha = 0.78f
+            setLineSpacing(3 * resources.displayMetrics.density, 1f)
+        }
+        form.body.addView(effectiveView, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = form.dp(12) })
+        endpointField.addTextChangedListener(fieldWatcher())
+        modelField.addTextChangedListener(fieldWatcher())
+        keyField.addTextChangedListener(fieldWatcher())
+
+        // 一次性可见导入：把某个 OpenAI 兼容判定来源的地址 / 模型 / Key 填进输入框，用户核对后再保存。
+        val importButton = NativeTextView(this).apply {
+            text = getString(R.string.ai_insight_service_import)
+            textColor = monetColors.primary
+            textSize = 13f
+            setPadding(form.dp(12), form.dp(9), form.dp(12), form.dp(9))
+            background = selfRippleBackground(10f)
+            isClickable = true
+            isFocusable = true
+        }
+        importButton.setOnClickListener {
+            val index = configuredSemanticSources().firstOrNull { candidate ->
+                val (providerKey, _, _) = FeaturePreferences.semanticSourceKeys(candidate)
+                prefs.getString(providerKey, SemanticBackend.JEV) == SemanticBackend.OPENAI
+            }
+            if (index == null) {
+                toast(getString(R.string.ai_insight_service_import_none))
+                return@setOnClickListener
+            }
+            val (_, endpointKey, modelKey) = FeaturePreferences.semanticSourceKeys(index)
+            endpointField.setText(prefs.getString(endpointKey, "").orEmpty())
+            modelField.setText(prefs.getString(modelKey, "").orEmpty())
+            keyField.setText(semanticSourceKey(index))
+            protocol = InsightConfig.PROTOCOL_OPENAI
+            protocolSelector.select(0, animate = false)
+            toast(getString(R.string.ai_insight_service_imported))
+            updateEffective()
+        }
+        form.body.addView(importButton, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = form.dp(10) })
+        // 测试连接走 AI Insight 真实请求路径，用当前框里的值，不必先保存。
+        form.body.addView(createAiInsightConnectivityTester(
+            protocol = { protocol },
+            key = { keyField.textToString().trim() },
+            endpoint = { endpointField.textToString().trim() },
+            model = { modelField.textToString().trim() }
+        ), NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = form.dp(6) })
+        form.help(getString(R.string.semantic_test_note), top = 2)
+        fieldsReady = true
+        updateEffective()
+    }) { dismiss -> buildList {
+        if (configuredBefore) {
+            add(getString(R.string.semantic_source_clear) to {
+                runCatching {
+                    prefs.edit {
+                        putString(FeaturePreferences.AI_INSIGHT_PROTOCOL, InsightConfig.DEFAULT_PROTOCOL)
+                        putString(FeaturePreferences.AI_INSIGHT_BASE_URL, "")
+                        putString(FeaturePreferences.AI_INSIGHT_MODEL, "")
+                        putString(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY, "")
+                        putInt(RemoteHookConfigContract.KEY_INSIGHT_OUTPUT_BUDGET, InsightConfig.DEFAULT_OUTPUT_BUDGET)
+                        putInt(RemoteHookConfigContract.KEY_INSIGHT_TIMEOUT_MS, InsightConfig.DEFAULT_TIMEOUT_MS)
+                    }
+                }.onFailure { Log.e("BilibiliInnocentLab", "clear AI Insight config failed", it) }
+                dismiss { toast(getString(R.string.semantic_source_cleared)); onSaved() }
+            })
+        }
+        add(getString(R.string.dialog_cancel) to { dismiss {} })
+        add(getString(R.string.semantic_jev_save) to save@{
+            val endpoint = endpointField.textToString().trim()
+            val model = modelField.textToString().trim()
+            val key = keyField.textToString().trim()
+            if (model.length > SemanticBackend.MAX_MODEL_LENGTH ||
+                key.length > RemoteHookConfigContract.MAX_SEMANTIC_JEV_API_KEY_LENGTH) {
+                toast(getString(R.string.semantic_jev_field_too_long,
+                    minOf(SemanticBackend.MAX_MODEL_LENGTH, RemoteHookConfigContract.MAX_SEMANTIC_JEV_API_KEY_LENGTH)))
+                return@save
+            }
+            // 调参留空回落默认；非空时必须在合法范围内，避免把极端值下发到宿主。
+            fun tuning(raw: String, fallback: Int, range: IntRange): Int? {
+                if (raw.isEmpty()) return fallback
+                val value = raw.toIntOrNull() ?: return null
+                return value.takeIf { it in range }
+            }
+            val budget = tuning(budgetField.textToString().trim(), InsightConfig.DEFAULT_OUTPUT_BUDGET,
+                InsightConfig.OUTPUT_BUDGET_RANGE)
+            val timeoutSec = tuning(timeoutField.textToString().trim(), InsightConfig.DEFAULT_TIMEOUT_MS / 1000,
+                InsightConfig.TIMEOUT_RANGE.first / 1000..InsightConfig.TIMEOUT_RANGE.last / 1000)
+            if (budget == null || timeoutSec == null) {
+                toast(getString(R.string.ai_insight_tuning_invalid))
+                return@save
+            }
+            // 允许全空（等于清除配置，卡片给出引导）；非空时必须能解析出合法来源。
+            val filled = listOf(endpoint, model, key).any { it.isNotEmpty() }
+            if (filled && InsightConfig.resolve(protocol, endpoint, key, model) == null) {
+                toast(getString(R.string.ai_insight_service_invalid))
+                return@save
+            }
+            runCatching {
+                prefs.edit {
+                    putString(FeaturePreferences.AI_INSIGHT_PROTOCOL, protocol)
+                    putString(FeaturePreferences.AI_INSIGHT_BASE_URL, endpoint)
+                    putString(FeaturePreferences.AI_INSIGHT_MODEL, model)
+                    putString(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY, key)
+                    putInt(RemoteHookConfigContract.KEY_INSIGHT_OUTPUT_BUDGET, budget)
+                    putInt(RemoteHookConfigContract.KEY_INSIGHT_TIMEOUT_MS, timeoutSec * 1000)
+                }
+            }.onFailure { Log.e("BilibiliInnocentLab", "write AI Insight config failed", it) }
+            dismiss { toast(getString(R.string.semantic_jev_saved)); onSaved() }
         })
     } }
 }
@@ -629,21 +894,90 @@ private fun MainActivity.createSemanticConnectivityTester(
     return row
 }
 
-private fun MainActivity.semanticTestMessage(result: SemanticConnectivity.Result): String {
-    if (result.ok) {
-        return getString(R.string.semantic_test_ok, formatSeconds(result.elapsedMs.toInt().coerceAtLeast(100)), result.variant)
+private fun MainActivity.semanticTestMessage(result: SemanticConnectivity.Result): String =
+    connectivityTestMessage(result.ok, result.outcome, result.elapsedMs, result.variant)
+
+private fun MainActivity.insightTestMessage(result: InsightConnectivity.Result): String =
+    connectivityTestMessage(result.ok, result.outcome, result.elapsedMs, result.variant)
+
+/** 两套探针共用同一组结果文案（outcome 约定一致：http-<status> / network / parse / deadline / 其它）。 */
+private fun MainActivity.connectivityTestMessage(ok: Boolean, outcome: String, elapsedMs: Long, variant: String): String {
+    if (ok) {
+        return getString(R.string.semantic_test_ok, formatSeconds(elapsedMs.toInt().coerceAtLeast(100)), variant)
     }
-    val status = result.outcome.removePrefix("http-").toIntOrNull()
+    val status = outcome.removePrefix("http-").toIntOrNull()
     return when {
         status == 401 || status == 402 || status == 403 -> getString(R.string.semantic_test_fail_auth, status)
         status == 404 || status == 405 -> getString(R.string.semantic_test_fail_address, status)
         status == 429 -> getString(R.string.semantic_test_fail_rate)
         status != null -> getString(R.string.semantic_test_fail_http, status)
-        result.outcome == "network" -> getString(R.string.semantic_test_fail_network)
-        result.outcome == "parse" -> getString(R.string.semantic_test_fail_parse)
-        result.outcome == "deadline" -> getString(R.string.semantic_test_fail_timeout)
-        else -> getString(R.string.semantic_test_fail_other, result.outcome)
+        outcome == "network" -> getString(R.string.semantic_test_fail_network)
+        outcome == "parse" -> getString(R.string.semantic_test_fail_parse)
+        outcome == "deadline" -> getString(R.string.semantic_test_fail_timeout)
+        else -> getString(R.string.semantic_test_fail_other, outcome)
     }
+}
+
+/**
+ * AI Insight 面板的「测试连接」：用 [InsightConnectivity] 走与宿主完全相同的结构化流式请求，
+ * 所以「通过」代表 AI Insight 真能用，而不是只测了判定接口。结构与判定探针一致，后台线程执行。
+ */
+private fun MainActivity.createAiInsightConnectivityTester(
+    protocol: () -> String,
+    key: () -> String,
+    endpoint: () -> String,
+    model: () -> String
+): View {
+    val density = resources.displayMetrics.density
+    val dark = ColorUtils.calculateLuminance(monetColors.surface) < 0.5
+    val row = NativeLinearLayout(this).apply {
+        orientation = NativeLinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+    }
+    val status = NativeTextView(this).apply {
+        textSize = 13f
+        setLineSpacing(2 * density, 1f)
+    }
+    var running = false
+    val button = NativeTextView(this).apply {
+        text = getString(R.string.semantic_test_connect)
+        textColor = monetColors.primary
+        textSize = 14f
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        setPadding((12 * density).toInt(), (9 * density).toInt(), (12 * density).toInt(), (9 * density).toInt())
+        background = selfRippleBackground(12f)
+        isClickable = true
+        isFocusable = true
+    }
+    fun show(ok: Boolean?, message: String) {
+        status.text = when (ok) { true -> "✓ $message"; false -> "! $message"; null -> message }
+        status.textColor = when (ok) {
+            true -> DiagnosticStatusPalette.color(DiagnosticStatusTone.OK, dark)
+            false -> DiagnosticStatusPalette.color(DiagnosticStatusTone.ACTION_REQUIRED, dark)
+            null -> getColor(R.color.colorTextGray)
+        }
+    }
+    button.setOnClickListener {
+        if (running) return@setOnClickListener
+        val source = InsightConfig.resolve(protocol(), endpoint(), key(), model())
+        if (source == null) {
+            show(false, getString(R.string.semantic_test_fail_config))
+            return@setOnClickListener
+        }
+        running = true
+        show(null, getString(R.string.semantic_test_running))
+        Thread({
+            val result = InsightConnectivity.probe(source)
+            runOnUiThread {
+                running = false
+                if (isFinishing || isDestroyed || !row.isAttachedToWindow) return@runOnUiThread
+                show(result.ok, insightTestMessage(result))
+            }
+        }, "BIL-InsightTest").apply { isDaemon = true }.start()
+    }
+    row.addView(button, NativeLinearLayout.LayoutParams(-2, -2))
+    row.addView(status, NativeLinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = (8 * density).toInt() })
+    return row
 }
 
 /** 过滤面的「判定来源」入口文字：标题 + 当前选择。 */

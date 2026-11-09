@@ -9,6 +9,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 import android.view.View
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal class FollowFeedFeatureInstaller(private val enabled: Boolean, private val points: FollowFeedPoints? = null,
@@ -31,17 +32,18 @@ internal class FollowFeedFeatureInstaller(private val enabled: Boolean, private 
             ?: return FeatureInstallResult.Skipped("missing-adapter")
         val holder = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView\$ViewHolder")
             ?: return FeatureInstallResult.Skipped("missing-holder")
-        val itemView = holder.getField("itemView")
-        val getView = fragment.getMethod("getView")
+        val itemView = KavaMemberLookup.fieldOrNull(holder, "itemView", includeSuperclasses = true)
+            ?: throw NoSuchFieldException("itemView")
+        val getView = inheritedMethod(fragment, "getView")
         // 已读两家族源码：旧k/新f仅派发模块背景绘制。保留整个 ItemDecoration，
         // 尤其 getItemOffsets 和 onDrawOver；未知版本没有这条契约时整体安全跳过。
         val paint = adapted.paint
         val painter = paint.declaringClass
         // 在任何注入前确认关键边界，不在注册一半后才发现不可恢复的布局能力缺失。
-        recycler.getDeclaredMethod("getItemDecorInsetsForChild", View::class.java)
-        recycler.getDeclaredMethod("dispatchChildAttached", View::class.java)
-        fragment.getDeclaredMethod("onViewCreated", View::class.java, Bundle::class.java)
-        fragment.getDeclaredMethod("onDestroyView")
+        declaredMethod(recycler, "getItemDecorInsetsForChild", View::class.java)
+        declaredMethod(recycler, "dispatchChildAttached", View::class.java)
+        declaredMethod(fragment, "onViewCreated", View::class.java, Bundle::class.java)
+        declaredMethod(fragment, "onDestroyView")
         val headerPadding = adapted.header
         val personalOwner = KavaMemberLookup.classOrNull(loader,
             "com.bilibili.bplus.followinglist.quick.consume.VideoQuickConsumeFragment")
@@ -49,12 +51,12 @@ internal class FollowFeedFeatureInstaller(private val enabled: Boolean, private 
             points?.personalSeparatorClass != null || adapted.points.personalDecorationClass != null ||
             adapted.points.personalSeparatorClass != null
         val personalFragment = personalOwner?.takeIf { type -> runCatching {
-            type.getDeclaredMethod("onViewCreated", View::class.java, Bundle::class.java).returnType == Void.TYPE &&
-                type.getDeclaredMethod("onDestroyView").returnType == Void.TYPE &&
-                type.getDeclaredMethod("setUserVisibleCompat", Boolean::class.javaPrimitiveType!!).returnType == Void.TYPE &&
-                View::class.java.isAssignableFrom(type.getMethod("getView").returnType) &&
-                type.getMethod("getUserVisibleHint").returnType == Boolean::class.javaPrimitiveType &&
-                listOf("onPause", "onResume").all { type.getMethod(it).returnType == Void.TYPE }
+            declaredMethod(type, "onViewCreated", View::class.java, Bundle::class.java).returnType == Void.TYPE &&
+                declaredMethod(type, "onDestroyView").returnType == Void.TYPE &&
+                declaredMethod(type, "setUserVisibleCompat", Boolean::class.javaPrimitiveType!!).returnType == Void.TYPE &&
+                View::class.java.isAssignableFrom(inheritedMethod(type, "getView").returnType) &&
+                inheritedMethod(type, "getUserVisibleHint").returnType == Boolean::class.javaPrimitiveType &&
+                listOf("onPause", "onResume").all { inheritedMethod(type, it).returnType == Void.TYPE }
         }.getOrDefault(false)
         }
         val separatorDraw = adapted.separator
@@ -71,8 +73,8 @@ internal class FollowFeedFeatureInstaller(private val enabled: Boolean, private 
                 "[BIL] 关注页样式安全跳过异常边界: ${it.javaClass.simpleName}")
         })
         fun registerPage(type: Class<*>, key: String, personalFeed: Boolean) {
-            val pageView = type.getMethod("getView")
-            val visibleHint = if (personalFeed) type.getMethod("getUserVisibleHint") else null
+            val pageView = inheritedMethod(type, "getView")
+            val visibleHint = if (personalFeed) inheritedMethod(type, "getUserVisibleHint") else null
             environment.registrar.exact("$key.create", type, "onViewCreated", View::class.java, Bundle::class.java) {
                 after {
                     if (hasThrowable) return@after
@@ -90,7 +92,7 @@ internal class FollowFeedFeatureInstaller(private val enabled: Boolean, private 
                 before { (instance?.let { pageView.invoke(it) } as? View)?.let(controller::close) }
             }
             for (event in listOf("onPause", "onResume")) {
-                val method = type.getMethod(event)
+                val method = inheritedMethod(type, event)
                 environment.registrar.exact("$key.$event", method.declaringClass, event) {
                     after {
                         val target = instance?.takeIf { type.isInstance(it) } ?: return@after
@@ -172,6 +174,13 @@ internal class FollowFeedFeatureInstaller(private val enabled: Boolean, private 
     }
 
     companion object {
+        /** 关键边界缺失时照旧抛出，由安装框架记为失败，不降级成静默跳过。 */
+        private fun declaredMethod(owner: Class<*>, name: String, vararg parameters: Class<*>): Method =
+            KavaMemberLookup.methodOrNull(owner, name, *parameters) ?: throw NoSuchMethodException("${owner.name}.$name")
+
+        private fun inheritedMethod(owner: Class<*>, name: String): Method =
+            KavaMemberLookup.inheritedMethodOrNull(owner, name) ?: throw NoSuchMethodException("${owner.name}.$name")
+
         /** 独立skip诊断不经过controller.report，不能把预算/坏描述误标成APPLIED。 */
         internal fun reportModelSkip(environment: HookEnvironment, reported: MutableSet<String>, reason: String) {
             if (!reported.add(reason)) return

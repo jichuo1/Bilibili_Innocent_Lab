@@ -1,0 +1,280 @@
+name: Sync Embedded to Telegram
+
+on:
+  workflow_run:
+    workflows: ['Sync Canary to Telegram']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      embedded_run_url:
+        description: 'Embedded Actions 构建链接（例如 https://github.com/jichuo1/Bilibili_Innocent_Lab/actions/runs/37497610746）'
+        required: true
+        type: string
+      dry_run:
+        description: '仅验证构建、签名和公告，不调用 AI、不发送到 Telegram'
+        required: false
+        type: boolean
+        default: false
+
+# 手动与定时发布共用串行锁，资格检查和投递均在锁内执行。
+concurrency:
+  group: embedded-telegram
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+  deployments: write
+
+env:
+  TELEGRAM_DELIVERY_PROFILE: embedded
+
+jobs:
+  select:
+    name: Decide whether to publish Embedded
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'schedule' && github.event.workflow_run.conclusion == 'success')
+    timeout-minutes: 140
+    outputs:
+      should_publish: ${{ steps.selection.outputs.should_publish }}
+      run_url: ${{ steps.selection.outputs.run_url }}
+      artifact_digest: ${{ steps.selection.outputs.artifact_digest }}
+    steps:
+      - name: Check out trusted delivery tooling
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Require main
+        run: '[[ "$GITHUB_REF" == "refs/heads/main" ]]'
+
+      - name: Validate selection and delivery tooling
+        env:
+          TELEGRAM_DELIVERY_PROFILE: canary
+        run: python3 -m unittest discover -s .github/release-templates -p 'test_*.py'
+
+      - name: Select Embedded and apply daily publication policy
+        id: selection
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DELIVERY_EVENT: ${{ github.event_name }}
+          UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id || 0 }}
+          UPSTREAM_CHANNEL: ${{ vars.TELEGRAM_RELEASE_CHAT_ID || '@Bilibili_Innocent_LabRelease' }}
+          EMBEDDED_RUN_URL: ${{ inputs.embedded_run_url }}
+          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_EMBEDDED_CHAT_ID || '@Bilibili_Innocent_LabNR' }}
+        run: |
+          python3 .github/release-templates/select_embedded_delivery.py \
+            --event "$DELIVERY_EVENT" --run-url "$EMBEDDED_RUN_URL" \
+            --delivery-run-id "$GITHUB_RUN_ID" --channel "$TELEGRAM_CHAT_ID" \
+            --upstream-run-id "$UPSTREAM_RUN_ID" --upstream-channel "$UPSTREAM_CHANNEL" \
+            --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
+  sync:
+    name: Verify selected Embedded and send its APK
+    needs: select
+    if: needs.select.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      # 只读取固定证书指纹，不恢复私钥，也不重新构建 APK。
+      name: alpha-release
+    steps:
+      - name: Check out trusted delivery tooling
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require main and configured Telegram delivery
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_EMBEDDED_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]]
+          : "${TELEGRAM_BOT_TOKEN:?Missing TELEGRAM_BOT_TOKEN}"
+
+      - name: Download and verify the selected Embedded package
+        id: package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EMBEDDED_RUN_URL: ${{ needs.select.outputs.run_url }}
+          EXPECTED_ARTIFACT_DIGEST: ${{ needs.select.outputs.artifact_digest }}
+        run: |
+          python3 .github/release-templates/prepare_embedded_delivery.py \
+            --run-url "$EMBEDDED_RUN_URL" \
+            --expected-artifact-digest "$EXPECTED_ARTIFACT_DIGEST" \
+            --destination "$RUNNER_TEMP/embedded-telegram-package" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Set up Java
+        uses: actions/setup-java@v6.1.0
+        with:
+          distribution: temurin
+          java-version: '27'
+
+      - name: Probe exact Android APK inspection tools
+        id: sdk
+        run: python3 .github/release-templates/android_sdk_probe.py --build-tools 37.0.0 --github-output "$GITHUB_OUTPUT" --github-env "$GITHUB_ENV"
+
+      - name: Set up Android APK inspection tools
+        if: steps.sdk.outputs.ready != 'true'
+        uses: android-actions/setup-android@v4.0.4
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+
+      - name: Install APK inspection tools
+        if: steps.sdk.outputs.ready != 'true'
+        run: sdkmanager "build-tools;37.0.0"
+
+      - name: Require exact APK inspection tools
+        run: python3 .github/release-templates/android_sdk_probe.py --build-tools 37.0.0 --require-ready --github-env "$GITHUB_ENV"
+
+      - name: Verify APK identity and fixed signing certificate
+        env:
+          PACKAGE_DIRECTORY: ${{ steps.package.outputs.package_directory }}
+          APK_FILENAME: ${{ steps.package.outputs.apk_filename }}
+          VERSION_NAME: ${{ steps.package.outputs.version_name }}
+          VERSION_CODE: ${{ steps.package.outputs.version_code }}
+          EXPECTED_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          python3 .github/release-templates/verify_release_apk.py \
+            --apk "$PACKAGE_DIRECTORY/$APK_FILENAME" \
+            --aapt "$ANDROID_SDK_ROOT/build-tools/37.0.0/aapt" \
+            --apksigner "$ANDROID_SDK_ROOT/build-tools/37.0.0/apksigner" \
+            --expected-package com.Bilibili_Innocent_Lab.xposedmodule.embedded \
+            --expected-version-name "$VERSION_NAME" --expected-version-code "$VERSION_CODE" \
+            --expected-cert-sha256 "$EXPECTED_CERT_SHA256"
+
+      - name: Recheck daily publication policy before sending
+        id: eligibility
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DELIVERY_EVENT: ${{ github.event_name }}
+          UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id || 0 }}
+          UPSTREAM_CHANNEL: ${{ vars.TELEGRAM_RELEASE_CHAT_ID || '@Bilibili_Innocent_LabRelease' }}
+          EMBEDDED_RUN_URL: ${{ steps.package.outputs.source_run_url }}
+          EXPECTED_ARTIFACT_DIGEST: ${{ steps.package.outputs.source_artifact_digest }}
+          APK_SHA256: ${{ steps.package.outputs.apk_sha256 }}
+          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_EMBEDDED_CHAT_ID || '@Bilibili_Innocent_LabNR' }}
+        run: |
+          python3 .github/release-templates/select_embedded_delivery.py \
+            --event "$DELIVERY_EVENT" --run-url "$EMBEDDED_RUN_URL" \
+            --delivery-run-id "$GITHUB_RUN_ID" --channel "$TELEGRAM_CHAT_ID" \
+            --upstream-run-id "$UPSTREAM_RUN_ID" --upstream-channel "$UPSTREAM_CHANNEL" \
+            --expected-artifact-digest "$EXPECTED_ARTIFACT_DIGEST" --apk-sha256 "$APK_SHA256" --no-wait \
+            --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate complete notes since the last Telegram delivery
+        id: notes
+        if: steps.eligibility.outputs.should_publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_EMBEDDED_CHAT_ID || '@Bilibili_Innocent_LabNR' }}
+          BUILD_TAG: ${{ steps.package.outputs.release_tag }}
+          SOURCE_COMMIT: ${{ steps.package.outputs.source_commit }}
+          DELIVERY_DRY_RUN: ${{ inputs.dry_run }}
+          RELEASE_NOTES_LLM_1_API_KEY: ${{ secrets.RELEASE_NOTES_LLM_1_API_KEY }}
+          RELEASE_NOTES_LLM_1_PROTOCOL: ${{ vars.RELEASE_NOTES_LLM_1_PROTOCOL }}
+          RELEASE_NOTES_LLM_1_BASE_URL: ${{ secrets.RELEASE_NOTES_LLM_1_BASE_URL || vars.RELEASE_NOTES_LLM_1_BASE_URL }}
+          RELEASE_NOTES_LLM_1_MODEL: ${{ vars.RELEASE_NOTES_LLM_1_MODEL }}
+          RELEASE_NOTES_LLM_1_OUTPUT_FORMAT: ${{ vars.RELEASE_NOTES_LLM_1_OUTPUT_FORMAT }}
+          RELEASE_NOTES_LLM_1_HEADERS_JSON: ${{ secrets.RELEASE_NOTES_LLM_1_HEADERS_JSON }}
+          RELEASE_NOTES_LLM_1_BODY_JSON: ${{ secrets.RELEASE_NOTES_LLM_1_BODY_JSON }}
+          RELEASE_NOTES_LLM_2_API_KEY: ${{ secrets.RELEASE_NOTES_LLM_2_API_KEY }}
+          RELEASE_NOTES_LLM_2_PROTOCOL: ${{ vars.RELEASE_NOTES_LLM_2_PROTOCOL }}
+          RELEASE_NOTES_LLM_2_BASE_URL: ${{ secrets.RELEASE_NOTES_LLM_2_BASE_URL || vars.RELEASE_NOTES_LLM_2_BASE_URL }}
+          RELEASE_NOTES_LLM_2_MODEL: ${{ vars.RELEASE_NOTES_LLM_2_MODEL }}
+          RELEASE_NOTES_LLM_2_OUTPUT_FORMAT: ${{ vars.RELEASE_NOTES_LLM_2_OUTPUT_FORMAT }}
+          RELEASE_NOTES_LLM_2_HEADERS_JSON: ${{ secrets.RELEASE_NOTES_LLM_2_HEADERS_JSON }}
+          RELEASE_NOTES_LLM_2_BODY_JSON: ${{ secrets.RELEASE_NOTES_LLM_2_BODY_JSON }}
+          RELEASE_NOTES_LLM_3_API_KEY: ${{ secrets.RELEASE_NOTES_LLM_3_API_KEY }}
+          RELEASE_NOTES_LLM_3_PROTOCOL: ${{ vars.RELEASE_NOTES_LLM_3_PROTOCOL }}
+          RELEASE_NOTES_LLM_3_BASE_URL: ${{ secrets.RELEASE_NOTES_LLM_3_BASE_URL || vars.RELEASE_NOTES_LLM_3_BASE_URL }}
+          RELEASE_NOTES_LLM_3_MODEL: ${{ vars.RELEASE_NOTES_LLM_3_MODEL }}
+          RELEASE_NOTES_LLM_3_OUTPUT_FORMAT: ${{ vars.RELEASE_NOTES_LLM_3_OUTPUT_FORMAT }}
+          RELEASE_NOTES_LLM_3_HEADERS_JSON: ${{ secrets.RELEASE_NOTES_LLM_3_HEADERS_JSON }}
+          RELEASE_NOTES_LLM_3_BODY_JSON: ${{ secrets.RELEASE_NOTES_LLM_3_BODY_JSON }}
+        run: |
+          set -euo pipefail
+          notes_args=()
+          if [[ "$DELIVERY_DRY_RUN" == "true" ]]; then
+            notes_args+=(--no-llm)
+          fi
+          python3 .github/release-templates/prepare_telegram_notes.py \
+            --repo-root . --tag "$BUILD_TAG" --commit "$SOURCE_COMMIT" \
+            --channel "$TELEGRAM_CHAT_ID" --output "$RUNNER_TEMP/TELEGRAM_CHANGELOG.txt" \
+            --report-output "$RUNNER_TEMP/TELEGRAM_NOTES_REPORT.md" --summary "$GITHUB_STEP_SUMMARY" \
+            "${notes_args[@]}"
+
+      - name: Recheck daily publication policy after generating notes
+        id: final_eligibility
+        if: steps.eligibility.outputs.should_publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DELIVERY_EVENT: ${{ github.event_name }}
+          UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id || 0 }}
+          UPSTREAM_CHANNEL: ${{ vars.TELEGRAM_RELEASE_CHAT_ID || '@Bilibili_Innocent_LabRelease' }}
+          EMBEDDED_RUN_URL: ${{ steps.package.outputs.source_run_url }}
+          EXPECTED_ARTIFACT_DIGEST: ${{ steps.package.outputs.source_artifact_digest }}
+          APK_SHA256: ${{ steps.package.outputs.apk_sha256 }}
+          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_EMBEDDED_CHAT_ID || '@Bilibili_Innocent_LabNR' }}
+        run: |
+          python3 .github/release-templates/select_embedded_delivery.py \
+            --event "$DELIVERY_EVENT" --run-url "$EMBEDDED_RUN_URL" \
+            --delivery-run-id "$GITHUB_RUN_ID" --channel "$TELEGRAM_CHAT_ID" \
+            --upstream-run-id "$UPSTREAM_RUN_ID" --upstream-channel "$UPSTREAM_CHANNEL" \
+            --expected-artifact-digest "$EXPECTED_ARTIFACT_DIGEST" --apk-sha256 "$APK_SHA256" --no-wait \
+            --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Send the selected Embedded APK to Telegram
+        if: steps.final_eligibility.outputs.should_publish == 'true'
+        id: delivery
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_EMBEDDED_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_EMBEDDED_CHAT_ID || '@Bilibili_Innocent_LabNR' }}
+          PACKAGE_DIRECTORY: ${{ steps.package.outputs.package_directory }}
+          APK_FILENAME: ${{ steps.package.outputs.apk_filename }}
+          APK_SHA256: ${{ steps.package.outputs.apk_sha256 }}
+          BUILD_TAG: ${{ steps.package.outputs.release_tag }}
+          SOURCE_COMMIT: ${{ steps.package.outputs.source_commit }}
+          SOURCE_RUN_URL: ${{ steps.package.outputs.source_run_url }}
+          SOURCE_ARTIFACT_DIGEST: ${{ steps.package.outputs.source_artifact_digest }}
+          DELIVERY_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          delivery_args=()
+          if [[ "$DELIVERY_DRY_RUN" == "true" ]]; then
+            delivery_args+=(--dry-run)
+          fi
+          python3 .github/release-templates/publish_embedded_telegram.py \
+            --tag "$BUILD_TAG" --commit "$SOURCE_COMMIT" --source-url "$SOURCE_RUN_URL" \
+            --apk "$PACKAGE_DIRECTORY/$APK_FILENAME" --apk-sha256 "$APK_SHA256" \
+            --notes "$RUNNER_TEMP/TELEGRAM_CHANGELOG.txt" \
+            --receipt "$RUNNER_TEMP/telegram-delivery.json" \
+            "${delivery_args[@]}"
+
+      - name: Record the confirmed Telegram delivery source
+        if: success() && steps.delivery.outcome == 'success' && !inputs.dry_run && steps.final_eligibility.outputs.should_publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DELIVERY_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SOURCE_ARTIFACT_DIGEST: ${{ steps.package.outputs.source_artifact_digest }}
+        run: |
+          python3 .github/release-templates/telegram_delivery_state.py \
+            --receipt "$RUNNER_TEMP/telegram-delivery.json" --delivery-url "$DELIVERY_RUN_URL" \
+            --artifact-digest "$SOURCE_ARTIFACT_DIGEST"
+
+      - name: Upload Telegram announcement and generation report
+        if: always() && steps.eligibility.outputs.should_publish == 'true' && steps.notes.outcome != 'skipped'
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: embedded-telegram-notes-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/TELEGRAM_CHANGELOG.txt
+            ${{ runner.temp }}/TELEGRAM_NOTES_REPORT.md
+            ${{ runner.temp }}/telegram-delivery.json
+          if-no-files-found: error
+          retention-days: 30

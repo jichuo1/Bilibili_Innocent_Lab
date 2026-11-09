@@ -29,10 +29,13 @@ class KotlinDefaultWordsDexWiringContractTest {
         assertTrue(hook.contains("kotlinDefaultWordsEnabled = prefs.getBoolean(FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD, false)"))
         val adapter = SourceContract.read("hook/VersionAdapter.kt")
         // 相同宿主的快照先被保留给其它家族；默认词 refresh 仍只能拒绝已经 usable 的快照。
-        val cached = adapter.after("val usable = startup.usableCache(highCandidateExists)")
-            .after("val cached = usable?.takeUnless { value ->").before("if (cached != null)")
-        assertTrue(cached.contains("kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache"))
-        assertTrue(cached.contains("it.state == AdaptState.MISSING"))
+        val refresh = adapter.after("fun requiresFeatureRefresh(value: AdaptResult): Boolean")
+            .before("val refreshRequested = usable?.let(::requiresFeatureRefresh)")
+        assertTrue(refresh.contains("kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache"))
+        assertTrue(refresh.contains("it.state == AdaptState.MISSING"))
+        // Repacked results must use the same feature-refresh gate as an ordinary startup cache hit.
+        val worker = adapter.after("HostThreadGuard.run(\"adapter.adapt_worker\")").before("result = repacked ?:")
+        assertTrue(worker.contains("!requiresFeatureRefresh(value)"))
         val installer = SourceContract.read("hook/feature/HomeTopBarFeatureInstaller.kt")
         assertFalse(installer.contains("DexKitBridge"))
         assertFalse(installer.contains("DexAssistSession("))

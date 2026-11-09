@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.overlays
 
 import android.view.View
 import android.view.ViewTreeObserver
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import kotlin.math.roundToInt
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import com.lumen.coacervation.engine.host.LumenSurfaceOptions
@@ -20,11 +21,13 @@ internal class HostOverlaySurfaces(private val root: View, color: Int, stroke: I
     private val panel = session.bind(root, panelOptions)
     private var alphaHidden = root.alpha <= 0f
     private val alphaObserver = ViewTreeObserver.OnPreDrawListener {
-        val hidden = root.alpha <= 0f
-        // 引擎跳过 alpha=0 的背景。属性动画只改 RenderNode，恢复可见时需重录这份空白缓存。
-        if (alphaHidden && !hidden) root.invalidate()
-        alphaHidden = hidden
-        true
+        HostThreadGuard.call("host.overlay.surfaces.predraw", true) {
+            val hidden = root.alpha <= 0f
+            // 引擎跳过 alpha=0 的背景。属性动画只改 RenderNode，恢复可见时需重录这份空白缓存。
+            if (alphaHidden && !hidden) root.invalidate()
+            alphaHidden = hidden
+            true
+        }
     }
 
     init { root.viewTreeObserver.addOnPreDrawListener(alphaObserver) }

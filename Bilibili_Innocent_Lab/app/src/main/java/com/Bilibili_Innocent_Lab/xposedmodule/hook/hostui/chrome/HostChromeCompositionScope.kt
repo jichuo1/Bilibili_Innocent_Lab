@@ -33,4 +33,6 @@ internal class HostChromeCompositionScope<T> {
         return entry.value
     }
     fun current(): T? = active.get()?.lastOrNull()?.takeUnless { it.claimed }?.value
+    /** The innermost matching invocation, claimed or not; for reads nested anywhere inside it. */
+    fun peek(predicate: (T) -> Boolean): T? = active.get()?.lastOrNull { predicate(it.value) }?.value
 }

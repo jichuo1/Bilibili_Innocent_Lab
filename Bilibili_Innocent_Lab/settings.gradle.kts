@@ -12,7 +12,12 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven("https://api.xposed.info/")
-        maven("https://jitpack.io/")
+        maven("https://jitpack.io/") {
+            content {
+                includeGroup("com.github.duanhong169")
+                includeGroup("com.github.Kyant0")
+            }
+        }
     }
 }
 
@@ -32,24 +37,21 @@ rootProject.name = "Bilibili_Innocent_Lab"
 
 include(":app")
 
+// P2-07 opt-in: the Macrobenchmark / Baseline Profile producer exists only when requested with
+// -PinnocentLab.baselineProfile=true (see baselineprofile/README.md). Default and CI builds do not
+// include the module, resolve its dependencies or load the androidx.baselineprofile plugin.
+if (providers.gradleProperty("innocentLab.baselineProfile").orNull == "true") {
+    include(":baselineprofile")
+}
+
 // Explicit development override; normal builds keep the official Maven artifacts.
 providers.gradleProperty("lumen.sourceDir").orNull?.let { sourceDir ->
     includeBuild(file(sourceDir)) {
         dependencySubstitution {
             for (artifact in listOf("lumen-engine", "lumen-motion")) {
-                substitute(module("com.github.jichuo1.LumenCoacervationEngine:$artifact"))
+                substitute(module("io.github.jichuo1:$artifact"))
                     .using(project(":$artifact"))
             }
         }
     }
 }
-
-// Isolated full-replacement migration; source provenance is recorded alongside each fork.
-include(":migration-system-extension")
-project(":migration-system-extension").projectDir = file("migration-forks/system-extension")
-include(":migration-ui-component")
-project(":migration-ui-component").projectDir = file("migration-forks/ui-component")
-include(":migration-ui-extension")
-project(":migration-ui-extension").projectDir = file("migration-forks/ui-extension")
-include(":migration-ref-compat")
-project(":migration-ref-compat").projectDir = file("migration-forks/ref-compat")

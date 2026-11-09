@@ -46,6 +46,63 @@ class ModuleHealthEvaluatorTest {
     }
 
     @Test
+    fun `missing NPatch scope requires action even with a stored heartbeat`() {
+        val snapshot = ModuleHealthEvaluator.evaluate(
+            inputs(
+                activationState = DiagnosticActivationState.UNAVAILABLE,
+                frameworkConnected = true,
+                frameworkCapable = true,
+                noRootDesiredEnabled = true,
+                noRootState = DiagnosticNoRootState.SCOPE_MISSING
+            )
+        )
+
+        assertEquals(DiagnosticSeverity.ACTION_REQUIRED, snapshot.overallSeverity)
+        assertEquals(
+            DiagnosticSeverity.ATTENTION,
+            snapshot.item(DiagnosticItemId.NO_ROOT).severity
+        )
+    }
+
+    @Test
+    fun `a silently unloaded module escalates to action required`() {
+        val snapshot = ModuleHealthEvaluator.evaluate(
+            inputs(
+                activationState = DiagnosticActivationState.UNAVAILABLE,
+                frameworkConnected = true,
+                frameworkCapable = true,
+                noRootDesiredEnabled = true,
+                noRootState = DiagnosticNoRootState.NOT_RUNNING
+            )
+        )
+
+        assertEquals(DiagnosticSeverity.ACTION_REQUIRED, snapshot.overallSeverity)
+        assertEquals(
+            DiagnosticSeverity.ACTION_REQUIRED,
+            snapshot.item(DiagnosticItemId.NO_ROOT).severity
+        )
+    }
+
+    @Test
+    fun `an unconfirmed no-root run asks for verification instead of claiming health`() {
+        val snapshot = ModuleHealthEvaluator.evaluate(
+            inputs(
+                activationState = DiagnosticActivationState.CHECKING,
+                frameworkConnected = true,
+                frameworkCapable = true,
+                noRootDesiredEnabled = true,
+                noRootState = DiagnosticNoRootState.UNCONFIRMED
+            )
+        )
+
+        assertEquals(DiagnosticSeverity.ATTENTION, snapshot.overallSeverity)
+        assertEquals(
+            DiagnosticSeverity.ATTENTION,
+            snapshot.item(DiagnosticItemId.NO_ROOT).severity
+        )
+    }
+
+    @Test
     fun `remote read-back failure remains visible even while activated`() {
         val snapshot = ModuleHealthEvaluator.evaluate(
             inputs(
@@ -62,6 +119,17 @@ class ModuleHealthEvaluatorTest {
             DiagnosticSeverity.ATTENTION,
             snapshot.item(DiagnosticItemId.REMOTE_CONFIG).severity
         )
+    }
+
+    @Test
+    fun `explicit bypass state keeps a healthy NPatch report ready`() {
+        val selected = ModuleHealthEvaluator.evaluate(inputs(
+            activationState = DiagnosticActivationState.ACTIVE_NPATCH,
+            frameworkConnected = true, frameworkCapable = true,
+            remotePublishState = DiagnosticRemotePublishState.BYPASSED,
+            noRootDesiredEnabled = true, noRootState = DiagnosticNoRootState.ACTIVE))
+        assertEquals(DiagnosticSeverity.INFO, selected.item(DiagnosticItemId.REMOTE_CONFIG).severity)
+        assertEquals(DiagnosticSeverity.OK, selected.overallSeverity)
     }
 
     @Test
@@ -196,6 +264,7 @@ class ModuleHealthEvaluatorTest {
     @Test
     fun `bypassed-publisher predicate covers exactly the states the bypass leaves idle`() {
         val expectedIdle = setOf(
+            DiagnosticRemotePublishState.BYPASSED,
             DiagnosticRemotePublishState.FAILED,
             DiagnosticRemotePublishState.WAITING_FOR_SERVICE,
             DiagnosticRemotePublishState.NOT_INITIALIZED

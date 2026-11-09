@@ -1,0 +1,11 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Google Material Icons: flash_on, revision 0cbb08816df07faaae3dca060d4ebb10b66c214f.
+         Apache-2.0; converted from SVG without changing path geometry. See THIRD_PARTY_NOTICES.md. -->
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M7 2v11h3v9l7-12h-4l4-8z" />
+</vector>

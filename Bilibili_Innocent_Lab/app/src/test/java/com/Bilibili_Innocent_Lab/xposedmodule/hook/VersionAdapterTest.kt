@@ -10,6 +10,112 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VersionAdapterTest {
+    @Test fun `startup omission survives cached found points without becoming cacheable`() {
+        val stored = result().copy(diagnostics = listOf(
+            VersionAdapter.AdaptDiagnostic("number.full", VersionAdapter.AdaptState.FOUND, "cached"),
+            VersionAdapter.AdaptDiagnostic("protocol.structure", VersionAdapter.AdaptState.FOUND, "cached")))
+        val projected = with(VersionAdapter) {
+            stored.copy(startupExcluded = setOf("FULL_NUMBERS")).applyStartupExclusions()
+        }
+        val merged = requireNotNull(VersionAdapter.mergeRuntimeWithCached(projected, stored))
+        assertNull(merged.fullNumbers)
+        assertEquals(stored.commentLow, merged.commentLow)
+        assertTrue(merged.diagnostics.all { it.state == VersionAdapter.AdaptState.NOT_REQUESTED })
+        assertTrue(merged.diagnosticSummary().contains("not_requested=2"))
+        assertFalse(merged.isUsableWith(stored.hostFingerprint))
+        org.junit.Assert.assertThrows(IllegalStateException::class.java) { merged.toJson() }
+        assertNotNull(VersionAdapter.AdaptResult.fromJson(stored.toJson()))
+        val poisoned = stored.toJson().apply {
+            getJSONArray("diag").getJSONObject(0).put("state", "NOT_REQUESTED")
+        }
+        assertNull(VersionAdapter.AdaptResult.fromJson(poisoned))
+    }
+
+    @Test fun `requested live point still wins when another startup family is omitted`() {
+        val stored = result()
+        val liveNumbers = VersionAdapter.FullNumberPoints(listOf(VersionAdapter.HookPoint("runtime.Numbers", "format")))
+        val live = with(VersionAdapter) {
+            stored.copy(fullNumbers = liveNumbers, startupExcluded = setOf("COMMENT_PURIFY")).applyStartupExclusions()
+        }
+        val merged = requireNotNull(VersionAdapter.mergeRuntimeWithCached(live, stored))
+        assertEquals(liveNumbers, merged.fullNumbers)
+        assertNull(merged.commentPurify)
+        assertEquals(stored.commentHigh, merged.commentHigh)
+    }
+
+    @Test fun `child projection cannot restore main only relate points from a complete cache`() {
+        val stored = result().copy(diagnostics = listOf(
+            VersionAdapter.AdaptDiagnostic("video.relate", VersionAdapter.AdaptState.FOUND, "cached")))
+        assertNotNull(stored.videoRelate)
+        val live = with(VersionAdapter) {
+            stored.copy(videoRelate = null, startupExcluded = setOf("VIDEO_RELATE")).applyStartupExclusions()
+        }
+        val merged = requireNotNull(VersionAdapter.mergeRuntimeWithCached(live, stored))
+        assertNull(merged.videoRelate)
+        assertEquals(stored.commentLow, merged.commentLow)
+        assertEquals(stored.commentHigh, merged.commentHigh)
+        assertEquals(stored.banner, merged.banner)
+        assertEquals(VersionAdapter.AdaptState.NOT_REQUESTED, merged.diagnostics.single().state)
+        assertNotNull(VersionAdapter.AdaptResult.fromJson(stored.toJson()))
+    }
+
+    @Test fun `planned locator omits only selected families and full offline lookup remains available`() {
+        val loader = requireNotNull(javaClass.classLoader)
+        val full = requireNotNull(VersionAdapter.quickLocate(loader))
+        assertNotNull(full.commentPurify)
+        val partial = requireNotNull(VersionAdapter.quickLocateForStartup(loader, setOf("COMMENT_PURIFY", "COMMENT_TOPOLOGY")))
+        assertNull(partial.commentPurify)
+        assertNull(partial.commentTopology)
+        assertEquals(full.commentLow, partial.commentLow)
+        assertEquals(VersionAdapter.AdaptState.NOT_REQUESTED, partial.diagnostics.single { it.id == "comment.purify.search" }.state)
+        assertEquals(full.commentPurify, VersionAdapter.quickLocateForStartup(loader, setOf("future-unknown-family"))?.commentPurify)
+    }
+
+    @Test fun `main process never prunes a family required by its accepted plan`() {
+        val loader = requireNotNull(javaClass.classLoader)
+        val plan = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlan.full()
+        val result = requireNotNull(VersionAdapter.quickLocateForStartup(
+            loader, setOf("COMMENT_PURIFY"), plan, allowPruneRequested = false
+        ))
+        assertNotNull(result.commentPurify)
+        assertTrue("COMMENT_PURIFY" !in result.startupExcluded)
+    }
+
+    private val repackDex = "dex-v1:38:" + "a".repeat(64)
+    private val repackOld = "tv.danmaku.bili|9090300|9.9.3|1000|100|${VersionAdapterContract.RULE_VERSION}"
+    private val repackNew = "tv.danmaku.bili|9090300|9.9.3|2000|200|${VersionAdapterContract.RULE_VERSION}"
+
+    @Test fun `repack preserves verified member results and original timestamp after content agreement`() {
+        val previous = result().copy(hostFingerprint = repackOld, dexSourceFingerprint = repackDex)
+        val identity = VersionAdapter.HostIdentity(previous.biliVersionCode, repackNew)
+        assertNull(VersionAdapter.StartupCacheSnapshot(identity, previous.ts, previous).usableCache(false))
+        val rebound = requireNotNull(VersionAdapter.rebindRepackedCache(previous, identity, previous.ts, repackDex))
+        assertEquals(previous.copy(hostFingerprint = repackNew), rebound)
+        assertEquals(rebound, VersionAdapter.StartupCacheSnapshot(identity, previous.ts, rebound).usableCache(false))
+        assertNull(VersionAdapter.StartupCacheSnapshot(identity, previous.ts + 1, rebound).usableCache(false))
+    }
+
+    @Test fun `repack rejects changed unknown or unavailable original dex`() {
+        val previous = result().copy(hostFingerprint = repackOld, dexSourceFingerprint = repackDex)
+        val identity = VersionAdapter.HostIdentity(previous.biliVersionCode, repackNew)
+        for (dex in listOf(null, "unavailable", repackDex.replace('a', 'b'), "dex-v1:0:" + "a".repeat(64)))
+            assertNull(VersionAdapter.rebindRepackedCache(previous, identity, 0, dex))
+        assertNull(VersionAdapter.rebindRepackedCache(previous.copy(dexSourceFingerprint = "unavailable"), identity, 0, repackDex))
+    }
+
+    @Test fun `repack cannot bypass version rule reset or structural validity`() {
+        val previous = result().copy(hostFingerprint = repackOld, dexSourceFingerprint = repackDex)
+        val identity = VersionAdapter.HostIdentity(previous.biliVersionCode, repackNew)
+        for (fingerprint in listOf(repackNew.replace("9.9.3", "9.9.4"),
+            repackNew.substringBeforeLast('|') + "|${VersionAdapterContract.RULE_VERSION + 1}",
+            repackNew.replace("9090300", "9090301"), repackOld, "runtime-no-context|rules=79",
+            repackNew.replace("|2000|", "|0|")))
+            assertNull(VersionAdapter.rebindRepackedCache(previous, identity.copy(fingerprint = fingerprint), 0, repackDex))
+        assertNull(VersionAdapter.rebindRepackedCache(previous, identity.copy(versionCode = 0), 0, repackDex))
+        assertNull(VersionAdapter.rebindRepackedCache(previous, identity, previous.ts + 1, repackDex))
+        assertNull(VersionAdapter.rebindRepackedCache(previous.copy(commentLow = VersionAdapter.HookPoint("", "")), identity, 0, repackDex))
+    }
+
     @Test fun `speed menu optional cache and failure history are bound to host and reset`() {
         val point = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuPoints(
             adapter = VersionAdapter.HookPoint("com.bilibili.playerbizcommonv2.widget.speed.RenamedAdapter", "populate", listOf("float")))
@@ -297,7 +403,7 @@ class VersionAdapterTest {
         assertEquals("c", point?.methodName)
     }
 
-    private fun result(): VersionAdapter.AdaptResult = VersionAdapter.AdaptResult(
+    internal fun result(): VersionAdapter.AdaptResult = VersionAdapter.AdaptResult(
         biliVersionCode = 9090300,
         ts = 1234L,
         commentLow = VersionAdapter.HookPoint("comment.Low", "bind"),

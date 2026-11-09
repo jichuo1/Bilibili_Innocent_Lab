@@ -1,14 +1,28 @@
 # Third-party notices
 
+## Shizuku API
+
+The optional Bilibili restart feature uses `dev.rikka.shizuku:api` and
+`dev.rikka.shizuku:provider` version `13.1.5` from
+[RikkaApps/Shizuku-API](https://github.com/RikkaApps/Shizuku-API).
+Copyright (c) 2021 RikkaW. Licensed under the MIT License; the complete text is
+provided in `third_party/Shizuku-API-LICENSE.txt`.
+
 ## Material Design Icons
 
-The enhancement, appearance and compatibility section icons use Google's
+The enhancement, appearance and compatibility section icons, and the entry-row
+icons in the compatibility section, use Google's
 [Material Design Icons](https://github.com/google/material-design-icons), pinned
 to commit `0cbb08816df07faaae3dca060d4ebb10b66c214f`:
 
 - `src/image/auto_fix_high/materialicons/24px.svg`
 - `src/image/palette/materialicons/24px.svg`
 - `src/action/extension/materialicons/24px.svg`
+- `src/action/build/materialicons/24px.svg`
+- `src/action/cached/materialicons/24px.svg`
+- `src/image/auto_awesome/materialicons/24px.svg`
+- `src/image/flash_on/materialicons/24px.svg`
+- `src/hardware/smart_toy/materialicons/24px.svg`
 
 The SVG paths were converted to Android VectorDrawable resources with their
 original 24-by-24 geometry. Non-drawing SVG bounds were omitted, and the fill is
@@ -67,7 +81,7 @@ Licensed under the Apache License, Version 2.0.
 ## DexKit
 
 The module uses
-[DexKit](https://github.com/LuckyPray/DexKit), version `2.2.0`, only as a
+[DexKit](https://github.com/LuckyPray/DexKit), version `2.3.0`, only as a
 background fallback for bounded host DEX adaptation queries. DexKit is not
 created from the synchronous `quickLocate` path or any installed Hook callback,
 and each bridge is closed immediately after its query.
@@ -78,6 +92,40 @@ Except for DexKit's `Core/` directory, the upstream project is licensed under
 the Apache License, Version 2.0. The native core is licensed under the GNU
 Lesser General Public License, Version 3.0. See the upstream repository for the
 corresponding complete license texts and source code.
+
+## Meguviz libraries
+
+The module includes these libraries as runtime dependencies:
+
+- [MeguvizRef](https://github.com/jichuo1/MeguvizRef), version `1.0.0`
+  (`meguviz-ref-core`), for reflective member lookup.
+- [MeguvizUI](https://github.com/jichuo1/MeguvizUI), version `1.0.0`
+  (`meguviz-ui-core`, `meguviz-ui-prewarm`), for building the native View settings
+  UI.
+- [MeguvizAndroid](https://github.com/jichuo1/MeguvizAndroid), version `1.1.0`
+  (`meguviz-android-runtime`, `meguviz-android-window`), for Android runtime and
+  window helpers.
+
+Copyright © jichuo1
+
+Licensed under the Apache License, Version 2.0. See each upstream repository for
+its complete license text and notices.
+
+## Lumen Coacervation Engine
+
+The module uses
+[Lumen Coacervation Engine](https://github.com/jichuo1/LumenCoacervationEngine),
+version `1.6.1` (`lumen-engine`, `lumen-motion`), for the visual materials and
+motion of host and module surfaces.
+
+Copyright 2026 jichuo1
+
+Licensed under the Apache License, Version 2.0. `lumen-engine` also contains
+portions adapted from AndroidLiquidGlass (Apache License, Version 2.0),
+AndroidLiquidGlassView (MIT License) and the Android Open Source Project (Apache
+License, Version 2.0). Its AAR carries the complete records at
+`assets/lumen/licenses/`.
+
 ## Android 边界拉伸采样坐标
 
 - 来源：Android Open Source Project 的 `EdgeEffect.java` 与 `StretchEffect.cpp`。

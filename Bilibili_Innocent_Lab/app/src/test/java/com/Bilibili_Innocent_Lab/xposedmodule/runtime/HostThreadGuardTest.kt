@@ -50,6 +50,48 @@ class HostThreadGuardTest {
     }
 
     @Test
+    fun `a labeled return passes through the guard without counting as a failure`() {
+        var reachedEnd = false
+        val listener = fun(early: Boolean): Boolean {
+            HostThreadGuard.run("k") {
+                if (early) return true
+                reachedEnd = true
+            }
+            return false
+        }
+        assertTrue(listener(true))
+        assertFalse(reachedEnd)
+        assertFalse(listener(false))
+        assertTrue(reachedEnd)
+        assertTrue(HostThreadGuard.failureCounts().isEmpty())
+    }
+
+    @Test
+    fun `host failures keep their identity and module failures stay in the guard`() {
+        val hostCalls = HostCallPassthrough()
+        val hostFailure = IllegalStateException("host click")
+        var finished = false
+        val handled = HostThreadGuard.call("touch", false) {
+            hostCalls.host { throw hostFailure }
+            finished = true
+            true
+        }
+        assertTrue("Module state still finishes after a host failure", finished)
+        assertTrue(handled)
+        assertTrue("Host failures are not module failures", HostThreadGuard.failureCounts().isEmpty())
+        val thrown = runCatching { hostCalls.rethrow() }.exceptionOrNull()
+        assertTrue("The same throwable goes back to the host", thrown === hostFailure)
+
+        hostCalls.rethrow()
+        assertFalse(HostThreadGuard.call("touch", false) {
+            hostCalls.host { }
+            error("module bug")
+        })
+        hostCalls.rethrow()
+        assertEquals(1L, HostThreadGuard.failureCounts()["touch"])
+    }
+
+    @Test
     fun `runnable is reusable so removeCallbacks still matches the same instance`() {
         var calls = 0
         val runnable = HostThreadGuard.runnable("k") {

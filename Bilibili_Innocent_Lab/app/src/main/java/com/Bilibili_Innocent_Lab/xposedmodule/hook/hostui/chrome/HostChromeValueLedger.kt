@@ -25,7 +25,8 @@ internal class HostChromeValueLedger<K : Any, V>(
         val previous = entries[key]
         val base = if (previous != null && current == previous.applied) previous.base else current
         val next = target(base)
-        entries[key] = Entry(base, next)
+        // 稳定布局下 base/applied 都没变：不再每次分配相同的 Entry（所有权记账仍先于免写判断完成）。
+        if (previous == null || previous.base != base || previous.applied != next) entries[key] = Entry(base, next)
         if (current == next) return false
         write(key, next)
         return true
@@ -39,6 +40,9 @@ internal class HostChromeValueLedger<K : Any, V>(
     }
 
     fun restoreAll(except: K? = null): Boolean {
+        // 逐帧路径的常态：账本为空或只记着 except 自己，不为此复制键集合。
+        val owned = entries.size
+        if (owned == 0 || (owned == 1 && except != null && entries.containsKey(except))) return false
         var changed = false
         for (key in keys()) if (key !== except) changed = restore(key) || changed
         return changed

@@ -31,18 +31,18 @@ class ModernFrameworkStatusTest {
     }
 
     @Test
-    fun `Irena Modern API 101 is accepted with remote capability and older APIs stay closed`() {
+    fun `Modern API 102 is accepted with remote capability and older APIs stay closed`() {
         val irena = readModernFrameworkStatus(
-            { 101 }, { XposedService.PROP_CAP_REMOTE or XposedService.PROP_CAP_SYSTEM },
+            { 102 }, { XposedService.PROP_CAP_REMOTE or XposedService.PROP_CAP_SYSTEM },
             { "LSPosed" }, { "2.0.0" }, { 7316L }
         )
         assertTrue(irena.capable)
         assertEquals("LSPosed", irena.name)
-        assertEquals(101, irena.apiVersion)
+        assertEquals(102, irena.apiVersion)
         assertFalse(readModernFrameworkStatus(
-            { 100 }, { XposedService.PROP_CAP_REMOTE }, { "LSPosed" }, { "old" }, { 1L }
+            { 101 }, { XposedService.PROP_CAP_REMOTE }, { "LSPosed" }, { "old" }, { 1L }
         ).capable)
-        assertFalse(readModernFrameworkStatus({ 101 }, { 0L }, { "Irena" }, { "2.0.0" }, { 1L }).capable)
+        assertFalse(readModernFrameworkStatus({ 102 }, { 0L }, { "Irena" }, { "2.0.0" }, { 1L }).capable)
     }
     @Test
     fun `Vector build and independent capabilities are retained`() {
@@ -87,5 +87,30 @@ class ModernFrameworkStatusTest {
         assertNull(status.properties)
         assertNull(status.versionCode)
         assertFalse(status.capable)
+    }
+
+    @Test
+    fun `only the NPatch no-root channel is gated by the no-root switch`() {
+        val remoteOnly = XposedService.PROP_CAP_REMOTE
+        val rootFlags = XposedService.PROP_CAP_REMOTE or XposedService.PROP_CAP_SYSTEM
+
+        assertTrue(isNpatchConfigChannel(
+            readModernFrameworkStatus({ 102 }, { remoteOnly }, { "NPatch" }, { "1.0.9" }, { 833L })
+        ))
+        // 改名后仍靠能力位识别：没有 CAP_SYSTEM 且不是 LSPatch 的实现同样算免 Root 通道。
+        assertTrue(isNpatchConfigChannel(
+            readModernFrameworkStatus({ 102 }, { remoteOnly }, { "RenamedPatch" }, { "1.0" }, { 1L })
+        ))
+        // 真 Root 框架与 LSPatch 的标准发布不受免 Root 开关影响。
+        assertFalse(isNpatchConfigChannel(
+            readModernFrameworkStatus({ 102 }, { rootFlags }, { "LSPosed" }, { "2.0" }, { 7316L })
+        ))
+        assertFalse(isNpatchConfigChannel(
+            readModernFrameworkStatus({ 102 }, { remoteOnly }, { "LSPatch" }, { "1.0" }, { 487L })
+        ))
+        // 元数据未就绪时绝不判定，宁可退回文档判据也不能关掉 LSPosed 的发布。
+        assertFalse(isNpatchConfigChannel(ModernFrameworkStatus(
+            connected = false, capable = false, name = "", apiVersion = 0
+        )))
     }
 }

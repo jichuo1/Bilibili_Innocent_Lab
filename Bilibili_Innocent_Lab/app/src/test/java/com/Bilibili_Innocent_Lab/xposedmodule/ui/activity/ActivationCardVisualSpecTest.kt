@@ -6,6 +6,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ActivationCardVisualSpecTest {
+    @Test fun `unsupported embedded mode remains actionable in the card and summary`() {
+        assertEquals(DiagnosticStatusTone.ACTION_REQUIRED,
+            ActivationCardVisualSpec.tone(ActivationDisplayState.EMBEDDED_UNSUPPORTED))
+        assertEquals(ActivationSummaryState.ACTION_REQUIRED,
+            ActivationCardVisualSpec.diagnosticsSummaryState(ActivationDisplayState.EMBEDDED_UNSUPPORTED,
+                publishFailed = false, skinFallback = false, noRootNeedsAttention = false))
+    }
+    @Test fun `NPatch bypass does not warn but preserves real failures and attention`() {
+        fun summary(bypass: Boolean, attention: Boolean = false) = ActivationCardVisualSpec.diagnosticsSummaryState(
+            ActivationDisplayState.ACTIVE_NPATCH, publishFailed = true, skinFallback = false,
+            noRootNeedsAttention = attention, standardPublisherBypassed = bypass)
+        assertEquals(ActivationSummaryState.READY, summary(true))
+        assertEquals(ActivationSummaryState.ATTENTION, summary(false))
+        assertEquals(ActivationSummaryState.ATTENTION, summary(true, attention = true))
+    }
 
     @Test
     fun `activation states map to stable semantic tones`() {
@@ -36,6 +51,22 @@ class ActivationCardVisualSpecTest {
         assertEquals(
             DiagnosticStatusTone.ACTION_REQUIRED,
             ActivationCardVisualSpec.tone(ActivationDisplayState.UNAVAILABLE)
+        )
+        assertEquals(
+            DiagnosticStatusTone.ACTION_REQUIRED,
+            ActivationCardVisualSpec.tone(ActivationDisplayState.SCOPE_MISSING)
+        )
+        assertEquals(
+            DiagnosticStatusTone.INFO,
+            ActivationCardVisualSpec.tone(ActivationDisplayState.CONFIRMING)
+        )
+        assertEquals(
+            DiagnosticStatusTone.ATTENTION,
+            ActivationCardVisualSpec.tone(ActivationDisplayState.UNCONFIRMED)
+        )
+        assertEquals(
+            DiagnosticStatusTone.ACTION_REQUIRED,
+            ActivationCardVisualSpec.tone(ActivationDisplayState.NOT_RUNNING)
         )
     }
 
@@ -77,6 +108,42 @@ class ActivationCardVisualSpecTest {
                 publishFailed = true,
                 skinFallback = true,
                 noRootNeedsAttention = true
+            )
+        )
+        assertEquals(
+            ActivationSummaryState.ACTION_REQUIRED,
+            ActivationCardVisualSpec.diagnosticsSummaryState(
+                displayState = ActivationDisplayState.SCOPE_MISSING,
+                publishFailed = false,
+                skinFallback = false,
+                noRootNeedsAttention = true
+            )
+        )
+        assertEquals(
+            ActivationSummaryState.ACTION_REQUIRED,
+            ActivationCardVisualSpec.diagnosticsSummaryState(
+                displayState = ActivationDisplayState.NOT_RUNNING,
+                publishFailed = true,
+                skinFallback = false,
+                noRootNeedsAttention = false
+            )
+        )
+        assertEquals(
+            ActivationSummaryState.ATTENTION,
+            ActivationCardVisualSpec.diagnosticsSummaryState(
+                displayState = ActivationDisplayState.UNCONFIRMED,
+                publishFailed = false,
+                skinFallback = false,
+                noRootNeedsAttention = false
+            )
+        )
+        assertEquals(
+            ActivationSummaryState.INFO,
+            ActivationCardVisualSpec.diagnosticsSummaryState(
+                displayState = ActivationDisplayState.CONFIRMING,
+                publishFailed = false,
+                skinFallback = false,
+                noRootNeedsAttention = false
             )
         )
     }

@@ -6,6 +6,16 @@ import org.junit.Test
 
 class DiagnosticFeatureRegistryTest {
     @Test
+    fun `guest browsing and incognito are independent general groups expecting runtime evidence`() {
+        listOf("guest_browsing", "incognito_privacy").forEach { id ->
+            val descriptor = requireNotNull(DiagnosticFeatureRegistry.descriptorOrNull(id))
+            assertEquals(DiagnosticFeatureCategory.GENERAL, descriptor.category)
+            assertTrue(descriptor.runtimeEvidenceExpected)
+            assertEquals(1, DiagnosticFeatureRegistry.descriptors.count { it.id == id })
+        }
+    }
+
+    @Test
     fun `registry is unique bounded and covers specialized feature paths`() {
         assertEquals(DiagnosticCapabilityCatalog.leafIds.size + DiagnosticCapabilityCatalog.splitParents.size,
             DiagnosticFeatureRegistry.descriptors.size)
@@ -18,6 +28,9 @@ class DiagnosticFeatureRegistryTest {
         assertTrue("free_copy" in DiagnosticFeatureRegistry.ids)
         assertTrue("roaming_compat" in DiagnosticFeatureRegistry.ids)
         assertTrue("player_interactive_overlay" in DiagnosticFeatureRegistry.ids)
+        assertTrue("home_frame_lock" in DiagnosticFeatureRegistry.ids)
+        assertTrue("home_recommend_early_load" in DiagnosticFeatureRegistry.ids)
+        assertTrue("cloud_key_freeze" in DiagnosticFeatureRegistry.ids)
         // 哔哩漫游移植批次：九个新安装器都必须能在诊断中心单独看到运行证据。
         listOf(
             "danmaku_purify",

@@ -59,14 +59,15 @@ internal object ReflectAccess {
     ): Method? {
         var current: Class<*>? = owner
         while (current != null) {
-            val match = KavaMemberLookup.declaredMethods(current, makeAccessible = true) { method ->
+            // 只要第一个兼容候选：在已缓存的成员集合上短路，不物化整份过滤结果。
+            val match = KavaMemberLookup.firstDeclaredMethodOrNull(current, makeAccessible = true) { method ->
                 if (method.name != name || method.isStatic != requireStatic || method.parameterCount != args.size) {
                     false
                 } else {
                     val parameterTypes = method.parameterTypes
                     parameterTypes.indices.all { index -> compatible(parameterTypes[index], args[index]) }
                 }
-            }.firstOrNull()
+            }
             if (match != null) return match
             current = current.superclass
         }

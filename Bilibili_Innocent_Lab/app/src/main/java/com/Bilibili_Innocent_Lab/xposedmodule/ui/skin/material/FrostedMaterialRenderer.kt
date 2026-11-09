@@ -2,7 +2,6 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.material
 
 import com.lumen.coacervation.engine.motion.LumenAnimator
 
-import android.annotation.SuppressLint
 import android.os.Build
 import android.util.Log
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowBackdropTarget
@@ -277,13 +276,11 @@ internal class FrostedMaterialRenderer(
     }
 
     override val supportsSurfaceBackdrop: Boolean
-        @SuppressLint("ReplaceWithAndroidVersion")
         get() = !closed && !chromeGlassBroken && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
     override val supportsDescendantSurfaceBackdrop: Boolean
         get() = supportsSurfaceBackdrop
 
-    @SuppressLint("ReplaceWithAndroidVersion")
     override fun setSurfaceBackdrop(host: View, target: GlowBackdropTarget?) {
         if (closed) return
         if (target == null || !supportsSurfaceBackdrop || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
@@ -308,13 +305,11 @@ internal class FrostedMaterialRenderer(
         host.invalidate()
     }
 
-    @SuppressLint("ReplaceWithAndroidVersion")
     private fun closeChromeGlass(entry: ChromeGlass) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) (entry.glass as GlowChromeGlassApi31).close()
     }
 
     /** 返回 false 表示本次不可用（内容节点尚未录制、宿主脱离容器），调用方照常走软件透镜。 */
-    @SuppressLint("ReplaceWithAndroidVersion")
     private fun drawChromeGlass(
         entry: ChromeGlass,
         canvas: Canvas,
@@ -444,7 +439,6 @@ internal class FrostedMaterialRenderer(
         }
     }
 
-    @SuppressLint("ReplaceWithAndroidVersion")
     fun releaseMemory() {
         lifecycle.invalidate()
         windows.values.forEach { it.batch.clear() }

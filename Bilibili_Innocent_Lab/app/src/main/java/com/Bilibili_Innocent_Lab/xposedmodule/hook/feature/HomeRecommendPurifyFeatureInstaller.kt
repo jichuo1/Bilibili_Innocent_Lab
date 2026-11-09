@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.LiveHomeRules
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.time.Instant
@@ -68,7 +69,10 @@ internal class HomeRecommendPurifyFeatureInstaller(
     semanticJudge: SemanticJudge? = null,
     /** debug 构建的观测日志目录；release 为 null。 */
     semanticLogDir: java.io.File? = null,
-    isMainThread: () -> Boolean = { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() }
+    isMainThread: () -> Boolean = { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() },
+    private val liveRules: (() -> LiveHomeRules)? = null,
+    /** 删卡后重新凑组读取的宿主类名；生产始终用默认值，测试替换为同形状替身。 */
+    private val smallCardNames: HomeFeedSmallCards.HostNames = HomeFeedSmallCards.HostNames()
 ) : FeatureInstaller {
 
     private val semantic = SemanticTitleFilter(semanticJudge, semanticLogDir, isMainThread, "home")
@@ -297,6 +301,12 @@ internal class HomeRecommendPurifyFeatureInstaller(
             )
         }
 
+        // 可选：读不到小卡样式或宿主凑组入口时只是不重排，推荐过滤照常，不计入覆盖率分母。
+        val smallCards = HomeFeedSmallCards.resolve(environment, smallCardNames)
+        if (smallCards == null) {
+            environment.logInfo("home_recommend_regroup_unavailable", "[BIL] 首页推荐小卡凑组读取不可用，删卡后不重排")
+        }
+
         var installed = 0
         adapted.responseItemGetters.forEachIndexed { index, point ->
             runCatching {
@@ -304,6 +314,19 @@ internal class HomeRecommendPurifyFeatureInstaller(
                     after {
                         if (hasThrowable) return@after
                         val source = result as? List<*> ?: return@after
+                        // 同一份响应会被宿主反复读取；命中时交回上一次的同一个列表，计数与日志也只算一次。
+                        val rules = ruleSnapshot()
+                        filteredMemo.reuse(source, rules)?.let { hit ->
+                            var cached = hit.result
+                            // 先于凑组读到的只是过滤结果；宿主开始凑组后补一次重排，此后都交回同一个实例。
+                            val size = if (hit.settled) null else smallCards?.groupSizeFor(thisObject)
+                            if (size != null && smallCards != null) {
+                                cached = regroup(source, cached, size, smallCards, environment) ?: cached
+                                filteredMemo.remember(source, rules, cached)
+                            }
+                            if (cached !== source) result = cached
+                            return@after
+                        }
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         var removedBanners = 0
                         var removedPgc = 0
@@ -336,8 +359,14 @@ internal class HomeRecommendPurifyFeatureInstaller(
                             if (comic) removedComics += 1
                             pgc || special || comic || isBanner || shouldRemove(signals, advertisements)
                         }
+                        // 只有宿主已开始对这份响应凑组时才知道组大小；之前的读取为 null，不重排。
+                        val groupSize = if (filtered === source) null else smallCards?.groupSizeFor(thisObject)
+                        val delivered = if (groupSize == null || smallCards == null) filtered
+                            else regroup(source, filtered, groupSize, smallCards, environment) ?: filtered
+                        // 删过卡、重排可用、但还没轮到宿主凑组：结果记为未定，凑组时再补重排。
+                        val settled = filtered === source || smallCards == null || groupSize != null
                         if (filtered !== source) {
-                            result = filtered
+                            result = delivered
                             if (removedPgc > 0) environment.reportRuntimeEvidence("home_recommend_pgc_removed", FeatureRuntimeStage.APPLIED)
                             if (removedSpecial > 0) environment.reportRuntimeEvidence("home_recommend_special_cards_removed", FeatureRuntimeStage.APPLIED)
                             if (removedComics > 0) {
@@ -388,6 +417,11 @@ internal class HomeRecommendPurifyFeatureInstaller(
                                 "[BIL] 首页广告过滤计数: reads=${counts.reads},unreadable=${counts.unreadable}," +
                                     "ads=${counts.ads},cmV2=${counts.cmV2}"
                             )
+                        }
+                        // 快照在过滤之后取：AI 声明一档会在判定途中登记新 aid，结果反映的是登记后的状态。
+                        // 智能过滤仍有未定结论时不记，让下一次读取把后台判完的结论补上。
+                        if (semanticVerdicts?.values?.any { it == SemanticVerdict.UNKNOWN } != true) {
+                            filteredMemo.remember(source, ruleSnapshot(), delivered, settled)
                         }
                     }
                 }
@@ -447,6 +481,46 @@ internal class HomeRecommendPurifyFeatureInstaller(
         return FeatureInstallResult.Installed(installed, complete = partialReason == null && installed == adapted.responseItemGetters.size)
     }
 
+    private val filteredMemo = FilteredListMemo()
+
+    /**
+     * 删卡让宿主 `avoidEmptyWindow` 额外丢弃小卡时，把未凑满的小卡移到后续大卡之后重新凑组。
+     * [size] 是宿主这一页的组大小；只在“过滤后的丢弃数多于原页”且重排确实减少丢弃时采用，
+     * 样式读不出时保持过滤结果。组大小与宿主一致时重排不会让任何一组比原来丢得更多。
+     */
+    private fun regroup(
+        source: List<*>,
+        filtered: List<*>,
+        size: Int,
+        cards: HomeFeedSmallCards,
+        environment: HookEnvironment
+    ): List<*>? {
+        val isSmall = cards.classifier()
+        val original = SmallCardGrouping.discarded(source, size, isSmall) ?: return null
+        val worsened = SmallCardGrouping.discarded(filtered, size, isSmall) ?: return null
+        if (worsened <= original) return null
+        val regrouped = SmallCardGrouping.regroup(filtered, size, isSmall)
+        if (regrouped === filtered) return null
+        val left = SmallCardGrouping.discarded(regrouped, size, isSmall) ?: return null
+        if (left >= worsened) return null
+        environment.logInfo(
+            "home_recommend_regrouped",
+            "[BIL] 首页推荐删卡后已重新凑组，宿主少丢弃 ${worsened - left} 张小卡(每组=$size)"
+        )
+        return regrouped
+    }
+
+    /**
+     * 会在进程内变化的判据，按快照身份参与 [filteredMemo] 失效；对应维度关着时恒为 null，不会白白失效。
+     * 三处来源都是“整份替换”的不可变集合/对象，读取只是一次 volatile 读。
+     */
+    private fun ruleSnapshot(): Array<Any?> = arrayOf(
+        if (tagDimensionEnabled) SectionPickSession.current else null,
+        if (authorDimensionEnabled) AuthorPickSession.current else null,
+        if (removeAiDeclared) AiDeclaredVideoRegistry.current else null,
+        liveRules?.invoke()
+    )
+
     private val publishTimeProbe = PublishTimeParseProbe()
 
     /** 抽样回报要写日志；安装后由 hook 回填，`signals` 本身不持有环境。 */
@@ -498,6 +572,8 @@ internal class HomeRecommendPurifyFeatureInstaller(
 
     private fun shouldRemove(signals: Signals, advertisements: AdvertisementCounts?): Boolean {
         if (!itemRemovalEnabled) return false
+        // 提取链仍按启动期完整依赖保留；同一卡片的动态判据只读取一次原子快照。
+        val live = liveRules?.invoke()
         val hostSignals = signals.toHostSignals()
         val kinds = if (semanticClassificationEnabled) {
             HostContentSemanticClassifier.classify(hostSignals)
@@ -513,13 +589,13 @@ internal class HomeRecommendPurifyFeatureInstaller(
         }
         return (removePictures && HostContentKind.PICTURE in kinds) ||
             (removeGamePromotions && HostContentKind.GAME in kinds) ||
-            RuleSetCodec.matches(titleKeywords, signals.title) ||
+            RuleSetCodec.matches(live?.titles ?: titleKeywords, signals.title) ||
             (removeLive && HostContentKind.LIVE in kinds) ||
             (removeCourses && HostContentKind.COURSE in kinds) ||
             (removeVertical && HostContentKind.VERTICAL in kinds) ||
             (removeLarge && HostContentKind.LARGE in kinds) ||
-            durationRange.shouldRemove(signals.durationSeconds) ||
-            playCountRange.shouldRemove(signals.playCount) ||
+            (live?.duration ?: durationRange).shouldRemove(signals.durationSeconds) ||
+            (live?.plays ?: playCountRange).shouldRemove(signals.playCount) ||
             signals.publishContext?.let { context ->
                 publishTimeRule.shouldRemove(signals.publishTime, context.now, context.zone)
             } == true ||

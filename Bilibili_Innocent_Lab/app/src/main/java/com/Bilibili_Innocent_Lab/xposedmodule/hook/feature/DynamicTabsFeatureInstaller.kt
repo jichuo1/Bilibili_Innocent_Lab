@@ -4,8 +4,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
-import com.highcapable.betterandroid.ui.extension.view.childOrNull
-import com.highcapable.betterandroid.ui.extension.view.textToString
+import io.github.jichuo1.meguviz.android.extensions.childOrNull
+import io.github.jichuo1.meguviz.android.extensions.textToString
 import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean

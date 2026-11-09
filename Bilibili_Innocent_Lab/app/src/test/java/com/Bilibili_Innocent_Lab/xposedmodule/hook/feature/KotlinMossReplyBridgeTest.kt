@@ -224,6 +224,36 @@ class KotlinMossReplyBridgeTest {
         ) = Unit
     }
 
+    /** 形状模仿 8.84.0–9.8.0 `KReplyMoss`：回调泛型入口少 ProtoBuf 参数，suspend 泛型入口返回 Object。 */
+    @Suppress("unused", "UNUSED_PARAMETER")
+    private class FakeLegacyKotlinMoss {
+        fun mainList(request: String, continuation: kotlin.coroutines.Continuation<Any?>): Any? = null
+        fun mainList(
+            request: Any,
+            serializer: SerializationStrategy<Any>,
+            deserializer: DeserializationStrategy<Any>,
+            continuation: kotlin.coroutines.Continuation<Any?>
+        ): Any? = null
+        fun mainList(
+            request: Any,
+            serializer: SerializationStrategy<Any>,
+            deserializer: DeserializationStrategy<Any>,
+            handler: FakeHandler
+        ) = Unit
+    }
+
+    @Test
+    fun `legacy four parameter callback entry is found separately from the current ABI`() {
+        assertNull(KotlinMossBridgeMembers.callbackEntry(FakeLegacyKotlinMoss::class.java, "mainList"))
+        val legacy = KotlinMossBridgeMembers.legacyCallbackEntry(FakeLegacyKotlinMoss::class.java, "mainList")
+        assertNotNull(legacy)
+        assertEquals(4, legacy!!.parameterCount)
+        assertEquals(Void.TYPE, legacy.returnType)
+        assertTrue(legacy.parameterTypes[3].isInterface)
+        // 当前 5 参入口不会被旧版判定误选。
+        assertNull(KotlinMossBridgeMembers.legacyCallbackEntry(FakeKotlinMoss::class.java, "dynVideo"))
+    }
+
     @Test
     fun `selects only the callback shaped generic entry of the requested method`() {
         val all = KotlinMossBridgeMembers.callbackEntry(FakeKotlinMoss::class.java, "dynAll")

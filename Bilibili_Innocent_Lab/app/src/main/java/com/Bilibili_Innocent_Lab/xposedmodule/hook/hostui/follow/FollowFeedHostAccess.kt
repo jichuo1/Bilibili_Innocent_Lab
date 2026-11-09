@@ -53,15 +53,9 @@ internal class FollowFeedHostAccess private constructor(
         unavailableReason = null
         val type = holder.javaClass
         val field = if (holders.containsKey(type)) holders[type] else {
-            var current: Class<*>? = type
-            val found = ArrayList<Field>()
-            while (current != null) {
-                found += current.declaredFields.filter {
-                    !Modifier.isStatic(it.modifiers) && it.type == module
-                }
-                current = current.superclass
-            }
-            found.singleOrNull()?.apply { isAccessible = true }.also { holders[type] = it }
+            KavaMemberLookup.fields(type, includeSuperclasses = true, makeAccessible = true) {
+                !Modifier.isStatic(it.modifiers) && it.type == module
+            }.singleOrNull().also { holders[type] = it }
         } ?: return null
         val value = field.get(holder) ?: return null
         val item = owner.invoke(value) ?: return null
@@ -129,19 +123,19 @@ internal class FollowFeedHostAccess private constructor(
         internal fun legacy(module: Class<*>, item: Class<*>, video: Class<*>): FollowFeedHostAccess? = runCatching {
             // 已实查的宿主模型：j0.M() 返回转发归属的顶层 q0，q0.f() 是动态稳定身份。
             // d0/g0 比较顶层模块列表首尾，包含引用中的模块；不能改用嵌套投稿身份 N()。
-            val owner = module.getDeclaredMethod("M").takeIf { it.returnType == item } ?: return null
-            val identity = item.getDeclaredMethod("f").takeIf { it.returnType == Long::class.javaPrimitiveType }
-                ?: return null
-            val first = module.getDeclaredMethod("d0").takeIf { it.returnType == Boolean::class.javaPrimitiveType }
-                ?: return null
-            val last = module.getDeclaredMethod("g0").takeIf { it.returnType == Boolean::class.javaPrimitiveType }
-                ?: return null
-            val localOwner = module.getDeclaredMethod("O").takeIf { it.returnType == item } ?: return null
-            val quoted = module.getDeclaredMethod("f0").takeIf { it.returnType == Boolean::class.javaPrimitiveType }
-                ?: return null
-            val modules = item.getDeclaredMethod("i").takeIf { List::class.java.isAssignableFrom(it.returnType) }
-                ?: return null
-            val kind = module.getDeclaredMethod("T").takeIf { it.returnType.isEnum } ?: return null
+            // 同名无参方法可能同时有桥接方法，按返回类型筛选，不依赖枚举顺序。
+            fun method(owner: Class<*>, name: String, accepts: (Class<*>) -> Boolean) =
+                KavaMemberLookup.firstDeclaredMethodOrNull(owner) {
+                    it.name == name && it.parameterCount == 0 && accepts(it.returnType)
+                }
+            val owner = method(module, "M") { it == item } ?: return null
+            val identity = method(item, "f") { it == Long::class.javaPrimitiveType } ?: return null
+            val first = method(module, "d0") { it == Boolean::class.javaPrimitiveType } ?: return null
+            val last = method(module, "g0") { it == Boolean::class.javaPrimitiveType } ?: return null
+            val localOwner = method(module, "O") { it == item } ?: return null
+            val quoted = method(module, "f0") { it == Boolean::class.javaPrimitiveType } ?: return null
+            val modules = method(item, "i") { List::class.java.isAssignableFrom(it) } ?: return null
+            val kind = method(module, "T") { it.isEnum } ?: return null
             if (!module.isAssignableFrom(video)) return null
             FollowFeedHostAccess(module, owner, identity, first, last, localOwner, quoted, modules, kind, video)
         }.getOrNull()

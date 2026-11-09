@@ -12,6 +12,8 @@ class Video {
     abstract class PlayableParams(origin: String, var kind: VideoBizType = VideoBizType.UGC) : FixtureResolveParams(origin) {
         abstract fun getDisplayParams(): DisplayParams
         fun getBizType() = kind
+        open fun getResolveParams(): com.bilibili.lib.media.resolver2.IResolveParams =
+            getDisplayParams().let { com.bilibili.app.gemini.base.player.GeminiCommonResolverParams(it.getAvid(), it.getCid()) }
     }
 }
 
@@ -21,5 +23,8 @@ class FixturePlayableParams(private val display: Video.DisplayParams, kind: Vide
     override fun getDisplayParams() = display
 }
 
-open class FixtureResolveParams(private val origin: String) { fun getFrom() = origin }
+open class FixtureResolveParams(private val origin: String) {
+    fun getFrom() = origin
+    open fun id(): String = ""
+}
 class CurrentVideoPointer(var index: Int = 0)

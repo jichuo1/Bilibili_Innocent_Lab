@@ -16,6 +16,11 @@ internal class StoryQualityFeatureHooks(private val runtime: StoryQualityRuntime
         val token: PlayerQualitySessions.Token)
     private class RequestFrame(val owner: Any?, val params: Any?)
     private class CoroutineTicket(val coroutine: WeakReference<Any>, val ticket: Ticket)
+    /** 仅存活于本次 onCreate 的同步帧，退出时连同 owner 一起清除。 */
+    private class Creation(val owner: Any, val previous: Creation?) {
+        var container: WeakReference<Any>? = null
+        var sharedBuilds = 0
+    }
 
     private val tickets = ArrayList<Ticket>()
     private val coroutines = ArrayList<CoroutineTicket>()
@@ -25,12 +30,16 @@ internal class StoryQualityFeatureHooks(private val runtime: StoryQualityRuntime
     private val resolving = ThreadLocal<Ticket>()
     private val cloning = ThreadLocal<Ticket>()
     private val pendingReparse = ThreadLocal<StoryQualityReparseGate.Lease>()
+    private val creating = ThreadLocal<Creation>()
     private var reparseGate: StoryQualityReparseGate? = null
     private var hostAccess: StoryQualityHostAccess? = null
     val complete: Boolean get() = ready.get()
     val hookCount: Int get() = registered.size
 
     fun globalTarget(qn: Int): Int? = if (!runtime.inStory()) qn else target()
+
+    private fun admission(access: StoryQualityHostAccess, owner: Any?, parameters: Any?): Admission =
+        access.admission(owner, parameters, owner != null && runtime.isShared(owner, parameters))
 
     private fun target(): Int? = runCatching {
         if (!ready.get()) return null
@@ -41,7 +50,7 @@ internal class StoryQualityFeatureHooks(private val runtime: StoryQualityRuntime
         val current = access.current(owner)
         val item = access.item(parameters) ?: return null
         val currentItem = access.item(current)
-        val fresh = runtime.sessions.target(owner, currentItem, access.admission(owner, current))
+        val fresh = runtime.sessions.target(owner, currentItem, admission(access, owner, current))
         if (currentItem != item) return null
         fresh?.takeIf { it == qn }
     }.getOrNull()
@@ -59,7 +68,7 @@ internal class StoryQualityFeatureHooks(private val runtime: StoryQualityRuntime
             val parameters = lease.params() ?: return false
             val current = access.current(owner)
             runtime.onOwnerThread(owner) &&
-                runtime.sessions.valid(lease.token, owner, access.item(current), access.admission(owner, current)) &&
+                runtime.sessions.valid(lease.token, owner, access.item(current), admission(access, owner, current)) &&
                 access.item(parameters) == lease.item && access.item(current) == lease.item &&
                 (!playing || access.isPlaying(owner))
         }.getOrDefault(false)
@@ -73,10 +82,16 @@ internal class StoryQualityFeatureHooks(private val runtime: StoryQualityRuntime
             val current = owner?.let(access::current)
             val item = access.item(parameters)
             val valid = allow && owner != null && item != null && access.item(current) == item
-            val admission = if (valid) access.admission(owner, current) else Admission.UNKNOWN
+            val admission = if (valid) admission(access, owner, current) else Admission.UNKNOWN
             param.setObjectExtra(SCOPE, runtime.enter(if (valid) owner else null, item, admission, parameters))
         }
         fun leave(param: ModernHookParam) {
+            (param.getObjectExtra(CREATION) as? Creation)?.let { frame ->
+                if (creating.get() === frame) {
+                    frame.previous?.let(creating::set) ?: creating.remove()
+                }
+                param.setObjectExtra(CREATION, null)
+            }
             if (param.getObjectExtra(REQUEST_FRAME) == true) {
                 (param.getObjectExtra(PREVIOUS_REQUEST) as? RequestFrame)?.let(requesting::set) ?: requesting.remove()
                 param.setObjectExtra(REQUEST_FRAME, false)
@@ -121,15 +136,36 @@ internal class StoryQualityFeatureHooks(private val runtime: StoryQualityRuntime
             environment.registrar.exact(id, method.declaringClass, method.name, *method.parameterTypes, block = block)
             registered += id
         }
+        fun confirmShared(owner: Any) {
+            if (!ready.get() || runtime.ownerFor(owner) !== owner || !runtime.onOwnerThread(owner)) return
+            val handler = access.handler(owner) ?: return
+            val provider = access.provider(owner) ?: return
+            runtime.bind(owner, handler, provider, access.service(owner))
+            val parameters = access.current(owner) ?: return
+            val item = access.item(parameters) ?: return
+            val index = access.currentIndex(handler) ?: return
+            if (access.item(access.at(provider, index)) != item) return
+            runtime.confirmShared(owner, parameters, item, index, access.admission(owner, parameters, confirmedShared = true))
+        }
         try {
             register("player.story.create", roles.onCreate) {
-                safeBefore { ensureStoryScope(this) }
+                safeBefore {
+                    instance?.let { runtime.close(it); runtime.bind(it, null, null) }
+                    ensureStoryScope(this)
+                    if (access.shared?.usesBuilder == true && "player.story.ready" in registered) instance?.let { owner ->
+                        Creation(owner, creating.get()).also { creating.set(it); setObjectExtra(CREATION, it) }
+                    }
+                }
                 safeAfter {
                     try {
                         if (!hasThrowable) instance?.let { owner ->
-                            runtime.close(owner)
                             runtime.bind(owner, access.handler(owner), access.provider(owner), access.service(owner))
+                            val frame = getObjectExtra(CREATION) as? Creation
+                            val container = frame?.container?.get()
+                            if (frame != null && frame.owner === owner && frame.sharedBuilds == 1 && container != null &&
+                                access.shared?.ownsContainer(owner, container) == true) confirmShared(owner)
                         }
+                        else instance?.let(runtime::close)
                     } finally { leave(this) }
                 }
             }
@@ -205,7 +241,7 @@ internal class StoryQualityFeatureHooks(private val runtime: StoryQualityRuntime
                     }
                     val qn = target() ?: return@safeBefore
                     val item = access.item(parameters) ?: return@safeBefore
-                    val admission = access.admission(owner, parameters)
+                    val admission = admission(access, owner, parameters)
                     val token = owner?.let { runtime.sessions.reserve(it, item, admission, Operation.REQUEST_TARGET) }
                         ?: return@safeBefore
                     if (runtime.sessions.valid(token, owner, item, admission)) {
@@ -220,7 +256,7 @@ internal class StoryQualityFeatureHooks(private val runtime: StoryQualityRuntime
                         val owner = runtime.ownerFor(instance)
                         val parameters = owner?.let(access::current)
                         if (token != null && owner != null && runtime.sessions.finish(token, owner, access.item(parameters),
-                                access.admission(owner, parameters), if (hasThrowable) PlayerQualitySessions.Outcome.FAILED else PlayerQualitySessions.Outcome.COMPLETED)) {
+                                admission(access, owner, parameters), if (hasThrowable) PlayerQualitySessions.Outcome.FAILED else PlayerQualitySessions.Outcome.COMPLETED)) {
                             if (hasThrowable) error()
                         }
                     } finally { leave(this) }
@@ -243,7 +279,7 @@ internal class StoryQualityFeatureHooks(private val runtime: StoryQualityRuntime
                         val existing = ticket(task)
                         val current = access.current(owner)
                         if (existing != null && existing.owner.get() === owner &&
-                            runtime.sessions.valid(existing.token, owner, access.item(current), access.admission(owner, current)))
+                            runtime.sessions.valid(existing.token, owner, access.item(current), admission(access, owner, current)))
                             {
                                 remember(coroutine, existing)
                                 return@safeAfter
@@ -253,7 +289,7 @@ internal class StoryQualityFeatureHooks(private val runtime: StoryQualityRuntime
                         if (access.resolveParams != null && access.resolveParams.get(coroutine) !== parameters) return@safeAfter
                         if (runtime.owner() !== owner || target() == null) return@safeAfter
                         val item = access.item(parameters) ?: return@safeAfter
-                        val token = runtime.sessions.reserve(owner, item, access.admission(owner, parameters), Operation.RESOURCE_SELECT)
+                        val token = runtime.sessions.reserve(owner, item, admission(access, owner, parameters), Operation.RESOURCE_SELECT)
                             ?: pendingReparse.get()?.takeIf { it.owner() === owner && it.params() === parameters && valid(it, false) }?.token
                             ?: return@safeAfter
                         val captured = Ticket(WeakReference(task), WeakReference(owner), WeakReference(parameters), item, token)
@@ -283,7 +319,7 @@ internal class StoryQualityFeatureHooks(private val runtime: StoryQualityRuntime
                     val captured = coroutine?.let { access.resolveParams?.get(it) }
                     val current = owner?.let(access::current)
                     val ticketValid = ticket != null && owner != null &&
-                        runtime.sessions.valid(ticket.token, owner, access.item(current), access.admission(owner, current))
+                        runtime.sessions.valid(ticket.token, owner, access.item(current), admission(access, owner, current))
                     val valid = ready.get() && ticket != null && owner != null && parameters != null &&
                         runtime.ownerFor(provider) === owner && (access.resolveParams == null || captured === parameters) &&
                         ticketValid
@@ -354,7 +390,7 @@ internal class StoryQualityFeatureHooks(private val runtime: StoryQualityRuntime
                     val ticket = resolving.get() ?: return@safeAfter
                     val owner = runtime.owner() ?: return@safeAfter
                     val parameters = access.current(owner)
-                    val admission = access.admission(owner, parameters)
+                    val admission = admission(access, owner, parameters)
                     val qn = target() ?: return@safeAfter
                     val value = argOrNull(0) ?: return@safeAfter
                     val vip = access.vip(owner) ?: return@safeAfter
@@ -362,7 +398,7 @@ internal class StoryQualityFeatureHooks(private val runtime: StoryQualityRuntime
                         return@safeAfter
                     val candidate = if (resources.isPreloaded(value)) resources.selection(value, qn, login = true, vip = vip) else null
                     val changed = candidate != null && target() == qn && access.vip(owner) == vip &&
-                        runtime.sessions.valid(ticket.token, owner, access.item(access.current(owner)), access.admission(owner, access.current(owner))) &&
+                        runtime.sessions.valid(ticket.token, owner, access.item(access.current(owner)), admission(access, owner, access.current(owner))) &&
                         resources.apply(value, candidate)
                     if (changed) applied()
                     if (ticket.token.operation == Operation.RESOURCE_SELECT &&
@@ -382,7 +418,7 @@ internal class StoryQualityFeatureHooks(private val runtime: StoryQualityRuntime
                     val owner = runtime.owner() ?: return@safeAfter
                     val parameters = access.current(owner) ?: return@safeAfter
                     val item = access.item(parameters) ?: return@safeAfter
-                    val admission = access.admission(owner, parameters)
+                    val admission = admission(access, owner, parameters)
                     val qn = target() ?: return@safeAfter
                     val resource = access.mediaResource(owner) ?: return@safeAfter
                     val vip = access.vip(owner) ?: return@safeAfter
@@ -400,8 +436,38 @@ internal class StoryQualityFeatureHooks(private val runtime: StoryQualityRuntime
                         finally { if (previous == null) pendingReparse.remove() else pendingReparse.set(previous) }
                     } else if (resources.accepted(resource, qn, login = true, vip = vip)) {
                         val token = runtime.sessions.reserve(owner, item, admission, Operation.PLAYBACK_SETTLE) ?: return@safeAfter
-                        if (target() == qn && runtime.sessions.settle(token, owner, item, access.admission(owner, access.current(owner)))) applied()
+                        if (target() == qn && runtime.sessions.settle(token, owner, item, admission(access, owner, access.current(owner)))) applied()
                     }
+                }
+            }
+            access.shared?.let { shared ->
+                // 共享接入单独注册；缺失或框架拒绝此可选 Hook 时，基础链路仍然就绪。
+                runCatching {
+                    register("player.story.ready", shared.ready) {
+                        safeBefore {
+                            if (!shared.usesBuilder) ensureStoryScope(this)
+                            else {
+                                val frame = creating.get()
+                                if (frame != null && runtime.inStory() && runtime.onOwnerThread(frame.owner) &&
+                                    instance?.let(shared::hasSharingBundle) == true) setObjectExtra(SHARED_BUILD, frame)
+                            }
+                        }
+                        safeAfter {
+                            if (shared.usesBuilder) {
+                                val frame = getObjectExtra(SHARED_BUILD) as? Creation ?: return@safeAfter
+                                if (hasThrowable || creating.get() !== frame) return@safeAfter
+                                result?.let { frame.container = WeakReference(it); frame.sharedBuilds++ }
+                                return@safeAfter
+                            }
+                            if (hasThrowable) { instance?.let(runtime::invalidate); return@safeAfter }
+                            if (!ready.get() || argOrNull(1) == null) return@safeAfter
+                            val owner = instance ?: return@safeAfter
+                            confirmShared(owner)
+                        }
+                    }
+                }.onFailure {
+                    environment.logError("player_story_shared_registration", "[BIL] Story 共享接入注册失败，保留基础画质链路")
+                    error()
                 }
             }
             ready.set(true)
@@ -436,6 +502,8 @@ internal class StoryQualityFeatureHooks(private val runtime: StoryQualityRuntime
     }
 
     companion object {
+        private const val CREATION = "story.quality.creation"
+        private const val SHARED_BUILD = "story.quality.shared_build"
         private const val SCOPE = "story.quality.scope"
         private const val REQUEST = "story.quality.request"
         private const val REQUEST_FRAME = "story.quality.request_frame"

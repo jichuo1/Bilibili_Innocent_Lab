@@ -1,7 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import androidx.annotation.StringRes
-import com.highcapable.betterandroid.ui.extension.view.toast
+import io.github.jichuo1.meguviz.android.extensions.toast
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SkinId
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinRepository

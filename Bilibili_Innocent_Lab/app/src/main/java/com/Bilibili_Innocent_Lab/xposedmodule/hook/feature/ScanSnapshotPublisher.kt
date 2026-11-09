@@ -22,6 +22,9 @@ internal class ScanSnapshotPublisher(
     private val accumulated =
         java.util.concurrent.ConcurrentHashMap<String, MineComponentScanEntry>()
 
+    /** 条目上限按面取；云控键面远大于其它面。 */
+    private val limit = MineComponentSnapshotCodec.maxEntries(surface)
+
     /**
      * 逐条累积后发布并集。
      *
@@ -30,7 +33,7 @@ internal class ScanSnapshotPublisher(
      */
     @Synchronized fun accumulate(entry: MineComponentScanEntry?) {
         if (entry == null) return
-        if (accumulated.size >= MineComponentSnapshotCodec.MAX_ENTRY_COUNT &&
+        if (accumulated.size >= limit &&
             !accumulated.containsKey(entry.key)
         ) return
         accumulated[entry.key] = entry
@@ -46,7 +49,7 @@ internal class ScanSnapshotPublisher(
     @Synchronized fun accumulateAll(entries: List<MineComponentScanEntry>) {
         var changed = false
         entries.forEach { entry ->
-            if (accumulated.size >= MineComponentSnapshotCodec.MAX_ENTRY_COUNT &&
+            if (accumulated.size >= limit &&
                 !accumulated.containsKey(entry.key)
             ) return@forEach
             accumulated[entry.key] = entry
@@ -65,7 +68,7 @@ internal class ScanSnapshotPublisher(
         if (entries.isEmpty()) return
         val normalized = entries
             .distinctBy(MineComponentScanEntry::key)
-            .take(MineComponentSnapshotCodec.MAX_ENTRY_COUNT)
+            .take(limit)
         val sink = environment.writeScanSnapshot ?: return
         runCatching {
             check(sink(surface, ScanSnapshotContent(environment.processName, capabilities.toSet(), normalized)))

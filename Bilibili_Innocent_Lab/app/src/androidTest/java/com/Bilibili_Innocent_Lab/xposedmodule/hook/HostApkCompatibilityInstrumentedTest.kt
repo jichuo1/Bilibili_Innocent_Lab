@@ -218,6 +218,9 @@ class HostApkCompatibilityInstrumentedTest {
             point != null
         }
         check("player.sponsor") { sponsor != null || SponsorPlayerLocator.assisted(loader, session) != null }
+        check("player.sponsor.story") {
+            com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorStoryAccess.resolve(loader) != null
+        }
         check("comment.classic_style") {
             val points = CommentClassicStyleLocator.locate(loader, session, true)
             CommentClassicStyleLocator.missing(loader, points).isEmpty()

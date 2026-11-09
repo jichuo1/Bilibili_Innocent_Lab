@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.ViewGroup
 import android.view.View
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import java.util.WeakHashMap
 import java.util.concurrent.Executors
 
@@ -84,11 +85,13 @@ internal class HostBackgroundController(private val config: HostBackgroundConfig
         if (config.preset != HostBackgroundPreset.CUSTOM || requested) return
         requested = true
         val app = list.context.applicationContext
-        worker.execute {
-            val loaded = imageLoader(app, config)
+        worker.execute(HostThreadGuard.runnable("host.background.worker") {
+            // 模块线程上的逃逸异常同样杀进程；默认加载器自己兜住解码失败，但加载器可注入。
+            // 抛异常与加载不到走同一条失败通知。
+            val loaded = HostThreadGuard.call<Bitmap?>("host.background.load", null) { imageLoader(app, config) }
             // 首个列表可能已经退出；View.post 会等待它重新 attach，甚至永远丢失加载结果。
             // 控制器共用图片，完成通知必须独立于任何一页的窗口生命周期。
-            main.post {
+            main.post(HostThreadGuard.runnable("host.background.apply") {
                 if (loaded == null) {
                     onError(IllegalStateException("Custom host background unavailable; using aurora"))
                 } else {
@@ -100,8 +103,8 @@ internal class HostBackgroundController(private val config: HostBackgroundConfig
                         view.background = next
                     }
                 }
-            }
-        }
+            })
+        })
     }
 
     private val recyclerTypes = HashMap<Class<*>, Boolean>()

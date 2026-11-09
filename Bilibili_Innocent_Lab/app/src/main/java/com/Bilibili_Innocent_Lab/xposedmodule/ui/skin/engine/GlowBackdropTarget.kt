@@ -1,6 +1,5 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.PointF
@@ -42,7 +41,6 @@ internal class GlowBackdropTarget(context: Context) : FrameLayout(context) {
         clipToPadding = false
     }
 
-    @SuppressLint("ReplaceWithAndroidVersion")
     private fun releaseCapture() {
         // capture 只会在 API 31+ 上被创建；这里的判定让 lint 看得见。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) capture?.release()
@@ -81,7 +79,6 @@ internal class GlowBackdropTarget(context: Context) : FrameLayout(context) {
         return false
     }
 
-    @SuppressLint("ReplaceWithAndroidVersion")
     override fun dispatchDraw(canvas: Canvas) {
         if (!contentCaptureEnabled || Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
             !canvas.isHardwareAccelerated || width <= 0 || height <= 0

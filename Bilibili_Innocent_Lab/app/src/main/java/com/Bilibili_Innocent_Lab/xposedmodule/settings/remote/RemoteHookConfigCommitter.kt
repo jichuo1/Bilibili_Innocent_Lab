@@ -39,6 +39,8 @@ internal class RemoteHookConfigCommitter {
         nowEpochMs: Long,
         backend: RemoteHookConfigBackend,
         force: Boolean = false,
+        deliveryEnabled: Boolean = true,
+        noRootRevision: Long = 0L,
         stillCurrent: () -> Boolean = { true }
     ): RemoteHookConfigPublishResult = runCatching {
         check(stillCurrent()) { "stale_publication" }
@@ -54,8 +56,8 @@ internal class RemoteHookConfigCommitter {
         pendingRemovals.addAll(cached.keys - RemoteHookConfigContract.persistedKeys)
         val current = RemoteHookConfigContract.decode(cached)
         val matchingSnapshot = (current as? RemoteHookConfigDecodeResult.Ready)?.snapshot?.takeIf {
-            it.moduleVersionCode == moduleVersionCode && it.deliveryEnabled &&
-                it.noRootRevision == 0L && it.decision == decision && it.values == values
+            it.moduleVersionCode == moduleVersionCode && it.deliveryEnabled == deliveryEnabled &&
+                it.noRootRevision == noRootRevision && it.decision == decision && it.values == values
         }
         val confirmation = acknowledged
         if (!force && matchingSnapshot != null && pendingRemovals.isEmpty() &&
@@ -80,8 +82,8 @@ internal class RemoteHookConfigCommitter {
         val document = RemoteHookConfigContract.encode(
             generation = generation,
             moduleVersionCode = moduleVersionCode,
-            deliveryEnabled = true,
-            noRootRevision = 0L,
+            deliveryEnabled = deliveryEnabled,
+            noRootRevision = noRootRevision,
             decision = decision,
             values = values
         )

@@ -55,9 +55,16 @@ class StoryQualityHookIntegrationTest {
     private fun parameters(aid: Long = 123, cid: Long = 456, from: String = "vupload") =
         FixturePlayableParams(Video.DisplayParams(aid, cid, from))
 
-    private inner class Harness(failId: String? = null, private val useClaims: Boolean = false) {
+    private inner class Harness(failId: String? = null, private val useClaims: Boolean = false,
+                                hiddenClasses: Set<String> = emptySet()) {
+        private val hostLoader = object : ClassLoader(loader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if (name in hiddenClasses) throw ClassNotFoundException(name)
+                return super.loadClass(name, resolve)
+            }
+        }
         val port = PlayerPortTestRegistrar(failId)
-        val registry = HookPointRegistry(loader)
+        val registry = HookPointRegistry(hostLoader)
         private fun claimed(id: String, member: Executable, install: () -> Unit) {
             if (!useClaims) { install(); return }
             if (!registry.claim(id, member)) return
@@ -86,20 +93,24 @@ class StoryQualityHookIntegrationTest {
         val stages = arrayListOf<FeatureRuntimeStage>()
         val statuses = arrayListOf<String>()
         val owner = StoryPlayer().also { it.source.values += listOf(parameters(), parameters(cid = 789)) }
-        val storyPoints = requireNotNull(StoryQualityLocator.direct(loader)).copy(
+        val storyPoints = requireNotNull(StoryQualityLocator.direct(hostLoader)).copy(
             integerDefaultMethod = point(StoryQualityFacade::class.java.getDeclaredMethod("integerDefault")),
             policyMethod = point(StoryQualityFacade::class.java.getDeclaredMethod("policy")),
             resourceSelectionMethod = point(StoryQualityFacade::class.java.getDeclaredMethod("resource", MediaResource::class.java)),
             matchPreferenceMethod = point(StoryQualityService::class.java.getDeclaredMethod("matchPreference", Continuation::class.java)))
-        val access = requireNotNull(StoryQualityHostAccess.resolve(loader,
-            requireNotNull(StoryQualityLocator.resolve(loader, storyPoints))))
+        val access = requireNotNull(StoryQualityHostAccess.resolve(hostLoader,
+            requireNotNull(StoryQualityLocator.resolve(hostLoader, storyPoints))))
         val installer = PlayerQualityFeatureInstaller(80, VersionAdapter.PlayerQualityPoints(
             VersionAdapter.HookPoint("gh6.h", "c", emptyList()), story = storyPoints))
-        val environment = HookEnvironment("tv.danmaku.bili", loader, registry, registrar,
+        val environment = HookEnvironment("tv.danmaku.bili", hostLoader, registry, registrar,
             logInfo = { _, _ -> }, logError = { _, _ -> }, reportStatus = { _, status -> statuses += status },
             runtimeEvidence = { _, stage, _ -> stages += stage })
         fun install() = installer.install(environment)
         fun create() = port.invoke("player.story.create", owner, arrayOf(null)) { owner.onCreate(null); Unit }
+        fun ready(shared: tv.danmaku.biliplayerv2.PlayerSharingBundle? = tv.danmaku.biliplayerv2.PlayerSharingBundle(),
+                  original: (Array<Any?>) -> Any? = { Unit }) =
+            port.invoke("player.story.ready", owner, arrayOf(null, shared), original)
+        fun sharedCreate() = port.invoke("player.story.create", owner, arrayOf(null)) { ready(); Unit }
         fun select(index: Int = 0): Any? = port.invoke("player.story.select", owner.controller, arrayOf(index)) {
             owner.controller.select(it[0] as Int)
         }
@@ -197,6 +208,148 @@ class StoryQualityHookIntegrationTest {
         }
     }
 
+    @Test fun `missing shared dependencies preserve base policy requests and manual choices`() {
+        for (missing in listOf("tv.danmaku.biliplayerv2.IPlayerContainer",
+            "tv.danmaku.biliplayerv2.PlayerSharingBundle", "com.bilibili.lib.media.resolver2.IResolveParams",
+            "com.bilibili.app.gemini.base.player.GeminiCommonResolverParams")) {
+            val h = Harness(hiddenClasses = setOf(missing))
+            assertNull(missing, h.access.shared)
+            assertTrue(h.access.reparseReady)
+            h.start()
+            assertFalse(h.port.hooks.containsKey("player.story.ready"))
+            h.match { assertEquals(80, h.wifi()); Unit }
+            h.request { assertEquals(80, it[0]); Unit }
+            h.manual(StoryPreferenceFixture.Auto)
+            h.match { assertEquals(32, h.wifi()); Unit }
+        }
+    }
+
+    @Test fun `missing shared admission cannot authorize a numeric source`() {
+        val h = Harness(hiddenClasses = setOf("com.bilibili.app.gemini.base.player.GeminiCommonResolverParams"))
+        h.owner.source.values[0] = parameters(from = "6")
+        h.start()
+        assertEquals(PlayerQualitySessions.Admission.DENY,
+            h.access.admission(h.owner, h.owner.getCurrentPlayableParam(), confirmedShared = true))
+        h.match { assertEquals(32, h.wifi()); Unit }
+    }
+
+    @Test fun `shared registration failure leaves base Story hooks ready without trusting shared playback`() {
+        val h = Harness(failId = "player.story.ready")
+        h.start()
+        assertFalse(h.port.hooks.containsKey("player.story.ready"))
+        h.request { assertEquals(80, it[0]); Unit }
+        assertTrue(FeatureRuntimeStage.ERROR in h.stages)
+        h.owner.source.values[0] = parameters(from = "6")
+        h.create(); h.select()
+        h.match { assertEquals(32, h.wifi()); Unit }
+    }
+
+    @Test fun `shared ready inside create establishes first item without a later cursor event`() {
+        val h = Harness()
+        assertNotNull(h.access.shared)
+        h.owner.source.values[0] = parameters(from = "6")
+        assertTrue((h.install() as FeatureInstallResult.Installed).complete)
+        assertEquals(PlayerQualitySessions.Admission.DENY, h.access.admission(h.owner, h.owner.getCurrentPlayableParam()))
+        h.sharedCreate()
+        h.match { assertEquals(80, h.wifi()); assertEquals(80, h.global()); Unit }
+        assertTrue(FeatureRuntimeStage.ERROR !in h.stages)
+    }
+
+    @Test fun `shared provenance does not cross a different parameters instance with the same item`() {
+        val h = Harness()
+        h.owner.source.values[0] = parameters(from = "6")
+        h.install(); h.sharedCreate()
+        h.owner.source.values[0] = parameters(from = "6")
+        h.match { assertEquals(32, h.wifi()); Unit }
+    }
+
+    @Test fun `repeated shared ready cannot undo either manual choice`() {
+        for (choice in listOf(StoryPreferenceFixture.Auto, StoryPreferenceFixture.Fixed(64))) {
+            val h = Harness()
+            h.owner.source.values[0] = parameters(from = "6")
+            h.install(); h.sharedCreate(); h.manual(choice); h.ready()
+            h.match { assertEquals(32, h.wifi()); Unit }
+        }
+    }
+
+    @Test fun `null shared bundle and failed ready never establish a playback generation`() {
+        val h = Harness()
+        h.owner.source.values[0] = parameters(from = "6")
+        h.install(); h.create(); h.ready(null)
+        h.match { assertEquals(32, h.wifi()); Unit }
+        val failure = IllegalStateException("shared ready failed")
+        try { h.ready { throw failure }; fail() } catch (error: IllegalStateException) { assertSame(failure, error) }
+        h.match { assertEquals(32, h.wifi()); Unit }
+    }
+
+    @Test fun `failed ready invalidates an active shared generation and repeated ready cannot revive it`() {
+        val h = Harness()
+        h.owner.source.values[0] = parameters(from = "6")
+        h.install(); h.sharedCreate()
+        val failure = IllegalStateException("shared ready failed")
+        try { h.ready { throw failure }; fail() } catch (error: IllegalStateException) { assertSame(failure, error) }
+        h.ready()
+        h.match { assertEquals(32, h.wifi()); Unit }
+    }
+
+    @Test fun `shared ready rejects unknown owners other threads and mismatched pointer indices`() {
+        val h = Harness()
+        h.owner.source.values[0] = parameters(from = "6")
+        h.install(); h.ready()
+        h.match { assertEquals(32, h.wifi()); Unit }
+        h.create()
+        val foreign = Thread { h.ready() }
+        foreign.start(); foreign.join()
+        h.match { assertEquals(32, h.wifi()); Unit }
+        h.owner.controller.pointer?.index = 1
+        h.ready()
+        h.match { assertEquals(32, h.wifi()); Unit }
+    }
+
+    @Test fun `shared provenance cannot override an explicit non ugc source or an unknown resolver`() {
+        for (source in listOf("live", "music", "bangumi", "pugv")) {
+            val h = Harness()
+            h.owner.source.values[0] = parameters(from = source)
+            h.install(); h.sharedCreate()
+            h.match { assertEquals(32, h.wifi()); Unit }
+        }
+        val h = Harness()
+        h.owner.source.values[0] = object : Video.PlayableParams("6") {
+            override fun getDisplayParams() = Video.DisplayParams(123, 456)
+            override fun getResolveParams() = object : com.bilibili.lib.media.resolver2.IResolveParams {}
+        }
+        h.install(); h.sharedCreate()
+        h.match { assertEquals(32, h.wifi()); Unit }
+    }
+
+    @Test fun `shared resolver identifiers and current index must identify the same ordinary video`() {
+        val h = Harness()
+        h.owner.source.values[0] = object : Video.PlayableParams("6") {
+            override fun getDisplayParams() = Video.DisplayParams(123, 456)
+            override fun getResolveParams(): com.bilibili.lib.media.resolver2.IResolveParams =
+                com.bilibili.app.gemini.base.player.GeminiCommonResolverParams(123, 789)
+        }
+        h.install(); h.sharedCreate()
+        h.match { assertEquals(32, h.wifi()); Unit }
+    }
+
+    @Test fun `confirmed shared entry still rejects logged out restricted and non ugc playback`() {
+        val changes = listOf<() -> Unit>({ BiliAccounts.instance.loggedIn = false },
+            { TeenagersMode.getInstance().enabled = true }, { RestrictedMode.enabled = true })
+        for (change in changes) {
+            resetAdmission()
+            val h = Harness()
+            h.owner.source.values[0] = parameters(from = "6")
+            change(); h.install(); h.sharedCreate()
+            h.match { assertEquals(32, h.wifi()); Unit }
+        }
+        resetAdmission()
+        val h = Harness()
+        h.owner.source.values[0] = parameters(from = "6").also { it.kind = VideoBizType.PGC }
+        h.install(); h.sharedCreate()
+        h.match { assertEquals(32, h.wifi()); Unit }
+    }
+
     @Test fun `actual host graph requires display bridge and resolves account and resource contracts`() {
         assertTrue(java.lang.reflect.Modifier.isAbstract(
             Video.PlayableParams::class.java.getDeclaredMethod("getDisplayParams").modifiers))
@@ -292,7 +445,7 @@ class StoryQualityHookIntegrationTest {
         val h = Harness("player.story.policy")
         val partial = h.install() as FeatureInstallResult.Installed
         assertFalse(partial.complete)
-        assertEquals("partial:1/2", h.statuses.last())
+        assertEquals("partial:2/3", h.statuses.last())
         h.port.failId = null
         assertTrue((h.install() as FeatureInstallResult.Installed).complete)
         val successful = h.port.registrationAttempts.groupingBy { it.first }.eachCount()

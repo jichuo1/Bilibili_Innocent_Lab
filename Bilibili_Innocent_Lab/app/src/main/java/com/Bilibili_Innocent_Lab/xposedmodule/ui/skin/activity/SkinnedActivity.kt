@@ -11,6 +11,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.TextView
 import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.StateListDrawable
 import androidx.appcompat.widget.SwitchCompat
@@ -18,8 +19,9 @@ import androidx.core.graphics.ColorUtils
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidChoiceDrawable
 import androidx.annotation.MainThread
-import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
+import androidx.appcompat.app.AppCompatActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowEngine
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.ViewportForegroundDrawable
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.ActivitySkinSession
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinSessionDiagnostics
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SkinId
@@ -32,10 +34,45 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.material.ModernMaterialDra
 /**
  * 只管理 Activity 级皮肤会话的薄基类。
  *
- * 它故意不接管 onCreate、Window、contentView、系统栏、语言或重建时机，避免改变三个现有
- * Activity 的条款门禁和转场顺序。
+ * onCreate、语言、授权和重建时机由业务 Activity 决定；原父类的窗口初始化由组合委托保留。
  */
-abstract class SkinnedActivity : AppViewsActivity() {
+abstract class SkinnedActivity : AppCompatActivity() {
+
+    private var windowDelegate: BilWindowDelegate? = null
+    private var windowStarted = false
+
+    private fun bindModuleWindow(root: View?) {
+        if (windowDelegate != null || lifecycleEnded) return
+        val content = root ?: findViewById<ViewGroup>(android.R.id.content)
+        windowDelegate = BilWindowDelegate(this, content).also { it.setStarted(windowStarted) }
+    }
+
+    override fun setContentView(layoutResID: Int) {
+        super.setContentView(layoutResID)
+        bindModuleWindow(findViewById<ViewGroup>(android.R.id.content).getChildAt(0))
+    }
+
+    override fun setContentView(view: View?) {
+        super.setContentView(view)
+        bindModuleWindow(view)
+    }
+
+    override fun setContentView(view: View?, params: ViewGroup.LayoutParams?) {
+        super.setContentView(view, params)
+        bindModuleWindow(view)
+    }
+
+    internal fun handOffModuleInsets(root: View) { windowDelegate?.handOffInsets(root) }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        windowDelegate?.refreshConfiguration()
+    }
+
+    override fun setTheme(resId: Int) {
+        super.setTheme(resId)
+        windowDelegate?.invalidateTheme()
+    }
 
     private var skinSessionOrNull: ActivitySkinSession? = null
     private var materialPaletteOrNull: MonetColors? = null
@@ -255,11 +292,12 @@ abstract class SkinnedActivity : AppViewsActivity() {
             setStroke(((if (active) 2f else 1f) * resources.displayMetrics.density).toInt().coerceAtLeast(1),
                 ColorUtils.setAlphaComponent(monetColors.primary, if (active || emphasized) 0x72 else 0x22))
         }
-        return StateListDrawable().apply {
+        // 前景不享受 View 对背景的滚动补偿：长文本 EditText 横向滚动后描边会随内容左移，包一层钉回视口。
+        return ViewportForegroundDrawable(StateListDrawable().apply {
             addState(intArrayOf(android.R.attr.state_focused), border(true))
             addState(intArrayOf(android.R.attr.state_pressed), border(true))
             addState(intArrayOf(), border(false))
-        }
+        })
     }
 
     /** 让一个已在层级中的滚动 View 仅以前景内容参与系统 stretch；Material/低版本为 no-op。 */
@@ -286,6 +324,18 @@ abstract class SkinnedActivity : AppViewsActivity() {
     @MainThread
     protected fun notifyPreparedSkinScrollPositionChanged(scrollHost: View) {
         if (!lifecycleEnded) skinSessionOrNull?.notifyScrollPositionChanged(scrollHost)
+    }
+
+    /**
+     * 让普通 ScrollView / NestedScrollView 的真实偏移同步到引擎。惯性滑动的偏移在 computeScroll 里
+     * 推进，晚于 pre-draw；只靠窗口级 OnScrollChangedListener，玻璃会按上一帧原点采样，快速滑动时
+     * 控件内背景出现重影。占用 View 自身的 OnScrollChangeListener 槽位，调用方不得再另行设置。
+     */
+    @MainThread
+    protected fun bindPreparedSkinScrollHost(scrollHost: View) {
+        scrollHost.setOnScrollChangeListener(View.OnScrollChangeListener { view, x, y, oldX, oldY ->
+            if (x != oldX || y != oldY) notifyPreparedSkinScrollPositionChanged(view)
+        })
     }
 
     /** 悬浮胶囊下方的内容层（必须是胶囊的兄弟而非祖先），供模糊/折射采样。 */
@@ -404,10 +454,14 @@ abstract class SkinnedActivity : AppViewsActivity() {
 
     override fun onStart() {
         super.onStart()
+        windowStarted = true
+        windowDelegate?.setStarted(true)
         skinSessionOrNull?.onActivityStarted()
     }
 
     override fun onStop() {
+        windowStarted = false
+        windowDelegate?.setStarted(false)
         clearElasticInteractions()
         skinSessionOrNull?.onActivityStopped()
         super.onStop()
@@ -438,7 +492,13 @@ abstract class SkinnedActivity : AppViewsActivity() {
         try {
             session?.close()
         } finally {
-            super.onDestroy()
+            try {
+                val delegate = windowDelegate
+                windowDelegate = null
+                delegate?.close()
+            } finally {
+                super.onDestroy()
+            }
         }
     }
 }

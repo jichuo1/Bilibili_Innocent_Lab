@@ -1,6 +1,3 @@
-// 启动和停止共用显式组件 Intent，保持任务服务的成对生命周期可见。
-@file:Suppress("ReplaceWithIntentExtension", "ReplaceWithServiceExtension")
-
 package com.Bilibili_Innocent_Lab.xposedmodule.agent
 
 import android.content.Context

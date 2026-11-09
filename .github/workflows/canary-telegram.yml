@@ -30,6 +30,8 @@ jobs:
   select:
     name: Decide whether to publish Canary
     runs-on: ubuntu-latest
+    # 防卡死的宽松上限（约为常规耗时的 6 倍以上），不是性能预算；默认值是 360 分钟。
+    timeout-minutes: 15
     outputs:
       should_publish: ${{ steps.selection.outputs.should_publish }}
       run_url: ${{ steps.selection.outputs.run_url }}
@@ -65,6 +67,7 @@ jobs:
     needs: select
     if: needs.select.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment:
       # 只读取固定证书指纹，不恢复私钥，也不重新构建 APK。
       name: alpha-release

@@ -8,11 +8,10 @@ import org.junit.Test
 /**
  * 锁定 [ReflectAccess] 对原始类型参数的方法匹配。
  *
- * `compatible()` 依赖 **装箱** 类型做 `isInstance` 判定。KavaRef 的
- * `ReplaceWithKavaRefExtension` lint 会建议把 `java.lang.Boolean::class.java` 换成
- * `classOf<java.lang.Boolean>()`——但后者解析为原始类型 `boolean`，而原始类型的
- * `isInstance` 恒为 false，套用会让所有原始类型参数的方法匹配失效。本测试同时锁定这条
- * 差异，避免后来者按 lint 提示"顺手修掉"。
+ * `compatible()` 依赖 **装箱** 类型做 `isInstance` 判定，而 `classOf<java.lang.Boolean>()`
+ * 默认解析为原始类型 `boolean`，必须显式传 `primitiveType = false`。原始类型的
+ * `isInstance` 恒为 false，漏传会让所有原始类型参数的方法匹配失效。本测试同时锁定这条
+ * 差异，避免后来者"顺手"省掉这个参数。
  */
 class ReflectAccessPrimitiveArgTest {
 

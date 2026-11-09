@@ -656,7 +656,6 @@ internal class FrameInterpolationFeatureInstaller(
         }
         runCatching {
             android.os.Handler(android.os.Looper.getMainLooper()).post(HostThreadGuard.runnable("frame.status") {
-                //noinspection ReplaceWithToastExtension
                 android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
             })
         }

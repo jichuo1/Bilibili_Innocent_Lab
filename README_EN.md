@@ -11,7 +11,7 @@
 
 ### A UI cleanup and interaction enhancement module for the Android Bilibili client
 
-Built on **Xposed / LSPosed, libxposed Modern API and KavaRef**, targeting the official Android client `tv.danmaku.bili`.
+Built on **Xposed / LSPosed, libxposed Modern API, the Meguviz libraries (MeguvizRef, MeguvizUI, MeguvizAndroid) and Lumen Coacervation Engine**, targeting the official Android client `tv.danmaku.bili`.
 
 [Download releases](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases) · [Report an issue](https://github.com/jichuo1/Bilibili_Innocent_Lab/issues) · [Telegram group](https://t.me/Bilibili_Innocent_Lab)
 
@@ -73,11 +73,17 @@ Where possible, grant this module ROOT permission, which enables:
 
 **A note on root-free NPatch support**
 
-The module now offers experimental root-free support for NPatch. On devices without Root/LSPosed you can load the module into a locally patched Bilibili client through NPatch Manager. This is an independent optional compatibility path and does not change the existing Root/LSPosed installation or usage. It currently requires Android 9 or later, NPatch Manager 1.0.7 or later, and local/manager mode: add and enable this module in NPatch Manager first, then turn on "Root-free support (NPatch, experimental)" in the module settings.
+Experimental root-free NPatch support requires Android 9 or later and loads the module through Manager mode. **This version does not support embedded mode**, which is temporarily disabled to discourage resale of hosts with the module bundled inside; its implementation is retained. Manager mode requires NPatch Manager 1.0.7 or later, with the module added and enabled. Keep the separate module settings app installed, accept the terms, select "Root-free support (NPatch, experimental)", and cold-start Bilibili to verify its receipt. This optional path does not change Root/LSPosed usage.
 
-Once enabled, the module synchronises the currently supported feature configuration to NPatch, and the patched Bilibili process loads the corresponding hooks. After enabling, disabling or changing these settings you must manually force-stop and reopen Bilibili. The target process installs module features only after authorisation and full configuration validation pass, and the module UI shows "activated" only after it receives and verifies the host receipt.
+Once enabled, the NPatch host obtains current settings through the module's admission channel without requiring Communication Compatibility Mode. Manager Remote Store sync is an optional mirror; its availability does not gate direct delivery. After enabling, disabling or changing settings, force-stop and reopen Bilibili. Features are installed only after current authorisation and full configuration validation pass; activation requires a verified host receipt. If all authorising endpoints are unavailable, an old cached document cannot enable features.
+
+The root-free Diagnostics details show the patch mode, signature bypass level, Loader API/version, Manager version, actual configuration source, and processes responding to the current query with their Hook point counts. Unresponsive processes remain unknown; installation counts do not prove feature behavior. See the [patching guide](scripts/npatch/README.md) and [implementation roadmap](docs/npatch-implementation-roadmap.md) for the measured scope. Historical embedded-mode results do not mean that mode is available in this version. Build 833's Manager loading failure when Manager is unavailable requires the tool's Java loader fix.
 
 > NPatch support is still experimental. Its real-world stability is affected by the Android version, ROM, NPatch Manager version, Bilibili version and other injected modules, and it should not be treated as a complete replacement for every Root/LSPosed scenario. Back up your configuration first and keep the ability to restore the unmodified app.
+
+**A note on root-free LSPatch support**
+
+JingMatrix LSPatch 1.2 (487) is supported in local (Manager / `--manager`) mode. Select the module in Manager and apply it, keep the separate settings app installed, accept the terms, then cold-start Bilibili. The NPatch switch and Communication Compatibility Mode are not required. **Embedded (`--embed`) mode is currently unsupported** and shares the disabled support flag with NPatch; its implementation is retained. See the [stage 9 record](docs/lspatch-stage9.md) for historical tests and the verified scope.
 
 ---
 
@@ -254,6 +260,7 @@ The sections below describe capabilities by feature topic. Developer-facing cate
 | --- | --- |
 | Clean up share links | Removes tracking parameters from Bilibili links in the share panel link and share text, keeping only the page number and timestamp. **b23.tv short links are not expanded**, so no network request is made |
 | Convert mini-program cards to plain links | When sharing to WeChat or QQ a plain link card is sent instead; when the title only contains the app name, the real video title is filled back in and no attribution text is appended |
+| Share to re-signed WeChat | Off by default. Enable if you trust the re-signed WeChat on this device to keep native friend and Moments sharing. Restart Bilibili after changing it. Adapted for Bilibili 8.90.2; account-level previews and delivery remain unverified |
 
 #### Launch and system
 
@@ -261,6 +268,8 @@ The sections below describe capabilities by feature topic. Developer-facing cate
 | --- | --- |
 | Splash screen follows dark mode | The splash background is black in dark mode and white in light mode, so switching from a dark UI no longer flashes white; only the background is changed, not the splash image or logo |
 | Use system media control notification | Enables the background playback system media-style notification that Bilibili ships but has switched off in its gradual rollout |
+| Keep the legacy home frame | Blocks the remote flag (`dd.use_new_home_frame`) that moves phones to the new home frame, so features built on the legacy home keep working; large screens are unaffected |
+| Freeze chosen remote flags | Pages and buttons are often switched by remote flags and can appear or vanish overnight. Scan the on/off flags Bilibili reads and tick the ones to pin, or write rules as `key=value`; Bilibili then reads those fixed values and every other flag stays untouched. Network, sign-in, risk-control and startup flags cannot be frozen |
 | Open external links in the system browser | Web pages outside Bilibili no longer open in the built-in browser. Bilibili domains plus payment and UnionPay gateways still stay inside the app; when no browser is available the original behaviour is kept so the client never errors |
 
 ### ▶️ Video detail, player and content feeds
@@ -569,7 +578,7 @@ Use the fast check during local iteration:
 .\gradlew.bat :app:lintFast --console=plain --no-daemon
 ```
 
-The fast check skips only an explicit list of 32 BetterAndroid / KavaRef API replacement suggestions. Android correctness, permission, and API compatibility checks remain enabled for production sources. Test sources are verified by compilation and tests, and are excluded from Lint. It does not replace the full gate. Before committing and in CI, run:
+The fast check enables the same rules as the full check; it differs only in its report directory and the tasks it may run alongside. Test sources are verified by compilation and tests, and are excluded from Lint. Before committing and in CI, run:
 
 ```powershell
 .\gradlew.bat :app:lintDebug --console=plain --no-daemon
@@ -754,7 +763,7 @@ The above limitation of liability does not apply to liability that applicable la
 
 ### 8. Third-party projects and external links
 
-This project may use or mention LSPosed, Xposed, Magisk, YukiHookAPI, KavaRef, BiliRoaming, GitHub and other third-party software, frameworks, services or websites. Those projects are maintained independently by their respective rights holders and are subject to their own licences, privacy policies, terms of service and disclaimers.
+This project may use or mention LSPosed, Xposed, Magisk, YukiHookAPI, MeguvizRef, MeguvizUI, MeguvizAndroid, Lumen Coacervation Engine, BiliRoaming, GitHub and other third-party software, frameworks, services or websites. Those projects are maintained independently by their respective rights holders and are subject to their own licences, privacy policies, terms of service and disclaimers.
 
 The appearance of a third-party name, link or compatibility code in this project does not mean this project guarantees its safety, legality, stability or continued availability, nor that a cooperation or authorisation relationship exists between the two.
 
@@ -847,8 +856,10 @@ Third-party components, frameworks and code used by or compatible with the proje
 Thanks to the following projects and communities for the foundational capabilities and development references:
 
 - [YukiHookAPI](https://github.com/HighCapable/YukiHookAPI)
-- [KavaRef](https://github.com/HighCapable/KavaRef)
-- [Lumen Coacervation Engine](https://github.com/jichuo1/LumenCoacervationEngine) (video card surfaces, Apache-2.0)
+- [MeguvizRef](https://github.com/jichuo1/MeguvizRef) (reflection and member lookup, Apache-2.0)
+- [MeguvizUI](https://github.com/jichuo1/MeguvizUI) (native View UI construction, Apache-2.0)
+- [MeguvizAndroid](https://github.com/jichuo1/MeguvizAndroid) (Android runtime and window foundations, Apache-2.0)
+- [Lumen Coacervation Engine](https://github.com/jichuo1/LumenCoacervationEngine) (visual materials and motion for host and module surfaces, Apache-2.0)
 - [BBZQ](https://github.com/HSSkyBoy/BBZQ)
 - The Xposed / LSPosed community
 - The Android Open Source Project and related developer documentation

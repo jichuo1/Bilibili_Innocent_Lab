@@ -27,8 +27,22 @@ internal class FrameBufferLedger(
     data class Stats(val allocated: Int, val live: Int, val idle: Int, val recycled: Long, val discarded: Long,
                      val peakLive: Int, val exhausted: Long)
 
+    /**
+     * 每帧的持有者计数：五类持有者各占 4 位（PRESENTER 至多 [MAX_PRESENTER_HOLDS] = 8，其余至多 1），
+     * 打包进一个 Int，不再为每次 acquire 分配 HashMap 与装箱节点。
+     * 过渡补丁：帧账本迁入 MeguvizMedia（M1.1 的 C++17 core，固定计数 / 位集合）后，由它的核心账本接替，
+     * 迁移完成后删除本类的打包计数；薄 Kotlin/JNI binding 不再维护第二份核心账本。
+     */
     private class Entry(val buffer: ByteBuffer, val generation: Long, val format: Format) {
-        val holders = HashMap<Holder, Int>(5)
+        private var held = 0
+        val isEmpty: Boolean get() = held == 0
+        fun count(holder: Holder): Int = (held ushr (holder.ordinal * HOLDER_BITS)) and HOLDER_MASK
+        fun set(holder: Holder, count: Int) {
+            require(count in 0..HOLDER_MASK)
+            val shift = holder.ordinal * HOLDER_BITS
+            held = (held and (HOLDER_MASK shl shift).inv()) or (count shl shift)
+        }
+        fun holders(): Set<Holder> = Holder.values().filterTo(LinkedHashSet()) { count(it) > 0 }
     }
 
     private val live = HashMap<Long, Entry>()
@@ -66,7 +80,7 @@ internal class FrameBufferLedger(
         buffer.clear()
         // 多个播放器会话共享原生引擎；ID 必须跨账本唯一，否则显存缓存会命中上一段视频。
         val id = nextFrameId.getAndIncrement()
-        live[id] = Entry(buffer, generation, current).also { it.holders[Holder.CAPTURE] = 1 }
+        live[id] = Entry(buffer, generation, current).also { it.set(Holder.CAPTURE, 1) }
         peakLive = maxOf(peakLive, live.size)
         return Slot(id, current)
     }
@@ -74,19 +88,20 @@ internal class FrameBufferLedger(
     /** 只能在已有其他持有者时追加；帧已被完全释放则失败，不会让旧 ID 复活。 */
     @Synchronized fun retain(frameId: Long, holder: Holder): Boolean {
         val entry = live[frameId] ?: return false
-        if (entry.holders.isEmpty()) return false
-        val count = entry.holders[holder] ?: 0
+        if (entry.isEmpty) return false
+        val count = entry.count(holder)
         if (count > 0 && holder != Holder.PRESENTER || count >= MAX_PRESENTER_HOLDS) return false
-        entry.holders[holder] = count + 1
+        entry.set(holder, count + 1)
         return true
     }
 
     /** 重复释放返回 false 且无副作用；Presenter 回调被重放也不会二次回收。 */
     @Synchronized fun release(frameId: Long, holder: Holder): Boolean {
         val entry = live[frameId] ?: return false
-        val count = entry.holders[holder] ?: return false
-        if (count > 1) entry.holders[holder] = count - 1 else entry.holders.remove(holder)
-        if (entry.holders.isEmpty()) {
+        val count = entry.count(holder)
+        if (count == 0) return false
+        entry.set(holder, count - 1)
+        if (entry.isEmpty) {
             live.remove(frameId)
             if (!closed && entry.generation == generation) { idle.addLast(entry.buffer); recycled++ }
             else { allocated--; discarded++ }
@@ -99,14 +114,14 @@ internal class FrameBufferLedger(
     /** 仅对当前持有者返回独立位置的视图；视图本身不构成持有，调用方不得在释放后继续使用。 */
     @Synchronized fun buffer(frameId: Long, holder: Holder): ByteBuffer? {
         val entry = live[frameId] ?: return null
-        if (holder !in entry.holders.keys) return null
+        if (entry.count(holder) == 0) return null
         return entry.buffer.duplicate().also { it.clear() }
     }
 
     @Synchronized fun format(frameId: Long): Format? = live[frameId]?.format
-    @Synchronized fun holders(frameId: Long): Set<Holder> = live[frameId]?.holders?.keys?.toSet().orEmpty()
+    @Synchronized fun holders(frameId: Long): Set<Holder> = live[frameId]?.holders().orEmpty()
     @Synchronized fun outstanding(holder: Holder): List<Long> =
-        live.filterValues { holder in it.holders.keys }.keys.sorted()
+        live.filterValues { it.count(holder) > 0 }.keys.sorted()
 
     /** 关闭只撤销空闲缓冲；在持帧必须由各持有者按约释放，见 [drained]。 */
     @Synchronized fun close() {
@@ -128,6 +143,8 @@ internal class FrameBufferLedger(
         private val nextFrameId = AtomicLong(1L)
         private const val MAX_BUFFERS = 16
         private const val MAX_PRESENTER_HOLDS = 8
+        private const val HOLDER_BITS = 4
+        private const val HOLDER_MASK = 0xF
         private const val MAX_PIXELS = 4096L * 2160L
     }
 }

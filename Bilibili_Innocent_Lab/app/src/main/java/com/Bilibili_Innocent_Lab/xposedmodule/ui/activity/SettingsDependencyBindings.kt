@@ -6,7 +6,7 @@ import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.ModuleUiSettings
-import com.highcapable.betterandroid.ui.extension.view.child
+import io.github.jichuo1.meguviz.android.extensions.child
 
 /** Activity-owned bindings; preferences are observed only until disposal. */
 internal class SettingsDependencyBindings {

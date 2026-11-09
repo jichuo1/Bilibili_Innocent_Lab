@@ -11,6 +11,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HomeRecommendPurifyFeatureInstallerTest {
+    @Test fun theSameInstalledHomeFilterReadsUpdatedValuesForLaterCards() {
+        var rules = com.Bilibili_Innocent_Lab.xposedmodule.hook.config.LiveHomeRules(setOf("alpha"),
+            VideoDurationRange(10, 20), VideoPlayCountRange(1, 2_000))
+        val installer = HomeRecommendPurifyFeatureInstaller(false, false, false, false, false, true, "alpha",
+            false, false, false, false, 10, 20, null, minPlayCount = 1, maxPlayCount = 2_000, liveRules = { rules })
+        val method = installer.javaClass.declaredMethods.single { it.name == "shouldRemove" }.apply { isAccessible = true }
+        val card = HomeRecommendPurifyFeatureInstaller.Signals(title = "beta", durationSeconds = 15, playCount = 1_000)
+        fun removed() = method.invoke(installer, card, null) as Boolean
+        assertFalse(removed())
+        rules = rules.copy(titles = setOf("beta")); assertTrue(removed())
+        rules = rules.copy(titles = emptySet(), duration = VideoDurationRange(30, 40)); assertTrue(removed())
+        rules = rules.copy(duration = VideoDurationRange(10, 20), plays = VideoPlayCountRange(5_000, 6_000)); assertTrue(removed())
+        rules = rules.copy(plays = VideoPlayCountRange(0, 0)); assertFalse(removed())
+    }
+
     @Test fun `partial response registration cannot report complete success`() {
         val base = requireNotNull(VersionAdapter.locateHomeRecommendFeed(javaClass.classLoader!!))
         val points = base.copy(responseItemGetters = listOf(base.responseItemGetters.first(), base.responseItemGetters.first()))

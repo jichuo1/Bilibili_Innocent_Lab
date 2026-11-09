@@ -1,11 +1,10 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime
 
 import android.content.Context
-import android.content.pm.PackageInfo
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
+import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 
 /** 有界实时查询；Binder 与广播共享校验。持久化历史不参与在线判定。 */
 internal object HostRuntimeDiagnosticsQueryClient {
@@ -91,13 +90,9 @@ internal object HostRuntimeDiagnosticsQueryClient {
             HostRuntimeDiagnosticsQueryContract.TARGET_PACKAGE, 0
         )
         HostRuntimeDiagnosticsSource(
-            targetVersionCode = info.versionCodeCompat(),
+            targetVersionCode = info.versionCodeCompat,
             targetUpdateTime = info.lastUpdateTime,
             moduleVersionCode = BuildConfig.VERSION_CODE.toLong()
         ).takeIf { it.isComplete }
     }.getOrNull()
-
-    @Suppress("DEPRECATION")
-    private fun PackageInfo.versionCodeCompat(): Long =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) longVersionCode else versionCode.toLong()
 }

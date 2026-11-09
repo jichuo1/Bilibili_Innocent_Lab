@@ -1,4 +1,5 @@
 import com.android.build.api.artifact.SingleArtifact
+import org.gradle.kotlin.dsl.withGroovyBuilder
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.compile.JavaCompile
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -26,6 +27,20 @@ import java.nio.file.Files
 
 plugins {
     alias(libs.plugins.android.application)
+}
+
+// P2-07 opt-in: Baseline Profile / Macrobenchmark tooling for the module's own app UI. Default builds
+// never apply the plugin or evaluate its extension; generation is always an explicit device-only task.
+val baselineProfileTooling = providers.gradleProperty("innocentLab.baselineProfile").orNull == "true"
+if (baselineProfileTooling) {
+    apply(plugin = "androidx.baselineprofile")
+    extensions.getByName("baselineProfile").withGroovyBuilder {
+        setProperty("automaticGenerationDuringBuild", false)
+        setProperty("saveInSrc", true)
+        setProperty("baselineProfileOutputDir", "baselineProfiles")
+        setProperty("dexLayoutOptimization", true)
+    }
+    dependencies.add("baselineProfile", project(":baselineprofile"))
 }
 
 /** Build-owned stripped payloads and trusted specifications. No host/runtime input supplies hashes. */
@@ -148,42 +163,6 @@ if (hasCompleteReleaseSigningValues && releaseSigningStore?.isFile != true) {
     throw GradleException("Release signing keystore does not exist: $releaseSigningStore")
 }
 
-// Library API migration hints are expensive on the large Kotlin/UAST source tree.
-// Keep the full gate unchanged; only the explicit local lintFast task excludes them.
-val fastLintSuggestionIds = setOf(
-    "ReplaceWithActivityExtension",
-    "ReplaceWithAndroidVersion",
-    "ReplaceWithApplicationExtension",
-    "ReplaceWithBackPressedExtension",
-    "ReplaceWithBitmapExtension",
-    "ReplaceWithBroadcastExtension",
-    "ReplaceWithClipboardExtension",
-    "ReplaceWithContextExtension",
-    "ReplaceWithCoroutinesExtension",
-    "ReplaceWithDrawableExtension",
-    "ReplaceWithFragmentExtension",
-    "ReplaceWithHandleOnWindowInsetsChanged",
-    "ReplaceWithIntentExtension",
-    "ReplaceWithKavaRefExtension",
-    "ReplaceWithLayoutInflaterExtension",
-    "ReplaceWithLifecycleExtension",
-    "ReplaceWithLifecycleOwnerExtension",
-    "ReplaceWithNotificationAction",
-    "ReplaceWithNotificationComponent",
-    "ReplaceWithRecyclerAdapterExtension",
-    "ReplaceWithRecyclerViewExtension",
-    "ReplaceWithResourcesExtension",
-    "ReplaceWithServiceExtension",
-    "ReplaceWithSystemBarsController",
-    "ReplaceWithTextViewExtension",
-    "ReplaceWithToastExtension",
-    "ReplaceWithViewBindingExtension",
-    "ReplaceWithViewExtension",
-    "ReplaceWithViewImeExtension",
-    "ReplaceWithViewOutlineProviderExtension",
-    "ReplaceWithViewTooltipTextCompatExtension",
-    "ReplaceWithViewWalkExtension"
-)
 val requestedTaskNames = gradle.startParameter.taskNames.map { it.substringAfterLast(':') }
 val fastLintRequested = requestedTaskNames.contains("lintFast")
 val fastLintCompanionTasks = setOf("lintFast", "assembleDebug", "assembleDebugAndroidTest", "testDebugUnitTest")
@@ -191,13 +170,10 @@ val fullVerificationRequested = requestedTaskNames.any { it !in fastLintCompanio
 if (fastLintRequested && fullVerificationRequested) {
     throw GradleException("Run lintFast separately from full lint/check/build gates.")
 }
-if (fastLintRequested) {
-    logger.lifecycle("Fast lint excludes 32 library API migration suggestions; run :app:lintDebug for the full gate.")
-}
 
 tasks.register("lintFast") {
     group = "verification"
-    description = "Runs debug lint without library API migration hints; not a replacement for the full lint gate."
+    description = "Runs debug lint with reports under reports/lint/fast; run separately from full gates."
     dependsOn("lintDebug")
 }
 
@@ -222,6 +198,11 @@ android {
         // 1.0.7-alpha.2）。普通本地构建仍使用 gradle.properties 中的稳定基础版本。
         versionName = releaseVersionNameOverride ?: gropify.project.app.versionName
         versionCode = gropify.project.app.versionCode
+        // Manifest 声明的类与 activity-alias 使用 namespace，而不是 applicationId；embedded 变体
+        // 追加包名后缀后两者不再相等，组件名必须继续按 namespace 构造。
+        buildConfigField("String", "MODULE_CLASS_PACKAGE", "\"${gropify.project.app.packageName}\"")
+        // 发布构建默认关闭集成模式；只有 CI 的 embedded 变体把它编译成 true。
+        buildConfigField("boolean", "EMBEDDED_MODE_SUPPORTED", "false")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
             cmake {
@@ -262,12 +243,27 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("boolean", "STARTUP_TRACE", providers.gradleProperty("innocentLab.startupTrace")
+                .map { it.toBooleanStrict().toString() }.getOrElse("false"))
+        }
         release {
+            buildConfigField("boolean", "STARTUP_TRACE", "false")
             isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
             signingConfig = fixedReleaseSigning
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        // 面向内测群的集成模式构建：与 release 同形态、同发布签名，仅追加包名后缀并打开 flag。
+        // 包名不同使它可以与正式模块并存；签名相同使被同一密钥重签的宿主仍能通过 signature 权限校验。
+        create("embedded") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".embedded"
+            signingConfig = fixedReleaseSigning
+            // AAR 依赖只有 debug/release 变体，自定义构建类型必须显式声明回退目标。
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "EMBEDDED_MODE_SUPPORTED", "true")
         }
     }
     compileOptions {
@@ -275,6 +271,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures {
+        aidl = true
         buildConfig = true
         viewBinding = true
     }
@@ -286,9 +283,6 @@ android {
         // 通信回退使用签名级 API 与稳定的隐藏接收器标志，调用点有异常兜底；
         // 仅基线化当前已审阅的 3 个位置，新增 Lint Error 仍必须阻断构建。
         baseline = file("lint-baseline.xml")
-        if (fastLintRequested) {
-            disable.addAll(fastLintSuggestionIds)
-        }
     }
 
     packaging.jniLibs.excludes += setOf(
@@ -337,7 +331,8 @@ androidComponents.onVariants { variant ->
         nativeBuildAnchor.set(variant.artifacts.get(SingleArtifact.MERGED_NATIVE_LIBS))
         payloadDirectory.set(copiedPayload)
         buildKey.set(sourceKey)
-        requireBothAbis.set(variant.buildType == "release")
+        // 发布包与内测集成包都必须是完整双 ABI，避免测试产物悄悄少一个 ABI。
+        requireBothAbis.set(variant.buildType == "release" || variant.buildType == "embedded")
         val host = if (System.getProperty("os.name").startsWith("Windows")) "windows-x86_64" else if (System.getProperty("os.name").startsWith("Mac")) "darwin-x86_64" else "linux-x86_64"
         val executable = if (host == "windows-x86_64") "llvm-strip.exe" else "llvm-strip"
         stripExecutable.set(androidComponents.sdkComponents.ndkDirectory.map { it.file("toolchains/llvm/prebuilt/$host/bin/$executable") })
@@ -403,6 +398,8 @@ val sourceContractInputs = files(
         )
     },
     fileTree(rootDir.parentFile) {
+        include("docs/npatch-feature-matrix.tsv")
+        include("docs/npatch-embed-acceptance.md")
         include(".github/workflows/*.yml", ".github/workflows/*.yaml")
         include(".github/actions/**/action.yml")
         include(".github/release-templates/*.py")
@@ -513,16 +510,19 @@ gradle.taskGraph.whenReady {
     if (!fastLintRequested && allTasks.any { it.project == project && it.name == "lintFast" }) {
         throw GradleException("Request lintFast by its full task name, not an abbreviation or aggregate task.")
     }
-    val releasePackagingRequested = allTasks.any { task ->
+    val fixedSignedPackagingRequested = allTasks.any { task ->
         task.project == project &&
+            // The opt-in profiling build types (P2-07) are debug-signed, profileable and never distributed.
+            !(baselineProfileTooling && task.name.contains(Regex("(?i)benchmark|nonMinified"))) &&
             (
                 task.name.matches(Regex("(?i)^(assemble|bundle|sign).*release.*$")) ||
+                    task.name.matches(Regex("(?i)^(assemble|bundle|sign|package).*embedded.*$")) ||
                     task.name.equals("packageRelease", ignoreCase = true)
             )
     }
-    if (releasePackagingRequested && !hasCompleteReleaseSigningValues) {
+    if (fixedSignedPackagingRequested && !hasCompleteReleaseSigningValues) {
         throw GradleException(
-            "Release packaging requires the fixed signing identity. Configure the " +
+            "Release and embedded packaging require the fixed signing identity. Configure the " +
                 "INNOCENT_LAB_SIGNING_* environment variables or matching " +
                 "innocentLab.signing.* Gradle properties."
         )
@@ -536,6 +536,8 @@ tasks.withType<KotlinJvmCompile>().configureEach {
             "-Xno-param-assertions",
             "-Xno-call-assertions",
             "-Xno-receiver-assertions"
+            // 不要加 -Xbackend-threads：Kotlin 2.4.21 的并行代码生成存在数据竞争（CI 里出现过
+            // ArrayList 下标越界，编译崩溃后靠重试才通过），输出的正确性无法保证，省下的十几秒不值得。
         )
     }
 }
@@ -554,8 +556,15 @@ if (
 }
 
 dependencies {
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
     compileOnly(libs.libxposed.api)
     implementation(libs.libxposed.service)
+
+    // MeguvizHook：API 102 后端；框架 API 仍由运行时提供（compileOnly），不会进入 APK。
+    implementation(libs.meguviz.hook.api)
+    implementation(libs.meguviz.hook.core)
+    implementation(libs.meguviz.hook.backend.libxposed)
 
     // MeguvizRef (https://github.com/jichuo1/MeguvizRef)
     implementation(libs.meguviz.ref.core)
@@ -568,11 +577,18 @@ dependencies {
     // 设置页空闲分帧预建；仅主线程有界调度，不把 View 构造挪到后台。
     implementation(libs.meguviz.ui.prewarm)
 
-    // Optional: BetterAndroid (https://github.com/BetterAndroid/BetterAndroid)
-    implementation(libs.betterandroid.ui.component)
-    implementation(libs.betterandroid.ui.component.adapter)
-    implementation(libs.betterandroid.ui.extension)
-    implementation(libs.betterandroid.system.extension)
+    // MeguvizAndroid（Maven Central）：替代已退役的 BetterAndroid；约束保留其原先传递选中的 AndroidX 版本。
+    implementation(libs.meguviz.android.runtime)
+    implementation(libs.meguviz.android.window)
+    constraints {
+        implementation(libs.androidx.activity)
+        implementation(libs.androidx.collection)
+        implementation(libs.androidx.collection.jvm)
+        implementation(libs.androidx.fragment)
+        implementation(libs.androidx.tracing)
+        implementation(libs.androidx.viewpager2)
+        implementation(libs.androidx.viewpager)
+    }
 
 
     // Material You / Monet 动态取色（GitHub: Kyant0/m3color，material-color-utilities 的 Java 端口）
@@ -592,8 +608,11 @@ dependencies {
     testImplementation(libs.junit)
     // JVM 验证 Modern Hook 边界，生产 APK 仍由框架提供 API。
     testImplementation(libs.libxposed.api)
+    testImplementation(libs.meguviz.hook.testing)
     // android.jar 的 org.json 是抛异常的 stub；单测需要真实实现解析 GitHub 响应。
     testImplementation(libs.test.org.json)
+    // 设备上的 Hook 门面基准要实例化框架接口的替身；运行时由框架提供，测试包里自带一份。
+    androidTestImplementation(libs.libxposed.api)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.espresso.core)
 }

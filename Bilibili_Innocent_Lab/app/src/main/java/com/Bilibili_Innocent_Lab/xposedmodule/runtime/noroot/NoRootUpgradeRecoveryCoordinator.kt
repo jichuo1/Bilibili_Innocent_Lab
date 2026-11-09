@@ -254,19 +254,22 @@ internal object NoRootUpgradeRecoveryCoordinator {
 
     private fun stillNeedsRecovery(attempt: Attempt): Boolean {
         val desiredEnabled = NoRootSupportStore.isDesiredEnabled(attempt.context)
+        val publication = if (desiredEnabled && attempt.authorized) {
+            com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationAuthorityStore.current(attempt.context)
+        } else null
         val exported = NoRootSupportStore.exportState(
             attempt.context,
             attempt.authorized
         )
-        // Remote Store 标记只决定升级自愈是否需要重试，不改变 Provider/广播对宿主返回的
-        // 授权结果；当前 enabled revision 必须确认写入远端后才结束本协调器。
+        // 直达发布已就绪时升级恢复不再因可选 Manager 镜像缺失而反复连接。
         val remoteSynced = exported.enabled && exported.revision > 0L &&
             NoRootSupportStore.isRemoteSynced(attempt.context, exported.revision)
         val hasReadySnapshot = isRecoveryExportReady(
             exportValid = exported.valid,
             exportEnabled = exported.enabled,
             revision = exported.revision,
-            remoteSynced = remoteSynced
+            remoteSynced = remoteSynced,
+            directReady = publication?.let { it.decision.isAuthorized && it.noRootRevision == exported.revision } == true
         )
         return shouldRecoverSnapshot(
             authorized = attempt.authorized,
@@ -290,9 +293,10 @@ internal object NoRootUpgradeRecoveryCoordinator {
         exportValid: Boolean,
         exportEnabled: Boolean,
         revision: Long,
-        remoteSynced: Boolean
+        remoteSynced: Boolean,
+        directReady: Boolean = false
     ): Boolean = exportValid &&
-        (!exportEnabled || (revision > 0L && remoteSynced))
+        (!exportEnabled || (revision > 0L && (remoteSynced || directReady)))
 
     internal fun transitionAfterAttempt(
         stillNeedsRecovery: Boolean,

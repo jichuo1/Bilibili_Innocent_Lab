@@ -19,13 +19,13 @@ internal data class HostAdmissionCollect(
     fun accept(response: HostAdmissionClient.Result, acceptGrant: Boolean): HostAdmissionCollect {
         val next = copy(diagnostics = (diagnostics + response.diagnostics).take(4))
         if (sawDenied) {
-            return if (HostAdmissionRouteClassifier.latchesDenial(response.reason)) {
-                next.copy(failure = response)
+            return if (HostAdmissionRouteClassifier.latchesDenial(response.reason) || response.disabledRevision > 0L) {
+                next.copy(failure = if (response.disabledRevision > failure.disabledRevision) response else failure)
             } else {
                 next
             }
         }
-        if (HostAdmissionRouteClassifier.latchesDenial(response.reason)) {
+        if (HostAdmissionRouteClassifier.latchesDenial(response.reason) || response.disabledRevision > 0L) {
             return next.copy(sawDenied = true, fallbackBlocked = true, grant = null, failure = response)
         }
         if (response.grant != null) {

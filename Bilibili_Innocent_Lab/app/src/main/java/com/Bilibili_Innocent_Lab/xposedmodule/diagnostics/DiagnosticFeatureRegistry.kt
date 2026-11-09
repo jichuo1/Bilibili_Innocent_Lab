@@ -26,6 +26,9 @@ internal data class DiagnosticFeatureDescriptor(
 /** 宿主协议、诊断页面和报告共同使用的唯一功能 ID 白名单。 */
 internal object DiagnosticFeatureRegistry {
     private val groups: List<DiagnosticFeatureDescriptor> = listOf(
+        DiagnosticFeatureDescriptor("ai_insight", DiagnosticFeatureCategory.PLAYER_AND_DETAIL),
+        DiagnosticFeatureDescriptor("guest_browsing", DiagnosticFeatureCategory.GENERAL, runtimeEvidenceExpected = true),
+        DiagnosticFeatureDescriptor("incognito_privacy", DiagnosticFeatureCategory.GENERAL, runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("host_video_cards", DiagnosticFeatureCategory.GENERAL, runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("host_background", DiagnosticFeatureCategory.GENERAL, runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("search_home_recommend_hidden", DiagnosticFeatureCategory.HOME_AND_DYNAMIC, runtimeEvidenceExpected = true),
@@ -111,6 +114,8 @@ internal object DiagnosticFeatureRegistry {
             runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("sponsorblock", DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
             runtimeEvidenceExpected = true),
+        DiagnosticFeatureDescriptor("sponsorblock_story", DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
+            runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor(
             "danmaku_purify",
             DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
@@ -190,6 +195,8 @@ internal object DiagnosticFeatureRegistry {
             DiagnosticFeatureCategory.GENERAL,
             runtimeEvidenceExpected = true
         ),
+        DiagnosticFeatureDescriptor("wechat_share_compat", DiagnosticFeatureCategory.COMPATIBILITY,
+            runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor(
             "external_browser",
             DiagnosticFeatureCategory.GENERAL,
@@ -197,6 +204,21 @@ internal object DiagnosticFeatureRegistry {
         ),
         DiagnosticFeatureDescriptor(
             "system_media_notification",
+            DiagnosticFeatureCategory.GENERAL,
+            runtimeEvidenceExpected = true
+        ),
+        DiagnosticFeatureDescriptor(
+            "home_frame_lock",
+            DiagnosticFeatureCategory.GENERAL,
+            runtimeEvidenceExpected = true
+        ),
+        DiagnosticFeatureDescriptor(
+            "home_recommend_early_load",
+            DiagnosticFeatureCategory.GENERAL,
+            runtimeEvidenceExpected = true
+        ),
+        DiagnosticFeatureDescriptor(
+            "cloud_key_freeze",
             DiagnosticFeatureCategory.GENERAL,
             runtimeEvidenceExpected = true
         ),

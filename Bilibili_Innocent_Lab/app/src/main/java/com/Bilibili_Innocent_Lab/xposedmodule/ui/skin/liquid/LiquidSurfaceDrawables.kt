@@ -11,7 +11,7 @@ import android.graphics.drawable.Drawable
 import com.lumen.coacervation.engine.host.LumenBackdropReadiness
 import android.view.View
 import android.view.WindowManager
-import com.highcapable.betterandroid.ui.component.activity.AppViewsActivity
+import android.app.Activity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SurfaceRole
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -179,7 +179,7 @@ internal class LiquidSurfaceDrawable(
     }
 }
 
-internal fun AppViewsActivity.isHardwareAccelerationRequested(): Boolean {
+internal fun Activity.isHardwareAccelerationRequested(): Boolean {
     val windowFlag = window.attributes.flags and WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
     val appFlag = applicationInfo.flags and ApplicationInfo.FLAG_HARDWARE_ACCELERATED
     return windowFlag != 0 || appFlag != 0

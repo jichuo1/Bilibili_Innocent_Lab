@@ -17,6 +17,8 @@ internal object ComponentSelectionReconciler {
      *
      * `section_picks` / `author_picks` 不在这里：它们是反馈面板的**草稿面**，
      * 落到 RecommendationBlocklistDraft 等用户确认，不走勾选存储这条路。
+     * `cloud_keys` 同理：它是云控键的**观测面**，用户的选择是带取值的固定值，存在
+     * `cloud.key_freeze.picked`，不是一组隐藏用的 selector，也就不能被"未观察到就清理"那套对账碰。
      * （注意别和 `ACCUMULATING_SURFACES` 混为一谈——`component_pools` 两边都在：
      * 它既要跨分片累积，也有自己的勾选存储键。）
      */

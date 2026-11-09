@@ -1,6 +1,3 @@
-// Handler 回调与 removeCallbacks/任务 generation 共用回收语义，保留原生调度以免改变取消边界。
-@file:Suppress("ReplaceWithCoroutinesExtension")
-
 package com.Bilibili_Innocent_Lab.xposedmodule.agent.host
 
 import android.app.Activity
@@ -33,8 +30,8 @@ import androidx.core.graphics.createBitmap
 import androidx.core.net.toUri
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentWire
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.betterandroid.ui.extension.view.child
-import com.highcapable.betterandroid.ui.extension.view.removeSelf
+import io.github.jichuo1.meguviz.android.extensions.child
+import io.github.jichuo1.meguviz.android.extensions.removeSelf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import java.io.ByteArrayOutputStream

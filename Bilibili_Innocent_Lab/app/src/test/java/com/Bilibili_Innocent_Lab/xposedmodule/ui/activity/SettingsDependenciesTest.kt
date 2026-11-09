@@ -24,9 +24,11 @@ class SettingsDependenciesTest {
     @Test fun `every preference dependency uses real catalog identities and boolean parents`() {
         SettingsDependencies.requirements.forEach { (id, requirement) ->
             if (id != SettingsDependencies.FRAME_MODEL) assertNotNull(id, SettingsCatalog.byId[id])
-            assertTrue(requirement.key, SettingsCatalog.byStorageKey[requirement.key]?.defaultValue is SettingValue.Bool)
-            val parentId = SettingsCatalog.byStorageKey.getValue(requirement.key).id
-            assertFalse("A child must not disable its own parent", id == parentId)
+            requirement.keys.forEach { key ->
+                assertTrue(key, SettingsCatalog.byStorageKey[key]?.defaultValue is SettingValue.Bool)
+                val parentId = SettingsCatalog.byStorageKey.getValue(key).id
+                assertFalse("A child must not disable its own parent", id == parentId)
+            }
         }
     }
 
@@ -93,14 +95,26 @@ class SettingsDependenciesTest {
         assertTrue(SettingsDependencies.available(SettingsCatalog.ID_SEMANTIC_JEV_ENDPOINT, ModuleUiSettings.EMPTY))
     }
 
-    @Test fun `sponsor automatic and retained vip space require their own main feature`() {
+    @Test fun `dependent settings require their own main feature`() {
         listOf(
             FeaturePreferences.SPONSORBLOCK_ENABLED to "player.sponsorblock.automatic",
+            FeaturePreferences.SPONSORBLOCK_ENABLED to "player.sponsorblock.story",
+            FeaturePreferences.AI_INSIGHT_ENABLED to "compat.ai_insight.auto_chapters",
             FeaturePreferences.HIDE_MINE_VIP to "mine.vip.space_kept"
         ).forEach { (key, id) ->
             assertFalse(id, SettingsDependencies.available(id, ModuleUiSettings.EMPTY))
             assertTrue(id, SettingsDependencies.available(id, ModuleUiSettings.EMPTY.with(key, true)))
         }
+    }
+
+    @Test fun `guest onboarding skip follows either browsing mode and keeps its saved choice`() {
+        val id = "browsing.guest.skip_onboarding"
+        val saved = ModuleUiSettings.EMPTY.with(FeaturePreferences.SKIP_GUEST_ONBOARDING, true)
+        assertFalse(SettingsDependencies.available(id, saved))
+        assertTrue(SettingsDependencies.available(id, saved.with(FeaturePreferences.NO_LOGIN_ENABLED, true)))
+        assertTrue(SettingsDependencies.available(id, saved.with(FeaturePreferences.INCOGNITO_ENABLED, true)))
+        assertTrue(FeaturePreferences.INCOGNITO_ENABLED in SettingsDependencies.parentKeys)
+        assertTrue(saved.bool(FeaturePreferences.SKIP_GUEST_ONBOARDING))
     }
 
     @Test fun `disabling long press locks its speed while default speed remains independent`() {

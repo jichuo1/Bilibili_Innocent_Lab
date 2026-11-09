@@ -107,14 +107,21 @@ internal class DiagnosticsViewModel : ViewModel() {
         hostQueryFailure: com.Bilibili_Innocent_Lab.xposedmodule.runtime.ReceiptQueryFailure
     ) {
         worker.submit {
+            if (worker.isShutdown || generation.get() != request) return@submit
             runCatching {
+                val observation = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchProcessDiagnostics.observe(context)
                 ModuleDiagnosticsCollector.collect(
                     context = context,
                     skin = skin,
                     frameworkCheckPending = frameworkCheckPending,
                     hostRuntime = hostRuntime,
                     hostQueryState = hostQueryState,
-                    hostQueryFailure = hostQueryFailure
+                    hostQueryFailure = hostQueryFailure,
+                    nPatchProcesses = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchStartupHistory.enrich(context,
+                        observation.processes),
+                    nPatchObservedModuleVersions = observation.versions,
+                    nPatchManagerReachability = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchScopeProbe.probeReachability(context),
+                    nPatchEmbeddedBuild = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchEmbeddedBuild.read(context)
                 )
             }.onSuccess { snapshot ->
                 if (generation.get() == request) {
@@ -128,13 +135,17 @@ internal class DiagnosticsViewModel : ViewModel() {
         }
     }
 
-    fun export(context: Context, uri: Uri, snapshot: ModuleDiagnosticSnapshot) {
+    fun export(context: Context, uri: Uri, snapshot: ModuleDiagnosticSnapshot, supportBundle: Boolean = false) {
         if (exportState.value is DiagnosticsExportState.Running) return
         exportState.value = DiagnosticsExportState.Running
         val appContext = context.applicationContext ?: context
         worker.submit {
             runCatching {
-                val bytes = DiagnosticReportCodec.encode(snapshot)
+                val bytes = if (supportBundle) {
+                    com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.NPatchSupportBundleCollector.collect(appContext, snapshot)
+                } else DiagnosticReportCodec.encode(snapshot)
+                val maximum = if (supportBundle) com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.NPatchSupportArchive.MAX_FILE_BYTES
+                    else DiagnosticReportCodec.MAX_FILE_BYTES
                 val resolver = appContext.contentResolver
                 resolver.openOutputStream(uri, "wt")?.use { output ->
                     output.write(bytes)
@@ -147,14 +158,15 @@ internal class DiagnosticsViewModel : ViewModel() {
                         val read = input.read(buffer)
                         if (read < 0) break
                         output.write(buffer, 0, read)
-                        require(output.size() <= DiagnosticReportCodec.MAX_FILE_BYTES) {
+                        require(output.size() <= maximum) {
                             "readback_too_large"
                         }
                     }
                     output.toByteArray()
                 } ?: error("readback_unavailable")
                 require(readBack.contentEquals(bytes)) { "readback_mismatch" }
-                val metadata = DiagnosticReportCodec.validate(readBack)
+                val metadata = if (supportBundle) com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.NPatchSupportArchive.validate(readBack)
+                    else DiagnosticReportCodec.validate(readBack)
                 require(metadata.collectedAtEpochMs == snapshot.inputs.collectedAtEpochMs) {
                     "readback_mismatch"
                 }

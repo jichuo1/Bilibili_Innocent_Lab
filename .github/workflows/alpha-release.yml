@@ -29,8 +29,10 @@ env:
 
 jobs:
   verify:
-    name: Build, test, lint and validate Release minification
+    name: Build, test and validate Release minification
     runs-on: ubuntu-latest
+    # 防卡死的宽松上限（约为常规耗时的 6 倍以上），不是性能预算；默认值是 360 分钟。
+    timeout-minutes: 90
     permissions:
       contents: read
     outputs:
@@ -127,6 +129,18 @@ jobs:
           distribution: temurin
           java-version: '27'
 
+      # R8 的构建缓存键包含输出文件名：未签名是 app-release-unsigned.apk，签名后是
+      # app-release.apk。验证作业没有（也不该有）真实签名密钥，所以发布作业的 R8 键
+      # 一直与验证作业不同，会把 R8 完整重跑一遍（约 80 秒）。这里生成一把只存在于本
+      # 作业的一次性密钥，仅让输出文件名一致；它不签任何产物，门禁也不执行 packageRelease。
+      - name: Create throwaway signing identity (R8 cache-key parity)
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -keystore "$RUNNER_TEMP/verify-throwaway.p12" -storetype PKCS12 \
+            -alias throwaway -keyalg RSA -keysize 2048 -validity 2 \
+            -storepass throwaway-r8 -keypass throwaway-r8 -dname "CN=throwaway"
+
       - name: Set up Gradle and restore build cache
         id: gradle-cache
         uses: ./.github/actions/gradle-cache
@@ -182,18 +196,24 @@ jobs:
             --github-env "$GITHUB_ENV" \
             --require-ready
 
-      # One Gradle graph keeps behavior/contracts in the same complete report.
+      # One Gradle graph keeps behavior/contracts in the same complete report. Full lint runs in the
+      # parallel `lint` job (android-lint.yml); this graph is every other gate task.
       # The helper preserves full Lint and R8, continues independent gates on failure,
       # and writes bounded task/report receipts without reusing a daemon.
       - name: Run complete Gradle verification
         id: build
         shell: bash
         env:
+          INNOCENT_LAB_SIGNING_STORE_FILE: ${{ runner.temp }}/verify-throwaway.p12
+          INNOCENT_LAB_SIGNING_STORE_PASSWORD: throwaway-r8
+          INNOCENT_LAB_SIGNING_KEY_ALIAS: throwaway
+          INNOCENT_LAB_SIGNING_KEY_PASSWORD: throwaway-r8
           EXPECTED_VERSION_NAME: ${{ steps.identity.outputs.build_version_name }}
         run: |
           set -euo pipefail
           python3 .github/release-templates/run_gradle_gates.py \
             --project-root Bilibili_Innocent_Lab \
+            --partition build \
             --compile-sdk "$CI_COMPILE_SDK" \
             --release-version-name "$EXPECTED_VERSION_NAME" \
             --jvmargs="$CI_GRADLE_JVMARGS"
@@ -204,9 +224,9 @@ jobs:
         working-directory: .
         env:
           BUILD_OUTCOME: ${{ steps.build.outcome }}
-        run: python3 .github/release-templates/collect_verification_reports.py --build-outcome "$BUILD_OUTCOME"
+        run: python3 .github/release-templates/collect_verification_reports.py --partition build --build-outcome "$BUILD_OUTCOME"
 
-      - name: Upload test and lint reports
+      - name: Upload test reports
         if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
         uses: actions/upload-artifact@v7.0.2
         with:
@@ -225,11 +245,20 @@ jobs:
             ~/.gradle/wrapper
           key: ${{ steps.gradle-cache.outputs.key }}
 
+  # lint 与 verify 同时开始（不 needs verify），在另一台 runner 上跑完整 lint；
+  # 发布前必须两者都成功。逻辑见 android-lint.yml 顶部的说明。
+  lint:
+    name: Full Android Lint
+    permissions:
+      contents: read
+    uses: ./.github/workflows/android-lint.yml
+
   publish:
     name: Publish Alpha pre-release
-    needs: verify
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_alpha == true && needs.verify.outputs.release_tag == inputs.release_tag }}
+    needs: [verify, lint]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_alpha == true && needs.verify.outputs.release_tag == inputs.release_tag && needs.lint.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     environment:
       name: alpha-release
     permissions:

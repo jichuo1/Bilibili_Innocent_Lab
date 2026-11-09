@@ -37,7 +37,7 @@ def validate_receipt(receipt: dict, delivery_url: str, attempt: int, artifact_di
         raise ValueError("Telegram receipt does not match the delivery attempt or source artifact")
     if (any(not isinstance(receipt.get(key), str) for key in ("apk_sha256", "release_tag", "source_run_url"))
             or not re.fullmatch(r"[0-9a-f]{64}", receipt.get("apk_sha256", ""))
-            or not re.fullmatch(r"v\d+\.\d+\.\d+-canary\.[1-9]\d*", receipt.get("release_tag", ""))
+            or not re.fullmatch(r"v\d+\.\d+\.\d+-(?:canary|embedded)\.[1-9]\d*", receipt.get("release_tag", ""))
             or not RUN_URL.fullmatch(receipt.get("source_run_url", ""))):
         raise ValueError("Invalid Telegram receipt build identity")
     value = receipt.get("delivered_at", "")

@@ -33,7 +33,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.test.R as TestR
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
-import com.highcapable.betterandroid.ui.extension.insets.factory.createRootWindowInsetsWrapper
+import io.github.jichuo1.meguviz.android.extensions.rootStatusBarInsetTopOrNull
 import java.util.WeakHashMap
 
 @RunWith(AndroidJUnit4::class)
@@ -237,7 +237,7 @@ class HostBackgroundPagesInstrumentedTest {
                 activity.activeConfirmDialog?.dismiss()
                 val root = activity.window.decorView as FrameLayout
                 val context = resourceContext(activity)
-                val inset = root.createRootWindowInsetsWrapper()?.statusBars()?.top ?: 0
+                val inset = root.rootStatusBarInsetTopOrNull() ?: 0
                 assertTrue("The fixture needs a visible system status bar", inset > 0)
                 val originalCount = root.childCount
                 val toolbar = View(context).apply { id = TestR.id.nav_top_bar }

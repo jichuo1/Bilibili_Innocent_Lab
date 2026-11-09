@@ -41,6 +41,7 @@ internal enum class RemoteHookConfigPublishState {
     WAITING_FOR_SERVICE,
     PUBLISHING,
     READY,
+    BYPASSED,
     FAILED
 }
 
@@ -259,8 +260,8 @@ internal object RemoteHookConfigStore {
             publishPending = true
         )
         val result = when {
-            com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore.isDesiredEnabled(appContext) ->
-                RemoteHookConfigPublishResult.Failure("NPatch selected")
+            StandardPublisherPolicy.isBypassed(com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore.isDesiredEnabled(appContext)) ->
+                RemoteHookConfigPublishResult.Failure(StandardPublisherPolicy.NPATCH_SELECTED)
             activeService == null -> RemoteHookConfigPublishResult.Failure(
                 "Xposed service is not connected"
             )
@@ -289,12 +290,12 @@ internal object RemoteHookConfigStore {
                 publishPending = false
             )
             is RemoteHookConfigPublishResult.Failure -> publishDiagnostics.copy(
-                state = if (activeService == null) {
-                    RemoteHookConfigPublishState.WAITING_FOR_SERVICE
-                } else {
-                    RemoteHookConfigPublishState.FAILED
+                state = when {
+                    result.isStandardPublisherBypass -> RemoteHookConfigPublishState.BYPASSED
+                    activeService == null -> RemoteHookConfigPublishState.WAITING_FOR_SERVICE
+                    else -> RemoteHookConfigPublishState.FAILED
                 },
-                failureCode = result.toFailureCode(),
+                failureCode = if (result.isStandardPublisherBypass) null else result.toFailureCode(),
                 publishPending = false
             )
         }
@@ -315,6 +316,8 @@ internal object RemoteHookConfigStore {
         val publication = PublicationAuthorityStore.current(appContext)?.takeIf { it.decision == decision }
             ?: return@runCatching RemoteHookConfigPublishResult.Failure("stale_publication")
         val values = publication.values
+        val nPatchChannel = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannels
+            .read(appContext, frameworkStatus) == com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannel.NPATCH
         val preferences = activeService.getRemotePreferences(RemoteHookConfigContract.GROUP)
         val result = committer.publish(
             connectionId = capturedConnection,
@@ -323,6 +326,13 @@ internal object RemoteHookConfigStore {
             values = values,
             nowEpochMs = System.currentTimeMillis(),
             force = force,
+            // B1：NPatch 通道下免 Root 开关是总开关。关闭后发布“不可授权”文档，既不给宿主
+            // 留下复活口子，也顺手清掉旧版本写下的可授权标准文档。
+            deliveryEnabled = !nPatchChannel,
+            // B3：标准发布器清理 NPatch 文档时也保留关闭代次，宿主才能回执这一次停用。
+            noRootRevision = if (nPatchChannel)
+                com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
+                    .readSnapshot(appContext)?.takeUnless { it.enabled }?.revision ?: 0L else 0L,
             stillCurrent = { stillCurrent() && PublicationAuthorityStore.matches(appContext, publication) },
             backend = object : RemoteHookConfigBackend {
                 override fun readCached(): Map<String, *> = preferences.all
@@ -402,6 +412,10 @@ internal object RemoteHookConfigStore {
 
     fun logFailure(result: RemoteHookConfigPublishResult) {
         if (result !is RemoteHookConfigPublishResult.Failure || result.reason == "publication_pending") return
+        if (result.isStandardPublisherBypass) {
+            Log.d(TAG, "standard remote hook config publisher bypassed: ${result.reason}")
+            return
+        }
         Log.w(TAG, "publish remote hook config failed: ${result.reason}", result.throwable)
     }
 

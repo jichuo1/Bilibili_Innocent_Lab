@@ -12,6 +12,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorSeekAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureRuntimeStage
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SponsorBlockFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.hostProxyDefaultValue
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.reportRuntimeEvidence
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import java.lang.ref.WeakReference
@@ -302,7 +303,8 @@ internal class SponsorPlayerSessions(private val env: HookEnvironment, private v
                     else -> {
                         if (weak.get()?.invalid?.get() == false) runCatching { callback(method.name, args) }
                             .onFailure { diagnostics.record("observer.failed", it.javaClass.simpleName) }
-                        null
+                        // 宿主直接调用这个代理，框架的 PROTECTIVE 兜不住：基本类型返回值不能给 null。
+                        hostProxyDefaultValue(method.returnType)
                     }
                 }
             }

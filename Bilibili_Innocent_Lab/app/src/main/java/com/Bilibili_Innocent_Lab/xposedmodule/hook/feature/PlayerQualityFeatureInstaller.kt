@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.NormalQualityLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityHostAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityLocator
 
@@ -15,10 +16,12 @@ internal class PlayerQualityFeatureInstaller(
     private val normalizedQn = PlayerQualityConfig.normalize(qualityQn)
     private val runtime = StoryQualityRuntime(normalizedQn)
     private val story = StoryQualityFeatureHooks(runtime)
+    private val normal = NormalQualityFeatureHooks { story.globalTarget(normalizedQn) }
     private var globalInstalled = false
     private var storyApplicable = true
+    private var normalApplicable = false
     val requiresAdaptationRetry: Boolean get() = normalizedQn != 0 &&
-        (!globalInstalled || storyApplicable && !story.complete)
+        (!globalInstalled || storyApplicable && !story.complete || normalApplicable && !normal.complete)
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (normalizedQn == 0) {
@@ -30,6 +33,10 @@ internal class PlayerQualityFeatureInstaller(
         }
         val current = pointsProvider()
         val loader = environment.classLoader
+        normalApplicable = NormalQualityLocator.applicable(current?.defaultQualityMethod)
+        if (normalApplicable && !normal.complete && loader != null) {
+            NormalQualityLocator.resolve(loader)?.let { normal.install(environment, it) }
+        }
         storyApplicable = loader == null || StoryQualityLocator.applicable(loader)
         if (storyApplicable && !story.complete && loader != null) {
             val roles = StoryQualityLocator.resolve(loader, current?.story)
@@ -53,8 +60,9 @@ internal class PlayerQualityFeatureInstaller(
                 false
             }
         }
-        val installed = (if (globalInstalled) 1 else 0) + (if (story.complete) 1 else 0)
-        val expected = 1 + if (storyApplicable) 1 else 0
+        val installed = (if (globalInstalled) 1 else 0) + (if (story.complete) 1 else 0) +
+            (if (normal.complete) 1 else 0)
+        val expected = 1 + (if (storyApplicable) 1 else 0) + (if (normalApplicable) 1 else 0)
         val status = when {
             installed == expected -> "success"
             installed > 0 -> "partial:$installed/$expected"
@@ -64,7 +72,8 @@ internal class PlayerQualityFeatureInstaller(
         if (installed == 0) return FeatureInstallResult.Skipped("missing-adapter-point")
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.logInfo("player_quality_ok", "[BIL] 默认画质家族安装: $installed/$expected")
-        return FeatureInstallResult.Installed((if (globalInstalled) 1 else 0) + story.hookCount, installed == expected)
+        return FeatureInstallResult.Installed((if (globalInstalled) 1 else 0) + story.hookCount + normal.hookCount,
+            installed == expected)
     }
 
     companion object {

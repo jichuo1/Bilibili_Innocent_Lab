@@ -6,7 +6,7 @@ import java.security.MessageDigest
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.JevBackend
 import org.json.JSONArray
 
-internal enum class AgentSourceProtocol { CHAT, DECISIONS }
+internal enum class AgentSourceProtocol { CHAT, ANTHROPIC, DECISIONS }
 internal enum class AgentModelRole { PLANNER, VISION, DECISION }
 
 /** 编号与设置页一致。凭据仅留在模块进程；默认字符串表示不能泄露配置。 */
@@ -52,10 +52,18 @@ internal data class AgentModelSource(
             }
             if (protocol == AgentSourceProtocol.DECISIONS) return value
             val path = uri.rawPath.orEmpty().trimEnd('/')
-            val resolved = when {
-                path.endsWith("/chat/completions") -> path
-                path.isEmpty() -> "/v1/chat/completions"
-                else -> "$path/chat/completions"
+            val resolved = when (protocol) {
+                AgentSourceProtocol.ANTHROPIC -> when {
+                    path.endsWith("/v1/messages") -> path
+                    path.isEmpty() -> "/v1/messages"
+                    path.endsWith("/v1") -> "$path/messages"
+                    else -> "$path/v1/messages"
+                }
+                else -> when {
+                    path.endsWith("/chat/completions") -> path
+                    path.isEmpty() -> "/v1/chat/completions"
+                    else -> "$path/chat/completions"
+                }
             }
             return "https://${uri.rawAuthority}$resolved" + (uri.rawQuery?.let { "?$it" } ?: "")
         }
@@ -150,6 +158,8 @@ internal class AgentModelException(
         DECISIONS_UNVERIFIED("该来源尚未通过限定决策检测"),
         TOKEN_PARAMETER("模型不接受当前输出预算参数"),
         OPTIONAL_PARAMETER("模型不接受当前思考控制参数"),
+        RESPONSE_FORMAT_PARAMETER("模型不接受当前结构化输出格式"),
+        STREAM_PARAMETER("模型不接受流式输出"),
         DECISION_PARAMETER("判定接口不接受当前结构写法"),
         TOOLS_UNSUPPORTED("接口明确不支持工具调用"), VISION_UNSUPPORTED("接口明确不支持图像输入"),
         PLAIN_UNVERIFIED("该来源尚未通过普通文本规划检测")

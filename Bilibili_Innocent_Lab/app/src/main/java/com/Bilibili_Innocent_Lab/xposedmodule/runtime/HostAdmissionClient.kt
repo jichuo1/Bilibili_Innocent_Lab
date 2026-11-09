@@ -58,6 +58,14 @@ internal class AdmissionResponseCoordinator {
     fun completeSafely(action: String?, response: () -> Bundle?): Boolean =
         runCatching { complete(action, response()) }.getOrDefault(false)
 
+    /** 系统确认有序投递无人处理；结束本路等待，不产生许可或恢复缓存授权。 */
+    fun completeUnhandled(action: String, canFallback: Boolean): Boolean {
+        if (!canFallback) return false
+        val awaiter = active.get() ?: return false
+        if (awaiter.action != action) return false
+        return awaiter.response.complete(null)
+    }
+
     fun clear(awaiter: Awaiter) {
         active.compareAndSet(awaiter, null)
     }
@@ -69,7 +77,10 @@ internal object HostAdmissionClient {
     data class Result(
         val grant: Grant? = null,
         val reason: String = HostAdmissionRouteClassifier.REASON_UNAVAILABLE,
-        val diagnostics: List<HostAdmissionDiagnostic> = emptyList()
+        val diagnostics: List<HostAdmissionDiagnostic> = emptyList(),
+        val disabledRevision: Long = 0L,
+        val selectedRoute: String = "unknown",
+        val routeEvidence: List<com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRouteEvidence> = emptyList()
     )
     private data class Routed(val route: String, val result: Result)
     private val boundWorker = HostReceiptWire.executor("bil-bound-admission")
@@ -85,14 +96,33 @@ internal object HostAdmissionClient {
     private fun transportFailure(route: String, status: String, reason: String = HostAdmissionRouteClassifier.REASON_UNAVAILABLE) =
         Result(reason = reason, diagnostics = listOf(HostAdmissionDiagnostic(route, "transport", status)))
 
-    fun admit(context: Context, normal: RemoteHookConfigSnapshot?, normalFailure: String?): Result {
+    fun admit(context: Context, normal: RemoteHookConfigSnapshot?, normalFailure: String?, nPatchRuntime: Boolean = false,
+              lspatchRuntime: Boolean = false): Result {
+        val runtime = when {
+            nPatchRuntime -> com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HookRuntimeMode.NPATCH_LEGACY
+            lspatchRuntime -> com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HookRuntimeMode.LSPATCH
+            else -> com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HookRuntimeMode.STANDARD_XPOSED
+        }
+        // 在任何传输及 Remote Preferences 回退之前阻断，所有宿主进程使用同一门控。
+        if (com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.EmbeddedModePolicy.isHostBlocked(context, runtime)) {
+            return Result(reason = "embedded_mode_unsupported")
+        }
+        val observed = ArrayList<com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRouteEvidence>(4)
+        return admitObserved(context, normal, normalFailure, nPatchRuntime, lspatchRuntime, observed).let {
+            it.copy(routeEvidence = observed.toList())
+        }
+    }
+
+    private fun admitObserved(context: Context, normal: RemoteHookConfigSnapshot?, normalFailure: String?, nPatchRuntime: Boolean,
+        lspatchRuntime: Boolean,
+        observed: MutableList<com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRouteEvidence>): Result {
         val app = context.applicationContext ?: context
         val deadline = SystemClock.elapsedRealtime() + HostAdmissionContract.BOOTSTRAP_TIMEOUT_MS
         val responses = LinkedBlockingQueue<Routed>(4)
         fun launch(bound: Boolean) = runCatching {
             (if (bound) boundWorker else worker).submit {
                 val route = if (bound) HostAdmissionRoutePlan.BINDER else HostAdmissionRoutePlan.PROVIDER
-                val result = try { exchange(app, normal, normalFailure, deadline, bound = bound) }
+                val result = try { exchange(app, normal, normalFailure, deadline, bound = bound, nPatchRuntime = nPatchRuntime) }
                 catch (error: SecurityException) {
                     // 平台拒绝跨包绑定/查询，不是条款或来源上的权威拒绝。
                     log(Log.WARN, "[BIL] 启动授权通道异常(route=$route, type=security)")
@@ -112,7 +142,7 @@ internal object HostAdmissionClient {
         }.getOrNull()
         fun launchBroadcast() = runCatching {
             broadcastWorker.submit {
-                val result = try { exchange(app, normal, normalFailure, deadline, broadcast = true) }
+                val result = try { exchange(app, normal, normalFailure, deadline, broadcast = true, nPatchRuntime = nPatchRuntime) }
                 catch (error: SecurityException) {
                     log(Log.WARN, "[BIL] 启动授权通道异常(route=${HostAdmissionRoutePlan.BROADCAST}, type=security)")
                     transportFailure(HostAdmissionRoutePlan.BROADCAST, "security")
@@ -131,7 +161,7 @@ internal object HostAdmissionClient {
         }.getOrNull()
         fun launchLocal() = runCatching {
             localWorker.submit {
-                val result = try { exchange(app, normal, normalFailure, deadline, local = true) }
+                val result = try { exchange(app, normal, normalFailure, deadline, local = true, nPatchRuntime = nPatchRuntime) }
                 catch (error: SecurityException) {
                     log(Log.WARN, "[BIL] 启动授权通道异常(route=${HostAdmissionRoutePlan.LOCAL}, type=security)")
                     transportFailure(HostAdmissionRoutePlan.LOCAL, "security")
@@ -171,31 +201,32 @@ internal object HostAdmissionClient {
             while (completed < calls.size) {
                 val remaining = deadline - SystemClock.elapsedRealtime()
                 if (remaining <= 0L) {
-                    return finishAdmit(normal, normalFailure, drainRouted(collect, responses, acceptGrant = false))
+                    return finishAdmit(normal, normalFailure, drainRouted(collect, responses, acceptGrant = false, observed = observed), nPatchRuntime, lspatchRuntime)
                 }
                 val routed = responses.poll(remaining, TimeUnit.MILLISECONDS)
                 if (routed == null) {
-                    val timedOut = drainRouted(collect, responses, acceptGrant = false)
+                    val timedOut = drainRouted(collect, responses, acceptGrant = false, observed = observed)
                     val failure = if (timedOut.fallbackBlocked) timedOut.failure else Result(reason = HostAdmissionRouteClassifier.REASON_TIMEOUT)
                     return remoteConfigFallback(normal, normalFailure, timedOut.sawDenied, timedOut.fallbackBlocked,
-                        failure.copy(diagnostics = timedOut.diagnostics))
+                        failure.copy(diagnostics = timedOut.diagnostics), nPatchRuntime, lspatchRuntime)
                 }
                 completed += 1
-                collect = collect.accept(routed.result, acceptGrant = true)
+                observed += routed.evidence()
+                collect = collect.accept(routed.result.copy(selectedRoute = routed.route), acceptGrant = true)
                 fallbackState.observe(routed.result)
                 if (collect.grant != null) {
                     // 不等待其他通道，但不能跳过已经到达的真实拒绝。
-                    return finishAdmit(normal, normalFailure, drainRouted(collect, responses, acceptGrant = false))
+                    return finishAdmit(normal, normalFailure, drainRouted(collect, responses, acceptGrant = false, observed = observed), nPatchRuntime, lspatchRuntime)
                 }
                 if (collect.sawDenied) {
-                    return finishAdmit(normal, normalFailure, drainRouted(collect, responses, acceptGrant = false))
+                    return finishAdmit(normal, normalFailure, drainRouted(collect, responses, acceptGrant = false, observed = observed), nPatchRuntime, lspatchRuntime)
                 }
                 when (HostAdmissionRoutePlan.followUp(routed.route, broadcastStarted)) {
                     HostAdmissionRoutePlan.FollowUp.START_BROADCAST -> startBroadcast()
                     HostAdmissionRoutePlan.FollowUp.NONE -> Unit
                 }
             }
-            return finishAdmit(normal, normalFailure, drainRouted(collect, responses, acceptGrant = false))
+            return finishAdmit(normal, normalFailure, drainRouted(collect, responses, acceptGrant = false, observed = observed), nPatchRuntime, lspatchRuntime)
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             return Result()
@@ -212,7 +243,8 @@ internal object HostAdmissionClient {
         deadline: Long,
         bound: Boolean = false,
         broadcast: Boolean = false,
-        local: Boolean = false
+        local: Boolean = false,
+        nPatchRuntime: Boolean = false
     ): Result {
         val authority = "${BuildConfig.APPLICATION_ID}.admission"
         // 目标宿主可能因 Android 包可见性策略无法从自身 PackageManager 查询模块包。
@@ -220,7 +252,7 @@ internal object HostAdmissionClient {
         // 不能把 getApplicationInfo/resolveContentProvider 的可见性结果当作拒绝依据。
         // 只有端点明确的条款拒绝 / 来源必须同步才禁止更宽松回退；
         // 本路 identity_rejected、信封残缺、绑定对不上或平台 SecurityException 只表示通道不可用。
-        val directFallback = normalFailure == null || normalFailure in setOf(
+        val directFallback = nPatchRuntime || normalFailure == null || normalFailure in setOf(
             "remote_group_unavailable", "remote_read_exception", "remote_group_missing", "remote_stale_protocol")
         val nonce = UUID.randomUUID().toString()
         val request = Bundle().apply {
@@ -241,7 +273,8 @@ internal object HostAdmissionClient {
             version = value.getInt("version"), moduleVersion = value.getLong("moduleVersion"),
             nonce = value.getString("nonce"), status = value.getString("status"),
             identity = HostAdmissionContract.identity(value), source = value.getString("source"),
-            challenge = value.getString("challenge"), document = value.getString("document")
+            challenge = value.getString("challenge"), document = value.getString("document"),
+            disabledRevision = value.getLong(HostAdmissionContract.DISABLED_REVISION)
         )
         fun exchangeUsing(call: (String, Bundle) -> Bundle?): Result = HostAdmissionHandshake.exchange(
             route, nonce, normal, directFallback, deadline, SystemClock::elapsedRealtime,
@@ -254,11 +287,17 @@ internal object HostAdmissionClient {
                     HostAdmissionContract.putIdentity(this, identity)
                 }
                 call(HostAdmissionContract.METHOD_CONFIRM, confirmation)?.let(::reply)
-            }
+            },
+            nPatchRuntime = nPatchRuntime
         )
         if (SystemClock.elapsedRealtime() >= deadline) return transportFailure(route, "timeout", HostAdmissionRouteClassifier.REASON_TIMEOUT)
         return when {
-            broadcast -> broadcastExchange(context, deadline, ::exchangeUsing)
+            broadcast -> broadcastExchange(context, deadline,
+                canFinishUnhandled = nPatchRuntime || normal != null && normal.noRootRevision > 0L &&
+                    HostAdmissionRouteClassifier.allowRemoteConfigFallback(
+                        false, normalFailure, normal.authorized,
+                        normal.moduleVersionCode == BuildConfig.VERSION_CODE.toLong(), normal.generation
+                    ), exchange = ::exchangeUsing)
             local -> localExchange(context, deadline, ::exchangeUsing)
             bound && Build.VERSION.SDK_INT >= 29 -> boundExchange(context, deadline, ::exchangeUsing)
             else -> context.contentResolver.acquireUnstableContentProviderClient(authority)?.use { client ->
@@ -270,15 +309,26 @@ internal object HostAdmissionClient {
         }
     }
 
+    private fun Routed.evidence() = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRouteEvidence(route,
+        when {
+            result.grant != null -> "granted"
+            result.disabledRevision > 0 -> "disabled"
+            result.reason == HostAdmissionRouteClassifier.REASON_DENIED -> "denied"
+            result.reason == HostAdmissionRouteClassifier.REASON_TIMEOUT -> "timeout"
+            else -> "unavailable"
+        })
+
     private fun drainRouted(
         collect: HostAdmissionCollect,
         queue: LinkedBlockingQueue<Routed>,
         acceptGrant: Boolean,
+        observed: MutableList<com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRouteEvidence>,
     ): HostAdmissionCollect {
         var next = collect
         while (true) {
             val extra = queue.poll() ?: break
-            next = next.accept(extra.result, acceptGrant)
+            observed += extra.evidence()
+            next = next.accept(extra.result.copy(selectedRoute = extra.route), acceptGrant)
             if (acceptGrant || extra.result.grant == null) fallbackState.observe(extra.result)
         }
         return next
@@ -288,24 +338,32 @@ internal object HostAdmissionClient {
         normal: RemoteHookConfigSnapshot?,
         normalFailure: String?,
         collect: HostAdmissionCollect,
+        nPatchRuntime: Boolean,
+        lspatchRuntime: Boolean,
     ): Result {
         collect.grant?.takeIf { !collect.sawDenied }?.let { return it.copy(diagnostics = collect.diagnostics) }
         return remoteConfigFallback(normal, normalFailure, collect.sawDenied, collect.fallbackBlocked,
-            collect.failure.copy(diagnostics = collect.diagnostics))
+            collect.failure.copy(diagnostics = collect.diagnostics), nPatchRuntime, lspatchRuntime)
     }
 
     /**
      * 所有跨进程传输均被系统丢弃时的最后保底。Remote Preferences 已由
      * RemoteHookConfigContract 完整校验，且只在没有收到任何明确拒绝时采用；
-     * 这不是新的授权来源，也不会覆盖 Provider/Binder/广播的结果。
+     * 仅用于标准框架；NPatch 文档即使 revision 为正也可能在 Manager 失联后过期，
+     * 必须由已有授权端点确认当前开关，不能据此恢复功能 Hook。
      */
     private fun remoteConfigFallback(
         normal: RemoteHookConfigSnapshot?,
         normalFailure: String?,
         sawDenied: Boolean,
         fallbackBlocked: Boolean,
-        failure: Result
+        failure: Result,
+        nPatchRuntime: Boolean,
+        lspatchRuntime: Boolean
     ): Result {
+        if (sawDenied || fallbackBlocked) return failure
+        // LSPatch 的宿主本地库和管理器缓存均不能替代设置 App 的当前授权。
+        if (lspatchRuntime) return failure
         val snapshot = normal ?: return failure
         if (HostAdmissionRouteClassifier.allowRemoteConfigFallback(
                 sawDenied,
@@ -313,7 +371,8 @@ internal object HostAdmissionClient {
                 snapshot.authorized,
                 snapshot.moduleVersionCode == BuildConfig.VERSION_CODE.toLong(),
                 snapshot.generation,
-                fallbackBlocked
+                fallbackBlocked = fallbackBlocked,
+                nPatchRuntime = nPatchRuntime
             )
         ) {
             log(Log.WARN, "[BIL] 启动授权传输不可达，采用已校验 Remote Preferences 回退")
@@ -322,6 +381,14 @@ internal object HostAdmissionClient {
                 reason = "",
                 diagnostics = failure.diagnostics
             )
+        }
+        if (nPatchRuntime && snapshot.authorized && snapshot.noRootRevision <= 0L) {
+            Log.w(TAG, "[BIL] NPatch 拒绝旧标准文档回退，需重新同步免 Root 配置")
+            return Result(reason = "manager_sync_required")
+        }
+        if (nPatchRuntime && snapshot.authorized && !sawDenied) {
+            Log.w(TAG, "[BIL] NPatch 授权端点不可达，拒绝采用可能过期的免 Root 文档")
+            return Result(reason = HostAdmissionRouteClassifier.REASON_UNAVAILABLE)
         }
         return failure
     }
@@ -370,6 +437,7 @@ internal object HostAdmissionClient {
     private fun broadcastExchange(
         context: Context,
         deadline: Long,
+        canFinishUnhandled: Boolean,
         exchange: ((String, Bundle) -> Bundle?) -> Result
     ): Result {
         val nonce = UUID.randomUUID().toString()
@@ -450,6 +518,8 @@ internal object HostAdmissionClient {
                                     responseCoordinator.completeSafely(responseAction) {
                                         result.getBundle(RoamingOpenReceiver.EXTRA_ADMISSION_RESPONSE)
                                     }
+                                } else if (responseCoordinator.completeUnhandled(responseAction, canFinishUnhandled)) {
+                                    Log.i(TAG, "[BIL] 启动授权广播不可达，结束本路等待(method=$method)")
                                 }
                             }.onFailure {
                                 log(Log.WARN, "[BIL] 启动授权 ordered 回执解析失败(type=${it.javaClass.simpleName})"

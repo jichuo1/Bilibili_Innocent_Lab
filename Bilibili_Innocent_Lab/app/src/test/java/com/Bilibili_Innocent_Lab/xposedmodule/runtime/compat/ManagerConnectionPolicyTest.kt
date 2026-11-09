@@ -11,6 +11,9 @@ class ManagerConnectionPolicyTest {
     @Test fun lspatchPullNeverMeansNPatchTakeover() {
         assertEquals(ManagerConnectionPolicy.Route.LSPATCH_PULL, ManagerConnectionPolicy.route("LSPatch", false, ManagerConnectionPolicy.packages))
         assertEquals(ManagerConnectionPolicy.Route.SELECTED_NPATCH, ManagerConnectionPolicy.route("", true, ManagerConnectionPolicy.packages))
+        assertEquals(ManagerConnectionPolicy.Route.LSPATCH_PULL, ManagerConnectionPolicy.route("LSPatch", true, ManagerConnectionPolicy.packages))
+        // NPatch embed 可与唯一安装的 LSPatch 管理器并存；仅安装列表不能抢占已选择的通道。
+        assertEquals(ManagerConnectionPolicy.Route.SELECTED_NPATCH, ManagerConnectionPolicy.route("", true, setOf("org.lsposed.lspatch")))
     }
     @Test fun absentRootServiceDoesNotSelectAnInstalledNPatch() {
         assertEquals(ManagerConnectionPolicy.Route.FRAMEWORK_PUSH, ManagerConnectionPolicy.route("", false, setOf("top.nkbe.npatch")))

@@ -10,6 +10,7 @@ import android.os.Looper
 import android.view.View
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundDrawable
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostLatestWorkQueue
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.lumen.coacervation.engine.host.LumenMicaBackdrop
 import com.lumen.coacervation.engine.host.LumenMicaImage
 import com.lumen.coacervation.engine.host.LumenMicaLayer
@@ -26,7 +27,9 @@ internal class HostCardMicaField(private val owner: View, private val field: Vie
     private var source: HostBackgroundDrawable.MicaSource? = null
     private var generation = 0L
     private var closed = false
-    private val preparationsQueue = HostLatestWorkQueue(worker::execute)
+    private val preparationsQueue = HostLatestWorkQueue { task ->
+        worker.execute(HostThreadGuard.runnable("host.card.mica.worker") { task.run() })
+    }
     internal var preparations = 0L
         private set
     val drawable = object : Drawable() {
@@ -70,13 +73,13 @@ internal class HostCardMicaField(private val owner: View, private val field: Vie
                 val bitmap = input.snapshot(width, height)
                 try { LumenMicaImage.prepare(bitmap) } finally { bitmap.recycle() }
             }.getOrNull()
-            main.post {
+            main.post(HostThreadGuard.runnable("host.card.mica.publish") {
                 weak.get()?.takeIf { !it.closed && it.generation == request }?.let {
                     it.preparations++
                     it.backdrop.setImage(image)
                     it.changed()
                 }
-            }
+            })
         }
     }
 

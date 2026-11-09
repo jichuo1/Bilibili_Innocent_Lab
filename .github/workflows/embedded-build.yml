@@ -1,0 +1,422 @@
+name: Build signed embedded APK
+run-name: Embedded build for Canary ${{ github.event.workflow_run.id || 'manual' }} · ${{ github.sha }}
+
+on:
+  workflow_run:
+    # 跟随 Canary 定时任务实际启动，避免两个 cron 分别延迟。
+    workflows: ['Sync Canary to Telegram']
+    types: [requested]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: embedded-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI_COMPILE_SDK: '37'
+  CI_COMPILE_SDK_PACKAGE: 'platforms;android-37.2'
+  CI_BUILD_TOOLS: '37.0.0'
+  CI_GRADLE_JVMARGS: '-Xmx6144m -Dfile.encoding=UTF-8'
+  JDK_JAVA_OPTIONS: '-XX:MaxMetaspaceSize=1024m -XX:ReservedCodeCacheSize=512m -XX:+UseCodeCacheFlushing'
+  EMBEDDED_PACKAGE: com.Bilibili_Innocent_Lab.xposedmodule.embedded
+
+jobs:
+  verify:
+    name: Build, test and validate Release minification
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'schedule' && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version_name: ${{ steps.identity.outputs.build_version_name }}
+      version_code: ${{ steps.identity.outputs.version_code }}
+      package_name: ${{ steps.identity.outputs.package_name }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require the latest main source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REPOSITORY" != 'jichuo1/Bilibili_Innocent_Lab' || "$GITHUB_REF" != 'refs/heads/main' ]]; then
+            echo 'Embedded builds must be triggered from the upstream main branch.' >&2
+            exit 1
+          fi
+          checked_out_sha="$(git rev-parse HEAD)"
+          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          remote_main_sha="$(git rev-parse refs/remotes/origin/main)"
+          if [[ "$checked_out_sha" != "$GITHUB_SHA" || "$remote_main_sha" != "$GITHUB_SHA" ]]; then
+            echo 'Refusing a stale or mismatched main build; run the workflow on the latest commit.' >&2
+            exit 1
+          fi
+          {
+            echo '### Build source'
+            echo "- Ref: \`$GITHUB_REF\`"
+            echo "- Commit: \`$GITHUB_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Require successful Canary CI for the scheduled source
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/release-templates/verify_embedded_canary_ci.py --commit "$GITHUB_SHA" --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.3.2
+        with:
+          python-version: '3.12'
+          enable-cache: false
+
+      - name: Validate release tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p Bilibili_Innocent_Lab/build/reports/tooling
+          uv run --no-project python -m unittest discover -s .github/release-templates -p 'test_*.py' 2>&1 | tee Bilibili_Innocent_Lab/build/reports/tooling/unittest.log
+
+      - name: Resolve source-controlled build identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --no-project python .github/release-templates/validate_canary_build.py \
+            --gradle-properties Bilibili_Innocent_Lab/gradle.properties \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Set up Java
+        uses: actions/setup-java@v6.1.0
+        with:
+          distribution: temurin
+          java-version: '27'
+
+      # Match the release signing configuration for R8 cache keys without using the real key.
+      - name: Create throwaway signing identity (R8 cache-key parity)
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -keystore "$RUNNER_TEMP/verify-throwaway.p12" -storetype PKCS12 \
+            -alias throwaway -keyalg RSA -keysize 2048 -validity 2 \
+            -storepass throwaway-r8 -keypass throwaway-r8 -dname 'CN=throwaway'
+
+      - name: Set up Gradle and restore build cache
+        id: gradle-cache
+        uses: ./.github/actions/gradle-cache
+
+      - name: Probe exact Android SDK packages
+        id: sdk
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --no-project python .github/release-templates/android_sdk_probe.py \
+            --build-tools "$CI_BUILD_TOOLS" \
+            --platform "${CI_COMPILE_SDK_PACKAGE#platforms;}" \
+            --github-output "$GITHUB_OUTPUT" --github-env "$GITHUB_ENV"
+
+      - name: Set up Android SDK
+        if: ${{ steps.sdk.outputs.ready != 'true' }}
+        uses: android-actions/setup-android@v4.0.4
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+
+      - name: Install Android SDK packages
+        if: ${{ steps.sdk.outputs.ready != 'true' }}
+        run: sdkmanager "${CI_COMPILE_SDK_PACKAGE}" "build-tools;${CI_BUILD_TOOLS}"
+
+      - name: Install Rust toolchain (danmaku wire kernel)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain 1.99.0
+          . "$HOME/.cargo/env"
+          rustup target add aarch64-linux-android armv7-linux-androideabi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Verify installed Android SDK packages
+        if: ${{ steps.sdk.outputs.ready != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --no-project python .github/release-templates/android_sdk_probe.py \
+            --build-tools "$CI_BUILD_TOOLS" \
+            --platform "${CI_COMPILE_SDK_PACKAGE#platforms;}" \
+            --github-env "$GITHUB_ENV" --require-ready
+
+      - name: Run complete Gradle verification
+        id: build
+        shell: bash
+        env:
+          INNOCENT_LAB_SIGNING_STORE_FILE: ${{ runner.temp }}/verify-throwaway.p12
+          INNOCENT_LAB_SIGNING_STORE_PASSWORD: throwaway-r8
+          INNOCENT_LAB_SIGNING_KEY_ALIAS: throwaway
+          INNOCENT_LAB_SIGNING_KEY_PASSWORD: throwaway-r8
+          EXPECTED_VERSION_NAME: ${{ steps.identity.outputs.build_version_name }}
+        run: |
+          set -euo pipefail
+          uv run --no-project python .github/release-templates/run_gradle_gates.py \
+            --project-root Bilibili_Innocent_Lab --partition build \
+            --compile-sdk "$CI_COMPILE_SDK" --release-version-name "$EXPECTED_VERSION_NAME" \
+            --jvmargs="$CI_GRADLE_JVMARGS"
+
+      - name: Collect complete verification evidence
+        id: reports
+        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+        run: uv run --no-project python .github/release-templates/collect_verification_reports.py --partition build --build-outcome "$BUILD_OUTCOME"
+
+      - name: Upload test reports
+        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: embedded-verify-reports-${{ github.sha }}-${{ github.run_attempt }}
+          path: Bilibili_Innocent_Lab/build/verification-reports/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
+
+      - name: Save verified Gradle snapshot
+        if: ${{ success() && github.repository == 'jichuo1/Bilibili_Innocent_Lab' && github.ref == 'refs/heads/main' && steps.build.outcome == 'success' && steps.reports.outcome == 'success' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ steps.gradle-cache.outputs.key }}
+
+  lint:
+    name: Full Android Lint
+    if: github.repository == 'jichuo1/Bilibili_Innocent_Lab' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'schedule' && github.event.workflow_run.head_branch == 'main'))
+    permissions:
+      contents: read
+    uses: ./.github/workflows/android-lint.yml
+
+  build:
+    name: Build signed embedded APK
+    needs: [verify, lint]
+    if: ${{ needs.verify.result == 'success' && needs.lint.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: alpha-release
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out verified source
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require verified source remains latest main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          if [[ "$GITHUB_REPOSITORY" != 'jichuo1/Bilibili_Innocent_Lab' || "$GITHUB_REF" != 'refs/heads/main' || "$(git rev-parse HEAD)" != "$GITHUB_SHA" || "$(git rev-parse refs/remotes/origin/main)" != "$GITHUB_SHA" ]]; then
+            echo 'Refusing to sign a stale or mismatched main build.' >&2
+            exit 1
+          fi
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.3.2
+        with:
+          python-version: '3.12'
+          enable-cache: false
+
+      - name: Set up Java
+        uses: actions/setup-java@v6.1.0
+        with:
+          distribution: temurin
+          java-version: '27'
+
+      - name: Set up Gradle and restore build cache
+        uses: ./.github/actions/gradle-cache
+
+      - name: Probe exact Android SDK packages
+        id: sdk
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --no-project python .github/release-templates/android_sdk_probe.py \
+            --build-tools "$CI_BUILD_TOOLS" \
+            --platform "${CI_COMPILE_SDK_PACKAGE#platforms;}" \
+            --github-output "$GITHUB_OUTPUT" --github-env "$GITHUB_ENV"
+
+      - name: Set up Android SDK
+        if: ${{ steps.sdk.outputs.ready != 'true' }}
+        uses: android-actions/setup-android@v4.0.4
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+
+      - name: Install Android SDK packages
+        if: ${{ steps.sdk.outputs.ready != 'true' }}
+        run: sdkmanager "${CI_COMPILE_SDK_PACKAGE}" "build-tools;${CI_BUILD_TOOLS}"
+
+      - name: Install Rust toolchain (danmaku wire kernel)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain 1.99.0
+          . "$HOME/.cargo/env"
+          rustup target add aarch64-linux-android armv7-linux-androideabi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Verify installed Android SDK packages
+        if: ${{ steps.sdk.outputs.ready != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --no-project python .github/release-templates/android_sdk_probe.py \
+            --build-tools "$CI_BUILD_TOOLS" \
+            --platform "${CI_COMPILE_SDK_PACKAGE#platforms;}" \
+            --github-env "$GITHUB_ENV" --require-ready
+
+      - name: Restore fixed release signing identity
+        id: signing
+        shell: bash
+        env:
+          SIGNING_KEY_BASE64: ${{ secrets.ANDROID_SIGNING_KEY_BASE64 }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+          EXPECTED_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          : "${SIGNING_KEY_BASE64:?Missing ANDROID_SIGNING_KEY_BASE64 environment secret}"
+          : "${SIGNING_STORE_PASSWORD:?Missing ANDROID_SIGNING_STORE_PASSWORD environment secret}"
+          : "${SIGNING_KEY_ALIAS:?Missing ANDROID_SIGNING_KEY_ALIAS environment secret}"
+          : "${SIGNING_KEY_PASSWORD:?Missing ANDROID_SIGNING_KEY_PASSWORD environment secret}"
+          : "${EXPECTED_CERT_SHA256:?Missing ANDROID_SIGNING_CERT_SHA256 environment secret}"
+          umask 077
+          keystore="$RUNNER_TEMP/innocent-lab-embedded.p12"
+          printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > "$keystore"
+          test -s "$keystore"
+          chmod 600 "$keystore"
+          echo "keystore=$keystore" >> "$GITHUB_OUTPUT"
+
+      - name: Build signed embedded APK
+        working-directory: Bilibili_Innocent_Lab
+        shell: bash
+        env:
+          EXPECTED_VERSION_NAME: ${{ needs.verify.outputs.version_name }}
+          INNOCENT_LAB_SIGNING_STORE_FILE: ${{ steps.signing.outputs.keystore }}
+          INNOCENT_LAB_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          INNOCENT_LAB_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          INNOCENT_LAB_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ./gradlew "-Dorg.gradle.jvmargs=${CI_GRADLE_JVMARGS}" \
+            "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
+            "-PinnocentLab.releaseVersionName=${EXPECTED_VERSION_NAME}" \
+            :app:assembleEmbedded --console=plain --no-daemon
+          config='app/build/generated/source/buildConfig/embedded/com/Bilibili_Innocent_Lab/xposedmodule/BuildConfig.java'
+          test -f "$config"
+          grep -Eq '^[[:space:]]*public static final boolean EMBEDDED_MODE_SUPPORTED = true;$' "$config"
+
+      - name: Verify signed embedded APK and record provenance
+        id: apk
+        shell: bash
+        env:
+          BASE_PACKAGE: ${{ needs.verify.outputs.package_name }}
+          EXPECTED_VERSION_NAME: ${{ needs.verify.outputs.version_name }}
+          EXPECTED_VERSION_CODE: ${{ needs.verify.outputs.version_code }}
+          EXPECTED_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          [[ "${BASE_PACKAGE}.embedded" == "$EMBEDDED_PACKAGE" ]]
+          apk='Bilibili_Innocent_Lab/app/build/outputs/apk/embedded/app-embedded.apk'
+          uv run --no-project python .github/release-templates/verify_release_apk.py \
+            --apk "$apk" \
+            --aapt "$ANDROID_SDK_ROOT/build-tools/$CI_BUILD_TOOLS/aapt" \
+            --apksigner "$ANDROID_SDK_ROOT/build-tools/$CI_BUILD_TOOLS/apksigner" \
+            --expected-package "$EMBEDDED_PACKAGE" \
+            --expected-version-name "$EXPECTED_VERSION_NAME" \
+            --expected-version-code "$EXPECTED_VERSION_CODE" \
+            --expected-cert-sha256 "$EXPECTED_CERT_SHA256" \
+            --github-output "$GITHUB_OUTPUT"
+          short_sha="${GITHUB_SHA:0:8}"
+          artifact_name="BIL-embedded-v${EXPECTED_VERSION_NAME}-${short_sha}"
+          apk_filename="${artifact_name}.apk"
+          mkdir -p embedded-apk embedded-symbols
+          cp "$apk" "embedded-apk/$apk_filename"
+          apk_sha256="$(sha256sum "embedded-apk/$apk_filename" | awk '{print $1}')"
+          mapping='Bilibili_Innocent_Lab/app/build/outputs/mapping/embedded/mapping.txt'
+          test -s "$mapping"
+          mapping_id="$(sed -n 's/^# pg_map_id: //p' "$mapping" | head -n 1)"
+          [[ "$mapping_id" =~ ^[0-9a-fA-F]{64}$ ]]
+          mapping_sha256="$(sha256sum "$mapping" | awk '{print $1}')"
+          cp "$mapping" "embedded-symbols/mapping-embedded-v${EXPECTED_VERSION_NAME}-${short_sha}.txt"
+          signer_sha256="$(sed -n 's/^apk_signer_certificate_sha256=//p' "$GITHUB_OUTPUT" | tail -n 1)"
+          {
+            echo "artifact_name=$artifact_name"
+            echo "apk_filename=$apk_filename"
+            echo "apk_sha256=$apk_sha256"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo '### Verified signed embedded test APK'
+            echo '- This is an Actions-only test build; no GitHub Release is created.'
+            echo "- Source: \`$GITHUB_REPOSITORY@$GITHUB_SHA\`"
+            echo "- Package: \`$EMBEDDED_PACKAGE\`"
+            echo "- versionName / versionCode: \`$EXPECTED_VERSION_NAME\` / \`$EXPECTED_VERSION_CODE\`"
+            echo "- Build type: \`embedded\`; generated embedded-mode flag: \`true\`"
+            echo "- Certificate SHA-256: \`$signer_sha256\`"
+            echo "- APK SHA-256: \`$apk_sha256\`"
+            echo "- R8 mapping ID: \`$mapping_id\`"
+            echo "- R8 mapping SHA-256: \`$mapping_sha256\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload verified signed embedded APK
+        id: embedded_artifact
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ${{ steps.apk.outputs.artifact_name }}
+          path: embedded-apk/
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+
+      - name: Read back uploaded embedded APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.embedded_artifact.outputs.artifact-id }}
+          APK_FILENAME: ${{ steps.apk.outputs.apk_filename }}
+          APK_SHA256: ${{ steps.apk.outputs.apk_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]]
+          archive="$RUNNER_TEMP/embedded-uploaded.zip"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$archive"
+          [[ "$(unzip -Z1 "$archive")" == "$APK_FILENAME" ]]
+          actual_sha256="$(unzip -p "$archive" "$APK_FILENAME" | sha256sum | awk '{print $1}')"
+          [[ "$actual_sha256" == "$APK_SHA256" ]]
+
+      - name: Upload embedded R8 symbols
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: embedded-release-symbols-${{ github.sha }}
+          path: embedded-symbols/
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+
+      - name: Remove temporary signing keystore
+        if: ${{ always() }}
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/innocent-lab-embedded.p12"

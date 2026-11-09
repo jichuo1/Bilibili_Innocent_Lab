@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageInfo
 import android.os.Build
 import androidx.core.content.ContextCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
@@ -14,6 +13,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallRecord
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureRuntimeStage
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureSkipReason
+import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
+import com.Bilibili_Innocent_Lab.xposedmodule.receiver.TelemetryHostReadyReceiver
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -42,6 +43,12 @@ internal object HostRuntimeDiagnosticsBridge {
     private val persistenceExecutor = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "bil-host-diagnostics").apply { isDaemon = true }
     }
+
+    /**
+     * 功能回调里逃出的异常登记处。快照读取方在自己的后台线程取走并折成既有的 `runtimeError` 位，
+     * 所以没有后台线程或定时器，也不改线协议。
+     */
+    @Volatile internal var hookFaults: ((report: (String) -> Unit) -> Int)? = null
 
     @Volatile private var appContext: Context? = null
     @Volatile private var source: HostRuntimeDiagnosticsSource? = null
@@ -176,7 +183,7 @@ internal object HostRuntimeDiagnosticsBridge {
                 CrossAppBroadcastCompat.sendBroadcast(context,
                     Intent("${BuildConfig.APPLICATION_ID}.TELEMETRY_HOST_READY")
                         .setComponent(android.content.ComponentName(BuildConfig.APPLICATION_ID,
-                            "${BuildConfig.APPLICATION_ID}.receiver.TelemetryHostReadyReceiver"))
+                            TelemetryHostReadyReceiver::class.java.name))
                         .putExtra("proof", proof))
             }
         } }
@@ -342,13 +349,21 @@ internal object HostRuntimeDiagnosticsBridge {
         }
     }
 
-    internal fun snapshot(): HostRuntimeDiagnosticsSnapshot = synchronized(lock) {
-        HostRuntimeDiagnosticsSnapshot(
-            capturedAtEpochMs = capturedAtEpochMs.coerceAtLeast(1L),
-            processName = HostRuntimeDiagnosticsCodec.TARGET_PACKAGE,
-            features = evidence.values.toList(),
-            bootstrap = bootstrap
-        )
+    internal fun snapshot(): HostRuntimeDiagnosticsSnapshot {
+        absorbHookFaults()
+        return synchronized(lock) {
+            HostRuntimeDiagnosticsSnapshot(
+                capturedAtEpochMs = capturedAtEpochMs.coerceAtLeast(1L),
+                processName = HostRuntimeDiagnosticsCodec.TARGET_PACKAGE,
+                features = evidence.values.toList(),
+                bootstrap = bootstrap
+            )
+        }
+    }
+
+    private fun absorbHookFaults() {
+        val drain = hookFaults ?: return
+        runCatching { drain { featureId -> record(featureId, FeatureRuntimeStage.ERROR) } }
     }
 
     private fun updateBootstrap(transform: HostRuntimeBootstrapEvidence.() -> HostRuntimeBootstrapEvidence) {
@@ -431,15 +446,11 @@ internal object HostRuntimeDiagnosticsBridge {
     private fun currentSource(context: Context): HostRuntimeDiagnosticsSource? = runCatching {
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
         HostRuntimeDiagnosticsSource(
-            targetVersionCode = info.versionCodeCompat(),
+            targetVersionCode = info.versionCodeCompat,
             targetUpdateTime = info.lastUpdateTime,
             moduleVersionCode = BuildConfig.VERSION_CODE.toLong()
         ).takeIf { it.isComplete }
     }.getOrNull()
-
-    @Suppress("DEPRECATION")
-    private fun PackageInfo.versionCodeCompat(): Long =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) longVersionCode else versionCode.toLong()
 
     private data class InstallOutcome(
         val state: HostFeatureInstallState,

@@ -2,8 +2,20 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 /** 新增功能的稳定配置键；旧功能键在完成迁移前仍保留在 HookEntry。 */
 internal object FeaturePreferences {
+    const val AI_INSIGHT_ENABLED = "ai_insight_enabled"
+    const val AI_INSIGHT_AUTO_CHAPTERS = "ai_insight_auto_chapters"
+    // AI Insight 专用服务配置：与智能判定的「来源 1–8」彻底分开，避免昂贵模型被自动过滤面重复调用。
+    // API Key 是签名保护的运行时凭据（RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY），不进目录、备份与诊断。
+    const val AI_INSIGHT_PROTOCOL = "ai_insight_protocol"
+    const val AI_INSIGHT_BASE_URL = "ai_insight_base_url"
+    const val AI_INSIGHT_MODEL = "ai_insight_model"
     const val PLAYER_SUBTITLE_STYLE = "player_subtitle_style"
     const val PLAYER_AI_SUBTITLE = "player_ai_subtitle"
+    /** 独立、默认关闭；修改后重启宿主生效。 */
+    const val NO_LOGIN_ENABLED = "no_login_enabled"
+    const val INCOGNITO_ENABLED = "incognito_enabled"
+    const val SKIP_GUEST_ONBOARDING = "skip_guest_onboarding"
+
     const val HIDE_VIDEO_DETAIL_APP_PROMOTION = "hide_video_detail_app_promotion"
     const val HIDE_LIVE_HOME_PROMOTION = "hide_live_home_promotion"
     const val HIDE_HOME_GAME_MENU = "hide_home_game_menu"
@@ -188,6 +200,7 @@ internal object FeaturePreferences {
     const val HOST_BOTTOM_BAR_COMPACT = "host_bottom_bar_compact"
     const val HOST_BOTTOM_BAR_ICON_ONLY = "host_bottom_bar_icon_only"
     const val HOST_MINE_GARB_DIM = "host_mine_garb_dim"
+    const val HOST_UI_POWER_SAVING = "host_ui_power_saving"
     const val HOST_BOTTOM_BAR_TOUCH_GLOW = "host_bottom_bar_touch_glow"
     const val HOST_VIDEO_CARDS = "host_video_cards"
     // 仅供已发布的布尔设置迁移；新界面与运行时只使用 HOST_CARD_MATERIAL。
@@ -233,6 +246,9 @@ internal object FeaturePreferences {
     const val PLAYER_SPEED_MENU_PERCENTS = "player_speed_menu_percents"
     const val SPONSORBLOCK_ENABLED = "sponsorblock_enabled"
     const val SPONSORBLOCK_AUTOMATIC = "sponsorblock_automatic"
+
+    /** 竖屏短视频（Story）也跳过商单；需要同时开启 [SPONSORBLOCK_ENABLED]，默认关。 */
+    const val SPONSORBLOCK_STORY = "sponsorblock_story_enabled"
     const val BLOCK_TEENAGERS_MODE_PROMPT = "block_teenagers_mode_prompt"
     const val REMOVE_COMMENT_SEARCH_LINKS = "remove_comment_search_links"
     const val REMOVE_COMMENT_EMPTY_GUIDE = "remove_comment_empty_guide"
@@ -271,11 +287,28 @@ internal object FeaturePreferences {
     /** 微信/QQ 小程序卡片降级为普通链接分享。 */
     const val SHARE_MINI_PROGRAM_DIRECT_LINK = "share_mini_program_direct_link"
 
+    /** 仅放宽 B 站分享实例对重签名微信的客户端证书比较，默认关闭。 */
+    const val WECHAT_SHARE_COMPAT = "wechat_share_compat"
+
     /** 站外链接改由系统浏览器打开，不再进入宿主内置 WebView。 */
     const val FORCE_EXTERNAL_BROWSER = "force_external_browser"
 
     /** 后台播放使用系统媒体控制样式通知。 */
     const val SYSTEM_MEDIA_NOTIFICATION = "system_media_notification"
+
+    /** 固定使用旧版首页框架，屏蔽云控把首页切到新版框架。 */
+    const val HOME_FRAME_LEGACY_LOCK = "home_frame_legacy_lock"
+
+    /** 首页推荐离末尾约四行时提前请求下一页，减少滑到底停在“加载中”的等待。 */
+    const val HOME_RECOMMEND_EARLY_LOAD = "home_recommend_early_load"
+
+    /** 冻结指定云控键：总开关、规则文本（`键名=取值`）与「记录读取到的云控键名」。 */
+    const val CLOUD_KEY_FREEZE_ENABLED = "cloud_key_freeze_enabled"
+    const val CLOUD_KEY_FREEZE_RULES = "cloud_key_freeze_rules"
+    const val CLOUD_KEY_FREEZE_OBSERVE = "cloud_key_freeze_observe"
+
+    /** 扫描勾选面板固定的云控键：每行 `键名=true|false`，与手填规则同一套语法，手填规则优先。 */
+    const val CLOUD_KEY_FREEZE_PICKED = "cloud_key_freeze_picked"
 
     /** 开屏页背景跟随系统深色模式。 */
     const val SPLASH_AUTO_NIGHT = "splash_auto_night"

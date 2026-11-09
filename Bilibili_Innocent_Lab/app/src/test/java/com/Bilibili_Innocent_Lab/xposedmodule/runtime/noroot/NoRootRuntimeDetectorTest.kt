@@ -4,6 +4,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class NoRootRuntimeDetectorTest {
+    @Test fun lspatchMarkerSelectsItsOwnModernTransportAndRootLoaderStillWins() {
+        assertEquals(HookRuntimeMode.LSPATCH, NoRootRuntimeDetector.classify(
+            false, "PathClassLoader", "org.matrix.vector.util.ModuleClassLoader", hasLspatchMarker = true))
+        assertEquals(HookRuntimeMode.LSPATCH, NoRootRuntimeDetector.classify(
+            false, "org.lsposed.lspatch.loader", "DexClassLoader"))
+        assertEquals(HookRuntimeMode.STANDARD_XPOSED, NoRootRuntimeDetector.classify(
+            false, "BootClassLoader", "org.lsposed.lspd.util.LspModuleClassLoader", hasLspatchMarker = true))
+    }
 
     @Test
     fun `actual NPatch framework loader wins over patched manifest`() {

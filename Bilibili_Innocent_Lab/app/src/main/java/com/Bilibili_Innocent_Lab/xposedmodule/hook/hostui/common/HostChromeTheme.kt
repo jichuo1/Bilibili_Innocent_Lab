@@ -2,19 +2,16 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common
 
 import android.content.Context
 import android.content.res.Configuration
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.lumen.coacervation.engine.model.LumenPalette
 import kotlin.math.pow
 
 /** 宿主换肤独立于系统 uiMode；栏的材质与前景必须消费同一份宿主主题。 */
 internal class HostChromeTheme(private val context: Context) {
-    private val nightTheme = runCatching {
-        context.classLoader.loadClass("com.bilibili.lib.ui.util.NightTheme")
-            .getMethod("isNightTheme", Context::class.java)
-    }.getOrNull()
-    private val hostColor = runCatching {
-        context.classLoader.loadClass("com.bilibili.magicasakura.utils.ThemeUtils")
-            .getMethod("getColorById", Context::class.java, Int::class.javaPrimitiveType)
-    }.getOrNull()
+    private val nightTheme = KavaMemberLookup.classOrNull(context.classLoader, "com.bilibili.lib.ui.util.NightTheme")
+        ?.let { KavaMemberLookup.inheritedMethodOrNull(it, "isNightTheme", Context::class.java) }
+    private val hostColor = KavaMemberLookup.classOrNull(context.classLoader, "com.bilibili.magicasakura.utils.ThemeUtils")
+        ?.let { KavaMemberLookup.inheritedMethodOrNull(it, "getColorById", Context::class.java, Int::class.javaPrimitiveType!!) }
     private val accentId = context.resources.getIdentifier("theme_color_secondary", "color", context.packageName)
     private val pageId = context.resources.getIdentifier("Ga1", "color", context.packageName)
     private var previous: HostChromeColors? = null

@@ -88,7 +88,7 @@ internal object NoRootTargetConfigBridge {
             .setComponent(
                 ComponentName(
                     BuildConfig.APPLICATION_ID,
-                    "${BuildConfig.APPLICATION_ID}.receiver.RoamingOpenReceiver"
+                    RoamingOpenReceiver::class.java.name
                 )
             )
             .addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)

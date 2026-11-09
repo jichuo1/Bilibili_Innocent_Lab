@@ -6,6 +6,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerBufferConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig
@@ -34,7 +35,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 65
+    const val CATALOG_VERSION = 75
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_PLAYER_SPEED_MENU = "player.speed_menu.percents"
@@ -81,6 +82,9 @@ internal object SettingsCatalog {
     const val ID_DANMAKU_SEMANTIC_CUSTOM_RULES = "player.danmaku.semantic_filter.custom_rules"
     const val ID_COMMENT_SEMANTIC_CUSTOM_RULES = "comments.semantic_filter.custom_rules"
     const val ID_VIDEO_SEMANTIC_CUSTOM_RULES = "video.semantic_filter.custom_rules"
+    const val ID_AI_INSIGHT_PROTOCOL = "ai_insight.protocol"
+    const val ID_AI_INSIGHT_BASE_URL = "ai_insight.base_url"
+    const val ID_AI_INSIGHT_MODEL = "ai_insight.model"
 
     /** 各过滤面的"判定来源 / 自定义类型"目录 id。 */
     fun semanticRouteId(surface: SemanticSurface): String = when (surface) {
@@ -195,6 +199,10 @@ internal object SettingsCatalog {
         bool(com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentPreferences.CATALOG_ID,
             com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentPreferences.ENABLED, R.string.agent_title,
             restorePolicy = RestorePolicy.MANUAL, introducedCatalogVersion = 47),
+        bool("compat.ai_insight.enabled", FeaturePreferences.AI_INSIGHT_ENABLED, R.string.ai_insight_title,
+            restorePolicy = RestorePolicy.MANUAL, introducedCatalogVersion = 71),
+        bool("compat.ai_insight.auto_chapters", FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS, R.string.ai_insight_auto_chapters,
+            introducedCatalogVersion = 71),
         // JEV 语义判定的非敏感配置；API Key 是 hook_config 运行时键，不进目录、不进备份。
         text(ID_SEMANTIC_JEV_ENDPOINT, FeaturePreferences.SEMANTIC_JEV_ENDPOINT, R.string.semantic_jev_endpoint,
             maxStringLength = SemanticJudge.MAX_ENDPOINT_LENGTH, introducedCatalogVersion = 31),
@@ -698,6 +706,9 @@ internal object SettingsCatalog {
         ),
         bool("host.mine.garb_dim.enabled", FeaturePreferences.HOST_MINE_GARB_DIM,
             R.string.host_mine_garb_dim, default = true, introducedCatalogVersion = 65),
+        // 默认值与 HostUiPowerPolicy.DEFAULT_ENABLED 一致（单测钉住），目录不依赖 hook 包。
+        bool("host.ui.power_saving.enabled", FeaturePreferences.HOST_UI_POWER_SAVING,
+            R.string.host_ui_power_saving, default = true, introducedCatalogVersion = 72),
         bool(
             "host.bottom_bar.touch_glow.enabled",
             FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW,
@@ -865,6 +876,8 @@ internal object SettingsCatalog {
             R.string.sponsorblock_enabled, introducedCatalogVersion = 44),
         bool("player.sponsorblock.automatic", FeaturePreferences.SPONSORBLOCK_AUTOMATIC,
             R.string.sponsorblock_automatic, introducedCatalogVersion = 44),
+        bool("player.sponsorblock.story", FeaturePreferences.SPONSORBLOCK_STORY,
+            R.string.sponsorblock_story_enabled, introducedCatalogVersion = 68),
 
         bool("comments.search_links.removed", FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS, R.string.remove_comment_search_links),
         bool("comments.empty_guide.removed", FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE, R.string.remove_comment_empty_guide),
@@ -930,6 +943,12 @@ internal object SettingsCatalog {
             introducedCatalogVersion = 11
         ),
         bool(
+            "share.wechat.resigned_compat",
+            FeaturePreferences.WECHAT_SHARE_COMPAT,
+            R.string.wechat_share_compat,
+            introducedCatalogVersion = 70
+        ),
+        bool(
             "links.external_browser.enabled",
             FeaturePreferences.FORCE_EXTERNAL_BROWSER,
             R.string.force_external_browser,
@@ -942,10 +961,68 @@ internal object SettingsCatalog {
             introducedCatalogVersion = 11
         ),
         bool(
+            "home.frame.legacy_lock.enabled",
+            FeaturePreferences.HOME_FRAME_LEGACY_LOCK,
+            R.string.home_frame_legacy_lock,
+            introducedCatalogVersion = 66
+        ),
+        bool(
+            "home.recommend.early_load.enabled",
+            FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD,
+            R.string.home_recommend_early_load,
+            introducedCatalogVersion = 73
+        ),
+        bool(
+            "cloud.key_freeze.enabled",
+            FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED,
+            R.string.cloud_key_freeze,
+            introducedCatalogVersion = 67
+        ),
+        text(
+            "cloud.key_freeze.rules",
+            FeaturePreferences.CLOUD_KEY_FREEZE_RULES,
+            R.string.cloud_key_freeze_rules,
+            introducedCatalogVersion = 67
+        ),
+        bool(
+            "cloud.key_freeze.observe",
+            FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE,
+            R.string.cloud_key_freeze_observe,
+            introducedCatalogVersion = 67
+        ),
+        text(
+            "cloud.key_freeze.picked",
+            FeaturePreferences.CLOUD_KEY_FREEZE_PICKED,
+            R.string.cloud_key_freeze_picked,
+            introducedCatalogVersion = 69
+        ),
+        bool(
             "numbers.bv_as_av.enabled",
             FeaturePreferences.SHOW_BV_AS_AV,
             R.string.show_bv_as_av,
             introducedCatalogVersion = 11
+        ),
+
+        bool(
+            "browsing.no_login.enabled",
+            FeaturePreferences.NO_LOGIN_ENABLED,
+            R.string.no_login_enabled,
+            default = false,
+            introducedCatalogVersion = 75
+        ),
+        bool(
+            "browsing.guest.skip_onboarding",
+            FeaturePreferences.SKIP_GUEST_ONBOARDING,
+            R.string.skip_guest_onboarding,
+            default = false,
+            introducedCatalogVersion = 75
+        ),
+        bool(
+            "privacy.incognito.enabled",
+            FeaturePreferences.INCOGNITO_ENABLED,
+            R.string.incognito_enabled,
+            default = false,
+            introducedCatalogVersion = 75
         ),
 
         bool(
@@ -1017,7 +1094,15 @@ internal object SettingsCatalog {
             R.string.log_level_label,
             default = HookEntry.LOG_LEVEL_COMPLETE,
             allowed = setOf(HookEntry.LOG_LEVEL_MINIMAL, HookEntry.LOG_LEVEL_COMPLETE)
-        )
+        ),
+        // v74：AI Insight 专用服务配置（与判定来源分离）。API Key 是运行时凭据，不进目录、备份与诊断。
+        // 放在列表末尾，避免改变 ModuleUiSettings 对「首个 text 默认值为空」的既有位置约定。
+        text(ID_AI_INSIGHT_PROTOCOL, FeaturePreferences.AI_INSIGHT_PROTOCOL, R.string.ai_insight_protocol,
+            default = InsightConfig.DEFAULT_PROTOCOL, allowed = InsightConfig.IDS, introducedCatalogVersion = 74),
+        text(ID_AI_INSIGHT_BASE_URL, FeaturePreferences.AI_INSIGHT_BASE_URL, R.string.ai_insight_base_url,
+            maxStringLength = SemanticJudge.MAX_ENDPOINT_LENGTH, introducedCatalogVersion = 74),
+        text(ID_AI_INSIGHT_MODEL, FeaturePreferences.AI_INSIGHT_MODEL, R.string.ai_insight_model,
+            maxStringLength = SemanticBackend.MAX_MODEL_LENGTH, introducedCatalogVersion = 74)
     )
 
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
@@ -1032,7 +1117,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 245) { "Expected 245 catalog settings, found ${specs.size}" }
+        check(specs.size == 262) { "Expected 262 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

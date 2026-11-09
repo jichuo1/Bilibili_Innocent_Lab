@@ -5,8 +5,8 @@ import json
 import unittest
 import io
 from contextlib import redirect_stdout
-from unittest.mock import patch
-from publish_telegram import validate_identity,caption,multipart,deliver,split_text,announcement_messages,main,DeliveryError,MAX_FILE_BYTES,Telegram
+from unittest.mock import patch,Mock,call
+from publish_telegram import validate_identity,caption,multipart,deliver,split_text,announcement_messages,main,DeliveryError,MAX_FILE_BYTES,MAX_RESPONSE_BYTES,Telegram
 
 class TelegramDeliveryTest(unittest.TestCase):
     def fixture(self):
@@ -60,6 +60,163 @@ class TelegramDeliveryTest(unittest.TestCase):
             self.assertEqual(method in {"sendDocument","sendMessage"},"TELEGRAM_POST_ATTEMPT:" in output.getvalue())
             self.assertNotIn("1:test",output.getvalue())
             self.assertNotIn("fixture connection failure",output.getvalue())
+
+    def telegram_connection(self, status, value):
+        connection=Mock();response=connection.getresponse.return_value
+        response.status=status
+        response.read.return_value=value if isinstance(value,bytes) else json.dumps(value).encode()
+        return connection
+
+    def rate_limit_response(self, retry_after=31):
+        return {"ok":False,"error_code":429,"description":"Too Many Requests: retry after 31 /bot1:test/sendMessage",
+                "parameters":{"retry_after":retry_after}}
+
+    def test_rate_limit_retries_the_same_request_after_closing_the_connection(self):
+        apk,_,_=self.fixture()
+        for method in ["getMe","getChat","getChatMember","sendDocument","sendMessage"]:
+            connections=[self.telegram_connection(429,self.rate_limit_response()),
+                         self.telegram_connection(200,{"ok":True,"result":{"message_id":7}})]
+            output=io.StringIO()
+            with self.subTest(method=method),patch("publish_telegram.http.client.HTTPSConnection",side_effect=connections) as factory,\
+                 patch("publish_telegram.time.sleep") as sleep,patch("publish_telegram.multipart",wraps=multipart) as prepare,redirect_stdout(output):
+                def wait(seconds):
+                    self.assertEqual(31,seconds);self.assertEqual(1,factory.call_count)
+                    connections[0].close.assert_called_once();connections[1].request.assert_not_called()
+                sleep.side_effect=wait
+                result=Telegram("1:test").call(method,{"chat_id":"-100123"},apk if method=="sendDocument" else None)
+                self.assertEqual({"message_id":7},result)
+                self.assertEqual([call("api.telegram.org",timeout=180)]*2,factory.call_args_list)
+                sleep.assert_called_once_with(31)
+                self.assertEqual(1 if method=="sendDocument" else 0,prepare.call_count)
+            for connection in connections:
+                connection.request.assert_called_once();connection.close.assert_called_once()
+                connection.getresponse.return_value.read.assert_called_once_with(MAX_RESPONSE_BYTES+1)
+            self.assertEqual(connections[0].request.call_args,connections[1].request.call_args)
+            self.assertIn("waiting 31s before retry 1/3",output.getvalue())
+            self.assertEqual(2 if method in {"sendDocument","sendMessage"} else 0,output.getvalue().count("TELEGRAM_POST_ATTEMPT:"))
+            self.assertNotIn("1:test",output.getvalue())
+
+    def test_message_retry_does_not_repeat_the_apk_or_previous_messages(self):
+        apk,_,_=self.fixture();notes="x"*8000;messages=announcement_messages(notes)
+        results=[{"id":1},{"id":-100123,"type":"channel","username":"Bilibili_Innocent_LabRelease"},
+                 {"status":"administrator","can_post_messages":True},{"message_id":7,"date":1700000000},
+                 {"message_id":8,"date":1700000001},{"message_id":9,"date":1700000002},
+                 {"message_id":10,"date":1700000003}]
+        connections=[self.telegram_connection(200,{"ok":True,"result":result}) for result in results]
+        connections.insert(5,self.telegram_connection(429,self.rate_limit_response()));output=io.StringIO()
+        with patch("publish_telegram.http.client.HTTPSConnection",side_effect=connections) as factory,\
+             patch("publish_telegram.time.sleep") as sleep,redirect_stdout(output):
+            def wait(seconds):
+                for connection in connections[:factory.call_count]:connection.close.assert_called_once()
+            sleep.side_effect=wait
+            result=deliver(Telegram("1:test"),"@Bilibili_Innocent_LabRelease",apk,"caption",notes)
+            self.assertEqual(len(connections),factory.call_count)
+            self.assertEqual([call(1),call(1),call(31),call(1)],sleep.call_args_list)
+        requests=[connection.request.call_args.args for connection in connections]
+        self.assertEqual(["getMe","getChat","getChatMember","sendDocument","sendMessage","sendMessage","sendMessage","sendMessage"],
+                         [request[1].rsplit("/",1)[1] for request in requests])
+        self.assertEqual([messages[0],messages[1],messages[1],messages[2]],[json.loads(request[2])["text"] for request in requests[4:]])
+        self.assertEqual(requests[5],requests[6])
+        self.assertEqual([8,9,10],result["announcement_message_ids"])
+        self.assertEqual(1,output.getvalue().count("TELEGRAM_POST_ATTEMPT: sendDocument"))
+        self.assertEqual(4,output.getvalue().count("TELEGRAM_POST_ATTEMPT: sendMessage"))
+        self.assertNotIn("1:test",output.getvalue())
+        for connection in connections:connection.request.assert_called_once();connection.close.assert_called_once()
+
+    def test_rate_limit_allows_three_retries_and_the_exact_wait_budget(self):
+        for waits in [[40,40,40],[120]]:
+            connections=[self.telegram_connection(429,self.rate_limit_response(seconds)) for seconds in waits]
+            connections.append(self.telegram_connection(200,{"ok":True,"result":{"message_id":7}}))
+            with self.subTest(waits=waits),patch("publish_telegram.http.client.HTTPSConnection",side_effect=connections) as factory,\
+                 patch("publish_telegram.time.sleep") as sleep,redirect_stdout(io.StringIO()):
+                def wait(seconds):
+                    self.assertEqual(sleep.call_count,factory.call_count)
+                    for connection in connections[:factory.call_count]:connection.close.assert_called_once()
+                sleep.side_effect=wait
+                self.assertEqual({"message_id":7},Telegram("1:test").call("sendMessage",{}))
+                self.assertEqual(len(waits)+1,factory.call_count)
+                self.assertEqual([call(seconds) for seconds in waits],sleep.call_args_list)
+            for connection in connections:connection.request.assert_called_once();connection.close.assert_called_once()
+
+    def test_rate_limit_exhaustion_never_shortens_the_requested_wait(self):
+        for waits,expected in [([1,1,1,1],[1,1,1]),([60,61],[60]),([120,1],[120]),([121],[]),([40,40,41],[40,40])]:
+            connections=[self.telegram_connection(429,self.rate_limit_response(seconds)) for seconds in waits]
+            output=io.StringIO()
+            with self.subTest(waits=waits),patch("publish_telegram.http.client.HTTPSConnection",side_effect=connections) as factory,\
+                 patch("publish_telegram.time.sleep") as sleep,redirect_stdout(output):
+                with self.assertRaisesRegex(DeliveryError,"Telegram rejected sendMessage:") as error:Telegram("1:test").call("sendMessage",{})
+                self.assertEqual(len(waits),factory.call_count)
+                self.assertEqual([call(seconds) for seconds in expected],sleep.call_args_list)
+            self.assertIn("[redacted]",str(error.exception))
+            self.assertNotIn("1:test",str(error.exception)+output.getvalue())
+            self.assertEqual(len(waits),output.getvalue().count("TELEGRAM_POST_ATTEMPT: sendMessage"))
+            self.assertEqual(len(expected),output.getvalue().count("Telegram rate limited"))
+            for connection in connections:connection.request.assert_called_once();connection.close.assert_called_once()
+
+    def test_missing_or_invalid_retry_after_never_retries(self):
+        parameters=[{},*[{"parameters":value} for value in [None,False,[],"31",31,{}]],
+                    *[{"parameters":{"retry_after":value}} for value in [None,False,True,0,-1,"31",31.0,[],{},"1:test"]]]
+        for fields in parameters:
+            value=self.rate_limit_response();value.pop("parameters");value.update(fields)
+            connection=self.telegram_connection(429,value);output=io.StringIO()
+            with self.subTest(fields=fields),patch("publish_telegram.http.client.HTTPSConnection",return_value=connection) as factory,\
+                 patch("publish_telegram.time.sleep") as sleep,redirect_stdout(output):
+                with self.assertRaisesRegex(DeliveryError,"Telegram rejected sendMessage:") as error:Telegram("1:test").call("sendMessage",{})
+                factory.assert_called_once();sleep.assert_not_called()
+            connection.request.assert_called_once();connection.close.assert_called_once()
+            self.assertIn("[redacted]",str(error.exception))
+            self.assertNotIn("1:test",str(error.exception)+output.getvalue())
+            self.assertNotIn("Telegram rate limited",output.getvalue())
+
+    def test_retry_requires_both_http_429_and_an_explicit_json_429_rejection(self):
+        cases=[(status,self.rate_limit_response()) for status in [200,400,401,403,500,502,503]]
+        cases.extend((429,dict(self.rate_limit_response(),ok=value)) for value in [True,None,0,"false"])
+        cases.extend((429,dict(self.rate_limit_response(),error_code=value)) for value in [None,True,400,500,"429"])
+        for key in ["ok","error_code"]:
+            value=self.rate_limit_response();value.pop(key);cases.append((429,value))
+        for status,value in cases:
+            connection=self.telegram_connection(status,value);output=io.StringIO()
+            with self.subTest(status=status,value=value),patch("publish_telegram.http.client.HTTPSConnection",return_value=connection) as factory,\
+                 patch("publish_telegram.time.sleep") as sleep,redirect_stdout(output):
+                with self.assertRaisesRegex(DeliveryError,"Telegram rejected sendMessage:") as error:Telegram("1:test").call("sendMessage",{})
+                factory.assert_called_once();sleep.assert_not_called()
+            connection.request.assert_called_once();connection.close.assert_called_once()
+            self.assertNotIn("1:test",str(error.exception)+output.getvalue())
+            self.assertNotIn("Telegram rate limited",output.getvalue())
+
+    def test_bad_json_and_oversized_responses_never_retry(self):
+        for status in [200,429]:
+            for data in [b"{1:test",b"null",b"[]",b"1",b"x"*(MAX_RESPONSE_BYTES+1)]:
+                connection=self.telegram_connection(status,data);output=io.StringIO()
+                with self.subTest(status=status,data=data[:20]),patch("publish_telegram.http.client.HTTPSConnection",return_value=connection) as factory,\
+                     patch("publish_telegram.time.sleep") as sleep,redirect_stdout(output):
+                    with self.assertRaises(DeliveryError) as error:Telegram("1:test").call("sendMessage",{})
+                    factory.assert_called_once();sleep.assert_not_called()
+                connection.request.assert_called_once();connection.close.assert_called_once()
+                self.assertNotIn("1:test",str(error.exception)+output.getvalue())
+
+    def test_network_failures_never_retry_even_after_a_rate_limit(self):
+        for throttled in [False,True]:
+            for stage in ["connect","request","getresponse","read","close"]:
+                for exception in [TimeoutError,OSError]:
+                    connection=self.telegram_connection(200,{"ok":True,"result":{"message_id":7}})
+                    failure=exception("fixture failure at /bot1:test/sendMessage")
+                    if stage=="read":connection.getresponse.return_value.read.side_effect=failure
+                    elif stage!="connect":getattr(connection,stage).side_effect=failure
+                    previous=[self.telegram_connection(429,self.rate_limit_response())] if throttled else []
+                    output=io.StringIO()
+                    with self.subTest(throttled=throttled,stage=stage,exception=exception),\
+                         patch("publish_telegram.http.client.HTTPSConnection",side_effect=previous+[failure if stage=="connect" else connection]) as factory,\
+                         patch("publish_telegram.time.sleep") as sleep,redirect_stdout(output):
+                        with self.assertRaisesRegex(DeliveryError,"network/protocol failure") as error:Telegram("1:test").call("sendMessage",{})
+                        self.assertEqual(len(previous)+1,factory.call_count)
+                        self.assertEqual([call(31)] if throttled else [],sleep.call_args_list)
+                    if stage=="connect":connection.request.assert_not_called();connection.close.assert_not_called()
+                    else:connection.request.assert_called_once();connection.close.assert_called_once()
+                    for item in previous:item.request.assert_called_once();item.close.assert_called_once()
+                    self.assertNotIn("1:test",str(error.exception)+output.getvalue())
+                    self.assertNotIn("fixture failure",str(error.exception)+output.getvalue())
+                    self.assertTrue(error.exception.__suppress_context__)
 
     def test_multipart_or_json_preparation_failure_has_no_post_marker(self):
         for method,fields,apk,error in [("sendDocument",{},Path("invalid upload name.apk"),DeliveryError),

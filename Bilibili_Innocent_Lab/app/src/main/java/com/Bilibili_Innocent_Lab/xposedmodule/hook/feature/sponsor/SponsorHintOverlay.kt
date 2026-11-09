@@ -13,11 +13,24 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiMessages
 import java.lang.ref.WeakReference
 
-/** 页面内 Toast 样式提示；撤销期限由播放控制器维护，不建立第二套计时器。 */
-internal class SponsorHintOverlay(root: FrameLayout, private val action: (SponsorPlaybackController.Hint) -> Unit) {
+/**
+ * 页面内 Toast 样式提示；撤销期限由播放控制器维护，不建立第二套计时器。
+ *
+ * [Placement.STORY] 用于竖屏短视频：右下是宿主的操作按钮列，所以提示改为底部居中，
+ * 并把系统栏下沿加进底边距。[Placement.DETAIL] 保持原有位置。
+ */
+internal class SponsorHintOverlay(
+    root: FrameLayout,
+    private val placement: Placement = Placement.DETAIL,
+    private val action: (SponsorPlaybackController.Hint) -> Unit
+) {
+    enum class Placement { DETAIL, STORY }
     private val root = WeakReference(root)
     private var widget = WeakReference<View>(null)
     private var shown = SponsorPlaybackController.Hint.NONE
@@ -46,7 +59,8 @@ internal class SponsorHintOverlay(root: FrameLayout, private val action: (Sponso
             text = if (hint == SponsorPlaybackController.Hint.UNDO) messages.sponsorUndoAction else messages.sponsorSkip
             contentDescription = if (hint == SponsorPlaybackController.Hint.UNDO) messages.sponsorUndo else messages.sponsorSkip
             setPadding(dp(12), dp(8), dp(12), dp(8))
-            setOnClickListener { if (shown == hint) action(hint) }
+            // 点击在宿主窗口的 UI 线程分发，逃逸异常会直接杀宿主进程，框架的 PROTECTIVE 兜不住。
+            setOnClickListener { HostThreadGuard.run("sponsorblock.hint.click") { if (shown == hint) action(hint) } }
         }
         val view = if (hint == SponsorPlaybackController.Hint.UNDO) {
             // 只消费按钮自己的触摸区域，提示文字与容器不截获宿主手势。
@@ -70,10 +84,14 @@ internal class SponsorHintOverlay(root: FrameLayout, private val action: (Sponso
                 addView(button)
             }
         } else button.apply { background = surface(); elevation = dp(6).toFloat() }
+        val story = placement == Placement.STORY
+        val horizontal = if (story || hint == SponsorPlaybackController.Hint.UNDO) Gravity.CENTER_HORIZONTAL else Gravity.END
+        val inset = if (story) ViewCompat.getRootWindowInsets(root)
+            ?.getInsets(WindowInsetsCompat.Type.systemBars())?.bottom ?: 0 else 0
         root.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or
-                if (hint == SponsorPlaybackController.Hint.UNDO) Gravity.CENTER_HORIZONTAL else Gravity.END).apply {
-            marginStart = dp(16); marginEnd = dp(16); bottomMargin = dp(80)
+            ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or horizontal).apply {
+            marginStart = dp(16); marginEnd = dp(16)
+            bottomMargin = (if (story) dp(120) else dp(80)) + inset
         })
         widget = WeakReference(view)
         shown = hint

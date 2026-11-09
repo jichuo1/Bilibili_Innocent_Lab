@@ -2,12 +2,11 @@ package com.Bilibili_Innocent_Lab.xposedmodule.runtime
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.content.pm.PackageInfo
-import android.os.Build
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshotCodec
+import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 
 /** 仅在模块 uid 内落盘经查询协议校验过的有界快照。 */
 internal object MineComponentSnapshotStore {
@@ -113,13 +112,9 @@ internal object MineComponentSnapshotStore {
             0
         )
         MineComponentSnapshotSource(
-            targetVersionCode = info.versionCodeCompat(),
+            targetVersionCode = info.versionCodeCompat,
             targetUpdateTime = info.lastUpdateTime,
             moduleVersionCode = BuildConfig.VERSION_CODE.toLong()
         ).takeIf { it.isComplete }
     }.getOrNull()
-
-    @Suppress("DEPRECATION")
-    private fun PackageInfo.versionCodeCompat(): Long =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) longVersionCode else versionCode.toLong()
 }

@@ -9,7 +9,14 @@ internal object SettingsDependencies {
     // Model management is an action, not a backed-up preference or a search destination.
     const val FRAME_MODEL = "player.frame_interpolation.model"
 
-    internal data class Requirement(val key: String, val enabled: Boolean = true)
+    /** Available while [key] (or any of [alternatives]) has the [enabled] value. */
+    internal data class Requirement(
+        val key: String,
+        val enabled: Boolean = true,
+        val alternatives: List<String> = emptyList()
+    ) {
+        val keys: List<String> get() = listOf(key) + alternatives
+    }
 
     val requirements: Map<String, Requirement> = buildMap {
         fun children(parent: String, vararg ids: String) {
@@ -18,7 +25,11 @@ internal object SettingsDependencies {
         children(FeaturePreferences.PLAYER_FRAME_INTERPOLATION,
             "player.frame_interpolation.max_fps", "player.frame_interpolation.status_toast",
             "player.frame_interpolation.disable_thermal_control", FRAME_MODEL)
-        children(FeaturePreferences.SPONSORBLOCK_ENABLED, "player.sponsorblock.automatic")
+        children(FeaturePreferences.SPONSORBLOCK_ENABLED, "player.sponsorblock.automatic", "player.sponsorblock.story")
+        children(FeaturePreferences.AI_INSIGHT_ENABLED, "compat.ai_insight.auto_chapters")
+        // Onboarding is skipped inside the guest installer, which either browsing mode starts.
+        put("browsing.guest.skip_onboarding",
+            Requirement(FeaturePreferences.NO_LOGIN_ENABLED, alternatives = listOf(FeaturePreferences.INCOGNITO_ENABLED)))
         put("player.long_press_speed.percent", Requirement(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS, false))
         children(FeaturePreferences.HIDE_MINE_VIP, "mine.vip.space_kept")
         children(FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS, "host.mine.garb_dim.enabled")
@@ -43,9 +54,9 @@ internal object SettingsDependencies {
         }
     }
 
-    val parentKeys: Set<String> = requirements.values.map { it.key }.toSet()
+    val parentKeys: Set<String> = requirements.values.flatMap { it.keys }.toSet()
 
     fun available(id: String, settings: ModuleUiSettings): Boolean = requirements[id]?.let {
-        settings.bool(it.key) == it.enabled
+        it.keys.any { key -> settings.bool(key) == it.enabled }
     } ?: true
 }

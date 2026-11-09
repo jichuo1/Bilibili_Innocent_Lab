@@ -12,6 +12,7 @@ internal object HostAdmissionContract {
     const val METHOD_CONFIRM = "confirm_admission"
     const val NORMAL = "manager"
     const val DIRECT = "module_direct"
+    const val DISABLED_REVISION = "disabledRevision"
     const val MAX_DOCUMENT_CHARS = 192 * 1024
     const val BOOTSTRAP_TIMEOUT_MS = 2_000L
     const val CHALLENGE_TIMEOUT_MS = 2_000L

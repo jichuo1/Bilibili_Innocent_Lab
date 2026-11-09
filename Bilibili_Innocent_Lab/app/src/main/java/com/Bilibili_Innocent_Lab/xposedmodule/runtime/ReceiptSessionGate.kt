@@ -2,8 +2,17 @@ package com.Bilibili_Innocent_Lab.xposedmodule.runtime
 
 /** 进程启动的单调时刻只用于当前模块进程内排序；不落盘，不代替实时响应。 */
 internal class ReceiptSessionGate<T> {
+    enum class SequenceDecision { STORE, SUPERSEDED, INVALID }
+
     companion object {
         fun isNewerSequence(previous: Long, candidate: Long): Boolean = candidate > 0 && candidate > previous
+
+        /** 多通道的副本可成功确认，但不能覆盖已经持久化的新值。 */
+        fun sequenceDecision(previous: Long, candidate: Long): SequenceDecision = when {
+            candidate <= 0L -> SequenceDecision.INVALID
+            isNewerSequence(previous, candidate) -> SequenceDecision.STORE
+            else -> SequenceDecision.SUPERSEDED
+        }
     }
     data class Session<T>(val started: Long, val pid: Int, val endpoint: T)
     private var latestStart = -1L

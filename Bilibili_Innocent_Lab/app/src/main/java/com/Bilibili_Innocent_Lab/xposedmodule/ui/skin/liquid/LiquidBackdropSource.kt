@@ -18,7 +18,7 @@ import androidx.core.graphics.createBitmap
 import androidx.core.graphics.ColorUtils
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.AmbientBackdropScene
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 
 /**
  * Activity 的稳定 underlay，或高负载模式下由 PixelCopy 三缓冲持有的实时采样 source。

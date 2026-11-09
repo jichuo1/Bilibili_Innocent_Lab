@@ -90,7 +90,10 @@ class LiquidControlStyleTest {
         // 2026-10-18：新增推荐视频发布时间过滤面板（PublishTimeFilterDialogs.kt），46 → 47。
         // 2026-10-19：新增倍速菜单档位编辑和与默认倍速互斥的二级提示，47 → 49。
         // 2026-10-24：新增插帧温控二次确认面板，49 → 50。
-        assertEquals(50, dialogs)
+        // 2026-11-01：新增云控键扫描勾选面板与无扫描结果时的说明面板（CloudKeyScanDialogs.kt），50 → 52，
+        // 两个都走同一个皮肤容器与 presentModalDialog。
+        // 合入 NPatch 与 Shizuku 设置面板，52 → 54。
+        assertEquals(54, dialogs)
         // 「管理常用」改用定宽 presentSizedModalDialog（EXACTLY 行宽保证把手钉右缘）。
         assertTrue(SettingsUiSource.function("showSettingsFavoritesDialog").contains("presentSizedModalDialog(dialog, container, width, anchor)"))
         val presenter = SettingsUiSource.function("presentSizedModalDialog")
@@ -121,6 +124,17 @@ class LiquidControlStyleTest {
         assertTrue(controls.contains("is EditText"))
         assertTrue(controls.contains("view.setPadding(left, top, right, bottom)"))
         assertTrue(controls.contains("view.foreground = RippleDrawable"))
+    }
+
+    @Test fun `control outline stays pinned to the viewport of scrolled inputs`() {
+        val skin = source("ui/skin/activity/SkinnedActivity.kt")
+        val outline = skin.after("private fun controlOutline(").before("/** 让一个")
+        assertTrue(outline.contains("return ViewportForegroundDrawable(StateListDrawable()"))
+        val wrapper = source("ui/skin/geometry/ViewportForegroundDrawable.kt")
+        val draw = wrapper.after("override fun draw(canvas: Canvas)").before("canvas.restoreToCount(saved)")
+        assertTrue(draw.contains("view?.foreground === outer) view.scrollX"))
+        assertTrue(draw.contains("view?.foreground === outer) view.scrollY"))
+        assertTrue(draw.contains("canvas.translate(x.toFloat(), y.toFloat())"))
     }
 
     @Test fun `choice drawing caches geometry and has no animator or capture loop`() {

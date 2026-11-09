@@ -18,9 +18,10 @@ internal enum class BiliAccessKeyState(val code: String) {
  * 在哔哩哔哩进程内读取当前登录账号的 access_key 状态（「获取 access_key」授权后才会被调用）。
  * 这是供所有需要账号身份的功能共用的入口，目前的调用方是 AI 声明屏蔽强力模式的推荐预检。
  *
- * 锚点（27 个本地宿主 8.84.0–9.13.0 逐版一致、均未混淆）：
+ * 锚点（本轮直接核对 8.90.2 APK；其它版本解析失败时停用预检）：
  * `com.bilibili.lib.accounts.BiliAccounts.get(Context)` → `getAccessToken()` →
- * `model.AccessToken#getAccessKey()` / `isValid()` / `isExpired()`（宿主自己的判定，`mExpires` 为秒级）。
+ * `service.AccessToken#getAccessKey()` / `isValid()` / `isExpired()`（宿主自己的判定）。
+ * getAccessToken 的声明返回类型是 service 接口；model 实现类不能用于精确返回类型校验。
  *
  * **令牌纪律**：access_key 只作为局部变量判空后立即丢弃——不缓存、不写盘、不进日志/诊断/回执/备份，
  * 不离开宿主进程。实际请求一律走宿主自己的网络通道，由宿主附带账号凭证。
@@ -45,7 +46,7 @@ internal class BiliAccessKeyProbe private constructor(
 
     companion object {
         const val ACCOUNTS_CLASS = "com.bilibili.lib.accounts.BiliAccounts"
-        const val TOKEN_CLASS = "com.bilibili.lib.accounts.model.AccessToken"
+        const val TOKEN_CLASS = "com.bilibili.lib.accounts.service.AccessToken"
 
         /** 纯判定：没有令牌 = 未登录；有令牌但宿主判为无效或过期 = 过期。 */
         fun classify(hasKey: Boolean, valid: Boolean, expired: Boolean): BiliAccessKeyState = when {

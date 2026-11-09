@@ -261,7 +261,7 @@
                     android:layout_width="35dp"
                     android:layout_height="35dp"
                     android:layout_marginEnd="10dp"
-                    android:src="@mipmap/ic_kavaref" />
+                    android:src="@drawable/ic_meguviz_ref" />
 
                 <TextView
                     android:layout_width="match_parent"

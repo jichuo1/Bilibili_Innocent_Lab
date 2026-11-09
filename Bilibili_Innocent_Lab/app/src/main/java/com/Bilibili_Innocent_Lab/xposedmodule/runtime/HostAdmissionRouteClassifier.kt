@@ -17,7 +17,7 @@ internal object HostAdmissionRouteClassifier {
     fun classify(status: String?): StatusClass = when (status) {
         "prepared" -> StatusClass.PREPARED
         "granted" -> StatusClass.GRANTED
-        "denied" -> StatusClass.AUTHORITY_DENIED
+        "denied", "embedded_mode_unsupported" -> StatusClass.AUTHORITY_DENIED
         "manager_sync_required" -> StatusClass.SYNC_REQUIRED
         "consent_commit_failed" -> StatusClass.CONSENT_PENDING
         else -> StatusClass.UNAVAILABLE
@@ -52,6 +52,9 @@ internal object HostAdmissionRouteClassifier {
 
     fun latchesDenial(reason: String): Boolean = reason == REASON_DENIED
 
+    fun disabledRevision(status: String?, envelopeValid: Boolean, revision: Long): Long =
+        if (status == "manager_sync_required" && envelopeValid && revision > 0L) revision else 0L
+
     fun blocksFallback(reason: String): Boolean = reason in setOf(
         REASON_DENIED, REASON_SYNC_REQUIRED, REASON_CONSENT_PENDING, REASON_CONFIG_INVALID
     )
@@ -68,9 +71,13 @@ internal object HostAdmissionRouteClassifier {
         moduleVersionMatches: Boolean,
         generation: Long,
         fallbackBlocked: Boolean = false,
+        nPatchRuntime: Boolean = false,
     ): Boolean = !sawDenied && !fallbackBlocked &&
         normalFailure == null &&
         authorized &&
         moduleVersionMatches &&
-        generation > 0L
+        generation > 0L &&
+        // NPatch 的正 revision 也可能是 Manager 失联前的旧缓存：无法证明用户之后没有关闭。
+        // 必须通过已有授权端点取得当前许可，不能只凭缓存文档恢复功能 Hook。
+        !nPatchRuntime
 }

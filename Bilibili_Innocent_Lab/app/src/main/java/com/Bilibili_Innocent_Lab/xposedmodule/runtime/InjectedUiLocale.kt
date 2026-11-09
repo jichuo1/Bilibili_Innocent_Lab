@@ -9,7 +9,8 @@ import android.content.res.Resources
 import androidx.core.content.edit
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
@@ -47,6 +48,8 @@ internal data class InjectedUiMessages(
     val sponsorUndo: String = "Undo sponsor skip",
     val sponsorSkipped: String = "Sponsor segment skipped",
     val sponsorUndoAction: String = "Undo",
+    val moduleSettingsTitle: String = "BIL settings",
+    val moduleSettingsUnavailable: String = "Could not open BIL settings. Open the settings app manually, then retry.",
     /** 插帧状态提示：`%1$s` 源帧率，`%2$d` 补帧目标帧率。 */
     val frameStatusActive: String = "Frame interpolation on: %1\$s → %2\$d fps",
     /** 源帧率未知时：`%1$d` 补帧目标帧率。 */
@@ -77,16 +80,16 @@ internal object InjectedUiLocale {
     const val TAG_TRADITIONAL_CHINESE = "zh-Hant"
 
     const val ACTION_SET_UI_LOCALE =
-        "com.Bilibili_Innocent_Lab.xposedmodule.SET_UI_LOCALE"
+        "${BuildConfig.APPLICATION_ID}.SET_UI_LOCALE"
     const val EXTRA_LOCALE_TAG = "locale_tag"
     const val PERMISSION_SET_UI_LOCALE =
-        "com.Bilibili_Innocent_Lab.xposedmodule.permission.SET_UI_LOCALE"
+        "${BuildConfig.APPLICATION_ID}.permission.SET_UI_LOCALE"
 
     const val PROVIDER_PATH = "ui_locale"
     const val PROVIDER_COLUMN = "locale_tag"
 
     private const val TARGET_PACKAGE = "tv.danmaku.bili"
-    private const val PROVIDER_AUTHORITY = "com.Bilibili_Innocent_Lab.xposedmodule.roaming"
+    private const val PROVIDER_AUTHORITY = "${BuildConfig.APPLICATION_ID}.roaming"
     private const val HOST_PREF_FILE = "innocent_lab_injected_ui_locale"
     private const val HOST_PREF_SELECTION_TAG = "selection_tag"
 
@@ -326,6 +329,8 @@ internal object InjectedUiLocale {
         adaptSucceeded = "版本适配完成，功能已就绪",
         adaptFailed = "版本适配失败，部分功能可能受限",
         roamingSettingsTitle = "哔哩漫游设置",
+        moduleSettingsTitle = "BIL 设置",
+        moduleSettingsUnavailable = "无法打开 BIL 设置，请先手动打开设置 App 后重试。",
         latestVersionMessage = "当前已是最新版本",
         replyTopologyEntryLabel = "脉络",
         replyTopologyEntryDescription = "查看回复脉络",
@@ -358,6 +363,8 @@ internal object InjectedUiLocale {
         adaptSucceeded = "版本適配完成，功能已就緒",
         adaptFailed = "版本適配失敗，部分功能可能受限",
         roamingSettingsTitle = "嗶哩漫遊設定",
+        moduleSettingsTitle = "BIL 設定",
+        moduleSettingsUnavailable = "無法開啟 BIL 設定，請先手動開啟設定 App 後重試。",
         latestVersionMessage = "目前已是最新版本",
         replyTopologyEntryLabel = "脈絡",
         replyTopologyEntryDescription = "查看回覆脈絡",

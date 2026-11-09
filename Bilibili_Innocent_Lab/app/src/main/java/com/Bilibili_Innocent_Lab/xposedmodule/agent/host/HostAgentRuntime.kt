@@ -1,6 +1,3 @@
-// TTL 回调按任务 generation 释放 Binder 绑定和 Window 所有权，保留现有 Handler 取消语义。
-@file:Suppress("ReplaceWithCoroutinesExtension")
-
 package com.Bilibili_Innocent_Lab.xposedmodule.agent.host
 
 import android.app.Application

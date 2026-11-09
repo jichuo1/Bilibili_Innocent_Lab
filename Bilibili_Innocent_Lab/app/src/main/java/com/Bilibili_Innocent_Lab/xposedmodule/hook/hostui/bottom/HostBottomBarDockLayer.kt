@@ -8,6 +8,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockLayer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostGlowView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceScope
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceStyle
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostCallPassthrough
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassMaterial
 
 import android.animation.Animator
@@ -56,10 +58,15 @@ internal class HostBottomBarDockLayer(
     private val publishViewId = resources.getIdentifier("home_publish_icon", "id", context.packageName)
     private val artworkId = resources.getIdentifier("tab_background", "id", context.packageName)
     private val hero = HostGarbHeroBinding(tabHost, dimEnabled = config.mineGarbDim)
-    private val heroLayoutListener = ViewTreeObserver.OnGlobalLayoutListener { hero.invalidate() }
+    private val heroLayoutListener = ViewTreeObserver.OnGlobalLayoutListener {
+        HostThreadGuard.run("host.bottom.hero.layout") { hero.invalidate() }
+    }
     private var materialColors = HostChromeColors(isDark, palette.primary)
+    /** 窄屏适配可能压低胶囊；圆角跟随实际布局高度而不是档位标称高度。 */
+    private val radiusDp: Float
+        get() = (tabHost.layoutParams?.height?.takeIf { it > 0 }?.div(density) ?: config.heightDp) / 2f
     private val shadow = if (config.liquidGlass && config.appearance.material != HostGlassMaterial.PRISM)
-        HostBottomBarShadow(tabHost, config.heightDp / 2f) else null
+        HostBottomBarShadow(tabHost, radiusDp) else null
 
     // 1. 独立大胶囊晶体滑块 (硬件加速子 View)
     val selectionView = View(context).apply {
@@ -103,6 +110,7 @@ internal class HostBottomBarDockLayer(
     private var glowX = 0f
     private var glowY = 0f
     private val screenLoc = IntArray(2)
+    private val hostClicks = HostCallPassthrough()
 
     private val rtl: Boolean get() = layoutDirection == LAYOUT_DIRECTION_RTL
     private val tabSlots = HostBottomBarTabSlots()
@@ -111,7 +119,7 @@ internal class HostBottomBarDockLayer(
     private val contentWidth: Float get() = (width - inset * 2f).coerceAtLeast(0f)
     private val slotWidth: Float get() = if (count > 0) contentWidth / count else 0f
 
-    private val preDrawListener = ViewTreeObserver.OnPreDrawListener {
+    private val preDrawListener = ViewTreeObserver.OnPreDrawListener { HostThreadGuard.call("host.bottom.dock.predraw", true) {
         if (disposed) return@OnPreDrawListener true
         refreshTabSlots()
         refreshMaterial()
@@ -131,14 +139,14 @@ internal class HostBottomBarDockLayer(
             reboundTo(null, scrubbed = false)
         }
         true
-    }
+    } }
 
     private fun refreshMaterial() {
         val colors = theme.read()
         val changed = colors != materialColors
         backdrop?.updatePalette(colors)
         if (config.liquidGlass && (changed || backdrop?.owns(tabHost) != true)) {
-            backdrop?.floating(tabHost, colors.dark, config.heightDp / 2f)
+            backdrop?.floating(tabHost, colors.dark, radiusDp)
         }
         if (config.liquidGlass && (changed || backdrop?.owns(selectionView) != true)) {
             backdrop?.surface(selectionView, HostSurfaceStyle.selection(colors.dark))
@@ -174,30 +182,33 @@ internal class HostBottomBarDockLayer(
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        refreshTabSlots(requestMeasure = false)
         val measuredW = MeasureSpec.getSize(widthMeasureSpec)
         val measuredH = MeasureSpec.getSize(heightMeasureSpec)
         setMeasuredDimension(measuredW, measuredH)
+        HostThreadGuard.run("host.bottom.dock.measure") {
+            refreshTabSlots(requestMeasure = false)
+            val availableW = (measuredW - inset * 2f).coerceAtLeast(0f)
+            val itemW = if (count > 0) (availableW / count).roundToInt() else 0
+            val itemH = (measuredH - inset * 2f).roundToInt().coerceAtLeast(0)
 
-        val availableW = (measuredW - inset * 2f).coerceAtLeast(0f)
-        val itemW = if (count > 0) (availableW / count).roundToInt() else 0
-        val itemH = (measuredH - inset * 2f).roundToInt().coerceAtLeast(0)
-
-        selectionView.measure(
-            MeasureSpec.makeMeasureSpec(itemW, MeasureSpec.EXACTLY),
-            MeasureSpec.makeMeasureSpec(itemH, MeasureSpec.EXACTLY)
-        )
-        glowView.measure(
-            MeasureSpec.makeMeasureSpec(measuredW, MeasureSpec.EXACTLY),
-            MeasureSpec.makeMeasureSpec(measuredH, MeasureSpec.EXACTLY)
-        )
+            selectionView.measure(
+                MeasureSpec.makeMeasureSpec(itemW, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(itemH, MeasureSpec.EXACTLY)
+            )
+            glowView.measure(
+                MeasureSpec.makeMeasureSpec(measuredW, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(measuredH, MeasureSpec.EXACTLY)
+            )
+        }
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
-        val topInset = inset.roundToInt()
-        selectionView.layout(topInset, topInset, topInset + selectionView.measuredWidth, topInset + selectionView.measuredHeight)
-        glowView.layout(0, 0, width, height)
-        applyVisuals()
+        HostThreadGuard.run("host.bottom.dock.layout") {
+            val topInset = inset.roundToInt()
+            selectionView.layout(topInset, topInset, topInset + selectionView.measuredWidth, topInset + selectionView.measuredHeight)
+            glowView.layout(0, 0, width, height)
+            applyVisuals()
+        }
     }
 
     /** 通过 View 属性同步位移和缩放，只有位置变化才通知引擎更新采样。 */
@@ -256,8 +267,18 @@ internal class HostBottomBarDockLayer(
         shadow?.sync(materialColors.dark)
     }
 
+    /**
+     * 宿主 View 触摸监听的入口：手势状态归模块，由守卫兜底；松手时替宿主点击 tab，那段的异常
+     * 属于宿主，手势收尾后原样抛回。
+     */
+    fun dispatchTouch(event: MotionEvent, tabIndex: Int = -1): Boolean {
+        val handled = HostThreadGuard.call("host.bottom.touch", false) { handleTouch(event, tabIndex) }
+        hostClicks.rethrow()
+        return handled
+    }
+
     /** 把点击交还宿主，拖动只预览页面并在松手时决定落点。 */
-    fun handleTouch(event: MotionEvent, tabIndex: Int = -1): Boolean {
+    private fun handleTouch(event: MotionEvent, tabIndex: Int = -1): Boolean {
         if (disposed || !isEnabled || width <= 0) return false
         refreshTabSlots()
         if (tabSlots.count == 0 || tabIndex >= 0 && tabSlots.slotOf(tabIndex) < 0) return false
@@ -401,16 +422,18 @@ internal class HostBottomBarDockLayer(
             duration = HostNavigationMotion.SPRING_DURATION_MS
             interpolator = LinearInterpolator()
             addUpdateListener {
-                if (token == pressGeneration) {
-                    val seconds = it.animatedFraction * HostNavigationMotion.SPRING_DURATION_MS / 1000f
-                    press = spring.value(seconds).coerceIn(0f, 1f)
-                    pressVelocity = spring.velocity(seconds)
-                    applyVisuals()
+                HostThreadGuard.run("host.bottom.press.frame") {
+                    if (token == pressGeneration) {
+                        val seconds = it.animatedFraction * HostNavigationMotion.SPRING_DURATION_MS / 1000f
+                        press = spring.value(seconds).coerceIn(0f, 1f)
+                        pressVelocity = spring.velocity(seconds)
+                        applyVisuals()
+                    }
                 }
             }
             addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    if (token != pressGeneration) return
+                override fun onAnimationEnd(animation: Animator) = HostThreadGuard.run("host.bottom.press.end") {
+                    if (token != pressGeneration) return@run
                     pressAnimator = null
                     press = target
                     pressVelocity = 0f
@@ -464,22 +487,24 @@ internal class HostBottomBarDockLayer(
             duration = HostNavigationMotion.SPRING_DURATION_MS
             interpolator = LinearInterpolator()
             addUpdateListener {
-                if (token != reboundGeneration) return@addUpdateListener
-                val seconds = it.animatedFraction * HostNavigationMotion.SPRING_DURATION_MS / 1000f
+                HostThreadGuard.run("host.bottom.rebound.frame") {
+                    if (token != reboundGeneration) return@run
+                    val seconds = it.animatedFraction * HostNavigationMotion.SPRING_DURATION_MS / 1000f
 
-                offsetX = springX.value(seconds)
-                offsetY = springY.value(seconds)
-                offsetVelocityX = springX.velocity(seconds)
-                offsetVelocityY = springY.velocity(seconds)
+                    offsetX = springX.value(seconds)
+                    offsetY = springY.value(seconds)
+                    offsetVelocityX = springX.velocity(seconds)
+                    offsetVelocityY = springY.velocity(seconds)
 
-                if (indicatorSettling) {
-                    displayedPosition = HostNavigationMotion.position(indicatorSpring.value(seconds), count)
+                    if (indicatorSettling) {
+                        displayedPosition = HostNavigationMotion.position(indicatorSpring.value(seconds), count)
+                    }
+                    applyVisuals()
                 }
-                applyVisuals()
             }
             addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    if (token != reboundGeneration) return
+                override fun onAnimationEnd(animation: Animator) = HostThreadGuard.run("host.bottom.rebound.end") {
+                    if (token != reboundGeneration) return@run
                     reboundAnimator = null
                     offsetX = 0f
                     offsetY = 0f
@@ -515,20 +540,25 @@ internal class HostBottomBarDockLayer(
             val listener = publish as? View.OnTouchListener ?: return false
             val now = SystemClock.uptimeMillis()
             val event = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, publish.width / 2f, publish.height / 2f, 0)
-            try {
-                listener.onTouch(publish, event)
-                event.action = MotionEvent.ACTION_UP
-                listener.onTouch(publish, event)
-            } finally {
-                event.recycle()
+            hostClicks.host {
+                try {
+                    listener.onTouch(publish, event)
+                    event.action = MotionEvent.ACTION_UP
+                    listener.onTouch(publish, event)
+                } finally {
+                    event.recycle()
+                }
             }
             return false
         }
-        if (tab.performClick()) return true
-        (tab as? ViewGroup)?.let { vg ->
-            for (i in 0 until vg.childCount) {
-                val child = vg.getChildAt(i)
-                if (child.isShown && child.isEnabled && child.performClick()) return true
+        // 第一次点击抛异常就停，不再往子 View 补点；异常由 dispatchTouch 抛回。
+        hostClicks.host {
+            if (tab.performClick()) return true
+            (tab as? ViewGroup)?.let { vg ->
+                for (i in 0 until vg.childCount) {
+                    val child = vg.getChildAt(i)
+                    if (child.isShown && child.isEnabled && child.performClick()) return true
+                }
             }
         }
         return false
@@ -586,28 +616,34 @@ internal class HostBottomBarDockLayer(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        if (w != oldw || h != oldh) {
-            resetInteraction()
-            if (isAttachedToWindow) backdrop?.revalidate()
+        HostThreadGuard.run("host.bottom.dock.size") {
+            if (w != oldw || h != oldh) {
+                resetInteraction()
+                if (isAttachedToWindow) backdrop?.revalidate()
+            }
         }
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        disposed = false
-        hero.invalidate()
-        container?.viewTreeObserver?.addOnPreDrawListener(preDrawListener)
-        container?.viewTreeObserver?.addOnGlobalLayoutListener(heroLayoutListener)
-        backdrop?.attach(tabHost)
+        HostThreadGuard.run("host.bottom.dock.attach") {
+            disposed = false
+            hero.invalidate()
+            container?.viewTreeObserver?.addOnPreDrawListener(preDrawListener)
+            container?.viewTreeObserver?.addOnGlobalLayoutListener(heroLayoutListener)
+            backdrop?.attach(tabHost)
+        }
     }
 
     override fun onDetachedFromWindow() {
-        container?.viewTreeObserver?.removeOnPreDrawListener(preDrawListener)
-        container?.viewTreeObserver?.removeOnGlobalLayoutListener(heroLayoutListener)
-        hero.restore()
-        resetInteraction()
-        backdrop?.detach()
-        shadow?.detach()
+        HostThreadGuard.run("host.bottom.dock.detach") {
+            container?.viewTreeObserver?.removeOnPreDrawListener(preDrawListener)
+            container?.viewTreeObserver?.removeOnGlobalLayoutListener(heroLayoutListener)
+            hero.restore()
+            resetInteraction()
+            backdrop?.detach()
+            shadow?.detach()
+        }
         super.onDetachedFromWindow()
     }
 }

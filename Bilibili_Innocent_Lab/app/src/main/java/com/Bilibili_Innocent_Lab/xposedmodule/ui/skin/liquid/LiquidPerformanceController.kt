@@ -2,7 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid
 
 import android.content.Context
 import androidx.annotation.MainThread
-import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 
 internal interface LiquidPerformanceHintSession : AutoCloseable {
     val isActive: Boolean

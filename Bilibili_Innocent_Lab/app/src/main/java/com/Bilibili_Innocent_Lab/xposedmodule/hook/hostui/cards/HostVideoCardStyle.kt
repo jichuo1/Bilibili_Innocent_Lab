@@ -7,6 +7,7 @@ import android.util.SparseIntArray
 import android.util.TypedValue
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
@@ -111,7 +112,7 @@ internal class HostVideoCardStyle(
     }
     private val attachListener = object : View.OnAttachStateChangeListener {
         override fun onViewAttachedToWindow(view: View) = safelyApply(view)
-        override fun onViewDetachedFromWindow(view: View) {
+        override fun onViewDetachedFromWindow(view: View) = HostThreadGuard.run("host.card.detach") {
             states[view]?.let { state ->
                 state.surfaceScope?.get()?.release(view)
                 state.surfaceScope = null
@@ -150,19 +151,19 @@ internal class HostVideoCardStyle(
             observer = null
         }
 
-        override fun onViewAttachedToWindow(view: View) = start()
-        override fun onViewDetachedFromWindow(view: View) {
+        override fun onViewAttachedToWindow(view: View) = HostThreadGuard.run("host.card.list.attach") { start() }
+        override fun onViewDetachedFromWindow(view: View) = HostThreadGuard.run("host.card.list.detach") {
             stop()
             surfaces?.close()
             surfaces = null
         }
 
-        override fun onPreDraw(): Boolean {
-            val list = parent.get() ?: return true
-            if (!HostViewVisibility.visible(list, visibleBounds) || isInPlayer(list)) return true
+        override fun onPreDraw(): Boolean = HostThreadGuard.call("host.card.list.predraw", true) {
+            val list = parent.get() ?: return@call true
+            if (!HostViewVisibility.visible(list, visibleBounds) || isInPlayer(list)) return@call true
             val night = host.isNight(list.context)
             background?.apply(list, night)
-            if (!decorateCards) return true
+            if (!decorateCards) return@call true
             surfaces?.refresh(night)
             val color = HostVideoCardSurface.color(night, list.context)
             // 宿主换肤可能同时替换列表背景和卡片背景，当前帧绘制前一并恢复。
@@ -189,7 +190,7 @@ internal class HostVideoCardStyle(
                 }
                 if (changed) safelyApply(root, night)
             }
-            return true
+            true
         }
     }
 

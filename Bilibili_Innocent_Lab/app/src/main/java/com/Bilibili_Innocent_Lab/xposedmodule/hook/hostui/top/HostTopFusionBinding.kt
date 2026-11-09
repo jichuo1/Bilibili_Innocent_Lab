@@ -9,6 +9,7 @@ import android.view.ViewTreeObserver
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.view.ViewCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.lumen.coacervation.engine.model.LumenPalette
 
 /**
@@ -115,7 +116,7 @@ internal class HostTopFusionBinding private constructor(
         unobserve(container)
         if (!current.isAlive) return
         val listener = android.view.ViewTreeObserver.OnPreDrawListener {
-            sync()
+            HostThreadGuard.call("host.top.fusion.predraw", true) { sync() }
         }
         current.addOnPreDrawListener(listener)
         observer = current
@@ -137,12 +138,12 @@ internal class HostTopFusionBinding private constructor(
     private fun install() {
         observe()
         container.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) {
+            override fun onViewAttachedToWindow(v: View) = HostThreadGuard.run("host.top.fusion.attach") {
                 observe()
                 sync()
             }
 
-            override fun onViewDetachedFromWindow(v: View) {
+            override fun onViewDetachedFromWindow(v: View) = HostThreadGuard.run("host.top.fusion.detach") {
                 restoreStatusBar()
                 unobserve(v)
             }

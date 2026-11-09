@@ -8,7 +8,7 @@ import androidx.core.content.edit
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
-import com.highcapable.betterandroid.ui.extension.view.textColor
+import io.github.jichuo1.meguviz.android.extensions.textColor
 
 internal fun MainActivity.commentReplyButtonSettingsRows(
     performer: LinearSettingsScope,

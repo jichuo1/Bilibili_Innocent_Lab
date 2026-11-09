@@ -25,7 +25,9 @@ env:
 
 jobs:
   verify:
-    if: github.ref == 'refs/heads/Advanced'
+    # Advanced 分支推送自动验证；手动运行（workflow_dispatch）可对任意分支做同一套门禁。
+    # 只读：缓存快照只在 Advanced 上保存（见下方 Save verified Gradle snapshot）。
+    if: github.ref == 'refs/heads/Advanced' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:
@@ -75,19 +77,19 @@ jobs:
           . "$HOME/.cargo/env"
           rustup target add aarch64-linux-android armv7-linux-androideabi
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - name: Build, test, lint and validate release minification
+      - name: Build, test and validate release minification
         id: build
         working-directory: .
-        run: python3 .github/release-templates/run_gradle_gates.py --project-root Bilibili_Innocent_Lab --compile-sdk "$CI_COMPILE_SDK" --jvmargs="$CI_GRADLE_JVMARGS"
+        run: python3 .github/release-templates/run_gradle_gates.py --project-root Bilibili_Innocent_Lab --partition build --compile-sdk "$CI_COMPILE_SDK" --jvmargs="$CI_GRADLE_JVMARGS"
       - name: Collect complete verification evidence
         id: reports
         if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
         working-directory: .
         env:
           BUILD_OUTCOME: ${{ steps.build.outcome }}
-        run: python3 .github/release-templates/collect_verification_reports.py --build-outcome "$BUILD_OUTCOME"
+        run: python3 .github/release-templates/collect_verification_reports.py --partition build --build-outcome "$BUILD_OUTCOME"
 
-      - name: Upload test and lint reports
+      - name: Upload test reports
         if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
         uses: actions/upload-artifact@v7.0.2
         with:
@@ -112,3 +114,12 @@ jobs:
           name: advanced-debug-${{ github.sha }}
           retention-days: 14
           path: Bilibili_Innocent_Lab/app/build/outputs/apk/debug/app-debug.apk
+
+  # lint 与 verify 同时开始（不 needs verify），在另一台 runner 上跑完整 lint；
+  # 本工作流只做验证，两个作业各自出结论。逻辑见 android-lint.yml 顶部的说明。
+  lint:
+    name: Full Android Lint
+    if: github.ref == 'refs/heads/Advanced' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/android-lint.yml

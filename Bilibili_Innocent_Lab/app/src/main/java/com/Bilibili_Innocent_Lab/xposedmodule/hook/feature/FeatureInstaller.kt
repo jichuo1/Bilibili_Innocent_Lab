@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.StartupTrace
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import java.lang.reflect.Constructor
@@ -45,6 +46,44 @@ internal interface HookRegistrar {
         constructor: Constructor<*>,
         block: ModernMemberHookCreator.() -> Unit
     )
+}
+
+/**
+ * 把经它登记的每个 Hook 的“故障归属”设为所属功能；其余行为原样委托。
+ * 回调里逃出的异常因此能计入该功能的运行时错误证据（见 `HookFaultBridge`）。
+ */
+internal class FeatureScopedRegistrar(
+    private val base: HookRegistrar,
+    private val featureId: String
+) : HookRegistrar {
+    private fun owned(block: ModernMemberHookCreator.() -> Unit): ModernMemberHookCreator.() -> Unit = {
+        faultOwner = featureId
+        block()
+    }
+
+    override fun first(id: String, className: String, methodName: String, block: ModernMemberHookCreator.() -> Unit) =
+        base.first(id, className, methodName, owned(block))
+
+    override fun all(id: String, className: String, methodName: String, block: ModernMemberHookCreator.() -> Unit) =
+        base.all(id, className, methodName, owned(block))
+
+    override fun exact(
+        id: String,
+        owner: Class<*>,
+        methodName: String,
+        vararg parameterTypes: Class<*>,
+        block: ModernMemberHookCreator.() -> Unit
+    ) = base.exact(id, owner, methodName, *parameterTypes, block = owned(block))
+
+    override fun adapted(
+        id: String,
+        point: VersionAdapter.HookPoint,
+        exceptionPolicy: HookExceptionPolicy,
+        block: ModernMemberHookCreator.() -> Unit
+    ) = base.adapted(id, point, exceptionPolicy, owned(block))
+
+    override fun constructor(id: String, constructor: Constructor<*>, block: ModernMemberHookCreator.() -> Unit) =
+        base.constructor(id, constructor, owned(block))
 }
 
 /** 每个功能安装器的最小边界；安装失败不影响后续功能。 */
@@ -143,6 +182,7 @@ internal class FeatureInstallCoordinator(
             val installedPhase = java.util.concurrent.atomic.AtomicBoolean(false)
             val planned = runCatching { installer.capabilityIds.toSet() }.getOrDefault(emptySet())
             val scoped = environment.copy(
+                registrar = FeatureScopedRegistrar(environment.registrar, installer.id),
                 runtimePhase = { installedPhase.get() },
                 logError = { key, message ->
                     if (installedPhase.get()) environment.reportRuntimeEvidence(installer.id, FeatureRuntimeStage.ERROR)
@@ -154,7 +194,7 @@ internal class FeatureInstallCoordinator(
                     reported += id
                 }
             })
-            val record = runCatching { installer.install(scoped) }
+            val record = runCatching { StartupTrace.measure("feature.${installer.id}") { installer.install(scoped) } }
                 .fold(
                     onSuccess = { result ->
                         FeatureInstallRecord(installer.id, result, failure = null)

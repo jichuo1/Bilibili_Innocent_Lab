@@ -23,7 +23,8 @@ def generate(repo: Path, tag: str, commit: str, before: str = "") -> str:
     else:
         args.extend(["-n", "1", commit])
     subjects = subprocess.check_output(args,cwd=repo,text=True,encoding="utf-8").splitlines()
-    entries = list(dict.fromkeys(translate_subject(subject) for subject in subjects if not is_build_maintenance(subject)))
+    # translate_subject() returns None when it has no rule for a subject (e.g. `revert(...)`): keep the original.
+    entries = list(dict.fromkeys(translate_subject(subject) or subject for subject in subjects if not is_build_maintenance(subject)))
     if not entries:
         entries = ["本次主要验证构建与集成状态。"]
     body = "\n".join("- " + escape_markdown_text(entry) for entry in entries[:12])

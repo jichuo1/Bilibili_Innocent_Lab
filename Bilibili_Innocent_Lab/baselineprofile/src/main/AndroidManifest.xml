@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The tested app is visible through the instrumentation target; no extra permissions are needed. -->
+
+</manifest>
