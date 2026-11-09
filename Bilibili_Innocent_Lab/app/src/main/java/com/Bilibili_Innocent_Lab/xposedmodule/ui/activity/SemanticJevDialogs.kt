@@ -495,7 +495,8 @@ private fun MainActivity.createSemanticKeyRow(field: NativeEditText): View {
     }
     var visible = false
     fun refresh() {
-        counter.text = "${field.text?.length ?: 0} / ${RemoteHookConfigContract.MAX_SEMANTIC_JEV_API_KEY_LENGTH}"
+        counter.text = getString(R.string.semantic_jev_api_key_counter,
+            field.text?.length ?: 0, RemoteHookConfigContract.MAX_SEMANTIC_JEV_API_KEY_LENGTH)
         toggle.text = getString(if (visible) R.string.semantic_jev_api_key_hide else R.string.semantic_jev_api_key_show)
     }
     toggle.setOnClickListener {
