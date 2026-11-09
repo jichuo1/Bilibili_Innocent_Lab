@@ -204,7 +204,8 @@ internal object InsightProtocol {
         if (!links.all { link -> (mode == InsightMode.SUMMARY && sectioned(context) && link.second == 0) || context.cues.any {
             link.second.toDouble() in kotlin.math.floor(it.start)..kotlin.math.ceil(it.end)
         } }) throw InsightValidationException("time-reference", "时间引用须落在所给字幕覆盖范围内。")
-        if (bareTime.containsMatchIn(output.text))
+        // 只有完全没有可点击的时间标记时才拒绝裸时分秒；已有合法 [[t:]] 时附加的普通时间表述保留为纯文本。
+        if (bareTime.containsMatchIn(output.text) && links.isEmpty())
             throw InsightValidationException("bare-time", if (context.timed)
                 "片段时间使用 [[t:整数秒]]，省略无法定位的时分秒写法。"
                 else "当前无可用字幕，省略全部时间引用及标记，只保留可证实信息与无法定位的范围说明。")
@@ -218,9 +219,11 @@ internal object InsightProtocol {
             "object" -> {
                 if (value !is JSONObject) reject("shape-type", "必须为对象。")
                 val properties = shape.getJSONObject("properties")
-                if (value.keys().asSequence().toSet() != properties.keys().asSequence().toSet())
-                    reject("shape-fields", "只能包含字段 ${properties.keys().asSequence().joinToString()}，且须全部提供。")
-                for (key in properties.keys()) validateShape(value.get(key), properties.getJSONObject(key), key)
+                // 只要求必需字段齐全并逐个校验；中转或模型多给字段不再整份拒绝。
+                for (key in properties.keys()) {
+                    if (!value.has(key)) reject("shape-fields", "缺少字段 $key。")
+                    validateShape(value.get(key), properties.getJSONObject(key), key)
+                }
             }
             "array" -> {
                 if (value !is JSONArray) reject("shape-type", "必须为数组。")

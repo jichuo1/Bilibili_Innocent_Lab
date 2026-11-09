@@ -1,7 +1,28 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <string name="ai_insight_title">AI Insight video assistant</string>
     <string name="ai_insight_auto_chapters">Generate native chapters automatically</string>
-    <string name="ai_insight_help">Experimental; restart Bilibili after changing. Adds Summary, Ask, Topics and Chapters to the detail page, generated only when tapped. Sends the current part\'s subtitles, title, description and up to 12 loaded comments and danmaku to the first text model below; Topics reads up to 40 comments. Without subtitles only metadata is used. Results are cached on this device. Native chapters need subtitles, at least 3 minutes and no official chapters.</string>
+    <string name="ai_insight_help">Experimental; restart Bilibili after changing. Adds Summary, Ask, Topics and Chapters to the detail page, generated only when tapped. Sends the current part\'s subtitles, title, description and up to 12 loaded comments and danmaku to the dedicated model in "AI Insight service config"; Topics reads up to 40 comments. Without subtitles only metadata is used. Results are cached on this device. Native chapters need subtitles, at least 3 minutes and no official chapters.</string>
+    <string name="ai_insight_protocol">API protocol</string>
+    <string name="ai_insight_protocol_openai">OpenAI-compatible (chat/completions)</string>
+    <string name="ai_insight_protocol_anthropic">Anthropic Messages</string>
+    <string name="ai_insight_base_url">Base URL</string>
+    <string name="ai_insight_base_url_hint">Domain or full URL, e.g. api.openai.com</string>
+    <string name="ai_insight_model">Model</string>
+    <string name="ai_insight_service_title">AI Insight service config</string>
+    <string name="ai_insight_service_summary_unconfigured">Not configured. Tap to set a dedicated model</string>
+    <string name="ai_insight_service_summary_configured">%1$s: %2$s</string>
+    <string name="ai_insight_service_effective">Effective request: %1$s (%2$s)</string>
+    <string name="ai_insight_service_help">Used only by AI Insight, separate from the smart-filter judge sources, and never called automatically in the background. Supports OpenAI-compatible (/chat/completions) and Anthropic Messages (/v1/messages); a bare domain gets https. The API key stays on this device and is excluded from backups and diagnostics. Restart Bilibili after saving.</string>
+    <string name="ai_insight_service_import">Import from a judge source</string>
+    <string name="ai_insight_service_imported">Imported from a judge source. Review and save.</string>
+    <string name="ai_insight_service_import_none">No configured chat model to import</string>
+    <string name="ai_insight_service_invalid">Fill in Base URL, API key and model with a valid https endpoint.</string>
+    <string name="ai_insight_output_budget">Output budget (tokens)</string>
+    <string name="ai_insight_output_budget_help">Maximum output tokens per generation, 256–8192, default 8192. Lower costs less, but long summaries or chapters may be cut short.</string>
+    <string name="ai_insight_timeout">Request timeout (seconds)</string>
+    <string name="ai_insight_timeout_help">30–300 seconds, default 180. The timer restarts whenever streamed output arrives, so generation is not cut off midway.</string>
+    <string name="ai_insight_value_hint">Leave empty for default</string>
+    <string name="ai_insight_tuning_invalid">Output budget must be 256–8192 and timeout 30–300 seconds.</string>
     <string name="app_name">Bilibili_Innocent_Lab</string>
     <string name="xposed_desc">A cleaner, more complete Bilibili interface</string>
     <string name="about_module">This module uses libxposed Modern API 102.\nLearn more https://github.com/libxposed/api</string>
@@ -1196,10 +1217,10 @@
     <string name="semantic_jev_settings">AI semantic judging</string>
     <string name="semantic_jev_summary_unconfigured">Not configured</string>
     <string name="semantic_jev_summary_configured">Configured · %1$s · %2$s</string>
-    <string name="semantic_jev_tip">Provides the service used by smart filters. When a smart filter is on, the text being judged (dynamic text only, never your account, cookies or user IDs) is sent to the endpoint below. The API key stays on this device, is excluded from settings backups and diagnostics, and is only passed to Bilibili so it can make the request. Restart Bilibili to apply.</string>
+    <string name="semantic_jev_tip">Judges content for smart filters, separately from the AI Insight service. With a smart filter on, dynamic text to judge (never your account, cookies or user ID) is sent to the judge sources automatically in the background; with several sources the same content may go to more than one and be billed more than once. Each filter can pick its own source. The API key stays on this device and is excluded from backups and diagnostics. Restart Bilibili to apply.</string>
     <string name="semantic_jev_api_key">API key</string>
     <string name="semantic_jev_endpoint">Endpoint</string>
-    <string name="semantic_jev_endpoint_invalid">The endpoint must be an http(s) address</string>
+    <string name="semantic_jev_endpoint_invalid">Invalid endpoint. Enter a domain or a full http(s) URL.</string>
     <string name="semantic_jev_sensitivity">Sensitivity</string>
     <string name="semantic_jev_sensitivity_low">Low · only hide what JEV is very sure about</string>
     <string name="semantic_jev_sensitivity_medium">Medium · balanced (recommended)</string>
@@ -1227,8 +1248,12 @@
     <string name="semantic_rules_dialog_tip">Tick the types to hide. Changing the selection discards earlier judgements for this filter, so nothing chosen before keeps applying.</string>
     <string name="semantic_jev_api_key_hint_short">Paste API key</string>
     <string name="semantic_jev_api_key_help">Key for the selected service (TypeSafe, a compatible relay, or an OpenAI-compatible provider). Stored only on this device and never backed up.</string>
+    <string name="semantic_jev_api_key_show">Show</string>
+    <string name="semantic_jev_api_key_hide">Hide</string>
+    <string name="semantic_jev_api_key_counter">%1$d / %2$d</string>
+    <string name="semantic_jev_field_too_long">Content exceeds the %1$d-character limit; check that it was pasted in full.</string>
     <string name="semantic_jev_endpoint_hint_short">Leave empty for official</string>
-    <string name="semantic_jev_endpoint_help">JEV: empty means api.typesafe.ai; a host alone gets /v1/systemone. OpenAI-compatible: empty means api.openai.com; a base URL such as https://api.deepseek.com or …/compatible-mode/v1 gets /chat/completions appended. Cloudflare: paste the 32-character account ID, or an api.cloudflare.com / AI Gateway address. OpenRouter decision models (e.g. span-01-lite:free): choose JEV and enter https://openrouter.ai; the Decisions API is used automatically.</string>
+    <string name="semantic_jev_endpoint_help">JEV: empty means api.typesafe.ai; a bare domain gets https and /v1/systemone. OpenAI-compatible: empty means api.openai.com; a base URL such as https://api.deepseek.com gets /chat/completions. Cloudflare: the 32-character account ID, or an api.cloudflare.com / AI Gateway address. OpenRouter judge models (e.g. span-01-lite:free): choose JEV and enter https://openrouter.ai.</string>
     <string name="semantic_rule_dynamic_lottery">Lottery</string>
     <string name="semantic_rule_dynamic_lottery_desc">Repost or comment giveaways and prize announcements</string>
     <string name="semantic_rule_dynamic_goods">Shopping</string>
@@ -1362,7 +1387,7 @@
     <string name="semantic_short_guidance">Empty = default guidance.</string>
     <string name="semantic_short_provider">Not sure which one? Tap ⓘ at the top.</string>
     <string name="semantic_short_key">Stays on this device, never backed up.</string>
-    <string name="semantic_short_endpoint">Empty = default; a bare domain works.</string>
+    <string name="semantic_short_endpoint">Empty = default; a bare domain works (https assumed).</string>
     <string name="semantic_short_model">Optional for JEV, required otherwise.</string>
     <string name="semantic_short_route">Auto balance by speed, or pin one source.</string>
     <string name="semantic_short_custom">Say what it does not cover to avoid wrong removals.</string>
@@ -1433,7 +1458,7 @@
     <string name="agent_help">The assistant can click, scroll, enter ordinary text and go back in Bilibili after you enable its accessibility service. Without it, search and video tools remain available. Passwords, identity verification and payments are protected. Your goal and necessary on-screen content go to selected APIs. Use Stop to take over. Time and step budgets can be unlimited.</string>
     <string name="agent_enable">Enable host task interface</string>
     <string name="agent_restart_hint">Restart Bilibili to apply this interface setting</string>
-    <string name="agent_configure_sources">Configure API sources (up to 8)</string>
+    <string name="agent_configure_sources">Configure smart-filter judge sources (up to 8)</string>
     <string name="agent_source_scope">Sources allowed for this task</string>
     <string name="agent_source_capability">Source %1$d · %2$s\nTools: %3$s   Decisions: %4$s\nVision: %5$s   Text planning: %6$s</string>
     <string name="agent_detected">Verified</string>

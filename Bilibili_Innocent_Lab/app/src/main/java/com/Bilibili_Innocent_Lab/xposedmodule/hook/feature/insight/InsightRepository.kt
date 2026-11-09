@@ -10,9 +10,13 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 
+/** 一次生成的用量，只附在本次结果上供面板显示，不落盘、不进缓存文件。 */
+internal data class InsightUsage(val inputTokens: Long, val outputTokens: Long)
+
 /** 只存生成结果，不持久化原始字幕、评论、问题或凭据。按视频+分 P+模型+协议隔离。 */
 internal class InsightCache(private val directory: File, private val clock: () -> Long = System::currentTimeMillis) {
-    data class Entry(val output: InsightOutput, val duration: Int, val timed: Boolean)
+    data class Entry(val output: InsightOutput, val duration: Int, val timed: Boolean,
+        val usage: InsightUsage? = null)
     private val memory = object : LinkedHashMap<String, Entry>(16, .75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Entry>?) = size > 32
     }
@@ -77,9 +81,11 @@ internal class InsightCache(private val directory: File, private val clock: () -
 internal class InsightRepository(
     private val source: AgentModelSource, private val cache: InsightCache,
     private val context: (InsightVideo) -> InsightContext,
-    private val client: AgentModelClient = AgentModelClient(outputTokenBudget = 8192, inputTextLimit = InsightProtocol.MAX_CONTEXT),
+    private val client: AgentModelClient = AgentModelClient(outputTokenBudget = 8192,
+        inputTextLimit = InsightProtocol.MAX_CONTEXT, allowReasoningParams = false),
     private val trace: (String) -> Unit = {},
-    private val contextRevision: () -> Long = { 0L }
+    private val contextRevision: () -> Long = { 0L },
+    private val timeoutMs: Int = DEFAULT_TIMEOUT_MS
 ) {
     private var loaded: InsightContext? = null
     private var loadedAt = 0L
@@ -119,37 +125,44 @@ internal class InsightRepository(
             val original = JSONArray().put(JSONObject().put("role", "system").put("content", InsightProtocol.system(mode, input)))
                 .put(JSONObject().put("role", "user").put("content", prompt))
             var messages = original
-            val deadline = System.nanoTime() + 90_000_000_000L
             var decoded: InsightOutput? = null
+            // 修正重放会再发一次请求，两次用量都真实产生，累加后随本次结果回显，不落盘。
+            var usage: InsightUsage? = null
             for (attempt in 0..1) {
                 stage = "model"
-                val remaining = ((deadline - System.nanoTime()) / 1_000_000L).coerceAtMost(90_000).toInt()
-                if (remaining <= 0) throw AgentModelException(AgentModelException.Reason.TIMEOUT)
-                val preview = onProgress?.let { InsightStreamText(mode, input) }
+                // 每次生成独立计时；修正重放不能只拿到上一轮的残余时间。
+                val remaining = timeoutMs
+                // 修正重放不覆盖第一次已经显示给用户的正文，也不发送增量预览。
+                val preview = if (attempt == 0) onProgress?.let { InsightStreamText(mode, input) } else null
                 var previous = ""
                 val turn = client.generateStructuredStreaming(source, messages, InsightProtocol.schema(mode, input), remaining, cancelled) { delta ->
                     check(!cancelled())
-                    preview?.let { projection ->
-                        val text = projection.append(delta)
-                        if (text != previous) { previous = text; onProgress.invoke(text) }
+                    if (preview != null) {
+                        val text = preview.append(delta)
+                        if (text != previous) { previous = text; onProgress?.invoke(text) }
                     }
+                }
+                turn.usage?.let { u ->
+                    usage = InsightUsage((usage?.inputTokens ?: 0) + u.inputTokens,
+                        (usage?.outputTokens ?: 0) + u.outputTokens)
                 }
                 check(!cancelled())
                 stage = "decode"
                 try {
-                    decoded = InsightProtocol.decode(mode, turn.text, input)
+                    decoded = decodeChecked(mode, turn.text, input)
                     break
                 } catch (invalid: InsightValidationException) {
-                    if (attempt != 0 || cancelled()) throw invalid
+                    // 结构或 JSON 完全认不出时不重放，避免为明显无效的输出再付一次模型请求。
+                    if (attempt != 0 || cancelled() || invalid.rule in NON_REPAIRABLE_RULES) throw invalid
                     trace("repair mode=$mode rule=${invalid.rule}")
-                    onProgress?.invoke("")
-                    // 只反馈本地固定约束；不保留错误回答，避免把它锚定进材料或问答历史。
+                    // 不清空预览：第一次的正文留在面板上，直到修正结果或明确失败为止。
                     messages = JSONArray(original.toString()).put(JSONObject().put("role", "user")
                         .put("content", "本地校验拒绝上次输出：${invalid.hint} 请据原材料修正输出。"))
                 }
             }
-            val result = InsightCache.Entry(checkNotNull(decoded), input.duration, input.timed)
-            if (mode != InsightMode.ASK) cache.write(key, result)
+            val result = InsightCache.Entry(checkNotNull(decoded), input.duration, input.timed, usage)
+            // 缓存只存结果本身，不把本次用量写进磁盘；缓存命中时 usage 为 null，不显示用量。
+            if (mode != InsightMode.ASK) cache.write(key, result.copy(usage = null))
             trace("success mode=$mode timed=${result.timed}")
             return result
         } catch (error: Exception) {
@@ -161,5 +174,25 @@ internal class InsightRepository(
             trace("failure mode=$mode stage=$stage reason=$reason")
             throw error
         }
+    }
+
+    /** 所有模型输出契约问题统一成可修正的校验异常，避免只有一种异常能进入修正流程。 */
+    private fun decodeChecked(mode: InsightMode, raw: String, input: InsightContext): InsightOutput = try {
+        InsightProtocol.decode(mode, raw, input)
+    } catch (invalid: InsightValidationException) {
+        throw invalid
+    } catch (invalid: IllegalArgumentException) {
+        throw InsightValidationException("invalid-contract", "输出须为符合字段、数量与长度要求的 JSON。")
+    } catch (invalid: IllegalStateException) {
+        throw InsightValidationException("invalid-response", "输出不是本任务要求的结构化 JSON。")
+    } catch (invalid: org.json.JSONException) {
+        throw InsightValidationException("invalid-json", "输出不是合法 JSON。")
+    }
+
+    companion object {
+        /** 单次生成的时限；两次生成各自独立计时，不再是共享的 90 秒。 */
+        const val DEFAULT_TIMEOUT_MS = 180_000
+        /** 结构或 JSON 完全无法识别时直接失败，不做修正重放。 */
+        private val NON_REPAIRABLE_RULES = setOf("invalid-response", "invalid-json")
     }
 }

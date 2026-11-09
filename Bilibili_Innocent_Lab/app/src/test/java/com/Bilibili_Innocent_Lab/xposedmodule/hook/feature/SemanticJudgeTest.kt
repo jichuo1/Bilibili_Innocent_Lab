@@ -287,7 +287,8 @@ class SemanticJudgeTest {
 
         assertNull(settings(key = "  "))
         assertNull(settings(key = "x".repeat(SemanticJudge.MAX_API_KEY_LENGTH + 1)))
-        assertNull(settings(endpoint = "relay.example.com"))
+        // 只填域名按 https 补全，不再判无效。
+        assertEquals("https://relay.example.com/v1/systemone", settings(endpoint = "relay.example.com")!!.endpoint)
 
         val defaults = settings()!!.judge(SemanticSurface.DYNAMIC, rules)!!
         assertEquals(SemanticJudge.ENDPOINT, defaults.endpoint)
@@ -442,7 +443,8 @@ class SemanticJudgeTest {
         assertEquals("https://relay.example.com/v1/systemone", SemanticJudge.normalizeEndpoint("https://relay.example.com/v1"))
         assertEquals("https://relay.example.com/jev/eval", SemanticJudge.normalizeEndpoint(" https://relay.example.com/jev/eval "))
         assertNull(SemanticJudge.normalizeEndpoint("ftp://relay.example.com"))
-        assertNull(SemanticJudge.normalizeEndpoint("relay.example.com"))
+        assertEquals("https://relay.example.com/v1/systemone", SemanticJudge.normalizeEndpoint("relay.example.com"))
+        assertNull(SemanticJudge.normalizeEndpoint("not a URL"))
     }
 
     @Test

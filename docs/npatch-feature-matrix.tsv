@@ -1,4 +1,4 @@
-# settings=73; capabilities=36
+# settings=74; capabilities=36
 kind	id	installer_group	links	local_scope	manager	embedded	evidence
 setting	ads.game_card.hidden	detail_united_module_purify,game_mentioned_promotion	detail_united_video_mentions_removed,game_mentioned_promotion	-	pending	pending	-
 setting	ads.home_banner.hidden	home_banner	home_banner_feed,home_banner_view	-	pending	pending	-
@@ -6,6 +6,9 @@ setting	ads.merchandise.hidden	detail_united_module_purify,merchandise	detail_un
 setting	ads.pause.hidden	paused_ad	paused_ad	-	pending	pending	-
 setting	ads.video_detail.app_promotion.hidden	detail_app_promotion	detail_promotion_hd,detail_promotion_list,detail_promotion_nest,detail_promotion_related_ad,detail_promotion_related_game	-	pending	pending	-
 setting	agent.enabled	-	-	HOST_GATE	pending	pending	-
+setting	ai_insight.base_url	ai_insight	ai_insight	-	pending	pending	-
+setting	ai_insight.model	ai_insight	ai_insight	-	pending	pending	-
+setting	ai_insight.protocol	ai_insight	ai_insight	-	pending	pending	-
 setting	client.component_library.blocked_pools.rules	block_component_library_download	block_component_library_download	-	pending	pending	-
 setting	client.component_library.blocked_pools.selectors	block_component_library_download	block_component_library_download	-	pending	pending	-
 setting	client.component_library.download.blocked	block_component_library_download	block_component_library_download	-	pending	pending	-
@@ -258,7 +261,7 @@ setting	video.semantic_filter.rules	home_recommend_purify,video_relate_filter	ho
 setting	video.semantic_filter.source	home_recommend_purify,video_relate_filter	home_recommend_semantic_filter_enabled,video_related_semantic_filter_enabled	-	pending	pending	-
 capability	ai_declared_author_block	ai_declared_video_block	video.ai_declared.strong_mode	-	pending	pending	-
 capability	ai_declared_detail_redirect	ai_declared_video_block	video.ai_declared.blocked	-	pending	installed	case:ACCOUNT_GATE
-capability	ai_insight	ai_insight	compat.ai_insight.auto_chapters,compat.ai_insight.enabled	-	pending	pending	-
+capability	ai_insight	ai_insight	ai_insight.base_url,ai_insight.model,ai_insight.protocol,compat.ai_insight.auto_chapters,compat.ai_insight.enabled	-	pending	pending	-
 capability	block_app_update	block_app_update	client.update_prompt.blocked	-	pending	pending	-
 capability	block_component_library_download	block_component_library_download	client.component_library.blocked_pools.rules,client.component_library.blocked_pools.selectors,client.component_library.download.blocked	-	pending	pending	-
 capability	bottom_bar	bottom_bar	host.bottom_bar.compact.enabled,host.bottom_bar.glass.material,host.bottom_bar.glass.renderer,host.bottom_bar.icon_only.enabled,host.bottom_bar.liquid_glass.enabled,host.bottom_bar.touch_glow.enabled,host.mine.garb_dim.enabled,navigation.bottom_bar.hidden_rules,navigation.bottom_bar.hidden_selectors	-	pending	pending	-

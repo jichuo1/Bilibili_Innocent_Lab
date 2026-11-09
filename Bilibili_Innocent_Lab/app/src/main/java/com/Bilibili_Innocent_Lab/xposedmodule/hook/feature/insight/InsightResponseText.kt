@@ -38,6 +38,7 @@ internal class InsightResponseText(private val view: TextView, private val follo
     fun begin(label: String) {
         if (closed) return
         waitingLabel = label; waiting = true; received = false; reveal.clear()
+        content = ""
         view.text = label
         val size = 32.toPx(view.context)
         dots.setBounds(0, 0, size, 16.toPx(view.context))
@@ -57,10 +58,15 @@ internal class InsightResponseText(private val view: TextView, private val follo
         waiting = false; view.setCompoundDrawablesRelative(null, null, null, null)
         show(text, animated = received)
     }
+    /** 失败不抹掉用户已经看到的流式正文；只在末尾追加一段状态说明。 */
     fun fail(text: String) {
         if (closed) return
         waiting = false; received = false; reveal.clear(); stop()
-        view.setCompoundDrawablesRelative(null, null, null, null); view.text = text
+        view.setCompoundDrawablesRelative(null, null, null, null)
+        val existing = content.toString().trimEnd()
+        content = if (existing.isEmpty()) text else SpannableStringBuilder(existing).append("\n\n").append(text)
+        view.text = content
+        follow()
     }
     private fun show(text: CharSequence, animated: Boolean) {
         content = text

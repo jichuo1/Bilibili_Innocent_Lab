@@ -6,6 +6,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.host.HostAgentContentRpc
+import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentModelClient
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentModelSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerClasses
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerLocator
@@ -13,8 +14,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ProtobufBuilderPlan
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticBackend
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor.SponsorVideoId
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
@@ -23,15 +22,14 @@ import java.io.File
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 
-internal object InsightSources {
-    fun resolve(sources: List<SemanticSource>): AgentModelSource? = sources.sortedBy { it.index }.firstNotNullOfOrNull { source ->
-        if (source.backend.id == SemanticBackend.JEV) null else
-            AgentModelSource.from(source.index, source.endpoint, source.apiKey, source.backend.model)
-    }
-}
-
+/**
+ * AI Insight 只接受**一个**由专用配置解析出的对话来源；不再从智能判定的多来源表里挑，
+ * 因此昂贵模型不会被四个自动过滤面重复调用。[source] 为 null 表示专用配置未配好，卡片给出引导。
+ */
 internal class AiInsightFeatureInstaller(private val enabled: Boolean, private val automaticChapters: Boolean,
-    private val sources: List<SemanticSource>, private val cacheRoot: File,
+    private val source: AgentModelSource?, private val cacheRoot: File,
+    private val outputBudget: Int = InsightConfig.DEFAULT_OUTPUT_BUDGET,
+    private val timeoutMs: Int = InsightConfig.DEFAULT_TIMEOUT_MS,
     private val cachedClasses: () -> SponsorPlayerClasses? = { null }) : FeatureInstaller {
     /** 直接定位失败且尚无后台适配缓存时为 true；适配完成后由 HookEntry 重试，与 SponsorBlock 相同。 */
     @Volatile var requiresAdaptationRetry = false
@@ -59,7 +57,7 @@ internal class AiInsightFeatureInstaller(private val enabled: Boolean, private v
         if (!registrationStarted.compareAndSet(false, true)) return FeatureInstallResult.Skipped("already-registered")
         val snapshot = InsightHostSnapshot()
         val cache = InsightCache(cacheRoot)
-        val source = InsightSources.resolve(sources)
+        // source 来自构造参数（专用配置解析出的单一来源），不再从判定来源表里挑。
         val trace: (String) -> Unit = { event ->
             val mode = event.substringAfter("mode=", "").substringBefore(' ')
             val stage = event.substringAfter("stage=", "").substringBefore(' ')
@@ -74,8 +72,11 @@ internal class AiInsightFeatureInstaller(private val enabled: Boolean, private v
                 (0 until rows.length()).mapNotNull { index -> rows.optJSONObject(index)?.optString("message") }
                     .filter { it.isNotBlank() }.distinct().take(40)
             })::load,
+            client = AgentModelClient(outputTokenBudget = outputBudget,
+                inputTextLimit = InsightProtocol.MAX_CONTEXT, allowReasoningParams = false),
             trace = trace,
-            contextRevision = snapshot::revision) }
+            contextRevision = snapshot::revision,
+            timeoutMs = timeoutMs) }
         val generated = object : LinkedHashMap<InsightVideo, InsightCache.Entry>() {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<InsightVideo, InsightCache.Entry>?) = size > 32
         }

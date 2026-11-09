@@ -12,7 +12,9 @@ internal class AgentModelClient(
     private val transport: AgentHttpTransport = AgentHttpsTransport,
     private val outputTokenBudget: Int = 2048,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val inputTextLimit: Int = 65_536
+    private val inputTextLimit: Int = 65_536,
+    /** AI Insight 走聚合中转时模型种类不固定，关闭思考控制参数注入，避免非推理模型被拒。 */
+    private val allowReasoningParams: Boolean = true
 ) {
     private val capabilities = AgentBoundedCache<String, AgentModelCapabilities>(clock = clock)
     private val tokenParameters = AgentBoundedCache<String, String>(clock = clock)
@@ -64,35 +66,53 @@ internal class AgentModelClient(
         onDelta: ((String) -> Unit)? = null
     ): AgentModelTurn {
         if (cancelled()) throw AgentModelException(AgentModelException.Reason.CANCELLED)
-        if (source.protocol != AgentSourceProtocol.CHAT) throw AgentModelException(AgentModelException.Reason.INVALID_REQUEST)
+        if (source.protocol !in setOf(AgentSourceProtocol.CHAT, AgentSourceProtocol.ANTHROPIC))
+            throw AgentModelException(AgentModelException.Reason.INVALID_REQUEST)
         if (withVision && !probing && capabilities[source.fingerprint]?.let { it.vision && it.fresh(clock()) } != true) {
             throw AgentModelException(AgentModelException.Reason.VISION_UNVERIFIED)
         }
         val allowed = validateTools(tools)
         val historyIds = validateMessages(messages, withVision)
         var streaming = onDelta != null && nonStreaming[source.fingerprint] != true
-        val body = JSONObject().put("model", source.model).put("messages", JSONArray(messages.toString()))
-            .put("stream", streaming)
+        val anthropic = source.protocol == AgentSourceProtocol.ANTHROPIC
+        // Anthropic Messages 把 system 单独成字段，且不接受 response_format。
+        val systemText = if (anthropic) messages.optJSONObject(0)
+            ?.takeIf { it.optString("role") == "system" }?.optString("content") else null
+        val chatMessages = if (anthropic) JSONArray().apply {
+            for (i in 0 until messages.length()) {
+                val message = messages.getJSONObject(i)
+                if (message.optString("role") != "system") put(message)
+            }
+        } else JSONArray(messages.toString())
+        val body = JSONObject().put("model", source.model).put("messages", chatMessages)
+            .put("stream", streaming).apply { systemText?.let { put("system", it) } }
         if (tools.length() > 0) body.put("tools", JSONArray(tools.toString())).put("tool_choice", "auto")
-        val optionalReasoning = knownReasoningParams(source)?.takeIf { rejectedReasoning[source.fingerprint] != true }
+        val optionalReasoning = if (allowReasoningParams && !anthropic) knownReasoningParams(source)
+            ?.takeIf { rejectedReasoning[source.fingerprint] != true } else null
         optionalReasoning?.keys()?.forEach { body.put(it, optionalReasoning.get(it)) }
         var removedReasoning = false
         var objectMode = schema != null && jsonObjectOnly[source.fingerprint] == true
         fun applyFormat() {
             if (schema == null) return
-            body.put("response_format", if (objectMode) JSONObject().put("type", "json_object") else
-                JSONObject().put("type", "json_schema").put("json_schema", schema))
-            val formatted = JSONArray(messages.toString())
-            if (objectMode) {
-                val last = formatted.getJSONObject(formatted.length() - 1)
-                requireRequest(last.optString("role") == "user" && last.opt("content") is String)
-                last.put("content", last.getString("content") + "\nJSON schema：" + schema.getJSONObject("schema"))
+            if (anthropic) {
+                // 没有 response_format：把同一份 schema 写进 system，完整契约仍由业务层本地校验。
+                val schemaText = "Reply with one JSON object matching this schema: " + schema.getJSONObject("schema")
+                body.put("system", listOf(systemText.orEmpty(), schemaText).filter(String::isNotEmpty).joinToString("\n"))
+            } else {
+                body.put("response_format", if (objectMode) JSONObject().put("type", "json_object") else
+                    JSONObject().put("type", "json_schema").put("json_schema", schema))
+                val formatted = JSONArray(messages.toString())
+                if (objectMode) {
+                    val last = formatted.getJSONObject(formatted.length() - 1)
+                    requireRequest(last.optString("role") == "user" && last.opt("content") is String)
+                    last.put("content", last.getString("content") + "\nJSON schema：" + schema.getJSONObject("schema"))
+                }
+                body.put("messages", formatted)
             }
-            body.put("messages", formatted)
         }
         applyFormat()
         val deadline = System.nanoTime() + timeoutMs.coerceIn(1, AgentHttpsTransport.MAX_TIMEOUT_MS) * 1_000_000L
-        var parameter = tokenParameters[source.fingerprint] ?: "max_tokens"
+        var parameter = if (anthropic) "max_tokens" else tokenParameters[source.fingerprint] ?: "max_tokens"
         val rejectedTokens = hashSetOf<String>()
         val attempts = if (schema == null) 3 else if (streaming) 5 else 4
         repeat(attempts) { attempt ->
@@ -111,8 +131,10 @@ internal class AgentModelClient(
                         checkNotNull(onDelta)(delta)
                     }
                 if (cancelled()) throw AgentModelException(AgentModelException.Reason.CANCELLED)
-                if (System.nanoTime() >= deadline) throw AgentModelException(AgentModelException.Reason.TIMEOUT)
-                val turn = decode(payload, allowed, historyIds)
+                // 响应已完整到达，不再因总时限丢弃；此前每个流式增量已经交付给界面。
+                // 流式 payload 已由 AgentChatStream 统一合成 OpenAI 形状，只有非流式才按来源协议解析。
+                val turn = decode(payload, allowed, historyIds,
+                    if (streaming) AgentSourceProtocol.CHAT else source.protocol)
                 tokenParameters[source.fingerprint] = parameter
                 if (removedReasoning) rejectedReasoning[source.fingerprint] = true
                 if (schema != null && objectMode) jsonObjectOnly[source.fingerprint] = true
@@ -227,7 +249,9 @@ internal class AgentModelClient(
         return seenIds
     }
 
-    internal fun decode(payload: String, allowedNames: Set<String>, historyIds: Set<String> = emptySet()): AgentModelTurn {
+    internal fun decode(payload: String, allowedNames: Set<String>, historyIds: Set<String> = emptySet(),
+        protocol: AgentSourceProtocol = AgentSourceProtocol.CHAT): AgentModelTurn {
+        if (protocol == AgentSourceProtocol.ANTHROPIC) return decodeAnthropic(payload)
         val root = AgentJson.objectOf(payload, AgentHttpsTransport.MAX_RESPONSE_BYTES)
         val choices = root.optJSONArray("choices") ?: invalidResponse()
         if (choices.length() != 1) invalidResponse()
@@ -271,6 +295,28 @@ internal class AgentModelClient(
             AgentModelUsage(tokenCount(it, "prompt_tokens"), tokenCount(it, "completion_tokens"), tokenCount(it, "total_tokens"))
         }
         return AgentModelTurn(message, calls, text, usage)
+    }
+
+    /** Anthropic Messages 非流式响应：content[].text 收敛成正文，stop_reason 映射为完成状态。 */
+    private fun decodeAnthropic(payload: String): AgentModelTurn {
+        val root = AgentJson.objectOf(payload, AgentHttpsTransport.MAX_RESPONSE_BYTES)
+        val stop = root.optString("stop_reason")
+        if (stop == "max_tokens") throw AgentModelException(AgentModelException.Reason.OUTPUT_LIMIT)
+        if (stop !in setOf("end_turn", "stop_sequence")) invalidResponse()
+        val parts = root.optJSONArray("content") ?: invalidResponse()
+        val text = buildString {
+            for (i in 0 until parts.length()) {
+                val part = parts.optJSONObject(i) ?: continue
+                if (part.optString("type") == "text") append(part.optString("text"))
+            }
+        }.takeIf { it.length <= MAX_TEXT_CHARS } ?: invalidResponse()
+        val message = JSONObject().put("role", "assistant").put("content", text)
+        val usage = root.optJSONObject("usage")?.let {
+            val input = it.optLong("input_tokens")
+            val output = it.optLong("output_tokens")
+            AgentModelUsage(input, output, input + output)
+        }
+        return AgentModelTurn(message, emptyList(), text, usage)
     }
 
     private fun parseCalls(array: JSONArray, allowed: Set<String>?): List<AgentModelToolCall> {

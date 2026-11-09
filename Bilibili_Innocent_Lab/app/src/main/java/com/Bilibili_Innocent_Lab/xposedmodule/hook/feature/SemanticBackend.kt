@@ -84,10 +84,18 @@ internal interface SemanticBackend {
             }
         }
 
-        /** 只接受 http(s) 且有主机名的地址；去掉末尾斜杠。 */
+        /** 无协议时允许补 https 的主机形式：域名 / IP / localhost，可带端口。 */
+        private val BARE_HOST = Regex("[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?(?::[0-9]{1,5})?")
+
+        /** 接受完整 http(s) 地址、或只填域名 / 主机（含路径）；无协议时按 https 补全，去掉末尾斜杠。 */
         internal fun parseUrl(raw: String): Pair<String, URL>? {
-            val value = raw.trim().trimEnd('/')
+            var value = raw.trim().trimEnd('/')
             if (value.isEmpty() || value.length > SemanticJudge.MAX_ENDPOINT_LENGTH) return null
+            if (!value.contains("://")) {
+                // 设置说明里写了「可以只填域名」；但任意文本（含空格、缺域名形状）不能当地址。
+                if (value.any { it.isWhitespace() } || !BARE_HOST.matches(value.substringBefore('/'))) return null
+                value = "https://$value"
+            }
             val url = runCatching { URL(value) }.getOrNull() ?: return null
             if (url.protocol !in setOf("https", "http") || url.host.isNullOrBlank()) return null
             return value to url
