@@ -6,6 +6,16 @@ import org.junit.Test
 
 class DiagnosticFeatureRegistryTest {
     @Test
+    fun `guest browsing and incognito are independent general groups expecting runtime evidence`() {
+        listOf("guest_browsing", "incognito_privacy").forEach { id ->
+            val descriptor = requireNotNull(DiagnosticFeatureRegistry.descriptorOrNull(id))
+            assertEquals(DiagnosticFeatureCategory.GENERAL, descriptor.category)
+            assertTrue(descriptor.runtimeEvidenceExpected)
+            assertEquals(1, DiagnosticFeatureRegistry.descriptors.count { it.id == id })
+        }
+    }
+
+    @Test
     fun `registry is unique bounded and covers specialized feature paths`() {
         assertEquals(DiagnosticCapabilityCatalog.leafIds.size + DiagnosticCapabilityCatalog.splitParents.size,
             DiagnosticFeatureRegistry.descriptors.size)

@@ -25,16 +25,19 @@ public final class MenuGroupV2 {
         private final String uri;
         private final int visible;
         private final boolean localShow;
+        private final int needLogin;
         public Item() { this(null, 0L, null); }
         public Item(String title) { this(title, 0L, null); }
-        public Item(String title, long id, String uri) {
-            this.title = title; this.id = id; this.uri = uri; visible = 1; localShow = true;
+        public Item(String title, long id, String uri) { this(title, id, uri, 0); }
+        public Item(String title, long id, String uri, int needLogin) {
+            this.title = title; this.id = id; this.uri = uri; visible = 1; localShow = true; this.needLogin = needLogin;
         }
         public String getTitle() { return title; }
         public long getId() { return id; }
         public String getUri() { return uri; }
         public int getVisible() { return visible; }
         public boolean getLocalShow() { return localShow; }
+        public int getNeedLogin() { return needLogin; }
     }
     public static final class MineButton {
         private final String text;

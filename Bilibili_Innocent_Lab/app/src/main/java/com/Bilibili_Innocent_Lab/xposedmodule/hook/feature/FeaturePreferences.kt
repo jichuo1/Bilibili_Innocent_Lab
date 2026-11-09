@@ -11,6 +11,11 @@ internal object FeaturePreferences {
     const val AI_INSIGHT_MODEL = "ai_insight_model"
     const val PLAYER_SUBTITLE_STYLE = "player_subtitle_style"
     const val PLAYER_AI_SUBTITLE = "player_ai_subtitle"
+    /** 独立、默认关闭；修改后重启宿主生效。 */
+    const val NO_LOGIN_ENABLED = "no_login_enabled"
+    const val INCOGNITO_ENABLED = "incognito_enabled"
+    const val SKIP_GUEST_ONBOARDING = "skip_guest_onboarding"
+
     const val HIDE_VIDEO_DETAIL_APP_PROMOTION = "hide_video_detail_app_promotion"
     const val HIDE_LIVE_HOME_PROMOTION = "hide_live_home_promotion"
     const val HIDE_HOME_GAME_MENU = "hide_home_game_menu"

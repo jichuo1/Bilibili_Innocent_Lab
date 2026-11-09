@@ -923,6 +923,12 @@
     <string name="comment_user_filter_rules_empty">尚未设置发布者，点击编辑</string>
     <string name="comment_user_filter_rules_current">当前：%1$s</string>
     <string name="comment_user_filter_dialog_hint">每项写一个 UID 或用户名，用逗号、分号或换行分隔；用户名需完全一致。</string>
+    <string name="no_login_enabled">免登录浏览</string>
+    <string name="no_login_enabled_tip">未登录时隐藏登录引导，保留主动登录入口；历史、收藏与关注只存于本机，不上传。已登录时保留账号功能。画质以游客可用为限。与无痕模式同时开启时以无痕为准。重启哔哩哔哩后生效。</string>
+    <string name="skip_guest_onboarding">跳过基本信息与兴趣引导</string>
+    <string name="skip_guest_onboarding_tip">任一浏览模式开启且处于游客状态时，跳过性别、年龄与兴趣选择，直接进入首页，不代填资料。重启哔哩哔哩后生效。</string>
+    <string name="incognito_enabled">无痕模式</string>
+    <string name="incognito_enabled_tip">使用临时游客会话，关闭并重启后恢复账号。会话内的历史、收藏与关注只存于内存，会话结束即丢弃。内嵌网页在无痕期间断网，避免带上账号凭据。部分直播互动与实时更新不可用，服务端仍可能记录访问。重启哔哩哔哩后生效。</string>
     <string name="purify_share_content">净化分享链接</string>
     <string name="purify_share_content_tip">开启后，清理分享内容中哔哩哔哩链接的追踪参数，保留分页和时间点；不展开短链、不联网。</string>
     <string name="share_mini_program_direct_link">小程序卡片转为普通链接</string>

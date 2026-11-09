@@ -4,6 +4,31 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RecommendationSettingsPlacementTest {
+    @Test fun guestSwitchesFollowTheBrowsingMarkerAndPersistIndependently() {
+        val enhance = SettingsUiSource.function("enhanceBrowsingCategory")
+        val marker = enhance.indexOf("advancedCategoryMarkers[AdvancedSettingsCategory.ENHANCE_BROWSING]")
+        val switches = enhance.split("materialSwitch(").drop(1).take(2)
+        assertEquals(2, switches.size)
+        assertTrue(marker >= 0 && marker < enhance.indexOf("materialSwitch("))
+        val settings = listOf("NO_LOGIN_ENABLED" to "no_login_enabled", "INCOGNITO_ENABLED" to "incognito_enabled")
+        settings.zip(switches).forEach { (setting, block) ->
+            val (key, label) = setting
+            assertTrue(block.contains("bindFavoriteSwitch(this, FeaturePreferences.$key, directToggle = true)"))
+            val field = if (key == "NO_LOGIN_ENABLED") "noLoginEnabled" else "incognitoEnabled"
+            assertTrue(block.contains("isChecked = $field"))
+            assertTrue(SettingsUiSource.file("MainActivity").contains("$field = uiSettings.bool(FeaturePreferences.$key)"))
+            assertTrue(block.contains("applyModeledToggle(FeaturePreferences.$key, checked, button)"))
+            assertTrue(block.contains("R.string.$label)"))
+            assertTrue(block.contains("R.string.${label}_tip)"))
+            settings.filter { it.first != key }.forEach { (otherKey, _) ->
+                assertFalse(block.contains("FeaturePreferences.$otherKey"))
+            }
+        }
+        val diagnostics = SettingsUiSource.file("DiagnosticsActivity")
+        assertTrue(diagnostics.contains("\"guest_browsing\" -> R.string.no_login_enabled"))
+        assertTrue(diagnostics.contains("\"incognito_privacy\" -> R.string.incognito_enabled"))
+    }
+
     @Test fun feedbackAndRulesAreGroupedInEnhancementBrowsing() {
         val enhance = SettingsUiSource.function("enhanceBrowsingCategory")
         val purify = SettingsUiSource.function("purifyHomeCategory")

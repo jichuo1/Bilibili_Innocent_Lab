@@ -1046,6 +1046,8 @@ class DiagnosticsActivity : SkinnedActivity(),
             "cloud_key_freeze" -> R.string.cloud_key_freeze
             "splash_auto_night" -> R.string.splash_auto_night
             "bv_to_av" -> R.string.show_bv_as_av
+            "guest_browsing" -> R.string.no_login_enabled
+            "incognito_privacy" -> R.string.incognito_enabled
             "comment_filter" -> R.string.diagnostics_host_feature_comment_filter
             "comment_purify" -> R.string.diagnostics_host_feature_comment_purify
             "comment_reply_button" -> R.string.remove_comment_reply_button

@@ -41,8 +41,9 @@ internal enum class HookExceptionPolicy {
     /**
      * 回调异常原样传给宿主调用方（`PROPAGATE`，映射为 `ExceptionMode.PASSTHROUGH`）。
      *
-     * **只用于“让被 Hook 方法以指定异常结束”这一种诉求**（当前唯一使用者是屏蔽官方更新，
-     * 它必须把宿主自己的 `LatestVersionException` 交回调用方）。选它的 Hook 有义务保证
+     * **只用于“让被 Hook 方法以指定异常结束”这一种诉求**（使用者：屏蔽官方更新，
+     * 它必须把宿主自己的 `LatestVersionException` 交回调用方；无痕模式的 ighttp 边界，
+     * 被扣下的请求必须以 IOException 结束而不是继续发出）。选它的 Hook 有义务保证
      * 回调体内除了这条**刻意**的异常之外不会逃逸任何东西——因为这里没有框架兜底。
      *
      * 背景：`PROTECTIVE` 的契约是“捕获并按没装 Hook 继续”，所以在该模式下

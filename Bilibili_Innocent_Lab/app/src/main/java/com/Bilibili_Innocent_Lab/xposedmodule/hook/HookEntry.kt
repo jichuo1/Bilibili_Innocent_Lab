@@ -2555,6 +2555,7 @@ class HookEntry : XposedModule() {
                 },
                 guidance = prefs.getString(FeaturePreferences.SEMANTIC_JEV_GUIDANCE, "").orEmpty()
             )
+            if (prefs.getBoolean(FeaturePreferences.INCOGNITO_ENABLED, false)) semanticSettings = null
             semanticSettings?.let { SemanticJudge.configureConcurrency(it.sources.size) }
             /** 某个过滤面勾选的预设 + 启用的自定义类型。 */
             fun semanticRules(rulesKey: String, surface: SemanticSurface): List<SemanticRule> =
@@ -2795,6 +2796,14 @@ class HookEntry : XposedModule() {
                 timeoutMs = prefs.getInt(RemoteHookConfigContract.KEY_INSIGHT_TIMEOUT_MS,
                     com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig.DEFAULT_TIMEOUT_MS),
                 cachedClasses = { sponsorClassesRef.get() }
+            )
+            featureInstallCoordinator.installAll(
+                com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy.PrivacyFeatureRuntime(
+                    attachedContext,
+                    prefs.getBoolean(FeaturePreferences.NO_LOGIN_ENABLED, false),
+                    prefs.getBoolean(FeaturePreferences.INCOGNITO_ENABLED, false),
+                    prefs.getBoolean(FeaturePreferences.SKIP_GUEST_ONBOARDING, false)
+                ).installers()
             )
             // 判定结果硬盘缓存：宿主私有 files/bil_semantic/<面>.bin。启动时先在后台删掉未启用面的文件，
             // 保证"关闭 → 重启"后磁盘上没有任何残留判定。

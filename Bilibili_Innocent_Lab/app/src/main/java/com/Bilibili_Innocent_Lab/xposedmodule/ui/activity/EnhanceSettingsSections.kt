@@ -5,7 +5,6 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.LinearSettingsScope
 
 import android.graphics.Typeface
-import android.util.Log
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
@@ -783,6 +782,69 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: LinearSettingsScope) = 
         textColor = monetColors.primary
         textSize = 12f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    }
+    materialSwitch(key = "EnhanceSettingsSections:no-login", lparams = params(widthMatchParent = true) {
+        topMargin = 12.dp
+        bottomMargin = 5.dp
+    }) {
+        bindFavoriteSwitch(this, FeaturePreferences.NO_LOGIN_ENABLED, directToggle = true)
+        text = stringResource(R.string.no_login_enabled)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = noLoginEnabled
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.NO_LOGIN_ENABLED, checked, button)
+        }
+    }
+    textView(key = "EnhanceSettingsSections:no-login-tip", lparams = params(widthMatchParent = true)) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.no_login_enabled_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
+    materialSwitch(key = "EnhanceSettingsSections:incognito", lparams = params(widthMatchParent = true) {
+        topMargin = 12.dp
+        bottomMargin = 5.dp
+    }) {
+        bindFavoriteSwitch(this, FeaturePreferences.INCOGNITO_ENABLED, directToggle = true)
+        text = stringResource(R.string.incognito_enabled)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = incognitoEnabled
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.INCOGNITO_ENABLED, checked, button)
+        }
+    }
+    textView(key = "EnhanceSettingsSections:incognito-tip", lparams = params(widthMatchParent = true)) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.incognito_enabled_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
+    materialSwitch(key = "EnhanceSettingsSections:skip-guest-onboarding", lparams = params(widthMatchParent = true) {
+        topMargin = 12.dp
+        bottomMargin = 5.dp
+    }) {
+        bindFavoriteSwitch(this, FeaturePreferences.SKIP_GUEST_ONBOARDING, directToggle = true)
+        text = stringResource(R.string.skip_guest_onboarding)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = skipGuestOnboarding
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.SKIP_GUEST_ONBOARDING, checked, button)
+        }
+    }
+    textView(key = "EnhanceSettingsSections:skip-guest-onboarding-tip", lparams = params(widthMatchParent = true)) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.skip_guest_onboarding_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
     }
     materialSwitch(key = "EnhanceSettingsSections:804", lparams = params(widthMatchParent = true) {
         topMargin = 12.dp

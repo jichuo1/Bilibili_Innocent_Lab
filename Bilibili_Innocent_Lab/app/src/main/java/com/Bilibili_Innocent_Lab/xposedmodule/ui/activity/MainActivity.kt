@@ -345,6 +345,9 @@ class MainActivity : SkinnedActivity() {
     internal var homeRecommendTitleKeywords = ""
     internal var homeRecommendBlockedTids = ""
     internal var homeRecommendBlockedAuthors = ""
+    internal var noLoginEnabled = false
+    internal var incognitoEnabled = false
+    internal var skipGuestOnboarding = false
     internal var homeRecommendSectionPickEnabled = false
     internal var blockAiDeclaredVideos = false
     internal var blockAiDeclaredVideosStrongMode = false
@@ -4580,6 +4583,9 @@ class MainActivity : SkinnedActivity() {
         // 来源，读取只加锁一次。**onCreate 内同步执行的偏好写入只有两处 putLong**
         // （心跳时间戳、自由复制修订号），都不在这些读取键里，所以快照不会读到过期值。
         val uiSettings = ModuleUiSettings.read(modulePrefs)
+        noLoginEnabled = uiSettings.bool(FeaturePreferences.NO_LOGIN_ENABLED)
+        incognitoEnabled = uiSettings.bool(FeaturePreferences.INCOGNITO_ENABLED)
+        skipGuestOnboarding = uiSettings.bool(FeaturePreferences.SKIP_GUEST_ONBOARDING)
         noRootDesiredEnabled = NoRootSupportStore.isDesiredEnabled(applicationContext)
         if (
             modulePrefs != null &&
