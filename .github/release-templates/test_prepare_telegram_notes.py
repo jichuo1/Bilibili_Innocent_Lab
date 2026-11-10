@@ -423,6 +423,50 @@ class TelegramNotesTest(unittest.TestCase):
         complete.assert_not_called()
         self.assertFalse(output.exists())
 
+    def test_manual_baseline_only_seeds_the_first_embedded_delivery(self):
+        sha = "a" * 40
+        resolve = telegram_notes.resolve_baseline
+        self.assertEqual(self.before, resolve("v1.2.1-embedded.3", self.before))
+        self.assertEqual(sha, resolve("v1.2.1-embedded.3", "", sha.upper()))
+        self.assertEqual(sha, resolve("v1.2.1-embedded.3", sha, sha))
+        for tag, confirmed, manual, message in [
+            ("v1.2.1-canary.3", "", sha, "只用于 Embedded"),
+            ("v1.2.1-embedded.3", "", sha[:12], "40 位"),
+            ("v1.2.1-embedded.3", self.before, sha, "不能用手动基线覆盖"),
+        ]:
+            with self.subTest(manual=manual, confirmed=confirmed), self.assertRaisesRegex(ValueError, message):
+                resolve(tag, confirmed, manual)
+
+    def test_embedded_cli_manual_baseline_limits_the_ai_range(self):
+        self.commit("feat: already in the channel")
+        start = self.commit("chore: last posted source")
+        current = self.commit("fix: comments")
+        output = self.repo / "notes.txt"
+        arguments = ["prepare_telegram_notes.py", "--repo-root", str(self.repo), "--tag", "v1.2.1-embedded.3",
+                     "--commit", current, "--channel", "@embedded_channel", "--output", str(output),
+                     "--baseline-commit", start]
+        with patch.object(sys, "argv", arguments), patch.object(telegram_notes, "previous_commit", return_value=""), \
+             patch.object(telegram_notes, "load_config", return_value=CONFIG), \
+             patch.object(llm_providers, "load_slots", return_value=([SLOT], [])), \
+             patch.object(telegram_notes, "build_context", wraps=telegram_notes.build_context) as context, \
+             patch.object(llm_providers, "complete", return_value=payload([current])):
+            telegram_notes.main()
+        self.assertEqual(start, context.call_args.kwargs["baseline_commit"])
+        self.assertIn("优化了评论列表", output.read_text(encoding="utf-8"))
+        with patch.object(sys, "argv", arguments), patch.object(telegram_notes, "previous_commit", return_value=self.before), \
+             patch.object(llm_providers, "complete") as complete, self.assertRaisesRegex(ValueError, "不能用手动基线覆盖"):
+            telegram_notes.main()
+        complete.assert_not_called()
+
+    def test_embedded_manual_baseline_is_passed_only_for_manual_dispatch(self):
+        workflow = (Path(__file__).resolve().parents[1] / "workflows/embedded-telegram.yml").read_text(encoding="utf-8")
+        self.assertIn("      baseline_commit:\n", workflow[:workflow.index("concurrency:")])
+        begin = workflow.index("      - name: Generate complete notes since the last Telegram delivery")
+        generation = workflow[begin:workflow.index("      - name: Recheck daily publication policy after generating notes")]
+        self.assertIn("BASELINE_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.baseline_commit || '' }}", generation)
+        self.assertIn('notes_args+=(--baseline-commit "$BASELINE_COMMIT")', generation)
+        self.assertNotIn("baseline", (Path(__file__).resolve().parents[1] / "workflows/canary-telegram.yml").read_text(encoding="utf-8"))
+
     def test_only_eligible_telegram_delivery_uses_the_same_provider_configuration(self):
         workflows = Path(__file__).resolve().parents[1] / "workflows"
         telegram = (workflows / "canary-telegram.yml").read_text(encoding="utf-8")
