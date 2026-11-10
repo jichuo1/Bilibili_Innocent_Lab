@@ -10,6 +10,11 @@ on:
         description: 'Embedded Actions 构建链接（例如 https://github.com/jichuo1/Bilibili_Innocent_Lab/actions/runs/37497610746）'
         required: true
         type: string
+      baseline_commit:
+        description: '可选：频道里上一次 Embedded 的源码提交（40 位 SHA）。仅在还没有任何确认投递时使用，作为 AI 总结的起点'
+        required: false
+        type: string
+        default: ''
       dry_run:
         description: '仅验证构建、签名和公告，不调用 AI、不发送到 Telegram'
         required: false
@@ -176,6 +181,7 @@ jobs:
           BUILD_TAG: ${{ steps.package.outputs.release_tag }}
           SOURCE_COMMIT: ${{ steps.package.outputs.source_commit }}
           DELIVERY_DRY_RUN: ${{ inputs.dry_run }}
+          BASELINE_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.baseline_commit || '' }}
           RELEASE_NOTES_LLM_1_API_KEY: ${{ secrets.RELEASE_NOTES_LLM_1_API_KEY }}
           RELEASE_NOTES_LLM_1_PROTOCOL: ${{ vars.RELEASE_NOTES_LLM_1_PROTOCOL }}
           RELEASE_NOTES_LLM_1_BASE_URL: ${{ secrets.RELEASE_NOTES_LLM_1_BASE_URL || vars.RELEASE_NOTES_LLM_1_BASE_URL }}
@@ -202,6 +208,9 @@ jobs:
           notes_args=()
           if [[ "$DELIVERY_DRY_RUN" == "true" ]]; then
             notes_args+=(--no-llm)
+          fi
+          if [[ -n "$BASELINE_COMMIT" ]]; then
+            notes_args+=(--baseline-commit "$BASELINE_COMMIT")
           fi
           python3 .github/release-templates/prepare_telegram_notes.py \
             --repo-root . --tag "$BUILD_TAG" --commit "$SOURCE_COMMIT" \

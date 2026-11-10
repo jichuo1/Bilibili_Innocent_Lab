@@ -126,6 +126,19 @@ def generate_announcement(repo: Path, tag: str, commit: str, before: str = "", *
     return result
 
 
+def resolve_baseline(tag: str, confirmed: str, manual: str = "") -> str:
+    """A manual baseline only seeds the first Embedded delivery; a confirmed delivery always wins."""
+    if not manual:
+        return confirmed
+    if not EMBEDDED_TAG.fullmatch(tag):
+        raise ValueError("手动基线只用于 Embedded 发布。")
+    if not SHA.fullmatch(manual):
+        raise ValueError("手动基线必须是完整的 40 位提交 SHA。")
+    if confirmed and confirmed.lower() != manual.lower():
+        raise ValueError("频道已有确认的 Embedded 投递，不能用手动基线覆盖。")
+    return manual.lower()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", required=True, type=Path)
@@ -136,8 +149,10 @@ def main() -> None:
     parser.add_argument("--no-llm", action="store_true", help="Validate a dry-run without calling any model")
     parser.add_argument("--report-output", type=Path)
     parser.add_argument("--summary", type=Path)
+    parser.add_argument("--baseline-commit", default="",
+                        help="Manual Embedded dispatch only: source of the last post when no delivery is confirmed")
     args = parser.parse_args()
-    before = previous_commit(args.channel)
+    before = resolve_baseline(args.tag, previous_commit(args.channel), args.baseline_commit.strip())
     result = generate_announcement(args.repo_root, args.tag, args.commit, before, use_llm=not args.no_llm)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(result.changelog, encoding="utf-8", newline="\n")
