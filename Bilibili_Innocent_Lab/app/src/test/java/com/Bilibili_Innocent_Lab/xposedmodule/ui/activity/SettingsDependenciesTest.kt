@@ -76,6 +76,26 @@ class SettingsDependenciesTest {
         }
     }
 
+    @Test fun `ai comment filter options follow only its own switch and keep saved choices`() {
+        val children = listOf(
+            "comments.fish_filter.sensitivity", "comments.fish_filter.nickname_words", "comments.fish_filter.text_words",
+            "comments.fish_filter.whitelist", "comments.fish_filter.protect_high_level"
+        )
+        val on = ModuleUiSettings.EMPTY.with(FeaturePreferences.COMMENT_FISH_FILTER_ENABLED, true)
+        children.forEach { id ->
+            assertFalse(id, SettingsDependencies.available(id, ModuleUiSettings.EMPTY))
+            assertTrue(id, SettingsDependencies.available(id, on))
+            // 相邻的评论过滤开关不能解锁它。
+            assertFalse(id, SettingsDependencies.available(id,
+                ModuleUiSettings.EMPTY.with(FeaturePreferences.COMMENT_USER_FILTER_ENABLED, true)))
+        }
+        // 总开关本身没有父级；关闭它不清除保存的取值，保护开关默认仍为开。
+        assertTrue(SettingsDependencies.available("comments.fish_filter.enabled", ModuleUiSettings.EMPTY))
+        assertTrue(ModuleUiSettings.EMPTY.bool(FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL))
+        assertTrue(on.with(FeaturePreferences.COMMENT_FISH_FILTER_ENABLED, false)
+            .bool(FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL))
+    }
+
     @Test fun `semantic rules custom types and routes follow only the corresponding surface`() {
         val surfaces = listOf(
             FeaturePreferences.COMMENT_SEMANTIC_FILTER_ENABLED to "comments",

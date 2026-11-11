@@ -3714,7 +3714,15 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.COMMENT_SEMANTIC_FILTER_RULES,
                             SemanticSurface.COMMENT
                         ),
-                        semanticLogDir = semanticLogDir
+                        semanticLogDir = semanticLogDir,
+                        fishFilter = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FishScorePolicy.Config(
+                            enabled = prefs.getBoolean(FeaturePreferences.COMMENT_FISH_FILTER_ENABLED, false),
+                            sensitivityId = prefs.getString(FeaturePreferences.COMMENT_FISH_SENSITIVITY, "").orEmpty(),
+                            rawNicknameWords = prefs.getString(FeaturePreferences.COMMENT_FISH_NICKNAME_WORDS, "").orEmpty(),
+                            rawTextWords = prefs.getString(FeaturePreferences.COMMENT_FISH_TEXT_WORDS, "").orEmpty(),
+                            rawWhitelist = prefs.getString(FeaturePreferences.COMMENT_FISH_WHITELIST, "").orEmpty(),
+                            protectHighLevel = prefs.getBoolean(FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL, true)
+                        )
                     )
                 )
             )

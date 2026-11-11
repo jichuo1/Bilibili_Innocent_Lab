@@ -9,15 +9,19 @@ import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * 在公开 protobuf 评论列表边界按正文关键词、用户等级、@ 整条和发布者过滤。
+ * 在公开 protobuf 评论列表边界按正文关键词、用户等级、@ 整条、发布者和 AI 账号特征过滤。
  *
- * 四条判据共用同一批列表 getter Hook：多开一个判据不会多挂一个 Hook，只是在同一次遍历里
+ * 五条判据共用同一批列表 getter Hook：多开一个判据不会多挂一个 Hook，只是在同一次遍历里
  * 多读几个字段，而且只读当前真的启用的那几个。
  *
  * 覆盖单位口径：
  * - 列表 / 置顶 getter 各算一个单位。
- * - 关键词、等级、@ 整条与发布者分别校验依赖：**用户开了就各算一个单位**，读取路径缺失时计入分母、不计入
- *   分子，让"开了却读不到"表现为 `partial` 而不是悄悄失效。
+ * - 关键词、等级、@ 整条、发布者与 AI 账号分别校验依赖：**用户开了就各算一个单位**，读取路径缺失时计入分母、
+ *   不计入分子，让"开了却读不到"表现为 `partial` 而不是悄悄失效。
+ *
+ * AI 账号判据（[FishScorePolicy]）只用已有的昵称、等级、正文三条读取路径，不新增 Hook 点，也不联网。
+ * 它比其它判据贵，所以排在 [shouldRemove] 的最后（前面任一判据命中就不再算），列表 getter 路径上
+ * 同一个列表实例只算一次（[ReplyVerdictMemo]）。
  */
 internal class CommentFilterFeatureInstaller(
     keywordFilterEnabled: Boolean,
@@ -36,6 +40,8 @@ internal class CommentFilterFeatureInstaller(
     private val semanticJudge: SemanticJudge? = null,
     /** debug 构建的观测日志目录；release 为 null。 */
     private val semanticLogDir: java.io.File? = null,
+    /** 屏蔽 AI 评论与回复：离线加权打分，启用时才定型出判据。 */
+    fishFilter: FishScorePolicy.Config = FishScorePolicy.Config.DISABLED,
     /** 主线程上不做同步联网；单测可替换。 */
     private val isMainThread: () -> Boolean = { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() }
 ) : FeatureInstaller {
@@ -47,6 +53,7 @@ internal class CommentFilterFeatureInstaller(
         if (removeAtOnly) add("comments_at_only_removed")
         if (!userRules.isEmpty()) add("comments_user_filter_enabled")
         if (semanticJudge != null) add("comments_semantic_filter_enabled")
+        if (fishPlan != null) add("comments_fish_filter_enabled")
     }
 
     private val keywords = if (keywordFilterEnabled) {
@@ -59,6 +66,7 @@ internal class CommentFilterFeatureInstaller(
     } else {
         null
     }
+    private val fishPlan = fishFilter.plan()
     private val removeAtOnly = removeAtOnlyComments
     private val userRules = if (userFilterEnabled) {
         AuthorRuleSet.parse(rawUserRules)
@@ -68,7 +76,7 @@ internal class CommentFilterFeatureInstaller(
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (keywords.isEmpty() && minimumLevel == null && !removeAtOnly && userRules.isEmpty() &&
-            semanticJudge == null
+            semanticJudge == null && fishPlan == null
         ) {
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
@@ -113,7 +121,12 @@ internal class CommentFilterFeatureInstaller(
             minimumLevel = minimumLevel?.takeIf { accessors.hasLevelPath },
             removeAtOnly = removeAtOnly && accessors.hasAtPath,
             userRules = userRules.available(accessors.hasAuthorNamePath, accessors.hasAuthorMidPath),
-            semanticEnabled = semanticJudge != null && accessors.hasMessagePath
+            semanticEnabled = semanticJudge != null && accessors.hasMessagePath,
+            fish = fishPlan?.takeIf { accessors.hasMessagePath || accessors.hasAuthorNamePath }
+                ?.takeIf { fish ->
+                    // 白名单读不到的那一半无法保护任何人：宁可整条判据不装，也不在保护失效时静默删。
+                    fish.whitelist.available(accessors.hasAuthorNamePath, accessors.hasAuthorMidPath) == fish.whitelist
+                }
         )
         if (!plan.hasAnyJudgement) return missing(environment, "missing-judgement-getter")
 
@@ -128,9 +141,15 @@ internal class CommentFilterFeatureInstaller(
                         if (source.isEmpty()) return@after
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         val semantic = semanticVerdicts(source, accessors, plan)
+                        // 评分比其它判据贵：getter 在滚动、绑定时会被反复调用，同一个列表实例只算一次。
+                        val rules = if (plan.fish != null) {
+                            ruleVerdictMemo.getOrCompute(source) { ruleVerdicts(source, accessors, plan) }
+                        } else {
+                            null
+                        }
                         val filtered = filterComments(source) { reply ->
                             semantic?.get(reply) == SemanticVerdict.BLOCK ||
-                                shouldRemove(readSignals(reply, accessors, plan), plan)
+                                (rules?.get(reply) ?: shouldRemove(readSignals(reply, accessors, plan), plan))
                         }
                         if (filtered !== source) {
                             result = filtered
@@ -200,6 +219,8 @@ internal class CommentFilterFeatureInstaller(
                 "comments_at_only_removed" -> plan.removeAtOnly
                 "comments_user_filter_enabled" -> !plan.userRules.isEmpty()
                 "comments_semantic_filter_enabled" -> plan.semanticEnabled
+                "comments_fish_filter_enabled" -> plan.fish != null && accessors.hasMessagePath &&
+                    accessors.hasAuthorNamePath
                 else -> plan.keywords.isNotEmpty()
             }
             environment.reportCapabilityCoverage(capability, usable, sharedInstalled,
@@ -228,6 +249,12 @@ internal class CommentFilterFeatureInstaller(
         if (semanticJudge != null) {
             expected += 1
             if (plan.semanticEnabled) installed += 1 else degraded += "semantic"
+        }
+        if (fishPlan != null) {
+            expected += 1
+            // 昵称与正文缺一条仍会按剩下的信号打分，但召回大幅下降，要在分母里留下痕迹。
+            if (plan.fish != null && accessors.hasMessagePath && accessors.hasAuthorNamePath) installed += 1
+            else degraded += "fish"
         }
         if (degraded.isNotEmpty()) {
             environment.logError(
@@ -271,6 +298,20 @@ internal class CommentFilterFeatureInstaller(
     }
 
     private val semanticMemo = SemanticListMemo()
+    private val ruleVerdictMemo = ReplyVerdictMemo()
+
+    /** 整个列表按规则判据一次判完（含 AI 账号打分）；与逐条 [shouldRemove] 同一条判定。 */
+    private fun ruleVerdicts(
+        source: List<*>,
+        accessors: Accessors,
+        plan: JudgementPlan
+    ): java.util.IdentityHashMap<Any, Boolean> {
+        val verdicts = java.util.IdentityHashMap<Any, Boolean>(source.size)
+        for (reply in source) {
+            if (reply != null) verdicts[reply] = shouldRemove(readSignals(reply, accessors, plan), plan)
+        }
+        return verdicts
+    }
 
     private fun computeSemanticVerdicts(
         source: List<*>,
@@ -511,25 +552,30 @@ internal class CommentFilterFeatureInstaller(
         var level: Int? = null
         var authorName: String? = null
         var authorMid: Long? = null
-        if (plan.minimumLevel != null || !plan.userRules.isEmpty()) {
+        val fish = plan.fish
+        val needAuthor = !plan.userRules.isEmpty() || fish != null
+        if (plan.minimumLevel != null || needAuthor) {
             val member = invokeCompatible(accessors.member, reply)
             val memberV2 = invokeCompatible(accessors.memberV2, reply)
             val memberV2Basic = invokeCompatible(accessors.memberV2Basic, memberV2)
-            if (plan.minimumLevel != null) {
+            if (plan.minimumLevel != null || fish != null) {
                 level = (invokeCompatible(accessors.level, member) as? Number)?.toInt()
                     ?: (invokeCompatible(accessors.memberV2Level, memberV2Basic) as? Number)
                         ?.toInt()
             }
-            if (!plan.userRules.isEmpty()) {
+            if (needAuthor) {
                 authorName = (invokeCompatible(accessors.memberName, member) as? String)
                     ?.takeIf(String::isNotBlank)
                     ?: (invokeCompatible(accessors.memberV2Name, memberV2Basic) as? String)
                         ?.takeIf(String::isNotBlank)
-                authorMid = (invokeCompatible(accessors.memberMid, member) as? Number)?.toLong()
-                    ?.takeIf { it > 0L }
-                    ?: (invokeCompatible(accessors.memberV2Mid, memberV2Basic) as? Number)
-                        ?.toLong()
+                // UID 只有发布者过滤和 AI 账号白名单里写了 UID 时才读。
+                if (!plan.userRules.isEmpty() || fish?.whitelist?.mids?.isNotEmpty() == true) {
+                    authorMid = (invokeCompatible(accessors.memberMid, member) as? Number)?.toLong()
                         ?.takeIf { it > 0L }
+                        ?: (invokeCompatible(accessors.memberV2Mid, memberV2Basic) as? Number)
+                            ?.toLong()
+                            ?.takeIf { it > 0L }
+                }
             }
         }
         return Signals(
@@ -600,14 +646,16 @@ internal class CommentFilterFeatureInstaller(
         val removeAtOnly: Boolean,
         val userRules: AuthorRuleSet,
         /** 智能过滤：语义结论由 getter 层单独读正文取得，不走 [needsMessage]。 */
-        val semanticEnabled: Boolean = false
+        val semanticEnabled: Boolean = false,
+        /** 屏蔽 AI 评论与回复：null = 未启用，或读取路径 / 白名单保护不可用。 */
+        val fish: FishScorePolicy.Plan? = null
     ) {
         val needsMessage: Boolean
-            get() = keywords.isNotEmpty() || removeAtOnly
+            get() = keywords.isNotEmpty() || removeAtOnly || fish != null
 
         val hasAnyJudgement: Boolean
             get() = keywords.isNotEmpty() || minimumLevel != null || removeAtOnly ||
-                !userRules.isEmpty() || semanticEnabled
+                !userRules.isEmpty() || semanticEnabled || fish != null
 
         fun describe(): String = buildList {
             if (keywords.isNotEmpty()) add("keyword=${keywords.size}")
@@ -617,6 +665,7 @@ internal class CommentFilterFeatureInstaller(
                 add("author=${userRules.mids.size}uid+${userRules.names.size}name")
             }
             if (semanticEnabled) add("semantic")
+            fish?.let { add(it.describe()) }
         }.joinToString("/")
     }
 
@@ -696,7 +745,11 @@ internal class CommentFilterFeatureInstaller(
             (plan.minimumLevel != null && signals.level?.let { it < plan.minimumLevel } == true) ||
             (plan.removeAtOnly && isAtOnlyComment(signals.message, signals.atNames)) ||
             (!plan.userRules.isEmpty() &&
-                plan.userRules.matches(signals.authorName, signals.authorMid))
+                plan.userRules.matches(signals.authorName, signals.authorMid)) ||
+            // 最贵的判据放最后：前面任一条命中就不再打分。
+            (plan.fish != null && FishScorePolicy.shouldRemove(
+                plan.fish, signals.authorName, signals.authorMid, signals.level, signals.message
+            ))
 
         /** 兼容旧签名的窄入口，供只关心关键词/等级两条判据的单测使用。 */
         internal fun shouldRemove(

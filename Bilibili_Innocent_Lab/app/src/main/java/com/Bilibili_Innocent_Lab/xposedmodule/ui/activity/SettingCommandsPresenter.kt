@@ -306,6 +306,22 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             skipGuestOnboarding = outcome.confirmed
             skipGuestOnboarding
         }
+        FeaturePreferences.COMMENT_FISH_FILTER_ENABLED -> {
+            val outcome = SettingWritePolicy.attempt(commentFishFilterEnabled, requested) {
+                prefs().edit { putBoolean(FeaturePreferences.COMMENT_FISH_FILTER_ENABLED, requested) }
+            }
+            outcome.failure?.let { Log.e("BilibiliInnocentLab", "write comment fish filter prefs failed", it) }
+            commentFishFilterEnabled = outcome.confirmed
+            commentFishFilterEnabled
+        }
+        FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL -> {
+            val outcome = SettingWritePolicy.attempt(commentFishProtectHighLevel, requested) {
+                prefs().edit { putBoolean(FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL, requested) }
+            }
+            outcome.failure?.let { Log.e("BilibiliInnocentLab", "write comment fish protect high level prefs failed", it) }
+            commentFishProtectHighLevel = outcome.confirmed
+            commentFishProtectHighLevel
+        }
         FeaturePreferences.HOST_BOTTOM_BAR_COMPACT -> {
             val checked = requested
             if (!hostBottomBarLiquidGlass) {
@@ -1667,6 +1683,8 @@ internal val modeledToggleKeys = setOf(
     FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS,
     FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL,
     FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB,
+    FeaturePreferences.COMMENT_FISH_FILTER_ENABLED,
+    FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL,
     FeaturePreferences.NO_LOGIN_ENABLED,
     FeaturePreferences.INCOGNITO_ENABLED,
     FeaturePreferences.SKIP_GUEST_ONBOARDING,
@@ -1790,6 +1808,8 @@ internal fun MainActivity.synchronizeSettingField(key: String, confirmed: Boolea
         FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS -> blockAiDeclaredVideos = confirmed
         FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL -> homeVerticalOpenDetail = confirmed
         FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB -> preferDynamicVideoTab = confirmed
+        FeaturePreferences.COMMENT_FISH_FILTER_ENABLED -> commentFishFilterEnabled = confirmed
+        FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL -> commentFishProtectHighLevel = confirmed
         FeaturePreferences.NO_LOGIN_ENABLED -> noLoginEnabled = confirmed
         FeaturePreferences.INCOGNITO_ENABLED -> incognitoEnabled = confirmed
         FeaturePreferences.SKIP_GUEST_ONBOARDING -> skipGuestOnboarding = confirmed

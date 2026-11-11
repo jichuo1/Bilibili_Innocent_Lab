@@ -274,6 +274,14 @@ internal object FeaturePreferences {
     const val COMMENT_USER_FILTER_ENABLED = "comment_user_filter_enabled"
     const val COMMENT_USER_FILTER_RULES = "comment_user_filter_rules"
 
+    /** 屏蔽 AI 评论与回复：昵称 / 等级 / 正文离线打分，与关键词、等级、发布者判据共用同一批列表边界。 */
+    const val COMMENT_FISH_FILTER_ENABLED = "comment_fish_filter_enabled"
+    const val COMMENT_FISH_SENSITIVITY = "comment_fish_sensitivity"
+    const val COMMENT_FISH_NICKNAME_WORDS = "comment_fish_nickname_words"
+    const val COMMENT_FISH_TEXT_WORDS = "comment_fish_text_words"
+    const val COMMENT_FISH_WHITELIST = "comment_fish_whitelist"
+    const val COMMENT_FISH_PROTECT_HIGH_LEVEL = "comment_fish_protect_high_level"
+
     /** 弹幕权重过滤：低于阈值的弹幕在 protobuf 边界删除。 */
     const val DANMAKU_WEIGHT_FILTER_ENABLED = "danmaku_weight_filter_enabled"
     const val DANMAKU_WEIGHT_FILTER_MINIMUM = "danmaku_weight_filter_minimum"

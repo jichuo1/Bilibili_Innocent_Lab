@@ -93,7 +93,8 @@ class LiquidControlStyleTest {
         // 2026-11-01：新增云控键扫描勾选面板与无扫描结果时的说明面板（CloudKeyScanDialogs.kt），50 → 52，
         // 两个都走同一个皮肤容器与 presentModalDialog。
         // 合入 NPatch 与 Shizuku 设置面板，52 → 54。
-        assertEquals(54, dialogs)
+        // 2026-11-11：屏蔽 AI 评论与回复的判定敏感度弹窗，54 → 55。
+        assertEquals(55, dialogs)
         // 「管理常用」改用定宽 presentSizedModalDialog（EXACTLY 行宽保证把手钉右缘）。
         assertTrue(SettingsUiSource.function("showSettingsFavoritesDialog").contains("presentSizedModalDialog(dialog, container, width, anchor)"))
         val presenter = SettingsUiSource.function("presentSizedModalDialog")

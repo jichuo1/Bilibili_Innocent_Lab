@@ -20,7 +20,7 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 37
+    const val VERSION = 38
     val definitions = listOf(
         DiagnosticCapabilityDefinition("ai_insight", "ai_insight", R.string.ai_insight_title,
             setOf("compat.ai_insight.enabled", "compat.ai_insight.auto_chapters",
@@ -198,6 +198,10 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("comments_minimum_level_filter_enabled", "comment_filter", R.string.comment_min_level_filter, setOf("comments.minimum_level_filter.enabled", "comments.minimum_level_filter.level")),
         DiagnosticCapabilityDefinition("comments_at_only_removed", "comment_filter", R.string.remove_at_only_comments, setOf("comments.at_only.removed")),
         DiagnosticCapabilityDefinition("comments_user_filter_enabled", "comment_filter", R.string.comment_user_filter, setOf("comments.user_filter.enabled", "comments.user_filter.rules")),
+        DiagnosticCapabilityDefinition("comments_fish_filter_enabled", "comment_filter", R.string.comment_fish_filter,
+            setOf("comments.fish_filter.enabled", "comments.fish_filter.sensitivity", "comments.fish_filter.nickname_words",
+                "comments.fish_filter.text_words", "comments.fish_filter.whitelist", "comments.fish_filter.protect_high_level"),
+            introducedCatalogVersion = 38),
         DiagnosticCapabilityDefinition("comments_semantic_filter_enabled", "comment_filter", R.string.comment_semantic_filter, setOf("comments.semantic_filter.enabled", "comments.semantic_filter.rules", "comments.semantic_filter.source", "comments.semantic_filter.custom_rules"), introducedCatalogVersion = 16),
         DiagnosticCapabilityDefinition("splash_ad_purify", "splash_ad_purify", R.string.purify_splash_ads, setOf("splash.ads.purified")),
         DiagnosticCapabilityDefinition("splash_auto_night", "splash_auto_night", R.string.splash_auto_night, setOf("splash.auto_night.enabled")),

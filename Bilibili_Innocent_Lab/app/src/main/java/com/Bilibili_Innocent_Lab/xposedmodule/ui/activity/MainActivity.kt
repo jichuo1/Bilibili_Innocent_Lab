@@ -93,6 +93,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailModulePurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ComponentLibraryPoolMatcher
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FishScorePolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentScanEntry
@@ -483,6 +484,12 @@ class MainActivity : SkinnedActivity() {
     internal var removeAtOnlyComments = false
     internal var commentUserFilterEnabled = false
     internal var commentUserFilterRules = ""
+    internal var commentFishFilterEnabled = false
+    internal var commentFishSensitivity = FishScorePolicy.Sensitivity.DEFAULT.id
+    internal var commentFishNicknameWords = ""
+    internal var commentFishTextWords = ""
+    internal var commentFishWhitelist = ""
+    internal var commentFishProtectHighLevel = true
     internal var danmakuWeightFilterEnabled = false
     internal var danmakuWeightMinimum = DanmakuPurifyPolicy.DEFAULT_MINIMUM_WEIGHT
     internal var removeVipColorfulDanmaku = false
@@ -4761,6 +4768,13 @@ class MainActivity : SkinnedActivity() {
         removeAtOnlyComments = uiSettings.bool(FeaturePreferences.REMOVE_AT_ONLY_COMMENTS)
         commentUserFilterEnabled = uiSettings.bool(FeaturePreferences.COMMENT_USER_FILTER_ENABLED)
         commentUserFilterRules = uiSettings.string(FeaturePreferences.COMMENT_USER_FILTER_RULES)
+        commentFishFilterEnabled = uiSettings.bool(FeaturePreferences.COMMENT_FISH_FILTER_ENABLED)
+        commentFishSensitivity = FishScorePolicy.Sensitivity.fromId(
+            uiSettings.string(FeaturePreferences.COMMENT_FISH_SENSITIVITY)).id
+        commentFishNicknameWords = uiSettings.string(FeaturePreferences.COMMENT_FISH_NICKNAME_WORDS)
+        commentFishTextWords = uiSettings.string(FeaturePreferences.COMMENT_FISH_TEXT_WORDS)
+        commentFishWhitelist = uiSettings.string(FeaturePreferences.COMMENT_FISH_WHITELIST)
+        commentFishProtectHighLevel = uiSettings.bool(FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL)
         danmakuWeightFilterEnabled = uiSettings.bool(FeaturePreferences.DANMAKU_WEIGHT_FILTER_ENABLED)
         danmakuWeightMinimum = DanmakuPurifyPolicy.normalizeWeight(
             uiSettings.int(FeaturePreferences.DANMAKU_WEIGHT_FILTER_MINIMUM)
