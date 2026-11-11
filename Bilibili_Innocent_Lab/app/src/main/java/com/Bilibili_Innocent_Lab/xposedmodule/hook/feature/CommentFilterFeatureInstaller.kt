@@ -21,7 +21,8 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * AI 账号判据（[FishScorePolicy]）只用已有的昵称、等级、正文三条读取路径，不新增 Hook 点，也不联网。
  * 它比其它判据贵，所以排在 [shouldRemove] 的最后（前面任一判据命中就不再算），列表 getter 路径上
- * 同一个列表实例只算一次（[ReplyVerdictMemo]）。
+ * 同一个列表实例只算一次（[ReplyVerdictMemo]）。楼中楼里它还会拿主评论对照回复有没有在复述：子回复列表挂在主评论下，
+ * getter 钩子的接收者、Kotlin 重写器递归时的所属消息就是主评论（[rootEchoOf]），不新增 Hook 点。
  */
 internal class CommentFilterFeatureInstaller(
     keywordFilterEnabled: Boolean,
@@ -142,8 +143,10 @@ internal class CommentFilterFeatureInstaller(
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         val semantic = semanticVerdicts(source, accessors, plan)
                         // 评分比其它判据贵：getter 在滚动、绑定时会被反复调用，同一个列表实例只算一次。
+                        // 子回复列表挂在主评论下：thisObject 就是主评论，AI 账号判据拿它对照回复有没有在复述。
                         val rules = if (plan.fish != null) {
-                            ruleVerdictMemo.getOrCompute(source) { ruleVerdicts(source, accessors, plan) }
+                            val root = rootEchoOf(thisObject, accessors)
+                            ruleVerdictMemo.getOrCompute(source) { ruleVerdicts(source, accessors, plan, root) }
                         } else {
                             null
                         }
@@ -304,13 +307,34 @@ internal class CommentFilterFeatureInstaller(
     private fun ruleVerdicts(
         source: List<*>,
         accessors: Accessors,
-        plan: JudgementPlan
+        plan: JudgementPlan,
+        root: FishRootEcho.Root?
     ): java.util.IdentityHashMap<Any, Boolean> {
         val verdicts = java.util.IdentityHashMap<Any, Boolean>(source.size)
         for (reply in source) {
-            if (reply != null) verdicts[reply] = shouldRemove(readSignals(reply, accessors, plan), plan)
+            if (reply != null) verdicts[reply] = shouldRemove(readSignals(reply, accessors, plan, root), plan)
         }
         return verdicts
+    }
+
+    /**
+     * [owner] 是装着这批回复的消息：它是 `ReplyInfo` 时就是这批回复所在楼的主评论（楼中楼预览、详情页、对话页都是这个形状），
+     * 否则（主楼列表、置顶位）没有主评论可对照。正文与昵称在分数落进"差一点"区间时才真的读（[FishRootEcho.Root]）。
+     */
+    private fun rootEchoOf(owner: Any?, accessors: Accessors): FishRootEcho.Root? {
+        if (owner == null || !accessors.hasMessagePath) return null
+        if (accessors.content?.declaringClass?.isInstance(owner) != true) return null
+        return FishRootEcho.Root(
+            readText = { messageOf(owner, accessors).takeIf(String::isNotEmpty) },
+            readName = { authorNameOf(owner, accessors) }
+        )
+    }
+
+    private fun authorNameOf(reply: Any, accessors: Accessors): String? {
+        val member = invokeCompatible(accessors.member, reply)
+        val memberV2Basic = invokeCompatible(accessors.memberV2Basic, invokeCompatible(accessors.memberV2, reply))
+        return (invokeCompatible(accessors.memberName, member) as? String)?.takeIf(String::isNotBlank)
+            ?: (invokeCompatible(accessors.memberV2Name, memberV2Basic) as? String)?.takeIf(String::isNotBlank)
     }
 
     private fun computeSemanticVerdicts(
@@ -413,9 +437,13 @@ internal class CommentFilterFeatureInstaller(
         val loader = replyInfoClass.classLoader ?: return skip("no-class-loader")
         val packageName = replyInfoClass.name.substringBeforeLast('.')
         val members = KotlinMossChannel.prepare(environment, loader, "评论过滤", KMOSS_LOG_KEY) ?: return skip("no-bridge")
-        val decide: (List<Any>) -> Set<Any> = { replies -> kotlinDecide(environment, replies, accessors, plan) }
-        val rewriter = kotlinRewriter(replyInfoClass, "mainList", decide)
-        val singleRewriter = kotlinRewriter(replyInfoClass, "replyInfo", decide)
+        val decide: (List<Any>) -> Set<Any> = { replies -> kotlinDecide(environment, replies, accessors, plan, null) }
+        // 子回复挂在主评论下：把装着这批回复的消息交给判定，AI 账号判据才能拿主评论对照。
+        val decideOwned: (List<Any>, Any) -> Set<Any> = { replies, owner ->
+            kotlinDecide(environment, replies, accessors, plan, owner)
+        }
+        val rewriter = kotlinRewriter(replyInfoClass, "mainList", decideOwned, decide)
+        val singleRewriter = kotlinRewriter(replyInfoClass, "replyInfo", decideOwned, decide)
         val readers = ConcurrentHashMap<Class<*>, List<Method>>()
         var hooks = 0
         KMOSS_RPCS.forEach { (rpc, replyName) ->
@@ -467,16 +495,18 @@ internal class CommentFilterFeatureInstaller(
         environment: HookEnvironment,
         replies: List<Any>,
         accessors: Accessors,
-        plan: JudgementPlan
+        plan: JudgementPlan,
+        owner: Any?
     ): Set<Any> {
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
         val judge = semanticJudge?.takeIf { plan.semanticEnabled }
         // 整份响应已在 [prewarmSemantic] 里判过，这里只取缓存结论（未命中投后台，不阻塞）。
         val semantic = judge?.evaluate(replies.map { reply -> messageOf(reply, accessors) }, SemanticMode.PREFETCH)
+        val root = if (plan.fish != null) rootEchoOf(owner, accessors) else null
         val drop = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Any, Boolean>())
         replies.forEachIndexed { index, reply ->
             if (semantic?.getOrNull(index) == SemanticVerdict.BLOCK ||
-                shouldRemove(readSignals(reply, accessors, plan), plan)
+                shouldRemove(readSignals(reply, accessors, plan, root), plan)
             ) drop += reply
         }
         return drop
@@ -538,7 +568,8 @@ internal class CommentFilterFeatureInstaller(
     private fun readSignals(
         reply: Any,
         accessors: Accessors,
-        plan: JudgementPlan
+        plan: JudgementPlan,
+        root: FishRootEcho.Root? = null
     ): Signals {
         val needContent = plan.needsMessage || plan.removeAtOnly
         val content = if (needContent) invokeCompatible(accessors.content, reply) else null
@@ -583,7 +614,8 @@ internal class CommentFilterFeatureInstaller(
             level = level,
             atNames = atNames,
             authorName = authorName,
-            authorMid = authorMid
+            authorMid = authorMid,
+            root = root
         )
     }
 
@@ -636,7 +668,9 @@ internal class CommentFilterFeatureInstaller(
         /** null = 本次没读 @ 名单（判据未启用或读取失败），不能当成"没有 @"。 */
         val atNames: Set<String>? = null,
         val authorName: String? = null,
-        val authorMid: Long? = null
+        val authorMid: Long? = null,
+        /** 这条评论所在楼的主评论（只有楼中楼、且启用了 AI 账号判据时才有）。 */
+        val root: FishRootEcho.Root? = null
     )
 
     /** 安装期定型的判据集合；热路径只读它，不再回头判断适配是否完整。 */
@@ -719,10 +753,12 @@ internal class CommentFilterFeatureInstaller(
             "replyInfo" to "ReplyInfoReply"
         )
         internal fun kotlinRewriter(replyInfoClass: Class<*>, rpc: String,
+            decideOwned: ((List<Any>, Any) -> Set<Any>)? = null,
             decide: (List<Any>) -> Set<Any>): ProtobufReplyTreeRewriter = ProtobufReplyTreeRewriter(
             replyInfoClass,
             removableSingles = if (rpc == "replyInfo") ProtobufReplyTreeRewriter.DEFAULT_REMOVABLE_SINGLES + "Reply"
                 else ProtobufReplyTreeRewriter.DEFAULT_REMOVABLE_SINGLES,
+            decideOwned = decideOwned,
             decide = decide
         )
         private const val KMOSS_LOG_KEY = "comment_filter_kmoss"
@@ -748,7 +784,7 @@ internal class CommentFilterFeatureInstaller(
                 plan.userRules.matches(signals.authorName, signals.authorMid)) ||
             // 最贵的判据放最后：前面任一条命中就不再打分。
             (plan.fish != null && FishScorePolicy.shouldRemove(
-                plan.fish, signals.authorName, signals.authorMid, signals.level, signals.message
+                plan.fish, signals.authorName, signals.authorMid, signals.level, signals.message, signals.root
             ))
 
         /** 兼容旧签名的窄入口，供只关心关键词/等级两条判据的单测使用。 */

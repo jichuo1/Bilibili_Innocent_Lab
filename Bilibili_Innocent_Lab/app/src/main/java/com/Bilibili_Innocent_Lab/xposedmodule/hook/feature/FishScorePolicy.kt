@@ -4,8 +4,9 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
  * 「屏蔽 AI 评论与回复」的离线加权打分判据。
  *
  * 2026 年 10 月起大批 AI Agent 小号涌入评论区：昵称"XX的大肥鱼"、多为 Lv2 新号，正文自称"本鲸"、
- * 括号里演动作、@ 主人汇报。单看任何一个特征都不足以下结论，所以这里不做"命中即删"，而是把昵称、等级、
- * 正文三类特征各自计分，总分 ≥ 阈值才判定。权重与规则移植自 dafeiyu-cleaner 的 `detector.js`
+ * 括号里演动作、@ 主人汇报，楼中楼里则大量复述主评论的词句。单看任何一个特征都不足以下结论，所以这里不做
+ * "命中即删"，而是把昵称、等级、正文三类特征各自计分（外加 [FishRootEcho] 对主评论的复述，只加分），
+ * 总分 ≥ 阈值才判定。权重与规则移植自 dafeiyu-cleaner 的 `detector.js`
  * （MIT，见 THIRD_PARTY_NOTICES.md），只保留离线可算的部分：不看头像像素、不联网、不调模型。
  *
  * 与原实现的有意差异（这里是**静默删除**，宁可漏判也不错判）：
@@ -80,9 +81,9 @@ internal object FishScorePolicy {
     )
 
     private val FILLER = Regex("的|の|家|大|小|肥|鱼|鲸|娘|蓝色|蓝|白饭|吃|爱|不|是|之|[\\s_\\-—·・.0-9]")
-    private val MENTION = Regex("@([^\\s@:：，,。！!?？]{1,24})")
+    internal val MENTION = Regex("@([^\\s@:：，,。！!?？]{1,24})")
     private val LEAD_MENTION = Regex("^\\s*@([^\\s@:：，,。！!?？]{1,24})\\s*([\\s\\S]*)$")
-    private val EMOTE_PLACEHOLDER = Regex("\\[[^\\]]{1,12}\\]")
+    internal val EMOTE_PLACEHOLDER = Regex("\\[[^\\]]{1,12}\\]")
     private val HAN = Regex("[一-龥]")
 
     /** 昵称维度上限：多条规则叠加也不能单靠昵称越过标准阈值太多。 */
@@ -163,20 +164,38 @@ internal object FishScorePolicy {
      * 这条评论是否判定为 AI 灌水。任何信号读不到都不计分；白名单与高等级保护先于计分。
      *
      * @param level 读不到传 null，不能当作 0。
+     * @param root 这条回复所在楼的主评论；不是楼中楼（主楼、置顶位）时传 null。
      */
-    fun shouldRemove(plan: Plan, name: String?, mid: Long?, level: Int?, message: String?): Boolean {
+    fun shouldRemove(
+        plan: Plan,
+        name: String?,
+        mid: Long?,
+        level: Int?,
+        message: String?,
+        root: FishRootEcho.Root? = null
+    ): Boolean {
         if (plan.whitelist.isNotEmpty() && plan.whitelist.matches(name, mid)) return false
         if (plan.protectHighLevel && level != null && level >= PROTECTED_LEVEL) return false
-        return score(plan, name, level, message) >= plan.threshold
+        return score(plan, name, level, message, root) >= plan.threshold
     }
 
-    /** 总分，限制在 0..99。 */
-    fun score(plan: Plan, name: String?, level: Int?, message: String?): Int {
+    /**
+     * 总分，限制在 0..99。
+     *
+     * 对主评论的复述（[FishRootEcho]）排在最后且按需计算：只有其余三类特征已经让分数落进
+     * `[阈值 - 复述上限, 阈值)` 时才读主评论、建索引——绝大多数回复（分数远低于阈值，或已经够删）一次都不会读。
+     * 回复者就是主评论作者时不算（楼主在自己楼里接话，复述自己是常态）。
+     */
+    fun score(plan: Plan, name: String?, level: Int?, message: String?, root: FishRootEcho.Root? = null): Int {
         val normalizedName = name?.takeIf(String::isNotBlank)?.let(TextNormalizer::forMatching)
         val normalizedMessage = message?.takeIf(String::isNotBlank)?.let(TextNormalizer::forMatching)
-        val total = (normalizedName?.let { nameScore(it, plan.nicknameWords) } ?: 0) +
+        var total = (normalizedName?.let { nameScore(it, plan.nicknameWords) } ?: 0) +
             levelScore(level) +
             (normalizedMessage?.let { textScore(it, normalizedName, plan.textWords) } ?: 0)
+        if (root != null && normalizedMessage != null &&
+            total < plan.threshold && total + FishRootEcho.MAX_POINTS >= plan.threshold &&
+            (normalizedName == null || normalizedName != root.authorName())
+        ) total += FishRootEcho.points(root, normalizedMessage)
         return total.coerceIn(0, 99)
     }
 

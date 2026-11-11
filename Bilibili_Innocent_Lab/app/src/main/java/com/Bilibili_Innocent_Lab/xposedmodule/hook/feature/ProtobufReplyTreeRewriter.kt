@@ -22,12 +22,15 @@ import java.util.concurrent.ConcurrentHashMap
  * （如 `DetailListReply.root`）只递归处理它的子回复。递归最多 [MAX_DEPTH] 层。
  *
  * [decide] 一次拿到同一层要判定的整批评论，返回要删的那些（按引用）；它负责判据与运行期证据。
+ * 判据要看"这批评论挂在哪条消息下"时（子回复挂在主评论下，要拿主评论对照）给 [decideOwned]：
+ * 第二个参数是装着这批评论的那条消息，给了就用它、不再调用 [decide]。
  */
 internal class ProtobufReplyTreeRewriter(
     private val replyInfoClass: Class<*>,
     private val removableSingles: Set<String> = DEFAULT_REMOVABLE_SINGLES,
     /** 对每条保留下来的评论（已处理完子回复）做的改写；返回同一对象表示不改。 */
     private val mapReply: (Any) -> Any = { it },
+    private val decideOwned: ((List<Any>, Any) -> Set<Any>)? = null,
     private val decide: (List<Any>) -> Set<Any>
 ) {
     private class ListField(val getter: Method, val clear: Method, val addAll: Method)
@@ -50,7 +53,7 @@ internal class ProtobufReplyTreeRewriter(
             val source = KotlinMossChannel.raw { field.getter.invoke(message) as? List<*> }
                 ?.filterNotNull().orEmpty()
             if (source.isEmpty()) return@forEach
-            val drop = decide(source)
+            val drop = decideIn(source, message)
             var changed = false
             val kept = ArrayList<Any>(source.size)
             source.forEach { item ->
@@ -74,7 +77,7 @@ internal class ProtobufReplyTreeRewriter(
             KotlinMossChannel.raw { field.getter.invoke(message) }?.let { field to it }
         }
         val removableValues = present.filter { it.first.name in removableSingles }.map { it.second }
-        val singleDrop = if (removableValues.isEmpty()) emptySet() else decide(removableValues)
+        val singleDrop = if (removableValues.isEmpty()) emptySet() else decideIn(removableValues, message)
         present.forEach { (field, value) ->
             if (value in singleDrop) {
                 singleEdits[field] = null
@@ -98,6 +101,9 @@ internal class ProtobufReplyTreeRewriter(
         }
         return Result(rebuilt, removed)
     }
+
+    private fun decideIn(replies: List<Any>, owner: Any): Set<Any> =
+        decideOwned?.invoke(replies, owner) ?: decide(replies)
 
     private fun shapeOf(type: Class<*>): Shape? {
         val cached = shapes[type]
