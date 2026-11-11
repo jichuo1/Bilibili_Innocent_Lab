@@ -773,6 +773,15 @@
     <string name="no_root_action_verify">驗證</string>
     <string name="no_root_action_open_manager">開啟 NPatch Manager</string>
     <string name="no_root_action_manager_unavailable">無法開啟 NPatch Manager，請先安裝或更新它。</string>
+    <string name="no_root_action_add_scope">加入 NPatch 作用域</string>
+    <string name="no_root_scope_confirm_title">要在 NPatch Manager 中把本模組加入嗶哩嗶哩的作用域嗎？</string>
+    <string name="no_root_scope_confirm_message">NPatch Manager 不會再次詢問，你可以隨時在 Manager 中移除。這不會修補或重新啟動嗶哩嗶哩。</string>
+    <string name="no_root_scope_confirm_action">加入</string>
+    <string name="no_root_scope_result_added">已加入作用域。請強制停止並重新開啟嗶哩嗶哩使其生效。</string>
+    <string name="no_root_scope_result_present">已在作用域內。</string>
+    <string name="no_root_scope_result_not_registered">NPatch Manager 尚未接受本模組。請先在 Manager 中加入並啟用模組，然後重試。</string>
+    <string name="no_root_scope_result_timeout">NPatch Manager 沒有回應，請稍後重試。</string>
+    <string name="no_root_scope_result_failed">無法加入作用域，請開啟 NPatch Manager 手動加入。</string>
     <string name="no_root_status_syncing">狀態：正在向 NPatch 同步設定…</string>
     <string name="no_root_status_restart_required">狀態：設定已就緒，強制停止並重新開啟嗶哩嗶哩後生效。</string>
     <string name="no_root_status_disable_restart_required">狀態：已關閉，但執行中的嗶哩嗶哩可能仍帶有 Hook；強制停止並重新開啟後完成關閉。</string>

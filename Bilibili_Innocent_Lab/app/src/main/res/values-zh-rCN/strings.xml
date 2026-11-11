@@ -773,6 +773,15 @@
     <string name="no_root_action_verify">验证</string>
     <string name="no_root_action_open_manager">打开 NPatch Manager</string>
     <string name="no_root_action_manager_unavailable">无法打开 NPatch Manager，请先安装或更新它。</string>
+    <string name="no_root_action_add_scope">加入 NPatch 作用域</string>
+    <string name="no_root_scope_confirm_title">要在 NPatch Manager 中把本模块加入哔哩哔哩的作用域吗？</string>
+    <string name="no_root_scope_confirm_message">NPatch Manager 不会再次询问，你可以随时在 Manager 中移除。这不会修补或重启哔哩哔哩。</string>
+    <string name="no_root_scope_confirm_action">加入</string>
+    <string name="no_root_scope_result_added">已加入作用域。请强制停止并重新打开哔哩哔哩使其生效。</string>
+    <string name="no_root_scope_result_present">已在作用域内。</string>
+    <string name="no_root_scope_result_not_registered">NPatch Manager 尚未接受本模块。请先在 Manager 中添加并启用模块，然后重试。</string>
+    <string name="no_root_scope_result_timeout">NPatch Manager 没有响应，请稍后重试。</string>
+    <string name="no_root_scope_result_failed">无法加入作用域，请打开 NPatch Manager 手动添加。</string>
     <string name="no_root_status_syncing">状态：正在向 NPatch 同步设置…</string>
     <string name="no_root_status_restart_required">状态：配置已就绪，强制停止并重新打开哔哩哔哩后生效。</string>
     <string name="no_root_status_disable_restart_required">状态：已关闭，但运行中的哔哩哔哩可能仍带有 Hook；强制停止并重新打开后完成关闭。</string>

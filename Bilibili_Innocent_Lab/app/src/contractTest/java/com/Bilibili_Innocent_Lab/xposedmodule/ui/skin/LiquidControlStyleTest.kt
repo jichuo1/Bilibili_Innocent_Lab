@@ -95,7 +95,8 @@ class LiquidControlStyleTest {
         // 两个都走同一个皮肤容器与 presentModalDialog。
         // 合入 NPatch 与 Shizuku 设置面板，52 → 54。
         // 2026-11-11：屏蔽 AI 评论与回复的判定敏感度弹窗，54 → 55。
-        assertEquals(55, dialogs)
+        // 同日新增 NPatch「加入作用域」确认框（NPatchScopeDialogs.kt），55 → 56，同样走皮肤容器与 presentModalDialog。
+        assertEquals(56, dialogs)
         // 「管理常用」改用定宽 presentSizedModalDialog（EXACTLY 行宽保证把手钉右缘）。
         assertTrue(SettingsUiSource.function("showSettingsFavoritesDialog").contains("presentSizedModalDialog(dialog, container, width, anchor)"))
         val presenter = SettingsUiSource.function("presentSizedModalDialog")

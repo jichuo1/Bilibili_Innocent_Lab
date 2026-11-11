@@ -773,6 +773,15 @@
     <string name="no_root_action_verify">Verify</string>
     <string name="no_root_action_open_manager">Open NPatch Manager</string>
     <string name="no_root_action_manager_unavailable">Cannot open NPatch Manager. Install or update it first.</string>
+    <string name="no_root_action_add_scope">Add to NPatch scope</string>
+    <string name="no_root_scope_confirm_title">Add this module to Bilibili\'s scope in NPatch Manager?</string>
+    <string name="no_root_scope_confirm_message">NPatch Manager adds it without asking again, and you can remove it in Manager at any time. This does not patch or restart Bilibili.</string>
+    <string name="no_root_scope_confirm_action">Add</string>
+    <string name="no_root_scope_result_added">Added to the scope. Force-stop and reopen Bilibili to apply it.</string>
+    <string name="no_root_scope_result_present">Already in the scope.</string>
+    <string name="no_root_scope_result_not_registered">NPatch Manager has not accepted this module yet. Add and enable it in Manager first, then try again.</string>
+    <string name="no_root_scope_result_timeout">NPatch Manager did not respond. Try again in a moment.</string>
+    <string name="no_root_scope_result_failed">Could not add the scope. Open NPatch Manager and add it there.</string>
     <string name="no_root_status_syncing">Status: synchronizing settings with NPatch…</string>
     <string name="no_root_status_restart_required">Status: settings ready. Force stop and reopen Bilibili to apply them.</string>
     <string name="no_root_status_disable_restart_required">Status: off, but the running Bilibili may still have hooks. Force stop and reopen it to finish.</string>

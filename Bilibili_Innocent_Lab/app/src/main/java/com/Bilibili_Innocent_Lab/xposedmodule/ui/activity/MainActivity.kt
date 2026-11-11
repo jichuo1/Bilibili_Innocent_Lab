@@ -124,6 +124,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootDisplayState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportController
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRemoteGateway
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchScopeProbe
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportApplier
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ModuleSettingsStore
@@ -1104,38 +1105,39 @@ class MainActivity : SkinnedActivity() {
                     )
         }
         noRootProgrammaticSwitch = false
-        val embedded = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRuntimeProfiles
-            .read(applicationContext).mode == com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchMode.EMBEDDED
+        // 补丁信息要查一次 PackageManager，同一轮渲染只读一次并传给状态行和按钮。
+        val patch = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRuntimeProfiles.read(applicationContext)
+        val embedded = patch.mode == com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchMode.EMBEDDED
         noRootStatusView?.text = if (embedded && state != NoRootDisplayState.EMBEDDED_UNSUPPORTED) getString(noRootStatusText(state)) + "\n" +
             getString(R.string.npatch_embed_usage) else getString(noRootStatusText(state))
-        renderNoRootAction(state)
+        renderNoRootAction(state, patch)
 
         renderActivationUi(noRootState = state)
         refreshNoRootScope()
     }
 
     /** B12：只在需要用户出手时给一个入口，其余状态收起避免噪声。 */
-    private fun renderNoRootAction(state: NoRootDisplayState) {
+    private fun renderNoRootAction(
+        state: NoRootDisplayState,
+        patch: com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRuntimeProfile
+    ) {
         val actionView = noRootActionView ?: return
         val label: Int
         val click: () -> Unit
-        when (state) {
-            NoRootDisplayState.UNCONFIRMED -> {
+        when (NoRootActionPolicy.kind(state, patch)) {
+            NoRootActionKind.VERIFY -> {
                 label = R.string.no_root_action_verify
                 click = ::verifyNoRootHostRuntime
             }
-            NoRootDisplayState.NOT_RUNNING,
-            NoRootDisplayState.SCOPE_MISSING -> {
-                if (com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRuntimeProfiles
-                        .read(applicationContext).mode == com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchMode.EMBEDDED) {
-                    label = R.string.no_root_action_verify
-                    click = ::verifyNoRootHostRuntime
-                } else {
-                    label = R.string.no_root_action_open_manager
-                    click = ::openNpatchManager
-                }
+            NoRootActionKind.JOIN_SCOPE -> {
+                label = R.string.no_root_action_add_scope
+                click = { showScopeJoinConfirmDialog(actionView) }
             }
-            else -> {
+            NoRootActionKind.OPEN_MANAGER -> {
+                label = R.string.no_root_action_open_manager
+                click = ::openNpatchManager
+            }
+            NoRootActionKind.NONE -> {
                 actionView.isVisible = false
                 actionView.setOnClickListener(null)
                 return
@@ -1144,6 +1146,24 @@ class MainActivity : SkinnedActivity() {
         actionView.setText(label)
         actionView.setOnClickListener { click() }
         actionView.isVisible = true
+    }
+
+    /**
+     * 用户在确认框里同意后，经 Manager 认证通道把本模块加入哔哩哔哩的作用域。结果以读回为准，
+     * 随后强制复查一次作用域探针，让状态行立即离开 SCOPE_MISSING；宿主仍需重启才会加载模块。
+     */
+    internal fun joinNPatchScope() {
+        val appContext = applicationContext
+        NPatchRemoteGateway.requestScopeAsync(appContext, listOf(NoRootSupportState.TARGET_PACKAGE)) { result ->
+            NPatchScopeProbe.refreshAsync(appContext, force = true) {
+                runOnUiThread { if (!isFinishing && !isDestroyed) renderNoRootUi() }
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                runCatching { toast(getString(NoRootActionPolicy.message(result))) }
+                renderNoRootUi()
+            }
+        }
     }
 
     /**
