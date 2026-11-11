@@ -1,6 +1,10 @@
 [CmdletBinding()]
 param(
     [ValidateSet('embedded','manager')] [string] $Mode = 'embedded',
+    # fixed833: the repository-fixed 833 patcher (device-verified). upstreamDev: the pinned upstream dev build
+    # (pins/npatch-baselines.json), which already contains the Java binder fix and the native TLS fix. The
+    # latter has no device evidence yet, so its output is recorded as an UNVERIFIED loader.
+    [ValidateSet('fixed833','upstreamDev')] [string] $Baseline = 'fixed833',
     [Parameter(Mandatory)] [string] $OriginalApk,
     [Parameter(Mandatory)] [string] $ModuleApk,
     [Parameter(Mandatory)] [string] $ReferencePatchedApk,
@@ -18,10 +22,23 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$expectedPatcher = 'dfa41340b717ca4de5a0de8e283e60d21ec38ce4b42f3d67657e01efeeecaff6'
-$expectedLibraries = [ordered]@{
-    'arm64-v8a' = 'ceac8f206404b5b2267ca70b0d6eb5b0f3738bc11d60e61738ccaa6af4e05a0f'
-    'x86_64' = '7933cae217a3f0183d15fee01674d682d4d8eb6a6f227d208cf6bbbc356ca5d1'
+$pins = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'pins/npatch-baselines.json') | ConvertFrom-Json
+if ($Baseline -eq 'fixed833') {
+    $expectedPatcher = 'dfa41340b717ca4de5a0de8e283e60d21ec38ce4b42f3d67657e01efeeecaff6'
+    $expectedLoaderVersion = 833
+    $loaderProfile = '833-manager-binder-and-trivial-tls-v1'
+    $expectedLibraries = [ordered]@{
+        'arm64-v8a' = 'ceac8f206404b5b2267ca70b0d6eb5b0f3738bc11d60e61738ccaa6af4e05a0f'
+        'x86_64' = '7933cae217a3f0183d15fee01674d682d4d8eb6a6f227d208cf6bbbc356ca5d1'
+    }
+} else {
+    $devPatcher = $pins.patcherJars | Where-Object { $_.label -eq 'dev-efecf30' }
+    $devManager = $pins.managerApks | Where-Object { $_.label -eq 'dev-efecf30' }
+    if (-not $devPatcher -or -not $devManager) { throw 'The dev-efecf30 baseline is missing from pins/npatch-baselines.json.' }
+    $expectedPatcher = $devPatcher.sha256
+    $expectedLoaderVersion = [int] $devManager.versionCode
+    $loaderProfile = "upstream-dev-$($pins.upstream.devCommit.Substring(0, 8))"
+    $expectedLibraries = $null   # taken from the pinned JAR itself once its SHA-256 has been checked
 }
 if ($RoamingModuleApk -and $Mode -ne 'embedded') {
     throw 'RoamingModuleApk is only for embedded mode; configure the Manager scope separately.'
@@ -36,7 +53,7 @@ foreach ($name in 'OriginalApk','ModuleApk','ReferencePatchedApk','PatcherJar','
     Set-Variable -Name $name -Value (Resolve-Path -LiteralPath (Get-Variable -Name $name -ValueOnly)).Path
 }
 if ((Get-FileHash -LiteralPath $PatcherJar -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedPatcher) {
-    throw 'Unsupported patcher: use the verified Java-and-native-fixed 833 JAR.'
+    throw "Unsupported patcher for baseline '$Baseline': use the pinned JAR (SHA-256 $expectedPatcher)."
 }
 if (Test-Path -LiteralPath $OutputDirectory) { throw 'Output directory already exists; choose a fresh directory.' }
 $customSigning = @($SigningKeyStore, $SigningKeyAlias, $SigningStorePasswordEnvironment, $SigningKeyPasswordEnvironment)
@@ -66,6 +83,19 @@ function Get-EntryHash($Entry) {
     $sha = [Security.Cryptography.SHA256]::Create()
     try { [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-','').ToLowerInvariant() }
     finally { $sha.Dispose(); $stream.Dispose() }
+}
+
+if ($null -eq $expectedLibraries) {
+    # The pinned upstream JAR ships the loader libraries the patcher copies into every output APK.
+    $expectedLibraries = [ordered]@{}
+    $jarArchive = [IO.Compression.ZipFile]::OpenRead($PatcherJar)
+    try {
+        foreach ($abi in 'arm64-v8a', 'x86_64') {
+            $jarLibrary = $jarArchive.GetEntry("assets/npatch/so/$abi/libnpatch.so")
+            if ($null -eq $jarLibrary) { throw "Pinned patcher JAR has no loader library for $abi." }
+            $expectedLibraries[$abi] = Get-EntryHash $jarLibrary
+        }
+    } finally { $jarArchive.Dispose() }
 }
 
 function Get-Signer([string] $Apk) {
@@ -133,7 +163,8 @@ if ($RoamingModuleApk) {
     }
 }
 $referenceSigner = Get-Signer $ReferencePatchedApk
-if (!$SigningKeyStore -and $referenceSigner -ne '08b00b38cd98762bf261952c2c1014c09208ac2c278fd3085421994a516c3e23') {
+if ($Baseline -eq 'fixed833' -and !$SigningKeyStore -and
+    $referenceSigner -ne '08b00b38cd98762bf261952c2c1014c09208ac2c278fd3085421994a516c3e23') {
     throw 'Reference uses a custom certificate; provide its matching custom signing options.'
 }
 $source = [IO.Compression.ZipFile]::OpenRead($OriginalApk)
@@ -167,7 +198,7 @@ $archive = [IO.Compression.ZipFile]::OpenRead($patched)
 try {
     $config = (Read-ZipText $archive 'assets/npatch/config.json') | ConvertFrom-Json
     if ($config.useManager -isnot [bool] -or $config.useManager -ne ($Mode -eq 'manager') -or
-        $config.sigBypassLevel -ne 2 -or $config.lspConfig.VERSION_CODE -ne 833) {
+        $config.sigBypassLevel -ne 2 -or $config.lspConfig.VERSION_CODE -ne $expectedLoaderVersion) {
         throw 'Patched configuration differs from the requested verified profile.'
     }
     $embedded = $archive.GetEntry("assets/npatch/modules/$modulePackage.apk")
@@ -193,7 +224,11 @@ $signer = Get-Signer $patched
 if ($signer -ne $referenceSigner) { throw 'Signing certificate mismatch; do not install this output APK.' }
 $verification = [ordered]@{
     mode = $Mode; signatureLevel = 2; injectdex = $false
-    loaderProfile = '833-manager-binder-and-trivial-tls-v1'; nativeLibraries = $expectedLibraries
+    baseline = $Baseline
+    # Only the repository-fixed 833 loader has device evidence; an upstream build stays unverified until it does.
+    verifiedLoader = ($Baseline -eq 'fixed833')
+    loaderVersionCode = $expectedLoaderVersion
+    loaderProfile = $loaderProfile; nativeLibraries = $expectedLibraries
     patcherSha256 = $expectedPatcher; originalSha256 = $originalHash; moduleSha256 = $moduleHash
     apkSha256 = (Get-FileHash -LiteralPath $patched -Algorithm SHA256).Hash.ToLowerInvariant()
     certificateSha256 = $signer
