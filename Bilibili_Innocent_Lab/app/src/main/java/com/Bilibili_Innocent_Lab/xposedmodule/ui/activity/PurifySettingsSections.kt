@@ -731,6 +731,7 @@ internal fun MainActivity.purifyCommentsCategory(scope: LinearSettingsScope) = w
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
+    commentFishFilterSettingsRows(this)
 }
 
 /** 进阶净化 · PURIFY_PLAYBACK 分类；标题即 marker，必须是本组第一个子控件。 */

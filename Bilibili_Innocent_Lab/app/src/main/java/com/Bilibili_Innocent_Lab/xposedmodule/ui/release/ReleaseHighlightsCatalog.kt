@@ -376,6 +376,14 @@ internal object ReleaseHighlightsCatalog {
     )), ReleaseHighlightsBatch(40, listOf(
         ReleaseHighlight("skip-guest-onboarding", HighlightKind.NEW, R.string.skip_guest_onboarding_tip,
             HighlightDestination("browsing.guest.skip_onboarding"))
+    )), ReleaseHighlightsBatch(41, listOf(
+        ReleaseHighlight("comment-ai-filter", HighlightKind.NEW, R.string.comment_fish_filter_tip,
+            HighlightDestination("comments.fish_filter.enabled", alsoCovers = setOf(
+                SettingsCatalog.ID_COMMENT_FISH_SENSITIVITY,
+                "comments.fish_filter.nickname_words",
+                "comments.fish_filter.text_words",
+                "comments.fish_filter.whitelist",
+                "comments.fish_filter.protect_high_level")))
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

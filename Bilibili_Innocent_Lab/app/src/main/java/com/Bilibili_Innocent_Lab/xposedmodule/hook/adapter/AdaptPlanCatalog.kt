@@ -297,11 +297,13 @@ internal object AdaptPlanCatalog {
             PointFamily.COMMENT_FILTER,
             listOf(gated("CommentFilterFeatureInstaller", *flags(
                 P.COMMENT_KEYWORD_FILTER_ENABLED, P.COMMENT_MIN_LEVEL_FILTER_ENABLED, P.REMOVE_AT_ONLY_COMMENTS,
-                P.COMMENT_USER_FILTER_ENABLED, P.COMMENT_SEMANTIC_FILTER_ENABLED
+                P.COMMENT_USER_FILTER_ENABLED, P.COMMENT_SEMANTIC_FILTER_ENABLED, P.COMMENT_FISH_FILTER_ENABLED
             ), refines = setOf(
-                P.COMMENT_FILTER_KEYWORDS, P.COMMENT_MIN_LEVEL, P.COMMENT_USER_FILTER_RULES, P.COMMENT_SEMANTIC_FILTER_RULES
+                P.COMMENT_FILTER_KEYWORDS, P.COMMENT_MIN_LEVEL, P.COMMENT_USER_FILTER_RULES, P.COMMENT_SEMANTIC_FILTER_RULES,
+                P.COMMENT_FISH_SENSITIVITY, P.COMMENT_FISH_NICKNAME_WORDS, P.COMMENT_FISH_TEXT_WORDS,
+                P.COMMENT_FISH_WHITELIST, P.COMMENT_FISH_PROTECT_HIGH_LEVEL
             ))),
-            evidence = "CommentFilterFeatureInstaller(keyword/level/at-only/user/semantic, points = hostAdaptResult?.commentFilter)；评论净化与回复脉络各读自己的点，不读这个家族"
+            evidence = "CommentFilterFeatureInstaller(keyword/level/at-only/user/semantic/fish, points = hostAdaptResult?.commentFilter)；评论净化与回复脉络各读自己的点，不读这个家族"
         ),
         Spec(
             PointFamily.COMMENT_TOPOLOGY,

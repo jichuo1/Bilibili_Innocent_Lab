@@ -133,3 +133,22 @@ License, Version 2.0). Its AAR carries the complete records at
 - 版权：Copyright 2010, 2021 The Android Open Source Project。
 - 许可证：Apache License 2.0（项目已有对应许可证全文）。
 - 原始工程：https://android.googlesource.com/platform/frameworks/base/
+
+## dafeiyu-cleaner
+
+The "Hide AI comments and replies" setting scores a comment's author nickname, level
+and text. Its rule patterns and weights are ported from the offline detector of
+[liyupi/dafeiyu-cleaner](https://github.com/liyupi/dafeiyu-cleaner)
+(`dafeiyu-cleaner/src/detector.js`, upstream commit
+`32866038316f81d77557f20a213b8c3723bf9ce0`).
+
+Copyright (c) 2026 大肥鱼消除计划 contributors
+
+Licensed under the MIT License; the complete text is provided in
+`third_party/dafeiyu-cleaner-LICENSE.txt`.
+
+The port is rewritten in Kotlin and changed: avatar analysis, signature, verification
+and page-level repeat rules are not included; a few generic phrases are weakened, rules
+tied to one video are dropped, signals that cannot be read are never scored, and the
+rules are matched on the module's normalized text. No upstream code, assets or fonts
+are included.

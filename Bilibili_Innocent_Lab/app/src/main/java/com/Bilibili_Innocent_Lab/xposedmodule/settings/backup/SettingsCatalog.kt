@@ -6,6 +6,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FishScorePolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerBufferConfig
@@ -35,7 +36,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 75
+    const val CATALOG_VERSION = 76
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_PLAYER_SPEED_MENU = "player.speed_menu.percents"
@@ -58,6 +59,8 @@ internal object SettingsCatalog {
     const val ID_BILI_ACCESS_KEY_AUTHORIZED = "communication.bili_access_key.authorized"
     const val ID_AI_DECLARED_VIDEOS_PRECHECK = "video.ai_declared.precheck"
     const val ID_DYNAMIC_SEMANTIC_FILTER = "dynamic.semantic_filter.enabled"
+    const val ID_COMMENT_FISH_FILTER = "comments.fish_filter.enabled"
+    const val ID_COMMENT_FISH_SENSITIVITY = "comments.fish_filter.sensitivity"
     const val ID_SEMANTIC_JEV_ENDPOINT = "compat.semantic_jev.endpoint"
     const val ID_SEMANTIC_JEV_SENSITIVITY = "compat.semantic_jev.sensitivity"
     const val ID_SEMANTIC_JEV_WAIT_FIRST_SCREEN = "compat.semantic_jev.wait_first_screen"
@@ -919,6 +922,45 @@ internal object SettingsCatalog {
             R.string.comment_user_filter_rules,
             introducedCatalogVersion = 11
         ),
+        bool(
+            ID_COMMENT_FISH_FILTER,
+            FeaturePreferences.COMMENT_FISH_FILTER_ENABLED,
+            R.string.comment_fish_filter,
+            introducedCatalogVersion = 76
+        ),
+        text(
+            ID_COMMENT_FISH_SENSITIVITY,
+            FeaturePreferences.COMMENT_FISH_SENSITIVITY,
+            R.string.comment_fish_sensitivity,
+            default = FishScorePolicy.Sensitivity.DEFAULT.id,
+            allowed = FishScorePolicy.Sensitivity.IDS,
+            introducedCatalogVersion = 76
+        ),
+        text(
+            "comments.fish_filter.nickname_words",
+            FeaturePreferences.COMMENT_FISH_NICKNAME_WORDS,
+            R.string.comment_fish_nickname_words,
+            introducedCatalogVersion = 76
+        ),
+        text(
+            "comments.fish_filter.text_words",
+            FeaturePreferences.COMMENT_FISH_TEXT_WORDS,
+            R.string.comment_fish_text_words,
+            introducedCatalogVersion = 76
+        ),
+        text(
+            "comments.fish_filter.whitelist",
+            FeaturePreferences.COMMENT_FISH_WHITELIST,
+            R.string.comment_fish_whitelist,
+            introducedCatalogVersion = 76
+        ),
+        bool(
+            "comments.fish_filter.protect_high_level",
+            FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL,
+            R.string.comment_fish_protect_high_level,
+            default = true,
+            introducedCatalogVersion = 76
+        ),
         bool("splash.ads.purified", FeaturePreferences.PURIFY_SPLASH_ADS, R.string.purify_splash_ads),
         bool("splash.brand.skipped", FeaturePreferences.BRAND_SPLASH_SKIP, R.string.brand_splash_skip,
             introducedCatalogVersion = 38),
@@ -1117,7 +1159,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 262) { "Expected 262 catalog settings, found ${specs.size}" }
+        check(specs.size == 268) { "Expected 268 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

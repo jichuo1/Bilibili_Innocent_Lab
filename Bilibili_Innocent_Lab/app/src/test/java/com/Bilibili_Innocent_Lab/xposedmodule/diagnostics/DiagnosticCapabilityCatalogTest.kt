@@ -69,8 +69,26 @@ class DiagnosticCapabilityCatalogTest {
         assertEquals(expected, DiagnosticCapabilityCatalog.byLocatorKey.keys)
     }
 
+    @Test fun aiCommentFilterIsAnIndependentV38CapabilityUnderTheCommentFilter() {
+        assertEquals(38, DiagnosticCapabilityCatalog.VERSION)
+        val added = DiagnosticCapabilityCatalog.definitions.filter { it.introducedCatalogVersion == 38 }
+        assertEquals(setOf("comments_fish_filter_enabled"), added.map { it.id }.toSet())
+        val capability = added.single()
+        // 与关键词、等级、发布者判据同属 comment_filter 安装组，共用同一批列表边界。
+        assertEquals("comment_filter", capability.parentId)
+        assertEquals(
+            setOf("comments.fish_filter.enabled", "comments.fish_filter.sensitivity", "comments.fish_filter.nickname_words",
+                "comments.fish_filter.text_words", "comments.fish_filter.whitelist", "comments.fish_filter.protect_high_level"),
+            capability.settingIds
+        )
+        assertEquals(SettingsCatalog.byId.getValue("comments.fish_filter.enabled").labelRes, capability.labelRes)
+        // 叶子能力的运行期口径与同组兄弟一致（由安装器自己上报覆盖单位，不另设支持等级）。
+        assertEquals(DiagnosticCapabilityCatalog.runtimeSupport("comments_user_filter_enabled"),
+            DiagnosticCapabilityCatalog.runtimeSupport(capability.id))
+    }
+
     @Test fun guestBrowsingAndIncognitoHaveIndependentV37Capabilities() {
-        assertEquals(37, DiagnosticCapabilityCatalog.VERSION)
+        assertTrue(DiagnosticCapabilityCatalog.VERSION >= 37)
         val added = DiagnosticCapabilityCatalog.definitions.filter { it.introducedCatalogVersion == 37 }
         val expected = mapOf(
             "guest_browsing" to "browsing.no_login.enabled",

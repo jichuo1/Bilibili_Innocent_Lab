@@ -1,4 +1,4 @@
-# settings=75; capabilities=37
+# settings=76; capabilities=38
 kind	id	installer_group	links	local_scope	manager	embedded	evidence
 setting	ads.game_card.hidden	detail_united_module_purify,game_mentioned_promotion	detail_united_video_mentions_removed,game_mentioned_promotion	-	pending	pending	-
 setting	ads.home_banner.hidden	home_banner	home_banner_feed,home_banner_view	-	pending	pending	-
@@ -22,6 +22,12 @@ setting	cloud.key_freeze.rules	cloud_key_freeze	cloud_key_freeze	-	pending	pendi
 setting	comments.at_only.removed	comment_filter	comments_at_only_removed	-	pending	pending	-
 setting	comments.classic_style.enabled	comment_classic_style	comment_classic_style	-	pending	pending	-
 setting	comments.empty_guide.removed	comment_purify	comments_empty_guide_removed	-	pending	pending	-
+setting	comments.fish_filter.enabled	comment_filter	comments_fish_filter_enabled	-	pending	pending	-
+setting	comments.fish_filter.nickname_words	comment_filter	comments_fish_filter_enabled	-	pending	pending	-
+setting	comments.fish_filter.protect_high_level	comment_filter	comments_fish_filter_enabled	-	pending	pending	-
+setting	comments.fish_filter.sensitivity	comment_filter	comments_fish_filter_enabled	-	pending	pending	-
+setting	comments.fish_filter.text_words	comment_filter	comments_fish_filter_enabled	-	pending	pending	-
+setting	comments.fish_filter.whitelist	comment_filter	comments_fish_filter_enabled	-	pending	pending	-
 setting	comments.follow_buttons.removed	comment_purify	comments_follow_buttons_removed	-	pending	pending	-
 setting	comments.keyword_filter.enabled	comment_filter	comments_keyword_filter_enabled	-	pending	pending	-
 setting	comments.keyword_filter.keywords	comment_filter	comments_keyword_filter_enabled	-	pending	pending	-
@@ -277,6 +283,7 @@ capability	comment_section	comment_section	comments.section.hidden	-	pending	pen
 capability	comment_topology	comment_topology	comments.reply_topology.enabled	-	pending	pending	-
 capability	comments_at_only_removed	comment_filter	comments.at_only.removed	-	pending	pending	-
 capability	comments_empty_guide_removed	comment_purify	comments.empty_guide.removed	-	pending	pending	-
+capability	comments_fish_filter_enabled	comment_filter	comments.fish_filter.enabled,comments.fish_filter.nickname_words,comments.fish_filter.protect_high_level,comments.fish_filter.sensitivity,comments.fish_filter.text_words,comments.fish_filter.whitelist	-	pending	pending	-
 capability	comments_follow_buttons_removed	comment_purify	comments.follow_buttons.removed	-	pending	pending	-
 capability	comments_keyword_filter_enabled	comment_filter	comments.keyword_filter.enabled,comments.keyword_filter.keywords	-	pending	pending	-
 capability	comments_minimum_level_filter_enabled	comment_filter	comments.minimum_level_filter.enabled,comments.minimum_level_filter.level	-	pending	pending	-
