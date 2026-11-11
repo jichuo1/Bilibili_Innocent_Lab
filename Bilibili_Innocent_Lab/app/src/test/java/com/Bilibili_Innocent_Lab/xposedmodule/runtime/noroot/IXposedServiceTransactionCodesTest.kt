@@ -35,8 +35,7 @@ class IXposedServiceTransactionCodesTest {
         "TRANSACTION_deleteRemoteFile" to 33
     )
 
-    private fun stubConstants(): Map<String, Int> {
-        val resource = "io/github/libxposed/service/IXposedService\$Stub.class"
+    private fun stubConstants(resource: String = "io/github/libxposed/service/IXposedService\$Stub.class"): Map<String, Int> {
         val stream = IXposedServiceTransactionCodesTest::class.java.classLoader.getResourceAsStream(resource)
         assertNotNull("$resource must be on the unit-test runtime classpath", stream)
         return stream!!.use { readIntConstants(it.readBytes()) }
@@ -54,16 +53,26 @@ class IXposedServiceTransactionCodesTest {
     }
 
     @Test
-    fun `gateway constants match the generated stub`() {
+    fun `scope callback transaction table of the pinned libxposed interface is unchanged`() {
+        assertEquals(
+            mapOf("TRANSACTION_onScopeRequestApproved" to 2, "TRANSACTION_onScopeRequestFailed" to 3).toSortedMap(),
+            stubConstants("io/github/libxposed/service/IXposedScopeCallback\$Stub.class").toSortedMap()
+        )
+    }
+
+    @Test
+    fun `gateway constants match the generated stubs`() {
         val actual = stubConstants()
-        assertEquals(
-            actual.getValue("TRANSACTION_requestRemotePreferences"),
-            NPatchRemoteGateway.TRANSACTION_REQUEST_REMOTE_PREFERENCES
-        )
-        assertEquals(
-            actual.getValue("TRANSACTION_updateRemotePreferences"),
-            NPatchRemoteGateway.TRANSACTION_UPDATE_REMOTE_PREFERENCES
-        )
+        val callback = stubConstants("io/github/libxposed/service/IXposedScopeCallback\$Stub.class")
+        assertEquals(actual.getValue("TRANSACTION_requestRemotePreferences"), NPatchRemoteGateway.TRANSACTION_REQUEST_REMOTE_PREFERENCES)
+        assertEquals(actual.getValue("TRANSACTION_updateRemotePreferences"), NPatchRemoteGateway.TRANSACTION_UPDATE_REMOTE_PREFERENCES)
+        assertEquals(actual.getValue("TRANSACTION_getScope"), NPatchRemoteGateway.TRANSACTION_GET_SCOPE)
+        assertEquals(actual.getValue("TRANSACTION_requestScope"), NPatchRemoteGateway.TRANSACTION_REQUEST_SCOPE)
+        assertEquals(actual.getValue("TRANSACTION_listRemoteFiles"), NPatchRemoteGateway.TRANSACTION_LIST_REMOTE_FILES)
+        assertEquals(actual.getValue("TRANSACTION_openRemoteFile"), NPatchRemoteGateway.TRANSACTION_OPEN_REMOTE_FILE)
+        assertEquals(actual.getValue("TRANSACTION_deleteRemoteFile"), NPatchRemoteGateway.TRANSACTION_DELETE_REMOTE_FILE)
+        assertEquals(callback.getValue("TRANSACTION_onScopeRequestApproved"), NPatchRemoteGateway.CALLBACK_TRANSACTION_SCOPE_APPROVED)
+        assertEquals(callback.getValue("TRANSACTION_onScopeRequestFailed"), NPatchRemoteGateway.CALLBACK_TRANSACTION_SCOPE_FAILED)
     }
 
     @Test

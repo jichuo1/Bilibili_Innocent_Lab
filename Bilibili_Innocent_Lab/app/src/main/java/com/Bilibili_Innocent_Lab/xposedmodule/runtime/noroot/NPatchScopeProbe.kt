@@ -20,7 +20,7 @@ internal object NPatchScopeProbe {
     private const val TAG = "BilibiliInnocentLab"
     private const val MANAGER_AUTHORITY = "top.nkbe.npatch.manager.provider.config"
     private const val COLUMN_PACKAGE = "packageName"
-    private const val MIN_INTERVAL_MS = 5_000L
+    internal const val MIN_INTERVAL_MS = 5_000L
     private const val QUERY_TIMEOUT_MS = 2_000L
 
     internal enum class ScopeState { UNKNOWN, IN_SCOPE, OUT_OF_SCOPE }
@@ -66,13 +66,17 @@ internal object NPatchScopeProbe {
     internal fun effectiveScope(mode: NPatchMode, managerScope: ScopeState): ScopeState =
         if (mode == NPatchMode.EMBEDDED) ScopeState.UNKNOWN else managerScope
 
-    /** 结果变化时才回调；调用方负责切回主线程。 */
-    fun refreshAsync(context: Context, onChanged: (ScopeState) -> Unit = {}) {
+    /** 低频探测的门控：已有在途查询一律不叠加；[force] 只跳过最小间隔（例如刚由用户改动了作用域）。 */
+    internal fun shouldProbe(inFlight: Boolean, lastProbeAtMs: Long, nowMs: Long, force: Boolean): Boolean =
+        !inFlight && (force || lastProbeAtMs <= 0L || nowMs - lastProbeAtMs >= MIN_INTERVAL_MS)
+
+    /** 结果变化时才回调；调用方负责切回主线程。[force] 用于用户刚改动作用域后立即复查。 */
+    fun refreshAsync(context: Context, force: Boolean = false, onChanged: (ScopeState) -> Unit = {}) {
         val appContext = context.applicationContext ?: context
         if (NPatchRuntimeProfiles.read(appContext).mode == NPatchMode.EMBEDDED) return
         val now = android.os.SystemClock.elapsedRealtime()
         synchronized(this) {
-            if (inFlight || (lastProbeAtMs > 0L && now - lastProbeAtMs < MIN_INTERVAL_MS)) return
+            if (!shouldProbe(inFlight, lastProbeAtMs, now, force)) return
             inFlight = true
             lastProbeAtMs = now
         }
