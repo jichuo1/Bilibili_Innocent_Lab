@@ -203,7 +203,7 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
                 setOnClickListener {
                     if (!isEnabled) return@setOnClickListener
                     runInBackground { token ->
-                        if (FrameModelDownloader.state() == FrameModelDownloader.State.READY) {
+                        if (FrameModelDownloader.state(applicationContext) == FrameModelDownloader.State.READY) {
                             showState(token, FrameModelDownloader.State.READY); return@runInBackground
                         }
                         var shown = -1

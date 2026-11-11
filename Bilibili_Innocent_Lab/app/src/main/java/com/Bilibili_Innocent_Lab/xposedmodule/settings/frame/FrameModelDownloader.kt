@@ -3,8 +3,16 @@ package com.Bilibili_Innocent_Lab.xposedmodule.settings.frame
 import android.content.Context
 import android.os.ParcelFileDescriptor
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameModelSpec
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRemoteGateway
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRuntimeProfiles
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.PulledRemoteFiles
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.RemoteFileService
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.asRemoteFileService
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.FrameworkServiceCall
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.isFrameworkServiceDeath
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.isNpatchConfigChannel
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -35,8 +43,40 @@ internal object FrameModelDownloader {
         FrameworkServiceCall.Reason.OPERATION_FAILED -> State.REMOTE_FAILED
     }
 
+    /**
+     * 按当前选中的通道执行一次文件操作。NPatch 通道已选时只走 Manager 认证的拉取通道：推送来的
+     * `XposedService` 不校验来源，不能拿来写模型文件；嵌入模式没有设置 App 可达的存储。
+     * 连接发生在调用线程上（有界，最多数秒），必须在后台线程调用。
+     */
+    private fun <T> withFiles(context: Context, action: (RemoteFileService) -> T): FrameworkServiceCall<T> {
+        val framework = RemoteHookConfigStore.status()
+        val route = FrameFileRoute.select(
+            noRootSelected = NoRootSupportStore.isDesiredEnabled(context),
+            mode = NPatchRuntimeProfiles.read(context).mode,
+            standardFrameworkConnected = framework.capable && !isNpatchConfigChannel(framework)
+        )
+        return when (route) {
+            FrameFileRoute.PUSHED_SERVICE ->
+                RemoteHookConfigStore.withServiceResult { action(it.asRemoteFileService()) }
+            FrameFileRoute.UNSUPPORTED_EMBEDDED ->
+                FrameworkServiceCall.Failure(FrameworkServiceCall.Reason.UNSUPPORTED)
+            FrameFileRoute.PULLED_NPATCH -> when (val pulled = NPatchRemoteGateway.connectRemoteFiles(context)) {
+                is PulledRemoteFiles.Unavailable ->
+                    FrameworkServiceCall.Failure(FrameFileRoute.failureReason(pulled.result))
+                is PulledRemoteFiles.Ready -> try {
+                    FrameworkServiceCall.Success(action(pulled.files), connectionId = 0L)
+                } catch (failure: Exception) {
+                    FrameworkServiceCall.Failure(
+                        if (isFrameworkServiceDeath(failure)) FrameworkServiceCall.Reason.SERVICE_DIED
+                        else FrameworkServiceCall.Reason.OPERATION_FAILED
+                    )
+                }
+            }
+        }
+    }
+
     /** 检查远程文件是否齐全且校验通过（读两个文件约 10 MB，需在后台线程调用）。 */
-    fun state(): State = when (val result = RemoteHookConfigStore.withServiceResult { service ->
+    fun state(context: Context): State = when (val result = withFiles(context) { service ->
         files.inspect(service.listRemoteFiles().toSet()) { name ->
             ParcelFileDescriptor.AutoCloseInputStream(service.openRemoteFile(name))
         }
@@ -51,10 +91,10 @@ internal object FrameModelDownloader {
 
     /** Reconnection may publish a prior explicit download; it never starts a network request. */
     fun refresh(context: Context): State {
-        val current = state()
+        val current = state(context)
         if (current != State.MISSING && current != State.INVALID) return current
         val cached = files.cached(cacheDirectory(context)) ?: return current
-        return when (val published = publish(cached)) {
+        return when (val published = publish(context, cached)) {
             is FrameworkServiceCall.Success -> if (published.value) State.READY else State.INVALID
             is FrameworkServiceCall.Failure -> failureState(published.reason)
         }
@@ -62,8 +102,8 @@ internal object FrameModelDownloader {
 
     private fun cacheDirectory(context: Context) = File(context.filesDir, "frame-model-download/${FrameModelSpec.NAME}")
 
-    private fun publish(downloaded: Map<FrameModelSpec.Part, File>): FrameworkServiceCall<Boolean> =
-        RemoteHookConfigStore.withServiceResult { service ->
+    private fun publish(context: Context, downloaded: Map<FrameModelSpec.Part, File>): FrameworkServiceCall<Boolean> =
+        withFiles(context) { service ->
             files.publish(downloaded, service.listRemoteFiles().toSet(),
                 open = { name -> ParcelFileDescriptor.AutoCloseInputStream(service.openRemoteFile(name)) },
                 write = { name, source ->
@@ -81,7 +121,7 @@ internal object FrameModelDownloader {
             val downloaded = files.prepare(folder) { part, target -> fetch(part, target, progress) }
                 ?: run { progress(Progress.Failed("download")); return false }
             progress(Progress.Publishing)
-            val published = publish(downloaded)
+            val published = publish(context, downloaded)
             return when (published) {
                 is FrameworkServiceCall.Success -> if (published.value) { progress(Progress.Done); true }
                     else { progress(Progress.Failed("verify", State.INVALID)); false }
