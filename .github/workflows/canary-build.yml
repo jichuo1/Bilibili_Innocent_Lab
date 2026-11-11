@@ -465,7 +465,22 @@ jobs:
           set -euo pipefail
           [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]]
           archive="$RUNNER_TEMP/canary-uploaded.zip"
-          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$archive"
+          # 上传刚结束时产物偶尔还读不到（API 返回 404，实测约一秒后即可读取），所以只对"下载"退避重试；
+          # 内容校验不重试，下载到的包不符就是真的有问题。
+          downloaded=false
+          for delay in 2 4 8 16 0; do
+            if gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$archive"; then
+              downloaded=true
+              break
+            fi
+            [[ "$delay" -gt 0 ]] || break
+            echo "::warning::The uploaded Canary package is not readable yet; retrying in ${delay}s"
+            sleep "$delay"
+          done
+          if [[ "$downloaded" != true ]]; then
+            echo "::error::The uploaded Canary package could not be read back after retries"
+            exit 1
+          fi
           python3 .github/release-templates/verify_canary_artifact.py --archive "$archive" --directory release-asset
 
       - name: Upload Canary R8 symbols
