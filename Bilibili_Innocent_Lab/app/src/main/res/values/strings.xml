@@ -924,7 +924,7 @@
     <string name="comment_user_filter_rules_current">Current: %1$s</string>
     <string name="comment_user_filter_dialog_hint">One UID or user name per entry; separate with commas, semicolons, or new lines. Names must match exactly.</string>
     <string name="comment_fish_filter">Hide AI comments and replies</string>
-    <string name="comment_fish_filter_tip">Scores nickname, level and text features to hide comments and replies from suspected AI spam accounts. Everything is computed on this device. Comments are kept when a feature cannot be read. Restart Bilibili to apply.</string>
+    <string name="comment_fish_filter_tip">Scores nickname, level and text features to hide comments and replies from suspected AI spam accounts. Comments are kept when they cannot be identified. Restart Bilibili to apply.</string>
     <string name="comment_fish_sensitivity">Detection sensitivity</string>
     <string name="comment_fish_current">Current: %1$s</string>
     <string name="comment_fish_sensitivity_loose">Loose</string>
@@ -937,10 +937,10 @@
     <string name="comment_fish_text_words">Custom comment words</string>
     <string name="comment_fish_whitelist">Allowed accounts</string>
     <string name="comment_fish_words_empty">Not set; tap to edit</string>
-    <string name="comment_fish_words_dialog_hint">Separate with commas, semicolons, or new lines; up to 64 entries, at least 2 characters each. A match counts as a strong sign, but usually needs other signs such as a new account before the comment is hidden.</string>
-    <string name="comment_fish_whitelist_dialog_hint">One UID or user name per entry; separate with commas, semicolons, or new lines. Names must match exactly. Listed accounts are never judged.</string>
+    <string name="comment_fish_words_dialog_hint">Separate with commas, semicolons, or new lines; up to 64 entries, at least 2 characters each. A match counts as a strong sign.</string>
+    <string name="comment_fish_whitelist_dialog_hint">One UID or user name per entry; separate with commas, semicolons, or new lines. Names must match exactly.</string>
     <string name="comment_fish_protect_high_level">Protect high-level accounts</string>
-    <string name="comment_fish_protect_high_level_tip">Accounts at Lv5 and above are never judged. When off, high-level accounts are scored too. Restart Bilibili to apply.</string>
+    <string name="comment_fish_protect_high_level_tip">Accounts at Lv5 and above are never judged. Restart Bilibili to apply.</string>
     <string name="no_login_enabled">Browse without login</string>
     <string name="no_login_enabled_tip">When signed out, hides login prompts but keeps manual login; history, favorites and follows stay on this device. Signed-in accounts are unaffected. Video quality is limited to what guests can get. Incognito takes priority when both are on. Restart Bilibili to apply.</string>
     <string name="skip_guest_onboarding">Skip basic information and interest setup</string>
