@@ -39,8 +39,10 @@ internal object ReleaseHighlightsCatalog {
     // 9.14.0 适配、竖屏进入详情页的来源放行、新通道过滤）没有引入新设置，不需要新增条目。
     // 21 → 22（1.2.1）：1.2.0 之后新增的设置随各自功能另开批次 4 起的公告条目与导航目标，
     // 本次改版本号不新增条目。
+    // 22 → 23（1.2.2）：复核结论是批次内容不变。本轮是 NPatch 通道的 Remote API 加固（配置原子发布、
+    // 设置页一键加入作用域、插帧模型文件走 Manager 认证的拉取通道），没有引入新设置，不需要新增条目。
     // 注意以后改版本号都要改一下这个地方的版本号，下面这个REVIEWED，不然过不了ci
-    const val REVIEWED_VERSION_CODE = 22
+    const val REVIEWED_VERSION_CODE = 23
     const val SETTINGS_BASELINE_VERSION = 13
     // 历史已达 64 项；新增功能时保留已有公告，目录继续以 96 项为硬上限。
     // 2026-11-04：批次 38（首页推荐提前加载）使条目达到 97，经确认上限调到 128，仍保留全部已有公告。
