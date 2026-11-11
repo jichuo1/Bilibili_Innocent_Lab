@@ -924,7 +924,7 @@
     <string name="comment_user_filter_rules_current">当前：%1$s</string>
     <string name="comment_user_filter_dialog_hint">每项写一个 UID 或用户名，用逗号、分号或换行分隔；用户名需完全一致。</string>
     <string name="comment_fish_filter">屏蔽 AI 评论与回复</string>
-    <string name="comment_fish_filter_tip">综合昵称、等级与正文特征打分，隐藏疑似 AI 灌水账号的评论及回复，全程在本机计算；读不到昵称、等级或正文时保留评论。重启哔哩哔哩后生效。</string>
+    <string name="comment_fish_filter_tip">按昵称、等级与正文特征打分，隐藏疑似 AI 灌水账号的评论及回复；无法识别时保留评论。重启哔哩哔哩后生效。</string>
     <string name="comment_fish_sensitivity">判定敏感度</string>
     <string name="comment_fish_current">当前：%1$s</string>
     <string name="comment_fish_sensitivity_loose">宽松</string>
@@ -937,10 +937,10 @@
     <string name="comment_fish_text_words">自定义正文词</string>
     <string name="comment_fish_whitelist">放行名单</string>
     <string name="comment_fish_words_empty">尚未设置，点击编辑</string>
-    <string name="comment_fish_words_dialog_hint">用逗号、分号或换行分隔，最多 64 项，每项至少 2 个字。命中按强特征计分，通常还需配合新号等特征才会隐藏。</string>
-    <string name="comment_fish_whitelist_dialog_hint">每项写一个 UID 或用户名，用逗号、分号或换行分隔；用户名需完全一致。名单内的账号不会被判定。</string>
+    <string name="comment_fish_words_dialog_hint">用逗号、分号或换行分隔，最多 64 项，每项至少 2 个字；命中按强特征加分。</string>
+    <string name="comment_fish_whitelist_dialog_hint">每项写一个 UID 或用户名，用逗号、分号或换行分隔；用户名需完全一致。</string>
     <string name="comment_fish_protect_high_level">保护高等级账号</string>
-    <string name="comment_fish_protect_high_level_tip">Lv5 及以上的账号不参与判定；关闭后，高等级账号也会被打分。重启哔哩哔哩后生效。</string>
+    <string name="comment_fish_protect_high_level_tip">Lv5 及以上的账号不判定。重启哔哩哔哩后生效。</string>
     <string name="no_login_enabled">免登录浏览</string>
     <string name="no_login_enabled_tip">未登录时隐藏登录引导，保留主动登录入口；历史、收藏与关注只存于本机，不上传。已登录时保留账号功能。画质以游客可用为限。与无痕模式同时开启时以无痕为准。重启哔哩哔哩后生效。</string>
     <string name="skip_guest_onboarding">跳过基本信息与兴趣引导</string>
