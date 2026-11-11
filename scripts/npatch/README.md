@@ -2,6 +2,19 @@
 
 > 当前模块版本不支持集成（embed）模式，仅开放 Manager 模式。工具及下文 embed 流程保留供既有实现维护；生成 embed 产物不会绕过模块代码中的支持门控。
 
+## 上游新基线的固定与校验
+
+下文的修补工具只接受固定修复版 833。上游 NPatch 1.1.0 之后的构建（含 CI 产物）另行固定在 `pins/npatch-baselines.json`：Manager APK 与修补 JAR 的 SHA-256、签名证书摘要、上游提交，以及契约文件的 git blob 与锚点所依赖的源码位置。这些构建只有源码契约、JVM 与（后续）模拟器层面的证据，没有真机证据，因此一律按未验证处理。
+
+```powershell
+# 对固定提交核对 Remote API / loader 锁行为锚点；默认从 raw.githubusercontent.com 取固定提交的文件。
+pwsh -NoProfile -File scripts/npatch/Verify-UpstreamContracts.ps1
+# 离线：-SourceDirectory 指向按仓库相对路径摆放的固定提交文件。
+pwsh -NoProfile -File scripts/npatch/Verify-UpstreamContracts.ps1 -SourceDirectory <目录>
+```
+
+升级固定提交时同时更新 `pins/npatch-baselines.json` 中的提交与 blob；任何锚点失败都是需要复核的发现，不要放宽锚点。固定的 CI 产物会过期，下载后按 JSON 里的 SHA-256 核对再使用；新构建在取得真机证据前不进入 `VerifiedNPatchLoaders`。
+
 ## 阶段 5 启动采样
 
 `MeasureStartup.ps1` 只用于已授权测试机，显式要求 serial、模式和当前产物的 `verified.json`。运行前先自行构建并同证书覆盖安装设置 App、测试包及相同内嵌内容的宿主；脚本核对两份已安装 APK 的 SHA-256，不代为安装或修补。详细测量需在 Debug 构建时传 `-PinnocentLab.startupTrace=true`，默认构建和 Release 不注册采集入口；原生产查询和支持包协议不变。

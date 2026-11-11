@@ -10,6 +10,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookRuntime
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRuntimeProfiles
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.VerifiedNPatchLoaders
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.getPackageInfoOrNull
 import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 import io.github.libxposed.api.XposedInterface
@@ -54,7 +55,8 @@ internal object NPatchRoamingCache {
         if (!enabled) { disable(); return false }
         this.enabled = true
         if (!started.compareAndSet(false, true)) return true
-        if (profile.loaderVersionCode != 833L || profile.loaderApi != 102) return false
+        if (!VerifiedNPatchLoaders.contains(VerifiedNPatchLoaders.roamingCacheAdapter, profile.loaderVersionCode) ||
+            profile.loaderApi != 102) return false
         status = RoamingCacheStatus.UNAVAILABLE
         val app = context.applicationContext ?: context
         // Fixed 833 exposes the actual selected APK paths for its own native cache cleaner.

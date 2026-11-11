@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "recordedAt": "2026-11-11",
+  "note": "Facts re-derived from the downloaded artifacts and the GitHub API on the recorded date. versionCode is an upstream git commit count, so it is NOT comparable across builds from different sources (release 857 is newer than CI 851 by version code but older by source).",
+  "upstream": {
+    "repo": "7723mod/NPatch",
+    "devCommit": "efecf30471ecc4bd57fc463b7f6079812d09dfcc",
+    "devCommitSubject": "fix(sigbypass): 重構 360 加固專題特徵庫檢測避免誤判並優化 svc 插樁日誌 (#168)",
+    "releaseTag": "v1.1.0",
+    "releaseTagObject": "aa2067ae3b4d8c1bf2ab4e76c526f0982edc47b9",
+    "releaseTagCiBuild": "failed: patch_loader.cpp lacks #include \"jni/bypass_sig.h\" (fixed by c496f818, included in devCommit)",
+    "coreSubmodule": "Nk-Be/Vector@4bfbc75c222dd9314bb925ab2b70544f5c4c7c83",
+    "ciRun": 41468546482,
+    "ciArtifact": "npatch-release-efecf30",
+    "ciArtifactExpires": "2026-11-16"
+  },
+  "managerApks": [
+    {
+      "label": "1.0.7",
+      "file": "manager-v1.0.7-741-release.apk",
+      "versionCode": 741,
+      "versionName": "1.0.7",
+      "sha256": "8b580aeb84f855e803ef61666c8680ddeb53aab4c014b415da759d9a0696c43c",
+      "signerSha256": "db73788534affc4bfa3ae16040a2d3a2c2b63edea1e07f3a1cf9aff4dd0995a8",
+      "source": "release v1.0.7"
+    },
+    {
+      "label": "1.0.9",
+      "file": "manager-v1.0.9-833-release.apk",
+      "versionCode": 833,
+      "versionName": "1.0.9",
+      "sha256": "d3b318cbfa8125ebc290d9238badeee905ae7520e419bff7a4eb04140ac95e5e",
+      "signerSha256": "db73788534affc4bfa3ae16040a2d3a2c2b63edea1e07f3a1cf9aff4dd0995a8",
+      "source": "release v1.0.9"
+    },
+    {
+      "label": "1.1.0",
+      "file": "manager-v1.1.0-857-release.apk",
+      "versionCode": 857,
+      "versionName": "1.1.0",
+      "sha256": "548bc86978bf10c6acd9a0076bdc97cc70c30b36648d7b891a0c3cafda9012e0",
+      "signerSha256": "db73788534affc4bfa3ae16040a2d3a2c2b63edea1e07f3a1cf9aff4dd0995a8",
+      "source": "release v1.1.0"
+    },
+    {
+      "label": "dev-efecf30",
+      "file": "NPatch-v1.1.0-851-release.apk",
+      "versionCode": 851,
+      "versionName": "1.1.0",
+      "sha256": "cf0750becc230dad288363c90044b5635c298e38e90d4e0fe956871398af7390",
+      "signerSha256": "04cfd2ca48213d6c81673a19d4f476f86067fcc68e6a914fa0ef663e24faad02",
+      "source": "CI artifact npatch-release-efecf30 (different signer: uninstall before switching between release and CI builds)"
+    }
+  ],
+  "patcherJars": [
+    {
+      "label": "dev-efecf30",
+      "file": "jar-v1.1.0-851-release.jar",
+      "sha256": "daa503cd3c88e84b90415b6f4d76e4ce66260c085ed8268e9bb806372fbdd392",
+      "source": "CI artifact npatch-release-efecf30"
+    },
+    {
+      "label": "1.1.0",
+      "file": "jar-v1.1.0-857-release.jar",
+      "sha256": "903f5899f710fe920d2a48035f91d0b2a1f86eee86fcff53618ea9f9bd0b6a3d",
+      "source": "release v1.1.0 asset digest reported by the GitHub API; file not downloaded"
+    }
+  ],
+  "contractFiles": [
+    {"path": "manager/src/main/java/top/nkbe/npatch/manager/RemoteApiProvider.kt", "blobSha1": "47df8450a88e4fb02bf10800eefae09e58766db4"},
+    {"path": "manager/src/main/java/top/nkbe/npatch/manager/XposedServiceBinder.kt", "blobSha1": "bd0320dcab48ae8516f9a5f9b0a14b6bd7ea5721"},
+    {"path": "manager/src/main/java/top/nkbe/npatch/manager/ConfigProvider.kt", "blobSha1": "dc8f22a3878c4a353e97bc6e603bab94035e8706"},
+    {"path": "share/android/src/main/java/top/nkbe/npatch/util/NPatchRemoteStore.java", "blobSha1": "6c4bed3d839fb4fea3c68100df0eb6caf6939abc"},
+    {"path": "share/android/src/main/java/top/nkbe/npatch/util/LocalInjectedModuleService.java", "blobSha1": "57d076eb760b366fc5a55ae1d3d436a96df4ad7d"},
+    {"path": "patch-loader/src/main/java/top/nkbe/npatch/service/RemoteApplicationService.java", "blobSha1": "7d5ce1d6478294629f75f4b8d0e725956cd2dd38"},
+    {"path": "patch-loader/src/main/java/top/nkbe/npatch/service/FallbackModuleServiceWrapper.java", "blobSha1": "0b440ca14196d24c5d3f2dbd6120ef81a229a240"},
+    {"path": "patch-loader/src/main/java/top/nkbe/npatch/service/EmbeddedXposedService.java", "blobSha1": "357ccd1effd044df3c19e246772b15391f445964"},
+    {"path": "patch-loader/src/main/java/top/nkbe/npatch/loader/LSPLoader.java", "blobSha1": "2622314456465c8f653d7bd4f2349c647238fad5"},
+    {"path": "patch-loader/src/main/jni/src/jni/bypass_sig.cpp", "blobSha1": "55ab8a3852a01a058f762ca99fdf1e311ecd60db"},
+    {"path": "patch-loader/src/main/jni/src/jni/sig_bypass_paths.h", "blobSha1": "80b556f5bd411e41075668781a59cd42afab85e3"}
+  ]
+}

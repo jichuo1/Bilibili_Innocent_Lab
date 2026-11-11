@@ -33,6 +33,23 @@ class NPatchCompatibilityTest {
         }
     }
 
+    /**
+     * 上游 CI 构建 851 和 release 857 目前只有源码契约/JVM（以及后续模拟器）层面的证据，
+     * 没有真机证据，所以必须停留在 UNVERIFIED_PARAMETERS。把它们加入 [VerifiedNPatchLoaders]
+     * 时必须同时更新本测试和 docs/npatch-release-support.md 中的证据记录。
+     */
+    @Test fun buildsWithoutDeviceEvidenceAreNotVerifiedLoaders() {
+        assertEquals(setOf(833L), VerifiedNPatchLoaders.baseline)
+        assertEquals(setOf(833L), VerifiedNPatchLoaders.roamingCacheAdapter)
+        for (build in listOf(851L, 857L)) {
+            val unverified = patch.copy(loaderVersionCode = build)
+            assertEquals(NPatchCompatibility.UNVERIFIED_PARAMETERS,
+                NPatchCompatibility.assess(baseline.copy(patch = unverified)))
+            assertEquals(false, VerifiedNPatchLoaders.contains(VerifiedNPatchLoaders.roamingCacheAdapter, build))
+        }
+        assertEquals(false, VerifiedNPatchLoaders.contains(VerifiedNPatchLoaders.baseline, null))
+    }
+
     @Test fun embeddedUpperBoundIsSpecificToPinnedPatcher() {
         for (level in 3..5) assertEquals(NPatchCompatibility.EMBEDDED_LEVEL_INVALID,
             NPatchCompatibility.assess(baseline.copy(patch = patch.copy(signatureLevel = level))))

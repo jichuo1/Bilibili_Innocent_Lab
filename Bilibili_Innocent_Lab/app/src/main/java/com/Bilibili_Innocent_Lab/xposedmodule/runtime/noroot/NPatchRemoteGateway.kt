@@ -57,15 +57,13 @@ internal object NPatchRemoteGateway {
      *
      * 这份 AIDL **显式编号**（2-6 / 11-15 / 21-23 / 31-33 之间有明显空档），所以上游新增
      * 方法不会顶掉这两个号；但重排或改号会让本网关静默打到别的方法上，失败表现只是
-     * `remote_service_error`，极难反查。因此由 `NPatchRemoteGatewayPolicyTest` 钉住取值。
+     * `remote_service_error`，极难反查。
      *
-     * 升级 `io.github.libxposed:interface` 后按以下步骤复核，对不上就同时改常量与测试：
-     * ```
-     * unzip -o interface-<ver>.aar classes.jar && unzip -o classes.jar
-     * javap -p -constants -classpath . 'io.github.libxposed.service.IXposedService$Stub' | grep TRANSACTION
-     * ```
-     * 2026-09-08 依 `interface-102.0.0` 复核：21 / 22 与 wire format（token → group
-     * 字符串 → `writeTypedObject` → flags=0 → `readException`）逐字段一致。
+     * `IXposedServiceTransactionCodesTest` 直接解析运行期类路径上 `IXposedService$Stub.class`
+     * 的字节码常量（JVM 单测加载不了继承 `android.os.Binder` 的类，所以不走反射），升级
+     * `io.github.libxposed:interface` 后码值不符会自动失败，不再依赖手工 `javap`。
+     * wire format（token → group 字符串 → `writeTypedObject` → flags=0 → `readException`）
+     * 仍以 2026-09-08 对 `interface-102.0.0` 的逐字段核对为准。
      */
     internal const val TRANSACTION_REQUEST_REMOTE_PREFERENCES = 21
     internal const val TRANSACTION_UPDATE_REMOTE_PREFERENCES = 22
@@ -178,7 +176,7 @@ internal object NPatchRemoteGateway {
                     ?.takeIf { it.decision == decision &&
                         (if (snapshot.enabled) NoRootSupportStore.isDesiredEnabled(context) && it.values == values
                         else !NoRootSupportStore.isDesiredEnabled(context)) } ?: return@submit null
-                publishRemotePreferences(service, snapshot, decision, values) {
+                publishRemotePreferences(BinderRemotePreferenceChannel(service), snapshot, decision, values) {
                     stillCurrent() && com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationAuthorityStore.matches(context, publication)
                 }
             }
@@ -254,14 +252,22 @@ internal object NPatchRemoteGateway {
         return null
     }
 
-    private fun publishRemotePreferences(
-        service: IBinder,
+    /**
+     * 发布一份完整文档并读回校验。
+     *
+     * 写入是"显式删除过期键 + 整体 put"的单次差异（[buildAtomicPublishDiff]），不使用 `clear`：
+     * NPatch 的 `clear` 先于事务单独生效，宿主冷启动落在两步之间会读到空文档并 fail-closed。
+     * 读回仍然读取同一 group 的完整快照，任何一项不符都按 [RemoteReadBackException] 失败。
+     */
+    internal fun publishRemotePreferences(
+        channel: RemotePreferenceChannel,
         snapshot: NoRootConfigSnapshot,
         decision: UserTermsDecision,
         values: Map<String, Any>,
+        clockMillis: () -> Long = System::currentTimeMillis,
         stillCurrent: () -> Boolean
     ): SyncResult? {
-        val currentRaw = requestRemoteValues(service)
+        val currentRaw = channel.request(RemoteHookConfigContract.GROUP)
         val current = RemoteHookConfigContract.decode(currentRaw)
         if (current is RemoteHookConfigDecodeResult.Ready &&
             current.snapshot.moduleVersionCode == BuildConfig.VERSION_CODE.toLong() &&
@@ -276,7 +282,7 @@ internal object NPatchRemoteGateway {
         val previousGeneration = (currentRaw[RemoteHookConfigContract.KEY_GENERATION] as? Long)
             ?.coerceAtLeast(0L) ?: 0L
         val generation = maxOf(
-            System.currentTimeMillis().coerceAtLeast(1L),
+            clockMillis().coerceAtLeast(1L),
             previousGeneration.nextGeneration()
         )
         val encoded = RemoteHookConfigContract.encode(
@@ -287,14 +293,12 @@ internal object NPatchRemoteGateway {
             decision = decision,
             values = values
         )
-        val diff = Bundle().apply {
-            putBoolean("clear", true)
-            putSerializable("delete", HashSet<String>() as Serializable)
-            putSerializable("put", HashMap(encoded) as Serializable)
-        }
-        updateRemotePreferences(service, diff)
+        channel.update(
+            RemoteHookConfigContract.GROUP,
+            buildAtomicPublishDiff(currentKeys = currentRaw.keys, target = encoded)
+        )
         if (!isStillCurrent(stillCurrent)) return null
-        val readBack = RemoteHookConfigContract.decode(requestRemoteValues(service))
+        val readBack = RemoteHookConfigContract.decode(channel.request(RemoteHookConfigContract.GROUP))
         val ready = readBack as? RemoteHookConfigDecodeResult.Ready
             ?: throw RemoteReadBackException(
                 (readBack as RemoteHookConfigDecodeResult.Invalid).reason
@@ -311,50 +315,61 @@ internal object NPatchRemoteGateway {
         return SyncResult.Success
     }
 
-    @Suppress("DEPRECATION")
-    private fun requestRemoteValues(service: IBinder): Map<String, Any> {
-        val data = Parcel.obtain()
-        val reply = Parcel.obtain()
-        val result = try {
-            data.writeInterfaceToken(SERVICE_DESCRIPTOR)
-            data.writeString(RemoteHookConfigContract.GROUP)
-            if (!service.transact(TRANSACTION_REQUEST_REMOTE_PREFERENCES, data, reply, 0)) {
-                throw RemoteException("NPatch requestRemotePreferences transaction rejected")
+    /**
+     * `IXposedService` 的 Parcel 适配层。Parcel/Bundle 在 JVM 单测里不可用，这一层只由模拟器集成
+     * 测试（G2）覆盖；发布逻辑本身通过 [RemotePreferenceChannel] 在 JVM 内验证。
+     */
+    private class BinderRemotePreferenceChannel(private val service: IBinder) : RemotePreferenceChannel {
+        @Suppress("DEPRECATION")
+        override fun request(group: String): Map<String, Any> {
+            val data = Parcel.obtain()
+            val reply = Parcel.obtain()
+            val result = try {
+                data.writeInterfaceToken(SERVICE_DESCRIPTOR)
+                data.writeString(group)
+                if (!service.transact(TRANSACTION_REQUEST_REMOTE_PREFERENCES, data, reply, 0)) {
+                    throw RemoteException("NPatch requestRemotePreferences transaction rejected")
+                }
+                reply.readException()
+                if (reply.readInt() != 0) {
+                    Bundle.CREATOR.createFromParcel(reply)
+                } else {
+                    null
+                }
+            } finally {
+                reply.recycle()
+                data.recycle()
             }
-            reply.readException()
-            if (reply.readInt() != 0) {
-                Bundle.CREATOR.createFromParcel(reply)
-            } else {
-                null
+            val serialized = result?.getSerializable("map")
+            val raw = serialized as? Map<*, *> ?: return emptyMap()
+            return linkedMapOf<String, Any>().apply {
+                raw.forEach { (key, value) ->
+                    if (key is String && value != null) put(key, value)
+                }
             }
-        } finally {
-            reply.recycle()
-            data.recycle()
         }
-        val serialized = result?.getSerializable("map")
-        val raw = serialized as? Map<*, *> ?: return emptyMap()
-        return linkedMapOf<String, Any>().apply {
-            raw.forEach { (key, value) ->
-                if (key is String && value != null) put(key, value)
-            }
-        }
-    }
 
-    private fun updateRemotePreferences(service: IBinder, diff: Bundle) {
-        val data = Parcel.obtain()
-        val reply = Parcel.obtain()
-        try {
-            data.writeInterfaceToken(SERVICE_DESCRIPTOR)
-            data.writeString(RemoteHookConfigContract.GROUP)
-            data.writeInt(1)
-            diff.writeToParcel(data, 0)
-            if (!service.transact(TRANSACTION_UPDATE_REMOTE_PREFERENCES, data, reply, 0)) {
-                throw RemoteException("NPatch updateRemotePreferences transaction rejected")
+        override fun update(group: String, diff: RemotePreferenceDiff) {
+            val bundle = Bundle().apply {
+                putBoolean("clear", diff.clear)
+                putSerializable("delete", HashSet(diff.delete) as Serializable)
+                putSerializable("put", HashMap(diff.put) as Serializable)
             }
-            reply.readException()
-        } finally {
-            reply.recycle()
-            data.recycle()
+            val data = Parcel.obtain()
+            val reply = Parcel.obtain()
+            try {
+                data.writeInterfaceToken(SERVICE_DESCRIPTOR)
+                data.writeString(group)
+                data.writeInt(1)
+                bundle.writeToParcel(data, 0)
+                if (!service.transact(TRANSACTION_UPDATE_REMOTE_PREFERENCES, data, reply, 0)) {
+                    throw RemoteException("NPatch updateRemotePreferences transaction rejected")
+                }
+                reply.readException()
+            } finally {
+                reply.recycle()
+                data.recycle()
+            }
         }
     }
 
