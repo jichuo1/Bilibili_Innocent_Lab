@@ -15,6 +15,7 @@ import org.junit.Test
 class CommentFishFilterContractTest {
     private val installer = SourceContract.read("hook/feature/CommentFilterFeatureInstaller.kt")
     private val policy = SourceContract.read("hook/feature/FishScorePolicy.kt")
+    private val echo = SourceContract.read("hook/feature/FishRootEcho.kt")
 
     @Test fun fishJudgementReusesTheSharedGetterHooksAndAddsNoHookPoint() {
         // 注册点仍只有列表、置顶两族 getter 和一条 Kotlin 通道；AI 判据没有自己的注册 id。
@@ -33,7 +34,7 @@ class CommentFishFilterContractTest {
         assertTrue(decision.indexOf("RuleSetCodec.matches(plan.keywords") < decision.indexOf("FishScorePolicy.shouldRemove("))
         assertTrue(decision.indexOf("plan.userRules.matches(") < decision.indexOf("FishScorePolicy.shouldRemove("))
         val kotlin = installer.after("private fun kotlinDecide(").before("回调是本模块创建的动态代理")
-        assertTrue(kotlin.contains("shouldRemove(readSignals(reply, accessors, plan), plan)"))
+        assertTrue(kotlin.contains("shouldRemove(readSignals(reply, accessors, plan, root), plan)"))
         val list = installer.after("environment.registrar.adapted(\"comment.filter.list.\$index\", point)")
             .before("environment.registrar.adapted(\"comment.filter.top.\$index\"")
         assertTrue(list.contains("ruleVerdictMemo.getOrCompute(source)"))
@@ -59,13 +60,46 @@ class CommentFishFilterContractTest {
 
     @Test fun scorerHotPathCompilesNoRegexAndTouchesNoConfigDiskOrNetwork() {
         // 规则在类加载时预编译一次；打分函数里不许再出现 Regex(。
-        val hot = policy.after("fun shouldRemove(plan: Plan")
+        val hot = policy.after("fun shouldRemove(")
         assertFalse(hot.contains("Regex("))
         assertFalse(hot.contains(".toRegex()"))
+        val echoHot = echo.after("fun points(")
+        assertFalse(echoHot.contains("Regex("))
+        assertFalse(echoHot.contains(".toRegex()"))
         for (forbidden in listOf(
             "import android", "SharedPreferences", "java.io.", "java.net.", "okhttp", "HttpURLConnection",
             "File(", "System.currentTimeMillis", "Thread", "runBlocking"
-        )) assertFalse("scorer must stay a pure function: $forbidden", policy.contains(forbidden))
+        )) {
+            assertFalse("scorer must stay a pure function: $forbidden", policy.contains(forbidden))
+            assertFalse("echo must stay a pure function: $forbidden", echo.contains(forbidden))
+        }
+    }
+
+    @Test fun rootEchoReusesTheOwnerOfTheListAndAddsNoHookPoint() {
+        // 主评论 = 装着这批回复的那条消息：Java 钩子取接收者，Kotlin 通道由重写器交出 owner。
+        val list = installer.after("environment.registrar.adapted(\"comment.filter.list.\$index\", point)")
+            .before("environment.registrar.adapted(\"comment.filter.top.\$index\"")
+        assertTrue(list.contains("rootEchoOf(thisObject, accessors)"))
+        assertTrue(installer.contains("val root = if (plan.fish != null) rootEchoOf(owner, accessors) else null"))
+        assertTrue(installer.contains("kotlinRewriter(replyInfoClass, \"mainList\", decideOwned, decide)"))
+        assertEquals(1, Regex("registrar\\.adapted\\(\"comment\\.filter\\.list\\.").findAll(installer).count())
+        // 单条置顶位没有主评论可对照，不传。
+        val top = installer.after("environment.registrar.adapted(\"comment.filter.top.\$index\"")
+            .before("KMP 评论页走 Kotlin KReplyMoss")
+        assertFalse(top.contains("rootEchoOf("))
+        // 关闭 AI 账号判据时一次主评论都不读。
+        assertTrue(list.contains("if (plan.fish != null) {"))
+    }
+
+    @Test fun rootEchoIsComputedLastAndOnlyWithinReachOfTheThreshold() {
+        // 复述是最贵也最弱的一项：只在其余分数差一点时才读主评论、建索引，且最多 24 分。
+        assertEquals(1, Regex("FishRootEcho\\.points\\(").findAll(policy).count())
+        assertTrue(policy.contains("total < plan.threshold && total + FishRootEcho.MAX_POINTS >= plan.threshold"))
+        assertTrue(policy.contains("normalizedName != root.authorName()"))
+        assertTrue(echo.contains("const val MAX_POINTS = 24"))
+        // 复述上限加上"仅 Lv≤2"的 14 分必须低于最严档阈值：否则没有任何其它特征的新号，靠复述一项就能被删。
+        val strictThreshold = Regex("STRICT\\(\"strict\", (\\d+)\\)").find(policy)!!.groupValues[1].toInt()
+        assertTrue(24 + 14 < strictThreshold)
     }
 
     @Test fun matchingBoundariesDoNotDependOnTheRegexEnginesUnicodeWordClass() {

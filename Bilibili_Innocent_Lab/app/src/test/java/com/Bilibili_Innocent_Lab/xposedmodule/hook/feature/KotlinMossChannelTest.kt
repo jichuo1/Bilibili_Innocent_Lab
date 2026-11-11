@@ -86,4 +86,28 @@ class KotlinMossChannelTest {
         assertEquals(1, result.removed)
         assertTrue(filteredReads > 0)
     }
+
+    @Test
+    fun `owner aware decision sees the message that holds each batch`() {
+        val child = ReplyInfo.of("c")
+        val parent = ReplyInfo.of("p", child)
+        val root = ReplyInfo.of("root", ReplyInfo.of("x"))
+        val response = MainListReply(listOf(parent), null, root)
+        val seen = mutableListOf<Pair<List<String>, Any>>()
+        val rewriter = ProtobufReplyTreeRewriter(
+            ReplyInfo::class.java,
+            decideOwned = { replies, owner ->
+                seen += replies.map { (it as ReplyInfo).text } to owner
+                emptySet()
+            }
+        ) { error("the owner-less decision must not be used when an owner-aware one is given") }
+
+        assertSame(response, rewriter.rewrite(response).message)
+
+        // 顶层列表挂在响应上；子回复挂在各自的父评论上；详情页的 root 只递归处理它下面的子回复。
+        assertEquals(listOf(listOf("p"), listOf("c"), listOf("x")), seen.map { it.first })
+        assertSame(response, seen[0].second)
+        assertSame(parent, seen[1].second)
+        assertSame(root, seen[2].second)
+    }
 }
