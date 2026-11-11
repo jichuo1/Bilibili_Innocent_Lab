@@ -1,6 +1,8 @@
 # 凝光稳定版接入
 
-默认使用上游 [LumenCoacervationEngine 1.6.1](https://github.com/jichuo1/LumenCoacervationEngine/releases/tag/1.6.1)，`lumen-engine` 与 `lumen-motion` 在 `gradle/libs.versions.toml` 中共用同一个版本。普通构建直接从 Maven Central 解析官方产物（坐标 `io.github.jichuo1:lumen-engine`、`io.github.jichuo1:lumen-motion`；1.5.6 及更早版本在 JitPack 的 `com.github.jichuo1.LumenCoacervationEngine` 下），不下载源码归档，也不修改依赖缓存。
+默认使用 [LumenCoacervationEngine 1.6.2](https://repo.maven.apache.org/maven2/io/github/jichuo1/lumen-engine/1.6.2/)，`lumen-engine` 与 `lumen-motion` 在 `gradle/libs.versions.toml` 中共用同一个版本。普通构建直接从 Maven Central 解析官方产物（坐标 `io.github.jichuo1:lumen-engine`、`io.github.jichuo1:lumen-motion`；1.5.6 及更早版本在 JitPack 的 `com.github.jichuo1.LumenCoacervationEngine` 下），不下载源码归档，也不修改依赖缓存。
+
+1.6.2 的 `ensureSource` 负责页面顶栏与图文栏表面的幂等更新、背景归属和重绑，BIL 仍登记当前绑定以便按页面释放。回复脉络面板初始化时用 `withTint` 同步实时与回退着色，设置控件前景用 `LumenViewportForeground` 处理滚动补偿。新版 AAR 面向 compileSdk 37 消费者，并包含引擎内部的采样、着色器复用和内存回收改进。
 
 1.6.0 新增可选、默认关闭的原生 backdrop（`LumenSurfaceBinding.setRenderTargetBackdropEnabled`，仅在 Android 17 QPR2 / API 37.2 上生效），未开启时与 1.5.6 行为一致；1.6.1 是修订版，只修复引擎演示 Sample 与设备测试，九个库模块的源码与 1.6.0 相同。本模块尚未接入原生 backdrop。1.5.6 到 1.6.x 的逐类描述符比对上游尚未做；本次升级是否兼容以本仓库云端 CI 的构建、JVM 测试与契约测试为准。
 

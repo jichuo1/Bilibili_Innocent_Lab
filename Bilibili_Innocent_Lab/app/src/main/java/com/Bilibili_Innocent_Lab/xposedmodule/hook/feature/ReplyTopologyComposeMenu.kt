@@ -114,7 +114,13 @@ internal class ReplyTopologyComposeMenu(private val open: (View, ReplyTopologySe
         val item = KavaMemberLookup.declaredMethods(owner).mapNotNull { method ->
             val params = method.parameterTypes
             if (params.size < 4 || params.getOrNull(1)?.name != "kotlin.jvm.functions.Function0") null
-            else params[0].takeIf { it.name.startsWith("kntr.common.comment.common.ui.moremenu.") }
+            else params[0].takeIf {
+                it.name.startsWith("kntr.common.comment.common.ui.moremenu.") ||
+                    // 9.19.0: row d casts each item to v0f1 and calls this exact renderer b.
+                    (row.name == "d" && method.name == "b" && method.isStatic && method.returnType == Void.TYPE &&
+                        params.map(Class<*>::getName) == listOf("v0f1", "kotlin.jvm.functions.Function0",
+                            "androidx.compose.ui.Modifier", "androidx.compose.runtime.Composer", "int"))
+            }
         }.distinct().singleOrNull() ?: return FeatureInstallResult.Skipped("missing-compose-menu-entry")
         val fields = KavaMemberLookup.declaredFields(item, makeAccessible = true)
             .filterNot { it.isStatic }.sortedBy { it.name }

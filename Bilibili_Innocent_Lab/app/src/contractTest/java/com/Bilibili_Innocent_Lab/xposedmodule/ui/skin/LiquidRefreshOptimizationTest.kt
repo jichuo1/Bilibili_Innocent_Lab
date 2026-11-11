@@ -137,8 +137,12 @@ class LiquidRefreshOptimizationTest {
             unchanged.contains("refreshRate.resetThroughput()"))
         // 2026-09-23 逐像素比较移到截图线程，基准在发起时冻结；提交时基准必须仍是绑定源。
         val postProcess = renderer.after("private fun postProcessRealtimeCapture(").before("\n}")
-        assertTrue("逐像素比较在 PixelCopy 回调里，异常只能当作有变化",
-            postProcess.contains("runCatching { request.source.bitmap.sameAs(baseline.bitmap) }.getOrDefault(false)"))
+        assertTrue("逐像素比较在 PixelCopy 回调里",
+            postProcess.contains("realtimeCaptureMatches(request.source.bitmap, baseline.bitmap)"))
+        val compare = renderer.after("private fun realtimeCaptureMatches(").before("\n}")
+        assertTrue("主线程回退跳过逐像素比较，异常只能当作有变化",
+            compare.indexOf("if (Looper.myLooper() == Looper.getMainLooper()) return false") in
+                0 until compare.indexOf("runCatching { source.sameAs(baseline) }.getOrDefault(false)"))
         assertTrue("基准换了就不能采信后台比较结论", result.contains("bound === request.baseline"))
         val frame = renderer.after("private fun onRealtimeFrame(").before("private fun requestRealtimeCapture(")
         assertTrue("静止期不得继续逐帧回调", frame.contains("|| realtimeIdle"))
@@ -154,7 +158,7 @@ class LiquidRefreshOptimizationTest {
         val renderer = source("LiquidActivityRenderer")
         val request = renderer.after("private fun requestRealtimeCapture(")
             .before("private fun handleRealtimeCaptureResult(")
-        assertTrue("PixelCopy 回调不得再投到主线程", request.contains("callbackHandler\n") &&
+        assertTrue("PixelCopy 优先使用截图线程并保留主线程回退", request.contains("callbackHandler\n") &&
             request.contains("val callbackHandler = captureWorker() ?: mainHandler"))
         assertTrue("后处理在回调线程执行、之后才回主线程提交",
             request.indexOf("postProcessRealtimeCapture(suppressor, request, result)") in
@@ -167,7 +171,7 @@ class LiquidRefreshOptimizationTest {
         val postProcess = renderer.after("@AnyThread\nprivate fun postProcessRealtimeCapture(").before("\n}")
         assertTrue(postProcess.contains("sanitizeRealtimeCapture"))
         assertTrue("失败结果不得做逐像素比较", postProcess.indexOf("outcome == LiquidCaptureOutcome.FAILED") in
-            0 until postProcess.indexOf("sameAs("))
+            0 until postProcess.indexOf("realtimeCaptureMatches("))
 
         val result = renderer.after("private fun handleRealtimeCaptureResult(")
             .before("private fun applyCaptureThroughputSample(")

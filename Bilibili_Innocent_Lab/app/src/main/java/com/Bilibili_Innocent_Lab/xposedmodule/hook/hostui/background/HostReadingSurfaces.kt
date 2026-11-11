@@ -25,6 +25,21 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
         var spacing: Spacing? = null
         var mine: HostMineReadingCard? = null
     }
+
+    private class Style(night: Boolean) {
+        val palette = LumenPalette.neutral(night)
+        val reading = options(night, reading = true)
+        val card = options(night, reading = false)
+
+        private fun options(night: Boolean, reading: Boolean) = LumenSurfaceOptions(
+            material = LumenSurfaceMaterial.STATIC, role = SurfaceRole.CARD,
+            radiusDp = if (reading) 0f else 16f,
+            color = if (night) (if (reading) 0xFF181A20.toInt() else 0xFF242731.toInt()) else 0xFFF8F9FC.toInt(),
+            edgeEnabled = false,
+            sampling = LumenSurfaceSampling(enabled = false)
+        ).withTint(if (night) .90f else .94f)
+    }
+
     private class Spacing(view: View, params: ViewGroup.MarginLayoutParams, val topInset: Int, val bottomInset: Int) {
         val view = WeakReference(view)
         val params = WeakReference(params)
@@ -94,7 +109,8 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
     fun apply(night: Boolean) {
         val root = root.get() ?: return
         if (targets.isEmpty()) return
-        val palette = LumenPalette.neutral(night)
+        val style = if (night) darkStyle else lightStyle
+        val palette = style.palette
         val changed = dark != night
         val active = session ?: LumenSurfaceSession(root.context, palette,
             LumenSurfaceSessionOptions(maxSurfaces = 12, pauseWhenWindowUnfocused = false)).also { session = it }
@@ -124,27 +140,14 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
                         params.rightMargin, params.bottomMargin + bottomInset)
                 }
             }
-            if (target.binding?.isBound != true || view.background !== target.drawable) {
-                target.binding?.close()
-                val padding = intArrayOf(view.paddingLeft, view.paddingTop, view.paddingRight, view.paddingBottom)
-                target.binding = active.bindSource(view, options(target.role, night), null)
+            val binding = active.ensure(view, if (target.role == Role.READING) style.reading else style.card)
+            if (binding !== target.binding) {
+                target.binding = binding
                 target.drawable = view.background
                 target.drawable?.let { owned[view] = it }
-                view.setPadding(padding[0], padding[1], padding[2], padding[3])
-            } else if (changed) target.binding?.update(options(target.role, night))
+            }
         }
     }
-
-    private fun options(role: Role, night: Boolean) = LumenSurfaceOptions(
-        material = LumenSurfaceMaterial.STATIC, role = SurfaceRole.CARD,
-        radiusDp = if (role == Role.READING) 0f else 16f,
-        color = if (night) (if (role != Role.READING) 0xFF242731.toInt() else 0xFF181A20.toInt())
-            else 0xFFF8F9FC.toInt(),
-        tintOpacity = if (night) .90f else .94f,
-        fallbackTintOpacity = if (night) .90f else .94f,
-        edgeEnabled = false,
-        sampling = LumenSurfaceSampling(enabled = false)
-    )
 
     private fun release(view: View) {
         val target = targets.remove(view) ?: return
@@ -163,4 +166,9 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
         (0 until view.childCount).any { name(view.getChildAt(it)) == childName }
 
     private fun name(view: View) = HostViewResourceNames.name(view)
+
+    private companion object {
+        val lightStyle = Style(night = false)
+        val darkStyle = Style(night = true)
+    }
 }

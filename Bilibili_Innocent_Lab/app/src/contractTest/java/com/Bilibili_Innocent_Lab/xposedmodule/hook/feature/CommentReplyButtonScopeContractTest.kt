@@ -10,6 +10,20 @@ import org.junit.Test
 
 class CommentReplyButtonScopeContractTest {
     @Test
+    fun relocatedRenderersStillNeedTheUniqueNativeBindingShape() {
+        val installer = SourceContract.read("hook/feature/CommentReplyButtonFeatureInstaller.kt")
+        for ((family, owner) in listOf("legacy" to "dut", "next" to "bxu", "exp3" to "hzu")) {
+            assertTrue(Regex("NativeFamily\\(\"$family\", \"[^\"]+\", \"$owner\"\\)").containsMatchIn(installer))
+        }
+        val plan = installer.after("private fun nativePlans(").before("private fun bindingShape(")
+        assertTrue(plan.contains("+ relocatedOwner"))
+        assertTrue(plan.contains("shape == family"))
+        assertTrue(plan.contains("plans.map { it.binding }.distinct().size == 1"))
+        assertTrue(plan.contains("plans.map { it.method.declaringClass }.distinct().size == 1"))
+        assertTrue(installer.contains("getIdentifier(\"reply_button\", \"id\", TARGET_PACKAGE)"))
+    }
+
+    @Test
     fun nativeBindingCallbacksDoNotDiscoverClassesOrTraverseViewTrees() {
         val installer = SourceContract.read("hook/feature/CommentReplyButtonFeatureInstaller.kt")
         val callback = installer.after("after {").before("hooks++")

@@ -1,29 +1,23 @@
 [versions]
-agp = "9.4.1"
+agp = "9.5.1"
 kotlin = "2.4.21"
 libxposed = "102.0.0"
-meguviz-ref = "1.0.0"
-meguviz-ui = "1.0.0"
-meguviz-android = "1.1.0"
-# MeguvizHook (Maven Central, io.github.jichuo1.meguviz.hook)：一个 APK 只选一个后端，这里固定 API 102。
-meguviz-hook = "1.0.0"
-dexkit = "2.3.0"
-drawabletoolbox = "1.0.7"
+meguviz-bom = "1.2.0"
 m3color = "2026.1"
 androidx-core-ktx = "1.19.1"
 androidx-appcompat = "1.8.0"
 material = "1.14.0"
 androidx-constraintlayout = "2.2.2"
 androidx-recyclerview = "1.4.0"
-# Pins for versions BetterAndroid used to select transitively; keep unchanged.
+# Stable AndroidX versions for dependencies selected transitively by the app.
 androidx-activity = "1.13.0"
-androidx-collection = "1.6.0"
-androidx-fragment = "1.9.0"
-androidx-tracing = "2.0.0"
+androidx-collection = "1.7.0"
+androidx-fragment = "1.9.1"
+androidx-tracing = "2.0.5"
 androidx-viewpager2 = "1.1.0"
 androidx-viewpager = "1.1.0"
 # Keep all Lumen modules on the same stable release (Maven Central, io.github.jichuo1).
-lumen-engine = "1.6.1"
+lumen-engine = "1.6.2"
 markwon = "4.6.2"
 junit = "4.13.2"
 androidx-test-junit = "1.3.0"
@@ -43,17 +37,20 @@ shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuk
 shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }
 libxposed-api = { group = "io.github.libxposed", name = "api", version.ref = "libxposed" }
 libxposed-service = { group = "io.github.libxposed", name = "service", version.ref = "libxposed" }
-meguviz-ref-core = { group = "io.github.jichuo1.meguviz", name = "meguviz-ref-core", version.ref = "meguviz-ref" }
-meguviz-ui-core = { group = "io.github.jichuo1.meguviz", name = "meguviz-ui-core", version.ref = "meguviz-ui" }
-meguviz-ui-prewarm = { group = "io.github.jichuo1.meguviz", name = "meguviz-ui-prewarm", version.ref = "meguviz-ui" }
-meguviz-hook-api = { group = "io.github.jichuo1.meguviz.hook", name = "hook-api", version.ref = "meguviz-hook" }
-meguviz-hook-core = { group = "io.github.jichuo1.meguviz.hook", name = "hook-core", version.ref = "meguviz-hook" }
-meguviz-hook-backend-libxposed = { group = "io.github.jichuo1.meguviz.hook", name = "backend-libxposed-102", version.ref = "meguviz-hook" }
-meguviz-hook-testing = { group = "io.github.jichuo1.meguviz.hook", name = "hook-testing", version.ref = "meguviz-hook" }
-meguviz-android-runtime = { group = "io.github.jichuo1.meguviz", name = "meguviz-android-runtime", version.ref = "meguviz-android" }
-meguviz-android-window = { group = "io.github.jichuo1.meguviz", name = "meguviz-android-window", version.ref = "meguviz-android" }
-dexkit = { group = "org.luckypray", name = "dexkit", version.ref = "dexkit" }
-drawabletoolbox = { group = "com.github.duanhong169", name = "drawabletoolbox", version.ref = "drawabletoolbox" }
+meguviz-bom = { group = "io.github.jichuo1.meguviz", name = "meguviz-bom", version.ref = "meguviz-bom" }
+meguviz-ref-core = { group = "io.github.jichuo1.meguviz", name = "meguviz-ref-core" }
+meguviz-ui-core = { group = "io.github.jichuo1.meguviz", name = "meguviz-ui-core" }
+meguviz-ui-prewarm = { group = "io.github.jichuo1.meguviz", name = "meguviz-ui-prewarm" }
+meguviz-ui-android-bridge = { group = "io.github.jichuo1.meguviz", name = "meguviz-ui-android-bridge" }
+meguviz-hook-api = { group = "io.github.jichuo1.meguviz.hook", name = "hook-api" }
+meguviz-hook-core = { group = "io.github.jichuo1.meguviz.hook", name = "hook-core" }
+meguviz-hook-backend-libxposed = { group = "io.github.jichuo1.meguviz.hook", name = "backend-libxposed-102" }
+meguviz-hook-dex-bridge = { group = "io.github.jichuo1.meguviz.hook", name = "hook-dex-bridge" }
+meguviz-hook-testing = { group = "io.github.jichuo1.meguviz.hook", name = "hook-testing" }
+meguviz-android-runtime = { group = "io.github.jichuo1.meguviz", name = "meguviz-android-runtime" }
+meguviz-android-window = { group = "io.github.jichuo1.meguviz", name = "meguviz-android-window" }
+meguviz-drawable-android = { group = "io.github.jichuo1.meguviz", name = "meguviz-drawable-android" }
+dexmeguviz-android = { group = "io.github.jichuo1.dexmeguviz", name = "dexmeguviz-android" }
 m3color = { group = "com.github.Kyant0", name = "m3color", version.ref = "m3color" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "androidx-core-ktx" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "androidx-appcompat" }

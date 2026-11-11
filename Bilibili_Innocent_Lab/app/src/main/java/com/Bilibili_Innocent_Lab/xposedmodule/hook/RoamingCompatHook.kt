@@ -157,6 +157,7 @@ object RoamingCompatHook {
     /** 本进程是否已成功注册「我的」页入口注入钩子（方案 B，见 patchMineEntry） */
     @Volatile
     private var mineEntryPatched = false
+    @Volatile private var mineEntryAllowsRoaming = false
     @Volatile private var roamingEntryRequested = false
     @Volatile private var moduleEntryRequested = false
 
@@ -446,14 +447,15 @@ object RoamingCompatHook {
      */
     fun patchMineEntry(appClassLoader: ClassLoader?, includeRoaming: Boolean = true): Boolean {
         if (includeRoaming) roamingEntryRequested = true else moduleEntryRequested = true
-        if (mineEntryPatched) return true
+        if (mineEntryPatched) return !includeRoaming || mineEntryAllowsRoaming
         if (appClassLoader == null) return false
         return runCatching {
             val runtime = hookRuntime ?: throw IllegalStateException("Modern hook runtime unavailable")
-            val point = VersionAdapter.locateMineEntry(appClassLoader)
+            val point = VersionAdapter.locateMineEntry(appClassLoader, allowModuleInstance = !includeRoaming)
                 ?: throw NoSuchMethodException("HomeUserCenterFragment menu structure")
             val firstBuild = point.buildMethods.firstOrNull()
                 ?: throw NoSuchMethodException("HomeUserCenterFragment menu callbacks")
+            val moduleInstance = firstBuild.paramClassNames?.size == 1
             val fragmentClass = KavaMemberLookup.classOrNull(
                 appClassLoader,
                 firstBuild.className
@@ -477,15 +479,17 @@ object RoamingCompatHook {
                 ) ?: throw NoSuchMethodException(buildPoint.methodName)
                 runtime.install("roaming:mine-build:${buildMethod.toGenericString()}", buildMethod) {
                     after {
+                        if (moduleInstance && (!mineEntryPatched || throwable != null)) return@after
                         runCatching {
-                            if (roamingEntryRequested) injectMineEntry(
-                                args.getOrNull(0),
+                            val fragment = if (moduleInstance) thisObject else args.getOrNull(0)
+                            if (!moduleInstance && roamingEntryRequested) injectMineEntry(
+                                fragment,
                                 appClassLoader,
                                 groupField,
                                 adapterField
                             )
                             if (moduleEntryRequested) injectMineEntry(
-                                args.getOrNull(0), appClassLoader, groupField, adapterField, moduleSettings = true
+                                fragment, appClassLoader, groupField, adapterField, moduleSettings = true
                             )
                         }
                     }
@@ -513,13 +517,14 @@ object RoamingCompatHook {
                     }
                     val ctx = mineClickContext(thisObject) ?: return@before
                     when {
-                        uri == ROAMING_URI && roamingEntryRequested -> openRoamingSettings(ctx)
+                        uri == ROAMING_URI && !moduleInstance && roamingEntryRequested -> openRoamingSettings(ctx)
                         uri == MODULE_URI && moduleEntryRequested -> RoamingSettingsLauncher.requestModule(ctx)
                         else -> return@before
                     }
                     result = null
                 }
             }
+            mineEntryAllowsRoaming = !moduleInstance
             mineEntryPatched = true
             logInfo(
                 "br_mine_patched",

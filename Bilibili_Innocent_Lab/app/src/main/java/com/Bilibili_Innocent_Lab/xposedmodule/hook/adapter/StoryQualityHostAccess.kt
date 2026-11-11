@@ -123,6 +123,7 @@ internal class StoryQualityHostAccess private constructor(
         const val PARAMS = "tv.danmaku.biliplayerv2.service.Video\$PlayableParams"
         const val RESOLVE = "com.bilibili.video.story.player.datasource.PlayableProvider\$resolve\$1"
         const val TASK = "tv.danmaku.biliplayerv2.service.resolve.AbsMediaResourceResolveTask"
+        private const val FLATTENED_REPARSE_LISTENER = "v5r0"
         private val INT = Int::class.javaPrimitiveType!!
         private val BOOL = Boolean::class.javaPrimitiveType!!
 
@@ -135,6 +136,8 @@ internal class StoryQualityHostAccess private constructor(
             val displayClass = cls("tv.danmaku.biliplayerv2.service.Video\$DisplayParams") ?: return null
             val resolver = cls(RESOLVE) ?: return null
             val task = cls(TASK) ?: return null
+            val resource = cls(StoryQualityLocator.MEDIA_RESOURCE) ?: return null
+            val flattenedPolicy = roles.policy?.declaringClass?.name?.let(StoryQualityLocator::flattenedQualityOwner) == true
             val serviceHandler = typedField(roles.service, handler) ?: return null
             val handlerProvider = typedField(handler, provider) ?: return null
             val current = method(roles.owner, "getCurrentPlayableParam", params) ?: return null
@@ -147,14 +150,21 @@ internal class StoryQualityHostAccess private constructor(
                 val p = it.parameterTypes
                 concrete(it) && it.returnType == Void.TYPE && p.size in 6..7 &&
                     p[0] == Integer::class.java && p[1] == BOOL && p[2] == String::class.java && p[3] == INT &&
-                    p.count { type -> type == params } == 1 && p.last().name.startsWith("com.bilibili.video.story.player.datasource.") &&
-                    (p.size == 6 || p[4] == BOOL) && p[p.size - 2] == params
+                    p.count { type -> type == params } == 1 && (p.size == 6 || p[4] == BOOL) && p[p.size - 2] == params &&
+                    (p.last().name.startsWith("com.bilibili.video.story.player.datasource.") ||
+                        flattenedPolicy && p.size == 7 && flattenedReparseListener(p.last(), resource))
             }.singleOrNull() ?: return null
-            val at = Lookup.declaredMethods(provider, true) {
+            val accessors = Lookup.declaredMethods(provider, true) {
                 concrete(it) && it.returnType == params &&
                     (it.parameterTypes.contentEquals(arrayOf(INT, String::class.java)) ||
                         it.parameterTypes.contentEquals(arrayOf(String::class.java, INT)))
-            }.singleOrNull() ?: return null
+            }
+            // 9.19.0 两样本的默认参数桥与手动画质均调用 h(index, null) 读取当前来源。
+            // 同签名的 i 直接以传入字符串查表，不能用 null 读取当前来源。
+            val at = if (request.parameterTypes.last().name == FLATTENED_REPARSE_LISTENER) accessors.singleOrNull {
+                it.name == "h" && it.parameterTypes.contentEquals(arrayOf(INT, String::class.java))
+            } else accessors.singleOrNull()
+            at ?: return null
             val constructor = Lookup.declaredConstructors(resolver, true) {
                 it.parameterTypes.count { type -> type == task } == 1 &&
                     it.parameterTypes.count { type -> type == provider } == 1 &&
@@ -175,7 +185,6 @@ internal class StoryQualityHostAccess private constructor(
             val effectiveVip = method(accountInfoClass, "isEffectiveVip", BOOL) ?: return null
             val coreClass = cls("tv.danmaku.biliplayerv2.service.IPlayerCoreService") ?: return null
             val core = typedField(roles.service, coreClass) ?: return null
-            val resource = cls(StoryQualityLocator.MEDIA_RESOURCE) ?: return null
             val media = Lookup.methodOrNull(coreClass, "getMediaResource")?.takeIf {
                 !Modifier.isStatic(it.modifiers) && it.returnType == resource && it.parameterCount == 0
             } ?: return null
@@ -257,6 +266,13 @@ internal class StoryQualityHostAccess private constructor(
         }.getOrNull()
 
         private fun concrete(method: Method) = !Modifier.isStatic(method.modifiers) && !Modifier.isAbstract(method.modifiers) && !method.isBridge
+        private fun flattenedReparseListener(type: Class<*>, resource: Class<*>): Boolean =
+            type.name == FLATTENED_REPARSE_LISTENER && type.isInterface && type.methods.let { methods ->
+                methods.count { !Modifier.isStatic(it.modifiers) && it.returnType == Void.TYPE &&
+                    it.parameterTypes.contentEquals(arrayOf(resource)) } == 1 &&
+                    methods.count { !Modifier.isStatic(it.modifiers) && it.name == "onError" &&
+                        it.returnType == Void.TYPE && it.parameterCount == 0 } == 1
+            }
         private fun typedField(owner: Class<*>, type: Class<*>): Field? =
             Lookup.declaredFields(owner, true) { !Modifier.isStatic(it.modifiers) && it.type == type }.singleOrNull()
         private fun method(owner: Class<*>, name: String, returns: Class<*>, vararg args: Class<*>, static: Boolean = false,

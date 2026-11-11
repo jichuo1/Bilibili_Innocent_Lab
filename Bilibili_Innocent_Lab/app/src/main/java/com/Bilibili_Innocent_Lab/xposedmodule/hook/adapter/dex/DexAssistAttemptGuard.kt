@@ -3,7 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex
 import java.io.File
 
 /**
- * DexKit 查询的"未完成闸门"。
+ * DexMeguviz 查询的"未完成闸门"。
  *
  * 一趟查询在宿主进程里有数百 MB 的瞬时峰值：2026-10-01 真机 9.14.0（APK 220 MB、33 个 DEX），
  * 冷启动 VmHWM 从 689 MB 升到 1.35 GB，查完 RSS 回落到约 420 MB。低内存设备上这一趟可能让宿主

@@ -75,6 +75,11 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
+import io.github.jichuo1.meguviz.android.extensions.isUiInNightMode
+import io.github.jichuo1.meguviz.drawable.android.RecipeDrawable
+import io.github.jichuo1.meguviz.drawable.model.DrawingRecipe
+import io.github.jichuo1.meguviz.drawable.model.FillSpec
+import io.github.jichuo1.meguviz.drawable.model.ShapeSpec
 
 /** 只读、本地优先的统一诊断中心。 */
 class DiagnosticsActivity : SkinnedActivity(),
@@ -87,6 +92,13 @@ class DiagnosticsActivity : SkinnedActivity(),
         const val BACK_CANCEL_DURATION_MS = 210L
         const val MIN_CLOSE_DURATION_MS = 80L
         const val CONTENT_TRAVEL_DP = 12f
+
+        val lightSeverityDotRecipes = severityDotRecipes(darkTheme = false)
+        val darkSeverityDotRecipes = severityDotRecipes(darkTheme = true)
+
+        private fun severityDotRecipes(darkTheme: Boolean) = DiagnosticStatusTone.entries.map { tone ->
+            DrawingRecipe.of(ShapeSpec.ellipse(), FillSpec.solid(DiagnosticStatusPalette.color(tone, darkTheme)))
+        }
     }
 
 
@@ -624,7 +636,7 @@ class DiagnosticsActivity : SkinnedActivity(),
         addView(LinearLayout(this@DiagnosticsActivity).apply {
             gravity = Gravity.CENTER_VERTICAL
             addView(View(this@DiagnosticsActivity).apply {
-                background = circle(severityColor(severity))
+                background = severityDot(severity)
             }, LinearLayout.LayoutParams(12.dp, 12.dp).apply { marginEnd = 12.dp })
             addView(titleText(overallText(severity)).apply { textSize = 19f }, linearWeight())
         }, linearMatch())
@@ -657,7 +669,7 @@ class DiagnosticsActivity : SkinnedActivity(),
             gravity = Gravity.TOP
             setPadding(15.dp, 14.dp, 15.dp, 14.dp)
             addView(View(this@DiagnosticsActivity).apply {
-                background = circle(severityColor(item.severity))
+                background = severityDot(item.severity)
             }, LinearLayout.LayoutParams(10.dp, 10.dp).apply {
                 topMargin = 6.dp
                 marginEnd = 12.dp
@@ -1385,19 +1397,20 @@ class DiagnosticsActivity : SkinnedActivity(),
         }
     )
 
-    private fun severityColor(severity: DiagnosticSeverity): Int = when (severity) {
+    private fun severityTone(severity: DiagnosticSeverity): DiagnosticStatusTone = when (severity) {
         DiagnosticSeverity.OK -> DiagnosticStatusTone.OK
         DiagnosticSeverity.INFO -> DiagnosticStatusTone.INFO
         DiagnosticSeverity.ATTENTION -> DiagnosticStatusTone.ATTENTION
         DiagnosticSeverity.ACTION_REQUIRED -> DiagnosticStatusTone.ACTION_REQUIRED
         DiagnosticSeverity.UNKNOWN -> DiagnosticStatusTone.UNKNOWN
-    }.let { tone ->
-        DiagnosticStatusPalette.color(
-            tone,
-            darkTheme = (resources.configuration.uiMode and
-                android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
-                android.content.res.Configuration.UI_MODE_NIGHT_YES
-        )
+    }
+
+    private fun severityColor(severity: DiagnosticSeverity): Int =
+        DiagnosticStatusPalette.color(severityTone(severity), resources.configuration.isUiInNightMode)
+
+    private fun View.severityDot(severity: DiagnosticSeverity): RecipeDrawable {
+        val recipes = if (resources.configuration.isUiInNightMode) darkSeverityDotRecipes else lightSeverityDotRecipes
+        return RecipeDrawable.forView(this, recipes[severityTone(severity).ordinal])
     }
 
     private fun card(padding: Int = 16.dp) = LinearLayout(this).apply {
@@ -1423,11 +1436,6 @@ class DiagnosticsActivity : SkinnedActivity(),
 
     private fun divider() = View(this).apply {
         setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x18))
-    }
-
-    private fun circle(color: Int) = GradientDrawable().apply {
-        shape = GradientDrawable.OVAL
-        setColor(color)
     }
 
     private fun rippleBackground(radiusDp: Float): RippleDrawable {

@@ -19,6 +19,15 @@ internal object SearchHomeRecommendLocator {
     const val DISCOVER = "com.bilibili.search2.discover."
     const val STATE = "com.bilibili.search2.main.data."
 
+    // 9.19.0 (9190200/9190400): onViewCreated creates pl22; MainSearchViewModel publishes v642.
+    private const val RELOCATED_DELIVERY = "pl22"
+    private const val RELOCATED_STATE = "v642"
+    private const val RELOCATED_CACHE_OWNER = "${DISCOVER}c"
+    private const val RELOCATED_CACHE_PAYLOAD = "zbm0"
+
+    fun acceptsDeliveryOwner(name: String): Boolean = name == RELOCATED_DELIVERY || name.startsWith(DISCOVER)
+    fun acceptsStateOwner(name: String): Boolean = name == RELOCATED_STATE || name.startsWith(STATE)
+
     /** 一级候选：宿主 discover 包的稳定短名（R8 混淆池 a-z + 未混淆的 ViewModel 名）。 */
     private val ROOT_NAMES: List<String> =
         ('a'..'z').map { DISCOVER + it } + DISCOVER.plus("SearchDiscoverViewModel")
@@ -50,6 +59,7 @@ internal object SearchHomeRecommendLocator {
         val square = Lookup.classOrNull(loader, SQUARE) ?: return null
         val type = Lookup.methodOrNull(square, "getType")
             ?.takeIf { !it.isStatic && it.returnType == classOf<String>() } ?: return null
+        val relocatedDelivery = Lookup.classOrNull(loader, RELOCATED_DELIVERY)
         val roots = ROOT_NAMES.mapNotNull { Lookup.classOrNull(loader, it) }
 
         // 投递宿主是页面 ViewModel 里的回调实现：可能是顶级类（8.97.0+，即根类自身），也可能是
@@ -69,14 +79,16 @@ internal object SearchHomeRecommendLocator {
         val declared = roots.flatMap { root ->
             runCatching { root.declaredClasses.toList() }.getOrDefault(emptyList())
         }
-        val cachedDelivery = cached?.searchDelivery?.takeIf { it.startsWith(DISCOVER) }
+        val cachedDelivery = cached?.searchDelivery?.takeIf(::acceptsDeliveryOwner)
             ?.let { Lookup.classOrNull(loader, it) }
-        val callbacks = (roots + enumerated + declared + listOfNotNull(cachedDelivery)).distinct()
+        val callbacks = (listOfNotNull(relocatedDelivery, cachedDelivery) + roots + enumerated + declared).distinct()
             .filter { !it.isInterface && !it.isAbstract }
             .mapNotNull(::delivery)
 
-        val states = (('a'..'z').mapNotNull { Lookup.classOrNull(loader, STATE + it) } +
-            listOfNotNull(cached?.searchState?.takeIf { it.startsWith(STATE) }?.let { Lookup.classOrNull(loader, it) })).distinct()
+        val relocatedState = Lookup.classOrNull(loader, RELOCATED_STATE)
+        val cachedState = cached?.searchState?.takeIf(::acceptsStateOwner)?.let { Lookup.classOrNull(loader, it) }
+        val states = (listOfNotNull(relocatedState, cachedState) +
+            ('a'..'z').mapNotNull { Lookup.classOrNull(loader, STATE + it) }).distinct()
             .filter { !it.isInterface && !it.isAbstract }.mapNotNull(::state)
         Points(square, type, callbacks.singleOrNull(), states.singleOrNull(),
             Lookup.classOrNull(loader, "com.bilibili.search2.main.MainSearchViewModel") != null,
@@ -97,7 +109,9 @@ internal object SearchHomeRecommendLocator {
             !it.isStatic && it.type.name.startsWith(DISCOVER)
         }.mapNotNull { field -> squareField(field.type)?.let { field to it } }
         val carrier = carriers.singleOrNull() ?: return null
-        Delivery(receive, refresh, carrier.first, carrier.second, discoveryCache(carrier.first.type))
+        val ownerType = carrier.first.type
+        val allowRelocatedCache = owner.name == RELOCATED_DELIVERY && ownerType.name == RELOCATED_CACHE_OWNER
+        Delivery(receive, refresh, carrier.first, carrier.second, discoveryCache(ownerType, allowRelocatedCache))
     }.getOrNull()
 
     internal fun state(owner: Class<*>): StatePoint? = runCatching {
@@ -113,7 +127,7 @@ internal object SearchHomeRecommendLocator {
         !it.isStatic && it.type == classOf<List<*>>() && typedList(it.genericType, SQUARE)
     }.singleOrNull()
 
-    private fun discoveryCache(owner: Class<*>): DiscoveryCache? = Lookup.declaredFields(owner, true) {
+    private fun discoveryCache(owner: Class<*>, allowRelocatedCache: Boolean): DiscoveryCache? = Lookup.declaredFields(owner, true) {
         !it.isStatic
     }.mapNotNull { field -> runCatching {
         // R8 widens LiveData.setValue to public in some hosts. Its read-only alias is
@@ -121,7 +135,8 @@ internal object SearchHomeRecommendLocator {
         if (!writableObservable(field.type)) return@runCatching null
         val generic = field.genericType as? ParameterizedType ?: return@runCatching null
         val payload = generic.actualTypeArguments.singleOrNull() as? Class<*> ?: return@runCatching null
-        if (!payload.name.startsWith(DISCOVER)) return@runCatching null
+        val relocated = allowRelocatedCache && payload.name == RELOCATED_CACHE_PAYLOAD
+        if (!payload.name.startsWith(DISCOVER) && !relocated) return@runCatching null
         val values = Lookup.declaredFields(payload, true) { !it.isStatic && typedList(it.genericType, GUESS) }.singleOrNull()
             ?: return@runCatching null
         val feedback = Lookup.declaredFields(payload, true) {

@@ -13,20 +13,22 @@ class BrandSplash917BehaviorTest {
         @JvmField var label = 0
         @JvmField var `$customBitmapReady$delegate`: MutableState? = null
         @JvmField var `$customLogoReady$delegate`: MutableState? = null
+        @JvmField var `$customBitmap$delegate`: MutableState? = null
         @JvmField var `$currentOnShow`: State? = null
         fun invokeSuspend(value: Any?): Any? = value
     }
-    private class Host : ClassLoader(BrandSplash917BehaviorTest::class.java.classLoader) {
+    private class Host(private val exitName: String) : ClassLoader(BrandSplash917BehaviorTest::class.java.classLoader) {
         override fun loadClass(name: String, resolve: Boolean): Class<*> = when (name) {
             BrandSplashSkipFeatureInstaller.KNTR_EXIT -> throw ClassNotFoundException(name)
-            BrandSplashKntrAccess.CURRENT_EXIT -> Exit::class.java
+            exitName -> Exit::class.java
             "androidx.compose.runtime.MutableState" -> MutableState::class.java
             "androidx.compose.runtime.State" -> State::class.java
             else -> super.loadClass(name, resolve)
         }
     }
-    private fun installed(mainThread: Boolean = true): Pair<PlayerPortTestRegistrar, BrandSplashKntrExit> {
-        val loader = Host()
+    private fun installed(mainThread: Boolean = true, exitName: String = BrandSplashKntrAccess.CURRENT_EXIT):
+        Pair<PlayerPortTestRegistrar, BrandSplashKntrExit> {
+        val loader = Host(exitName)
         val point = requireNotNull(BrandSplashKntrAccess.exit(loader))
         assertTrue(point.waitsForImages)
         val registrar = PlayerPortTestRegistrar()
@@ -62,6 +64,23 @@ class BrandSplash917BehaviorTest {
         frame.label = 1
         assertTrue(point.exited(frame, Unit))
         assertFalse(point.exited(frame, COROUTINE_SUSPENDED))
+    }
+
+    @Test fun `bitmap exit keeps readiness and the native persistence before the one exit`() {
+        val (registrar, point) = installed(exitName = BrandSplashKntrAccess.BITMAP_EXIT)
+        val events = arrayListOf<String>()
+        val frame = Exit { events += "exit" }
+        assertSame(Unit, registrar.invoke("brand.skip.kntr.exit", frame, arrayOf(Unit)) { Unit })
+        assertFalse(point.exited(frame, Unit))
+        assertTrue(events.isEmpty())
+        assertSame(COROUTINE_SUSPENDED, registrar.invoke("brand.skip.kntr.exit", frame, arrayOf(Unit)) {
+            events += "show"
+            events += "persist"
+            frame.label = 1
+            COROUTINE_SUSPENDED
+        })
+        assertEquals(listOf("show", "persist", "exit"), events)
+        assertSame(Unit, registrar.invoke("brand.skip.kntr.exit", frame, arrayOf(Unit)) { error("duplicate exit") })
     }
 
     @Test fun `cancelled pending completion reaches the native failure path`() {
@@ -106,5 +125,20 @@ class BrandSplash917BehaviorTest {
         assertEquals(BrandSplashPageAbi(5, 6), brandSplashPageAbi(prefix + listOf("kotlin.jvm.functions.Function0", "androidx.compose.runtime.Composer", "int")))
         assertNull(brandSplashPageAbi(prefix + listOf("java.lang.Object", "androidx.compose.runtime.Composer", "int")))
         assertNull(brandSplashPageAbi(prefix + listOf("kotlin.jvm.functions.Function0", "int", "androidx.compose.runtime.Composer")))
+    }
+
+    @Test fun `compact brand page keeps native callbacks and bitmap draw admits the transition capture only in its slot`() {
+        val page = listOf("bgk", "kotlin.jvm.functions.Function0", "androidx.compose.ui.Modifier",
+            "kotlin.jvm.functions.Function0", "androidx.compose.runtime.Composer", "int")
+        assertEquals(BrandSplashPageAbi(4, 5), brandSplashPageAbi(page))
+        assertNull(brandSplashPageAbi(listOf("other.Model") + page.drop(1)))
+        val image = "androidx.compose.ui.graphics.ImageBitmap"
+        val resource = "org.jetbrains.compose.resources.DrawableResource"
+        val state = "androidx.compose.runtime.MutableState"
+        val transition = "androidx.compose.runtime.MutableIntState"
+        val draw = listOf(image, "bgk", "androidx.compose.ui.unit.Density", resource, state)
+        assertTrue(brandSplashDrawConstructorAbi(draw + listOf(state, state), image, "bgk", resource))
+        assertTrue(brandSplashDrawConstructorAbi(draw + listOf(transition, state, state), image, "bgk", resource))
+        assertFalse(brandSplashDrawConstructorAbi(draw + listOf(state, transition, state), image, "bgk", resource))
     }
 }

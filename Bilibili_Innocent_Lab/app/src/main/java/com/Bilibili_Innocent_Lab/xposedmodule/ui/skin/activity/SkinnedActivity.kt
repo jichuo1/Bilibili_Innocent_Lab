@@ -21,7 +21,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidChoiceDrawabl
 import androidx.annotation.MainThread
 import androidx.appcompat.app.AppCompatActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowEngine
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.ViewportForegroundDrawable
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.viewportForeground
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.ActivitySkinSession
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinSessionDiagnostics
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SkinId
@@ -30,6 +30,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.interaction.ElasticInteractionController
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.ModernPalette
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.material.ModernMaterialDrawables
+import io.github.jichuo1.meguviz.android.window.WindowSession
 
 /**
  * 只管理 Activity 级皮肤会话的薄基类。
@@ -39,12 +40,22 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.material.ModernMaterialDra
 abstract class SkinnedActivity : AppCompatActivity() {
 
     private var windowDelegate: BilWindowDelegate? = null
+    private var windowSession: WindowSession? = null
     private var windowStarted = false
+
+    internal fun moduleWindowSession(): WindowSession {
+        check(!lifecycleEnded) { "The Activity window has already been destroyed" }
+        return windowSession ?: WindowSession.open(window, this, packageName, WindowSession.Permission.OWN_WINDOW)
+            .also {
+                windowSession = it
+                if (windowStarted) it.setStarted(true)
+            }
+    }
 
     private fun bindModuleWindow(root: View?) {
         if (windowDelegate != null || lifecycleEnded) return
         val content = root ?: findViewById<ViewGroup>(android.R.id.content)
-        windowDelegate = BilWindowDelegate(this, content).also { it.setStarted(windowStarted) }
+        windowDelegate = BilWindowDelegate(this, content, moduleWindowSession())
     }
 
     override fun setContentView(layoutResID: Int) {
@@ -66,12 +77,12 @@ abstract class SkinnedActivity : AppCompatActivity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        windowDelegate?.refreshConfiguration()
+        windowSession?.refreshConfiguration()
     }
 
     override fun setTheme(resId: Int) {
         super.setTheme(resId)
-        windowDelegate?.invalidateTheme()
+        windowSession?.resources()?.invalidateTheme()
     }
 
     private var skinSessionOrNull: ActivitySkinSession? = null
@@ -293,7 +304,7 @@ abstract class SkinnedActivity : AppCompatActivity() {
                 ColorUtils.setAlphaComponent(monetColors.primary, if (active || emphasized) 0x72 else 0x22))
         }
         // 前景不享受 View 对背景的滚动补偿：长文本 EditText 横向滚动后描边会随内容左移，包一层钉回视口。
-        return ViewportForegroundDrawable(StateListDrawable().apply {
+        return viewportForeground(StateListDrawable().apply {
             addState(intArrayOf(android.R.attr.state_focused), border(true))
             addState(intArrayOf(android.R.attr.state_pressed), border(true))
             addState(intArrayOf(), border(false))
@@ -455,13 +466,13 @@ abstract class SkinnedActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         windowStarted = true
-        windowDelegate?.setStarted(true)
+        windowSession?.setStarted(true)
         skinSessionOrNull?.onActivityStarted()
     }
 
     override fun onStop() {
         windowStarted = false
-        windowDelegate?.setStarted(false)
+        windowSession?.setStarted(false)
         clearElasticInteractions()
         skinSessionOrNull?.onActivityStopped()
         super.onStop()
@@ -492,12 +503,18 @@ abstract class SkinnedActivity : AppCompatActivity() {
         try {
             session?.close()
         } finally {
+            val windowOwner = windowSession
+            windowSession = null
+            val delegate = windowDelegate
+            windowDelegate = null
             try {
-                val delegate = windowDelegate
-                windowDelegate = null
-                delegate?.close()
+                windowOwner?.close()
             } finally {
-                super.onDestroy()
+                try {
+                    delegate?.close()
+                } finally {
+                    super.onDestroy()
+                }
             }
         }
     }

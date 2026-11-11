@@ -52,11 +52,12 @@ internal object DetailUnitedPresentationPurifyPolicy {
      * 这一层只是在协议层被绕过时多兜一道（有测试钉住这个主次关系）。
      */
     private const val SPECIAL_TAG_MAPPER_PACKAGE = "com.bilibili.ship.theseus.united.page.intro.module.tags"
+    const val RELOCATED_SPECIAL_TAG_MAPPER = "cg1"
 
     val specialTagMapperClasses: List<String> =
         (listOf("f", "j") + ('a'..'z').map(Char::toString))
             .distinct()
-            .map { "$SPECIAL_TAG_MAPPER_PACKAGE.$it" }
+            .map { "$SPECIAL_TAG_MAPPER_PACKAGE.$it" } + RELOCATED_SPECIAL_TAG_MAPPER
     const val SPECIAL_TAG_CLASS = "com.bapis.bilibili.app.viewunite.common.SpecialTag"
 
     private const val SEARCH_SCHEME = "bilibili"

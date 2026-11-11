@@ -23,8 +23,7 @@ internal class BrandSplashSkipFeatureInstaller(
         val loader = environment.classLoader ?: return FeatureInstallResult.Skipped("missing-class-loader")
         val native = KavaMemberLookup.classOrNull(loader, NATIVE_FRAGMENT)
         val kntr = BrandSplashKntrAccess.exit(loader)
-        val kntrPresent = kntr != null || KavaMemberLookup.hasClass(loader, KNTR_EXIT) ||
-            KavaMemberLookup.hasClass(loader, BrandSplashKntrAccess.CURRENT_EXIT)
+        val kntrPresent = kntr != null || BrandSplashKntrAccess.present(loader)
         val expected = (if (native != null) 1 else 0) + (if (kntrPresent) 1 else 0)
         var installed = 0
         if (native != null && runCatching { installNative(environment, native) }.getOrElse {

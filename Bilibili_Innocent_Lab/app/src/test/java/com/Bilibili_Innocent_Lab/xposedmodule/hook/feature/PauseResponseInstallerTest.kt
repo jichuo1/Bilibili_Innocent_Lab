@@ -27,7 +27,7 @@ class PauseResponseInstallerTest {
     @Test fun `sync async and Kotlin responses each have their own registration`() {
         val registrar = PlayerPortTestRegistrar()
         val coverage = PauseResponseAdapter.install(environment(registrar), points())
-        assertEquals(PauseResponseAdapter.Coverage(3, 3), coverage)
+        assertEquals(PauseResponseAdapter.Coverage(3, 3, kotlinInstalled = true), coverage)
         assertTrue(coverage.complete)
         assertEquals(setOf("paused.response.execute_play_pause", "paused.response.play_pause",
             "paused.response.kmoss.play_pause"), registrar.hooks.keys)
@@ -41,8 +41,22 @@ class PauseResponseInstallerTest {
         assertEquals(PauseResponseAdapter.Coverage(1, 3), partial)
         assertFalse(partial.complete)
         val failed = PauseResponseAdapter.install(environment(PlayerPortTestRegistrar("paused.response.play_pause")), points())
-        assertEquals(PauseResponseAdapter.Coverage(2, 3), failed)
+        assertEquals(PauseResponseAdapter.Coverage(2, 3, kotlinInstalled = true), failed)
         assertFalse(failed.complete)
+        val kotlinFailed = PauseResponseAdapter.install(
+            environment(PlayerPortTestRegistrar("paused.response.kmoss.play_pause")), points())
+        assertEquals(PauseResponseAdapter.Coverage(2, 3), kotlinFailed)
+    }
+
+    @Test fun `request routes require the audited host ABI and the registered Kotlin boundary`() {
+        val loader = object : ClassLoader(javaClass.classLoader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> =
+                error("Unexpected host lookup without route evidence")
+        }
+        val families = setOf("ad-api", "theseus")
+        assertTrue(PauseRequestCoverage.covered(loader, 9190400, families, kotlinInstalled = false).isEmpty())
+        assertTrue(PauseRequestCoverage.covered(loader, 9190300, families, kotlinInstalled = true).isEmpty())
+        assertTrue(PauseRequestCoverage.covered(javaClass.classLoader!!, 9190400, families, kotlinInstalled = true).isEmpty())
     }
 
     @Test fun `sync cleans only ads and copies bar extra fields and Java unknown fields`() {

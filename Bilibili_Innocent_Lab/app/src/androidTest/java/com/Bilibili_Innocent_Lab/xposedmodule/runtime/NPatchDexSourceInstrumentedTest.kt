@@ -18,7 +18,7 @@ import java.io.InputStream
 import java.security.MessageDigest
 import java.util.zip.ZipFile
 
-/** 显式只读已安装宿主的原版来源；真实 ART/DexKit 契约，不注册 Hook 或修改账号配置。 */
+/** 显式只读已安装宿主的原版来源；真实 ART/DexMeguviz 契约，不注册 Hook 或修改账号配置。 */
 @RunWith(AndroidJUnit4::class)
 class NPatchDexSourceInstrumentedTest {
     @Test fun originalApkFingerprintAndNativeDexQueryAgree() {
@@ -58,12 +58,12 @@ class NPatchDexSourceInstrumentedTest {
             assertEquals(FrameNativeLoader.Status.FAILED, FrameInterpolationNative.prepare(missing, context.codeCacheDir))
         }
         val query = DexAssistQuery.PLAYER_DEFAULT_QUALITY
-        val result = DexKitAssistEngine.resolveAll(setOf(query), source.codePaths, loader).getValue(query)
-        assertTrue("Native DexKit did not resolve original host code: $result", result is DexAssistResult.Candidates)
+        val result = DexMeguvizAssistEngine.resolveAll(setOf(query), source.codePaths, loader).getValue(query)
+        assertTrue("Native DexMeguviz did not resolve original host code: $result", result is DexAssistResult.Candidates)
         assertTrue((result as DexAssistResult.Candidates).methods.isNotEmpty())
         if (isolateNativeFailure) {
             assertEquals(FrameNativeLoader.Status.FAILED, FrameInterpolationNative.status)
-            assertEquals("AVAILABLE", DexKitAssistEngine.nativeAvailability())
+            assertEquals("AVAILABLE", DexMeguvizAssistEngine.nativeAvailability())
         }
         instrumentation.sendStatus(0, Bundle().apply {
             putString("stream", "\n$carrier original DEX: count=${source.dexEntryCount}; " +

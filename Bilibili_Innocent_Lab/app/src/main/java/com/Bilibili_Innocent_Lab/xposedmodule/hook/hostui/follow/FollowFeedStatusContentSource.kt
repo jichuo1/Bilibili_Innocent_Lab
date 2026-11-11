@@ -8,7 +8,7 @@ import com.lumen.coacervation.engine.host.LumenViewportContentSource
 internal class FollowFeedStatusContentSource private constructor(private val source: LumenViewportContentSource) :
     LumenVersionedContentSource by source, AutoCloseable by source {
     constructor(content: View, band: View, paddingPx: Float) : this(
-        LumenViewportContentSource(content) { consume -> consume(band, 0f, 0f, paddingPx) })
+        LumenViewportContentSource(content, band, paddingPx = paddingPx))
 
     fun sync() { source.sync() }
 }

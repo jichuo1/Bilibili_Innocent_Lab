@@ -202,12 +202,14 @@ internal class ModernHookRuntimeTest(private val engine: HookDispatchEngine) {
         val chain = TestChain(pair, arguments = arrayOf(5, 6))
         val creator = ModernMemberHookCreator(pair).apply { replaceTo(null) }
         assertNull(creator.invoke(chain))
-        assertEquals(0, chain.argumentReads)
+        assertEquals(0, chain.argumentListReads)
+        assertEquals(0, chain.argumentSlotReads)
         assertEquals(0, chain.calls)
 
         creator.replaceAny { argOrNull(0) }
         assertEquals(5, creator.invoke(chain))
-        assertEquals(1, chain.argumentReads)
+        assertEquals(if (engine == HookDispatchEngine.SDK) 0 else 1, chain.argumentListReads)
+        assertEquals(if (engine == HookDispatchEngine.SDK) 1 else 0, chain.argumentSlotReads)
         assertEquals(0, chain.calls)
 
         val failure = IllegalStateException("dynamic replacement failure")
@@ -231,7 +233,8 @@ internal class ModernHookRuntimeTest(private val engine: HookDispatchEngine) {
             val member = ReturnFixture::class.java.getDeclaredMethod(name)
             val chain = TestChain(member)
             assertEquals(name, value, ModernMemberHookCreator(member).apply { intercept() }.invoke(chain))
-            assertEquals(name, 0, chain.argumentReads)
+            assertEquals(name, 0, chain.argumentListReads)
+            assertEquals(name, 0, chain.argumentSlotReads)
             assertEquals(name, 0, chain.calls)
         }
     }
@@ -657,15 +660,19 @@ internal class ModernHookRuntimeTest(private val engine: HookDispatchEngine) {
         private val original: (Any?, Array<Any?>) -> Any? = { _, _ -> 3 }
     ) : XposedInterface.Chain {
         var calls = 0
-        var argumentReads = 0
+        var argumentListReads = 0
+        var argumentSlotReads = 0
         var argumentOverrideCalls = 0
         override fun getExecutable(): Executable = member
         override fun getThisObject(): Any? = receiver
         override fun getArgs(): List<Any?> {
-            argumentReads++
+            argumentListReads++
             return arguments.toList()
         }
-        override fun getArg(index: Int): Any? = arguments[index]
+        override fun getArg(index: Int): Any? {
+            argumentSlotReads++
+            return arguments[index]
+        }
         override fun proceed(): Any? {
             calls++
             return original(receiver, arguments)

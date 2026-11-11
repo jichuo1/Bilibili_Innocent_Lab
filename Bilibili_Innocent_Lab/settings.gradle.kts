@@ -14,7 +14,6 @@ dependencyResolutionManagement {
         maven("https://api.xposed.info/")
         maven("https://jitpack.io/") {
             content {
-                includeGroup("com.github.duanhong169")
                 includeGroup("com.github.Kyant0")
             }
         }

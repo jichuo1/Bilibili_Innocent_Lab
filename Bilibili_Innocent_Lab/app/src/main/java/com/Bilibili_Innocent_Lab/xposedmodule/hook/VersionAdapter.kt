@@ -44,7 +44,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistCandidat
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistSession
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexKitAssistEngine
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexMeguvizAssistEngine
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexSourceFingerprint
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
@@ -106,7 +106,7 @@ object VersionAdapter {
      */
     private fun cacheFile(): java.io.File = TargetAppStorage.cacheFile("innocent_lab_adapt.json")
 
-    /** DexKit 查询进行中的标记，见 [DexAssistAttemptGuard]。 */
+    /** DexMeguviz 查询进行中的标记，见 [DexAssistAttemptGuard]。 */
     private fun dexAssistMarkerFile(): java.io.File =
         TargetAppStorage.cacheFile("innocent_lab_dex_assist.pending")
 
@@ -2481,6 +2481,15 @@ object VersionAdapter {
         "com.bilibili.bplus.followinglist.home.mediator.MediatorFragment"
     private const val DYNAMIC_MEDIATOR_TAB_CLASS =
         "com.bilibili.bplus.followinglist.home.mediator.MediatorTabLayout"
+    // 已按包装层、真实调用与方法体逐构建验真；9.19 的根包短名只在对应版本上使用。
+    private val VERIFIED_MEDIA_OWNERS = mapOf(
+        9180100 to ("zy1.c" to "qA1.g"),
+        9180200 to ("yy1.c" to "pA1.h"),
+        9180300 to ("zy1.c" to "qA1.h"),
+        9190200 to ("gwx1" to "rnr1"),
+        9190400 to ("gwx1" to "rnr1"),
+    )
+
     private val BLOCK_UPDATE_OWNER_CANDIDATES = listOf(
         // 9.17.0(9170100)：FORCE_NETWORK、UpdateApk 写入及包装层调用链已核；Bx1.a 只做缓存回退。
         "Bx1.c",
@@ -2784,7 +2793,7 @@ object VersionAdapter {
     /**
      * 8.84.0–8.87.0 的真实实现；8.88.0 起只是转发到混淆实现的包装层，但类名与 `getDefaultQuality()`
      * 一直保留。模块落后宿主、混淆候选全部落空时，候选表会"成功"落到它上面——只挂住经它转发的调用。
-     * 因此命中它时仍要跑 DexKit 兜底，并在合并缓存时让兜底结果优先（见 [usesLegacyQualityHelper]）。
+     * 因此命中它时仍要跑 DexMeguviz 兜底，并在合并缓存时让兜底结果优先（见 [usesLegacyQualityHelper]）。
      */
     private const val PLAYER_QUALITY_LEGACY_HELPER_CLASS =
         "com.bilibili.playerbizcommon.utils.PlayerSettingHelper"
@@ -2887,9 +2896,10 @@ object VersionAdapter {
     private const val COMMENT_ITEM_CLASS = "com.bilibili.app.comment3.data.model.CommentItem"
     private const val COMMENT_REPLY_MAPPER_PACKAGE =
         "com.bilibili.app.comment3.data.source.v1"
+    private const val COMMENT_REPLY_MAPPER_ROOT_919 = "rg40"
 
     /**
-     * `ReplyInfo -> CommentItem` 的映射一直落在同一个包的 Kotlin file facade 上，但类名随每次
+     * `ReplyInfo -> CommentItem` 的旧映射落在同一个包的 Kotlin file facade 上，但类名随每次
      * 混淆漂移，实测：8.63.0–8.96.0=e、8.97.0=c、8.98.0/8.99.0=d、9.1.0–9.2.0=c、
      * 9.3.0–9.5.0=d、9.6.0=b、9.7.0–9.9.0=c、9.10.0=b。写死名单必然过期——9.6.0 与 9.10.0 已各
      * 静默失效一次，因此改为在稳定包内按有界字母表列出候选，真正的判定仍由
@@ -3086,7 +3096,7 @@ object VersionAdapter {
     /**
      * 以实时结构定位为主，只用已经过宿主指纹校验的缓存补齐缺失点。
      *
-     * 该合并使后台 DexKit 的结果能在下一次冷启动参与 Hook 注册，同时禁止缓存覆盖当前
+     * 该合并使后台 DexMeguviz 的结果能在下一次冷启动参与 Hook 注册，同时禁止缓存覆盖当前
      * ClassLoader 已确认的点。调用方必须给 [loadCached] 传入宿主 Context 后再传到这里。
      */
     internal fun mergeRuntimeWithCached(
@@ -3152,7 +3162,7 @@ object VersionAdapter {
             mineAccountMine = runtime.mineAccountMine ?: cached.mineAccountMine,
             storyFeed = runtime.storyFeed ?: cached.storyFeed,
             bottomBar = runtime.bottomBar ?: cached.bottomBar,
-            // 实时定位只落到稳定包装层、而后台 DexKit 已找到真实实现时，用缓存里的实现。
+            // 实时定位只落到稳定包装层、而后台 DexMeguviz 已找到真实实现时，用缓存里的实现。
             playerQuality = mergePlayerQuality(runtime.playerQuality, cached.playerQuality),
             teenagersMode = runtime.teenagersMode ?: cached.teenagersMode,
             commentPurify = runtime.commentPurify ?: cached.commentPurify,
@@ -3233,7 +3243,7 @@ object VersionAdapter {
                 .apply()
         }
         runCatching { cacheFile().delete() }
-        // 手动重适配也给上次没查完的 DexKit 一次重试机会。
+        // 手动重适配也给上次没查完的 DexMeguviz 一次重试机会。
         runCatching { dexAssistMarkerFile().delete() }
     }
 
@@ -3504,7 +3514,7 @@ object VersionAdapter {
                         searchHomeRecommendEnabled, playerEndPageRecommendEnabled, previousPages, pageAttempted,
                         homeChromeEnabled, previousChrome, chromeAttempted, homeChromeIconOnly,
                         previousChromeSemantics, semanticsAttempted, homeTopTabCenteringEnabled,
-                        blockUpdateEnabled, commentTopologyEnabled, assistHistory, adaptPlan, popupHistory, dexSource) }.getOrNull()
+                        blockUpdateEnabled, commentTopologyEnabled, assistHistory, adaptPlan, popupHistory, dexSource, vc) }.getOrNull()
                     result?.let { adapted ->
                         // 写文件缓存（loadApp 快路径载体）；校验后原子替换，旧缓存不会被半截 JSON 覆盖。
                         if (!writeCache(adapted)) {
@@ -3572,8 +3582,12 @@ object VersionAdapter {
      * NOT_REQUESTED，不会为了凑齐诊断去求值。[observer] 给测试和 A/B 对照计数、计时用，正式路径传 null。
      * 结果不持久化，覆盖范围只描述本轮尝试过什么。
      */
-    internal fun quickLocate(loader: ClassLoader, plan: AdaptPlan, observer: LocateObserver? = null): AdaptResult? =
-        quickLocatePlanned(loader, plan, observer, emptySet())
+    internal fun quickLocate(
+        loader: ClassLoader,
+        plan: AdaptPlan,
+        observer: LocateObserver? = null,
+        hostVersionCode: Int? = null
+    ): AdaptResult? = quickLocatePlanned(loader, plan, observer, emptySet(), hostVersionCode)
 
     /** Apply NPatch's process exclusions without dropping families required by the upstream plan. */
     internal fun quickLocateForStartup(
@@ -3581,7 +3595,8 @@ object VersionAdapter {
         excluded: Set<String>,
         plan: AdaptPlan = AdaptPlan.full(),
         observer: LocateObserver? = null,
-        allowPruneRequested: Boolean = true
+        allowPruneRequested: Boolean = true,
+        hostVersionCode: Int? = null
     ): AdaptResult? {
         val mapping = mapOf(
             StartupAdapterPlan.Family.DYNAMIC_TABS to PointFamily.DYNAMIC_TABS,
@@ -3606,14 +3621,15 @@ object VersionAdapter {
         val required = AdaptPlanCatalog.closure((plan.required - requestedOmissions) + plan.always)
         val effectiveExcluded = valid.filterTo(linkedSetOf()) { name -> mapping.getValue(names.getValue(name)) !in required }
         val effectivePlan = AdaptPlan(plan.configRevision, required, plan.always)
-        return quickLocatePlanned(loader, effectivePlan, observer, effectiveExcluded)
+        return quickLocatePlanned(loader, effectivePlan, observer, effectiveExcluded, hostVersionCode)
     }
 
     private fun quickLocatePlanned(
         loader: ClassLoader,
         plan: AdaptPlan,
         observer: LocateObserver?,
-        excluded: Set<String>
+        excluded: Set<String>,
+        hostVersionCode: Int?
     ): AdaptResult? {
         val locators = SyncLocatorRun(plan, observer, traceStartup = true)
         val low = locators.locate(PointFamily.COMMENT_LOW) { locateCommentLow(loader) }
@@ -3624,7 +3640,7 @@ object VersionAdapter {
         val banner = locators.locate(PointFamily.BANNER) { locateBanner(loader) }
         val homeTopBar = locators.locate(PointFamily.HOME_TOP_BAR) { locateHomeTopBar(loader) }
         val mineVip = locators.locate(PointFamily.MINE_VIP) { locateMineVip(loader) }
-        val blockUpdate = locators.locate(PointFamily.BLOCK_UPDATE) { locateBlockUpdate(loader) }
+        val blockUpdate = locators.locate(PointFamily.BLOCK_UPDATE) { locateBlockUpdate(loader, hostVersionCode) }
         val dynamicTabs = locators.locate(PointFamily.DYNAMIC_TABS) { locateDynamicTabs(loader) }
         val fullNumbers = locators.locate(PointFamily.FULL_NUMBERS) { locateFullNumbers(loader) }
         val playerPortrait = locators.locate(PointFamily.PLAYER_PORTRAIT) { locatePlayerPortrait(loader) }
@@ -3641,7 +3657,9 @@ object VersionAdapter {
         val mineAccountMine = locators.locate(PointFamily.MINE_ACCOUNT_MINE) { locateMineAccountMinePoints(loader) }
         val storyFeed = locators.locate(PointFamily.STORY_FEED) { locateStoryFeed(loader) }
         val bottomBar = locators.locate(PointFamily.BOTTOM_BAR) { locateBottomBar(loader) }
-        val playerQuality = locators.locate(PointFamily.PLAYER_QUALITY) { locateDefaultVideoQuality(loader) }
+        val playerQuality = locators.locate(PointFamily.PLAYER_QUALITY) {
+            locateDefaultVideoQuality(loader, hostVersionCode = hostVersionCode)
+        }
         val teenagersMode = locators.locate(PointFamily.TEENAGERS_MODE) { locateTeenagersMode(loader) }
         val commentPurify = locators.locate(PointFamily.COMMENT_PURIFY) { locateCommentPurify(loader) }
         val commentFilter = locators.locate(PointFamily.COMMENT_FILTER) { locateCommentFilter(loader) }
@@ -3760,8 +3778,7 @@ object VersionAdapter {
                       blockUpdateEnabled: Boolean = false, commentTopologyEnabled: Boolean = false,
                       assistHistory: AssistHistory = AssistHistory.EMPTY,
                       plan: AdaptPlan = AdaptPlan.full(), previous: AdaptResult? = null,
-                      dexSource: DexSourceFingerprint.Result?): AdaptResult? {
-        val vc = biliVersionCode(context)
+                      dexSource: DexSourceFingerprint.Result?, vc: Int): AdaptResult? {
         ModernHookLog.info("[BIL] DEX source count=${dexSource?.dexEntryCount ?: 0}, " +
             "isolated=${dexSource?.codePaths?.all { File(it).parentFile?.name == "bil-host-dex" } == true}")
         // 只对计划内家族调用定位器；计划外的家族沿用此前有覆盖证明的缓存点，没有证明就是未请求（null）。
@@ -3795,8 +3812,10 @@ object VersionAdapter {
         val semanticsPlanned = HomeChromeAdapter.semanticsNeedsQuery(loader, previousChromeSemantics,
             homeChromeEnabled, semanticsAttempted, homeChromeIconOnly)
         // 这三类带 DEX 兜底：计划外时不直接定位，缓存里已有的点由 AssistHistory 原样带入。
-        val directBlockUpdate = locators.locate(PointFamily.BLOCK_UPDATE) { locateBlockUpdate(loader) }
-        val directPlayerQuality = locators.locate(PointFamily.PLAYER_QUALITY) { locateDefaultVideoQuality(loader) }
+        val directBlockUpdate = locators.locate(PointFamily.BLOCK_UPDATE) { locateBlockUpdate(loader, vc) }
+        val directPlayerQuality = locators.locate(PointFamily.PLAYER_QUALITY) {
+            locateDefaultVideoQuality(loader, hostVersionCode = vc)
+        }
         val directTopologyOutcome = locators.locate<CommentTopologyLocateOutcome>(
             PointFamily.COMMENT_TOPOLOGY, found = { it.points != null }
         ) { locateCommentTopologyWithDiagnostic(loader) } ?: CommentTopologyLocateOutcome(null, PLAN_NOT_REQUESTED)
@@ -3809,13 +3828,13 @@ object VersionAdapter {
             assistHistory.attempt(AdaptAssistGate.Family.PLAYER_QUALITY)) { !playerQualityNeedsAssist }
         val topologyPlanned = AdaptAssistGate.needsQuery(commentTopologyEnabled, assistHistory.commentTopology != null,
             assistHistory.attempt(AdaptAssistGate.Family.COMMENT_TOPOLOGY)) { directTopologyOutcome.points != null }
-        // 本轮要兜底的点合并成一趟 DEX 查询：每个代码归档只建一次 DexKit 桥。
+        // 本轮兜底共享适配会话，每个代码归档只打开一次 DEX 快照。
         val dexAssist = dexSource?.let { source ->
             DexAssistSession(
                 engine = DexAssistAttemptGuard(
                     marker = dexAssistMarkerFile(),
                     key = buildHostFingerprint(context),
-                    delegate = DexKitAssistEngine
+                    delegate = DexMeguvizAssistEngine
                 ),
                 codePaths = source.codePaths,
                 classLoader = loader,
@@ -3961,13 +3980,21 @@ object VersionAdapter {
                 detail)
         }
         val classicUnresolved = classic != null && CommentClassicStyleLocator.missing(loader, classic).isNotEmpty()
+        fun failedDexReason(planned: Iterable<DexAssistQuery>): String? = planned.firstNotNullOfOrNull { query ->
+            val result = dexAssist?.result(query) as? DexAssistResult.Unavailable
+            result?.reason?.takeUnless { it == DexAssistResult.Reason.NO_MATCH || it == DexAssistResult.Reason.TOO_MANY_MATCHES }
+                ?.name?.lowercase()
+        }
         val classicDiagnostic = AdaptDiagnostic(CommentClassicStyleLocator.DIAGNOSTIC,
             if (classicUnresolved) AdaptState.MISSING else if (classic != null) AdaptState.FOUND else AdaptState.NOT_APPLICABLE,
-            if (!commentClassicStyleEnabled) "feature-disabled" else if (classicUnresolved) "unavailable-or-ambiguous"
+            if (!commentClassicStyleEnabled) "feature-disabled" else if (classicUnresolved)
+                failedDexReason(classicMissing.map { it.query }) ?: "unavailable-or-ambiguous"
             else if (classicMissing.isEmpty()) "direct" else "verified")
         val sponsorDiagnostic = AdaptDiagnostic(SponsorPlayerLocator.DIAGNOSTIC,
             if (sponsor != null) AdaptState.FOUND else if (sponsorNeedsAssist) AdaptState.MISSING else AdaptState.NOT_APPLICABLE,
-            if (!sponsorBlockEnabled) "feature-disabled" else if (directSponsor != null) "direct" else if (sponsor != null) "verified" else "unavailable-or-ambiguous")
+            if (!sponsorBlockEnabled) "feature-disabled" else if (directSponsor != null) "direct" else if (sponsor != null) "verified"
+            else if (sponsorNeedsAssist) failedDexReason(SponsorPlayerLocator.queries) ?: "unavailable-or-ambiguous"
+            else "unavailable-or-ambiguous")
         val blockUpdateAssist = when {
             blockUpdatePlanned -> locateBlockUpdateByDex(loader, dexAssist)
             directBlockUpdate != null -> BlockUpdateDexAssist(
@@ -4039,13 +4066,16 @@ object VersionAdapter {
         val storyQuality = StoryQualityLocator.locate(loader, dexAssist, previousStoryQuality, storyQualityPlanned)
         val playerQuality = globalPlayerQuality?.copy(story = storyQuality)
             ?: storyQuality?.let { PlayerQualityPoints(null, story = it) }
+        val storyDexFailure = if (storyQualityPlanned.isEmpty() || storyQuality?.semanticComplete == true) null
+            else if (dexAssist == null) "no-dex-source" else failedDexReason(storyQualityPlanned)
         val storyQualityDiagnostic = AdaptDiagnostic(StoryQualityLocator.DIAGNOSTIC,
             if (storyQuality?.semanticComplete == true) AdaptState.FOUND
             else if (playerQualityEnabled || previouslyMissingStoryQuality) AdaptState.MISSING else AdaptState.NOT_APPLICABLE,
             when {
                 !playerQualityEnabled -> if (previouslyMissingStoryQuality) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                storyQuality?.semanticComplete == true -> "semantic-roles-complete;runtime-requires-session-admission"
+                storyDexFailure != null -> storyDexFailure
                 storyQuality == null -> "missing-stable-owner-contract"
-                storyQuality.semanticComplete -> "semantic-roles-complete;runtime-requires-session-admission"
                 else -> "partial:policy=${storyQuality.policyMethod != null},resource=${storyQuality.resourceSelectionMethod != null},match=${storyQuality.matchPreferenceMethod != null}"
             })
         val teenagersMode = sync(PointFamily.TEENAGERS_MODE, previous?.teenagersMode) { locateTeenagersMode(loader) }
@@ -4869,7 +4899,7 @@ object VersionAdapter {
      * 8.90.2/9.8.0 由运行时结构匹配；9.1.1=of+n1/m1、9.2.0=pf+m1/l1、
      * 9.3.0=nf+u0/t0。只依赖方法参数、List 和 RecyclerView.Adapter 类型。
      */
-    fun locateMineEntry(loader: ClassLoader): MineEntryPoint? = runCatching {
+    fun locateMineEntry(loader: ClassLoader, allowModuleInstance: Boolean = false): MineEntryPoint? = runCatching {
         val fragmentName = MINE_FRAGMENT_CLASS
         val accountMineName = "tv.danmaku.bili.ui.main2.api.AccountMine"
         val itemName = "com.bilibili.lib.homepage.mine.MenuGroup\$Item"
@@ -4880,11 +4910,19 @@ object VersionAdapter {
         val itemClass = KavaMemberLookup.classOrNull(loader, itemName)
             ?: return@runCatching null
 
-        val builds = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
+        val staticBuilds = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
             it.isStatic && it.returnType == Void.TYPE &&
                 it.parameterTypes.contentEquals(arrayOf(fragment, accountMine))
         }
-        if (builds.isEmpty()) return@runCatching null
+        val moduleInstance = staticBuilds.isEmpty()
+        val builds = if (moduleInstance) {
+            if (!allowModuleInstance) return@runCatching null
+            // 9.19.0 (9190200/9190400): ug reads sectionListV2, rebuilds a1, and refreshes Z0.
+            val build = KavaMemberLookup.methodOrNull(fragment, "ug", accountMine)?.takeIf {
+                it.isPublic && it.isFinal && !it.isStatic && !it.isSynthetic && it.returnType == Void.TYPE
+            } ?: return@runCatching null
+            listOf(build)
+        } else staticBuilds
 
         val listFields = KavaMemberLookup.declaredFields(fragment, makeAccessible = true) {
             !it.isStatic && it.type isSubclassOf classOf<List<*>>()
@@ -4895,14 +4933,17 @@ object VersionAdapter {
             !it.isStatic &&
                 it.type.hasSuperclassNamed("androidx.recyclerview.widget.RecyclerView\$Adapter")
         }.singleOrNull()
+        if (moduleInstance && (groups.name != "a1" || adapter?.name != "Z0")) return@runCatching null
 
-        val click = listOf("$fragmentName\$e", "$fragmentName\$i")
+        val clickOwners = if (moduleInstance) listOf("$fragmentName\$e") else listOf("$fragmentName\$e", "$fragmentName\$i")
+        val click = clickOwners
             .asSequence()
             .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
             .mapNotNull { clickClass ->
                 KavaMemberLookup.declaredMethods(clickClass, makeAccessible = true) {
                     !it.isStatic && it.returnType == Void.TYPE &&
-                        it.parameterTypes.contentEquals(arrayOf(itemClass))
+                        it.parameterTypes.contentEquals(arrayOf(itemClass)) &&
+                        (!moduleInstance || (it.name == "c" && it.isPublic && it.isFinal && !it.isSynthetic))
                 }.singleOrNull()
             }
             .firstOrNull() ?: return@runCatching null
@@ -4952,9 +4993,15 @@ object VersionAdapter {
      * 8.90.2 同时存在接口桥接 a(Context) 与真实网络实现 c(Context)，优先选择没有被接口
      * 声明的叶子方法；新版本只有一个实现时直接采用唯一候选。
      */
-    fun locateBlockUpdate(loader: ClassLoader): HookPoint? = runCatching {
+    fun locateBlockUpdate(loader: ClassLoader, hostVersionCode: Int? = null): HookPoint? = runCatching {
         val upgradeInfo = KavaMemberLookup.classOrNull(loader, BILI_UPGRADE_INFO_CLASS)
             ?: return@runCatching null
+        hostVersionCode?.let { VERIFIED_MEDIA_OWNERS[it]?.first }?.let { verifiedOwner ->
+            val owner = KavaMemberLookup.classOrNull(loader, verifiedOwner) ?: return@runCatching null
+            return@runCatching KavaMemberLookup.methodOrNull(owner, "a", classOf<Context>())
+                ?.takeIf { !it.isStatic && !it.isAbstract && it.returnType == upgradeInfo }
+                ?.toHookPoint()
+        }
         for (ownerName in BLOCK_UPDATE_OWNER_CANDIDATES) {
             val owner = KavaMemberLookup.classOrNull(loader, ownerName) ?: continue
             val candidates = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
@@ -5033,10 +5080,13 @@ object VersionAdapter {
     ): Boolean {
         val history = AssistHistory.of(cached)
         return AdaptAssistGate.needsSupplementalScan(blockUpdateEnabled, history.blockUpdate != null,
-            history.attempt(AdaptAssistGate.Family.BLOCK_UPDATE)) { locateBlockUpdate(loader) != null } ||
+            history.attempt(AdaptAssistGate.Family.BLOCK_UPDATE)) {
+                locateBlockUpdate(loader, cached.biliVersionCode) != null
+            } ||
             AdaptAssistGate.needsSupplementalScan(playerQualityEnabled, history.hasAssistedQuality,
                 history.attempt(AdaptAssistGate.Family.PLAYER_QUALITY)) {
-                locateDefaultVideoQuality(loader)?.let { it.defaultQualityMethod != null && !it.usesLegacyQualityHelper() } == true
+                locateDefaultVideoQuality(loader, hostVersionCode = cached.biliVersionCode)
+                    ?.let { it.defaultQualityMethod != null && !it.usesLegacyQualityHelper() } == true
             } ||
             AdaptAssistGate.needsSupplementalScan(commentTopologyEnabled, history.commentTopology != null,
                 history.attempt(AdaptAssistGate.Family.COMMENT_TOPOLOGY)) { locateCommentTopology(loader) != null }
@@ -6266,9 +6316,9 @@ object VersionAdapter {
     }.getOrNull()
 
     /**
-     * “我的”页入口的数据层剪枝定位：以 AccountMine 为锚，在 Fragment 的静态构建方法
-     * (Fragment, AccountMine) -> Unit 之后做原地剪枝。复用 locateMineEntry 的
-     * AccountMine/Item 定位结论，但这里采集的是“运行时字段读写所需的字段名快照”。
+     * “我的”页入口的数据层剪枝定位：以 AccountMine 为锚，在 Fragment 构建菜单前剪枝。
+     * 旧构建方法接收 (Fragment, AccountMine)，9.19.0 的实例构建方法只接收 AccountMine。
+     * 实例形状复用 locateMineEntry 的菜单结构复核，这里另采集数据剪枝所需的字段名。
      * 只有 sections、group.itemList 和 item.title 是剪枝必需字段；附件字段缺失时保留对应组件。
      */
     fun locateMineAccountMinePoints(loader: ClassLoader): MineAccountMinePoints? = runCatching {
@@ -6288,7 +6338,9 @@ object VersionAdapter {
         val builds = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
             it.isStatic && it.returnType == Void.TYPE &&
                 it.parameterTypes.contentEquals(arrayOf(fragment, accountMine))
-        }.map { it.toHookPoint() }
+        }.map { it.toHookPoint() }.ifEmpty {
+            locateMineEntry(loader, allowModuleInstance = true)?.buildMethods.orEmpty()
+        }
         if (builds.isEmpty()) return@runCatching null
 
         fun fieldName(owner: Class<*>, predicate: (java.lang.reflect.Field) -> Boolean): String? =
@@ -6724,22 +6776,26 @@ object VersionAdapter {
      */
     fun locateDefaultVideoQuality(
         loader: ClassLoader,
-        /** 后台 DexKit 兜底找到的实现；给了就不再查候选表。 */
-        assisted: Method? = null
+        /** 后台 DexMeguviz 兜底找到的实现；给了就不再查候选表。 */
+        assisted: Method? = null,
+        hostVersionCode: Int? = null
     ): PlayerQualityPoints? = runCatching {
-        val defaultMethod = assisted ?: PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.firstNotNullOfOrNull { ownerName ->
-            val owner = KavaMemberLookup.classOrNull(loader, ownerName)
-                ?: return@firstNotNullOfOrNull null
-            KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+        val verifiedOwner = hostVersionCode?.let { VERIFIED_MEDIA_OWNERS[it]?.second }
+        val defaultMethod = assisted ?: if (verifiedOwner != null) {
+            KavaMemberLookup.classOrNull(loader, verifiedOwner)
+                ?.let { KavaMemberLookup.methodOrNull(it, "a") }
+                ?.takeIf { it.isStatic && !it.isAbstract && it.returnType == classOf<Int>() }
+        } else {
+            PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.firstNotNullOfOrNull { ownerName ->
+                val owner = KavaMemberLookup.classOrNull(loader, ownerName)
+                    ?: return@firstNotNullOfOrNull null
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
                     !method.isAbstract &&
                         method.parameterCount == 0 &&
                         method.returnType == classOf<Int>() &&
-                        method.name in setOf(
-                            "a",
-                            "c",
-                            "getDefaultQuality"
-                        )
-            }.singleOrNull()
+                        (method.name == "a" || method.name == "c" || method.name == "getDefaultQuality")
+                }.singleOrNull()
+            }
         }
 
         val story = StoryQualityLocator.direct(loader)
@@ -6968,7 +7024,18 @@ object VersionAdapter {
         val commentItem = KavaMemberLookup.classOrNull(loader, COMMENT_ITEM_CLASS)
             ?: return@runCatching null
         stage = "reply-mapper-methods"
-        val mapperMethods = (
+        // Both 9.19.0 samples move the five-parameter mapper to the root package.
+        // Keep this direct path exact. The background query handles further semantic drift.
+        val relocatedMapper = KavaMemberLookup.classOrNull(loader, COMMENT_REPLY_MAPPER_ROOT_919)?.let { owner ->
+            val parameters = listOf(replyInfo.name, "com.bapis.bilibili.main.community.reply.v1.SubjectControl",
+                "boolean", "java.lang.String", "tev")
+            KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                method.name == "B" && method.isPublic && method.isStatic && method.isFinal && !method.isSynthetic &&
+                    method.returnType == commentItem && method.parameterTypes.firstOrNull() == replyInfo &&
+                    method.parameterTypes.map(Class<*>::getName) == parameters
+            }.singleOrNull()
+        }
+        val packageMappers = (
             COMMENT_REPLY_MAPPER_CLASS_CANDIDATES.asSequence()
                 .mapNotNull { KavaMemberLookup.classOrNull(loader, it) } +
                 extraMapperOwners.asSequence()
@@ -6981,6 +7048,7 @@ object VersionAdapter {
                         method.parameterTypes.firstOrNull() == replyInfo
                 }.asSequence()
             }
+        val mapperMethods = (packageMappers + listOfNotNull(relocatedMapper))
             .distinctBy(Method::toGenericString)
             .sortedBy(Method::toGenericString)
             .take(CommentTopologyPoints.MAX_MAPPER_METHODS + 1)
@@ -7503,9 +7571,8 @@ object VersionAdapter {
                 .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
                 .map { owner ->
                     KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
-                        !it.isStatic && !it.isAbstract &&
-                            it.returnType == Void.TYPE && it.parameterCount == 1 &&
-                            it.parameterTypes[0].name in HOME_DEFAULT_WORD_CLASS_CANDIDATES
+                        !it.isStatic && !it.isAbstract && it.returnType == Void.TYPE &&
+                            it.parameterCount == 1 && isHomeDefaultWordEntry(it)
                     }.distinctBy(Method::toGenericString)
                 }
                 .firstOrNull { it.isNotEmpty() }
@@ -7522,6 +7589,18 @@ object VersionAdapter {
             HomeTopBarPoints(gameMenu, composeGameMenu, baseOnViewCreated, defaultWordMethods, kotlinWords)
         }
     }.getOrNull()
+
+    private fun isHomeDefaultWordEntry(method: Method): Boolean {
+        val model = method.parameterTypes[0]
+        if (model.name in HOME_DEFAULT_WORD_CLASS_CANDIDATES) return true
+        // 9190200/9190400: P0 stores the deferred hint; yc renders it through SwitchTextView.
+        if (method.declaringClass.name != HOME_MAIN_FRAGMENT_CANDIDATES.first() ||
+            method.name !in setOf("P0", "yc") || model.name != "rop0" || !model.isInterface) return false
+        fun returns(name: String, type: Class<*>): Boolean =
+            KavaMemberLookup.methodOrNull(model, name)?.let { !it.isStatic && it.returnType == type } == true
+        return returns("getShow", String::class.java) && returns("getAnimationTimeMilli", Long::class.javaPrimitiveType!!) &&
+            returns("enableAnimation", Boolean::class.javaPrimitiveType!!) && returns("isShowFront", Boolean::class.javaPrimitiveType!!)
+    }
 
     /**
      * 低版本评论 holder：候选类存在 + 有绑定方法（方法名漂移自适应：8.90.2 为 o0、

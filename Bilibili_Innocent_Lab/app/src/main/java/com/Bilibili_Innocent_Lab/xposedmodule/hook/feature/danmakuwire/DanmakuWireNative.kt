@@ -3,7 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.danmakuwire
 /**
  * `libinnocent_danmaku_wire.so` 的加载闩锁与 JNI 入口。
  *
- * 与 DexKit（`DexKitAssistEngine`）同一范式：`NOT_TRIED/AVAILABLE/UNAVAILABLE` 三态、
+ * 与 DexMeguviz（`DexMeguvizAssistEngine`）同一范式：`NOT_TRIED/AVAILABLE/UNAVAILABLE` 三态、
  * 一次性 `System.loadLibrary`、失败永不重试不抛出。加载与首次探测只发生在安装期，
  * 弹幕回调热路径上只读一个 volatile 状态。ABI 版本不符同样视为不可用（新旧 .so/类
  * 混装时不猜）。所有包装方法捕获 Throwable：符号缺失（R8 keep 失效）、加载期 OOM、

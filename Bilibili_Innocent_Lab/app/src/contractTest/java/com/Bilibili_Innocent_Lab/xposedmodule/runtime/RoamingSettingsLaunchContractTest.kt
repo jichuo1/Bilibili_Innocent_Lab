@@ -19,6 +19,18 @@ class RoamingSettingsLaunchContractTest {
     }
 
     @Test
+    fun `instance mine menu route opens only the module settings`() {
+        val route = SourceContract.read("hook/RoamingCompatHook.kt")
+            .after("fun patchMineEntry(").before("private fun injectMineEntry(")
+        assertTrue(route.contains("allowModuleInstance = !includeRoaming"))
+        assertTrue(route.contains("if (moduleInstance) thisObject else args.getOrNull(0)"))
+        assertTrue(route.contains("if (moduleInstance && (!mineEntryPatched || throwable != null)) return@after"))
+        assertTrue(route.contains("if (!moduleInstance && roamingEntryRequested) injectMineEntry("))
+        assertTrue(route.contains("uri == ROAMING_URI && !moduleInstance && roamingEntryRequested"))
+        assertTrue(route.contains("uri == MODULE_URI && moduleEntryRequested -> RoamingSettingsLauncher.requestModule(ctx)"))
+    }
+
+    @Test
     fun `receiver returns a token and never starts a background activity`() {
         val receiver = SourceContract.read("receiver/RoamingOpenReceiver.kt")
         assertTrue(receiver.contains("RoamingSettingsLauncher.reply(context, intent"))

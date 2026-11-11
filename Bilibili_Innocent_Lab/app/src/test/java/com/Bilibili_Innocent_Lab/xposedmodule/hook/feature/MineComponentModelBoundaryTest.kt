@@ -255,6 +255,21 @@ class MineComponentModelBoundaryTest {
         assertTrue(h.logs.any { "stage=UNKNOWN settings_container=1" in it })
     }
 
+    @Test fun `instance AccountMine consumer filters its first argument and preserves settings`() {
+        val account = requireNotNull(VersionAdapter.locateMineAccountMinePoints(requireNotNull(javaClass.classLoader)))
+        val fragment = tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment()
+        val point = VersionAdapter.HookPoint(fragment.javaClass.name, "ug", listOf(account.accountMineClass))
+        val h = Harness(keys = listOf("item:id:122"), account = account.copy(buildMethods = listOf(point)))
+        val settings = oldItem("设置", 10, MineSettingsEntryGuard.SETTINGS_URI)
+        val menu = oldGroup("菜单", oldItem("隐藏", 122), settings)
+        val value = tv.danmaku.bili.ui.main2.api.AccountMine().also { it.sectionListV2 = arrayListOf(menu) }
+        h.registrar.invoke("mine.account_mine.0", fragment, args = arrayOf(value)) {
+            assertEquals(listOf(settings), value.sectionListV2.single().itemList)
+            null
+        }
+        assertTrue(h.logs.any { "path=account stage=APPLIED" in it })
+    }
+
     @Test fun `failed constructor unwinds its depth without processing a partial model`() {
         val h = Harness(keys = listOf("item:id:131"))
         val value = model(group("菜单", item("隐藏", 131), item("保留", 132)))

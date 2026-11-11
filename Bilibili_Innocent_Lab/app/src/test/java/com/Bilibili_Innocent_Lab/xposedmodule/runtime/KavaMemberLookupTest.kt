@@ -169,6 +169,7 @@ class KavaMemberLookupTest {
     }
 
     @Test
+    @Suppress("DEPRECATION")
     fun `resolves private constructor and declared member collections`() {
         val constructor = KavaMemberLookup.constructorOrNull(
             HiddenMethods::class.java,
@@ -185,6 +186,8 @@ class KavaMemberLookupTest {
         assertEquals(7, target?.seed())
         assertEquals(2, methods.size)
         assertEquals(1, fields.size)
+        assertTrue(methods.none { it.isAccessible })
+        assertTrue(fields.none { it.isAccessible })
     }
 
     @Test

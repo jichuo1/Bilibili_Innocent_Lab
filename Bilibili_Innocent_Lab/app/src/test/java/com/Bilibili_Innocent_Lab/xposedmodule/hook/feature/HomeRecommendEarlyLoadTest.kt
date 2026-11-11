@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.earlyload.RecyclerFixtures
 import com.bilibili.pegasus.widget.LoadMoreListenerFixtures
+import d571
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -10,6 +11,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import w32
 
 class HomeRecommendEarlyLoadTest {
     private val loader = requireNotNull(javaClass.classLoader)
@@ -37,6 +39,15 @@ class HomeRecommendEarlyLoadTest {
     )
 
     private fun small(@Suppress("UNUSED_PARAMETER") position: Int) = 1
+
+    @Test fun `accepts only the verified relocated listener and callback shape`() {
+        val callback = w32()
+        val listener = d571(callback)
+        val access = requireNotNull(shape(listener.javaClass))
+        assertSame(callback, access.callback.get(listener))
+        assertTrue(access.enabled.getBoolean(listener))
+        assertNull(shape(RecyclerFixtures.ForeignLoadMoreListener::class.java))
+    }
 
     // ---- 行数判定 ----
 

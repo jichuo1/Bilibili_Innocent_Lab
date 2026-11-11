@@ -8,7 +8,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuAdapte
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuPoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistRequest
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexKitAssistEngine
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexMeguvizAssistEngine
 import dalvik.system.DexClassLoader
 import java.lang.reflect.Modifier
 import java.lang.reflect.Proxy
@@ -23,13 +23,13 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class PlayerSpeedMenuHostTest {
-    @Test fun dexKitDiscoversTheRealHostAdapterAndItsCacheResolves() {
+    @Test fun dexMeguvizDiscoversTheRealHostAdapterAndItsCacheResolves() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val apk = InstrumentationRegistry.getArguments().getString("hostApkPath")
         org.junit.Assume.assumeTrue("Pass the installed host base.apk path to opt in", !apk.isNullOrBlank())
         val loader = DexClassLoader(apk!!, context.codeCacheDir.absolutePath, null, context.classLoader)
-        val result = DexKitAssistEngine.resolve(DexAssistRequest(PlayerSpeedMenuAdapter.query, listOf(apk), loader))
-        assertTrue("Real DexKit query must return semantic candidates: $result", result is DexAssistResult.Candidates)
+        val result = DexMeguvizAssistEngine.resolve(DexAssistRequest(PlayerSpeedMenuAdapter.query, listOf(apk), loader))
+        assertTrue("Real DexMeguviz query must return semantic candidates: $result", result is DexAssistResult.Candidates)
         val selected = requireNotNull(PlayerSpeedMenuAdapter.select(loader, result as DexAssistResult.Candidates))
         assertNotNull(selected.adapter)
         val restored = requireNotNull(PlayerSpeedMenuPoints.fromJson(selected.toJson()))

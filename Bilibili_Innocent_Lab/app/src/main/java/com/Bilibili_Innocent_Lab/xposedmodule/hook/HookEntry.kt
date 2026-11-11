@@ -2606,11 +2606,13 @@ class HookEntry : XposedModule() {
                 // 仅 debug 构建记录同步定位段耗时（逐家族），给设备上的 A/B 对照用；release 不计时。
                 val locateTimings = if (com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG) LocateTimings() else null
                 val excluded = StartupAdapterPlan.excludedForProcess(hookConfig, processName, nPatchStartup.get())
+                val hostVersionCode = startupCache.identity.versionCode
                 val runtime = StartupTrace.measure("adapter.quick") {
-                    if (excluded.isEmpty()) VersionAdapter.quickLocate(biliClassLoader, adaptPlan, locateTimings)
+                    if (excluded.isEmpty()) VersionAdapter.quickLocate(biliClassLoader, adaptPlan, locateTimings, hostVersionCode)
                     else VersionAdapter.quickLocateForStartup(
                         biliClassLoader, excluded, adaptPlan, locateTimings,
-                        allowPruneRequested = processName != TARGET_PACKAGE
+                        allowPruneRequested = processName != TARGET_PACKAGE,
+                        hostVersionCode = hostVersionCode
                     )
                 }
                 locateTimings?.let { logInfo("adapt_locate_timing", "[BIL] 同步定位 plan=$adaptPlan ${it.summary()}") }
@@ -2845,7 +2847,8 @@ class HookEntry : XposedModule() {
                 listOf(
                     PausedAdFeatureInstaller(
                         enabled = prefs.getBoolean(PREF_ENABLED, true),
-                        points = hostAdaptResult?.pause
+                        points = hostAdaptResult?.pause,
+                        hostVersionCode = startupCache.identity.versionCode
                     )
                 )
             )
@@ -3804,7 +3807,8 @@ class HookEntry : XposedModule() {
                         longPressPercent = prefs.getInt(FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT, 0),
                         defaultPercent = prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT, 0),
                         speedMenuSpec = prefs.getString(FeaturePreferences.PLAYER_SPEED_MENU_PERCENTS, "").orEmpty(),
-                        cachedMenuPoints = hostAdaptResult?.playerSpeedMenu
+                        cachedMenuPoints = hostAdaptResult?.playerSpeedMenu,
+                        hostVersionCode = startupCache.identity.versionCode
                     ),
                     sponsorInstaller,
                     sponsorStoryInstaller,

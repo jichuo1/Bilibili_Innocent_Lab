@@ -9,6 +9,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SurfaceRole
 import java.io.File
 import org.junit.Assert.*
 import org.junit.Test
+import com.Bilibili_Innocent_Lab.xposedmodule.contract.LceMotionSource
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
@@ -130,9 +131,11 @@ class LiquidControlStyleTest {
     @Test fun `control outline stays pinned to the viewport of scrolled inputs`() {
         val skin = source("ui/skin/activity/SkinnedActivity.kt")
         val outline = skin.after("private fun controlOutline(").before("/** 让一个")
-        assertTrue(outline.contains("return ViewportForegroundDrawable(StateListDrawable()"))
+        assertTrue(outline.contains("return viewportForeground(StateListDrawable()"))
         val wrapper = source("ui/skin/geometry/ViewportForegroundDrawable.kt")
-        val draw = wrapper.after("override fun draw(canvas: Canvas)").before("canvas.restoreToCount(saved)")
+        assertTrue(wrapper.contains("LumenViewportForeground.wrap(drawable)"))
+        val engine = LceMotionSource.engine("core/host/ViewportForegroundDrawable.kt")
+        val draw = engine.after("override fun draw(canvas: Canvas)").before("canvas.restoreToCount(saved)")
         assertTrue(draw.contains("view?.foreground === outer) view.scrollX"))
         assertTrue(draw.contains("view?.foreground === outer) view.scrollY"))
         assertTrue(draw.contains("canvas.translate(x.toFloat(), y.toFloat())"))

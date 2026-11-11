@@ -13,6 +13,7 @@ internal class LegacyStoryDanmakuAccess private constructor(
 
     companion object {
         const val OWNER = "com.bilibili.video.story.action.StoryAbsController"
+        private const val REPACKAGED_PLAYER = "iwr0"
 
         /** toggleType 仅供无 Android View 实例的 JVM ABI 夹具替换；生产固定使用 ImageView。 */
         fun resolve(loader: ClassLoader, toggleType: Class<*> = ImageView::class.java): LegacyStoryDanmakuAccess? = runCatching {
@@ -28,10 +29,13 @@ internal class LegacyStoryDanmakuAccess private constructor(
             }.singleOrNull() ?: return null
             val player = Lookup.declaredMethods(owner, true) {
                 instance(it) && it.name == "getMPlayer" && it.parameterCount == 0 &&
-                    it.returnType.name.startsWith("com.bilibili.video.story.player.")
+                    (it.returnType.name.startsWith("com.bilibili.video.story.player.") ||
+                        it.returnType.name == REPACKAGED_PLAYER)
             }.singleOrNull()?.returnType ?: return null
             val bind = Lookup.declaredMethods(owner, true) {
                 instance(it) && it.returnType == Void.TYPE &&
+                    // The 9.19 controllers call this exact superclass entry with the relocated player.
+                    (player.name != REPACKAGED_PLAYER || it.name == "K0") &&
                     it.parameterTypes.contentEquals(arrayOf(player, Int::class.javaPrimitiveType!!))
             }.singleOrNull() ?: return null
             LegacyStoryDanmakuAccess(owner, setter, bind, getter)

@@ -45,8 +45,8 @@ internal class CommentReplyButtonFeatureInstaller(private val enabled: Boolean) 
             coverage.record("comment2", result)
             installed += (result as? FeatureInstallResult.Installed)?.hookCount ?: 0
         }
-        for ((family, packageName) in NATIVE_FAMILIES) {
-            val plans = nativePlans(loader, family, packageName)
+        for ((family, packageName, relocatedOwner) in NATIVE_FAMILIES) {
+            val plans = nativePlans(loader, family, packageName, relocatedOwner)
             if (plans.isEmpty()) {
                 coverage.record(family, false)
                 continue
@@ -104,6 +104,7 @@ internal class CommentReplyButtonFeatureInstaller(private val enabled: Boolean) 
     }
 
     private data class NativePlan(val method: Method, val index: Int, val binding: Class<*>)
+    private data class NativeFamily(val name: String, val packageName: String, val relocatedOwner: String)
 
     private fun installComment2(
         environment: HookEnvironment,
@@ -131,11 +132,10 @@ internal class CommentReplyButtonFeatureInstaller(private val enabled: Boolean) 
             else FeatureInstallResult.Installed(installed, installed == constructors.size)
     }
 
-    private fun nativePlans(loader: ClassLoader, family: String, packageName: String): List<NativePlan> {
+    private fun nativePlans(loader: ClassLoader, family: String, packageName: String, relocatedOwner: String): List<NativePlan> {
         val bindingShapes = hashMapOf<Class<*>, String?>()
-        val candidates = ('a'..'z').mapNotNull { letter ->
-            KavaMemberLookup.classOrNull(loader, "$packageName.$letter")
-        }.flatMap { owner ->
+        val ownerNames = ('a'..'z').map { "$packageName.$it" } + relocatedOwner
+        val candidates = ownerNames.mapNotNull { KavaMemberLookup.classOrNull(loader, it) }.flatMap { owner ->
             KavaMemberLookup.declaredMethods(owner).mapNotNull { method ->
                 if (method.isBridge || method.isSynthetic || method.returnType != Void.TYPE ||
                     method.parameterCount !in 2..5 || method.parameterTypes[0].name != COMMENT_ITEM
@@ -199,10 +199,11 @@ internal class CommentReplyButtonFeatureInstaller(private val enabled: Boolean) 
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val COMMENT_ITEM = "com.bilibili.app.comment3.data.model.CommentItem"
         private const val COMMENT2_REPLY = "com.bilibili.app.comm.comment2.phoenix.view.CommentReplyWidget"
-        private val NATIVE_FAMILIES = linkedMapOf(
-            "legacy" to "com.bilibili.app.comment3.ui.holder.handle",
-            "next" to "com.bilibili.app.comment3.ui.nextholder.handle",
-            "exp3" to "com.bilibili.app.comment3.ui.nextholderexp3.handle"
+        // 9.19.0 (9190200/9190400): the binding layouts still use reply_button; their renderers move to the root package.
+        private val NATIVE_FAMILIES = listOf(
+            NativeFamily("legacy", "com.bilibili.app.comment3.ui.holder.handle", "dut"),
+            NativeFamily("next", "com.bilibili.app.comment3.ui.nextholder.handle", "bxu"),
+            NativeFamily("exp3", "com.bilibili.app.comment3.ui.nextholderexp3.handle", "hzu")
         )
     }
 }

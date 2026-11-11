@@ -23,7 +23,7 @@ internal object PauseResponseAdapter {
         val expected: Int get() = (if (javaPresent) 2 else 0) + (if (kotlinPresent) 1 else 0)
     }
 
-    data class Coverage(val installed: Int, val expected: Int) {
+    data class Coverage(val installed: Int, val expected: Int, val kotlinInstalled: Boolean = false) {
         val complete: Boolean get() = expected > 0 && installed == expected
     }
 
@@ -65,11 +65,11 @@ internal object PauseResponseAdapter {
         val cleaner = points.reply?.let(PausePayloadCleaner::resolve)
             ?: return Coverage(0, points.expected)
         var installed = 0
-        fun register(id: String, method: Method?, block: (Method) -> Unit) {
-            if (method == null) return
-            runCatching { block(method) }.onSuccess { installed++ }.onFailure {
+        fun register(id: String, method: Method?, block: (Method) -> Unit): Boolean {
+            if (method == null) return false
+            return runCatching { block(method) }.onSuccess { installed++ }.onFailure {
                 environment.logError("${id}_register", "[BIL] 暂停协议响应入口注册失败: $it")
-            }
+            }.isSuccess
         }
         register("paused.response.execute_play_pause", points.sync) { method ->
             environment.registrar.exact("paused.response.execute_play_pause", method.declaringClass,
@@ -100,21 +100,22 @@ internal object PauseResponseAdapter {
             KotlinMossChannel.prepare(environment, loader, "暂停页广告", "paused_p4_kmoss")
         } else null
         val codec = KotlinMossBridgeMembers.JavaReplyCodec.resolve(points.reply)
-        if (members != null && codec != null) register("paused.response.kmoss.play_pause", points.kotlin) { method ->
-            val handler = method.parameterTypes[3]
-            environment.registrar.exact("paused.response.kmoss.play_pause", method.declaringClass,
-                method.name, *method.parameterTypes) {
-                before {
-                    val delegate = args.getOrNull(3) ?: return@before
-                    val bridge = members.bridgeFor(args.getOrNull(4), args.getOrNull(2), codec) ?: return@before
-                    val proxy = MossResponseHandlerProxy.wrapTransform(handler, delegate) { reply ->
-                        transformKotlin(bridge, cleaner, reply, environment)
-                    } ?: return@before
-                    args[3] = proxy
+        val kotlinInstalled = members != null && codec != null &&
+            register("paused.response.kmoss.play_pause", points.kotlin) { method ->
+                val handler = method.parameterTypes[3]
+                environment.registrar.exact("paused.response.kmoss.play_pause", method.declaringClass,
+                    method.name, *method.parameterTypes) {
+                    before {
+                        val delegate = args.getOrNull(3) ?: return@before
+                        val bridge = members.bridgeFor(args.getOrNull(4), args.getOrNull(2), codec) ?: return@before
+                        val proxy = MossResponseHandlerProxy.wrapTransform(handler, delegate) { reply ->
+                            transformKotlin(bridge, cleaner, reply, environment)
+                        } ?: return@before
+                        args[3] = proxy
+                    }
                 }
             }
-        }
-        return Coverage(installed, points.expected)
+        return Coverage(installed, points.expected, kotlinInstalled)
     }
 
     /** 回写与再次解码核验成功后才记 APPLIED；转换失败不把 Java 中间副本当交付结果。 */

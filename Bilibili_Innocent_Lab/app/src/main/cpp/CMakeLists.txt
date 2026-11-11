@@ -43,7 +43,7 @@ if(INNOCENT_FRAME_PAYLOAD_DIR)
         VERBATIM)
 endif()
 
-# ---- 弹幕净化 wire 内核：Rust 静态库 + JNI 垫片（常规 jniLibs 打包，同 libdexkit.so 路线）----
+# ---- 弹幕净化 wire 内核：Rust 静态库 + JNI 垫片（由 Android 原生构建打包）----
 # 与帧引擎共用工具链但独立成库：帧引擎体量大、按需开启，走资产化校验解压链；本库体量小、
 # 净化路径常驻，直接由 AGP externalNativeBuild 默认收进 APK lib/<abi>/（minSdk>=23 时
 # STORED 存储，宿主进程 System.loadLibrary 加载，与 dexkit 同一已验证路线）。

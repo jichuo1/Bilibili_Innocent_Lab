@@ -128,4 +128,21 @@ class CommentFishFilterContractTest {
         assertTrue(ui.contains("applyModeledToggle(FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL, checked, button)"))
         assertFalse(ui.contains("putBoolean("))
     }
+
+    @Test fun modalSettingsSaveBeforeCheckingTheOriginalViewBinding() {
+        val action = SourceContract.read("ui/meguviz/SettingsScope.kt")
+            .after("fun textViewAction(")
+            .before("fun imageView(")
+        assertTrue(action.contains("session.click(ref)"))
+        val row = SourceContract.read("ui/activity/CommentFishFilterPresenter.kt")
+            .after("private fun MainActivity.fishSettingRow(")
+            .before("private fun MainActivity.writeFishText(")
+        assertTrue(row.contains("textViewAction("))
+        assertTrue(row.contains("bindSettingDestination(this, preferenceKey)"))
+        assertTrue(row.before("openEditor(anchor)").contains("ref.token()"))
+        val save = row.after("openEditor(anchor)").before("if (token.isCurrent())")
+        assertTrue(save.contains("mirror(value)"))
+        assertTrue(save.contains("writeFishText(preferenceKey, value)"))
+        assertTrue(row.contains("if (token.isCurrent()) ref.get().text = summary(value)"))
+    }
 }

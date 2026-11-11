@@ -17,7 +17,8 @@ class PrivacyHostGuardContractTest {
         assertTrue(threads.contains("HostThreadGuard.run(key) { super.dispatchMessage(msg) }"))
         assertTrue(threads.contains("HostThreadGuard.run(key) { task.run() }"))
         mapOf(
-            "GuestLibraryRuntime.kt" to listOf("guardedMainHandler(\"guest.library.main\")",
+            "GuestLibraryRuntime.kt" to listOf("private val main = MainThreadDispatcher()",
+                "main.post(HostThreadGuard.runnable(\"guest.library.main\", block))",
                 "guardedSingleThreadExecutor(\"guest.library.io\""),
             "GuestPlaybackHooks.kt" to listOf("guardedMainHandler(\"guest.playback.main\")"),
             "GuestPageFavorite.kt" to listOf("guardedMainHandler(\"guest.page_favorite.main\")"),

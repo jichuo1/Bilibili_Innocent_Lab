@@ -5,6 +5,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionLoc
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuPoints
 import java.lang.reflect.Constructor
 import java.lang.reflect.Field
+import java.lang.reflect.Method
 import kotlin.math.abs
 
 /** 仅作用播放器业务对象；不 Hook 全局触摸，不轮询当前速度，不覆盖用户播放中的手动选择。 */
@@ -13,7 +14,8 @@ internal class PlayerSpeedFeatureInstaller(
     longPressPercent: Int,
     defaultPercent: Int,
     speedMenuSpec: String = "",
-    private val cachedMenuPoints: PlayerSpeedMenuPoints? = null
+    private val cachedMenuPoints: PlayerSpeedMenuPoints? = null,
+    private val hostVersionCode: Int = 0
 ) : FeatureInstaller {
     override val id = ID
     override val capabilityIds: List<String> get() = buildList {
@@ -43,8 +45,8 @@ internal class PlayerSpeedFeatureInstaller(
         val preparedReady = java.util.concurrent.atomic.AtomicBoolean(false)
         fun attempt(unit: String, block: () -> Boolean) {
             val capability = when (unit) {
-                "disable-long-press" -> "player_long_press_disabled"
-                "long-press-speed" -> "player_long_press_speed_percent"
+                "disable-long-press", "disable-long-press-theseus2" -> "player_long_press_disabled"
+                "long-press-speed", "long-press-speed-theseus2" -> "player_long_press_speed_percent"
                 "speed-menu" -> MENU_CAPABILITY
                 else -> "player_default_speed_percent"
             }
@@ -77,6 +79,13 @@ internal class PlayerSpeedFeatureInstaller(
             }
             true
         }
+        if (disableLongPress) PlayerSpeedLocator.theseus2LongPressService(loader)?.let { service ->
+            attempt("disable-long-press-theseus2") {
+                val method = PlayerSpeedLocator.theseus2LongPress(loader, service) ?: return@attempt false
+                installTheseus2LongPressOff(environment, method)
+                true
+            }
+        }
         pressSpeed?.let { requested -> attempt("long-press-speed") {
             val point = PlayerSpeedLocator.longPressSpeed(loader) ?: return@attempt false
             environment.registrar.constructor("player.speed.long_press_value", point.constructor) {
@@ -96,6 +105,14 @@ internal class PlayerSpeedFeatureInstaller(
                 }
             }
             true
+        } }
+        pressSpeed?.let { requested -> PlayerSpeedLocator.theseus2LongPressService(loader)?.let { service ->
+            attempt("long-press-speed-theseus2") {
+                val start = PlayerSpeedLocator.theseus2LongPress(loader, service) ?: return@attempt false
+                val calculator = PlayerSpeedLocator.theseus2LongPressCalculator(loader, hostVersionCode) ?: return@attempt false
+                installTheseus2LongPressSpeed(environment, start, calculator, requested)
+                true
+            }
         } }
         defaultSpeed?.let { requested -> attempt("default-speed") {
             val point = defaultPoint ?: return@attempt false
@@ -175,6 +192,58 @@ internal class PlayerSpeedFeatureInstaller(
     }
 
     internal enum class DefaultSpeedResult { APPLIED, UNCHANGED, UNEXPECTED_STATE, FAILED }
+
+    internal fun installTheseus2LongPressOff(environment: HookEnvironment, method: Method) {
+        environment.registrar.exact("player.speed.disable_long_press_theseus2", method.declaringClass, method.name,
+            *method.parameterTypes) {
+            before {
+                environment.reportRuntimeEvidence("player_long_press_disabled", FeatureRuntimeStage.OBSERVED)
+                // The gesture caller restores its overlay on null and never opens a temporary-speed lease.
+                result = null
+                environment.reportRuntimeEvidence("player_long_press_disabled", FeatureRuntimeStage.APPLIED)
+            }
+        }
+    }
+
+    private class Theseus2Press {
+        var original: Float? = null
+        var effective: Float? = null
+    }
+
+    internal fun installTheseus2LongPressSpeed(environment: HookEnvironment, start: Method, calculator: Method, requested: Float) {
+        val scope = ThreadLocal<Theseus2Press>()
+        environment.registrar.exact("player.speed.theseus2_calculate_long_press", calculator.declaringClass,
+            calculator.name, *calculator.parameterTypes) {
+            after {
+                val press = scope.get() ?: return@after
+                if (hasThrowable || press.original != null || argOrNull(1) != null) return@after
+                val original = result as? Float ?: return@after
+                if (!original.isFinite() || original <= 0f) return@after
+                press.original = original
+                press.effective = requested
+                // This single value is used for the host lease and boxed for the gesture UI.
+                if (original != requested) result = requested
+            }
+        }
+        environment.registrar.exact("player.speed.theseus2_long_press_scope", start.declaringClass, start.name,
+            *start.parameterTypes) {
+            before {
+                setObjectExtra(PRESS_PREVIOUS_SCOPE, scope.get())
+                if (start.declaringClass.isInstance(instance)) scope.set(Theseus2Press()) else scope.remove()
+            }
+            after {
+                val press = scope.get()
+                val previous = getObjectExtra(PRESS_PREVIOUS_SCOPE) as? Theseus2Press
+                if (previous == null) scope.remove() else scope.set(previous)
+                val effective = press?.effective ?: return@after
+                if (hasThrowable || result != effective) return@after
+                environment.reportRuntimeEvidence("player_long_press_speed_percent", FeatureRuntimeStage.OBSERVED)
+                if (press.original != effective) {
+                    environment.reportRuntimeEvidence("player_long_press_speed_percent", FeatureRuntimeStage.APPLIED)
+                }
+            }
+        }
+    }
 
     internal fun installSpeedMenu(
         environment: HookEnvironment,
@@ -288,6 +357,7 @@ internal class PlayerSpeedFeatureInstaller(
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val CHANNEL = "player_speed_status"
         private const val PRESS_CHANGED = "player_speed_changed"
+        private const val PRESS_PREVIOUS_SCOPE = "player_speed_theseus2_previous_press"
         private const val MENU_CHANGED = "player_speed_menu_changed"
         private const val MENU_PREV_ARRAY = "player_speed_menu_prev_array"
         private const val MENU_OPEN_PREVIOUS = "player_speed_menu_open_previous"

@@ -36,14 +36,15 @@ class DetailUnitedPresentationPurifyPolicyTest {
         ).forEach { assertFalse(it, DetailUnitedPresentationPurifyPolicy.isPromotionalLabelUri(it)) }
     }
 
-    @Test fun `special tag mapper candidates stay bounded to the tags package alphabet`() {
+    @Test fun `special tag mapper candidates stay bounded to known owners`() {
         val candidates = DetailUnitedPresentationPurifyPolicy.specialTagMapperClasses
         val pkg = "com.bilibili.ship.theseus.united.page.intro.module.tags."
         // 已核对的 f、j 优先，其后是有界字母表；9.11.0(9110400) 与 9.14.0 的 `i` 由字母表覆盖。
         assertEquals(listOf(pkg + "f", pkg + "j"), candidates.take(2))
-        assertEquals(26, candidates.size)
+        assertEquals(27, candidates.size)
         assertEquals(candidates.distinct(), candidates)
-        assertTrue(candidates.all { it.startsWith(pkg) && it.removePrefix(pkg).length == 1 })
+        assertTrue(candidates.dropLast(1).all { it.startsWith(pkg) && it.removePrefix(pkg).length == 1 })
+        assertEquals("cg1", candidates.last())
         assertTrue(pkg + "i" in candidates)
     }
 

@@ -1,8 +1,14 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import UnrelatedRootFeedbackCard
+import bjx1
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.feedbackfixture.*
+import com.bilibili.ship.theseus.united.page.intro.module.relate.RelateCardType as HostCardType
+import hkx1
+import iox1
 import org.junit.Assert.*
 import org.junit.Test
+import wmx1
 
 class RelatedFeedbackTagsTest {
     @Test fun tagIdIsCalibratedIndependentlyFromReasonIdAuthorAndRegion() {
@@ -23,5 +29,16 @@ class RelatedFeedbackTagsTest {
         val access = checkNotNull(RelatedFeedbackTags.resolve(Card::class.java))
         val reasons = Reasons(listOf(Reason(1, 2, 0, 3, "x"), Reason(1, 2, 4, 3, " ")))
         assertTrue(access.read(Card(RelateCardType.AV, Menu(reasons, null))).isEmpty())
+    }
+
+    @Test fun relocatedCardSharesTagSemanticsAcrossItsTwoMenus() {
+        val access = requireNotNull(RelatedFeedbackTags.resolve(bjx1::class.java))
+        val first = wmx1(11, 12, 13, 14, "first")
+        val second = wmx1(21, 22, 23, 24, "second")
+        val card = bjx1(HostCardType.AV, iox1(hkx1(listOf(first)), hkx1(listOf(first, second))))
+        assertEquals(setOf(FeedbackTag(13, "first"), FeedbackTag(23, "second")), access.read(card).toSet())
+        assertTrue(access.matches(card, emptySet(), setOf(23)))
+        assertFalse(access.matches(card, setOf(11, 12, 14, 21, 22, 24), emptySet()))
+        assertNull(RelatedFeedbackTags.resolve(UnrelatedRootFeedbackCard::class.java))
     }
 }

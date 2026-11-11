@@ -86,12 +86,27 @@ internal object StoryQualityLocator {
         }
         if (DexAssistQuery.STORY_QUALITY_MATCH in planned) {
             val result = session?.result(DexAssistQuery.STORY_QUALITY_MATCH) as? DexAssistResult.Candidates
-            val match = methods(DexAssistQuery.STORY_QUALITY_MATCH).filter(::matchAbi).filter { method ->
+            val candidates = methods(DexAssistQuery.STORY_QUALITY_MATCH)
+            val match = candidates.filter(::matchAbi).filter { method ->
                 result?.relatedClasses?.get(method)?.singleOrNull()?.name == points.policyMethod?.className
             }.distinct().singleOrNull()
             if (match != null) points = points.copy(matchPreferenceMethod = point(match))
+            if (!points.semanticComplete && result != null) {
+                points = locateFlattened(points, candidates, result.relatedClasses) ?: points
+            }
         }
         return points.takeIf(StoryQualityPoints::isStructurallyValid)
+    }
+
+    private fun locateFlattened(points: StoryQualityPoints, candidates: List<Method>,
+                                related: Map<Method, List<Class<*>>>): StoryQualityPoints? {
+        val match = candidates.filter(::matchAbi).distinct().singleOrNull() ?: return null
+        val owner = related[match]?.singleOrNull()?.takeIf { flattenedQualityOwner(it.name) } ?: return null
+        val members = candidates.filter { it.declaringClass === owner }.distinct()
+        val policy = members.singleOrNull { policyAbi(it, points.preferenceClassName) } ?: return null
+        val resource = members.singleOrNull(::resourceAbi) ?: return null
+        return points.copy(integerDefaultMethod = null, policyMethod = point(policy),
+            resourceSelectionMethod = point(resource), matchPreferenceMethod = point(match))
     }
 
     fun merge(live: StoryQualityPoints?, cached: StoryQualityPoints?): StoryQualityPoints? {
@@ -158,12 +173,17 @@ internal object StoryQualityLocator {
     }
 
     private fun instance(method: Method) = !Modifier.isStatic(method.modifiers) && !Modifier.isAbstract(method.modifiers) && !method.isBridge
-    private fun staticQuality(method: Method) = Modifier.isStatic(method.modifiers) && !Modifier.isAbstract(method.modifiers) &&
-        method.declaringClass.name.startsWith("$QUALITY_PACKAGE.") && !method.isBridge
+    internal fun flattenedQualityOwner(name: String): Boolean = name.length in 1..128 &&
+        (name.first() in 'a'..'z' || name.first() in 'A'..'Z') &&
+        name.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '_' || it == '$' }
+    private fun staticQuality(method: Method, allowFlattened: Boolean = false) =
+        Modifier.isStatic(method.modifiers) && !Modifier.isAbstract(method.modifiers) && !method.isBridge &&
+            (method.declaringClass.name.startsWith("$QUALITY_PACKAGE.") ||
+                (allowFlattened && flattenedQualityOwner(method.declaringClass.name)))
     internal fun integerAbi(method: Method) = staticQuality(method) && method.parameterCount == 0 && method.returnType == Int::class.javaPrimitiveType
-    internal fun policyAbi(method: Method, preference: String) = staticQuality(method) && method.parameterCount == 0 &&
+    internal fun policyAbi(method: Method, preference: String) = staticQuality(method, allowFlattened = true) && method.parameterCount == 0 &&
         method.returnType.name == preference && method.returnType.name.startsWith("$PREFERENCE_PACKAGE.")
-    internal fun resourceAbi(method: Method) = staticQuality(method) && method.returnType == Void.TYPE &&
+    internal fun resourceAbi(method: Method) = staticQuality(method, allowFlattened = true) && method.returnType == Void.TYPE &&
         method.parameterTypes.map(Class<*>::getName) == listOf(MEDIA_RESOURCE)
     internal fun matchAbi(method: Method) = instance(method) && method.declaringClass.name == SERVICE &&
         method.returnType == Any::class.java && method.parameterTypes.singleOrNull()?.name in setOf(CONTINUATION, CONTINUATION_IMPL)

@@ -19,6 +19,22 @@ import java.util.WeakHashMap
 /** 图文保留宿主栏位和滚动动画；退出中的关注提示必须裁剪在底栏上方。 */
 internal class HostOpusChrome private constructor(root: ViewGroup, guide: View, bottom: View,
     top: View, private val owned: MutableMap<View, Drawable>) : AutoCloseable {
+    private class Style(night: Boolean) {
+        val palette = LumenPalette.neutral(night)
+        val header = options(night, header = true)
+        val bottom = options(night, header = false)
+
+        private fun options(night: Boolean, header: Boolean) = LumenSurfaceOptions(
+            material = if (header) LumenSurfaceMaterial.FROSTED else LumenSurfaceMaterial.STATIC,
+            role = SurfaceRole.TOP_BAR, radiusDp = 0f,
+            color = if (night) 0xFF181A20.toInt() else 0xFFF8F9FC.toInt(),
+            tintOpacity = if (header) .78f else .94f, fallbackTintOpacity = .94f,
+            edgeEnabled = false, backdropOpacity = 1f,
+            sampling = LumenSurfaceSampling(enabled = header, refractionEnabled = false,
+                blurRadiusDp = 16f, softwareBlurRadiusDp = 10f, maxSoftwarePixels = 48_000)
+        )
+    }
+
     private val root = WeakReference(root)
     private val guide = WeakReference(guide)
     private val bottom = WeakReference(bottom)
@@ -53,24 +69,23 @@ internal class HostOpusChrome private constructor(root: ViewGroup, guide: View, 
 
     fun apply(night: Boolean) {
         val root = root.get() ?: return
-        val session = session ?: LumenSurfaceSession(root.context, LumenPalette.neutral(night)).also { session = it }
+        val style = if (night) darkStyle else lightStyle
+        val session = session ?: LumenSurfaceSession(root.context, style.palette).also { session = it }
         val changed = dark != night
-        if (changed) { session.updatePalette(LumenPalette.neutral(night)); dark = night }
+        if (changed) { session.updatePalette(style.palette); dark = night }
         fun surface(view: View?, header: Boolean = false) {
             view ?: return
-            val options = options(night, header)
-            val binding = bindings[view]
-            if (binding?.isBound != true || owned[view] !== view.background) {
-                binding?.close()
-                bindings[view] = session.bindSource(view, options, source.takeIf { header })
+            val binding = if (header) session.ensureSource(view, style.header, source) else session.ensure(view, style.bottom)
+            if (binding !== bindings[view]) {
+                bindings[view] = binding
                 view.background?.let { owned[view] = it }
-            } else if (changed) binding.update(options)
+            }
         }
         surface(bottom.get())
         surface(guide.get())
         val top = top.get()
         // 封面阶段沿用原生圆形返回/更多按钮；吸顶文字出现后承托整行标题。
-        val sticky = listOf("opus_author", "opus_top_name").any { name ->
+        val sticky = stickyTitleNames.any { name ->
             val id = root.resources.getIdentifier(name, "id", root.context.packageName)
             id != 0 && root.findViewById<View>(id)?.visibility == View.VISIBLE
         }
@@ -89,16 +104,6 @@ internal class HostOpusChrome private constructor(root: ViewGroup, guide: View, 
         if (decor.systemUiVisibility != flags) decor.systemUiVisibility = flags
     }
 
-    private fun options(night: Boolean, header: Boolean) = LumenSurfaceOptions(
-        material = if (header) LumenSurfaceMaterial.FROSTED else LumenSurfaceMaterial.STATIC,
-        role = SurfaceRole.TOP_BAR, radiusDp = 0f,
-        color = if (night) 0xFF181A20.toInt() else 0xFFF8F9FC.toInt(),
-        tintOpacity = if (header) .78f else .94f, fallbackTintOpacity = .94f,
-        edgeEnabled = false, backdropOpacity = 1f,
-        sampling = LumenSurfaceSampling(enabled = header, refractionEnabled = false,
-            blurRadiusDp = 16f, softwareBlurRadiusDp = 10f, maxSoftwarePixels = 48_000)
-    )
-
     override fun close() {
         session?.close(); session = null
         for (view in bindings.keys) owned.remove(view)
@@ -114,6 +119,10 @@ internal class HostOpusChrome private constructor(root: ViewGroup, guide: View, 
     }
 
     companion object {
+        private val lightStyle = Style(night = false)
+        private val darkStyle = Style(night = true)
+        private val stickyTitleNames = listOf("opus_author", "opus_top_name")
+
         fun create(root: ViewGroup, owned: MutableMap<View, Drawable>): HostOpusChrome? {
             fun find(name: String): View? {
                 val id = root.resources.getIdentifier(name, "id", root.context.packageName)

@@ -399,7 +399,10 @@ private data class SpecialTopicTagHookPlan(
                 val mapper = KavaMemberLookup.classOrNull(classLoader, className)
                     ?: return@flatMap emptyList()
                 KavaMemberLookup.declaredMethods(mapper, makeAccessible = true) { method ->
-                    method.isStatic && method.parameterTypes.contentEquals(arrayOf(specialTag))
+                    method.isStatic && method.parameterTypes.contentEquals(arrayOf(specialTag)) &&
+                        // 9.19.0: cg1.b reads SpecialTag's cells/refresh and constructs ose2.
+                        (className != DetailUnitedPresentationPurifyPolicy.RELOCATED_SPECIAL_TAG_MAPPER ||
+                            (method.name == "b" && method.returnType.name == "ose2" && !method.isSynthetic))
                 }.mapNotNull { method ->
                     SpecialTopicTagsModelCleaner.resolve(method.returnType)?.let { cleaner ->
                         SpecialTopicTagHookPlan(method, cleaner)

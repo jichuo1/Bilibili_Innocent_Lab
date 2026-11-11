@@ -39,7 +39,7 @@ internal class BrandSplashCustomFeatureInstaller(
                 environment.logError("brand_custom_storage", "[BIL] 官方开屏存储适配不可用，保留原开屏")
                 false
             }) installed++
-        val kntrPresent = KavaMemberLookup.hasClass(loader, BrandSplashSkipFeatureInstaller.KNTR_EXIT) ||
+        val kntrPresent = BrandSplashKntrAccess.present(loader) ||
             KavaMemberLookup.hasClass(loader, BrandSplashKntrRenderer.PAGE)
         if (renderEnabled && kntrPresent) {
             expected++

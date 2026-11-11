@@ -7,7 +7,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityResourceAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistSession
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexKitAssistEngine
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexMeguvizAssistEngine
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexSourceFingerprint
 import dalvik.system.DexClassLoader
 import org.json.JSONArray
@@ -19,7 +19,7 @@ import org.junit.runner.RunWith
 import java.io.File
 import java.security.MessageDigest
 
-/** 显式只读 APK 夹具的真实 ART/DexKit 契约检查；不注册 Hook、不读取账号或改宿主配置。 */
+/** 显式只读 APK 夹具的真实 ART/DexMeguviz 契约检查；不注册 Hook、不读取账号或改宿主配置。 */
 @RunWith(AndroidJUnit4::class)
 class StoryQualityHostApkInstrumentedTest {
     @Test fun verifyStoryQualityContracts() {
@@ -52,7 +52,7 @@ class StoryQualityHostApkInstrumentedTest {
 
         // 与既有 HostApkCompatibilityInstrumentedTest 一致，隔离宿主的 AndroidX/Kotlin 类型。
         val loader = DexClassLoader(apk.path, context.codeCacheDir.path, null, ClassLoader.getSystemClassLoader())
-        val session = DexAssistSession(DexKitAssistEngine, listOf(apk.path), loader, StoryQualityLocator.queries)
+        val session = DexAssistSession(DexMeguvizAssistEngine, listOf(apk.path), loader, StoryQualityLocator.queries)
         val points = StoryQualityLocator.locate(loader, session, null, StoryQualityLocator.queries)
         val roles = StoryQualityLocator.resolve(loader, points)
         val access = roles?.let { StoryQualityHostAccess.resolve(loader, it) }

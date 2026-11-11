@@ -18,7 +18,7 @@ class CommentClassicDexWiringContractTest {
         assertTrue(background.contains("DexAssistAttemptGuard("))
         assertTrue(adapter.contains("CommentClassicStyleLocator.merge(runtime.commentClassicStyle, cached.commentClassicStyle)"))
         val installer = SourceContract.read("hook/feature/CommentClassicStyleFeatureInstaller.kt")
-        assertFalse(installer.contains("DexKitBridge"))
+        assertFalse(installer.contains("DexRefHookBridge"))
         assertFalse(installer.contains("DexAssistSession("))
         assertTrue(installer.contains("method in registered"))
         assertTrue(installer.contains("!nativeFallbackReady"))
@@ -28,13 +28,13 @@ class CommentClassicDexWiringContractTest {
     }
 
     @Test fun `literal callers are never installed as replacements`() {
-        val engine = SourceContract.read("hook/adapter/dex/DexKitAssistEngine.kt")
-        val collection = engine.after("if (query == DexAssistQuery.COMMENT_CLASSIC_NATIVE").before("else if (query == DexAssistQuery.SPONSOR_CONTAINER_SCOPE)")
-        assertTrue(collection.contains("data.invokes"))
+        val engine = SourceContract.read("hook/adapter/dex/DexMeguvizAssistEngine.kt")
+        val collection = engine.after("private fun collectClassic(").before("private fun collectStoryDefault(")
+        assertTrue(collection.contains("invokes(data)"))
         assertTrue(collection.contains("CommentClassicStyleLocator.verified"))
-        assertFalse(collection.contains("data.getMethodInstance"))
-        assertTrue(collection.contains("callee.getMethodInstance"))
-        assertTrue(collection.contains("callee.invokes"))
+        assertFalse(collection.contains("bound"))
+        assertTrue(collection.contains("resolveInvoke(callee)"))
+        assertTrue(collection.contains("invokes(wrapper)"))
         assertTrue(collection.contains("CommentClassicStyleLocator.isDefaultDelegate"))
     }
 }

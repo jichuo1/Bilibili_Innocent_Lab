@@ -1,6 +1,5 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz
 
-import android.app.Activity
 import android.content.Context
 import android.content.res.ColorStateList
 import android.view.View
@@ -12,16 +11,17 @@ import android.widget.Space
 import android.widget.TextView
 import androidx.core.widget.NestedScrollView
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.LogSegmentScrubBar
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch
 import io.github.jichuo1.meguviz.android.extensions.toPx
 import io.github.jichuo1.meguviz.ui.ComponentType
-import io.github.jichuo1.meguviz.ui.CreationEnvironment
 import io.github.jichuo1.meguviz.ui.ParentPolicy
 import io.github.jichuo1.meguviz.ui.UiSession
 import io.github.jichuo1.meguviz.ui.UiDsl
 import io.github.jichuo1.meguviz.ui.ViewFactory
 import io.github.jichuo1.meguviz.ui.ViewKey
 import io.github.jichuo1.meguviz.ui.ViewRef
+import io.github.jichuo1.meguviz.ui.android.AndroidUiBinding
 
 internal typealias LinearSettingsScope = SettingsScope<LinearLayout, LinearLayout.LayoutParams>
 internal typealias FrameSettingsScope = SettingsScope<FrameLayout, FrameLayout.LayoutParams>
@@ -72,6 +72,17 @@ internal class SettingsScope<P : ViewGroup, LP : ViewGroup.LayoutParams>(
 
     fun textView(key: String, lparams: LP = params(), init: TextView.() -> Unit = {}): TextView =
         create(key, lparams, TextView::class.java, ::TextView, init)
+
+    fun textViewAction(
+        key: String,
+        lparams: LP,
+        init: TextView.() -> Unit,
+        action: (ViewRef<TextView>, TextView) -> Unit
+    ) {
+        val ref = createRef(key, lparams, TextView::class.java, ::TextView, init)
+        try { session.click(ref) { action(ref, it) } }
+        catch (failure: Throwable) { releaseFailed(ref, failure) }
+    }
 
     fun imageView(key: String, lparams: LP = params(), init: ImageView.() -> Unit = {}): ImageView =
         create(key, lparams, ImageView::class.java, ::ImageView, init)
@@ -126,10 +137,11 @@ internal class SettingsScope<P : ViewGroup, LP : ViewGroup.LayoutParams>(
 internal fun settingsComponent(content: LinearSettingsScope.() -> Unit): LinearSettingsScope.() -> Unit = content
 
 /** Uses the real window content parent; no synthetic inflater or intermediary parent is installed. */
-internal fun Activity.setMeguvizContentView(content: FrameSettingsScope.() -> Unit): UiSession {
+internal fun SkinnedActivity.setMeguvizContentView(content: FrameSettingsScope.() -> Unit): UiSession {
     val parent = findViewById<FrameLayout>(android.R.id.content)
     check(parent.childCount == 0) { "Close the previous content session before replacing its tree" }
-    val session = UiSession(CreationEnvironment(this, resourceOwner = "bil-module"))
+    val binding = AndroidUiBinding.open(moduleWindowSession(), parent)
+    val session = binding.ui
     try {
         SettingsScope(session, parent, FramePolicy) { width, height -> FrameLayout.LayoutParams(width, height) }.content()
         check(parent.childCount == 1) { "An Activity content session requires exactly one root" }
@@ -139,7 +151,7 @@ internal fun Activity.setMeguvizContentView(content: FrameSettingsScope.() -> Un
         setContentView(root, rootParams)
         check(root.parent === parent) { "The Activity changed its managed content parent during installation" }
     } catch (failure: Throwable) {
-        try { session.close() } catch (cleanup: Throwable) { failure.addSuppressed(cleanup) }
+        try { binding.close() } catch (cleanup: Throwable) { if (cleanup !== failure) failure.addSuppressed(cleanup) }
         throw failure
     }
     return session

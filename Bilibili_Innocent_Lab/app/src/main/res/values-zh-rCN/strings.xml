@@ -1668,7 +1668,7 @@
     <string name="npatch_compatibility_baseline">安装参数与实测基线一致；这不代表已核对修复版 Loader 内容或宿主进程 ABI，请结合产物记录与当前宿主诊断确认。</string>
     <string name="npatch_compatibility_unverified">当前参数组合未验证，反馈问题时请保留修补产物记录。</string>
     <string name="npatch_compatibility_embed_invalid">嵌入模式 Loader 833 的签名绕过等级超过 2，与固定 patcher 上限不符；请核对产物，按支持参数重新修补。</string>
-    <string name="npatch_process_native">进程位数：%1$s；DexKit：%2$s；插帧 native：%3$s。库已加载不代表查询或模型推理已验证。</string>
+    <string name="npatch_process_native">进程位数：%1$s；DexMeguviz：%2$s；插帧 native：%3$s。库已加载不代表查询或模型推理已验证。</string>
     <string name="npatch_native_not_checked">尚未尝试</string>
     <string name="npatch_native_loaded">库已加载</string>
     <string name="npatch_native_failed">不可用 / 失败</string>

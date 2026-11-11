@@ -48,24 +48,13 @@ internal fun MainActivity.commentFishFilterSettingsRows(performer: LinearSetting
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
-        textView(key = "CommentFishFilterPresenter:sensitivity", lparams = params(widthMatchParent = true)) {
-            bindSettingDestination(this, FeaturePreferences.COMMENT_FISH_SENSITIVITY)
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 15f
-            setLineSpacing(5f, 1f)
-            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-            background = selfRippleBackground(10f)
-            isClickable = true
-            isFocusable = true
-            text = commentFishSensitivitySummaryText(commentFishSensitivity)
-            val row = this
-            setOnClickListener {
-                showCommentFishSensitivityDialog(it) { id ->
-                    commentFishSensitivity = id
-                    writeFishText(FeaturePreferences.COMMENT_FISH_SENSITIVITY, id)
-                    row.text = commentFishSensitivitySummaryText(id)
-                }
-            }
+        fishSettingRow(
+            this, "CommentFishFilterPresenter:sensitivity", FeaturePreferences.COMMENT_FISH_SENSITIVITY,
+            initialValue = commentFishSensitivity,
+            summary = { commentFishSensitivitySummaryText(it) },
+            mirror = { commentFishSensitivity = it }
+        ) { anchor, onSaved ->
+            showCommentFishSensitivityDialog(anchor, onSaved)
         }
         fishRuleRow(this, "CommentFishFilterPresenter:nickname", FeaturePreferences.COMMENT_FISH_NICKNAME_WORDS,
             R.string.comment_fish_nickname_words, R.string.comment_fish_words_dialog_hint,
@@ -112,28 +101,52 @@ private fun MainActivity.fishRuleRow(
     read: () -> String,
     mirror: (String) -> Unit
 ) {
-    fun summary(value: String) = ruleEntryText(titleRes, R.string.comment_fish_words_empty, R.string.comment_fish_current, value)
-    with(performer) {
-        textView(key = viewKey, lparams = params(widthMatchParent = true)) {
-            bindSettingDestination(this, preferenceKey)
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 15f
-            setLineSpacing(5f, 1f)
-            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-            background = selfRippleBackground(10f)
-            isClickable = true
-            isFocusable = true
+    fishSettingRow(
+        performer, viewKey, preferenceKey, initialValue = read(),
+        summary = { ruleEntryText(titleRes, R.string.comment_fish_words_empty, R.string.comment_fish_current, it) },
+        mirror = mirror,
+        configure = {
             maxLines = 3
             ellipsize = TextUtils.TruncateAt.END
-            text = summary(read())
-            val row = this
-            setOnClickListener {
-                // 标题复用来源行的 string，否则 ModalTitleMotion 配不上（见 showRuleEditorDialog 所在文件）。
-                showRuleEditorDialog(titleRes, hintRes, read(), anchor = it) { value ->
-                    mirror(value)
-                    writeFishText(preferenceKey, value)
-                    row.text = summary(value)
-                }
+        }
+    ) { anchor, onSaved ->
+        // 标题复用来源行的 string，否则 ModalTitleMotion 配不上（见 showRuleEditorDialog 所在文件）。
+        showRuleEditorDialog(titleRes, hintRes, read(), anchor = anchor, onConfirm = onSaved)
+    }
+}
+
+private fun MainActivity.fishSettingRow(
+    performer: LinearSettingsScope,
+    viewKey: String,
+    preferenceKey: String,
+    initialValue: String,
+    summary: (String) -> CharSequence,
+    mirror: (String) -> Unit,
+    configure: NativeTextView.() -> Unit = {},
+    openEditor: (View, (String) -> Unit) -> Unit
+) {
+    with(performer) {
+        textViewAction(
+            key = viewKey,
+            lparams = params(widthMatchParent = true),
+            init = {
+                bindSettingDestination(this, preferenceKey)
+                textColor = colorResource(R.color.colorTextGray)
+                textSize = 15f
+                setLineSpacing(5f, 1f)
+                setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                background = selfRippleBackground(10f)
+                isClickable = true
+                isFocusable = true
+                configure()
+                text = summary(initialValue)
+            }
+        ) { ref, anchor ->
+            val token = ref.token()
+            openEditor(anchor) { value ->
+                mirror(value)
+                writeFishText(preferenceKey, value)
+                if (token.isCurrent()) ref.get().text = summary(value)
             }
         }
     }

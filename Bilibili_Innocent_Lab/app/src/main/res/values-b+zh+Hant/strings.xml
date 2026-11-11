@@ -1668,7 +1668,7 @@
     <string name="npatch_compatibility_baseline">安裝參數與實測基線一致；這不代表已核對修復版 Loader 內容或宿主程序 ABI，請結合產物記錄與目前宿主診斷確認。</string>
     <string name="npatch_compatibility_unverified">目前參數組合未驗證，回報問題時請保留修補產物記錄。</string>
     <string name="npatch_compatibility_embed_invalid">嵌入模式 Loader 833 的簽章繞過等級超過 2，與固定 patcher 上限不符；請核對產物，按支援參數重新修補。</string>
-    <string name="npatch_process_native">程序位元數：%1$s；DexKit：%2$s；補幀 native：%3$s。程式庫已載入不代表查詢或模型推論已驗證。</string>
+    <string name="npatch_process_native">程序位元數：%1$s；DexMeguviz：%2$s；補幀 native：%3$s。程式庫已載入不代表查詢或模型推論已驗證。</string>
     <string name="npatch_native_not_checked">尚未嘗試</string>
     <string name="npatch_native_loaded">程式庫已載入</string>
     <string name="npatch_native_failed">無法使用 / 失敗</string>

@@ -1,20 +1,19 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
 import android.util.AtomicFile
-import io.github.jichuo1.meguviz.android.extensions.toast
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.hostActivity
+import io.github.jichuo1.meguviz.android.extensions.toast
+import io.github.jichuo1.meguviz.android.runtime.platform.MainThreadDispatcher
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.lang.ref.WeakReference
 import java.nio.charset.CodingErrorAction
-import java.util.concurrent.Executors
 
 /** One instance per host main process. Never pass account/host database or network cache paths here. */
 internal class GuestLibraryRuntime(
@@ -26,7 +25,7 @@ internal class GuestLibraryRuntime(
     // No fallback to the supplied Context: it may be an Activity or an Activity wrapper.
     private val contextReference = WeakReference(context)
     private val application by lazy { requireNotNull(contextReference.get()?.applicationContext) { "application-not-attached" } }
-    private val main = guardedMainHandler("guest.library.main")
+    private val main = MainThreadDispatcher()
     private val gate = Any()
     private val io = guardedSingleThreadExecutor("guest.library.io", "BIL-GuestLibrary")
     var session = IncognitoSession()
@@ -242,12 +241,12 @@ internal class GuestLibraryRuntime(
     internal fun <T> nativeRequest(operation: (LocalVirtualLibrary) -> T, complete: (Result<T>) -> Unit) {
         val requestToken = token()
         if (requestToken == null) {
-            main.post { runCatching { complete(Result.failure(java.io.IOException("Local session unavailable"))) }.onFailure { notifyError() } }
+            postMain { runCatching { complete(Result.failure(java.io.IOException("Local session unavailable"))) }.onFailure { notifyError() } }
             return
         }
         io.execute {
             val outcome = runCatching { nativeOperation(requestToken, operation) }
-            main.post {
+            postMain {
                 val current = if (valid(requestToken)) outcome
                     else Result.failure(java.io.IOException("Local session changed"))
                 runCatching { complete(current) }.onFailure { notifyError() }
@@ -269,7 +268,7 @@ internal class GuestLibraryRuntime(
 
     /** Use the token captured when a host UI was opened, never the token current when its queued call runs. */
     internal fun <T> nativeBlocking(requestToken: Token, operation: (LocalVirtualLibrary) -> T): T {
-        check(Looper.myLooper() != Looper.getMainLooper()) { "Local library IO on main thread" }
+        check(!main.isOwnerThread()) { "Local library IO on main thread" }
         checkActive(requestToken)
         val value = io.submit<T> { nativeOperation(requestToken, operation) }.get()
         checkActive(requestToken)
@@ -446,9 +445,9 @@ internal class GuestLibraryRuntime(
     }
 
     internal fun onMain(token: Token, block: () -> Unit) {
-        main.post {
+        postMain {
             synchronized(gate) {
-                if (!valid(token)) return@post
+                if (!valid(token)) return@postMain
                 try {
                     block()
                 } catch (_: Exception) {
@@ -456,6 +455,10 @@ internal class GuestLibraryRuntime(
                 }
             }
         }
+    }
+
+    private fun postMain(block: () -> Unit) {
+        main.post(HostThreadGuard.runnable("guest.library.main", block))
     }
 
     internal fun failure(token: Token, message: String? = null) {

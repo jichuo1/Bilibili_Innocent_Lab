@@ -42,6 +42,14 @@ class SponsorPlayerLocatorTest {
         assertNull(SponsorPlayerLocator.select(loader, DexAssistResult.Candidates(List(33) { run }), wrappers(), scopes))
     }
 
+    @Test fun repackagedPlayableIsLimitedToTheAuditedRun() {
+        val owner = "com.bilibili.ship.theseus.keel.player.b"
+        assertTrue(SponsorPlayerAccess.acceptsPlayableClass(owner, "r", "hcg2"))
+        assertFalse(SponsorPlayerAccess.acceptsPlayableClass(owner, "s", "hcg2"))
+        assertFalse(SponsorPlayerAccess.acceptsPlayableClass("com.bilibili.ship.theseus.keel.player.c", "r", "hcg2"))
+        assertFalse(SponsorPlayerAccess.acceptsPlayableClass(owner, "r", "unrelated0"))
+    }
+
     @Test fun disabledDirectAndAlreadyAttemptedHostsNeverNeedARepeatScan() {
         assertFalse(SponsorPlayerLocator.needsQuery(false, true, false))
         assertFalse(SponsorPlayerLocator.needsQuery(true, false, false))

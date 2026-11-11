@@ -11,16 +11,16 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.github.jichuo1.meguviz.android.extensions.isUiInNightMode
 import io.github.jichuo1.meguviz.android.window.InsetsSlot
+import io.github.jichuo1.meguviz.android.window.ViewScope
 import io.github.jichuo1.meguviz.android.window.WindowSession
 
 /** Module-window policy formerly inherited from AppViewsActivity; no skin or consent work. */
 @Suppress("DEPRECATION")
-internal class BilWindowDelegate(activity: Activity, root: View) : AutoCloseable {
+internal class BilWindowDelegate(activity: Activity, root: View, session: WindowSession) : AutoCloseable {
     private var rootView: View? = root
     private var closed = false
     private val restorations = mutableListOf<() -> Unit>()
-    private val session = WindowSession.open(activity.window, activity, activity.packageName,
-        WindowSession.Permission.OWN_WINDOW)
+    private var insetsScope: ViewScope? = null
     private var insets: InsetsSlot? = null
 
     init {
@@ -54,7 +54,8 @@ internal class BilWindowDelegate(activity: Activity, root: View) : AutoCloseable
             // The module owns this setter-only window policy until destruction, as the prior base did.
             restorations += { WindowCompat.setDecorFitsSystemWindows(target, true) }
             WindowCompat.setDecorFitsSystemWindows(target, false)
-            insets = InsetsSlot.claimExclusive(session.scope(root)).also { slot ->
+            val scope = session.scope(root).also { insetsScope = it }
+            insets = InsetsSlot.claimExclusive(scope).also { slot ->
                 slot.applyPaddingToOwnedContainer(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
                 slot.enableAnimationUpdatesInOwnedSlot()
             }
@@ -69,12 +70,6 @@ internal class BilWindowDelegate(activity: Activity, root: View) : AutoCloseable
         restorations += { if (read() == applied) write(original) }
         write(applied)
     }
-
-    fun setStarted(started: Boolean) { if (!closed) session.setStarted(started) }
-
-    fun refreshConfiguration() { if (!closed) session.refreshConfiguration() }
-
-    fun invalidateTheme() { if (!closed) session.resources().invalidateTheme() }
 
     /** Must precede another owner writing this root's Insets listener slot. */
     fun handOffInsets(root: View) {
@@ -93,9 +88,10 @@ internal class BilWindowDelegate(activity: Activity, root: View) : AutoCloseable
                 if (failure == null) failure = error else failure?.addSuppressed(error)
             }
         }
-        release { session.close() }
+        release { insetsScope?.close() }
         restorations.asReversed().forEach { release(it) }
         restorations.clear()
+        insetsScope = null
         insets = null
         rootView = null
         failure?.let { throw it }

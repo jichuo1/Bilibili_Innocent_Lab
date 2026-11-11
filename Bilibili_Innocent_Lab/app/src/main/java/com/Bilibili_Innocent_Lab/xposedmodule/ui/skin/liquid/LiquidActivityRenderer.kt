@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid
 
+import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.ViewSamplingMatrix
@@ -85,7 +86,7 @@ private class LiquidCaptureRequest(
 }
 
 /**
- * 截图线程上的后处理：反馈抑制遮罩 + 与基准逐像素比较（截图线程启动失败时退回主线程执行）。
+ * 截图线程上的后处理：反馈抑制遮罩 + 与基准逐像素比较。线程启动失败时主线程只做反馈抑制。
  *
  * 2026-09-23 前这两步在 PixelCopy 的主线程回调里执行（整张约 1,000,000 px 的软件路径填充 +
  * 一次整图 `sameAs`）。单飞从"发起"一直延续到主线程提交：提交前不会有下一次请求改写 [mask]、
@@ -107,8 +108,15 @@ private fun postProcessRealtimeCapture(
     request.outcome = outcome
     val baseline = request.baseline ?: return
     if (outcome == LiquidCaptureOutcome.FAILED) return
-    // 异常一律当"有变化"处理，不能抛出去。
-    request.sameAsBaseline = runCatching { request.source.bitmap.sameAs(baseline.bitmap) }.getOrDefault(false)
+    request.sameAsBaseline = realtimeCaptureMatches(request.source.bitmap, baseline.bitmap)
+}
+
+// Lint 无法从 Looper 检查推导线程约束；主线程回退及比较异常一律当有变化处理。
+@AnyThread
+@SuppressLint("ThreadConstraint")
+private fun realtimeCaptureMatches(source: Bitmap, baseline: Bitmap): Boolean {
+    if (Looper.myLooper() == Looper.getMainLooper()) return false
+    return runCatching { source.sameAs(baseline) }.getOrDefault(false)
 }
 
 /**
@@ -1734,7 +1742,7 @@ internal class LiquidActivityRenderer(
         val recipient = WeakReference(this)
         val suppressor = feedback
         val callbackHandler = captureWorker() ?: mainHandler
-        // 回调在截图线程上：遮罩与逐像素比较不再占 UI 线程，主线程只做提交。
+        // 正常在截图线程上执行后处理；回退到主线程时跳过可选的逐像素比较。
         val pixelCopyFinishedListener = PixelCopy.OnPixelCopyFinishedListener { result ->
             postProcessRealtimeCapture(suppressor, request, result)
             mainHandler.post { recipient.get()?.handleRealtimeCaptureResult(request, result) }
@@ -1764,7 +1772,7 @@ internal class LiquidActivityRenderer(
         val workStartedNanos = System.nanoTime()
         try {
             if (result == PixelCopy.SUCCESS) {
-                // 抑制与比较已在截图线程完成（postProcessRealtimeCapture）；这里只采信结论。
+                // 回调已执行抑制及可用的比较（postProcessRealtimeCapture）；这里只采信结论。
                 val outcome = request.outcome
                 if (outcome != LiquidCaptureOutcome.FAILED) {
                     // NO_GLASS_VISIBLE 说明本帧压根没画玻璃，截图里也就不含自身反馈，可直接

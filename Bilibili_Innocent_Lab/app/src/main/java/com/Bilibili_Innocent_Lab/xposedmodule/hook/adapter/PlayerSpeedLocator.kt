@@ -18,6 +18,7 @@ internal object PlayerSpeedLocator {
         "com.bilibili.ship.theseus.united.player.TripleSpeedService\$runOldTripleSpeed\$1\$listener\$1"
     const val LONG_PRESS_COROUTINE =
         "com.bilibili.ship.theseus.united.player.TripleSpeedService\$runOldTripleSpeed\$1\$listener\$1\$onLongPress\$1"
+    private const val THESEUS2_SPEED_SERVICE = "com.bilibili.ship.theseus2.united.player.TripleSpeedService"
     const val SPEED_MANAGER = "com.bilibili.player.tangram.basic.PlaySpeedManagerImpl"
     const val MUTABLE_FLOW = "kotlinx.coroutines.flow.MutableStateFlow"
     const val STATE_FLOW = "kotlinx.coroutines.flow.StateFlow"
@@ -67,6 +68,49 @@ internal object PlayerSpeedLocator {
             ?.takeIf { !it.isStatic && it.returnType == classOf<Boolean>() }
     }
 
+    fun theseus2LongPressService(loader: ClassLoader): Class<*>? = KavaMemberLookup.classOrNull(loader, THESEUS2_SPEED_SERVICE)
+
+    fun theseus2LongPress(loader: ClassLoader, service: Class<*>): Method? {
+        val launch = KavaMemberLookup.classOrNull(loader, "${service.name}\$beginTemporarySpeed\$1") ?: return null
+        val continuation = KavaMemberLookup.classOrNull(loader, "kotlin.coroutines.Continuation") ?: return null
+        val candidates = (service.declaredClasses.asList() + listOfNotNull(KavaMemberLookup.classOrNull(loader, "${service.name}\$a")))
+            .distinct().filter { it.name.startsWith("${service.name}\$") }
+        return theseus2LongPress(service, launch, continuation, candidates)
+    }
+
+    internal fun theseus2LongPress(service: Class<*>, launch: Class<*>, continuation: Class<*>,
+                                   candidates: List<Class<*>>): Method? {
+        val constructors = KavaMemberLookup.declaredConstructors(launch) {
+            it.parameterTypes.contentEquals(arrayOf(service, Float::class.javaPrimitiveType, Any::class.java, continuation))
+        }
+        if (constructors.size != 1) return null
+        return candidates.mapNotNull { port ->
+            if (port === launch || !Modifier.isFinal(port.modifiers) ||
+                KavaMemberLookup.declaredConstructors(port) { it.parameterTypes.contentEquals(arrayOf(service)) }.size != 1 ||
+                KavaMemberLookup.declaredFields(port) { !it.isStatic && it.type === service }.size != 1) return@mapNotNull null
+            KavaMemberLookup.declaredMethods(port, makeAccessible = true) {
+                !it.isStatic && !it.isBridge && !Modifier.isAbstract(it.modifiers) && it.parameterCount == 0 &&
+                    it.returnType == Float::class.javaObjectType
+            }.singleOrNull()
+        }.singleOrNull()
+    }
+
+    /** Exact APK builds where the start port passes this single result to both playback and UI. */
+    fun theseus2LongPressCalculator(loader: ClassLoader, hostVersionCode: Int): Method? {
+        val (ownerName, playableName) = when (hostVersionCode) {
+            9180100, 9180300 -> "UC0.a" to "com.bilibili.ship.theseus2.keel.player.m"
+            9180200 -> "UC0.a" to "com.bilibili.ship.theseus2.keel.player.n"
+            9190200, 9190400 -> "rv71" to "gcg2"
+            else -> return null
+        }
+        val owner = KavaMemberLookup.classOrNull(loader, ownerName) ?: return null
+        val playable = KavaMemberLookup.classOrNull(loader, playableName)?.takeIf { it.isInterface } ?: return null
+        return KavaMemberLookup.methodOrNull(owner, "a", playable, Float::class.javaObjectType)?.takeIf {
+            it.declaringClass === owner && it.isStatic && Modifier.isFinal(it.modifiers) &&
+                !it.isSynthetic && !it.isBridge && it.returnType == classOf<Float>()
+        }
+    }
+
     fun longPressSpeed(loader: ClassLoader): LongPressSpeedPoint? {
         val owner = KavaMemberLookup.classOrNull(loader, LONG_PRESS_COROUTINE) ?: return null
         val continuation = KavaMemberLookup.classOrNull(loader, "kotlin.coroutines.Continuation") ?: return null
@@ -112,15 +156,16 @@ internal object PlayerSpeedLocator {
         val hints = cached?.takeIf(PlayerSpeedMenuPoints::isStructurallyValid)
         val theseusWidget = KavaMemberLookup.classOrNull(loader, THESEUS_SPEED_WIDGET)
         val recyclerAdapter = KavaMemberLookup.classOrNull(loader, RECYCLER_ADAPTER)
+        val widgetAdapter = theseusWidget?.let { widget ->
+            KavaMemberLookup.declaredFields(widget, makeAccessible = true) { field ->
+                !field.isStatic && View.OnClickListener::class.java.isAssignableFrom(field.type) &&
+                    (field.type.name.startsWith("$SPEED_WIDGET_PKG.") &&
+                        (recyclerAdapter == null || recyclerAdapter.isAssignableFrom(field.type)) ||
+                        PlayerSpeedMenuAdapter.flattenedOwner(field.type.name) && recyclerAdapter?.isAssignableFrom(field.type) == true)
+            }.singleOrNull()?.type
+        }
         val adapterCandidates = buildList {
-            theseusWidget?.let { widget ->
-                KavaMemberLookup.declaredFields(widget, makeAccessible = true) { field ->
-                    !field.isStatic &&
-                        field.type.name.startsWith("$SPEED_WIDGET_PKG.") &&
-                        View.OnClickListener::class.java.isAssignableFrom(field.type) &&
-                        (recyclerAdapter == null || recyclerAdapter.isAssignableFrom(field.type))
-                }.singleOrNull()?.type?.let(::add)
-            }
+            widgetAdapter?.let(::add)
             for (shortName in listOf("f", "g", "e", "h", "d")) {
                 val candidate = KavaMemberLookup.classOrNull(loader, "$SPEED_WIDGET_PKG.$shortName") ?: continue
                 if (candidate !in this) add(candidate)
@@ -150,7 +195,9 @@ internal object PlayerSpeedLocator {
                 optionCandidates = { optionCandidates.value }
             )
         }.singleOrNull()
-        val adapter = directAdapter ?: hints?.adapter?.let { point ->
+        val adapter = directAdapter ?: hints?.adapter?.takeIf { point ->
+            !PlayerSpeedMenuAdapter.flattenedOwner(point.className) || point.className == widgetAdapter?.name
+        }?.let { point ->
             KavaMemberLookup.classOrNull(loader, point.className)?.let { owner ->
                 speedMenuAdapter(owner, recyclerAdapter, factory) { optionCandidates.value }
                     ?.takeIf { point.matches(it.populateMethod) }
@@ -294,13 +341,11 @@ internal object PlayerSpeedLocator {
     ): SpeedMenuFactoryPoint? {
         val methods = candidates.mapNotNull { candidate ->
             val method = KavaMemberLookup.declaredMethods(candidate, makeAccessible = true) {
-                it.isStatic &&
-                    it.returnType == List::class.java &&
-                    it.parameterCount == 4 &&
-                    it.parameterTypes[0] == mediaResourceClass &&
-                    it.parameterTypes[1] == java.lang.Integer::class.java &&
-                    it.parameterTypes[2] == classOf<Boolean>() &&
-                    it.parameterTypes[3] == classOf<Int>()
+                val params = it.parameterTypes
+                it.isStatic && it.returnType == List::class.java && params.getOrNull(0) == mediaResourceClass &&
+                    params.getOrNull(1) == Int::class.javaObjectType &&
+                    (params.size == 4 && params[2] == classOf<Boolean>() && params[3] == classOf<Int>() ||
+                        params.size == 3 && params[2] == classOf<Int>() && PlayerSpeedMenuAdapter.flattenedOwner(candidate.name))
             }.singleOrNull() ?: return@mapNotNull null
             val defaultListField = KavaMemberLookup.declaredFields(candidate, makeAccessible = true) {
                 it.isStatic && it.type == List::class.java

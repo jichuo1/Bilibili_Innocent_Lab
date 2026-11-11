@@ -85,10 +85,15 @@ internal class MineComponentFilterFeatureInstaller(
 
         var installed = 0
         adapted.buildMethods.forEachIndexed { index, point ->
+            val accountArgument = when (point.paramClassNames) {
+                listOf(point.className, adapted.accountMineClass) -> 1
+                listOf(adapted.accountMineClass) -> 0
+                else -> return@forEachIndexed
+            }
             runCatching {
                 environment.registrar.adapted("mine.account_mine.$index", point) {
                     before {
-                        val accountMine = args.getOrNull(1) ?: return@before
+                        val accountMine = args.getOrNull(accountArgument) ?: return@before
                         if (!accountMineClass.isInstance(accountMine)) return@before
                         filter.processNamed(accountMine, sectionsField, liveTipField)
                     }

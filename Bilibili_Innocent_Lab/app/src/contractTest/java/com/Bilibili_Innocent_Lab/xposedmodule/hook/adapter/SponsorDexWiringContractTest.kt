@@ -15,7 +15,7 @@ class SponsorDexWiringContractTest {
         assertTrue(background.contains("DexAssistAttemptGuard("))
         assertTrue(background.contains("sponsorBlockEnabled && SponsorPlayerLocator.needsQuery"))
         val installer = SourceContract.read("hook/feature/SponsorBlockFeatureInstaller.kt")
-        assertFalse(installer.contains("DexKitBridge")); assertFalse(installer.contains("DexAssistSession("))
+        assertFalse(installer.contains("DexRefHookBridge")); assertFalse(installer.contains("DexAssistSession("))
         assertTrue(installer.contains("registrationStarted.compareAndSet(false, true)"))
         val hook = SourceContract.read("hook/HookEntry.kt")
         assertTrue(hook.contains("sponsorBlockEnabled = prefs.getBoolean(FeaturePreferences.SPONSORBLOCK_ENABLED, false)"))

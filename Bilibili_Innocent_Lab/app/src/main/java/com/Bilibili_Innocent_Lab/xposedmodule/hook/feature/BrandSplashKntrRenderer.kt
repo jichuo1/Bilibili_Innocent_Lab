@@ -43,7 +43,9 @@ internal class BrandSplashKntrRenderer(
             Modifier.isStatic(method.modifiers) && method.returnType == Void.TYPE &&
                 brandSplashPageAbi(method.parameterTypes.map { it.name })?.let { abi ->
                     method.parameterTypes[1] == function0 && method.parameterTypes[2] == modifier &&
-                        method.parameterTypes[abi.composerIndex] == composer
+                        method.parameterTypes[abi.composerIndex] == composer &&
+                        (method.parameterTypes[3] != function0 ||
+                            method.declaringClass.name == COMPACT_PAGE && method.name == "a")
                 } == true &&
                 brandSplashKntrModelConstructor(method.parameterTypes[0]) != null
         } ?: return false
@@ -54,7 +56,10 @@ internal class BrandSplashKntrRenderer(
         val exitPoint = BrandSplashKntrAccess.exit(loader) ?: return false
         val exitOwner = exitPoint.owner
         val exitMethod = exitPoint.resume
-        val draw = owners.singleOrNull { owner ->
+        // 9.19's compact brand page constructs the exact repackaged BoxWithConstraints draw lambda.
+        val drawOwners = if (page.parameterTypes[3] == function0)
+            listOfNotNull(KavaMemberLookup.classOrNull(loader, COMPACT_DRAW)) else owners
+        val draw = drawOwners.singleOrNull { owner ->
             KavaMemberLookup.declaredFields(owner).count { it.type == page.parameterTypes[0] } == 1 &&
                 KavaMemberLookup.declaredMethods(owner).count { it.name == "invoke" && it.parameterCount == 3 } == 1
         } ?: return false
@@ -71,9 +76,8 @@ internal class BrandSplashKntrRenderer(
         if (bitmapFields.size > 1) return false
         val bitmapField = bitmapFields.singleOrNull()
         val bitmapConstructor = if (bitmapField != null) KavaMemberLookup.declaredConstructors(draw, true).singleOrNull {
-            it.parameterTypes.map { type -> type.name } == listOf(imageBitmap.name, page.parameterTypes[0].name,
-                "androidx.compose.ui.unit.Density", resourceClass.name, "androidx.compose.runtime.MutableState",
-                "androidx.compose.runtime.MutableState", "androidx.compose.runtime.MutableState")
+            brandSplashDrawConstructorAbi(it.parameterTypes.map(Class<*>::getName),
+                imageBitmap.name, page.parameterTypes[0].name, resourceClass.name)
         } ?: return false else null
         if (bitmapConstructor != null) {
             // This page owns the constructor; pass a bitmap without changing its immutable
@@ -222,7 +226,18 @@ internal class BrandSplashKntrRenderer(
     companion object {
         const val PAGE = "kntr.srcs.app.splash.brand.startup.c"
         private const val PACKAGE = "kntr.srcs.app.splash.brand.startup."
+        private const val COMPACT_PAGE = PACKAGE + "a"
+        private const val COMPACT_DRAW = "ckk"
     }
+}
+
+internal fun brandSplashDrawConstructorAbi(parameters: List<String>, image: String, model: String, resource: String): Boolean {
+    val state = "androidx.compose.runtime.MutableState"
+    val prefix = listOf(image, model, "androidx.compose.ui.unit.Density", resource, state)
+    val oldCaptures = listOf(state, state)
+    // 9.18/9.19 capture the selected image's native transition state between readiness captures.
+    return parameters == prefix + oldCaptures ||
+        parameters == prefix + "androidx.compose.runtime.MutableIntState" + oldCaptures
 }
 
 internal fun brandSplashChangedModelFlags(flags: Int): Int = (flags and 0b1110.inv()) or 0b0100

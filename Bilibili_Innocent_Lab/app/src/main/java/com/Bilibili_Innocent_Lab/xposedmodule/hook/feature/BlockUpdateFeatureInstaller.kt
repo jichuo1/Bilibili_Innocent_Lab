@@ -13,7 +13,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
  *
  * ```
  * 第一道（supplier 层，既有）：同步检查入口抛宿主自己的 LatestVersionException
- *   经 VersionAdapter 定位（25 个混淆 owner 候选 + DexKit 兜底）
+ *   经 VersionAdapter 定位（25 个混淆 owner 候选 + DexMeguviz 兜底）
  *   拦的是"**怎么做**检查"——宿主换网络实现就会定位落空
  *
  * 第二道（调用方层，新增）：UpdateHelper 的三个检查入口直接空实现

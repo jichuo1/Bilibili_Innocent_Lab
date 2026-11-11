@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 
+import FlatStoryQualityFacade
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistEngine
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery
@@ -29,11 +30,12 @@ class StoryQualityLocatorTest {
 
     private fun session(defaults: List<Method> = listOf(integer, policy, resource),
                         resources: List<Method> = listOf(resource), matches: List<Method> = listOf(match),
-                        matchPolicy: Class<*> = policy.declaringClass): DexAssistSession {
+                        matchPolicy: Class<*> = policy.declaringClass,
+                        matchRelatedMethods: List<Method> = emptyList()): DexAssistSession {
         val engine = DexAssistEngine { request -> DexAssistResult.Candidates(when (request.query) {
             DexAssistQuery.STORY_QUALITY_DEFAULT -> defaults
             DexAssistQuery.STORY_QUALITY_RESOURCE -> resources
-            DexAssistQuery.STORY_QUALITY_MATCH -> matches
+            DexAssistQuery.STORY_QUALITY_MATCH -> matches + matchRelatedMethods
             else -> emptyList()
         }, relatedClasses = if (request.query == DexAssistQuery.STORY_QUALITY_MATCH)
             matches.associateWith { listOf(matchPolicy) } else emptyMap()) }
@@ -70,6 +72,25 @@ class StoryQualityLocatorTest {
             session(defaults = listOf(policy)), null, StoryQualityLocator.queries))
         assertTrue(points.semanticComplete)
         assertNull(points.integerDefaultMethod)
+    }
+
+    @Test fun `root package strategy is accepted only as a complete match related family`() {
+        val owner = FlatStoryQualityFacade::class.java
+        val flatPolicy = owner.getDeclaredMethod("policy")
+        val flatResource = owner.getDeclaredMethod("resource", MediaResource::class.java)
+        fun locate(related: List<Method>) = requireNotNull(StoryQualityLocator.locate(loader,
+            session(defaults = emptyList(), resources = emptyList(), matchPolicy = owner, matchRelatedMethods = related),
+            null, StoryQualityLocator.queries))
+
+        val points = locate(listOf(flatPolicy, flatResource))
+        assertTrue(points.semanticComplete)
+        assertNull(points.integerDefaultMethod)
+        assertEquals(points, StoryQualityPoints.fromJson(points.toJson()))
+        val resolved = requireNotNull(StoryQualityLocator.resolve(loader, points))
+        assertEquals(flatPolicy, resolved.policy)
+        assertEquals(flatResource, resolved.resourceSelection)
+        assertFalse(locate(listOf(flatPolicy, resource)).semanticComplete)
+        assertNull(StoryQualityPoints.fromJson(points.copy(resourceSelectionMethod = null).toJson()))
     }
 
     @Test fun `ambiguous policies and resource from another owner remain incomplete`() {

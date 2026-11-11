@@ -8,8 +8,8 @@ import org.junit.Test
 
 class KotlinDefaultWordsDexWiringContractTest {
     @Test fun queryUsesSemanticInvokeAndRunsOnlyInSharedBackgroundPlan() {
-        val engine = SourceContract.read("hook/adapter/dex/DexKitAssistEngine.kt")
-        val query = engine.after("DexAssistQuery.SEARCH_DEFAULT_WORDS_KOTLIN ->").before("private fun ensureNativeLoaded")
+        val engine = SourceContract.read("hook/adapter/dex/DexMeguvizQueries.kt")
+        val query = engine.after("DexAssistQuery.SEARCH_DEFAULT_WORDS_KOTLIN ->").before("DexAssistQuery.PLAYER_SPEED_MENU, DexAssistQuery.STORY_QUALITY_DEFAULT -> error")
         assertTrue(query.contains("returnType = \"void\""))
         assertTrue(query.contains("paramCount(5)"))
         assertTrue(query.contains("addInvoke"))
@@ -37,7 +37,7 @@ class KotlinDefaultWordsDexWiringContractTest {
         val worker = adapter.after("HostThreadGuard.run(\"adapter.adapt_worker\")").before("result = repacked ?:")
         assertTrue(worker.contains("!requiresFeatureRefresh(value)"))
         val installer = SourceContract.read("hook/feature/HomeTopBarFeatureInstaller.kt")
-        assertFalse(installer.contains("DexKitBridge"))
+        assertFalse(installer.contains("DexRefHookBridge"))
         assertFalse(installer.contains("DexAssistSession("))
         assertTrue(installer.contains("resolvedEntry = points?.kotlinDefaultWords"))
     }

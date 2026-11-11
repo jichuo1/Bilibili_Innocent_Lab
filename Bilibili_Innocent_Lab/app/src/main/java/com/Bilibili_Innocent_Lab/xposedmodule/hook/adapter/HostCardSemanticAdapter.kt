@@ -11,6 +11,9 @@ import java.lang.reflect.Method
 
 /** Source trace markers select single-card leaves, never their Lazy/outer page lambdas. */
 internal object HostCardSemanticAdapter {
+    // The 9.19 PegasusFragment installs this one-column bottom-line decorator.
+    const val REPACKAGED_PEGASUS_DIVIDER = "cx12"
+
     val families = linkedMapOf(
         DexAssistQuery.OGV_TRENDING_CARD to "trending", DexAssistQuery.OGV_DOUBLE_CARD to "double",
         DexAssistQuery.OGV_UPCOMING_CARD to "upcoming", DexAssistQuery.PEGASUS_DIVIDER to "pegasus_divider")

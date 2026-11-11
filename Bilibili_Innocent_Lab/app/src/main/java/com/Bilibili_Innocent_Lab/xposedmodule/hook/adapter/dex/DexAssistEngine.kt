@@ -112,13 +112,12 @@ internal sealed interface DexAssistResult {
     }
 }
 
-/** DexKit 被限制在此接口后方，VersionAdapter 与 Hook 注册层不直接持有桥对象。 */
+/** DexMeguviz 被限制在此接口后方，VersionAdapter 与 Hook 注册层不直接持有桥对象。 */
 internal fun interface DexAssistEngine {
     fun resolve(request: DexAssistRequest): DexAssistResult
 
     /**
-     * 一轮适配里需要的全部查询一次做完。默认逐个 [resolve]；DexKit 实现会让每个代码归档只建一次桥——
-     * 宿主 30 多个 DEX，每建一次桥都要整份解析一遍（2026-10-01 真机 9.14.0 每次约 5 s）。
+     * 一轮适配里需要的全部查询一次做完。默认逐个 [resolve]；DexMeguviz 实现在每个代码归档的同一个快照上批量查询。
      */
     fun resolveAll(
         queries: Set<DexAssistQuery>,

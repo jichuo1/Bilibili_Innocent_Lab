@@ -11,9 +11,9 @@ import org.json.JSONObject
 data class PageBoundaryPoints(val searchDelivery: String? = null, val searchState: String? = null,
     val endPageMerger: HookPoint? = null, val cardSurfaces: Map<String, HookPoint> = emptyMap()) {
     fun isValid(): Boolean = HostCardSemanticAdapter.validCache(cardSurfaces) &&
-        (searchDelivery == null || searchDelivery.startsWith(SearchHomeRecommendLocator.DISCOVER)) &&
-        (searchState == null || searchState.startsWith(SearchHomeRecommendLocator.STATE)) &&
-        (endPageMerger == null || endPageMerger.className.startsWith(PlayerEndPageRecommendLocator.PACKAGE) &&
+        (searchDelivery == null || SearchHomeRecommendLocator.acceptsDeliveryOwner(searchDelivery)) &&
+        (searchState == null || SearchHomeRecommendLocator.acceptsStateOwner(searchState)) &&
+        (endPageMerger == null || PlayerEndPageRecommendLocator.mergerOwnerSupported(endPageMerger.className) &&
             endPageMerger.methodName.isNotBlank() && endPageMerger.viewField == null && endPageMerger.paramClassNames == listOf("java.util.List", "java.util.List"))
     fun toJson() = JSONObject().apply {
         searchDelivery?.let { put("search_delivery", it) }
@@ -69,19 +69,21 @@ internal object PageBoundaryAdapter {
         fun candidates(query: DexAssistQuery): DexAssistResult.Candidates? = if (query in planned)
             session?.result(query) as? DexAssistResult.Candidates else null
         val delivery = candidates(DexAssistQuery.SEARCH_HOME_DELIVERY)?.methods.orEmpty()
-            .map { it.declaringClass }.distinct().filter { it.name.startsWith(SearchHomeRecommendLocator.DISCOVER) }
+            .map { it.declaringClass }.distinct().filter { SearchHomeRecommendLocator.acceptsDeliveryOwner(it.name) }
             .filter { SearchHomeRecommendLocator.delivery(it) != null }.singleOrNull()?.name
         val state = candidates(DexAssistQuery.SEARCH_HOME_STATE)?.classes.orEmpty().distinct()
-            .filter { it.name.startsWith(SearchHomeRecommendLocator.STATE) }
+            .filter { SearchHomeRecommendLocator.acceptsStateOwner(it.name) }
             .filter { SearchHomeRecommendLocator.state(it) != null }.singleOrNull()?.name
         val merger = candidates(DexAssistQuery.PLAYER_END_PAGE_MERGER)?.methods.orEmpty()
             .filter(PlayerEndPageRecommendLocator::mergerAbi).distinct().singleOrNull()
             ?.let { HookPoint(it.declaringClass.name, it.name, it.parameterTypes.map(Class<*>::getName)) }
         // Revalidate every stored owner with the current host loader; never trust a deserialized name.
         return PageBoundaryPoints(delivery ?: cached?.searchDelivery?.takeIf { name ->
-            Lookup.classOrNull(loader, name)?.let(SearchHomeRecommendLocator::delivery) != null
+            SearchHomeRecommendLocator.acceptsDeliveryOwner(name) &&
+                Lookup.classOrNull(loader, name)?.let(SearchHomeRecommendLocator::delivery) != null
         }, state ?: cached?.searchState?.takeIf { name ->
-            Lookup.classOrNull(loader, name)?.let(SearchHomeRecommendLocator::state) != null
+            SearchHomeRecommendLocator.acceptsStateOwner(name) &&
+                Lookup.classOrNull(loader, name)?.let(SearchHomeRecommendLocator::state) != null
         }, merger ?: cached?.endPageMerger?.takeIf { PlayerEndPageRecommendLocator.cachedMerger(loader, it) != null },
             HostCardSemanticAdapter.locate(loader, cached?.cardSurfaces.orEmpty(), session, planned))
             .takeIf { it.searchDelivery != null || it.searchState != null || it.endPageMerger != null || it.cardSurfaces.isNotEmpty() }

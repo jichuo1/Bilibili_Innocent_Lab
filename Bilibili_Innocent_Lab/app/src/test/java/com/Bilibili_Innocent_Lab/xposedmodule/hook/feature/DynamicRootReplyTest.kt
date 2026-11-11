@@ -71,12 +71,14 @@ class DynamicRootReplyTest {
         assertFalse(FeatureRuntimeStage.APPLIED in h.stages)
     }
 
-    @Test fun `topic only installation does not add root item boundaries`() {
+    @Test fun `topic only installation counts the topic carrier and keeps unrelated endpoints untouched`() {
         val h = Harness(topicOnly = true)
-        assertTrue(h.registrar.hooks.isNotEmpty())
-        assertFalse(h.registrar.hooks.keys.any { it.contains("Personal") || it.contains("personal") })
-        assertFalse(h.registrar.hooks.keys.any { it.contains("FeedFilter") || it.contains("feedFilter") })
-        assertFalse(h.registrar.hooks.keys.any { it.contains("DynFriend") || it.contains("dynFriend") })
+        assertEquals(setOf("dynamic.purify.sync.executeDynAll", "dynamic.purify.async.dynAll"), h.registrar.hooks.keys)
+        val topic = h.records.single { it.id == "dynamic_topic_list_hidden" }.result as FeatureInstallResult.Installed
+        val parent = h.records.single { it.id == DynamicPurifyFeatureInstaller.ID }.result as FeatureInstallResult.Installed
+        assertEquals(2, topic.hookCount)
+        assertTrue(topic.complete)
+        assertTrue(parent.complete)
     }
 
     @Test fun `filtered following feed can become empty without changing its cursor and more flag`() {

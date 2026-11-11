@@ -94,6 +94,10 @@ internal class SponsorPlayerAccess private constructor(
         const val CONTAINER_INTERFACE = "tv.danmaku.biliplayerv2.IPlayerContainer"
         private const val FAMILY = "com.bilibili.ship.theseus.keel.player."
 
+        /** 9190200/9190400 keep the run owner and move its playable interface to the root package. */
+        internal fun acceptsPlayableClass(owner: String, method: String, type: String): Boolean =
+            type.startsWith(FAMILY) || owner == "${FAMILY}b" && method == "r" && type == "hcg2"
+
         fun resolve(loader: ClassLoader, continuationName: String = RUN_CLASS,
             wrapperName: String = WRAPPER_CLASS, containerScopeName: String? = CONTAINER_SCOPE_CLASS): SponsorPlayerAccess? = runCatching {
             val continuation = Lookup.classOrNull(loader, continuationName) ?: return null
@@ -119,7 +123,8 @@ internal class SponsorPlayerAccess private constructor(
             val owner = continuationOwner.type
             val run = Lookup.declaredMethods(owner, true) {
                 !Modifier.isStatic(it.modifiers) && it.returnType == classOf<Any>() && it.parameterCount == 2 &&
-                    it.parameterTypes[0].isInterface && it.parameterTypes[0].name.startsWith(FAMILY) &&
+                    it.parameterTypes[0].isInterface &&
+                    acceptsPlayableClass(it.declaringClass.name, it.name, it.parameterTypes[0].name) &&
                     it.parameterTypes[1].name in setOf("kotlin.coroutines.Continuation", "kotlin.coroutines.jvm.internal.ContinuationImpl")
             }.singleOrNull() ?: return null
             val active = Lookup.declaredMethods(owner, true) {

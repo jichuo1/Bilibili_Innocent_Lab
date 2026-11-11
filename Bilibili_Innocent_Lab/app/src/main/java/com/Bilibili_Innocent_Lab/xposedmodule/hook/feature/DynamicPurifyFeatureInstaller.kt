@@ -123,10 +123,21 @@ internal class DynamicPurifyFeatureInstaller(
 
         val kotlinMoss = KavaMemberLookup.classOrNull(loader, KotlinDynamicMossWatch.K_MOSS_CLASS)
         val kotlinNames = kotlinMoss?.let { owner -> KavaMemberLookup.declaredMethods(owner).map { it.name }.toSet() }.orEmpty()
+        val topicSpecs = if (hideTopicList) FEED_METHODS.filter { spec ->
+            spec.replyClassName == TOPIC_REPLY_CLASS || KavaMemberLookup.classOrNull(loader, spec.replyClassName)?.let { reply ->
+                KavaMemberLookup.firstDeclaredMethodOrNull(reply) {
+                    !it.isStatic && it.parameterCount == 0 && (it.name == "hasTopicList" || it.name == "getTopicList")
+                } != null
+            } == true
+        } else emptyList()
+        val topicOnly = hideTopicList && keywords.isEmpty() && authorRules.isEmpty() &&
+            !removePromotion && !removeLockedChargeOnly && semanticJudge == null &&
+            !removeLiveUpEntries && !hideFrequentVisits
+        val mainSpecs = if (topicOnly) topicSpecs else FEED_METHODS
         val rootApplicable = plan.hasAnyItemJudgement && ROOT_FEED_METHODS.any { spec ->
             KavaMemberLookup.classOrNull(loader, spec.replyClassName) != null || spec.asyncName in kotlinNames
         }
-        val specs = FEED_METHODS + if (rootApplicable) ROOT_FEED_METHODS else emptyList()
+        val specs = mainSpecs + if (rootApplicable) ROOT_FEED_METHODS else emptyList()
         val kotlinExpected = specs.filter { it.asyncName in kotlinNames }.map { it.asyncName }.toSet()
         val feeds = specs.mapNotNull { spec -> resolveFeed(loader, mossClass, spec) }.filter { feed ->
             (plan.hasAnyItemJudgement && feed.listBuilder != null) ||
@@ -167,10 +178,13 @@ internal class DynamicPurifyFeatureInstaller(
         val sharedExpected = specs.size * 2 + kotlinExpected.size
         val mainFeeds = feeds.filterNot { it.rootList }
         val mainExpected = FEED_METHODS.size * 2 + FEED_METHODS.count { it.asyncName in kotlinExpected }
+        val topicReplyClasses = topicSpecs.mapTo(hashSetOf()) { it.replyClassName }
+        val topicFeeds = mainFeeds.filter { it.replyClass.name in topicReplyClasses && it.clearTopicList != null }
+        val topicDataComplete = topicFeeds.size == topicSpecs.size
+        val topicExpected = topicSpecs.size * 2 + topicSpecs.count { it.asyncName in kotlinExpected }
         for (capability in capabilityIds) {
-            val compatibleFeeds = feeds.filter { feed -> when (capability) {
+            val compatibleFeeds = if (capability == "dynamic_topic_list_hidden") topicFeeds else feeds.filter { feed -> when (capability) {
                 "dynamic_frequent_visits_hidden" -> feed.wholeUpList != null
-                "dynamic_topic_list_hidden" -> feed.clearTopicList != null
                 "dynamic_up_list_live_removed" -> feed.upList != null
                 else -> feed.listBuilder != null
             } }
@@ -181,18 +195,22 @@ internal class DynamicPurifyFeatureInstaller(
                 "dynamic_promotions_removed" -> plan.removePromotion
                 "dynamic_charge_only_removed" -> plan.removeLockedChargeOnly
                 "dynamic_frequent_visits_hidden" -> feeds.any { it.wholeUpList != null }
-                "dynamic_topic_list_hidden" -> feeds.any { it.clearTopicList != null }
+                "dynamic_topic_list_hidden" -> topicFeeds.isNotEmpty()
                 "dynamic_up_list_live_removed" -> feeds.any { it.upList != null }
                 else -> false
             }
             val completeData = when (capability) {
                 "dynamic_frequent_visits_hidden" -> mainFeeds.size == FEED_METHODS.size && mainFeeds.all { it.wholeUpList != null }
-                "dynamic_topic_list_hidden" -> mainFeeds.size == FEED_METHODS.size && mainFeeds.all { it.clearTopicList != null }
+                "dynamic_topic_list_hidden" -> topicDataComplete
                 "dynamic_up_list_live_removed" -> mainFeeds.size == FEED_METHODS.size && mainFeeds.all { it.upList != null }
                 else -> feeds.size == specs.size && feeds.all { it.listBuilder != null } &&
                     (capability != "dynamic_author_filter_enabled" || plan.authorRules == authorRules)
             }
-            val capabilityExpected = if (capability in TOP_CAPABILITIES) mainExpected else sharedExpected
+            val capabilityExpected = when (capability) {
+                "dynamic_topic_list_hidden" -> topicExpected
+                in TOP_CAPABILITIES -> mainExpected
+                else -> sharedExpected
+            }
             environment.reportCapabilityCoverage(capability, usable && compatibleFeeds.isNotEmpty(), compatibleFeeds.sumOf { pathsByFeed[it] ?: 0 },
                 capabilityExpected + if (completeData) 0 else 1)
         }
@@ -213,7 +231,7 @@ internal class DynamicPurifyFeatureInstaller(
         account(semanticJudge != null, plan.semanticEnabled, "semantic")
         account(removePromotion, plan.removePromotion, "promotion")
         account(removeLockedChargeOnly, plan.removeLockedChargeOnly, "charge-only")
-        account(hideTopicList, feeds.any { it.clearTopicList != null }, "topic-list")
+        account(hideTopicList, topicDataComplete, "topic-list")
         account(removeLiveUpEntries && !hideFrequentVisits, feeds.any { it.upList != null }, "up-live")
         account(hideFrequentVisits, mainFeeds.size == FEED_METHODS.size && mainFeeds.all { it.wholeUpList != null }, "frequent-visits")
         if (degraded.isNotEmpty()) {
@@ -1036,9 +1054,10 @@ internal class DynamicPurifyFeatureInstaller(
         /** 顶部 UP 栏容器的 getter 名：综合页与视频页不同名，返回类型一致。 */
         private val UP_LIST_GETTERS = listOf("getUpList", "getVideoUpList")
 
-        /** 综合页与视频页；两页共用同一套判据。 */
+        /** 综合页明确承载话题栏；视频页只有实际声明话题字段时才计入该判据。 */
+        private const val TOPIC_REPLY_CLASS = "$DYNAMIC_PACKAGE.DynAllReply"
         private val FEED_METHODS = listOf(
-            FeedSpec("$DYNAMIC_PACKAGE.DynAllReply", "executeDynAll", "dynAll"),
+            FeedSpec(TOPIC_REPLY_CLASS, "executeDynAll", "dynAll"),
             FeedSpec("$DYNAMIC_PACKAGE.DynVideoReply", "executeDynVideo", "dynVideo")
         )
         private val ROOT_FEED_METHODS = listOf(
@@ -1047,6 +1066,6 @@ internal class DynamicPurifyFeatureInstaller(
             FeedSpec("$DYNAMIC_PACKAGE.FeedFilterReply", "executeFeedFilter", "feedFilter"),
             FeedSpec("$DYNAMIC_PACKAGE.DynFriendReply", "executeDynFriend", "dynFriend")
         )
-        private val TOP_CAPABILITIES = setOf("dynamic_frequent_visits_hidden", "dynamic_topic_list_hidden", "dynamic_up_list_live_removed")
+        private val TOP_CAPABILITIES = setOf("dynamic_frequent_visits_hidden", "dynamic_up_list_live_removed")
     }
 }

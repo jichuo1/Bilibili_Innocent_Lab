@@ -7,7 +7,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isAbstract
 import java.lang.reflect.Method
 
-/** 只解析成员；DexKit 查询由适配后台集中调度，安装器和快路径不创建桥。 */
+/** 只解析成员；DexMeguviz 查询由适配后台集中调度，安装器和快路径不创建桥。 */
 internal object KotlinDefaultWordsLocator {
     const val MOSS = "com.bapis.bilibili.app.interfaces.v1.KSearchMoss"
     const val REQUEST = "com.bapis.bilibili.app.interfaces.v1.KDefaultWordsReq"

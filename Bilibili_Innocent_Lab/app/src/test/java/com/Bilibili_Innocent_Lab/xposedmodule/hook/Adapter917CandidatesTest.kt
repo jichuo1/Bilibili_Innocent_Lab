@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook
 import android.content.Context
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Test
 import tv.danmaku.bili.update.model.BiliUpgradeInfo
 
@@ -21,8 +22,12 @@ class Adapter917CandidatesTest {
         fun c(context: Context?): BiliUpgradeInfo? = null
     }
 
-    private class HostLoader(network: Class<*>, quality: Class<*>) : ClassLoader(Adapter917CandidatesTest::class.java.classLoader) {
-        private val classes = mapOf("Bx1.c" to network, "tz1.h" to quality)
+    private class HostLoader(
+        network: Class<*>,
+        quality: Class<*>,
+        verified: Map<String, Class<*>> = emptyMap()
+    ) : ClassLoader(Adapter917CandidatesTest::class.java.classLoader) {
+        private val classes = mapOf("Bx1.c" to network, "tz1.h" to quality) + verified
         val requested = mutableSetOf<String>()
         override fun loadClass(name: String, resolve: Boolean): Class<*> {
             requested += name
@@ -52,5 +57,17 @@ class Adapter917CandidatesTest {
     @Test fun `network bridge keeps the existing unique leaf selection`() {
         val loader = HostLoader(BridgedNetwork::class.java, Quality::class.java)
         assertEquals("c", VersionAdapter.locateBlockUpdate(loader)?.methodName)
+    }
+
+    @Test fun `verified media owners are used only for their APK build codes`() {
+        val loader = HostLoader(WrongNetwork::class.java, WrongQuality::class.java,
+            mapOf("gwx1" to Network::class.java, "rnr1" to Quality::class.java))
+        for (version in listOf(9190200, 9190400)) {
+            assertEquals(Network::class.java.name, VersionAdapter.locateBlockUpdate(loader, version)?.className)
+            assertEquals(Quality::class.java.name,
+                VersionAdapter.locateDefaultVideoQuality(loader, hostVersionCode = version)?.defaultQualityMethod?.className)
+        }
+        assertNull(VersionAdapter.locateBlockUpdate(loader, 9180300))
+        assertNull(VersionAdapter.locateDefaultVideoQuality(loader, hostVersionCode = 9180300)?.defaultQualityMethod)
     }
 }

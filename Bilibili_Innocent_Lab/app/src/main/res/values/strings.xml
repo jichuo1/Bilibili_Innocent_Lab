@@ -1668,7 +1668,7 @@
     <string name="npatch_compatibility_baseline">Installed parameters match the tested baseline. This does not verify the fixed Loader bytes or the host process ABI; confirm the artifact record and current host diagnostics.</string>
     <string name="npatch_compatibility_unverified">This parameter combination is unverified. Keep the current artifact record when reporting a problem.</string>
     <string name="npatch_compatibility_embed_invalid">Embedded Loader 833 reports a signature bypass level above 2, outside the pinned patcher limit. Check the artifact and repatch with the supported parameters.</string>
-    <string name="npatch_process_native">Process bits: %1$s; DexKit: %2$s; frame native: %3$s. A loaded library does not verify queries or model inference.</string>
+    <string name="npatch_process_native">Process bits: %1$s; DexMeguviz: %2$s; frame native: %3$s. A loaded library does not verify queries or model inference.</string>
     <string name="npatch_native_not_checked">not attempted</string>
     <string name="npatch_native_loaded">loaded</string>
     <string name="npatch_native_failed">unavailable / failed</string>

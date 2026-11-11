@@ -7,6 +7,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ReplyTopologyTreeExplorerContractTest {
+    @Test fun rootPackageComposeMenuItemRequiresTheVerifiedRendererSignature() {
+        val menu = SourceContract.read("hook/feature/ReplyTopologyComposeMenu.kt")
+            .after("fun install(environment: HookEnvironment)")
+            .before("private fun installLegacy(")
+        val item = menu.after("val item =").before("val fields =")
+        assertTrue(item.contains("row.name == \"d\" && method.name == \"b\" && method.isStatic"))
+        assertTrue(item.contains("listOf(\"v0f1\", \"kotlin.jvm.functions.Function0\""))
+        assertTrue(item.contains("\"androidx.compose.ui.Modifier\", \"androidx.compose.runtime.Composer\", \"int\""))
+        assertTrue(item.contains(".distinct().singleOrNull()"))
+        assertTrue(menu.contains("it.parameterTypes.contentEquals(fields.map"))
+        assertTrue(menu.contains("source.any { !item.isInstance(it) }"))
+    }
+
     @Test fun compactRowsAndTracksShareOneBudgetAndNeverPaintOverText() {
         val adapter = SourceContract.read("ui/overlay/ReplyTopologyWorkflowAdapter.kt")
         assertTrue(adapter.contains("ReplyTopologyTrackLayout.resolve(w.toFloat(), density, resources.configuration.fontScale)"))

@@ -68,9 +68,21 @@ internal object FollowFeedAdapter {
     private const val STATE = "$RECYCLER\$State"
     private const val HOME = "com.bilibili.bplus.followinglist.home."
     private const val PERSONAL = "com.bilibili.bplus.followinglist.quick.consume."
+    private const val OPUS = "com.bilibili.bplus.followinglist.opus."
     private const val PERSONAL_PAGE = PERSONAL + "VideoQuickConsumeFragment"
     private const val CURRENT_PAINTER = "rU.d"
-    private val painterOwners = listOf(CURRENT_PAINTER, "mU.d", "gv1.c", "iU.d")
+    private data class DecorationProfile(val home: String, val personal: String, val separator: String, val opus: String)
+    // 9.18 同一个 sU.d 下叶子逐构建重排。9180300 的 opus.t 也继承 painter，但不是此处的图文装饰器。
+    // 9.19 扁平化叶子包名；首页和个人页 Fragment 的真实构造调用及完整绘制 ABI 仍可复核。
+    private val decorationProfiles = mapOf(
+        "sU.d" to listOf(
+            DecorationProfile(HOME + "U", PERSONAL + "E", PERSONAL + "U", OPUS + "p"),
+            DecorationProfile(HOME + "Y", PERSONAL + "G", PERSONAL + "U", OPUS + "o"),
+            DecorationProfile(HOME + "b0", PERSONAL + "H", PERSONAL + "W", OPUS + "r")
+        ),
+        "ey80" to listOf(DecorationProfile("w1o0", "sov1", "nuh2", "nnl1"))
+    )
+    private val painterOwners = decorationProfiles.keys + listOf(CURRENT_PAINTER, "mU.d", "gv1.c", "iU.d")
     // 9.17.0(9170300)：rU.d 与 CS.I / CS.J 的成员和 9170100 逐项一致，只有子类被重新排名：
     //   home.a0 → X，quick.F → D，quick.T → P；本地归属字段在 CS.I 上由 b 前移为 a。
     // 9.17.0(9170100)：rU.d + home.a0 / quick.F / quick.T，CS.I.b / CS.J.j,n 的归属语义已核。
@@ -83,11 +95,23 @@ internal object FollowFeedAdapter {
     private val currentHomeDecorations = listOf(HOME + "X", HOME + "a0")
     private val currentSeparators = listOf(PERSONAL + "P", PERSONAL + "T")
 
-    private fun homeCandidates(painter: String): List<String> =
-        if (painter == CURRENT_PAINTER) currentHomeDecorations + homeDecorations else homeDecorations
+    private fun profile(painter: String, home: String): DecorationProfile? =
+        decorationProfiles[painter]?.singleOrNull { it.home == home }
 
-    private fun separatorCandidates(painter: String): List<String> =
-        if (painter == CURRENT_PAINTER) currentSeparators + personalSeparators else personalSeparators
+    private fun homeCandidates(painter: String): List<String> =
+        decorationProfiles[painter]?.map { it.home }
+            ?: if (painter == CURRENT_PAINTER) currentHomeDecorations + homeDecorations else homeDecorations
+
+    private fun personalCandidates(profile: DecorationProfile?): List<String> =
+        profile?.let { listOf(it.personal) } ?: personalDecorations
+
+    private fun separatorCandidates(painter: String, profile: DecorationProfile?): List<String> =
+        profile?.let { listOf(it.separator) }
+            ?: if (painter == CURRENT_PAINTER) currentSeparators + personalSeparators else personalSeparators
+
+    internal fun opusDecorationCandidates(points: FollowFeedPoints): List<String> =
+        profile(points.painterOwnerClass, points.homeDecorationClass)?.let { listOf(it.opus) }
+            ?: listOf(OPUS + "p", OPUS + "t", OPUS + "k")
 
     data class Resolved(val points: FollowFeedPoints, val host: FollowFeedHostAccess, val paint: Method,
         val homeDecoration: Class<*>, val personalDecoration: Class<*>?, val separator: Method?, val header: Method?)
@@ -121,11 +145,13 @@ internal object FollowFeedAdapter {
         val home = Lookup.classOrNull(loader, cached.homeDecorationClass)?.takeIf {
             it.name in homeCandidates(owner.name) && it.superclass == owner
         } ?: return@runCatching null
+        val profile = profile(owner.name, home.name)
+        val personalNames = personalCandidates(profile)
         val personal = cached.personalDecorationClass?.let { Lookup.classOrNull(loader, it) }
-            ?.takeIf { it.name in personalDecorations && it.superclass == owner ||
+            ?.takeIf { it.name in personalNames && it.superclass == owner ||
                 it == owner && legacyPersonal(loader, owner) != null }
-            ?: personal(loader, owner)
-        val separatorNames = separatorCandidates(owner.name)
+            ?: personal(loader, owner, personalNames)
+        val separatorNames = separatorCandidates(owner.name, profile)
         val separator = cached.personalSeparatorClass?.takeIf { it in separatorNames }
             ?.let { separator(loader, it) }
             ?: separatorNames.mapNotNull { separator(loader, it) }.singleOrNull()
@@ -155,17 +181,18 @@ internal object FollowFeedAdapter {
         val homeNames = homeCandidates(owner.name)
         val home = homeNames.mapNotNull { Lookup.classOrNull(loader, it) }
             .filter { it.superclass == owner }.singleOrNull() ?: return@runCatching null
-        val personal = personal(loader, owner)
+        val profile = profile(owner.name, home.name)
+        val personal = personal(loader, owner, personalCandidates(profile))
         // T also names an older decoration. Admit the new role only for
         // the exact painter generation verified with its actual personal-page consumer.
-        val separatorNames = separatorCandidates(owner.name)
+        val separatorNames = separatorCandidates(owner.name, profile)
         val separator = separatorNames.mapNotNull { separator(loader, it) }.singleOrNull()
         FollowFeedPoints(owner.name, paint.name, paint.parameterTypes[3].name, item.name, home.name, family,
             personal?.name, separator?.declaringClass?.name, header(loader)?.name)
     }.getOrNull()
 
-    private fun personal(loader: ClassLoader, owner: Class<*>): Class<*>? =
-        (personalDecorations.mapNotNull { Lookup.classOrNull(loader, it) }.filter { it.superclass == owner } +
+    private fun personal(loader: ClassLoader, owner: Class<*>, candidates: List<String>): Class<*>? =
+        (candidates.mapNotNull { Lookup.classOrNull(loader, it) }.filter { it.superclass == owner } +
             listOfNotNull(legacyPersonal(loader, owner))).distinct().singleOrNull()
 
     private fun legacyPersonal(loader: ClassLoader, owner: Class<*>): Class<*>? {

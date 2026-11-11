@@ -21,11 +21,19 @@ internal data class BrandSplashKntrExit(
 
 internal object BrandSplashKntrAccess {
     const val CURRENT_EXIT = "kntr.srcs.app.splash.brand.startup.BrandSplashPageKt\$BrandSplashPage\$5\$1"
+    const val BITMAP_EXIT = "kntr.srcs.app.splash.brand.startup.BrandSplashPageKt\$BrandSplashPage\$6\$1"
     private const val FUNCTION = "kotlin.jvm.functions.Function0"
+    private val readyExitNames = listOf(CURRENT_EXIT, BITMAP_EXIT)
 
-    fun exit(loader: ClassLoader): BrandSplashKntrExit? =
-        resolve(loader, BrandSplashSkipFeatureInstaller.KNTR_EXIT, false)
-            ?: resolve(loader, CURRENT_EXIT, true)
+    fun present(loader: ClassLoader): Boolean =
+        Lookup.hasClass(loader, BrandSplashSkipFeatureInstaller.KNTR_EXIT) ||
+            readyExitNames.any { Lookup.hasClass(loader, it) }
+
+    fun exit(loader: ClassLoader): BrandSplashKntrExit? {
+        val ready = readyExitNames.mapNotNull { resolve(loader, it, true) }
+        return if (ready.isNotEmpty()) ready.singleOrNull()
+            else resolve(loader, BrandSplashSkipFeatureInstaller.KNTR_EXIT, false)
+    }
 
     private fun resolve(loader: ClassLoader, name: String, current: Boolean): BrandSplashKntrExit? = runCatching {
         val owner = Lookup.classOrNull(loader, name) ?: return null
@@ -46,6 +54,8 @@ internal object BrandSplashKntrAccess {
             if (callback.name != "\$onExit" || listOf("\$customBitmapReady\$delegate", "\$customLogoReady\$delegate").any { key ->
                     fields.singleOrNull { it.name == key }?.type != mutable
                 } || fields.singleOrNull { it.name == "\$currentOnShow" }?.type != state) return null
+            // 9.18/9.19 persist the shown model only if this image state holds a bitmap.
+            if (name == BITMAP_EXIT && fields.singleOrNull { it.name == "\$customBitmap\$delegate" }?.type != mutable) return null
             val intrinsics = Lookup.classOrNull(loader, "kotlin.coroutines.intrinsics.IntrinsicsKt") ?: return null
             waiting = Lookup.inheritedMethodOrNull(intrinsics, "getCOROUTINE_SUSPENDED")?.invoke(null) ?: return null
             failure = Lookup.classOrNull(loader, "kotlin.Result\$Failure") ?: return null
@@ -59,7 +69,10 @@ internal data class BrandSplashPageAbi(val composerIndex: Int, val flagsIndex: I
 internal fun brandSplashPageAbi(parameters: List<String>): BrandSplashPageAbi? {
     val p = parameters
     if (p.size !in 6..7 || p[1] != "kotlin.jvm.functions.Function0" ||
-        p[2] != "androidx.compose.ui.Modifier" || p[3] != "java.lang.String") return null
+        p[2] != "androidx.compose.ui.Modifier") return null
+    if (p[0] == "bgk" && p.drop(3) == listOf("kotlin.jvm.functions.Function0", "androidx.compose.runtime.Composer", "int"))
+        return BrandSplashPageAbi(4, 5)
+    if (p[3] != "java.lang.String") return null
     return when {
         p[4] == "androidx.compose.runtime.Composer" && p.drop(5).all { it == "int" } -> BrandSplashPageAbi(4, 5)
         p.size == 7 && p[4] == "kotlin.jvm.functions.Function0" &&

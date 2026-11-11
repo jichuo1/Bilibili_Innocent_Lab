@@ -341,9 +341,9 @@ internal object KavaMemberLookup {
             name?.let(query::name)
             parameterTypes?.let { query.parameters(*it) }
             if (includeSuperclasses) query.hierarchy(Hierarchy.SUPERCLASSES)
-            val result = scope.resolve(query.build())
+            val result = scope.resolveRaw(query.build())
             when (result.status()) {
-                ResolutionStatus.RESOLVED -> scope.exportRaw(result.requireSingle())
+                ResolutionStatus.RESOLVED -> result.members().single()
                 ResolutionStatus.NOT_FOUND_IN_VISIBLE_UNIVERSE, ResolutionStatus.UNAVAILABLE -> null
                 else -> throw IncompleteMemberLookup(result.status())
             }
@@ -365,9 +365,9 @@ internal object KavaMemberLookup {
             name?.let(query::name)
             parameterTypes?.let { query.parameters(*it) }
             if (includeSuperclasses) query.hierarchy(Hierarchy.SUPERCLASSES)
-            val result = scope.resolve(query.build())
+            val result = scope.resolveRaw(query.build())
             if (!result.receipt().coverage().complete()) throw IncompleteMemberLookup(result.status())
-            result.members().map { scope.exportRaw(it) }
+            result.members()
         }
     }
 

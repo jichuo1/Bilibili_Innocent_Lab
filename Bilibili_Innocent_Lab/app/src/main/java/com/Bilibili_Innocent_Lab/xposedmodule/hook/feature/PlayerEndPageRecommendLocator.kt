@@ -15,6 +15,7 @@ internal object PlayerEndPageRecommendLocator {
     const val HANDLER = "com.bilibili.lib.moss.api.MossResponseHandler"
     const val SERVICE = "com.bilibili.ship.theseus.ugc.endpage.relatedrecommand.UGCEndPageRelatedRecommendService"
     const val PACKAGE = "com.bilibili.ship.theseus.ugc.endpage.relatedrecommand."
+    private const val REPACKAGED_MERGER = "afk2"
     const val EXPECTED_PATHS = 5
 
     data class Access(val reply: Class<*>, val sync: Method?, val async: Method?, val handler: Class<*>?,
@@ -42,7 +43,7 @@ internal object PlayerEndPageRecommendLocator {
         }.singleOrNull()
         val plan = ProtobufBuilderPlan.resolve(reply)
         val clear = plan?.method("clearRelates")
-        val mergedList = service?.let { postMergeList(it) ?: packageMerger(it) }
+        val mergedList = service?.let { postMergeList(it) ?: repackagedMerger(it) ?: packageMerger(it) }
         return Access(reply,
             if (moss != null && request != null) exact(moss, "executeViewEndPage", reply, request) else null,
             if (moss != null && request != null && handler?.isInterface == true)
@@ -88,7 +89,23 @@ internal object PlayerEndPageRecommendLocator {
             .singleOrNull()
     }
 
-    internal fun mergerAbi(method: Method): Boolean = method.declaringClass.name.startsWith(PACKAGE) && mergerShape(method)
+    // 9190200/9190400：服务字段 r 的实际类型是 afk2，服务与 selectedRelatedCardsFlow 都调用其 a(List, List)。
+    private fun repackagedMerger(service: Class<*>): Method? =
+        KavaMemberLookup.fieldOrNull(service, "r")
+            ?.takeIf { !Modifier.isStatic(it.modifiers) && it.type.name == REPACKAGED_MERGER }
+            ?.let { KavaMemberLookup.methodOrNull(it.type, "a", List::class.java, List::class.java) }
+            ?.takeIf { !Modifier.isStatic(it.modifiers) && mergerShape(it) }
+
+    internal fun mergerOwnerSupported(owner: String): Boolean =
+        owner.startsWith(PACKAGE) || owner == REPACKAGED_MERGER
+
+    internal fun mergerAbi(method: Method): Boolean {
+        if (!mergerShape(method)) return false
+        val owner = method.declaringClass
+        if (owner.name.startsWith(PACKAGE)) return true
+        return owner.name == REPACKAGED_MERGER &&
+            KavaMemberLookup.classOrNull(owner.classLoader, SERVICE)?.let(::repackagedMerger) == method
+    }
 
     private fun mergerShape(method: Method): Boolean = method.returnType == classOf<List<*>>() && method.parameterTypes.contentEquals(arrayOf(classOf<List<*>>(), classOf<List<*>>())) &&
         !method.isAbstract && !method.isBridge && !method.isSynthetic

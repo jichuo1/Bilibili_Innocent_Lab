@@ -71,7 +71,7 @@ class AdaptPlanWiringContractTest {
     }
 
     @Test fun `quickLocate runs every family through the plan executor with the right locator`() {
-        val quick = adapter.after("internal fun quickLocate(loader: ClassLoader, plan: AdaptPlan")
+        val quick = adapter.after("internal fun quickLocate(")
             .before("private val EMPTY_PAUSE_POINTS")
         val calls = locatorCalls(quick)
         assertEquals("每个家族恰好一次", PointFamily.entries.toSet(), calls.map { it.first }.toSet())
@@ -116,7 +116,8 @@ class AdaptPlanWiringContractTest {
         assertTrue(ensure.contains("if (!silentSupplement) runCatching { callback?.onAdaptStarted() }"))
         assertTrue(ensure.contains("if (!silentSupplement) runCatching { callback?.onAdaptFinished(result != null) }"))
         // 补适配用同一份有效缓存当历史，局部结果的沿用与覆盖范围都由 adapt 负责。
-        assertTrue(ensure.contains("adaptPlan, popupHistory, dexSource) }.getOrNull()"))
+        assertTrue(ensure.contains("val vc = startup.identity.versionCode"))
+        assertTrue(ensure.contains("adaptPlan, popupHistory, dexSource, vc) }.getOrNull()"))
         // 缓存只在整轮适配成功后写入，实时 quickLocate 的结果（版本号为 0）从不写盘。
         assertEquals(1, Regex("""writeCache\(adapted\)""").findAll(ensure).count())
         val usable = adapter.after("fun usableCache(highCandidateExists: Boolean, plan: AdaptPlan)").before("fun missingCoverage(")
@@ -128,7 +129,8 @@ class AdaptPlanWiringContractTest {
         assertEquals(1, Regex("""AdaptPlanner\.build\(""").findAll(entry).count())
         assertTrue(install.contains("val adaptPlan = AdaptPlanner.build(hookConfig)"))
         assertTrue("先于任何定位", install.indexOf("val adaptPlan = ") < install.indexOf("val startupCache by lazy"))
-        assertEquals(2, Regex("""VersionAdapter\.quickLocate\(biliClassLoader, adaptPlan(?:, locateTimings)?\)""").findAll(entry).count())
+        assertEquals(2, Regex("""VersionAdapter\.quickLocate\(biliClassLoader, adaptPlan(?:, locateTimings, hostVersionCode)?\)""").findAll(entry).count())
+        assertTrue(install.contains("val hostVersionCode = startupCache.identity.versionCode"))
         // 计时观察点只在 debug 构建创建，release 的同步路径不计时。
         assertTrue(entry.contains("if (com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG) LocateTimings() else null"))
         assertEquals("不得再有不带计划的同步定位", 0, Regex("""VersionAdapter\.quickLocate\(biliClassLoader\)""").findAll(entry).count())

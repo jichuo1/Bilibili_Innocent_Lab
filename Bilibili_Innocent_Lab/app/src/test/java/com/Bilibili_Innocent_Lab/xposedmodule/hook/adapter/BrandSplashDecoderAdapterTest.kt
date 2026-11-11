@@ -39,6 +39,18 @@ class BrandSplashDecoderAdapterTest {
         assertEquals(0, loads)
     }
 
+    @Test fun `918 owners and 919 method rename resolve the verified decoder only`() {
+        for (name in listOf("Vx1.a", "Ux1.a")) {
+            assertEquals(first, BrandSplashDecoderAdapter.direct(mapped(name to first.declaringClass)))
+        }
+        val latest = BrandDecoderFixtures.Latest::class.java
+        val b = latest.getDeclaredMethod("b", tv.danmaku.bili.ui.splash.brand.model.BrandShowInfo::class.java)
+        val host = mapped("cgk" to latest)
+        assertEquals(b, BrandSplashDecoderAdapter.direct(host))
+        assertFalse(BrandSplashDecoderAdapter.needsQuery(host, null, true, false))
+        assertNull(BrandSplashDecoderAdapter.direct(mapped("cgk" to latest, "Vx1.a" to first.declaringClass)))
+    }
+
     @Test fun `semantic candidates need unique owner and exact runtime ABI`() {
         fun select(methods: List<java.lang.reflect.Method>) = BrandSplashDecoderAdapter.locate(loader,
             DexAssistSession(DexAssistEngine { DexAssistResult.Candidates(methods) }, listOf("base.apk"), loader,

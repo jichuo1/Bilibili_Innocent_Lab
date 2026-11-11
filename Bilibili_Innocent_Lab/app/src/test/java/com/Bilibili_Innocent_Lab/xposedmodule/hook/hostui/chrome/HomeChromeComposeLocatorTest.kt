@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeChromeAdapter
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -83,6 +85,33 @@ class HomeChromeComposeLocatorTest {
         assertTrue(HomeChromeComposeLocator.acceptsTopContent(topOwner, false, "void", listOf(composer, "int"), fields))
         assertFalse(HomeChromeComposeLocator.acceptsTopContent(topOwner, false, "void", listOf(composer, "int"), fields.drop(1)))
         assertFalse(HomeChromeComposeLocator.acceptsTopContent("foreign.page.Row", false, "java.lang.Object", List(2) { "java.lang.Object" }, fields))
+    }
+
+    @Test fun `919 repackaged chrome admits only its original roles and exact flat model types`() {
+        val top = listOf("rco0") + prefix.drop(1) + listOf("boolean", f1, f1, composer, "int")
+        val backdrop = listOf("rco0", f1, composer, "int")
+        val bottomRoot = bottom.toMutableList().apply { this[5] = "dlu1"; this[8] = "klu1" }
+        val item = listOf("int", "i1o0", "h8k", modifier, "boolean", "kotlin.jvm.functions.Function3", composer, "int")
+        assertTrue(HomeChromeComposeLocator.accepts("top", topOwner, top))
+        assertTrue(HomeChromeComposeLocator.accepts("top_backdrop", "ulo0", backdrop))
+        assertTrue(HomeChromeComposeLocator.accepts("bottom", "w0o0", bottomRoot))
+        assertTrue(HomeChromeComposeLocator.accepts("bottom_item", "tv.danmaku.bili.khome.widget.bottomtab.a", item))
+        assertFalse(HomeChromeComposeLocator.accepts("top_backdrop", "other0", backdrop))
+        assertFalse(HomeChromeComposeLocator.accepts("top_backdrop", "ulo0", listOf("pkg.Other") + backdrop.drop(1)))
+        assertFalse(HomeChromeComposeLocator.accepts("bottom", "w0o0", bottom))
+        assertFalse(HomeChromeComposeLocator.accepts("bottom_item", "tv.danmaku.bili.khome.widget.bottomtab.b", item))
+        assertTrue(HomeChromeAdapter.validCache(mapOf("top_backdrop" to HookPoint("ulo0", "e", backdrop))))
+        assertFalse(HomeChromeAdapter.validCache(mapOf("top_layout" to HookPoint("ulo0", "e", backdrop))))
+    }
+
+    @Test fun `919 tabs lambda allows widened functions and excludes the trace sibling`() {
+        val args = List(2) { "java.lang.Object" }
+        val fields = listOf("androidx.compose.foundation.ScrollState", "kotlin.jvm.functions.Function2",
+            "kotlin.jvm.functions.Function3", "kotlin.jvm.functions.Function2", "androidx.compose.runtime.State",
+            "androidx.compose.runtime.MutableIntState")
+        assertTrue(HomeChromeComposeLocator.acceptsTopContent("h330", false, "java.lang.Object", args, fields))
+        assertFalse(HomeChromeComposeLocator.acceptsTopContent("j330", false, "java.lang.Object", args, fields))
+        assertFalse(HomeChromeComposeLocator.acceptsTopContent("h330", false, "java.lang.Object", args, fields.dropLast(1)))
     }
 
     @Test fun `old static content allows null divider while requiring native tabs and captures`() {

@@ -12,7 +12,7 @@ import java.lang.reflect.Field
  * 逐版漂移（8.84/8.90.2 `widget.g`、9.1/9.11/9.17.0 `widget.h`、9.16.1 `widget.i`），回调字段还会被
  * R8 合并成实现了 `kotlin.jvm.functions.Function0` 的具体类（9.11 起），所以只按结构认：
  * - 父类恰好是宿主 `RecyclerView$OnScrollListener`，同时实现 `RecyclerView$OnChildAttachStateChangeListener`；
- * - 位于 `com.bilibili.pegasus.` 包下；
+ * - 位于 `com.bilibili.pegasus.` 包下，或是已核对从同一 Fragment 注册的 9.19.0 根包监听器；
  * - 实例字段恰好三个：一个可赋值给宿主 `Function0`（加载回调）、一个 `int`（预加载行数）、一个 `boolean`
  *   （首刷完成前为 false 的启用开关）。`BaseListFragment$a` 等同样实现两个接口的类字段形状不同，不会误认。
  *
@@ -21,13 +21,18 @@ import java.lang.reflect.Field
 internal class PegasusLoadMoreShape private constructor(val callback: Field, val enabled: Field) {
     companion object {
         const val PACKAGE_PREFIX = "com.bilibili.pegasus."
+        // 9190200/9190400: PegasusFragment.onViewCreated registers d571(w32) for both listener roles.
+        private const val RELOCATED_LISTENER = "d571"
+        private const val RELOCATED_CALLBACK = "w32"
 
         fun of(type: Class<*>, scrollListener: Class<*>, childAttachListener: Class<*>, function0: Class<*>): PegasusLoadMoreShape? {
             if (type.superclass != scrollListener || !childAttachListener.isAssignableFrom(type)) return null
-            if (!type.name.startsWith(PACKAGE_PREFIX)) return null
+            val relocated = type.name == RELOCATED_LISTENER
+            if (!relocated && !type.name.startsWith(PACKAGE_PREFIX)) return null
             val fields = KavaMemberLookup.declaredFields(type) { !it.isStatic }
             if (fields.size != 3) return null
             val callback = fields.singleOrNull { function0.isAssignableFrom(it.type) } ?: return null
+            if (relocated && callback.type.name != RELOCATED_CALLBACK) return null
             if (fields.count { it.type == Int::class.javaPrimitiveType } != 1) return null
             val enabled = fields.singleOrNull { it.type == Boolean::class.javaPrimitiveType } ?: return null
             val accessible = KavaMemberLookup.declaredFields(type, makeAccessible = true) {

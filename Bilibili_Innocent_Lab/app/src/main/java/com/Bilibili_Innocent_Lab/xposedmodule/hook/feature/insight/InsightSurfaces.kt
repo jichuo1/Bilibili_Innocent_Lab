@@ -3,15 +3,19 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight
 import android.content.res.ColorStateList
 import android.view.View
 import android.view.ViewTreeObserver
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.TextView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeColors
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.lumen.coacervation.engine.host.LumenAcrylicOptions
+import com.lumen.coacervation.engine.host.LumenControlOutline
 import com.lumen.coacervation.engine.host.LumenFluentControl
 import com.lumen.coacervation.engine.host.LumenFluentControlOptions
 import com.lumen.coacervation.engine.host.LumenFluentElevation
 import com.lumen.coacervation.engine.host.LumenFluentElevationOptions
+import com.lumen.coacervation.engine.model.LumenPalette
 
 /** 使用项目已有宿主取色边界和 Lumen Fluent 控件；无独立固定配色。 */
 internal class InsightSurfaces(private val root: View, private val panel: Boolean = true) : AutoCloseable {
@@ -21,9 +25,11 @@ internal class InsightSurfaces(private val root: View, private val panel: Boolea
     private val icons = mutableListOf<ImageView>()
     private val labels = mutableListOf<Pair<TextView, Boolean>>()
     private val observer = ViewTreeObserver.OnPreDrawListener {
-        val next = theme.read()
-        if (next != colors) { colors = next; refresh() }
-        true
+        HostThreadGuard.call("insight.surface.theme", true) {
+            val next = theme.read()
+            if (next != colors) { colors = next; refresh() }
+            true
+        }
     }
     private var tree: ViewTreeObserver? = null
     init {
@@ -39,8 +45,12 @@ internal class InsightSurfaces(private val root: View, private val panel: Boolea
     }
     fun label(view: TextView, accent: Boolean = false) {
         labels += view to accent
-        view.setTextColor(if (accent) colors.palette().primary else colors.palette().textPrimary)
-        view.setLinkTextColor(colors.palette().primary)
+        styleLabel(view, accent, colors.palette())
+    }
+    private fun styleLabel(view: TextView, accent: Boolean, palette: LumenPalette) {
+        view.setTextColor(if (accent) palette.primary else palette.textPrimary)
+        view.setLinkTextColor(palette.primary)
+        if (view is EditText) view.foreground = LumenControlOutline.create(view.context, palette.primary, 12f)
     }
     private fun options(button: Boolean, panel: Boolean) = LumenFluentControlOptions(
         // 简介滚动头部与结果正文使用实色，避免字幕/视频透过文本；形状和状态层由 Lumen 绘制。
@@ -50,14 +60,12 @@ internal class InsightSurfaces(private val root: View, private val panel: Boolea
             shadowEnabled = false, strokeEnabled = panel || button, pressedLowersElevation = !panel),
         cornerRadiusDp = if (panel) 16f else if (button) 12f else 22f, stateLayerEnabled = !panel, focusVisualEnabled = !panel)
     private fun refresh() {
+        val palette = colors.palette()
         controls.forEachIndexed { index, (control, button) ->
-            control.updatePalette(colors.palette()); control.update(options(button, panel && index == 0))
+            control.updatePalette(palette); control.update(options(button, panel && index == 0))
         }
-        icons.forEach { it.imageTintList = ColorStateList.valueOf(colors.palette().textPrimary) }
-        labels.forEach { (view, accent) ->
-            view.setTextColor(if (accent) colors.palette().primary else colors.palette().textPrimary)
-            view.setLinkTextColor(colors.palette().primary)
-        }
+        icons.forEach { it.imageTintList = ColorStateList.valueOf(palette.textPrimary) }
+        labels.forEach { (view, accent) -> styleLabel(view, accent, palette) }
     }
     override fun close() {
         tree?.takeIf { it.isAlive }?.removeOnPreDrawListener(observer); tree = null

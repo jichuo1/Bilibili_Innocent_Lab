@@ -13,7 +13,7 @@ import java.util.zip.ZipFile
  *
  * 指纹只读取 `classes*.dex` 的 CRC 与尺寸元数据，不加载 DEX；绝对安装路径和
  * 非代码 split 不参与摘要，因此同一构建重新安装后仍得到同一结果。
- * NPatch / LSPatch 的外层只有 loader：后台先有界提取并验证原版 APK，指纹和 DexKit 必须共用该来源。
+ * NPatch / LSPatch 的外层只有 loader：后台先有界提取并验证原版 APK，指纹和 DexMeguviz 必须共用该来源。
  */
 internal object DexSourceFingerprint {
 
@@ -25,7 +25,7 @@ internal object DexSourceFingerprint {
 
     data class Result(
         val value: String,
-        /** 实际含 DEX 的 APK 路径；供后台 DexKit 查询使用，不写入缓存。 */
+        /** 实际含 DEX 的 APK 路径；供后台 DexMeguviz 查询使用，不写入缓存。 */
         val codePaths: List<String>,
         val dexEntryCount: Int
     )
@@ -269,7 +269,7 @@ internal object DexSourceFingerprint {
             }
         }
         fun recency(source: File) = maxOf(source.lastModified(), marker(source).lastModified())
-        // 先收集本次全部 base/split；保留当前来源及一份历史来源，不删除尚未交给 DexKit 的 split。
+        // 先收集本次全部 base/split；保留当前来源及一份历史来源，不删除尚未交给 DexMeguviz 的 split。
         cache.listFiles()?.filter { it.absolutePath !in activePaths && it.name.matches(SOURCE_NAME) }
             ?.sortedByDescending(::recency)?.drop(1)?.forEach { it.delete(); marker(it).delete() }
         cache.listFiles()?.filter { it.name.endsWith(VERIFIED_SUFFIX) &&

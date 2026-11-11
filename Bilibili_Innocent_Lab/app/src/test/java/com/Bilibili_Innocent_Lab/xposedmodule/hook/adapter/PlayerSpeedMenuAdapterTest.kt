@@ -1,7 +1,10 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 
+import FlatPlayerSpeedFactory
+import FlatPlayerSpeedOption
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.*
+import com.bilibili.lib.media.resource.MediaResource
 import com.bilibili.playerbizcommonv2.widget.speed.RenamedSpeedAdapter
 import com.bilibili.playerbizcommonv2.widget.speed.OtherRenamedSpeedAdapter
 import org.json.JSONObject
@@ -64,5 +67,17 @@ class PlayerSpeedMenuAdapterTest {
             assertFalse(points.isStructurallyValid())
             assertNull(PlayerSpeedMenuPoints.fromJson(points.toJson()))
         }
+    }
+
+    @Test fun `root package three parameter factory requires its linked option model`() {
+        val factory = FlatPlayerSpeedFactory::class.java.getDeclaredMethod("options", MediaResource::class.java,
+            Int::class.javaObjectType, Int::class.javaPrimitiveType)
+        assertNull(PlayerSpeedMenuAdapter.select(loader, DexAssistResult.Candidates(listOf(factory))))
+        val points = requireNotNull(PlayerSpeedMenuAdapter.select(loader, DexAssistResult.Candidates(listOf(factory),
+            relatedClasses = mapOf(factory to listOf(FlatPlayerSpeedOption::class.java)))))
+        assertEquals(points, PlayerSpeedMenuPoints.fromJson(points.toJson()))
+        assertEquals(factory, PlayerSpeedMenuAdapter.resolve(loader, points)?.factory?.factoryMethod)
+        assertNull(PlayerSpeedMenuPoints.fromJson(points.copy(factory = points.factory!!.copy(paramClassNames =
+            listOf(PlayerSpeedLocator.MEDIA_RESOURCE, "java.lang.Integer", "boolean", "int"))).toJson()))
     }
 }

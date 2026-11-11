@@ -12,4 +12,7 @@ public final class HomeUserCenterFragment {
 
     public static void bind(HomeUserCenterFragment fragment, AccountMine accountMine) {
     }
+
+    public final void ug(AccountMine accountMine) {
+    }
 }

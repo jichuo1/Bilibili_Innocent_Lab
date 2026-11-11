@@ -25,9 +25,25 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
     private enum class Role { TOOLBAR, SEARCH, FILTER, AUTHORS }
     private class Target(val role: Role) {
         var binding: LumenSurfaceBinding? = null
-        var drawable: Drawable? = null
-        var options: LumenSurfaceOptions? = null
     }
+
+    private class Style(night: Boolean) {
+        val palette = LumenPalette.neutral(night)
+        val full = options(night, 1f)
+        val end = options(night, 0f)
+        val authorsEnd = options(night, .15f)
+
+        private fun options(night: Boolean, fadeHold: Float) = LumenSurfaceOptions(
+            material = LumenSurfaceMaterial.FROSTED, role = SurfaceRole.TOP_BAR, radiusDp = 0f,
+            color = if (night) 0xFF181A20.toInt() else 0xFFF8F9FC.toInt(),
+            tintOpacity = .42f, fallbackTintOpacity = .42f, backdropOpacity = 1f,
+            edgeEnabled = false,
+            sampling = LumenSurfaceSampling(refractionEnabled = false, blurRadiusDp = 18f,
+                softwareBlurRadiusDp = 12f, maxSoftwarePixels = 48_000,
+                fadeEnabled = true, fadeHold = fadeHold, fadeEnd = 1f)
+        )
+    }
+
     private val root = WeakReference(root)
     private val targets = WeakHashMap<View, Target>()
     private var session: LumenSurfaceSession? = null
@@ -36,7 +52,6 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
     private var version: Long? = null
     private var statusBand: View? = null
     private var statusBinding: LumenSurfaceBinding? = null
-    private var statusRole: Role? = null
     private val location = IntArray(2)
     private val visibleBounds = Rect()
 
@@ -79,7 +94,8 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
     fun apply(night: Boolean) {
         val root = root.get() ?: return
         if (targets.isEmpty()) { hideStatusBar(); return }
-        val palette = LumenPalette.neutral(night)
+        val style = if (night) darkStyle else lightStyle
+        val palette = style.palette
         val changed = dark != night
         val active = session ?: LumenSurfaceSession(root.context, palette,
             LumenSurfaceSessionOptions(maxSurfaces = 8, pauseWhenWindowUnfocused = false)).also {
@@ -94,43 +110,43 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
         }
         for ((view, target) in targets) {
             if (!view.isShown) continue
-            val options = options(target.role, night, continuesBelow(view))
-            if (target.binding?.isBound != true || view.background !== target.drawable) {
-                target.binding?.close()
-                val padding = intArrayOf(view.paddingLeft, view.paddingTop, view.paddingRight, view.paddingBottom)
-                target.binding = active.bindSource(view, options, source)
-                target.drawable = view.background
-                target.drawable?.let { owned[view] = it }
-                view.setPadding(padding[0], padding[1], padding[2], padding[3])
-            } else if (target.options != options) target.binding?.update(options)
-            target.options = options
+            // 搜索栏始终保持完整材质，其它栏位只在整组最下沿渐隐。
+            val options = when {
+                target.role == Role.SEARCH || continuesBelow(view) -> style.full
+                target.role == Role.AUTHORS -> style.authorsEnd
+                else -> style.end
+            }
+            val binding = active.ensureSource(view, options, source)
+            if (binding !== target.binding) {
+                target.binding = binding
+                view.background?.let { owned[view] = it }
+            }
         }
-        syncStatusBar(active, night, changed)
+        syncStatusBar(active, style.full)
         val next = source?.contentVersion
         if (version != next || changed) { version = next; active.notifyContentChanged() }
     }
 
     private fun hideStatusBar() {
         statusBinding?.close(); statusBinding = null
-        statusRole = null
         statusBand?.visibility = View.GONE
     }
 
-    private fun syncStatusBar(active: LumenSurfaceSession, night: Boolean, changed: Boolean) {
+    private fun syncStatusBar(active: LumenSurfaceSession, options: LumenSurfaceOptions) {
         val root = root.get() ?: return
         // 只有窗口根能够绘制系统图标背后的区域；子 Fragment 不能重复加一层。
         if (root !== root.rootView || root !is FrameLayout) return
         val inset = root.rootStatusBarInsetTopOrNull() ?: 0
         if (inset <= 0) { hideStatusBar(); return }
         val tolerance = root.resources.displayMetrics.density * 2f
-        val role = targets.entries.firstOrNull { (view, _) ->
+        val touchesStatusBar = targets.keys.any { view ->
             if (!visibleChrome(view, root)) false
             else {
                 view.getLocationInWindow(location)
                 location[1] <= inset + tolerance && location[1] + view.height > inset
             }
-        }?.value?.role
-        if (role == null) { hideStatusBar(); return }
+        }
+        if (!touchesStatusBar) { hideStatusBar(); return }
         val band = statusBand ?: View(root.context).apply {
             isClickable = false
             isFocusable = false
@@ -142,11 +158,7 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
         }
         band.visibility = View.VISIBLE
         // 与相邻栏共用源、模糊半径和色罩，保留壁纸的窗口坐标，系统图标由系统照常绘制。
-        if (statusBinding?.isBound != true || statusRole != role) {
-            statusBinding?.close()
-            statusBinding = active.bindSource(band, options(role, night, true), source)
-            statusRole = role
-        } else if (changed) statusBinding?.update(options(role, night, true))
+        statusBinding = active.ensureSource(band, options, source)
     }
 
     private fun visibleChrome(view: View, root: ViewGroup): Boolean {
@@ -174,19 +186,6 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
         }
     }
 
-    private fun options(role: Role, night: Boolean, continues: Boolean) = LumenSurfaceOptions(
-        material = LumenSurfaceMaterial.FROSTED, role = SurfaceRole.TOP_BAR, radiusDp = 0f,
-        color = if (night) 0xFF181A20.toInt() else 0xFFF8F9FC.toInt(),
-        // 搜索栏始终保持完整材质；下方分类栏收起时，不能把渐隐起点移到搜索框上方。
-        // 相邻栏位共用强度，分类/作者栏只在整组最下沿平滑消隐。
-        tintOpacity = .42f, fallbackTintOpacity = .42f, backdropOpacity = 1f,
-        edgeEnabled = false,
-        sampling = LumenSurfaceSampling(refractionEnabled = false, blurRadiusDp = 18f,
-            softwareBlurRadiusDp = 12f, maxSoftwarePixels = 48_000,
-            fadeEnabled = true, fadeHold = if (continues || role == Role.SEARCH) 1f else if (role == Role.AUTHORS) .15f else 0f,
-            fadeEnd = 1f)
-    )
-
     override fun close() {
         hideStatusBar()
         statusBand?.let { (it.parent as? ViewGroup)?.removeView(it) }
@@ -195,9 +194,14 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
         source = null; dark = null; version = null
         for ((view, target) in targets) {
             owned.remove(view)
-            target.binding = null; target.drawable = null
+            target.binding = null
         }
     }
 
     private fun name(view: View) = HostViewResourceNames.name(view)
+
+    private companion object {
+        val lightStyle = Style(night = false)
+        val darkStyle = Style(night = true)
+    }
 }

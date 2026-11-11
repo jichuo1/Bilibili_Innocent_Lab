@@ -7,7 +7,8 @@ import java.lang.reflect.Modifier
 /** 保留暂停协议中的正常配置，独立安装面板、倒计时和 Java/Kotlin 响应清理。 */
 internal class PausedAdFeatureInstaller(
     private val enabled: Boolean,
-    private val points: VersionAdapter.PausePoints?
+    private val points: VersionAdapter.PausePoints?,
+    private val hostVersionCode: Int? = null
 ) : FeatureInstaller {
     override val id: String = ID
 
@@ -25,7 +26,7 @@ internal class PausedAdFeatureInstaller(
         points?.legacyCallback?.let { requestOwners += it.className }
         REQUEST_CARRIERS.forEach { if (KavaMemberLookup.classOrNull(loader, it) != null) requestOwners += it }
         if (requestOwners.isNotEmpty()) environment.logInfo("paused_request_preserved",
-            "[BIL] 暂停请求载荷角色未证实为纯广告，保留正常 bar/取消语义；请求层未安装，转交响应层")
+            "[BIL] 暂停请求同时承载正常 bar，保留宿主请求和取消语义")
         val requestFamilies = PauseCountdownAdapter.requestFamilies(requestOwners)
         var expected = requestFamilies.size
         var hookCount = 0
@@ -92,13 +93,19 @@ internal class PausedAdFeatureInstaller(
             response.complete -> "success"
             else -> "partial:${response.installed}/${response.expected}"
         })
-        val complete = expected > 0 && hookCount == expected
+        val protectedFamilies = PauseRequestCoverage.covered(loader, hostVersionCode, requestFamilies, response.kotlinInstalled)
+        val ready = hookCount + protectedFamilies.size
+        val complete = expected > 0 && ready == expected
+        if (requestFamilies.isNotEmpty()) environment.reportStatus("adskip_request_routes",
+            requestFamilies.sorted().joinToString(",") { family ->
+                "$family=${if (family in protectedFamilies) "covered-by-kotlin-response" else "preserved-unverified"}"
+            })
         environment.reportStatus(CHANNEL_STATUS, when {
             hookCount == 0 -> "failed"
             complete -> "success"
-            else -> "partial:$hookCount/$expected"
+            else -> "partial:$ready/$expected"
         })
-        environment.logInfo("paused_coverage", "[BIL] 暂停广告安装覆盖=$hookCount/$expected，响应=${response.installed}/${response.expected}，请求家族=${requestFamilies.size}、载体=${requestOwners.size}（保留宿主）")
+        environment.logInfo("paused_coverage", "[BIL] 暂停广告覆盖=$ready/$expected，实际注册=$hookCount，响应=${response.installed}/${response.expected}，请求家族=${protectedFamilies.size}/${requestFamilies.size}、载体=${requestOwners.size}")
         return if (hookCount > 0) {
             environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
             FeatureInstallResult.Installed(hookCount, complete)

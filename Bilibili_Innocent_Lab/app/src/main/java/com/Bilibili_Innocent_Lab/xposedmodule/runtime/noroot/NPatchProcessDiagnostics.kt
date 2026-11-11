@@ -10,7 +10,7 @@ import android.os.HandlerThread
 import android.os.Looper
 import androidx.core.content.ContextCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexKitAssistEngine
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexMeguvizAssistEngine
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationNative
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.CrossAppBroadcastCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsQueryContract
@@ -94,7 +94,7 @@ internal object NPatchProcessDiagnostics {
                         runCatching {
                             val extras = getResultExtras(true)
                             val rows = NPatchProcessCodec.decode(extras.getString("rows") ?: "[]") ?: return@run
-                            val row = current?.copy(dexKitState = DexKitAssistEngine.nativeAvailability(),
+                            val row = current?.copy(dexKitState = DexMeguvizAssistEngine.nativeAvailability(),
                                 frameNativeState = FrameInterpolationNative.status.name,
                                 startups = startup.snapshot(),
                                 guardedFailures = com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard.failureCounts()

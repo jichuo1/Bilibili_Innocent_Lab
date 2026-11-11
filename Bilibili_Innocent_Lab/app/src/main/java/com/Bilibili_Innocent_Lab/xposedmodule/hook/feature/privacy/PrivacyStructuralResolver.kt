@@ -13,9 +13,8 @@ import java.lang.reflect.Method
  *  - (C) structural shape: the SINGLE declared member on a (named) class matching a predicate —
  *    return type, parameter shape, modifiers ([uniqueMethod], [uniqueField]). Ambiguity fails
  *    CLOSED (returns null), never a guessed overload.
- *  - (B) DexKit structural fingerprint for obfuscated-class points — handled by the existing
- *    [com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistSession], threaded in by the
- *    caller when available; not part of this helper.
+ *  - (B) Background DexMeguviz lookup for obfuscated-class points is owned by the caller's
+ *    [com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistSession], when available.
  *
  * Every result is a reflective member resolved on the host ClassLoader, so callers keep the same
  * caching/invoke discipline as [PrivacyHostAccess]. This helper never holds host instances.

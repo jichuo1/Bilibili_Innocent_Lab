@@ -8,7 +8,7 @@ import java.lang.reflect.ParameterizedType
 internal data class FeedbackTag(val id: Long, val name: String)
 
 /**
- * Theseus 的卡片 → 三点数据 → 原因列表。只认同一模型包中的唯一结构路径。
+ * Theseus 的卡片 → 三点数据 → 原因列表。只认旧模型包和已核实的迁移类型。
  * 原因主构造器的语义由 RelateDislike mapper 证实为 id/mid/tagId/rid/name；
  * 混淆字段通过哨兵回读标定，不依赖字段名、声明顺序或面板文案。
  */
@@ -52,8 +52,12 @@ internal class RelatedFeedbackTags private constructor(
     companion object {
         fun resolve(cardClass: Class<*>): RelatedFeedbackTags? = runCatching {
             val prefix = cardClass.name.substringBeforeLast('.') + "."
+            val relocated = cardClass.name == RELOCATED_CARD
+            val cardTypeName = if (relocated) RELOCATED_CARD_TYPE else prefix + "RelateCardType"
+            fun isCardModel(type: Class<*>): Boolean =
+                if (relocated) type.name in RELOCATED_MODELS else type.name.startsWith(prefix)
             // Card type enum is an independent anchor; unrelated model graphs cannot qualify.
-            if (fields(cardClass).count { it.type.name == prefix + "RelateCardType" } != 1) {
+            if (fields(cardClass).count { it.type.name == cardTypeName } != 1) {
                 return@runCatching null
             }
             val paths = ArrayList<Pair<List<Field>, Class<*>>>()
@@ -63,8 +67,8 @@ internal class RelatedFeedbackTags private constructor(
                     if (List::class.java.isAssignableFrom(field.type)) {
                         val element = (field.genericType as? ParameterizedType)
                             ?.actualTypeArguments?.singleOrNull() as? Class<*> ?: continue
-                        if (element.name.startsWith(prefix)) paths.add((path + field) to element)
-                    } else if (field.type.name.startsWith(prefix) && !field.type.isEnum) {
+                        if (isCardModel(element)) paths.add((path + field) to element)
+                    } else if (isCardModel(field.type) && !field.type.isEnum) {
                         visit(field.type, path + field, seen + type)
                     }
                 }
@@ -93,6 +97,11 @@ internal class RelatedFeedbackTags private constructor(
             }
             RelatedFeedbackTags(cardClass, candidates.map { it.first }, tag, name)
         }.getOrNull()
+
+        // 9.19.0: bjx1.d -> iox1.a/b -> hkx1.f -> List<wmx1>; b660.h maps DislikeReasons.tagId.
+        private const val RELOCATED_CARD = "bjx1"
+        private const val RELOCATED_CARD_TYPE = "com.bilibili.ship.theseus.united.page.intro.module.relate.RelateCardType"
+        private val RELOCATED_MODELS = setOf("iox1", "hkx1", "wmx1")
 
         private fun fields(type: Class<*>): List<Field> = KavaMemberLookup.declaredFields(type, makeAccessible = true) {
             !Modifier.isStatic(it.modifiers) && !it.isSynthetic

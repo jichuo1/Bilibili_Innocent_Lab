@@ -4,6 +4,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import java.lang.reflect.Field
 import java.lang.reflect.Method
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isAbstract
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 
 /** Stable business anchors; obfuscated owners are derived from validated member types. */
@@ -18,6 +19,9 @@ internal object PlayerSpeedSessionLocator {
     const val INDEX = "com.bilibili.lib.media.resource.PlayIndex"
     const val ITEM = "tv.danmaku.videoplayer.coreV2.MediaItem"
     const val WRAPPER = "com.bilibili.ship.theseus.united.player.oldway.playercontainer.TheseusPlayerContainerProvider\$providePlayerContainer\$playerContainer\$1\$1\$1"
+    private const val KEEL_PACKAGE = "com.bilibili.ship.theseus.keel.player."
+    private const val CONTINUATION = "kotlin.coroutines.Continuation"
+    private const val CONTINUATION_IMPL = "kotlin.coroutines.jvm.internal.ContinuationImpl"
 
     data class Modern(val run: Method, val active: Method, val params: Method,
         val aid: Method, val cid: Method, val manager: Field, val wrapper: java.lang.reflect.Constructor<*>?)
@@ -27,32 +31,47 @@ internal object PlayerSpeedSessionLocator {
         val params = Lookup.classOrNull(loader, PARAMS) ?: return null
         val manager = Lookup.classOrNull(loader, PlayerSpeedLocator.SPEED_MANAGER) ?: return null
         val owner = Lookup.declaredFields(continuation, true) {
-            !it.isStatic && it.type.name.startsWith("com.bilibili.ship.theseus.keel.player.") &&
+            !it.isStatic && it.type.name.startsWith(KEEL_PACKAGE) &&
                 it.type != continuation
         }.singleOrNull()?.type ?: return null
+        modern(owner, params, manager, Lookup.classOrNull(loader, WRAPPER))
+    }.getOrNull()
+
+    internal fun modern(owner: Class<*>, params: Class<*>, manager: Class<*>, wrapperClass: Class<*>?): Modern? {
         val managerField = Lookup.declaredFields(owner, true) { !it.isStatic && it.type == manager }
             .singleOrNull() ?: return null
-        val run = Lookup.declaredMethods(owner, true) {
-            !it.isStatic && it.returnType == classOf<Any>() &&
-                it.parameterCount == 2 && it.parameterTypes[1].name in setOf("kotlin.coroutines.Continuation", "kotlin.coroutines.jvm.internal.ContinuationImpl") &&
-                it.parameterTypes[0].isInterface && it.parameterTypes[0].name.startsWith("com.bilibili.ship.theseus.keel.player.")
-        }.singleOrNull() ?: return null
-        val playable = run.parameterTypes[0]
-        val active = Lookup.declaredMethods(owner, true) {
-            !it.isStatic && it.parameterCount == 0 && it.returnType == playable
-        }.singleOrNull() ?: return null
-        val getParams = Lookup.declaredMethods(playable, true) {
-            !it.isStatic && it.parameterCount == 0 && it.returnType == params
-        }.singleOrNull() ?: return null
-        val aid = Lookup.methodOrNull(params, "getAvid")?.takeIf { it.returnType == classOf<Long>() && it.parameterCount == 0 } ?: return null
-        val cid = Lookup.methodOrNull(params, "getCid")?.takeIf { it.returnType == classOf<Long>() && it.parameterCount == 0 } ?: return null
-        val wrapper = Lookup.classOrNull(loader, WRAPPER)?.let { cls ->
+        val aid = Lookup.methodOrNull(params, "getAvid")?.takeIf { !it.isStatic && it.returnType == classOf<Long>() } ?: return null
+        val cid = Lookup.methodOrNull(params, "getCid")?.takeIf { !it.isStatic && it.returnType == classOf<Long>() } ?: return null
+        val wrapper = wrapperClass?.let { cls ->
             Lookup.declaredConstructors(cls, true) {
-                it.parameterTypes.map { type -> type.name } == listOf(CORE, owner.name, "kotlinx.coroutines.CoroutineScope")
+                val parameters = it.parameterTypes
+                parameters.size == 3 && parameters[0].name == CORE && parameters[1] === owner &&
+                    parameters[2].name == "kotlinx.coroutines.CoroutineScope"
             }.singleOrNull()
         }
-        Modern(run, active, getParams, aid, cid, managerField, wrapper)
-    }.getOrNull()
+        val methods = Lookup.declaredMethods(owner, true)
+        return methods.mapNotNull { run ->
+            if (run.isStatic || run.isAbstract || run.isBridge || run.returnType != classOf<Any>() || run.parameterCount != 2) {
+                return@mapNotNull null
+            }
+            val (playable, continuation) = run.parameterTypes
+            if (!playable.isInterface || (continuation.name != CONTINUATION && continuation.name != CONTINUATION_IMPL)) {
+                return@mapNotNull null
+            }
+            // 9.19 moves the playable interface to the root package. Require the resume ABI and
+            // the same keel owner in the core wrapper before considering that relocated interface.
+            val relocated = wrapper != null && continuation.name == CONTINUATION_IMPL &&
+                PlayerSpeedMenuAdapter.flattenedOwner(playable.name)
+            if (!playable.name.startsWith(KEEL_PACKAGE) && !relocated) return@mapNotNull null
+            val active = methods.singleOrNull {
+                !it.isStatic && !it.isAbstract && !it.isBridge && it.parameterCount == 0 && it.returnType == playable
+            } ?: return@mapNotNull null
+            val getParams = Lookup.declaredMethods(playable, true) {
+                !it.isStatic && !it.isBridge && it.parameterCount == 0 && it.returnType == params
+            }.singleOrNull() ?: return@mapNotNull null
+            Modern(run, active, getParams, aid, cid, managerField, wrapper)
+        }.singleOrNull()
+    }
 
     data class Prepared(val register: Method, val core: Class<*>, val listener: Class<*>, val player: Class<*>,
         val media: Method, val item: Method, val itemId: Method, val index: Method, val from: Field,

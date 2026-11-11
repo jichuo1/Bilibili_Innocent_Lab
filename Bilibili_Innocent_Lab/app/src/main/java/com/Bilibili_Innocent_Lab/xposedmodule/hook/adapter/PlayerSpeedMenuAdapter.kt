@@ -18,13 +18,13 @@ data class PlayerSpeedMenuPoints(
 ) {
     fun isStructurallyValid(): Boolean =
         (adapter != null || factory != null) &&
-            (adapter == null || validPoint(adapter, PlayerSpeedLocator.SPEED_WIDGET_PKG) &&
+            (adapter == null || validPoint(adapter, PlayerSpeedLocator.SPEED_WIDGET_PKG, allowFlattened = true) &&
                 adapter.paramClassNames in listOf(listOf("float"), listOf("float", "java.util.List"))) &&
-            (factory == null || validPoint(factory, PlayerSpeedLocator.SPEED_UTILS_PKG) &&
-                factory.paramClassNames == listOf(PlayerSpeedLocator.MEDIA_RESOURCE, "java.lang.Integer", "boolean", "int")) &&
+            (factory == null || validPoint(factory, PlayerSpeedLocator.SPEED_UTILS_PKG, allowFlattened = true) &&
+                factory.paramClassNames == PlayerSpeedMenuAdapter.factoryParameters(factory.className)) &&
             ((factory == null && optionClass == null) || factory != null && optionClass != null &&
-                validClass(optionClass, PlayerSpeedLocator.SPEED_UTILS_PKG)) &&
-            (compactOwner == null || validClass(compactOwner, PlayerSpeedLocator.THESEUS_SPEED_PKG))
+                PlayerSpeedMenuAdapter.optionOwnerMatches(factory.className, optionClass)) &&
+            (compactOwner == null || validClass(compactOwner, PlayerSpeedLocator.THESEUS_SPEED_PKG, allowFlattened = true))
 
     fun toJson() = JSONObject().apply {
         adapter?.let { put("adapter", it.toJson()) }
@@ -43,12 +43,12 @@ data class PlayerSpeedMenuPoints(
             ).takeIf(PlayerSpeedMenuPoints::isStructurallyValid)
         }.getOrNull()
 
-        private fun validClass(name: String, family: String): Boolean = name.length in 1..512 &&
-            name.startsWith("$family.") && name.split('.').all {
+        private fun validClass(name: String, family: String, allowFlattened: Boolean): Boolean = name.length in 1..512 &&
+            (name.startsWith("$family.") || allowFlattened && PlayerSpeedMenuAdapter.flattenedOwner(name)) && name.split('.').all {
                 it.isNotEmpty() && Character.isJavaIdentifierStart(it[0]) && it.all(Character::isJavaIdentifierPart)
             }
-        private fun validPoint(point: HookPoint, family: String): Boolean =
-            validClass(point.className, family) && point.viewField == null && point.paramClassNames != null &&
+        private fun validPoint(point: HookPoint, family: String, allowFlattened: Boolean): Boolean =
+            validClass(point.className, family, allowFlattened) && point.viewField == null && point.paramClassNames != null &&
                 point.methodName.length in 1..256 && Character.isJavaIdentifierStart(point.methodName[0]) &&
                 point.methodName.all(Character::isJavaIdentifierPart)
     }
@@ -63,6 +63,22 @@ internal object PlayerSpeedMenuAdapter {
     const val DIAGNOSTIC = "dex.assist.player_speed_menu"
     const val OPEN_MARK = "player.player.speed.0.player"
     val query = DexAssistQuery.PLAYER_SPEED_MENU
+    private val legacyFactoryParameters = listOf(PlayerSpeedLocator.MEDIA_RESOURCE, "java.lang.Integer", "boolean", "int")
+    private val flattenedFactoryParameters = listOf(PlayerSpeedLocator.MEDIA_RESOURCE, "java.lang.Integer", "int")
+
+    internal fun flattenedOwner(name: String): Boolean = name.length in 1..128 &&
+        Character.isJavaIdentifierStart(name[0]) && name.all(Character::isJavaIdentifierPart)
+
+    internal fun factoryParameters(owner: String): List<String>? = when {
+        owner.startsWith("${PlayerSpeedLocator.SPEED_UTILS_PKG}.") -> legacyFactoryParameters
+        flattenedOwner(owner) -> flattenedFactoryParameters
+        else -> null
+    }
+
+    internal fun optionOwnerMatches(factoryOwner: String, optionOwner: String): Boolean =
+        if (flattenedOwner(factoryOwner)) flattenedOwner(optionOwner)
+        else optionOwner.length in 1..512 && optionOwner.startsWith("${PlayerSpeedLocator.SPEED_UTILS_PKG}.") &&
+            optionOwner.split('.').all { it.isNotEmpty() && Character.isJavaIdentifierStart(it[0]) && it.all(Character::isJavaIdentifierPart) }
 
     fun resolve(loader: ClassLoader, cached: PlayerSpeedMenuPoints?): PlayerSpeedLocator.SpeedMenuPoint? =
         PlayerSpeedLocator.speedMenu(loader, cached)
@@ -95,7 +111,7 @@ internal object PlayerSpeedMenuAdapter {
         val media = KavaMemberLookup.classOrNull(loader, PlayerSpeedLocator.MEDIA_RESOURCE)
         val factory = live?.factory ?: if (media != null) methods.filter(::factoryAbi).mapNotNull { method ->
             val models = result.relatedClasses[method].orEmpty().filter {
-                it.name.startsWith("${PlayerSpeedLocator.SPEED_UTILS_PKG}.")
+                optionOwnerMatches(method.declaringClass.name, it.name)
             }.distinct()
             PlayerSpeedLocator.speedMenuFactory(listOf(method.declaringClass) + models, media)
                 ?.takeIf { it.factoryMethod == method }
@@ -120,12 +136,11 @@ internal object PlayerSpeedMenuAdapter {
         method.declaringClass.name.startsWith("${PlayerSpeedLocator.SPEED_WIDGET_PKG}.") &&
         method.returnType == Void.TYPE && method.parameterTypes.map(Class<*>::getName) in
         listOf(listOf("float"), listOf("float", "java.util.List"))
-    internal fun factoryAbi(method: Method) = Modifier.isStatic(method.modifiers) &&
-        method.declaringClass.name.startsWith("${PlayerSpeedLocator.SPEED_UTILS_PKG}.") &&
-        method.returnType == List::class.java && method.parameterTypes.map(Class<*>::getName) ==
-        listOf(PlayerSpeedLocator.MEDIA_RESOURCE, "java.lang.Integer", "boolean", "int")
+    internal fun factoryAbi(method: Method) = Modifier.isStatic(method.modifiers) && method.returnType == List::class.java &&
+        method.parameterTypes.map(Class<*>::getName) == factoryParameters(method.declaringClass.name)
     internal fun openAbi(method: Method) = Modifier.isStatic(method.modifiers) && method.returnType == Void.TYPE &&
-        method.declaringClass.name.startsWith("${PlayerSpeedLocator.THESEUS_SPEED_PKG}.") &&
+        (method.declaringClass.name.startsWith("${PlayerSpeedLocator.THESEUS_SPEED_PKG}.") ||
+            flattenedOwner(method.declaringClass.name)) &&
         method.parameterTypes.contentEquals(arrayOf(method.declaringClass))
     private fun point(method: Method) = HookPoint(method.declaringClass.name, method.name, method.parameterTypes.map(Class<*>::getName))
 }

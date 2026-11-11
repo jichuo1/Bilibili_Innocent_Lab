@@ -182,13 +182,16 @@ internal class PlayerBufferFeatureInstaller(
         } }
         installedBaseUnits = installed
         expectedBaseUnits = expected
-        val creators = if (creatorReady.get()) 2 else 0
-        capabilityIds.forEach { environment.reportCapabilityCoverage(it, true, installed + creators, expected + 2) }
+        val creators = if (creatorReady.get()) point.creatorCount else 0
+        capabilityIds.forEach {
+            environment.reportCapabilityCoverage(it, true, installed + creators, expected + point.creatorCount)
+        }
         if (installed == 0) return skipped(environment, "registration-failed")
         capabilityIds.forEach { environment.reportRuntimeEvidence(it, FeatureRuntimeStage.ADAPTED) }
         environment.reportStatus(STATUS, if (installed != expected) "partial:$installed/$expected"
             else if (creatorReady.get()) "ready" else "awaiting-current-creator")
-        return FeatureInstallResult.Installed(installed + creators, complete = installed == expected && creators == 2)
+        return FeatureInstallResult.Installed(installed + creators,
+            complete = installed == expected && creators == point.creatorCount)
     }
 
     private fun installCurrentCreator(env: HookEnvironment, point: PlayerBufferLocator.Points, owner: Class<*>): Boolean {
@@ -196,8 +199,9 @@ internal class PlayerBufferFeatureInstaller(
             if (owner in registeredCores) return true
             if (registeredCores.size >= 8) return false
             val methods = PlayerBufferLocator.currentCreationMethods(owner, point)
-            if (methods.size != 2) return false
-            for ((index, method) in methods.withIndex()) {
+            if (methods.size != point.creatorCount) return false
+            for ((index, entry) in methods.withIndex()) {
+                val method = entry.method
                 if (method in registeredCreatorMethods) continue
                 if (runCatching {
                         env.registrar.exact("$ID.creator.${method.declaringClass.name}.$index", method.declaringClass, method.name, *method.parameterTypes) {
@@ -205,7 +209,7 @@ internal class PlayerBufferFeatureInstaller(
                                 val core = instance ?: return@before
                                 if (sourceCore.get()?.get() !== core) return@before
                                 sourceCore.remove()
-                                val approved = method.name == "play" || argOrNull(1) == true
+                                val approved = entry.autoStartIndex?.let { argOrNull(it) == true } ?: true
                                 val frame = CreationFrame(creation.get(), if (approved) PlayerBufferSessions.Ticket() else null)
                                 setObjectExtra(CREATION_EXTRA, frame)
                                 if (frame.ticket == null) creation.remove() else creation.set(frame.ticket)
@@ -230,10 +234,13 @@ internal class PlayerBufferFeatureInstaller(
             }
             registeredCores.add(owner)
             if (creatorReady.compareAndSet(false, true)) {
-                capabilityIds.forEach { env.reportCapabilityCoverage(it, true, installedBaseUnits + 2, expectedBaseUnits + 2) }
+                capabilityIds.forEach {
+                    env.reportCapabilityCoverage(it, true, installedBaseUnits + methods.size, expectedBaseUnits + point.creatorCount)
+                }
                 if (env.runtimePhase?.invoke() == true) {
                     env.installationEvidence?.invoke(FeatureInstallRecord(ID,
-                        FeatureInstallResult.Installed(installedBaseUnits + 2, installedBaseUnits == expectedBaseUnits), null))
+                        FeatureInstallResult.Installed(installedBaseUnits + methods.size,
+                            installedBaseUnits == expectedBaseUnits), null))
                 }
                 env.reportStatus(STATUS, if (installedBaseUnits == expectedBaseUnits) "ready" else "partial")
             }

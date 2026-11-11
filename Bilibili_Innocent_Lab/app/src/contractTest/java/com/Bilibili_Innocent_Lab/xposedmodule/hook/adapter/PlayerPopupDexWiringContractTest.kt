@@ -27,7 +27,7 @@ class PlayerPopupDexWiringContractTest {
         assertTrue(inheritance.contains("previousPopup = popupHistory?.playerPopupPromotion"))
         assertTrue(inheritance.contains("popupHistory?.diagnostics.orEmpty()"))
         val installer = SourceContract.read("hook/feature/PlayerPopupPromotionFeatureInstaller.kt")
-        assertFalse(installer.contains("DexKitBridge")); assertFalse(installer.contains("DexAssistSession("))
+        assertFalse(installer.contains("DexRefHookBridge")); assertFalse(installer.contains("DexAssistSession("))
         val hook = SourceContract.read("hook/HookEntry.kt")
         assertTrue(hook.contains("playerPopupPromotionEnabled = prefs.getBoolean(FeaturePreferences.HIDE_PLAYER_POPUP_PROMOTION, false)"))
         assertTrue(hook.contains("cachedPoints = { popupPointsRef.get() }"))
@@ -52,10 +52,10 @@ class PlayerPopupDexWiringContractTest {
     }
 
     @Test fun `dex signatures require promotion semantics and exclude ordinary danmaku panel candidates`() {
-        val engine = SourceContract.read("hook/adapter/dex/DexKitAssistEngine.kt")
+        val engine = SourceContract.read("hook/adapter/dex/DexMeguvizQueries.kt")
         val guide = engine.after("DexAssistQuery.PLAYER_POPUP_FREE_DATA_GUIDE ->").before("DexAssistQuery.PLAYER_POPUP_ADVERT_FLOAT ->")
         assertTrue(guide.contains("PlayerPopupPromotionAdapter.GUIDE_FLOW_MARK"))
-        assertTrue(guide.contains("StringMatchType.Contains"))
+        assertTrue(guide.contains("contains = true"))
         assertTrue(guide.contains("PlayerPopupPromotionAdapter.NETWORK_PACKAGE"))
         assertTrue(guide.contains("returnType = \"java.lang.Object\""))
         assertTrue(guide.contains("paramCount(1)"))
@@ -66,9 +66,13 @@ class PlayerPopupDexWiringContractTest {
         assertFalse(guide.contains("FREQUENCY_KEY")); assertFalse(guide.contains("addInvoke"))
         val float = engine.after("DexAssistQuery.PLAYER_POPUP_ADVERT_FLOAT ->").before("DexAssistQuery.COMMENT_CLASSIC_NATIVE,")
         for (name in listOf("isValidCommon", "isValidCommerce", "isValidGuide")) assertTrue(float.contains(name))
-        val collection = engine.after("if (query == DexAssistQuery.PLAYER_POPUP_ADVERT_FLOAT)").before("else if (query == DexAssistQuery.COMMENT_CLASSIC_NATIVE")
-        assertTrue(collection.contains("invokes.size > 128"))
+        val collector = SourceContract.read("hook/adapter/dex/DexMeguvizAssistEngine.kt")
+        val collection = collector.after("if (query == DexAssistQuery.PLAYER_POPUP_ADVERT_FLOAT)")
+            .before("if (query == DexAssistQuery.STORY_QUALITY_MATCH &&")
+        assertTrue(collection.contains("invokes(data)"))
+        assertTrue(collector.contains("inspected.rowCount() > MAX_INVOKES"))
+        assertTrue(collector.contains("MAX_INVOKES = 128"))
         assertTrue(collection.contains("isValidDanmaku"))
-        assertTrue(collection.contains("PlayerPopupPromotionAdapter::verifiedAdvertFloat"))
+        assertTrue(collection.contains("PlayerPopupPromotionAdapter.verifiedAdvertFloat(method)"))
     }
 }

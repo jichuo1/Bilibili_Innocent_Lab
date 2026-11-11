@@ -213,10 +213,8 @@ android {
             }
         }
         ndk {
-            // DexKit 与可选插帧后端携带原生核心。Xposed/LSPosed 实机部署实际只有 ARM，x86 与
-            // x86_64 两份 libdexkit.so 会多占约 627 KB；缺失时 DexKitAssistEngine 按
-            // NATIVE_UNAVAILABLE 优雅降级，仅失去 block-update 的 DEX 兜底定位，
-            // 其余功能不受影响。x86 模拟器上调试 DEX 兜底时需临时去掉此过滤。
+            // DexMeguviz 与插帧后端携带原生核心。当前模块 APK 保持 ARM 部署范围。
+            // x86 模拟器上验证原生 DEX 查询时需要单独构建对应 ABI。
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
     }
@@ -561,6 +559,8 @@ dependencies {
     compileOnly(libs.libxposed.api)
     implementation(libs.libxposed.service)
 
+    implementation(platform(libs.meguviz.bom))
+
     // MeguvizHook：API 102 后端；框架 API 仍由运行时提供（compileOnly），不会进入 APK。
     implementation(libs.meguviz.hook.api)
     implementation(libs.meguviz.hook.core)
@@ -570,16 +570,19 @@ dependencies {
     implementation(libs.meguviz.ref.core)
 
     // 仅在后台版本适配缺点时启用；不进入 quickLocate 与 Hook 热路径。
-    implementation(libs.dexkit)
+    implementation(libs.dexmeguviz.android)
+    implementation(libs.meguviz.hook.dex.bridge)
 
     // MeguvizUI (https://github.com/jichuo1/MeguvizUI)：设置页视图工厂与挂载会话。
     implementation(libs.meguviz.ui.core)
     // 设置页空闲分帧预建；仅主线程有界调度，不把 View 构造挪到后台。
     implementation(libs.meguviz.ui.prewarm)
+    implementation(libs.meguviz.ui.android.bridge)
 
-    // MeguvizAndroid（Maven Central）：替代已退役的 BetterAndroid；约束保留其原先传递选中的 AndroidX 版本。
+    // MeguvizAndroid 的运行时与窗口能力；下方约束统一传递使用的 AndroidX 稳定版本。
     implementation(libs.meguviz.android.runtime)
     implementation(libs.meguviz.android.window)
+    implementation(libs.meguviz.drawable.android)
     constraints {
         implementation(libs.androidx.activity)
         implementation(libs.androidx.collection)
@@ -589,8 +592,6 @@ dependencies {
         implementation(libs.androidx.viewpager2)
         implementation(libs.androidx.viewpager)
     }
-
-    implementation(libs.drawabletoolbox)
 
     // Material You / Monet 动态取色（GitHub: Kyant0/m3color，material-color-utilities 的 Java 端口）
     implementation(libs.m3color)

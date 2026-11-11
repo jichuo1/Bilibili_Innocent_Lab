@@ -96,7 +96,7 @@ class AdaptPlanCacheTest {
 
     @Test fun `schema remains compatible while merged rules invalidate old caches`() {
         assertEquals(62, VersionAdapterContract.SCHEMA_VERSION)
-        assertEquals(82, VersionAdapterContract.RULE_VERSION)
+        assertEquals(84, VersionAdapterContract.RULE_VERSION)
         assertEquals(62, JSONObject(fullyCovered().toJson().toString()).getInt("sv"))
     }
 

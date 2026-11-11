@@ -16,8 +16,9 @@ internal class HostOverlaySurfaces(private val root: View, color: Int, stroke: I
     private val session = LumenSurfaceSession(root.context, LumenPalette.neutral(dark).copy(
         surface = color, primary = stroke))
     private val panelOptions = LumenSurfacePresets.staticPanel().copy(
-        color = color, radiusDp = radiusDp, tintOpacity = 1f, fallbackTintOpacity = 1f,
+        color = color, radiusDp = radiusDp,
         edgeWidthDp = 1f, edgeTopColor = stroke, edgeBottomColor = stroke, edgeEnabled = radiusDp > 0f)
+        .withTint(1f)
     private val panel = session.bind(root, panelOptions)
     private var alphaHidden = root.alpha <= 0f
     private val alphaObserver = ViewTreeObserver.OnPreDrawListener {

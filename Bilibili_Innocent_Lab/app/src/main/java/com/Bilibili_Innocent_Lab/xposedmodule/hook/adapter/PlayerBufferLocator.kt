@@ -23,8 +23,13 @@ internal object PlayerBufferLocator {
         val scheme: Method, val assetField: Field, val context: Field, val vodType: Field,
         val stopped: Field, val released: Field, val assetDrm: Method, val streams: Method,
         val streamDrm: Method, val segments: Method, val segmentSize: Method,
-        val segmentDuration: Method, val segmentUrl: Method, val lifecycle: List<Method>
-    )
+        val segmentDuration: Method, val segmentUrl: Method, val lifecycle: List<Method>,
+        val existingItemParameter: Class<*>? = null
+    ) {
+        val creatorCount: Int get() = if (existingItemParameter == null) 2 else 3
+    }
+
+    data class CreationMethod(val method: Method, val autoStartIndex: Int?)
 
     fun resolve(loader: ClassLoader): Points? = runCatching {
         val item = Lookup.classOrNull(loader, ITEM) ?: return null
@@ -58,6 +63,11 @@ internal object PlayerBufferLocator {
         val selection = listOf("setIjkMediaPlayerItem", "replaceCurrentItem", "removeIjkMediaPlayerItem")
             .mapNotNull { method(player, it, Void.TYPE, item) }
         if (selection.size != 3) return null
+        // NormalVideoPlayHandler uses both overloads. Some older cores only expose the three-argument entry.
+        val existingItemParameter = mediaItem.takeIf {
+            method(core, "setMediaResource", Void.TYPE, it, resource,
+                Boolean::class.javaPrimitiveType!!, params, allowAbstract = true) != null
+        }
         Points(item, asset, core, resource, params, normal,
             method(handler, "getMPlayerCoreService", core) ?: return null,
             method(core, "getCurrentMediaItem", mediaItem, allowAbstract = true) ?: return null,
@@ -73,16 +83,21 @@ internal object PlayerBufferLocator {
             method(stream, "getMediaAssertSegments", List::class.java) ?: return null,
             method(segment, "getSize", Long::class.javaPrimitiveType!!) ?: return null,
             method(segment, "getDuration", Int::class.javaPrimitiveType!!) ?: return null,
-            method(segment, "getUrl", String::class.java) ?: return null, lifecycle)
+            method(segment, "getUrl", String::class.java) ?: return null, lifecycle, existingItemParameter)
     }.getOrNull()
 
-    fun currentCreationMethods(owner: Class<*>, point: Points): List<Method> {
+    fun currentCreationMethods(owner: Class<*>, point: Points): List<CreationMethod> {
         if (!point.core.isAssignableFrom(owner)) return emptyList()
+        val boolean = Boolean::class.javaPrimitiveType!!
         return listOfNotNull(
-            Lookup.inheritedMethodOrNull(owner, "play")?.takeIf(::concreteVoid),
-            Lookup.inheritedMethodOrNull(owner, "setMediaResource", point.resource,
-                Boolean::class.javaPrimitiveType!!, point.params)?.takeIf(::concreteVoid)
-        ).distinctBy(Method::toGenericString)
+            Lookup.inheritedMethodOrNull(owner, "play")?.takeIf(::concreteVoid)?.let { CreationMethod(it, null) },
+            Lookup.inheritedMethodOrNull(owner, "setMediaResource", point.resource, boolean, point.params)
+                ?.takeIf(::concreteVoid)?.let { CreationMethod(it, 1) },
+            point.existingItemParameter?.let { item ->
+                Lookup.inheritedMethodOrNull(owner, "setMediaResource", item, point.resource, boolean, point.params)
+                    ?.takeIf(::concreteVoid)?.let { CreationMethod(it, 2) }
+            }
+        )
     }
 
     private fun concreteVoid(method: Method): Boolean = method.returnType == Void.TYPE &&

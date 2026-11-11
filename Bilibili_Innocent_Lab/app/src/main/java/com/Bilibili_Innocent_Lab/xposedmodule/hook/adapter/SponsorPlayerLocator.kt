@@ -70,7 +70,8 @@ internal object SponsorPlayerLocator {
         val runs = run.methods.flatMap { method ->
             if (Modifier.isStatic(method.modifiers) || method.returnType != Any::class.java ||
                 method.parameterCount != 2 || !method.parameterTypes[0].isInterface ||
-                !method.parameterTypes[0].name.startsWith("$FAMILY.") || method.parameterTypes[1].name !in
+                !SponsorPlayerAccess.acceptsPlayableClass(method.declaringClass.name, method.name,
+                    method.parameterTypes[0].name) || method.parameterTypes[1].name !in
                 setOf("kotlin.coroutines.Continuation", "kotlin.coroutines.jvm.internal.ContinuationImpl")) return@flatMap emptyList()
             run.relatedClasses[method].orEmpty().takeIf { it.size <= MAX_CANDIDATES }.orEmpty().filter { cls ->
                 cls.superclass?.name == "kotlin.coroutines.jvm.internal.ContinuationImpl" &&

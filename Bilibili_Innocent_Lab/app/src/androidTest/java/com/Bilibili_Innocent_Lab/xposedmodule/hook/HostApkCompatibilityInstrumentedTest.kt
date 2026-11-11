@@ -25,7 +25,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistSession
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexKitAssistEngine
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexMeguvizAssistEngine
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PgcAutoActivityPopupPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import dalvik.system.DexClassLoader
@@ -96,7 +96,8 @@ class HostApkCompatibilityInstrumentedTest {
             apk.path, context.codeCacheDir.path, null, ClassLoader.getSystemClassLoader()
         )
         val started = SystemClock.elapsedRealtime()
-        val result = requireNotNull(VersionAdapter.quickLocate(loader))
+        val result = requireNotNull(VersionAdapter.quickLocate(loader,
+            com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlan.full(), hostVersionCode = expectedVersion))
         val elapsed = SystemClock.elapsedRealtime() - started
         val snapshot = result.toJson()
         val pgcRuntime = result.pgcAutoActivityPopup?.let {
@@ -113,7 +114,10 @@ class HostApkCompatibilityInstrumentedTest {
             .put("adaptation", snapshot)
         // 先留完整快照，即使后续断言失败也能定位到实际缺失的载体/字段。
         val suffix = if (fullContracts) "contracts" else "anchors"
-        val reportFile = File(directory, "$expectedVersion-$suffix.json")
+        val label = arguments.getString("reportLabel")?.also {
+            require(it.matches(Regex("[a-z0-9-]{1,40}"))) { "Invalid fixture report label" }
+        }
+        val reportFile = File(directory, "$expectedVersion-$suffix${label?.let { "-$it" }.orEmpty()}.json")
         reportFile.writeText(report.toString(2))
 
         assertTrue("Invalid adaptation cache contract", result.isUsableWith(result.hostFingerprint))
@@ -126,6 +130,23 @@ class HostApkCompatibilityInstrumentedTest {
             reportFile.writeText(report.toString(2))
             return
         }
+        val moduleOnlyMineEntry = if (expectedVersion == 9190200 || expectedVersion == 9190400) {
+            assertNull("The 9.19 BIL-only instance must not enter the old roaming contract", result.mineEntry)
+            requireNotNull(VersionAdapter.locateMineEntry(loader, allowModuleInstance = true)).also { entry ->
+                val build = entry.buildMethods.single()
+                assertEquals("ug", build.methodName)
+                assertEquals(listOf("tv.danmaku.bili.ui.main2.api.AccountMine"), build.paramClassNames)
+                assertEquals("a1", entry.groupListField)
+                assertEquals("Z0", entry.adapterField)
+                assertEquals("tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment\$e", entry.clickMethod.className)
+                assertEquals("c", entry.clickMethod.methodName)
+                report.put("npatch_module_only_mine_entry", entry.toJson())
+                reportFile.writeText(report.toString(2))
+            }
+        } else null
+        if (arguments.getString("featurePlans") == "true") {
+            HostFeaturePlanAudit.collect(context, apk, loader, result, report, reportFile, expectedVersion)
+        }
         assertEquals(
             setOf("stream_quality", "vip_entitlement", "codec"),
             result.playerQuality?.capabilitySignals?.toSet()
@@ -135,7 +156,8 @@ class HostApkCompatibilityInstrumentedTest {
         // 只有 high 已解析时才允许 low 缺失；原始诊断仍完整保留在报告里。
         val missing = result.diagnostics.filter {
             it.state == VersionAdapter.AdaptState.MISSING &&
-                !(it.id == "comment.low" && result.commentHigh != null)
+                !(it.id == "comment.low" && result.commentHigh != null) &&
+                !(it.id == "mine.entry" && moduleOnlyMineEntry != null)
         }
         assertTrue("Unresolved host contracts: $missing", missing.isEmpty())
         assertNotNull("Home component Fragment boundary", result.homeComponents)
@@ -172,9 +194,6 @@ class HostApkCompatibilityInstrumentedTest {
         if (arguments.getString("optionalAdapters") == "true") {
             verifyOptionalAdapters(apk, loader, report, reportFile)
         }
-        if (arguments.getString("featurePlans") == "true") {
-            HostFeaturePlanAudit.collect(context, apk, loader, result, report, reportFile)
-        }
         report.put("passed", true)
         reportFile.writeText(report.toString(2))
     }
@@ -201,7 +220,7 @@ class HostApkCompatibilityInstrumentedTest {
             if (words == null && KotlinDefaultWordsLocator.applicable(loader)) add(DexAssistQuery.SEARCH_DEFAULT_WORDS_KOTLIN)
             if (sponsor == null && SponsorPlayerLocator.applicable(loader)) addAll(SponsorPlayerLocator.queries)
         }
-        val session = DexAssistSession(DexKitAssistEngine, listOf(apk.path), loader, queries)
+        val session = DexAssistSession(DexMeguvizAssistEngine, listOf(apk.path), loader, queries)
         val pagePoints = PageBoundaryAdapter.locate(loader, null, session, pagePlan)
         report.put("page_boundaries", pagePoints?.toJson())
         val entries = JSONObject()

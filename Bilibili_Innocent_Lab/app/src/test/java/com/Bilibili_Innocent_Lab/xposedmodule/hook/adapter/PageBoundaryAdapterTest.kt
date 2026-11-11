@@ -70,4 +70,11 @@ class PageBoundaryAdapterTest {
         assertNull(PageBoundaryPoints.fromJson(org.json.JSONObject().put("card_surfaces", org.json.JSONArray())))
         assertFalse(PageBoundaryPoints(endPageMerger = VersionAdapter.HookPoint("java.lang.String", "x", emptyList())).isValid())
     }
+
+    @Test fun relocatedSearchNamesAreRecognizedWithoutAcceptingUnrelatedRootOwners() {
+        val relocated = PageBoundaryPoints(searchDelivery = "pl22", searchState = "v642")
+        assertEquals(relocated, PageBoundaryPoints.fromJson(relocated.toJson()))
+        assertNull(PageBoundaryAdapter.locate(loader, relocated, null, emptySet()))
+        assertFalse(PageBoundaryPoints(searchDelivery = "v642", searchState = "pl22").isValid())
+    }
 }

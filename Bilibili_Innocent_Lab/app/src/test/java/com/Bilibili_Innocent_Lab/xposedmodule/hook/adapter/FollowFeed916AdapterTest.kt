@@ -11,28 +11,46 @@ import java.lang.reflect.Modifier
 
 /** Child-loader fixtures keep each exact host generation's names and local-owner shape isolated. */
 class FollowFeed916AdapterTest {
+    private data class NewHost(
+        val painter: String, val module: String, val item: String,
+        val home: String, val personal: String, val separator: String, val opus: String
+    )
+
+    private val newerBuilds = mapOf(
+        9180100 to NewHost("sU.d", "DS.I", "DS.J", "com.bilibili.bplus.followinglist.home.U",
+            "com.bilibili.bplus.followinglist.quick.consume.E", "com.bilibili.bplus.followinglist.quick.consume.U",
+            "com.bilibili.bplus.followinglist.opus.p"),
+        9180200 to NewHost("sU.d", "DS.I", "DS.J", "com.bilibili.bplus.followinglist.home.Y",
+            "com.bilibili.bplus.followinglist.quick.consume.G", "com.bilibili.bplus.followinglist.quick.consume.U",
+            "com.bilibili.bplus.followinglist.opus.o"),
+        9180300 to NewHost("sU.d", "DS.I", "DS.J", "com.bilibili.bplus.followinglist.home.b0",
+            "com.bilibili.bplus.followinglist.quick.consume.H", "com.bilibili.bplus.followinglist.quick.consume.W",
+            "com.bilibili.bplus.followinglist.opus.r"),
+        9190200 to NewHost("ey80", "b890", "cb90", "w1o0", "sov1", "nuh2", "nnl1")
+    )
+
     private class Host(private val localField: String = "b", private val hideOpus: Boolean = false,
         private val profile917: Boolean = false, private val ambientNewSeparator: Boolean = false,
-        private val build300: Boolean = false) :
+        private val build300: Boolean = false, newer: NewHost? = null) :
         ClassLoader(FollowFeed916AdapterTest::class.java.classLoader) {
-        private val modern = profile917 || build300
-        private val painterName = if (modern) "rU.d" else "mU.d"
-        private val moduleName = if (modern) "CS.I" else "xS.G"
-        private val itemName = if (modern) "CS.J" else "xS.H"
+        private val modern = profile917 || build300 || newer != null
+        private val painterName = newer?.painter ?: if (modern) "rU.d" else "mU.d"
+        private val moduleName = newer?.module ?: if (modern) "CS.I" else "xS.G"
+        private val itemName = newer?.item ?: if (modern) "CS.J" else "xS.H"
         // 9170300 keeps rU.d byte for byte and only re-ranks its subclasses: a0→X, F→D, T→P, opus.t→p.
         private val homeLeaf = if (build300) "X" else if (profile917) "a0" else "U"
         private val personalLeaf = if (build300) "D" else if (profile917) "F" else "I"
         private val separatorLeaf = if (build300) "P" else if (profile917) "T" else "W"
-        private val opusName = "com.bilibili.bplus.followinglist.opus." +
-            if (build300) "p" else if (profile917) "t" else "k"
+        private val opusName = newer?.opus ?: ("com.bilibili.bplus.followinglist.opus." +
+            if (build300) "p" else if (profile917) "t" else "k")
         private val definitions = mapOf(
             painterName to follow916.Painter::class.java,
             moduleName to tS.G::class.java,
             itemName to tS.H::class.java,
             "xS.TestModule" to follow916.ConcreteModule::class.java,
-            "com.bilibili.bplus.followinglist.home.$homeLeaf" to com.bilibili.bplus.followinglist.home.Q::class.java,
-            "com.bilibili.bplus.followinglist.quick.consume.$personalLeaf" to followtest.roles.PersonalDecoration::class.java,
-            "com.bilibili.bplus.followinglist.quick.consume.$separatorLeaf" to followtest.roles.PersonalSeparator::class.java,
+            (newer?.home ?: "com.bilibili.bplus.followinglist.home.$homeLeaf") to com.bilibili.bplus.followinglist.home.Q::class.java,
+            (newer?.personal ?: "com.bilibili.bplus.followinglist.quick.consume.$personalLeaf") to followtest.roles.PersonalDecoration::class.java,
+            (newer?.separator ?: "com.bilibili.bplus.followinglist.quick.consume.$separatorLeaf") to followtest.roles.PersonalSeparator::class.java,
             opusName to follow916.Opus::class.java
         )
         // The names the previous build used still exist in 9170300, now as unrelated classes.
@@ -41,7 +59,10 @@ class FollowFeed916AdapterTest {
             "com.bilibili.bplus.followinglist.quick.consume.F", "com.bilibili.bplus.followinglist.quick.consume.I",
             "com.bilibili.bplus.followinglist.quick.consume.T", "com.bilibili.bplus.followinglist.opus.t",
             "com.bilibili.bplus.followinglist.opus.k"
-        ).associateWith { followtest.roles.Unrelated::class.java } else emptyMap()
+        ).associateWith { followtest.roles.Unrelated::class.java }
+        else if (newer?.opus == "com.bilibili.bplus.followinglist.opus.r")
+            mapOf("com.bilibili.bplus.followinglist.opus.t" to follow916.Opus::class.java)
+        else emptyMap()
         private val names = definitions.map { (name, template) ->
             template.name.replace('.', '/') to name.replace('.', '/')
         }.toMap() + ("iU/d" to painterName.replace('.', '/'))
@@ -107,6 +128,28 @@ class FollowFeed916AdapterTest {
         val resolved = requireNotNull(FollowFeedAdapter.resolve(loader, points))
         assertEquals(points, resolved.points)
         assertTrue(resolved.host.embeddedVideoSupported)
+    }
+
+    @Test fun `new host decorations stay with the verified homepage and model generation`() {
+        for ((build, expected) in newerBuilds) {
+            val loader = Host(localField = "a", newer = expected)
+            val points = requireNotNull(FollowFeedAdapter.direct(loader)) { "build $build" }
+            assertEquals(expected.painter, points.painterOwnerClass)
+            assertEquals(expected.module, points.moduleClass)
+            assertEquals(expected.item, points.itemClass)
+            assertEquals(expected.home, points.homeDecorationClass)
+            assertEquals(expected.personal, points.personalDecorationClass)
+            assertEquals(expected.separator, points.personalSeparatorClass)
+            assertEquals(listOf(expected.opus), FollowFeedAdapter.opusDecorationCandidates(points))
+            val resolved = requireNotNull(FollowFeedAdapter.resolve(loader, points))
+            assertTrue(resolved.host.embeddedVideoSupported)
+            assertNotNull(HostOpusBackgroundAccess.resolve(loader))
+        }
+        val rebuilt = newerBuilds.getValue(9180300)
+        val missing = Host(localField = "a", hideOpus = true, newer = rebuilt)
+        assertTrue(missing.loadClass(rebuilt.painter)
+            .isAssignableFrom(missing.loadClass("com.bilibili.bplus.followinglist.opus.t")))
+        assertNull(HostOpusBackgroundAccess.resolve(missing))
     }
 
     @Test fun `local quote test does not mistake the top owner or boolean O for the local item`() {

@@ -6,8 +6,21 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** The page must receive the setter-only root inset slot before installing its listener. */
+/** Module UI and inset handling share the Activity window owner. */
 class BilWindowOwnershipContractTest {
+    @Test fun uiBindingBorrowsTheWindowSessionUsedForInsets() {
+        val mount = SourceContract.read("ui/meguviz/SettingsScope.kt")
+            .after("internal fun SkinnedActivity.setMeguvizContentView")
+        assertTrue(mount.contains("AndroidUiBinding.open(moduleWindowSession(), parent)"))
+        assertTrue(mount.contains("binding.close()"))
+
+        val activity = SourceContract.read("ui/skin/activity/SkinnedActivity.kt")
+        val window = activity.after("internal fun moduleWindowSession()").before("override fun setContentView")
+        assertTrue(window.contains("windowSession ?: WindowSession.open"))
+        assertTrue(window.contains("BilWindowDelegate(this, content, moduleWindowSession())"))
+        assertTrue(activity.after("override fun onDestroy()").contains("windowOwner?.close()"))
+    }
+
     @Test fun settingsPageReceivesInsetOwnershipBeforeReplacingListener() {
         val presenter = SourceContract.read("ui/activity/SettingsHomePresenter.kt")
             .after("private fun installTopInset()")
