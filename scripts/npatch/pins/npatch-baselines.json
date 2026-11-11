@@ -49,7 +49,9 @@
       "versionName": "1.1.0",
       "sha256": "cf0750becc230dad288363c90044b5635c298e38e90d4e0fe956871398af7390",
       "signerSha256": "04cfd2ca48213d6c81673a19d4f476f86067fcc68e6a914fa0ef663e24faad02",
-      "source": "CI artifact npatch-release-efecf30 (different signer: uninstall before switching between release and CI builds)"
+      "source": "CI artifact npatch-release-efecf30 (different signer: uninstall before switching between release and CI builds)",
+      "runnable": false,
+      "runnableNote": "Observed 2026-11-11 on Android 14: the Manager's own NPatch-Integrity check logs 'Unexpected manager signing certificate' and sends itself SIGKILL whenever a component such as RemoteApiProvider starts, so it cannot serve any request. manager/ sources are identical to v1.1.0 (git compare v1.1.0...efecf304 touches only patch-loader/ and patch/), so the 1.1.0 release Manager is the stand-in for Remote API tests."
     }
   ],
   "patcherJars": [

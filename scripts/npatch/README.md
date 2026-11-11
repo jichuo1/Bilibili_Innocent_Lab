@@ -15,6 +15,24 @@ pwsh -NoProfile -File scripts/npatch/Verify-UpstreamContracts.ps1 -SourceDirecto
 
 升级固定提交时同时更新 `pins/npatch-baselines.json` 中的提交与 blob；任何锚点失败都是需要复核的发现，不要放宽锚点。固定的 CI 产物会过期，下载后按 JSON 里的 SHA-256 核对再使用；新构建在取得真机证据前不进入 `VerifiedNPatchLoaders`。
 
+`NewPatchedApk.ps1 -Baseline upstreamDev` 用固定的上游 dev JAR 修补（Java 与 native 修复都已在上游），预期的 loader 库哈希直接取自该 JAR，输出的 `verified.json` 标注 `verifiedLoader = false`。该模式只做过语法检查，没有实际修补过 APK。
+
+## 没有 NPatch 真机时的 Remote API 契约测试（G2）
+
+`emulator/` 下的脚本在**专用**模拟器（AVD `bil-npatch-api34`，端口 5584/5586/5588，API 34 x86_64）上对真实的 NPatch Manager 运行 `NPatchRemoteApiContractInstrumentedTest`。所有脚本在改动设备前先核对序列号白名单和 AVD 名，不会碰真机或别的工程的模拟器。
+
+```powershell
+./scripts/npatch/emulator/New-NPatchAvd.ps1                      # 一次性；需要本机已装 android-34 google_apis x86_64 镜像
+./scripts/npatch/emulator/New-StubHostApk.ps1 -OutputDirectory <不存在的目录>   # 带 npatch 标记、包名为宿主的空壳 APK
+./scripts/npatch/emulator/Start-NPatchEmulator.ps1 -MemoryMb 1536
+./scripts/npatch/emulator/Invoke-RemoteApiContract.ps1 -Serial emulator-5584 -ManagerLabel 1.1.0 `
+    -ManagerApkDirectory <含固定 Manager APK 的目录> -ModuleApk <app-debug.apk> -TestApk <app-debug-androidTest.apk> `
+    -StubHostApk <stub-host.apk> -EvidenceDirectory <不存在的证据目录>
+./scripts/npatch/emulator/Stop-NPatchEmulator.ps1
+```
+
+Manager 可选 1.0.7、1.0.9、1.1.0（按 `pins/` 里的 SHA-256 校验后安装）。CI 产物里的 dev Manager 与 release 签名不同，会被它自带的完整性检查自杀，无法用于测试。通过只证明该 Manager 版本、该 Android 版本的契约，不证明修补后宿主或 B 站 Hook 的行为。本机内存紧张时不要让模拟器与 Gradle 同时运行；Java 工具（keytool/apksigner/Gradle）请在模拟器停止后使用。
+
 ## 阶段 5 启动采样
 
 `MeasureStartup.ps1` 只用于已授权测试机，显式要求 serial、模式和当前产物的 `verified.json`。运行前先自行构建并同证书覆盖安装设置 App、测试包及相同内嵌内容的宿主；脚本核对两份已安装 APK 的 SHA-256，不代为安装或修补。详细测量需在 Debug 构建时传 `-PinnocentLab.startupTrace=true`，默认构建和 Release 不注册采集入口；原生产查询和支持包协议不变。
