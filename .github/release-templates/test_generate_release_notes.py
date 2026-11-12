@@ -284,21 +284,24 @@ class ProviderChainTest(unittest.TestCase):
     def test_repairs_latest_draft_twice_without_losing_body(self) -> None:
         first = valid_payload()
         first["summary"] = [f"第{index}项调整。" for index in range(6)]
+        draft_excerpt = "仅存在于模型草稿的测试标记"
         second = valid_payload()
-        second["summary"] = ["概述" * 45 + "。", "第二句。"]
+        second["summary"] = [draft_excerpt + "概述" * 45 + "。", "第二句。"]
         final = valid_payload()
         final["items"] = []
         final["maintenance"] = []
         slot = llm_providers.ProviderSlot(1, "openai", "https://api.example/v1", "m", "k")
         drafts = [json.dumps(value, ensure_ascii=False) for value in (first, second, final)]
         requests = []
+        report = []
 
         def complete(_slot, _system, messages, _schema, **_kwargs):
             requests.append(list(messages))
             return drafts[len(requests) - 1]
 
-        with mock.patch.object(llm_providers, "complete", side_effect=complete):
-            outcome = notes_module.generate_with_llm(make_context(), CONFIG, [slot], [], [])
+        with (mock.patch.object(llm_providers, "complete", side_effect=complete),
+              self.assertLogs(notes_module.__name__, level="INFO") as diagnostics):
+            outcome = notes_module.generate_with_llm(make_context(), CONFIG, [slot], report, [])
         self.assertIsNotNone(outcome)
         self.assertEqual(3, len(requests))
         self.assertEqual(drafts[1], requests[2][1]["content"])
@@ -306,6 +309,10 @@ class ProviderChainTest(unittest.TestCase):
         self.assertIn("80", requests[2][2]["content"])
         self.assertEqual([SHA_A], outcome[0].items[0].commits)
         self.assertEqual([SHA_C], outcome[0].maintenance)
+        self.assertIn(draft_excerpt, "\n".join(report))
+        progress = "\n".join(diagnostics.output)
+        self.assertIn("未通过校验", progress)
+        self.assertNotIn(draft_excerpt, progress)
 
     def test_overview_repairs_invalid_json_and_continues_draft_on_next_slot(self) -> None:
         slots = [llm_providers.ProviderSlot(n, "openai", "https://api.example/v1", "m", "k") for n in (1, 2)]
@@ -336,6 +343,37 @@ class ProviderChainTest(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual([SHA_A], result.items[0].commits)
         self.assertEqual("invalid JSON", call.call_args.args[2][1]["content"])
+
+    def test_river_consolidation_preserves_the_chat_output_limit(self) -> None:
+        original = notes_module.ReleaseNotes([], [notes_module.NoteItem("new", "外观", "新增夜间模式。", [SHA_A])], [])
+        reply = {
+            "summary": [],
+            "items": [{"category": "new", "group": "外观", "text": "新增夜间模式。", "commits": ["u0001"]}],
+            "maintenance": [],
+        }
+        for extra_body, expected in (
+            ({}, {"max_tokens": llm_providers.MAX_OUTPUT_TOKENS}),
+            ({"max_completion_tokens": 12000, "reasoning_effort": "none"}, {"max_completion_tokens": 12000}),
+        ):
+            with self.subTest(extra_body=extra_body), mock.patch(
+                "urllib.request.urlopen", return_value=openai_reply(reply)
+            ) as request:
+                slot = llm_providers.ProviderSlot(
+                    1, "openai", "https://api.river.ai/v1", "deepseek-ai/DeepSeek-V4.1-Flash", "key",
+                    extra_body=extra_body,
+                )
+                log = []
+                result = notes_module._consolidate_notes(
+                    original, make_context(count=1), CONFIG, [slot], llm_providers.ProviderSession(), log,
+                    summarize=False,
+                )
+                self.assertIsNotNone(result, "\n".join(log))
+                self.assertEqual([SHA_A], result.items[0].commits)
+                request.assert_called_once()
+                body = json.loads(request.call_args.args[0].data)
+                limits = {key: body[key] for key in ("max_tokens", "max_completion_tokens") if key in body}
+                self.assertEqual("high", body["reasoning_effort"])
+                self.assertEqual(expected, limits)
 
     def test_invalid_drafts_exhaust_bounded_repairs(self) -> None:
         slot = llm_providers.ProviderSlot(1, "openai", "https://api.example/v1", "m", "k")
@@ -482,12 +520,17 @@ class CumulativeNotesTest(unittest.TestCase):
             return json.dumps({"summary": [], "items": [{"category": "new" if calls == 1 else "improved",
                 "group": "回复", "text": "回复脉络支持关键词筛选。", "commits": shas}], "maintenance": []})
         slot = llm_providers.ProviderSlot(1, "openai", "https://provider.example/v1", "m", "k")
-        with mock.patch("llm_providers.complete", side_effect=complete):
+        with (mock.patch("llm_providers.complete", side_effect=complete),
+              self.assertLogs(notes_module.__name__, level="INFO") as diagnostics):
             outcome = notes_module.generate_with_llm(context, CONFIG, [slot], [], [])
         self.assertIsNotNone(outcome)
         self.assertEqual(1, len(outcome[0].items))
         self.assertEqual("new", outcome[0].items[0].category)
         self.assertEqual(context.commit_shas(), set(outcome[0].items[0].commits))
+        progress = "\n".join(diagnostics.output)
+        for batch in (1, 2):
+            self.assertIn(f"更新归类批次 {batch}/2 完成", progress)
+        self.assertNotIn(outcome[0].items[0].text, progress)
 
     def test_batch_summary_never_consumes_commit_classification_retry(self) -> None:
         context = make_context("stable")

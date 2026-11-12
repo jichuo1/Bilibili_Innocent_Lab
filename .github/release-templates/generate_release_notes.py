@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
 import sys
 from dataclasses import dataclass, field, replace
@@ -24,6 +25,7 @@ from release_note_common import CATEGORY_ICONS, escape_markdown_text
 
 
 TEMPLATES_DIR = Path(__file__).resolve().parent
+LOGGER = logging.getLogger(__name__)
 OVERRIDE_DIR_NAME = "release-notes"
 CATEGORY_KEYS = {"new": "新增", "fixed": "修复", "improved": "优化"}
 MAX_ITEM_CHARS = 160
@@ -440,6 +442,18 @@ def _repair_messages(messages: list[dict], raw: str, errors: list[str]) -> list[
     }]
 
 
+def _record_progress(log: list[str], message: str) -> None:
+    log.append(message)
+    LOGGER.info("%s", " ".join(message.splitlines()))
+
+
+def _record_validation_failure(log: list[str], phase: str, errors: list[str]) -> None:
+    log.append(f"{phase}：" + "；".join(errors))
+    # 保留规则和数量，模型原文与提交标题仍留在完整报告中。
+    reasons = dict.fromkeys(error.partition("：")[0] for error in errors[:8])
+    LOGGER.info("%s：%s", phase, "；".join(reasons))
+
+
 def _generate_batch(
     context: ReleaseContext, config: dict, slots: list[llm_providers.ProviderSlot], log: list[str], warnings: list[str],
     session: llm_providers.ProviderSession,
@@ -462,7 +476,7 @@ def _generate_batch(
             try:
                 raw = llm_providers.complete(slot, system, messages, OUTPUT_SCHEMA, session=session)
             except llm_providers.ProviderError as error:
-                log.append(f"{slot.label} 第 {attempt} 次请求失败：{error}")
+                _record_progress(log, f"{slot.label} 第 {attempt} 次请求失败：{error}")
                 break
             try:
                 payload = extract_json(raw)
@@ -480,7 +494,7 @@ def _generate_batch(
                 log.append(f"{slot.label} 第 {attempt} 次输出通过校验")
                 warnings.extend(slot_warnings)
                 return notes, slot.label
-            log.append(f"{slot.label} 第 {attempt} 次输出未通过校验：" + "；".join(errors[:8]))
+            _record_validation_failure(log, f"{slot.label} 第 {attempt} 次输出未通过校验", errors[:8])
             if preserved_body is None and errors and all("summary" in error for error in errors):
                 preserved_body = {"items": payload["items"], "maintenance": payload["maintenance"]}
                 log.append("仅概述未通过校验，锁定已合规正文及提交引用，后续只采用修订后的概述。")
@@ -512,7 +526,7 @@ def _generate_overview(notes: ReleaseNotes, context: ReleaseContext, config: dic
             try:
                 raw = llm_providers.complete(slot, system, conversation, OUTPUT_SCHEMA, session=session)
             except llm_providers.ProviderError as error:
-                log.append(f"版本概述 {slot.label} 请求失败：{error}")
+                _record_progress(log, f"版本概述 {slot.label} 第 {attempt} 次请求失败：{error}")
                 break
             try:
                 payload = extract_json(raw)
@@ -522,10 +536,12 @@ def _generate_overview(notes: ReleaseNotes, context: ReleaseContext, config: dic
             except ValueError as error:
                 overview, errors = None, [f"输出不是合法 JSON：{error}"]
             if overview is not None and not errors:
+                _record_progress(log, f"版本概述 {slot.label} 第 {attempt} 次通过校验："
+                                      f"{len(sentences(''.join(overview.summary)))} 句。")
                 return overview.summary
-            log.append(f"版本概述 {slot.label} 第 {attempt} 次输出未通过校验：" + "；".join(errors[:8]))
+            _record_validation_failure(log, f"版本概述 {slot.label} 第 {attempt} 次输出未通过校验", errors[:8])
             conversation = _repair_messages(conversation, raw, errors)
-    log.append("版本概述生成失败，保留全部正文并使用中性概述。")
+    _record_progress(log, "版本概述生成失败，保留全部正文并使用中性概述。")
     return (["本版本包含近期功能与兼容性调整。具体更新内容见下方说明。"]
             if context.channel == "stable" else [])
 
@@ -559,18 +575,18 @@ def _consolidate_notes(notes: ReleaseNotes, context: ReleaseContext, config: dic
         # 归并需要计数和完整映射；River DeepSeek 在此阶段开启推理，分批生成仍走快速模式。
         merge_slot = slot
         if slot.base_url.rstrip("/") == "https://api.river.ai/v1" and slot.model.startswith("deepseek-ai/"):
-            merge_slot = replace(slot, extra_body={**slot.extra_body, "reasoning_effort": "high", "max_tokens": 32768})
+            merge_slot = replace(slot, extra_body={**slot.extra_body, "reasoning_effort": "high"})
         for attempt in range(1, GENERATION_ATTEMPTS + 1):
             try:
                 raw = llm_providers.complete(merge_slot, system, messages, OUTPUT_SCHEMA, session=session)
             except llm_providers.ProviderError as error:
-                log.append(f"最终归并 {slot.label} 请求失败：{error}")
+                _record_progress(log, f"最终归并 {slot.label} 第 {attempt} 次请求失败：{error}")
                 break
             try:
                 payload = extract_json(raw)
             except ValueError as error:
                 errors = [f"输出不是合法 JSON：{error}"]
-                log.append("最终归并未通过：" + "；".join(errors))
+                _record_validation_failure(log, f"最终归并 {slot.label} 第 {attempt} 次输出未通过校验", errors)
                 messages = _repair_messages(messages, raw, errors)
                 continue
             covered = set()
@@ -607,9 +623,10 @@ def _consolidate_notes(notes: ReleaseNotes, context: ReleaseContext, config: dic
                 context if summarize else replace(context, channel="alpha"), config)
             errors.extend(validation_errors)
             if result is not None and not errors:
-                log.append(f"最终归并通过：{len(originals)} 个原点完整映射为 {len(result.items)} 条正文，上限 {limit}。")
+                _record_progress(log, f"最终归并通过：{len(originals)} 个原点完整映射为 "
+                                      f"{len(result.items)} 条正文，上限 {limit}。")
                 return result
-            log.append("最终归并未通过：" + "；".join(errors[:8]))
+            _record_validation_failure(log, f"最终归并 {slot.label} 第 {attempt} 次输出未通过校验", errors[:8])
             messages = _repair_messages(messages, raw, errors)
     return None
 
@@ -630,10 +647,11 @@ def limit_notes(notes: ReleaseNotes, context: ReleaseContext, config: dict,
         budget = limit // len(chunks) + (1 if index < limit % len(chunks) else 0)
         shas = {sha for item in chunk for sha in item.commits}
         local_context = replace(context, commits=[info for info in context.commits if info.sha in shas])
-        log.append(f"归并小组 {index + 1}/{len(chunks)}：{len(chunk)} 个原点，正文预算 {budget} 条。")
+        _record_progress(log, f"归并小组 {index + 1}/{len(chunks)}：{len(chunk)} 个原点，正文预算 {budget} 条。")
         combined = _consolidate_notes(ReleaseNotes([], chunk, []), local_context,
                                       {**config, "max_items": budget}, slots, session, log, summarize=False)
         if combined is None:
+            _record_progress(log, f"归并小组 {index + 1}/{len(chunks)} 未完成。")
             return None
         result.items.extend(combined.items)
         result.maintenance.extend(combined.maintenance)
@@ -650,9 +668,9 @@ def limit_notes(notes: ReleaseNotes, context: ReleaseContext, config: dict,
     checked, errors, _ = validate_notes({"summary": result.summary, "items": [vars(item) for item in result.items],
                                        "maintenance": result.maintenance}, context, config)
     if checked is None:
-        log.append("小组归并总校验失败：" + "；".join(errors))
+        _record_validation_failure(log, "小组归并总校验失败", errors)
         return None
-    log.append(f"小组归并完成：{len(notes.items)} 个原点全部有归属，保留 {len(checked.items)} 条，上限 {limit}。")
+    _record_progress(log, f"小组归并完成：{len(notes.items)} 个原点全部有归属，保留 {len(checked.items)} 条，上限 {limit}。")
     return checked
 
 
@@ -663,12 +681,18 @@ def generate_with_llm(
     session = llm_providers.ProviderSession()
     if len(context.commits) <= COMMIT_BATCH_SIZE:
         if not context.commit_index_complete:
-            log.append("提交索引无法完整放入上下文，改用完整规则记录。")
+            _record_progress(log, "提交索引无法完整放入上下文，改用完整规则记录。")
             return None
+        _record_progress(log, f"更新归类批次 1/1：{len(context.commits)} 个提交")
         batch_config = {**config, "max_items": max(int(config.get("max_items", 18)), len(context.commits) * 2)}
         outcome = _generate_batch(context, batch_config, slots, log, warnings, session)
-        if outcome is not None and classified is not None:
-            classified.update(items=[vars(item) for item in outcome[0].items], maintenance=outcome[0].maintenance)
+        if outcome is None:
+            _record_progress(log, "更新归类批次 1/1 未完成，改用整个范围的规则记录。")
+            return None
+        notes, _ = outcome
+        _record_progress(log, f"更新归类批次 1/1 完成：{len(notes.items)} 条更新，{len(set(notes.maintenance))} 个维护提交。")
+        if classified is not None:
+            classified.update(items=[vars(item) for item in notes.items], maintenance=notes.maintenance)
         return outcome
     batches = [context.commits[offset:offset + COMMIT_BATCH_SIZE]
                for offset in range(0, len(context.commits), COMMIT_BATCH_SIZE)]
@@ -676,15 +700,17 @@ def generate_with_llm(
     sources = []
     items: dict[str, NoteItem] = {}
     for index, batch in enumerate(batches, start=1):
-        log.append(f"更新归类批次 {index}/{len(batches)}：{len(batch)} 个提交")
+        batch_label = f"更新归类批次 {index}/{len(batches)}"
+        _record_progress(log, f"{batch_label}：{len(batch)} 个提交")
         # 批次可以包含许多独立更新，不用 18 条上限迫使模型丢掉细节。
         batch_config = {**config, "max_items": max(int(config.get("max_items", 18)), len(batch) * 2)}
         outcome = _generate_batch(_batch_context(context, batch), batch_config, slots, log, warnings, session,
                                   summarize=False)
         if outcome is None:
-            log.append(f"批次 {index} 未完成，禁止发布部分 AI 总结，改用整个范围的规则记录。")
+            _record_progress(log, f"{batch_label} 未完成，禁止发布部分 AI 总结，改用整个范围的规则记录。")
             return None
         notes, source = outcome
+        _record_progress(log, f"{batch_label} 完成：{len(notes.items)} 条更新，{len(set(notes.maintenance))} 个维护提交。")
         if source not in sources:
             sources.append(source)
         for item in notes.items:
@@ -701,12 +727,12 @@ def generate_with_llm(
     merged.maintenance = list(dict.fromkeys(merged.maintenance))
     if classified is not None:
         classified.update(items=[vars(item) for item in merged.items], maintenance=merged.maintenance)
-    # 合并只去掉文字完全相同的条目，并合并其引用；不设正文总条数上限。
     limit = int(config.get("max_items", 100))
+    _record_progress(log, f"去重后共有 {len(merged.items)} 条更新，正文上限 {limit} 条。")
     if len(merged.items) > limit:
         consolidated = limit_notes(merged, context, config, slots, session, log)
         if consolidated is None:
-            log.append("最终归并未满足条数与原点覆盖，禁止发布超限或不完整的正文。")
+            _record_progress(log, "最终归并未满足条数与原点覆盖，改用整个范围的规则记录。")
             return None
         merged = consolidated
     else:
@@ -715,9 +741,9 @@ def generate_with_llm(
                "items": [vars(item) for item in merged.items], "maintenance": merged.maintenance}
     checked, errors, _ = validate_notes(payload, context, config)
     if checked is None:
-        log.append("合并后校验失败：" + "；".join(errors))
+        _record_validation_failure(log, "合并后校验失败", errors)
         return None
-    log.append(f"全部 {len(context.commits)} 个提交完成归类，保留 {len(checked.items)} 条更新。")
+    _record_progress(log, f"全部 {len(context.commits)} 个提交完成归类，保留 {len(checked.items)} 条更新。")
     return checked, "、".join(sources) + f"（{len(batches)} 批，完整覆盖）"
 
 
@@ -824,6 +850,7 @@ def main() -> None:
     if pattern.fullmatch(args.release_tag) is None:
         raise SystemExit(f"Invalid {args.channel} tag: {args.release_tag}")
 
+    logging.basicConfig(level=logging.INFO, format="[release-notes] %(message)s")
     result = generate(
         channel=args.channel,
         repo_root=args.repo_root.resolve(),
