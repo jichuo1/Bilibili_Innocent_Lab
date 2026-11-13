@@ -252,7 +252,7 @@ internal class SponsorPlayerSessions(private val env: HookEnvironment, private v
             val owner = owner.get() ?: return false
             val wrapper = wrapper.get() ?: return false
             return guard.submit(owner, targetMs, { progressSeen.get() && valid() }, executing) {
-                access.seek.invoke(wrapper, targetMs, false)
+                access.seek.invoke(wrapper, targetMs, SponsorPlayerAccess.ACCURATE_SEEK)
             }
         }
 

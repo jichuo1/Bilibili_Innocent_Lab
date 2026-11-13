@@ -87,6 +87,15 @@ internal class SponsorPlayerAccess private constructor(
         const val RUN_CLASS = "com.bilibili.ship.theseus.keel.player.TheseusKeelPlayer\$runPlayable\$1"
         const val PARAMS_CLASS = "com.bilibili.app.gemini.base.player.GeminiCommonPlayableParams"
         const val CORE_CLASS = "tv.danmaku.biliplayerv2.service.IPlayerCoreService"
+
+        /**
+         * `IPlayerCoreService.seekTo(int, boolean)` 的第二个参数是 accurate（包装器协程的字段名即 `$accurate`，
+         * 一路传到 `MediaPlayContextImpl.seekTo(long, boolean)` 的日志 `seek[position=… accurate=…]` 和
+         * `IjkMediaPlayer.seekTo(long, boolean)`；8.90.2 反编译核对）。宿主默认的 `seekTo(int)` 等价于 false，
+         * 此时 ijk 只落到目标之前的关键帧：真机上自动跳到区间终点后，实际位置退回终点前约 3–5 秒，仍在广告里。
+         * 商单跳过与撤销都必须精确落点，所以这里固定为 true。
+         */
+        const val ACCURATE_SEEK = true
         const val WRAPPER_CLASS = "com.bilibili.ship.theseus.united.player.oldway.playercontainer.TheseusPlayerContainerProvider\$providePlayerContainer\$playerContainer\$1\$1\$1"
         const val SCOPE_CLASS = "com.bilibili.ship.theseus.united.player.oldway.playercontainer.BadNetworkTipService"
         const val CONTAINER_SCOPE_CLASS = "com.bilibili.ship.theseus.united.player.oldway.playercontainer.TheseusPlayerContainerProvider\$providePlayerContainer\$2"

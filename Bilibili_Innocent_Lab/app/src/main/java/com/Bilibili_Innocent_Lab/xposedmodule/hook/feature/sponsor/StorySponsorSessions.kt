@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.widget.FrameLayout
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorStoryAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureRuntimeStage
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
@@ -165,7 +166,7 @@ internal class StorySponsorSessions(
             return livePagers().filter { access.isPagerOf(it, player) }.mapNotNull(access::detail)
         }
         override fun seek(targetMs: Int) {
-            core.get()?.let { access.core.seek.invoke(it, targetMs, false) }
+            core.get()?.let { access.core.seek.invoke(it, targetMs, SponsorPlayerAccess.ACCURATE_SEEK) }
         }
 
         fun start() {
