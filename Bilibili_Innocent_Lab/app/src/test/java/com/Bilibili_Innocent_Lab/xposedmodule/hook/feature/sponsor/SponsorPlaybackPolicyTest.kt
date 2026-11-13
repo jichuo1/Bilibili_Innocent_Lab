@@ -101,4 +101,53 @@ class SponsorPlaybackPolicyTest {
         assertNull(p.request(true, 4_000))
         assertNotNull(p.request(false, 4_000, manual = true))
     }
+
+    /** 诊断判定与真正的自动请求必须同源：能自动跳 ⇔ 没有拒绝原因。 */
+    private fun assertAgrees(p: SponsorPlaybackPolicy, playing: Boolean, now: Long, expected: String?) {
+        assertEquals(expected, p.autoDenial(playing, now))
+        if (expected == null) assertNotNull(p.request(playing, now)) else assertNull(p.request(playing, now))
+    }
+
+    @Test fun autoDenialNamesTheReasonAndAgreesWithTheRealAutomaticRequest() {
+        assertAgrees(policy(), true, 0, null)
+        assertAgrees(policy(false), true, 0, "manual-only")
+        assertAgrees(policy(), false, 0, "paused")
+        // 区间外没有“拒绝”可言（返回 null），当然也不会发请求。
+        val outside = policy(); outside.progress(50_000, 100_000, 0)
+        assertNull(outside.autoDenial(true, 0)); assertNull(outside.request(true, 0))
+    }
+
+    @Test fun autoDenialDistinguishesPendingSeekingSuspendedAndTailGuard() {
+        val pending = policy(); pending.request(true, 0)
+        assertAgrees(pending, true, 1, "pending")
+        val scrub = policy(); scrub.externalSeekStart(0)
+        assertAgrees(scrub, true, 1, "seeking")
+        val lost = policy(); lost.externalSeekStart(0)
+        assertAgrees(lost, true, 4_000, "suspended")
+        val tail = SponsorSegment("t", 90_000, 99_000, 100_000)
+        val guarded = SponsorPlaybackPolicy(true, 1_500).apply { load(listOf(tail)); progress(95_000, 100_000, 0) }
+        assertAgrees(guarded, true, 0, "tail-guard")
+    }
+
+    @Test fun blockedRangesReportTheirFirstCause() {
+        val drag = policy(); drag.externalSeekStart(0); drag.externalSeekComplete(15_000)
+        assertAgrees(drag, true, 1, "blocked.external-seek")
+
+        val replay = policy(); replay.request(true, 0); replay.confirm(20_000, 1); replay.progress(12_000, 100_000, 2)
+        assertAgrees(replay, true, 2, "blocked.confirmed")
+
+        val failed = policy(); failed.request(true, 0)!!.let { failed.fail(it.serial) }
+        assertAgrees(failed, true, 1, "blocked.failed")
+
+        val interrupted = policy(); interrupted.request(true, 0); interrupted.externalSeekStart(1)
+        interrupted.externalSeekComplete(30_000); interrupted.progress(12_000, 100_000, 2)
+        assertAgrees(interrupted, true, 2, "blocked.interrupted")
+    }
+
+    @Test fun autoDenialHasNoSideEffectsOnThePendingRequest() {
+        val p = policy(); val request = p.request(true, 0)!!
+        repeat(3) { p.autoDenial(true, 1) }
+        assertEquals(request, p.pending)
+        assertTrue(p.confirm(20_000, 2))
+    }
 }

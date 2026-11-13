@@ -22,7 +22,8 @@ internal class SponsorPlaybackPolicy(private val automatic: Boolean, private val
     private var seekDeadline = 0L
     private var autoSuspended = false
     private var userTarget: Long? = null
-    private val blocked = hashSetOf<String>()
+    /** 区间编号 → 首次被封锁的原因；只用于诊断，判定仍只看是否在表里。 */
+    private val blocked = hashMapOf<String, String>()
     private var undo: Undo? = null
     var pending: Request? = null
         private set
@@ -41,12 +42,41 @@ internal class SponsorPlaybackPolicy(private val automatic: Boolean, private val
 
     fun request(playing: Boolean, nowMs: Long, manual: Boolean = false): Request? {
         expire(nowMs)
-        if (pending != null || seeking || position !in 0 until duration || (!manual && (!automatic || !playing || autoSuspended))) return null
         val range = currentRange ?: return null
-        if (!manual && range.ids.any(blocked::contains)) return null
-        if (!manual && tailGuardMs > 0 && duration - range.endMs < tailGuardMs) return null
+        if (denial(playing, manual, range) != null) return null
         return Request(++sequence, position, range.endMs, range, false, nowMs + 4_000).also { pending = it; undo = null }
     }
+
+    /**
+     * 当前位置在商单区间内、却没有自动跳过的原因（纯诊断，无副作用；与 [request] 共用同一份判定）。
+     * 区间被封锁时带上首次封锁的原因，例如 `blocked.external-seek`；不在区间内或可以自动跳时为 null。
+     */
+    fun autoDenial(playing: Boolean, nowMs: Long): String? {
+        expire(nowMs)
+        val range = currentRange ?: return null
+        val reason = denial(playing, manual = false, range) ?: return null
+        return if (reason == Denial.BLOCKED) "blocked." + (range.ids.firstNotNullOfOrNull(blocked::get) ?: "unknown")
+        else reason.code
+    }
+
+    private enum class Denial(val code: String) {
+        PENDING("pending"), SEEKING("seeking"), NO_POSITION("no-position"), MANUAL_ONLY("manual-only"),
+        PAUSED("paused"), SUSPENDED("suspended"), BLOCKED("blocked"), TAIL_GUARD("tail-guard")
+    }
+
+    private fun denial(playing: Boolean, manual: Boolean, range: Range): Denial? = when {
+        pending != null -> Denial.PENDING
+        seeking -> Denial.SEEKING
+        position !in 0 until duration -> Denial.NO_POSITION
+        !manual && !automatic -> Denial.MANUAL_ONLY
+        !manual && !playing -> Denial.PAUSED
+        !manual && autoSuspended -> Denial.SUSPENDED
+        !manual && range.ids.any(blocked::containsKey) -> Denial.BLOCKED
+        !manual && tailGuardMs > 0 && duration - range.endMs < tailGuardMs -> Denial.TAIL_GUARD
+        else -> null
+    }
+
+    private fun block(ids: Set<String>, cause: String) { ids.forEach { blocked.putIfAbsent(it, cause) } }
 
     fun confirm(positionMs: Long, nowMs: Long): Boolean {
         val request = pending ?: return false
@@ -54,7 +84,7 @@ internal class SponsorPlaybackPolicy(private val automatic: Boolean, private val
         pending = null
         seeking = false
         position = positionMs
-        blocked += request.range.ids
+        block(request.range.ids, "confirmed")
         undo = if (request.undo) null else Undo(request, nowMs + 6_000)
         return true
     }
@@ -68,12 +98,12 @@ internal class SponsorPlaybackPolicy(private val automatic: Boolean, private val
         if (!canUndo(nowMs)) return null
         val previous = undo!!.request
         undo = null
-        blocked += previous.range.ids
+        block(previous.range.ids, "undo")
         return Request(++sequence, position, previous.originMs, previous.range, true, nowMs + 4_000).also { pending = it }
     }
 
     fun externalSeekStart(nowMs: Long) {
-        pending?.let { blocked += it.range.ids }
+        pending?.let { block(it.range.ids, "interrupted") }
         pending = null
         undo = null
         seeking = true
@@ -85,12 +115,12 @@ internal class SponsorPlaybackPolicy(private val automatic: Boolean, private val
         autoSuspended = false
         position = positionMs
         userTarget = positionMs
-        currentRange?.let { blocked += it.ids }
+        currentRange?.let { block(it.ids, "external-seek") }
     }
 
     fun fail(serial: Long) {
         val request = pending?.takeIf { it.serial == serial } ?: return
-        blocked += request.range.ids
+        block(request.range.ids, "failed")
         pending = null
         undo = null
     }
@@ -114,7 +144,7 @@ internal class SponsorPlaybackPolicy(private val automatic: Boolean, private val
             } else merged += Range(segment.startMs, segment.endMs, setOf(segment.uuid))
         }
         ranges = merged
-        userTarget?.let { target -> ranges.firstOrNull { target >= it.startMs && target < it.endMs }?.let { blocked += it.ids } }
+        userTarget?.let { target -> ranges.firstOrNull { target >= it.startMs && target < it.endMs }?.let { block(it.ids, "external-seek") } }
         if (pending?.let { it.targetMs !in 0..duration || it.range !in ranges } == true) pending?.let { fail(it.serial) }
     }
 }

@@ -34,7 +34,9 @@ internal class StorySponsorSession(
     private val now: () -> Long,
     private val hint: (SponsorPlaybackController.Hint) -> Unit,
     private val applied: () -> Unit,
-    private val diagnostic: (String, String) -> Unit
+    private val diagnostic: (String, String) -> Unit,
+    /** 每个新控制器取一个会话级记录器（每个条目各记各的）；默认退回进程级的 [diagnostic]。 */
+    private val controllerDiagnostic: () -> (String, String) -> Unit = { diagnostic }
 ) {
     private class Bound(val video: SponsorVideoId, val playableId: String, val controller: SponsorPlaybackController,
         val port: SponsorPlayerPort)
@@ -133,7 +135,7 @@ internal class StorySponsorSession(
     private fun bind(verdict: StorySponsorVerdict.Allow) {
         val port = Port(verdict.video, verdict.playableId)
         val controller = SponsorPlaybackController(verdict.video, automatic, port, ::admitted, main, after, now,
-            hint, applied, diagnostic, TAIL_GUARD_MS)
+            hint, applied, controllerDiagnostic(), TAIL_GUARD_MS)
         live = Bound(verdict.video, verdict.playableId, controller, port)
         diagnostic("session.bound", "")
         controller.start()
@@ -161,6 +163,7 @@ internal class StorySponsorSession(
         override fun position(): Long = if (progressSeen) host.position() else -1L
         override fun duration(): Long = if (progressSeen) host.duration() else 0L
         override fun playing(): Boolean = host.state() == PLAYING
+        override fun seekRefusal(): String = "invalid" // seek 只在未收到进度或门禁失效时返回 false
         override fun seek(targetMs: Int, valid: () -> Boolean, executing: () -> Unit): Boolean {
             if (!progressSeen || !valid()) return false
             // seekTo 是同步的：onSeekStart 会在这一行内回调，所以必须先标记已进入执行。

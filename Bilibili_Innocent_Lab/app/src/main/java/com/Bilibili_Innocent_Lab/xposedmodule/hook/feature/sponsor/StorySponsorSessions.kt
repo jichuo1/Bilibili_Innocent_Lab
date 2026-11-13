@@ -146,7 +146,8 @@ internal class StorySponsorSessions(
                     handler.postDelayed(task, delay)
                     SponsorSegmentRepository.Ticket { handler.removeCallbacks(task) } },
                 SystemClock::uptimeMillis, ::render,
-                { env.reportRuntimeEvidence(featureId, FeatureRuntimeStage.APPLIED) }, diagnostics::record)
+                { env.reportRuntimeEvidence(featureId, FeatureRuntimeStage.APPLIED) }, diagnostics::record,
+                diagnostics::session)
         }
 
         override fun alive(): Boolean = !invalid && owner.get() != null && core.get() != null &&

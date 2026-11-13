@@ -134,7 +134,7 @@ internal class SponsorPlayerSessions(private val env: HookEnvironment, private v
                 val owner = session.owner.get() ?: return@before
                 if (!guard.isSubmitting(owner)) {
                     session.controller.invalidateExternalSeek()
-                    main { if (current === session) session.controller.externalSeekStarted() }
+                    main { if (current === session) session.controller.externalSeekStarted("call") }
                 }
             }
         }
@@ -215,6 +215,8 @@ internal class SponsorPlayerSessions(private val env: HookEnvironment, private v
         val activity = WeakReference(activity)
         private val root = WeakReference(root)
         val invalid = AtomicBoolean(false)
+        /** 会话级诊断：每个视频一份，不被先前视频的同名事件吞掉。 */
+        private val log = diagnostics.session()
         private val progressQueued = AtomicBoolean(false)
         private val progressSeen = AtomicBoolean(false)
         private val unregister = mutableListOf<Pair<Method, Any>>()
@@ -231,7 +233,7 @@ internal class SponsorPlayerSessions(private val env: HookEnvironment, private v
             { delay, block -> val task = Runnable(block); handler.postDelayed(task, delay)
                 SponsorSegmentRepository.Ticket { handler.removeCallbacks(task) } }, SystemClock::uptimeMillis,
             ::render, { env.reportRuntimeEvidence(SponsorBlockFeatureInstaller.ID, FeatureRuntimeStage.APPLIED) },
-            diagnostics::record)
+            log)
 
         override fun valid(video: SponsorVideoId): Boolean {
             val owner = owner.get() ?: return false
@@ -245,6 +247,7 @@ internal class SponsorPlayerSessions(private val env: HookEnvironment, private v
         override fun duration(): Long = if (!progressSeen.get()) 0L else
             wrapper.get()?.let { access.duration.invoke(it) as? Int }?.toLong() ?: 0L
         override fun playing(): Boolean = wrapper.get()?.let { access.state.invoke(it) as? Int } == 4
+        override fun seekRefusal(): String = guard.lastRefusal
         override fun seek(targetMs: Int, valid: () -> Boolean, executing: () -> Unit): Boolean {
             val owner = owner.get() ?: return false
             val wrapper = wrapper.get() ?: return false
@@ -267,7 +270,7 @@ internal class SponsorPlayerSessions(private val env: HookEnvironment, private v
             }
             observe(access.progressObserver, access.registerProgress, access.unregisterProgress) { name, _ ->
                 if (name == "onPlayerProgressChange") {
-                    if (progressSeen.compareAndSet(false, true)) diagnostics.record("progress.observed")
+                    if (progressSeen.compareAndSet(false, true)) log("progress.observed", "")
                     if (progressQueued.compareAndSet(false, true)) main {
                         progressQueued.set(false)
                         if (current === this) { if (valid(video)) controller.refresh() else detach() }
@@ -288,7 +291,7 @@ internal class SponsorPlayerSessions(private val env: HookEnvironment, private v
                     if (current === this) controller.stateChanged()
                 } }
             env.reportRuntimeEvidence(SponsorBlockFeatureInstaller.ID, FeatureRuntimeStage.OBSERVED)
-            diagnostics.record("session.bound")
+            log("session.bound", "")
             controller.start()
         }
 
