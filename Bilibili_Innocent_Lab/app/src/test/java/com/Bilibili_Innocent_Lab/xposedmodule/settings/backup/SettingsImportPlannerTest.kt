@@ -6,6 +6,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsImportPlannerTest {
+    @Test fun `v76 backups preserve a saved strong mode choice and v77 can restore it`() {
+        val spec = SettingsCatalog.byId.getValue(SettingsCatalog.ID_COMMENT_FISH_STRONG_MODE)
+        val current = snapshot(spec to StoredSetting(true, SettingValue.Bool(true)))
+        val planner = SettingsImportPlanner(listOf(spec), SettingsCatalog.CATALOG_VERSION)
+        val older = planner.plan(document(76, emptyList()), current)
+        assertEquals(ImportStatus.NEW_IN_CURRENT, older.entries.single().status)
+        assertTrue(older.writes.isEmpty())
+
+        val restored = planner.plan(document(77, listOf(record(spec, true, SettingValue.Bool(false)))), current)
+        assertEquals(ImportStatus.EXACT, restored.entries.single().status)
+        assertEquals(SettingValue.Bool(false), restored.writes.single().value)
+    }
+
     @Test fun `older backups retain disabled mine dimming and current backups restore both choices`() {
         val spec = SettingsCatalog.byId.getValue("host.mine.garb_dim.enabled")
         val current = snapshot(spec to StoredSetting(true, SettingValue.Bool(false)))

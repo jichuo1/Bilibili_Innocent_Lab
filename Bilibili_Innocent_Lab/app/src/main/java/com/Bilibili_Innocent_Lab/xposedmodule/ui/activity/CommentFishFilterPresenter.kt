@@ -18,9 +18,9 @@ import android.widget.LinearLayout as NativeLinearLayout
 import android.widget.TextView as NativeTextView
 
 /**
- * 「屏蔽 AI 评论与回复」的设置行：总开关、敏感度、两份自定义词、放行名单、高等级保护。
+ * 「屏蔽 AI 评论与回复」的设置行：总开关、敏感度、强力模式、两份自定义词、放行名单、高等级保护。
  *
- * 判据本身在 [FishScorePolicy]；这里只负责设置页。总开关与保护开关走设置模型（[applyModeledToggle]），
+ * 判据本身在 [FishScorePolicy]；这里只负责设置页。开关走设置模型（[applyModeledToggle]），
  * 其余是弹窗取值，沿用评论关键词 / 发布者行的写法：行文本 = 标题 + 换行 + 当前值，弹窗标题复用来源行标题。
  */
 internal fun MainActivity.commentFishFilterSettingsRows(performer: LinearSettingsScope) {
@@ -55,6 +55,29 @@ internal fun MainActivity.commentFishFilterSettingsRows(performer: LinearSetting
             mirror = { commentFishSensitivity = it }
         ) { anchor, onSaved ->
             showCommentFishSensitivityDialog(anchor, onSaved)
+        }
+        materialSwitch(key = "CommentFishFilterPresenter:strong-mode",
+            lparams = params(widthMatchParent = true) {
+                topMargin = 12.dp
+                bottomMargin = 5.dp
+            }
+        ) {
+            bindFavoriteSwitch(this, FeaturePreferences.COMMENT_FISH_STRONG_MODE, directToggle = true)
+            text = stringResource(R.string.comment_fish_strong_mode)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = commentFishStrongMode
+            setOnCheckedChangeListener { button, checked ->
+                applyModeledToggle(FeaturePreferences.COMMENT_FISH_STRONG_MODE, checked, button)
+            }
+        }
+        textView(key = "CommentFishFilterPresenter:strong-mode-tip", lparams = params(widthMatchParent = true)) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.comment_fish_strong_mode_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
         }
         fishRuleRow(this, "CommentFishFilterPresenter:nickname", FeaturePreferences.COMMENT_FISH_NICKNAME_WORDS,
             R.string.comment_fish_nickname_words, R.string.comment_fish_words_dialog_hint,

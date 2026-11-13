@@ -42,9 +42,10 @@ internal class ProtobufReplyTreeRewriter(
     /** 删除结果：新消息（无改动时是原对象）与删除条数。 */
     class Result(val message: Any, val removed: Int)
 
-    fun rewrite(message: Any): Result = rewrite(message, 0)
+    fun rewrite(message: Any, decideInResponse: ((List<Any>, Any) -> Set<Any>)? = null): Result =
+        rewrite(message, 0, decideInResponse ?: decideOwned ?: { replies, _ -> decide(replies) })
 
-    private fun rewrite(message: Any, depth: Int): Result {
+    private fun rewrite(message: Any, depth: Int, decideIn: (List<Any>, Any) -> Set<Any>): Result {
         if (depth >= MAX_DEPTH) return Result(message, 0)
         val shape = shapeOf(message.javaClass) ?: return Result(message, 0)
         var removed = 0
@@ -61,7 +62,7 @@ internal class ProtobufReplyTreeRewriter(
                     changed = true
                     removed++
                 } else {
-                    val child = rewrite(item, depth + 1)
+                    val child = rewrite(item, depth + 1, decideIn)
                     removed += child.removed
                     val mapped = mapReply(child.message)
                     if (mapped !== item) changed = true
@@ -83,7 +84,7 @@ internal class ProtobufReplyTreeRewriter(
                 singleEdits[field] = null
                 removed++
             } else {
-                val child = rewrite(value, depth + 1)
+                val child = rewrite(value, depth + 1, decideIn)
                 removed += child.removed
                 val mapped = mapReply(child.message)
                 if (mapped !== value) singleEdits[field] = mapped
@@ -101,9 +102,6 @@ internal class ProtobufReplyTreeRewriter(
         }
         return Result(rebuilt, removed)
     }
-
-    private fun decideIn(replies: List<Any>, owner: Any): Set<Any> =
-        decideOwned?.invoke(replies, owner) ?: decide(replies)
 
     private fun shapeOf(type: Class<*>): Shape? {
         val cached = shapes[type]

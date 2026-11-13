@@ -314,6 +314,14 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             commentFishFilterEnabled = outcome.confirmed
             commentFishFilterEnabled
         }
+        FeaturePreferences.COMMENT_FISH_STRONG_MODE -> {
+            val outcome = SettingWritePolicy.attempt(commentFishStrongMode, requested) {
+                prefs().edit { putBoolean(FeaturePreferences.COMMENT_FISH_STRONG_MODE, requested) }
+            }
+            outcome.failure?.let { Log.e("BilibiliInnocentLab", "write comment fish strong mode prefs failed", it) }
+            commentFishStrongMode = outcome.confirmed
+            commentFishStrongMode
+        }
         FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL -> {
             val outcome = SettingWritePolicy.attempt(commentFishProtectHighLevel, requested) {
                 prefs().edit { putBoolean(FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL, requested) }
@@ -1684,6 +1692,7 @@ internal val modeledToggleKeys = setOf(
     FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL,
     FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB,
     FeaturePreferences.COMMENT_FISH_FILTER_ENABLED,
+    FeaturePreferences.COMMENT_FISH_STRONG_MODE,
     FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL,
     FeaturePreferences.NO_LOGIN_ENABLED,
     FeaturePreferences.INCOGNITO_ENABLED,
@@ -1809,6 +1818,7 @@ internal fun MainActivity.synchronizeSettingField(key: String, confirmed: Boolea
         FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL -> homeVerticalOpenDetail = confirmed
         FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB -> preferDynamicVideoTab = confirmed
         FeaturePreferences.COMMENT_FISH_FILTER_ENABLED -> commentFishFilterEnabled = confirmed
+        FeaturePreferences.COMMENT_FISH_STRONG_MODE -> commentFishStrongMode = confirmed
         FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL -> commentFishProtectHighLevel = confirmed
         FeaturePreferences.NO_LOGIN_ENABLED -> noLoginEnabled = confirmed
         FeaturePreferences.INCOGNITO_ENABLED -> incognitoEnabled = confirmed

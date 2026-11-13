@@ -1,17 +1,17 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 /**
- * 「屏蔽 AI 评论与回复」的第四类特征：回复对主评论的复述。
+ * 「屏蔽 AI 评论与回复」的复述判据：比较评论与主评论、视频标题或简介中的原样片段。
  *
  * AI 小号在楼中楼里很少说自己的话：它们把主评论里的词句换个说法再讲一遍（一整排回复都在复述同一个短语）。
- * 真人的回复也会引用主评论，所以这里**只加分、封顶 [MAX_POINTS]**，单独不足以让任何阈值成立，
+ * 真人也会引用这些内容，所以这里**只加分、共享 [MAX_POINTS] 上限**，单独不足以让任何阈值成立，
  * 只在昵称、等级、正文已经让分数"差一点"时推过线。
  *
  * - 只比较"原样出现"的片段：把两段文本切成只含字母数字汉字的片段，取 4 字窗口比对（窗口不跨标点、不含 @ 与表情占位）；
  * - 太通用的 4 字窗口（"这个视频"、"什么意思"……）、单字连写（"哈哈哈哈"）、纯 ASCII 窗口不算；
- * - 主评论与回复各自有效字数不足 [MIN_LETTERS] 时不比：短回复（"同款"、"哈哈"）本来就会和主评论撞词。
+ * - 任一文本的有效字数不足 [MIN_LETTERS] 时不比：短文本容易撞词。
  *
- * 纯函数、无 Android 依赖；主评论只在分数落进"差一点"区间时才读取并建索引（见 [FishScorePolicy.score]）。
+ * 无 Android 依赖；只在分数落进"差一点"区间时才按需建索引（见 [FishScorePolicy.score]）。
  */
 internal object FishRootEcho {
 
@@ -47,9 +47,7 @@ internal object FishRootEcho {
         internal fun windows(): LongArray? {
             val cached = grams
             if (cached != null) return cached as? LongArray
-            val built = runCatching { readText() }.getOrNull()
-                ?.takeIf(String::isNotBlank)?.let(TextNormalizer::forMatching)
-                ?.let(::indexOf)
+            val built = runCatching { readText() }.getOrNull().let(::normalizedIndex)
             grams = built ?: ABSENT
             return built
         }
@@ -71,6 +69,22 @@ internal object FishRootEcho {
         }
     }
 
+    /** 同一视频的标题、简介分别建索引，跨评论复用。 */
+    data class Video(val title: String?, val description: String?) {
+        private val titleWindows by lazy(LazyThreadSafetyMode.PUBLICATION) { normalizedIndex(title) }
+        private val descriptionWindows by lazy(LazyThreadSafetyMode.PUBLICATION) { normalizedIndex(description) }
+
+        fun points(message: String): Int {
+            val text = clean(message)
+            val letters = letterCount(text)
+            if (letters < MIN_LETTERS) return 0
+            val titlePoints = titleWindows?.let { points(it, text, letters) } ?: 0
+            if (titlePoints == MAX_POINTS) return titlePoints
+            val descriptionPoints = descriptionWindows?.let { points(it, text, letters) } ?: 0
+            return maxOf(titlePoints, descriptionPoints)
+        }
+    }
+
     /**
      * [reply]（已归一化）对 [root] 的复述加分，0..[MAX_POINTS]。
      *
@@ -82,6 +96,10 @@ internal object FishRootEcho {
         val text = clean(reply)
         val letters = letterCount(text)
         if (letters < MIN_LETTERS) return 0
+        return points(index, text, letters)
+    }
+
+    private fun points(index: LongArray, text: String, letters: Int): Int {
         var covered = 0
         var coveredEnd = 0
         var run = 0
@@ -108,6 +126,9 @@ internal object FishRootEcho {
         if (covered >= MIN_LETTERS && covered * 2 >= letters) points += 8
         return minOf(MAX_POINTS, points)
     }
+
+    private fun normalizedIndex(raw: String?): LongArray? = raw?.takeIf(String::isNotBlank)
+        ?.let(TextNormalizer::forMatching)?.let(::indexOf)
 
     private fun indexOf(rootKey: String): LongArray? {
         val text = clean(rootKey)

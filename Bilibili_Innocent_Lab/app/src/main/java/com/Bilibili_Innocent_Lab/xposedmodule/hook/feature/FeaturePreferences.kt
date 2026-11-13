@@ -276,6 +276,7 @@ internal object FeaturePreferences {
 
     /** 屏蔽 AI 评论与回复：昵称 / 等级 / 正文离线打分，与关键词、等级、发布者判据共用同一批列表边界。 */
     const val COMMENT_FISH_FILTER_ENABLED = "comment_fish_filter_enabled"
+    const val COMMENT_FISH_STRONG_MODE = "comment_fish_strong_mode"
     const val COMMENT_FISH_SENSITIVITY = "comment_fish_sensitivity"
     const val COMMENT_FISH_NICKNAME_WORDS = "comment_fish_nickname_words"
     const val COMMENT_FISH_TEXT_WORDS = "comment_fish_text_words"

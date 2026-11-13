@@ -5,7 +5,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
  *
  * 2026 年 10 月起大批 AI Agent 小号涌入评论区：昵称"XX的大肥鱼"、多为 Lv2 新号，正文自称"本鲸"、
  * 括号里演动作、@ 主人汇报，楼中楼里则大量复述主评论的词句。单看任何一个特征都不足以下结论，所以这里不做
- * "命中即删"，而是把昵称、等级、正文三类特征各自计分（外加 [FishRootEcho] 对主评论的复述，只加分），
+ * "命中即删"，而是把昵称、等级、正文、复述和账号资料各自计分，
  * 总分 ≥ 阈值才判定。权重与规则移植自 dafeiyu-cleaner 的 `detector.js`
  * （MIT，见 THIRD_PARTY_NOTICES.md），只保留离线可算的部分：不看头像像素、不联网、不调模型。
  *
@@ -97,6 +97,8 @@ internal object FishScorePolicy {
     private const val VETERAN_LEVEL = 6
 
     const val DEFAULT_THRESHOLD = 60
+    private const val MIN_INDEPENDENT_POINTS = 16
+    internal const val MAX_ACCOUNT_POINTS = 12
     const val MAX_CUSTOM_WORDS = 64
     private const val MIN_CUSTOM_WORD_LENGTH = 2
 
@@ -119,13 +121,14 @@ internal object FishScorePolicy {
         val protectHighLevel: Boolean,
         val nicknameWords: Set<String>,
         val textWords: Set<String>,
-        val whitelist: AuthorRuleSet
+        val whitelist: AuthorRuleSet,
+        val strongMode: Boolean = false
     ) {
         override fun equals(other: Any?): Boolean = other is Plan && threshold == other.threshold &&
             protectHighLevel == other.protectHighLevel && nicknameWords == other.nicknameWords &&
-            textWords == other.textWords && whitelist == other.whitelist
+            textWords == other.textWords && whitelist == other.whitelist && strongMode == other.strongMode
 
-        override fun hashCode(): Int = listOf(threshold, protectHighLevel, nicknameWords, textWords, whitelist).hashCode()
+        override fun hashCode(): Int = listOf(threshold, protectHighLevel, nicknameWords, textWords, whitelist, strongMode).hashCode()
 
         fun describe(): String = "fish>=$threshold" +
             (if (nicknameWords.isNotEmpty() || textWords.isNotEmpty()) "+words" else "") +
@@ -139,14 +142,16 @@ internal object FishScorePolicy {
         val rawNicknameWords: String = "",
         val rawTextWords: String = "",
         val rawWhitelist: String = "",
-        val protectHighLevel: Boolean = true
+        val protectHighLevel: Boolean = true,
+        val strongMode: Boolean = false
     ) {
         fun plan(): Plan? = if (!enabled) null else Plan(
             threshold = Sensitivity.fromId(sensitivityId).threshold,
             protectHighLevel = protectHighLevel,
             nicknameWords = customWords(rawNicknameWords),
             textWords = customWords(rawTextWords),
-            whitelist = AuthorRuleSet.parse(rawWhitelist)
+            whitelist = AuthorRuleSet.parse(rawWhitelist),
+            strongMode = strongMode
         )
 
         companion object {
@@ -165,6 +170,7 @@ internal object FishScorePolicy {
      *
      * @param level 读不到传 null，不能当作 0。
      * @param root 这条回复所在楼的主评论；不是楼中楼（主楼、置顶位）时传 null。
+     * @param video 延迟读取与这条评论属于同一稿件的视频标题、简介。
      */
     fun shouldRemove(
         plan: Plan,
@@ -172,31 +178,56 @@ internal object FishScorePolicy {
         mid: Long?,
         level: Int?,
         message: String?,
-        root: FishRootEcho.Root? = null
+        root: FishRootEcho.Root? = null,
+        video: (() -> FishRootEcho.Video?)? = null,
+        extra: (() -> Evidence)? = null
     ): Boolean {
         if (plan.whitelist.isNotEmpty() && plan.whitelist.matches(name, mid)) return false
         if (plan.protectHighLevel && level != null && level >= PROTECTED_LEVEL) return false
-        return score(plan, name, level, message, root) >= plan.threshold
+        return score(plan, name, level, message, root, video, extra) >= plan.threshold
     }
 
+    internal data class Evidence(val peerPoints: Int = 0, val accountPoints: Int = 0)
+
     /**
-     * 总分，限制在 0..99。
+     * 普通总分限制在 0..99；强力模式在同样的评分完成后将总分乘二。
      *
-     * 对主评论的复述（[FishRootEcho]）排在最后且按需计算：只有其余三类特征已经让分数落进
-     * `[阈值 - 复述上限, 阈值)` 时才读主评论、建索引——绝大多数回复（分数远低于阈值，或已经够删）一次都不会读。
-     * 回复者就是主评论作者时不算（楼主在自己楼里接话，复述自己是常态）。
+     * 跨账号复述和账号资料需要已有昵称或正文证据，所有复述共享同一个上限。
      */
-    fun score(plan: Plan, name: String?, level: Int?, message: String?, root: FishRootEcho.Root? = null): Int {
+    fun score(
+        plan: Plan,
+        name: String?,
+        level: Int?,
+        message: String?,
+        root: FishRootEcho.Root? = null,
+        video: (() -> FishRootEcho.Video?)? = null,
+        extra: (() -> Evidence)? = null
+    ): Int {
         val normalizedName = name?.takeIf(String::isNotBlank)?.let(TextNormalizer::forMatching)
         val normalizedMessage = message?.takeIf(String::isNotBlank)?.let(TextNormalizer::forMatching)
-        var total = (normalizedName?.let { nameScore(it, plan.nicknameWords) } ?: 0) +
-            levelScore(level) +
+        val independent = (normalizedName?.let { nameScore(it, plan.nicknameWords) } ?: 0) +
             (normalizedMessage?.let { textScore(it, normalizedName, plan.textWords) } ?: 0)
-        if (root != null && normalizedMessage != null &&
-            total < plan.threshold && total + FishRootEcho.MAX_POINTS >= plan.threshold &&
-            (normalizedName == null || normalizedName != root.authorName())
-        ) total += FishRootEcho.points(root, normalizedMessage)
-        return total.coerceIn(0, 99)
+        var total = independent + levelScore(level)
+        val evidence = if (extra != null && independent >= MIN_INDEPENDENT_POINTS && total < plan.threshold &&
+            total + FishRootEcho.MAX_POINTS + MAX_ACCOUNT_POINTS >= plan.threshold
+        ) extra() else null
+        total += evidence?.accountPoints?.coerceIn(0, MAX_ACCOUNT_POINTS) ?: 0
+        if (normalizedMessage != null && total < plan.threshold && total + FishRootEcho.MAX_POINTS >= plan.threshold) {
+            val rootPoints = if (root != null && (normalizedName == null || normalizedName != root.authorName())) {
+                FishRootEcho.points(root, normalizedMessage)
+            } else {
+                0
+            }
+            val videoPoints = if (video != null && total + rootPoints < plan.threshold) {
+                runCatching(video).getOrNull()?.points(normalizedMessage) ?: 0
+            } else {
+                0
+            }
+            val peerPoints = evidence?.peerPoints?.coerceIn(0, FishPeerEcho.MAX_POINTS) ?: 0
+            total += maxOf(rootPoints, videoPoints, peerPoints)
+        }
+        val score = total.coerceIn(0, 99)
+        return if (plan.strongMode) score * 2 else score
     }
 
     internal fun nameScore(name: String, customWords: Set<String> = emptySet()): Int {

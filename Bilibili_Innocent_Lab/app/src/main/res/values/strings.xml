@@ -933,7 +933,7 @@
     <string name="comment_user_filter_rules_current">Current: %1$s</string>
     <string name="comment_user_filter_dialog_hint">One UID or user name per entry; separate with commas, semicolons, or new lines. Names must match exactly.</string>
     <string name="comment_fish_filter">Hide AI comments and replies</string>
-    <string name="comment_fish_filter_tip">Scores nickname, level and text features to hide comments and replies from suspected AI spam accounts. Comments are kept when they cannot be identified. Restart Bilibili to apply.</string>
+    <string name="comment_fish_filter_tip">Uses nickname, level, text, repetition and already loaded public profile data to hide suspected AI spam comments and replies. Restart Bilibili to apply.</string>
     <string name="comment_fish_sensitivity">Detection sensitivity</string>
     <string name="comment_fish_current">Current: %1$s</string>
     <string name="comment_fish_sensitivity_loose">Loose</string>
@@ -942,6 +942,8 @@
     <string name="comment_fish_sensitivity_loose_tip">Hides only accounts with very obvious signs</string>
     <string name="comment_fish_sensitivity_standard_tip">Balances missed and wrongly hidden comments</string>
     <string name="comment_fish_sensitivity_strict_tip">Hides more; real new accounts are more likely to be hidden by mistake</string>
+    <string name="comment_fish_strong_mode">Strong mode for AI comments</string>
+    <string name="comment_fish_strong_mode_tip">Doubles the total score for AI comments and replies. This can hide more ordinary comments. Restart Bilibili to apply.</string>
     <string name="comment_fish_nickname_words">Custom nickname words</string>
     <string name="comment_fish_text_words">Custom comment words</string>
     <string name="comment_fish_whitelist">Allowed accounts</string>

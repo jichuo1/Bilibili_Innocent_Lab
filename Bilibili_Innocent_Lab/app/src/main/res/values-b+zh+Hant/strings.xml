@@ -942,6 +942,8 @@
     <string name="comment_fish_sensitivity_loose_tip">只隱藏特徵非常明顯的帳號</string>
     <string name="comment_fish_sensitivity_standard_tip">兼顧漏判與誤傷</string>
     <string name="comment_fish_sensitivity_strict_tip">隱藏更多，真人新帳號更容易被誤傷</string>
+    <string name="comment_fish_strong_mode">AI 評論強力模式</string>
+    <string name="comment_fish_strong_mode_tip">AI 評論與回覆的判定總分加倍，可能隱藏更多正常評論。重新啟動嗶哩嗶哩後生效。</string>
     <string name="comment_fish_nickname_words">自訂暱稱詞</string>
     <string name="comment_fish_text_words">自訂正文詞</string>
     <string name="comment_fish_whitelist">放行名單</string>

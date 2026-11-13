@@ -933,7 +933,7 @@
     <string name="comment_user_filter_rules_current">当前：%1$s</string>
     <string name="comment_user_filter_dialog_hint">每项写一个 UID 或用户名，用逗号、分号或换行分隔；用户名需完全一致。</string>
     <string name="comment_fish_filter">屏蔽 AI 评论与回复</string>
-    <string name="comment_fish_filter_tip">按昵称、等级与正文特征打分，隐藏疑似 AI 灌水账号的评论及回复；无法识别时保留评论。重启哔哩哔哩后生效。</string>
+    <string name="comment_fish_filter_tip">综合昵称、等级、正文、复述和已加载的公开空间资料，隐藏疑似 AI 灌水评论及回复。重启哔哩哔哩后生效。</string>
     <string name="comment_fish_sensitivity">判定敏感度</string>
     <string name="comment_fish_current">当前：%1$s</string>
     <string name="comment_fish_sensitivity_loose">宽松</string>
@@ -942,6 +942,8 @@
     <string name="comment_fish_sensitivity_loose_tip">只隐藏特征非常明显的账号</string>
     <string name="comment_fish_sensitivity_standard_tip">兼顾漏判与误伤</string>
     <string name="comment_fish_sensitivity_strict_tip">隐藏更多，真人新号更容易被误伤</string>
+    <string name="comment_fish_strong_mode">AI 评论强力模式</string>
+    <string name="comment_fish_strong_mode_tip">AI 评论与回复的判定总分翻倍，可能隐藏更多正常评论。重启哔哩哔哩后生效。</string>
     <string name="comment_fish_nickname_words">自定义昵称词</string>
     <string name="comment_fish_text_words">自定义正文词</string>
     <string name="comment_fish_whitelist">放行名单</string>

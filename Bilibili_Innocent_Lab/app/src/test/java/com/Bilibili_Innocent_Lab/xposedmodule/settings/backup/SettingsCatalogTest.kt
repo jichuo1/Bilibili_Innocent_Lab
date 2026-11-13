@@ -9,11 +9,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsCatalogTest {
+    @Test fun `catalog v77 adds strong mode as a default off opt-in`() {
+        val previous = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v76.txt"))
+            .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(previous, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 76 }.map { it.id }.sorted())
+        assertEquals(77, SettingsCatalog.CATALOG_VERSION)
+        val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 77 }
+        assertEquals("comments.fish_filter.strong_mode", added.id)
+        assertEquals(FeaturePreferences.COMMENT_FISH_STRONG_MODE, added.storageKey)
+        assertEquals(SettingValue.Bool(false), added.defaultValue)
+        assertEquals(RestorePolicy.AUTOMATIC, added.restorePolicy)
+        assertTrue(ImportEffect.RESTART_BILIBILI in added.effects)
+    }
+
     @Test fun `catalog v76 appends the AI comment filter without changing previous catalogs`() {
         val previous = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v75.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(previous, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 75 }.map { it.id }.sorted())
-        assertEquals(76, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 76 }.associateBy { it.id }
         assertEquals(
             mapOf(
@@ -45,7 +57,6 @@ class SettingsCatalogTest {
         val previous = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v74.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(previous, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 74 }.map { it.id }.sorted())
-        assertEquals(76, SettingsCatalog.CATALOG_VERSION)
         assertEquals("no_login_enabled", FeaturePreferences.NO_LOGIN_ENABLED)
         assertEquals("incognito_enabled", FeaturePreferences.INCOGNITO_ENABLED)
         val expected = mapOf(
@@ -81,7 +92,6 @@ class SettingsCatalogTest {
         assertEquals(RestorePolicy.AUTOMATIC, added.getValue("ai_insight.base_url").restorePolicy)
         assertTrue(SettingsCatalog.specs.none {
             it.storageKey == com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY })
-        assertEquals(76, SettingsCatalog.CATALOG_VERSION)
     }
 
     @Test fun `home recommend early load joins catalog v73 as a default off restorable switch that needs a host restart`() {
@@ -94,7 +104,6 @@ class SettingsCatalogTest {
         assertEquals(SettingValue.Bool(false), added.defaultValue)
         assertEquals(RestorePolicy.AUTOMATIC, added.restorePolicy)
         assertTrue(ImportEffect.RESTART_BILIBILI in added.effects)
-        assertEquals(76, SettingsCatalog.CATALOG_VERSION)
     }
 
     @Test fun `host ui power saving joins catalog v72 as a default on restorable switch that needs a host restart`() {
@@ -122,7 +131,6 @@ class SettingsCatalogTest {
         val full = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CloudKeyFreezeRules.formatPins(
             (1..256).associate { "k".repeat(90) + it.toString().padStart(6, '0') to true })
         assertTrue(added.accepts(SettingValue.Text(full)))
-        assertEquals(76, SettingsCatalog.CATALOG_VERSION)
     }
 
     @Test fun `story sponsor skip joins catalog v68 as a default off restorable child that needs a host restart`() {
@@ -533,11 +541,11 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog is a unique allowlist with 268 settings`() {
-        assertEquals(268, SettingsCatalog.specs.size)
-        assertEquals(268, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(268, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(262, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 269 settings`() {
+        assertEquals(269, SettingsCatalog.specs.size)
+        assertEquals(269, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(269, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(263, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(6, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -768,7 +776,6 @@ class SettingsCatalogTest {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v13.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 13 }.map { it.id }.sorted())
-        assertEquals(76, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 13 }
         assertEquals(6, added.size)
         assertTrue(added.all { it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects })
@@ -1067,7 +1074,7 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(163, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(164, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(24, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(81, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 

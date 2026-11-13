@@ -385,7 +385,8 @@ internal object ReleaseHighlightsCatalog {
                 "comments.fish_filter.nickname_words",
                 "comments.fish_filter.text_words",
                 "comments.fish_filter.whitelist",
-                "comments.fish_filter.protect_high_level")))
+                "comments.fish_filter.protect_high_level",
+                SettingsCatalog.ID_COMMENT_FISH_STRONG_MODE)))
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

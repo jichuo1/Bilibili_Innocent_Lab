@@ -11,18 +11,15 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * 在公开 protobuf 评论列表边界按正文关键词、用户等级、@ 整条、发布者和 AI 账号特征过滤。
  *
- * 五条判据共用同一批列表 getter Hook：多开一个判据不会多挂一个 Hook，只是在同一次遍历里
- * 多读几个字段，而且只读当前真的启用的那几个。
+ * 五条判据共用同一批评论列表和置顶 Hook，只在同一次遍历里读取当前启用的判据需要的字段。
  *
  * 覆盖单位口径：
  * - 列表 / 置顶 getter 各算一个单位。
  * - 关键词、等级、@ 整条、发布者与 AI 账号分别校验依赖：**用户开了就各算一个单位**，读取路径缺失时计入分母、
  *   不计入分子，让"开了却读不到"表现为 `partial` 而不是悄悄失效。
  *
- * AI 账号判据（[FishScorePolicy]）只用已有的昵称、等级、正文三条读取路径，不新增 Hook 点，也不联网。
- * 它比其它判据贵，所以排在 [shouldRemove] 的最后（前面任一判据命中就不再算），列表 getter 路径上
- * 同一个列表实例只算一次（[ReplyVerdictMemo]）。楼中楼里它还会拿主评论对照回复有没有在复述：子回复列表挂在主评论下，
- * getter 钩子的接收者、Kotlin 重写器递归时的所属消息就是主评论（[rootEchoOf]），不新增 Hook 点。
+ * AI 账号判据（[FishScorePolicy]）最后计算。同一列表和视频资料快照复用规则结论（[ReplyVerdictMemo]）。
+ * 子回复用所属的主评论对照复述（[rootEchoOf]），视频评论用自身的类型和对象 ID 匹配已收到的详情资料。
  */
 internal class CommentFilterFeatureInstaller(
     keywordFilterEnabled: Boolean,
@@ -44,7 +41,8 @@ internal class CommentFilterFeatureInstaller(
     /** 屏蔽 AI 评论与回复：离线加权打分，启用时才定型出判据。 */
     fishFilter: FishScorePolicy.Config = FishScorePolicy.Config.DISABLED,
     /** 主线程上不做同步联网；单测可替换。 */
-    private val isMainThread: () -> Boolean = { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() }
+    private val isMainThread: () -> Boolean = { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() },
+    private val fishVideoMetadata: FishVideoMetadata? = if (fishFilter.enabled) FishVideoMetadata() else null
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -113,7 +111,8 @@ internal class CommentFilterFeatureInstaller(
             },
             memberV2Mid = adapted.memberV2MidGetter?.let {
                 resolve(environment, "member_v2_mid", it)
-            }
+            },
+            readReplyMid = fishPlan != null
         )
 
         // 判据可用性只算一次：热路径只做布尔判断，不再重复检查 Method 是否为 null。
@@ -130,6 +129,11 @@ internal class CommentFilterFeatureInstaller(
                 }
         )
         if (!plan.hasAnyJudgement) return missing(environment, "missing-judgement-getter")
+        val replyClass = accessors.content?.declaringClass
+        val videoIdentity = replyClass?.takeIf { plan.fish != null && accessors.hasMessagePath }?.let(VideoIdentity::resolve)
+        val peerSource = if (replyClass != null && videoIdentity != null && fishPeerEcho != null) {
+            PeerSource.resolve(replyClass, videoIdentity, accessors.replyMid)
+        } else null
 
         var installed = 0
         adapted.replyListGetters.forEachIndexed { index, point ->
@@ -142,11 +146,13 @@ internal class CommentFilterFeatureInstaller(
                         if (source.isEmpty()) return@after
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         val semantic = semanticVerdicts(source, accessors, plan)
-                        // 评分比其它判据贵：getter 在滚动、绑定时会被反复调用，同一个列表实例只算一次。
-                        // 子回复列表挂在主评论下：thisObject 就是主评论，AI 账号判据拿它对照回复有没有在复述。
+                        // 同一列表在视频资料到达或更新后重新评分，滚动时复用同一份结论。
                         val rules = if (plan.fish != null) {
-                            val root = rootEchoOf(thisObject, accessors)
-                            ruleVerdictMemo.getOrCompute(source) { ruleVerdicts(source, accessors, plan, root) }
+                            val snapshots = fishSnapshots()
+                            ruleVerdictMemo.getOrCompute(source, snapshots) {
+                                val root = rootEchoOf(thisObject, accessors)
+                                ruleVerdicts(source, accessors, plan, root, videoIdentity, peerSource, snapshots)
+                            }
                         } else {
                             null
                         }
@@ -190,7 +196,11 @@ internal class CommentFilterFeatureInstaller(
                             // 单条置顶：绕过列表 memo（每次都是新包装，缓存它只会挤掉真正的列表条目）。
                             val semanticBlocked = plan.semanticEnabled &&
                                 computeSemanticVerdicts(listOf(reply), accessors)?.get(reply) == SemanticVerdict.BLOCK
-                            if (semanticBlocked || shouldRemove(readSignals(reply, accessors, plan), plan)) {
+                            if (semanticBlocked || shouldRemove(readSignals(
+                                    reply, accessors, plan, videoIdentity = videoIdentity, peerSource = peerSource,
+                                    snapshots = if (plan.fish != null) fishSnapshots() else null
+                                ), plan)
+                            ) {
                                 result = defaultReply
                                 environment.reportRuntimeEvidence(
                                     ID,
@@ -210,10 +220,16 @@ internal class CommentFilterFeatureInstaller(
             }
         }
         // KMP 评论页走 Kotlin KReplyMoss：兜底通道，不计入覆盖单位；Java getter 一个都装不上时也照装。
-        installKotlinChannel(environment, accessors, plan)
+        installKotlinChannel(environment, accessors, plan, videoIdentity, peerSource)
+        if (videoIdentity != null) fishVideoMetadata?.install(environment)
+        if (plan.fish != null && (accessors.replyMid != null || accessors.hasAuthorMidPath)) {
+            fishAccountMetadata?.install(environment)
+        }
         if (installed == 0) return missing(environment, "registration-failed")
         // 提前判定层是加速通道，不计入覆盖单位：装不上时仍按"下次加载生效"工作。
-        if (plan.semanticEnabled) installMossPrefetch(environment, accessors)
+        if (plan.semanticEnabled || peerSource != null) {
+            installMossPrefetch(environment, accessors, plan.semanticEnabled, peerSource)
+        }
         val sharedInstalled = installed
         val sharedExpected = adapted.replyListGetters.size + adapted.topReplyGetters.size
         for (capability in capabilityIds) {
@@ -302,17 +318,52 @@ internal class CommentFilterFeatureInstaller(
 
     private val semanticMemo = SemanticListMemo()
     private val ruleVerdictMemo = ReplyVerdictMemo()
+    private val fishPeerEcho = fishPlan?.let { FishPeerEcho() }
+    private val fishAccountMetadata = fishPlan?.let { FishAccountMetadata() }
+
+    @Volatile private var lastFishSnapshots = FishSnapshots(emptyMap(), emptyMap(), emptyMap())
+
+    private fun fishSnapshots(): FishSnapshots {
+        val videos = fishVideoMetadata?.snapshot.orEmpty()
+        val peers = fishPeerEcho?.snapshot.orEmpty()
+        val accounts = fishAccountMetadata?.snapshot.orEmpty()
+        val previous = lastFishSnapshots
+        if (previous.videos === videos && previous.peers === peers && previous.accounts === accounts) return previous
+        return FishSnapshots(videos, peers, accounts).also { lastFishSnapshots = it }
+    }
+
+    private fun observePeers(response: Any, accessors: Accessors, source: PeerSource?) {
+        if (source == null) return
+        val engine = fishPeerEcho ?: return
+        // 同批先读完整样本，再发布结果。观察失败时继续使用已有评论判据。
+        runCatching {
+            val byVideo = LinkedHashMap<Long, MutableList<FishPeerEcho.Sample>>()
+            source.visitor.visit(response, MOSS_MAX_TEXTS) { reply ->
+                val aid = source.video.aid(reply) ?: return@visit
+                val id = source.id(reply) ?: return@visit
+                val mid = source.mid(reply) ?: return@visit
+                val root = source.root(reply, id) ?: return@visit
+                byVideo.getOrPut(aid, ::ArrayList) += FishPeerEcho.Sample(id, mid, root, messageOf(reply, accessors))
+            }
+            byVideo.forEach(engine::observe)
+        }
+    }
 
     /** 整个列表按规则判据一次判完（含 AI 账号打分）；与逐条 [shouldRemove] 同一条判定。 */
     private fun ruleVerdicts(
         source: List<*>,
         accessors: Accessors,
         plan: JudgementPlan,
-        root: FishRootEcho.Root?
+        root: FishRootEcho.Root?,
+        videoIdentity: VideoIdentity?,
+        peerSource: PeerSource?,
+        snapshots: FishSnapshots
     ): java.util.IdentityHashMap<Any, Boolean> {
         val verdicts = java.util.IdentityHashMap<Any, Boolean>(source.size)
         for (reply in source) {
-            if (reply != null) verdicts[reply] = shouldRemove(readSignals(reply, accessors, plan, root), plan)
+            if (reply != null) verdicts[reply] = shouldRemove(
+                readSignals(reply, accessors, plan, root, videoIdentity, peerSource, snapshots), plan
+            )
         }
         return verdicts
     }
@@ -356,22 +407,23 @@ internal class CommentFilterFeatureInstaller(
         return invokeCompatible(accessors.message, content)?.toString()?.trim().orEmpty()
     }
 
-    /**
-     * 提前判定层：观察 `ReplyMoss` 的评论列表响应（主楼 / 楼中楼 / 对话），只读不改。
-     * 回调在后台线程时按设置等待或投后台；在主线程时只投后台。
-     */
-    private fun installMossPrefetch(environment: HookEnvironment, accessors: Accessors) {
-        val judge = semanticJudge ?: return
+    /** 观察原始 Java 评论响应，共用跨账号采样和语义预判入口。 */
+    private fun installMossPrefetch(
+        environment: HookEnvironment, accessors: Accessors, semanticEnabled: Boolean, peerSource: PeerSource?
+    ) {
+        val judge = semanticJudge?.takeIf { semanticEnabled }
         val replyInfoClass = accessors.content?.declaringClass ?: return
         val loader = replyInfoClass.classLoader ?: return
         val packageName = replyInfoClass.name.substringBeforeLast('.')
         val moss = KavaMemberLookup.classOrNull(loader, "$packageName.ReplyMoss") ?: run {
-            environment.logInfo("comment_semantic_moss_missing", "[BIL] 智能过滤评论：未找到 ReplyMoss，仅用列表缓存层")
+            environment.logInfo("comment_filter_moss_missing", "[BIL] 评论过滤：未找到 Java 评论响应入口")
             return
         }
         val handlerClass = KavaMemberLookup.classOrNull(loader, MOSS_HANDLER_CLASS)
         val readers = ConcurrentHashMap<Class<*>, List<Method>>()
         fun observe(response: Any) {
+            observePeers(response, accessors, peerSource)
+            if (judge == null) return
             // 收正文必须走原始读取：这里的列表 getter 正是本安装器挂钩的那些，嵌套调用
             // 会让 after 回调抢先以 PREFETCH 认领全部 key，observe 自己的 WAIT 拿到空
             // claimedKeys 直接返回全 UNKNOWN，"首屏等待"永远空转。与 prewarmSemantic 同口径。
@@ -392,8 +444,7 @@ internal class CommentFilterFeatureInstaller(
                             method.name, *method.parameterTypes) {
                             before {
                                 val delegate = args.getOrNull(1) ?: return@before
-                                // 模块自己发起的请求（回复拓扑翻页等）不判定：那不是用户正在看的评论列表，
-                                // 判了既额外计费，开"首屏等待"时还会拖慢拓扑面板。
+                                // 模块自己发起的请求（回复拓扑翻页等）不属于正在展示的评论样本。
                                 if (isModuleOwnedHandler(delegate)) return@before
                                 MossResponseHandlerProxy.wrap(handlerClass, delegate) { response -> observe(response) }
                                     ?.let { args[1] = it }
@@ -419,7 +470,7 @@ internal class CommentFilterFeatureInstaller(
                 }
             }
         }
-        environment.logInfo("comment_semantic_moss", "[BIL] 智能过滤评论：提前判定边界 $hooks 个")
+        environment.logInfo("comment_filter_moss", "[BIL] 评论过滤：Java 响应观察边界 $hooks 个")
     }
 
     /**
@@ -428,7 +479,13 @@ internal class CommentFilterFeatureInstaller(
      * 这里经 [KotlinMossChannel] 往返到 Java `MainListReply` 等，用 [ProtobufReplyTreeRewriter] 删评论
      * （主楼、子回复预览、置顶位），判据与 getter 层完全相同；智能过滤在回调里按"首屏等待"设置判定。
      */
-    private fun installKotlinChannel(environment: HookEnvironment, accessors: Accessors, plan: JudgementPlan) {
+    private fun installKotlinChannel(
+        environment: HookEnvironment,
+        accessors: Accessors,
+        plan: JudgementPlan,
+        videoIdentity: VideoIdentity?,
+        peerSource: PeerSource?
+    ) {
         // 装不上要留下原因，否则末尾那句"N 个"读起来像"不适用"，而不是"类没找到"（按 RPC 有界）。
         fun skip(reason: String) {
             environment.logInfo("comment_filter_kmoss_skip", "[BIL] 评论过滤新通道未接入: $reason")
@@ -437,13 +494,8 @@ internal class CommentFilterFeatureInstaller(
         val loader = replyInfoClass.classLoader ?: return skip("no-class-loader")
         val packageName = replyInfoClass.name.substringBeforeLast('.')
         val members = KotlinMossChannel.prepare(environment, loader, "评论过滤", KMOSS_LOG_KEY) ?: return skip("no-bridge")
-        val decide: (List<Any>) -> Set<Any> = { replies -> kotlinDecide(environment, replies, accessors, plan, null) }
-        // 子回复挂在主评论下：把装着这批回复的消息交给判定，AI 账号判据才能拿主评论对照。
-        val decideOwned: (List<Any>, Any) -> Set<Any> = { replies, owner ->
-            kotlinDecide(environment, replies, accessors, plan, owner)
-        }
-        val rewriter = kotlinRewriter(replyInfoClass, "mainList", decideOwned, decide)
-        val singleRewriter = kotlinRewriter(replyInfoClass, "replyInfo", decideOwned, decide)
+        val rewriter = kotlinRewriter(replyInfoClass, "mainList")
+        val singleRewriter = kotlinRewriter(replyInfoClass, "replyInfo")
         val readers = ConcurrentHashMap<Class<*>, List<Method>>()
         var hooks = 0
         KMOSS_RPCS.forEach { (rpc, replyName) ->
@@ -460,8 +512,12 @@ internal class CommentFilterFeatureInstaller(
                 logKey = KMOSS_LOG_KEY,
                 shareUnchangedReply = true,
                 confirmedTransform = { javaReply ->
+                    observePeers(javaReply, accessors, peerSource)
                     prewarmSemantic(javaReply, replyInfoClass, accessors, plan, readers)
-                    val result = rpcRewriter.rewrite(javaReply)
+                    val snapshots = if (plan.fish != null) fishSnapshots() else null
+                    val result = rpcRewriter.rewrite(javaReply) { replies, owner ->
+                        kotlinDecide(environment, replies, accessors, plan, owner, videoIdentity, peerSource, snapshots)
+                    }
                     KotlinMossResponseHandlerProxy.ConfirmedReply(result.message) {
                         if (result.removed > 0) environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED, result.removed)
                     }
@@ -496,7 +552,10 @@ internal class CommentFilterFeatureInstaller(
         replies: List<Any>,
         accessors: Accessors,
         plan: JudgementPlan,
-        owner: Any?
+        owner: Any?,
+        videoIdentity: VideoIdentity?,
+        peerSource: PeerSource?,
+        snapshots: FishSnapshots?
     ): Set<Any> {
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
         val judge = semanticJudge?.takeIf { plan.semanticEnabled }
@@ -506,7 +565,7 @@ internal class CommentFilterFeatureInstaller(
         val drop = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Any, Boolean>())
         replies.forEachIndexed { index, reply ->
             if (semantic?.getOrNull(index) == SemanticVerdict.BLOCK ||
-                shouldRemove(readSignals(reply, accessors, plan, root), plan)
+                shouldRemove(readSignals(reply, accessors, plan, root, videoIdentity, peerSource, snapshots), plan)
             ) drop += reply
         }
         return drop
@@ -569,7 +628,10 @@ internal class CommentFilterFeatureInstaller(
         reply: Any,
         accessors: Accessors,
         plan: JudgementPlan,
-        root: FishRootEcho.Root? = null
+        root: FishRootEcho.Root? = null,
+        videoIdentity: VideoIdentity? = null,
+        peerSource: PeerSource? = null,
+        snapshots: FishSnapshots? = null
     ): Signals {
         val needContent = plan.needsMessage || plan.removeAtOnly
         val content = if (needContent) invokeCompatible(accessors.content, reply) else null
@@ -599,7 +661,7 @@ internal class CommentFilterFeatureInstaller(
                     ?.takeIf(String::isNotBlank)
                     ?: (invokeCompatible(accessors.memberV2Name, memberV2Basic) as? String)
                         ?.takeIf(String::isNotBlank)
-                // UID 只有发布者过滤和 AI 账号白名单里写了 UID 时才读。
+                // 成员 UID 仅供既有作者规则和白名单使用，账号资料从评分回调按需读取。
                 if (!plan.userRules.isEmpty() || fish?.whitelist?.mids?.isNotEmpty() == true) {
                     authorMid = (invokeCompatible(accessors.memberMid, member) as? Number)?.toLong()
                         ?.takeIf { it > 0L }
@@ -615,8 +677,33 @@ internal class CommentFilterFeatureInstaller(
             atNames = atNames,
             authorName = authorName,
             authorMid = authorMid,
-            root = root
+            root = root,
+            video = if (fish != null && videoIdentity != null && snapshots?.videos?.isNotEmpty() == true) {
+                { videoIdentity.aid(reply)?.let(snapshots.videos::get) }
+            } else null,
+            extra = if (fish != null && snapshots != null && (snapshots.peers.isNotEmpty() || snapshots.accounts.isNotEmpty())) {
+                {
+                    val peers = if (peerSource != null && snapshots.peers.isNotEmpty()) {
+                        videoIdentity?.aid(reply)?.let(snapshots.peers::get)
+                    } else null
+                    val accountPoints = if (snapshots.accounts.isNotEmpty()) {
+                        val mid = (invokeCompatible(accessors.replyMid, reply) as? Long)?.takeIf { it > 0L }
+                            ?: authorMid ?: memberMidOf(reply, accessors)
+                        mid?.let(snapshots.accounts::get) ?: 0
+                    } else 0
+                    val peerPoints = if (peers != null) peerSource?.id(reply)?.let(peers::get) ?: 0 else 0
+                    FishScorePolicy.Evidence(peerPoints, accountPoints)
+                }
+            } else null
         )
+    }
+
+    private fun memberMidOf(reply: Any, accessors: Accessors): Long? {
+        val member = invokeCompatible(accessors.member, reply)
+        val mid = (invokeCompatible(accessors.memberMid, member) as? Number)?.toLong()?.takeIf { it > 0L }
+        if (mid != null) return mid
+        val basic = invokeCompatible(accessors.memberV2Basic, invokeCompatible(accessors.memberV2, reply))
+        return (invokeCompatible(accessors.memberV2Mid, basic) as? Number)?.toLong()?.takeIf { it > 0L }
     }
 
     /** 先读计数：没有 @ 的评论（绝大多数）连 Map 视图都不会构造。 */
@@ -670,7 +757,10 @@ internal class CommentFilterFeatureInstaller(
         val authorName: String? = null,
         val authorMid: Long? = null,
         /** 这条评论所在楼的主评论（只有楼中楼、且启用了 AI 账号判据时才有）。 */
-        val root: FishRootEcho.Root? = null
+        val root: FishRootEcho.Root? = null,
+        /** 只有原有分数接近阈值时才读取评论对象的类型和 ID。 */
+        val video: (() -> FishRootEcho.Video?)? = null,
+        val extra: (() -> FishScorePolicy.Evidence)? = null
     )
 
     /** 安装期定型的判据集合；热路径只读它，不再回头判断适配是否完整。 */
@@ -703,6 +793,60 @@ internal class CommentFilterFeatureInstaller(
         }.joinToString("/")
     }
 
+    private class VideoIdentity(private val type: Method, private val oid: Method) {
+        fun aid(reply: Any): Long? {
+            if (!type.declaringClass.isInstance(reply)) return null
+            return runCatching {
+                if (type.invoke(reply) != VIDEO_REPLY_TYPE) null else (oid.invoke(reply) as Long).takeIf { it > 0L }
+            }.getOrNull()
+        }
+
+        companion object {
+            private const val VIDEO_REPLY_TYPE = 1L
+
+            fun resolve(reply: Class<*>): VideoIdentity? {
+                val type = KavaMemberLookup.methodOrNull(reply, "getType")
+                    ?.takeIf { !it.isStatic && it.returnType == classOf<Long>() } ?: return null
+                val oid = KavaMemberLookup.methodOrNull(reply, "getOid")
+                    ?.takeIf { !it.isStatic && it.returnType == classOf<Long>() } ?: return null
+                return VideoIdentity(type, oid)
+            }
+        }
+    }
+
+    private class PeerSource(
+        reply: Class<*>,
+        val video: VideoIdentity,
+        private val id: Method,
+        private val mid: Method,
+        private val root: Method,
+        private val parent: Method
+    ) {
+        val visitor = ProtobufReplyTreeVisitor(reply)
+
+        fun id(reply: Any): Long? = read(id, reply)?.takeIf { it > 0L }
+        fun mid(reply: Any): Long? = read(mid, reply)?.takeIf { it > 0L }
+        fun root(reply: Any, replyId: Long): Long? {
+            val rootId = read(root, reply) ?: return null
+            if (rootId > 0L) return rootId
+            return replyId.takeIf { rootId == 0L && read(parent, reply) == 0L }
+        }
+
+        private fun read(method: Method, reply: Any): Long? =
+            if (method.declaringClass.isInstance(reply)) runCatching { method.invoke(reply) as? Long }.getOrNull() else null
+
+        companion object {
+            fun resolve(reply: Class<*>, video: VideoIdentity, mid: Method?): PeerSource? {
+                fun getter(name: String) = KavaMemberLookup.methodOrNull(reply, name)
+                    ?.takeIf { !it.isStatic && it.returnType == classOf<Long>() }
+                return PeerSource(
+                    reply, video, getter("getId") ?: return null, mid ?: return null,
+                    getter("getRoot") ?: return null, getter("getParent") ?: return null
+                )
+            }
+        }
+    }
+
     private data class Accessors(
         val content: Method?,
         val message: Method?,
@@ -716,8 +860,12 @@ internal class CommentFilterFeatureInstaller(
         val memberName: Method?,
         val memberMid: Method?,
         val memberV2Name: Method?,
-        val memberV2Mid: Method?
+        val memberV2Mid: Method?,
+        val readReplyMid: Boolean
     ) {
+        val replyMid: Method? = content?.declaringClass?.takeIf { readReplyMid }
+            ?.let { KavaMemberLookup.methodOrNull(it, "getMid") }
+            ?.takeIf { !it.isStatic && it.returnType == classOf<Long>() }
         val hasMessagePath: Boolean get() = content != null && message != null
         val hasLevelPath: Boolean
             get() = (member != null && level != null) ||
@@ -752,13 +900,12 @@ internal class CommentFilterFeatureInstaller(
             "hotspotPage" to "HotspotPageResp",
             "replyInfo" to "ReplyInfoReply"
         )
-        internal fun kotlinRewriter(replyInfoClass: Class<*>, rpc: String,
-            decideOwned: ((List<Any>, Any) -> Set<Any>)? = null,
-            decide: (List<Any>) -> Set<Any>): ProtobufReplyTreeRewriter = ProtobufReplyTreeRewriter(
+        internal fun kotlinRewriter(
+            replyInfoClass: Class<*>, rpc: String, decide: (List<Any>) -> Set<Any> = { emptySet() }
+        ): ProtobufReplyTreeRewriter = ProtobufReplyTreeRewriter(
             replyInfoClass,
             removableSingles = if (rpc == "replyInfo") ProtobufReplyTreeRewriter.DEFAULT_REMOVABLE_SINGLES + "Reply"
                 else ProtobufReplyTreeRewriter.DEFAULT_REMOVABLE_SINGLES,
-            decideOwned = decideOwned,
             decide = decide
         )
         private const val KMOSS_LOG_KEY = "comment_filter_kmoss"
@@ -784,7 +931,8 @@ internal class CommentFilterFeatureInstaller(
                 plan.userRules.matches(signals.authorName, signals.authorMid)) ||
             // 最贵的判据放最后：前面任一条命中就不再打分。
             (plan.fish != null && FishScorePolicy.shouldRemove(
-                plan.fish, signals.authorName, signals.authorMid, signals.level, signals.message, signals.root
+                plan.fish, signals.authorName, signals.authorMid, signals.level, signals.message,
+                signals.root, signals.video, signals.extra
             ))
 
         /** 兼容旧签名的窄入口，供只关心关键词/等级两条判据的单测使用。 */

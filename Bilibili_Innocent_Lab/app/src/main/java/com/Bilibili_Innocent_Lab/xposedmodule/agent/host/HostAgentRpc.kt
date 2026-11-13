@@ -178,7 +178,7 @@ internal class HostAgentDetailQuery private constructor(
     private val getVerify: Method?,
     private val getVerifyType: Method?,
     private val getVerifyDesc: Method?,
-    private val description: Description?
+    private val description: HostUnitedVideoDescription?
 ) {
     val canVerifyOwner: Boolean get() = hasVerify != null && getVerifyType != null && getVerifyDesc != null
     private val statistics = HostAgentVideoStatistics.resolve(getArc.returnType)
@@ -214,33 +214,6 @@ internal class HostAgentDetailQuery private constructor(
             .put("statistics", statistics?.read(arc) ?: HostAgentVideoStatistics.unknown())
     }
 
-    private class Description(
-        val hasTab: Method, val tab: Method, val tabs: Method, val hasIntro: Method, val intro: Method,
-        val modules: Method, val hasUgc: Method, val ugc: Method, val desc: Method, val info: Method
-    ) {
-        fun read(reply: Any): String? {
-            if (hostRead(hasTab, reply) != true) return null
-            val tabItems = hostRead(tabs, hostRead(tab, reply)) as? List<*> ?: return null
-            val parts = mutableListOf<String>()
-            var size = 0
-            for (tabItem in tabItems.take(8)) {
-                if (hostRead(hasIntro, tabItem) != true) continue
-                val items = hostRead(modules, hostRead(intro, tabItem)) as? List<*> ?: continue
-                for (item in items.take(24)) {
-                    if (hostRead(hasUgc, item) != true) continue
-                    val descriptions = hostRead(desc, hostRead(ugc, item)) as? List<*> ?: continue
-                    for (entry in descriptions.take(16)) {
-                        val part = hostText(hostRead(info, entry), 2000 - size) ?: continue
-                        parts += part
-                        size += part.length + 1
-                        if (size >= 2000) return parts.joinToString("\n").take(2000)
-                    }
-                }
-            }
-            return parts.takeIf { it.isNotEmpty() }?.joinToString("\n")
-        }
-    }
-
     companion object {
         private const val BASE = "com.bapis.bilibili.app.viewunite.v1."
         fun resolve(loader: ClassLoader): HostAgentDetailQuery? = runCatching {
@@ -252,22 +225,7 @@ internal class HostAgentDetailQuery private constructor(
             val arc = hostGetter(response, "getArc") ?: return null
             val owner = hostGetter(response, "getOwner")
             val verify = owner?.returnType?.let { hostGetter(it, "getOfficialVerify") }
-            val description = runCatching {
-                val tab = hostGetter(response, "getTab") ?: return@runCatching null
-                val tabClass = KavaMemberLookup.classOrNull(loader, BASE + "TabModule") ?: return@runCatching null
-                val intro = hostGetter(tabClass, "getIntroduction") ?: return@runCatching null
-                val common = "com.bapis.bilibili.app.viewunite.common."
-                val module = KavaMemberLookup.classOrNull(loader, common + "Module") ?: return@runCatching null
-                val ugc = hostGetter(module, "getUgcIntroduction") ?: return@runCatching null
-                val desc = KavaMemberLookup.classOrNull(loader, common + "Desc") ?: return@runCatching null
-                Description(hostGetter(response, "hasTab") ?: return@runCatching null, tab,
-                    hostGetter(tab.returnType, "getTabModuleList") ?: return@runCatching null,
-                    hostGetter(tabClass, "hasIntroduction") ?: return@runCatching null, intro,
-                    hostGetter(intro.returnType, "getModulesList") ?: return@runCatching null,
-                    hostGetter(module, "hasUgcIntroduction") ?: return@runCatching null, ugc,
-                    hostGetter(ugc.returnType, "getDescList") ?: return@runCatching null,
-                    hostGetter(desc, "getInfo", classOf<String>()) ?: return@runCatching null)
-            }.getOrNull()
+            val description = HostUnitedVideoDescription.resolve(loader, response)
             HostAgentDetailQuery(
                 HostAgentMossFactory.resolve(loader, moss) ?: return null,
                 KavaMemberLookup.methodOrNull(moss, "executeView", request)
@@ -283,6 +241,66 @@ internal class HostAgentDetailQuery private constructor(
                 owner?.returnType?.let { hostGetter(it, "hasOfficialVerify") }, verify,
                 verify?.returnType?.let { hostGetter(it, "getType", classOf<Int>()) },
                 verify?.returnType?.let { hostGetter(it, "getDesc", classOf<String>()) }, description
+            )
+        }.getOrNull()
+    }
+}
+
+/** United View 响应内的 UGC 简介。仅解析宿主已经返回的结构化字段。 */
+internal class HostUnitedVideoDescription private constructor(
+    private val hasTab: Method, private val tab: Method, private val tabs: Method,
+    private val hasIntro: Method, private val intro: Method, private val modules: Method,
+    private val hasUgc: Method, private val ugc: Method, private val desc: Method, private val text: Method
+) {
+    fun read(reply: Any): String? {
+        if (hostRead(hasTab, reply) != true) return null
+        val tabItems = hostRead(tabs, hostRead(tab, reply)) as? List<*> ?: return null
+        val parts = mutableListOf<String>()
+        var size = 0
+        for (tabItem in tabItems.take(8)) {
+            if (hostRead(hasIntro, tabItem) != true) continue
+            val items = hostRead(modules, hostRead(intro, tabItem)) as? List<*> ?: continue
+            for (item in items.take(24)) {
+                if (hostRead(hasUgc, item) != true) continue
+                val descriptions = hostRead(desc, hostRead(ugc, item)) as? List<*> ?: continue
+                for (entry in descriptions.take(16)) {
+                    val part = hostText(hostRead(text, entry), MAX_TEXT - size) ?: continue
+                    parts += part
+                    size += part.length + 1
+                    if (size >= MAX_TEXT) return parts.joinToString("\n").take(MAX_TEXT)
+                }
+            }
+        }
+        return parts.takeIf { it.isNotEmpty() }?.joinToString("\n")
+    }
+
+    companion object {
+        const val MAX_TEXT = 2000
+        private const val VIEW = "com.bapis.bilibili.app.viewunite.v1."
+        private const val COMMON = "com.bapis.bilibili.app.viewunite.common."
+
+        fun resolve(loader: ClassLoader, response: Class<*>): HostUnitedVideoDescription? = runCatching {
+            val tab = hostGetter(response, "getTab") ?: return null
+            val tabClass = KavaMemberLookup.classOrNull(loader, VIEW + "TabModule") ?: return null
+            val intro = hostGetter(tabClass, "getIntroduction") ?: return null
+            val module = KavaMemberLookup.classOrNull(loader, COMMON + "Module") ?: return null
+            val ugc = hostGetter(module, "getUgcIntroduction") ?: return null
+            val descClass = KavaMemberLookup.methodOrNull(ugc.returnType, "getDesc", classOf<Int>())
+                ?.takeIf { !it.isStatic }?.returnType ?: return null
+            // getDescList 的 List 类型已擦除。用索引 getter 核对它的实际元素类型。
+            val textGetter = when (descClass.name) {
+                COMMON + "DescV2" -> "getText"
+                COMMON + "Desc" -> "getInfo"
+                else -> return null
+            }
+            HostUnitedVideoDescription(
+                hostGetter(response, "hasTab", classOf<Boolean>()) ?: return null, tab,
+                hostGetter(tab.returnType, "getTabModuleList", classOf<List<*>>()) ?: return null,
+                hostGetter(tabClass, "hasIntroduction", classOf<Boolean>()) ?: return null, intro,
+                hostGetter(intro.returnType, "getModulesList", classOf<List<*>>()) ?: return null,
+                hostGetter(module, "hasUgcIntroduction", classOf<Boolean>()) ?: return null, ugc,
+                hostGetter(ugc.returnType, "getDescList", classOf<List<*>>()) ?: return null,
+                hostGetter(descClass, textGetter, classOf<String>()) ?: return null
             )
         }.getOrNull()
     }
@@ -379,5 +397,7 @@ internal fun hostRead(method: Method?, target: Any?): Any? =
     if (method == null || target == null || !method.declaringClass.isInstance(target)) null
     else runCatching { method.invoke(target) }.getOrNull()
 
+private val HOST_HIGHLIGHT_TAG = Regex("</?em>")
+
 internal fun hostText(raw: Any?, limit: Int): String? = (raw as? String)?.take(limit.coerceAtLeast(0))
-    ?.replace(Regex("</?em>"), "")?.filterNot { it.isISOControl() && it != '\n' }?.takeIf { it.isNotBlank() }
+    ?.replace(HOST_HIGHLIGHT_TAG, "")?.filterNot { it.isISOControl() && it != '\n' }?.takeIf { it.isNotBlank() }

@@ -3724,7 +3724,8 @@ class HookEntry : XposedModule() {
                             rawNicknameWords = prefs.getString(FeaturePreferences.COMMENT_FISH_NICKNAME_WORDS, "").orEmpty(),
                             rawTextWords = prefs.getString(FeaturePreferences.COMMENT_FISH_TEXT_WORDS, "").orEmpty(),
                             rawWhitelist = prefs.getString(FeaturePreferences.COMMENT_FISH_WHITELIST, "").orEmpty(),
-                            protectHighLevel = prefs.getBoolean(FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL, true)
+                            protectHighLevel = prefs.getBoolean(FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL, true),
+                            strongMode = prefs.getBoolean(FeaturePreferences.COMMENT_FISH_STRONG_MODE, false)
                         )
                     )
                 )

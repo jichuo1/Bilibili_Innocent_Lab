@@ -9,7 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 「屏蔽 AI 评论与回复」只是评论过滤的第五条判据：不新增 Hook 点、不新建过滤通道，热路径不编译正则、
+ * 「屏蔽 AI 评论与回复」共用现有评论过滤通道，热路径不编译正则、
  * 不读配置、不碰磁盘和网络。这些是后来者最容易"顺手"破坏的约束，所以钉在源码上。
  */
 class CommentFishFilterContractTest {
@@ -17,13 +17,13 @@ class CommentFishFilterContractTest {
     private val policy = SourceContract.read("hook/feature/FishScorePolicy.kt")
     private val echo = SourceContract.read("hook/feature/FishRootEcho.kt")
 
-    @Test fun fishJudgementReusesTheSharedGetterHooksAndAddsNoHookPoint() {
-        // 注册点仍只有列表、置顶两族 getter 和一条 Kotlin 通道；AI 判据没有自己的注册 id。
+    @Test fun fishJudgementReusesTheSharedCommentHooks() {
+        // 视频资料来自独立的详情观察点，评论仍由同一批列表、置顶 getter 和 Kotlin 通道处理。
         assertFalse(installer.contains("comment.fish"))
         assertFalse(installer.contains("fish.list"))
         assertEquals(1, Regex("registrar\\.adapted\\(\"comment\\.filter\\.list\\.").findAll(installer).count())
         assertEquals(1, Regex("registrar\\.adapted\\(\"comment\\.filter\\.top\\.").findAll(installer).count())
-        assertTrue(installer.contains("installKotlinChannel(environment, accessors, plan)"))
+        assertTrue(installer.contains("installKotlinChannel(environment, accessors, plan, videoIdentity, peerSource)"))
     }
 
     @Test fun javaAndKotlinChannelsShareOneDecisionThatKeepsTheDearestCriterionLast() {
@@ -34,10 +34,10 @@ class CommentFishFilterContractTest {
         assertTrue(decision.indexOf("RuleSetCodec.matches(plan.keywords") < decision.indexOf("FishScorePolicy.shouldRemove("))
         assertTrue(decision.indexOf("plan.userRules.matches(") < decision.indexOf("FishScorePolicy.shouldRemove("))
         val kotlin = installer.after("private fun kotlinDecide(").before("回调是本模块创建的动态代理")
-        assertTrue(kotlin.contains("shouldRemove(readSignals(reply, accessors, plan, root), plan)"))
+        assertTrue(kotlin.contains("shouldRemove(readSignals(reply, accessors, plan, root, videoIdentity, peerSource, snapshots), plan)"))
         val list = installer.after("environment.registrar.adapted(\"comment.filter.list.\$index\", point)")
             .before("environment.registrar.adapted(\"comment.filter.top.\$index\"")
-        assertTrue(list.contains("ruleVerdictMemo.getOrCompute(source)"))
+        assertTrue(list.contains("ruleVerdictMemo.getOrCompute(source, snapshots)"))
         assertTrue(list.contains("shouldRemove(readSignals(reply, accessors, plan), plan)"))
         // 关闭时完全不走记忆化那一支：既有判据的行为逐字不变。
         assertTrue(list.contains("if (plan.fish != null) {"))
@@ -46,7 +46,7 @@ class CommentFishFilterContractTest {
     @Test fun signalsAreReadOnlyForTheCriteriaThatNeedThem() {
         val read = installer.after("private fun readSignals(").before("先读计数")
         assertTrue(read.contains("val needAuthor = !plan.userRules.isEmpty() || fish != null"))
-        // UID 只在发布者规则或 AI 白名单里写了 UID 时才读。
+        // UID 用于作者规则、白名单和已有的账号资料。
         assertTrue(read.contains("fish?.whitelist?.mids?.isNotEmpty() == true"))
         // 白名单读不到的一半无法保护任何人：整条判据不装，而不是在保护失效时静默删。
         assertTrue(installer.contains("fish.whitelist.available(accessors.hasAuthorNamePath, accessors.hasAuthorMidPath) == fish.whitelist"))
@@ -68,11 +68,14 @@ class CommentFishFilterContractTest {
         assertFalse(echoHot.contains(".toRegex()"))
         for (forbidden in listOf(
             "import android", "SharedPreferences", "java.io.", "java.net.", "okhttp", "HttpURLConnection",
-            "File(", "System.currentTimeMillis", "Thread", "runBlocking"
+            "File(", "System.currentTimeMillis", "runBlocking"
         )) {
             assertFalse("scorer must stay a pure function: $forbidden", policy.contains(forbidden))
             assertFalse("echo must stay a pure function: $forbidden", echo.contains(forbidden))
         }
+        val thread = Regex("\\bThread\\b")
+        assertFalse(thread.containsMatchIn(policy))
+        assertFalse(thread.containsMatchIn(echo))
     }
 
     @Test fun rootEchoReusesTheOwnerOfTheListAndAddsNoHookPoint() {
@@ -81,7 +84,7 @@ class CommentFishFilterContractTest {
             .before("environment.registrar.adapted(\"comment.filter.top.\$index\"")
         assertTrue(list.contains("rootEchoOf(thisObject, accessors)"))
         assertTrue(installer.contains("val root = if (plan.fish != null) rootEchoOf(owner, accessors) else null"))
-        assertTrue(installer.contains("kotlinRewriter(replyInfoClass, \"mainList\", decideOwned, decide)"))
+        assertTrue(installer.contains("rpcRewriter.rewrite(javaReply) { replies, owner ->"))
         assertEquals(1, Regex("registrar\\.adapted\\(\"comment\\.filter\\.list\\.").findAll(installer).count())
         // 单条置顶位没有主评论可对照，不传。
         val top = installer.after("environment.registrar.adapted(\"comment.filter.top.\$index\"")
@@ -91,11 +94,13 @@ class CommentFishFilterContractTest {
         assertTrue(list.contains("if (plan.fish != null) {"))
     }
 
-    @Test fun rootEchoIsComputedLastAndOnlyWithinReachOfTheThreshold() {
+    @Test fun echoIsComputedLastWithinReachOfTheThresholdAndSharesOneCap() {
         // 复述是最贵也最弱的一项：只在其余分数差一点时才读主评论、建索引，且最多 24 分。
         assertEquals(1, Regex("FishRootEcho\\.points\\(").findAll(policy).count())
         assertTrue(policy.contains("total < plan.threshold && total + FishRootEcho.MAX_POINTS >= plan.threshold"))
         assertTrue(policy.contains("normalizedName != root.authorName()"))
+        assertTrue(policy.contains("total + rootPoints < plan.threshold"))
+        assertTrue(policy.contains("total += maxOf(rootPoints, videoPoints, peerPoints)"))
         assertTrue(echo.contains("const val MAX_POINTS = 24"))
         // 复述上限加上"仅 Lv≤2"的 14 分必须低于最严档阈值：否则没有任何其它特征的新号，靠复述一项就能被删。
         val strictThreshold = Regex("STRICT\\(\"strict\", (\\d+)\\)").find(policy)!!.groupValues[1].toInt()
@@ -116,16 +121,19 @@ class CommentFishFilterContractTest {
             .before("featureInstallCoordinator.installAll")
         for (key in listOf(
             "COMMENT_FISH_FILTER_ENABLED", "COMMENT_FISH_SENSITIVITY", "COMMENT_FISH_NICKNAME_WORDS",
-            "COMMENT_FISH_TEXT_WORDS", "COMMENT_FISH_WHITELIST", "COMMENT_FISH_PROTECT_HIGH_LEVEL"
+            "COMMENT_FISH_TEXT_WORDS", "COMMENT_FISH_WHITELIST", "COMMENT_FISH_PROTECT_HIGH_LEVEL",
+            "COMMENT_FISH_STRONG_MODE"
         )) assertTrue(key, wiring.contains("FeaturePreferences.$key"))
         // 保护开关默认开：读不到时站在保守一侧。
         assertTrue(wiring.contains("FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL, true"))
+        assertTrue(wiring.contains("FeaturePreferences.COMMENT_FISH_STRONG_MODE, false"))
     }
 
     @Test fun settingsPageDoesNotWriteTheModeledSwitchesDirectly() {
         val ui = SourceContract.read("ui/activity/CommentFishFilterPresenter.kt")
         assertTrue(ui.contains("applyModeledToggle(FeaturePreferences.COMMENT_FISH_FILTER_ENABLED, checked, button)"))
         assertTrue(ui.contains("applyModeledToggle(FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL, checked, button)"))
+        assertTrue(ui.contains("applyModeledToggle(FeaturePreferences.COMMENT_FISH_STRONG_MODE, checked, button)"))
         assertFalse(ui.contains("putBoolean("))
     }
 

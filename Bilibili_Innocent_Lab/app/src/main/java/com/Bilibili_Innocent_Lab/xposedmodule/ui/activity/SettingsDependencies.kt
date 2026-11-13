@@ -39,7 +39,7 @@ internal object SettingsDependencies {
         children(FeaturePreferences.COMMENT_USER_FILTER_ENABLED, "comments.user_filter.rules")
         children(FeaturePreferences.COMMENT_FISH_FILTER_ENABLED, "comments.fish_filter.sensitivity",
             "comments.fish_filter.nickname_words", "comments.fish_filter.text_words",
-            "comments.fish_filter.whitelist", "comments.fish_filter.protect_high_level")
+            "comments.fish_filter.whitelist", "comments.fish_filter.protect_high_level", "comments.fish_filter.strong_mode")
         children(FeaturePreferences.DANMAKU_WEIGHT_FILTER_ENABLED, "player.danmaku.weight_filter.minimum")
         children(FeaturePreferences.DYNAMIC_KEYWORD_FILTER_ENABLED, "dynamic.keyword_filter.keywords")
         children(FeaturePreferences.DYNAMIC_AUTHOR_FILTER_ENABLED, "dynamic.author_filter.rules")

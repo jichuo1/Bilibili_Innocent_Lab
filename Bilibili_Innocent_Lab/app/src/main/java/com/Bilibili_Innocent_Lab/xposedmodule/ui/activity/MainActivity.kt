@@ -487,6 +487,7 @@ class MainActivity : SkinnedActivity() {
     internal var commentUserFilterRules = ""
     internal var commentFishFilterEnabled = false
     internal var commentFishSensitivity = FishScorePolicy.Sensitivity.DEFAULT.id
+    internal var commentFishStrongMode = false
     internal var commentFishNicknameWords = ""
     internal var commentFishTextWords = ""
     internal var commentFishWhitelist = ""
@@ -4791,6 +4792,7 @@ class MainActivity : SkinnedActivity() {
         commentFishFilterEnabled = uiSettings.bool(FeaturePreferences.COMMENT_FISH_FILTER_ENABLED)
         commentFishSensitivity = FishScorePolicy.Sensitivity.fromId(
             uiSettings.string(FeaturePreferences.COMMENT_FISH_SENSITIVITY)).id
+        commentFishStrongMode = uiSettings.bool(FeaturePreferences.COMMENT_FISH_STRONG_MODE)
         commentFishNicknameWords = uiSettings.string(FeaturePreferences.COMMENT_FISH_NICKNAME_WORDS)
         commentFishTextWords = uiSettings.string(FeaturePreferences.COMMENT_FISH_TEXT_WORDS)
         commentFishWhitelist = uiSettings.string(FeaturePreferences.COMMENT_FISH_WHITELIST)

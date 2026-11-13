@@ -16,9 +16,10 @@ class FishScorePolicyTest {
         protectHighLevel: Boolean = true,
         nicknameWords: String = "",
         textWords: String = "",
-        whitelist: String = ""
+        whitelist: String = "",
+        strongMode: Boolean = false
     ) = requireNotNull(
-        Config(true, sensitivity.id, nicknameWords, textWords, whitelist, protectHighLevel).plan()
+        Config(true, sensitivity.id, nicknameWords, textWords, whitelist, protectHighLevel, strongMode).plan()
     )
 
     private fun removes(
@@ -88,6 +89,23 @@ class FishScorePolicyTest {
         assertEquals(Sensitivity.STANDARD, Sensitivity.fromId("nonsense"))
         assertEquals(Sensitivity.STRICT, Sensitivity.fromId(" strict "))
         assertEquals(setOf("loose", "standard", "strict"), Sensitivity.IDS)
+    }
+
+    @Test
+    fun `strong mode doubles the completed score and uses the selected threshold`() {
+        val regular = plan(Sensitivity.LOOSE)
+        val strong = plan(Sensitivity.LOOSE, strongMode = true)
+        val below = "哈哈哈哈哈哈这段我刚才又看了好一会儿"
+        val above = "这段内容值得一看我已经看完整个过程了"
+        assertEquals(75, strong.threshold)
+        assertEquals(74, FishScorePolicy.score(strong, "肥鱼", null, below))
+        assertEquals(76, FishScorePolicy.score(strong, "赛博", null, above))
+        assertFalse(removes("肥鱼", null, below, strong))
+        assertFalse(removes("赛博", null, above, regular))
+        assertTrue(removes("赛博", null, above, strong))
+        assertEquals(198, FishScorePolicy.score(strong, "小蓝的大肥鱼", 2, "本鲸来汇报啦（摇了摇尾巴）"))
+        assertFalse(removes("小蓝的大肥鱼", 5, null, strong))
+        assertFalse(removes("肥鱼", 2, null, plan(whitelist = "42", strongMode = true), mid = 42L))
     }
 
     @Test

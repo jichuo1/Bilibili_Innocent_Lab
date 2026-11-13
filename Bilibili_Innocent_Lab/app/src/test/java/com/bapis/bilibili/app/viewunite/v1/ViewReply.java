@@ -5,7 +5,7 @@ import com.bapis.bilibili.app.viewunite.common.Owner;
 /**
  * JVM 替身：{@code viewunite.v1.ViewReply}。
  *
- * <p>只提供判据用到的两条链：{@code tab}（→ 模块列表）与 {@code owner}（→ 会员标）。
+ * <p>提供 {@code tab}（→ 模块列表）、{@code owner}（→ 会员标）与 {@code arc}（→ 视频资料）。
  * {@code failBuild} 用来验证 build 失败时 fail-open 回原响应。
  */
 public class ViewReply {
@@ -15,15 +15,21 @@ public class ViewReply {
     private final Tab tab;
     private final Owner owner;
     private final boolean failBuild;
+    private final Arc arc;
 
     public ViewReply(Tab tab, Owner owner) {
         this(tab, owner, false);
     }
 
     public ViewReply(Tab tab, Owner owner, boolean failBuild) {
+        this(tab, owner, failBuild, null);
+    }
+
+    public ViewReply(Tab tab, Owner owner, boolean failBuild, Arc arc) {
         this.tab = tab;
         this.owner = owner;
         this.failBuild = failBuild;
+        this.arc = arc;
     }
 
     public Tab getTab() {
@@ -42,6 +48,14 @@ public class ViewReply {
         return owner != null;
     }
 
+    public Arc getArc() {
+        return arc;
+    }
+
+    public boolean hasArc() {
+        return arc != null;
+    }
+
     public static ViewReply getDefaultInstance() {
         return DEFAULT;
     }
@@ -55,11 +69,13 @@ public class ViewReply {
         private Tab tab;
         private Owner owner;
         private final boolean failBuild;
+        private final Arc arc;
 
         Builder(ViewReply original) {
             this.tab = original.tab;
             this.owner = original.owner;
             this.failBuild = original.failBuild;
+            this.arc = original.arc;
         }
 
         public Builder setTab(Tab value) {
@@ -76,7 +92,7 @@ public class ViewReply {
             if (failBuild) {
                 throw new IllegalStateException("build failed");
             }
-            return new ViewReply(tab, owner, false);
+            return new ViewReply(tab, owner, false, arc);
         }
     }
 }

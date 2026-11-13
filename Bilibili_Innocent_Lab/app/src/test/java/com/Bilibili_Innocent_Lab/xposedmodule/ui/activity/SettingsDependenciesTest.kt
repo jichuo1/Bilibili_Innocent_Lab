@@ -79,7 +79,8 @@ class SettingsDependenciesTest {
     @Test fun `ai comment filter options follow only its own switch and keep saved choices`() {
         val children = listOf(
             "comments.fish_filter.sensitivity", "comments.fish_filter.nickname_words", "comments.fish_filter.text_words",
-            "comments.fish_filter.whitelist", "comments.fish_filter.protect_high_level"
+            "comments.fish_filter.whitelist", "comments.fish_filter.protect_high_level",
+            "comments.fish_filter.strong_mode"
         )
         val on = ModuleUiSettings.EMPTY.with(FeaturePreferences.COMMENT_FISH_FILTER_ENABLED, true)
         children.forEach { id ->
@@ -94,6 +95,10 @@ class SettingsDependenciesTest {
         assertTrue(ModuleUiSettings.EMPTY.bool(FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL))
         assertTrue(on.with(FeaturePreferences.COMMENT_FISH_FILTER_ENABLED, false)
             .bool(FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL))
+        assertFalse(ModuleUiSettings.EMPTY.bool(FeaturePreferences.COMMENT_FISH_STRONG_MODE))
+        assertTrue(on.with(FeaturePreferences.COMMENT_FISH_STRONG_MODE, true)
+            .with(FeaturePreferences.COMMENT_FISH_FILTER_ENABLED, false)
+            .bool(FeaturePreferences.COMMENT_FISH_STRONG_MODE))
     }
 
     @Test fun `semantic rules custom types and routes follow only the corresponding surface`() {

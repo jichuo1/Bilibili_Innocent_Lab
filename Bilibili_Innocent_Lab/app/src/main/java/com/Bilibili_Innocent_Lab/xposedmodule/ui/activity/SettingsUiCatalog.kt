@@ -65,6 +65,7 @@ internal object SettingsUiCatalog {
         add(FeaturePreferences.REMOVE_AT_ONLY_COMMENTS, R.string.remove_at_only_comments, 1, "PURIFICATION_ADVANCED", true)
         add(FeaturePreferences.COMMENT_USER_FILTER_ENABLED, R.string.comment_user_filter, 1, "PURIFICATION_ADVANCED", true)
         add(FeaturePreferences.COMMENT_FISH_FILTER_ENABLED, R.string.comment_fish_filter, 1, "PURIFICATION_ADVANCED", true)
+        add(FeaturePreferences.COMMENT_FISH_STRONG_MODE, R.string.comment_fish_strong_mode, 1, "PURIFICATION_ADVANCED", true)
         add(FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL, R.string.comment_fish_protect_high_level, 1, "PURIFICATION_ADVANCED", true)
         add(FeaturePreferences.HIDE_PLAYER_PORTRAIT_CONTROL, R.string.hide_player_portrait_control, 1, "PURIFICATION_ADVANCED", true)
         add(FeaturePreferences.HIDE_PLAYER_INTERACTIVE_OVERLAYS, R.string.hide_player_interactive_overlays, 1, "PURIFICATION_ADVANCED", true)

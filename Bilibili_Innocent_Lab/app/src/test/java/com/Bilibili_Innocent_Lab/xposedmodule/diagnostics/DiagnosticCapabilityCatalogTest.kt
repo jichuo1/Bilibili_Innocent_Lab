@@ -78,7 +78,8 @@ class DiagnosticCapabilityCatalogTest {
         assertEquals("comment_filter", capability.parentId)
         assertEquals(
             setOf("comments.fish_filter.enabled", "comments.fish_filter.sensitivity", "comments.fish_filter.nickname_words",
-                "comments.fish_filter.text_words", "comments.fish_filter.whitelist", "comments.fish_filter.protect_high_level"),
+                "comments.fish_filter.text_words", "comments.fish_filter.whitelist", "comments.fish_filter.protect_high_level",
+                "comments.fish_filter.strong_mode"),
             capability.settingIds
         )
         assertEquals(SettingsCatalog.byId.getValue("comments.fish_filter.enabled").labelRes, capability.labelRes)

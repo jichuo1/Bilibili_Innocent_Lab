@@ -36,7 +36,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 76
+    const val CATALOG_VERSION = 77
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_PLAYER_SPEED_MENU = "player.speed_menu.percents"
@@ -61,6 +61,7 @@ internal object SettingsCatalog {
     const val ID_DYNAMIC_SEMANTIC_FILTER = "dynamic.semantic_filter.enabled"
     const val ID_COMMENT_FISH_FILTER = "comments.fish_filter.enabled"
     const val ID_COMMENT_FISH_SENSITIVITY = "comments.fish_filter.sensitivity"
+    const val ID_COMMENT_FISH_STRONG_MODE = "comments.fish_filter.strong_mode"
     const val ID_SEMANTIC_JEV_ENDPOINT = "compat.semantic_jev.endpoint"
     const val ID_SEMANTIC_JEV_SENSITIVITY = "compat.semantic_jev.sensitivity"
     const val ID_SEMANTIC_JEV_WAIT_FIRST_SCREEN = "compat.semantic_jev.wait_first_screen"
@@ -928,6 +929,12 @@ internal object SettingsCatalog {
             R.string.comment_fish_filter,
             introducedCatalogVersion = 76
         ),
+        bool(
+            ID_COMMENT_FISH_STRONG_MODE,
+            FeaturePreferences.COMMENT_FISH_STRONG_MODE,
+            R.string.comment_fish_strong_mode,
+            introducedCatalogVersion = 77
+        ),
         text(
             ID_COMMENT_FISH_SENSITIVITY,
             FeaturePreferences.COMMENT_FISH_SENSITIVITY,
@@ -1159,7 +1166,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 268) { "Expected 268 catalog settings, found ${specs.size}" }
+        check(specs.size == 269) { "Expected 269 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

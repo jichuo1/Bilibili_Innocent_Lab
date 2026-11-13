@@ -11,34 +11,42 @@ import java.util.concurrent.ConcurrentHashMap
 /** 只读观察评论树；保持 raw 读取、单条槽位和后序访问，不创建编辑列表或 builder。 */
 internal class ProtobufReplyTreeVisitor(
     private val replyInfoClass: Class<*>,
-    private val onReply: (Any) -> Unit
+    private val onReply: (Any) -> Unit = {}
 ) {
     private class Single(val getter: Method, val has: Method)
     private class Shape(val lists: List<Method>, val singles: List<Single>)
     private val shapes = ConcurrentHashMap<Class<*>, Shape>()
 
-    fun visit(message: Any) = visit(message, 0)
+    fun visit(message: Any) = visit(message, Int.MAX_VALUE, onReply)
 
-    private fun visit(message: Any, depth: Int) {
-        if (depth >= ProtobufReplyTreeRewriter.MAX_DEPTH) return
+    fun visit(message: Any, limit: Int, consumer: (Any) -> Unit) {
+        visit(message, 0, limit, consumer)
+    }
+
+    private fun visit(message: Any, depth: Int, limit: Int, consumer: (Any) -> Unit): Int {
+        if (depth >= ProtobufReplyTreeRewriter.MAX_DEPTH) return limit
+        var remaining = limit
         val shape = shapes[message.javaClass] ?: resolve(message.javaClass).also { shapes[message.javaClass] = it }
         for (getter in shape.lists) {
             val source = KotlinMossChannel.raw { getter.invoke(message) as? List<*> } ?: continue
             for (index in source.indices) {
+                if (remaining <= 0) return 0
                 val reply = source[index] ?: continue
-                visit(reply, depth + 1)
-                onReply(reply)
+                remaining = visit(reply, depth + 1, remaining - 1, consumer)
+                consumer(reply)
             }
         }
         for (field in shape.singles) {
+            if (remaining <= 0) return 0
             val present = KotlinMossChannel.raw {
                 runCatching { field.has.invoke(message) as? Boolean }.getOrNull()
             } == true
             if (!present) continue
             val reply = KotlinMossChannel.raw { field.getter.invoke(message) } ?: continue
-            visit(reply, depth + 1)
-            onReply(reply)
+            remaining = visit(reply, depth + 1, remaining - 1, consumer)
+            consumer(reply)
         }
+        return remaining
     }
 
     private fun resolve(type: Class<*>): Shape {

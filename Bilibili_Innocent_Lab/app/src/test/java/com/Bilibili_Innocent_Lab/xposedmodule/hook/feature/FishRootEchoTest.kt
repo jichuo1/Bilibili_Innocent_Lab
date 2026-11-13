@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FishRootEcho.Root
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FishRootEcho.Video
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FishScorePolicy.Config
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FishScorePolicy.Sensitivity
 import org.junit.Assert.assertEquals
@@ -15,8 +16,25 @@ class FishRootEchoTest {
     private fun points(root: String?, reply: String) =
         FishRootEcho.points(Root.of(root), TextNormalizer.forMatching(reply))
 
-    private fun plan(sensitivity: Sensitivity = Sensitivity.STANDARD, protect: Boolean = true) =
-        requireNotNull(Config(true, sensitivity.id, protectHighLevel = protect).plan())
+    private fun plan(sensitivity: Sensitivity = Sensitivity.STANDARD, protect: Boolean = true, strongMode: Boolean = false) =
+        requireNotNull(Config(true, sensitivity.id, protectHighLevel = protect, strongMode = strongMode).plan())
+
+    @Test fun `peer echo shares the existing cap and weak signals need independent evidence`() {
+        val message = "一米宽的画布能画出四季变化真的太有意思了"
+        val video = { FishRootEcho.Video(rootText, null) }
+        val peer = { FishScorePolicy.Evidence(peerPoints = 12) }
+        val both = { FishScorePolicy.Evidence(peerPoints = 12, accountPoints = 12) }
+
+        assertEquals(48, FishScorePolicy.score(plan(), "深海大鱼君", 2, message, extra = peer))
+        assertEquals(60, FishScorePolicy.score(plan(), "深海大鱼君", 2, message, video = video, extra = peer))
+        assertEquals(60, FishScorePolicy.score(plan(), "深海大鱼君", 2, message, extra = both))
+        assertEquals(120, FishScorePolicy.score(plan(strongMode = true), "深海大鱼君", 2, message,
+            video = video, extra = peer))
+        assertFalse(FishScorePolicy.shouldRemove(plan(Sensitivity.STRICT), "路人甲", null, 2, message, video = video,
+            extra = { error("low level alone must not consult account or peer evidence") }))
+        assertFalse(FishScorePolicy.shouldRemove(plan(), "小蓝的大肥鱼", null, 5, message,
+            extra = { error("high level protection must win before the new evidence") }))
+    }
 
     @Test
     fun `a verbatim retelling of the root scores and an unrelated reply does not`() {
@@ -79,6 +97,47 @@ class FishRootEchoTest {
         assertFalse(FishScorePolicy.shouldRemove(plan(), "深海大鱼君", null, 2, echo, Root.of(rootText, "深海大鱼君")))
         // 全角、大小写写法不同也算同一个名字（同一套归一化）。
         assertFalse(FishScorePolicy.shouldRemove(plan(), "ＤＥＥＰ大鱼", null, 2, echo, Root.of(rootText, "deep大鱼")))
+    }
+
+    @Test
+    fun `video title or description can tip a borderline top level comment or a reply over the line`() {
+        val echo = "一米宽的画布能画出四季变化真的太有意思了"
+        val title = Video(rootText, "我昨天也去看了展览，人太多了根本挤不进去")
+        val description = Video(null, rootText)
+        assertEquals(60, FishScorePolicy.score(plan(), "深海大鱼君", 2, echo, video = { title }))
+        assertEquals(60, FishScorePolicy.score(plan(), "深海大鱼君", 2, echo, video = { description }))
+        val ownThread = Root.of(rootText, "深海大鱼君")
+        assertTrue(FishScorePolicy.shouldRemove(plan(), "深海大鱼君", null, 2, echo, ownThread, video = { description }))
+        assertFalse(FishScorePolicy.shouldRemove(plan(), "深海大鱼君", null, 2, echo, video = { Video(null, null) }))
+        assertFalse(FishScorePolicy.shouldRemove(plan(), "深海大鱼君", null, 2, echo, video = { error("unreadable metadata") }))
+    }
+
+    @Test
+    fun `only the strongest echo counts across the root title and description`() {
+        val echo = "一米宽的画布能画出四季变化真的太有意思了"
+        val root = Root.of("一米宽的画布，在阴天")
+        val video = Video("一米宽的画布能，在阴天", "四季变化真的，颜料不一样")
+        assertEquals(48, FishScorePolicy.score(plan(), "深海大鱼君", 2, echo, root, video = { video }))
+        // 短标题、常见单词和仅 3 字的技术名词不足以加分。
+        assertEquals(36, FishScorePolicy.score(plan(), "深海大鱼君", 2, echo, video = { Video("一米宽的画布能", null) }))
+        assertEquals(0, Video("24帧怎么拍更好看", null).points(TextNormalizer.forMatching("一直在研究24帧的电影效果")))
+    }
+
+    @Test
+    fun `video metadata is only read for unprotected accounts within reach of the threshold`() {
+        val echo = "一米宽的画布能画出四季变化真的太有意思了"
+        var reads = 0
+        val video = Video(rootText, rootText)
+        val readVideo = { reads++; video }
+        val allow = requireNotNull(Config(true, rawWhitelist = "深海大鱼君").plan())
+        assertFalse(FishScorePolicy.shouldRemove(plan(Sensitivity.STRICT), "路人甲", null, 2, echo, video = readVideo))
+        assertFalse(FishScorePolicy.shouldRemove(plan(), "小蓝的大肥鱼", null, 5, echo, video = readVideo))
+        assertFalse(FishScorePolicy.shouldRemove(allow, "深海大鱼君", null, 2, echo, video = readVideo))
+        assertTrue(FishScorePolicy.shouldRemove(plan(), "小蓝的大肥鱼", null, 2, echo, video = readVideo))
+        assertTrue(FishScorePolicy.shouldRemove(plan(), "深海大鱼君", null, 2, echo, Root.of(rootText), readVideo))
+        assertEquals(0, reads)
+        assertTrue(FishScorePolicy.shouldRemove(plan(), "深海大鱼君", null, 2, echo, video = readVideo))
+        assertEquals(1, reads)
     }
 
     @Test
