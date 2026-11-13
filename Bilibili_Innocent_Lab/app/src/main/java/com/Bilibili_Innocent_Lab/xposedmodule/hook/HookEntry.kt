@@ -156,7 +156,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSubtitleStyleFe
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SponsorBlockFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SponsorBlockStoryFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor.SponsorBlockClient
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor.SponsorCachingSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor.SponsorSegmentRepository
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor.SponsorSegmentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TeenagersModeFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoRelateFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
@@ -2757,11 +2759,20 @@ class HookEntry : XposedModule() {
                 enabled = hookConfig.getBoolean(FeaturePreferences.COMMENT_CLASSIC_STYLE, false),
                 cachedPoints = { classicPointsRef.get() }
             )
+            // 商单区间的本地缓存：宿主私有 files/bil_sponsor/，只存有区间的视频（文件名为单向摘要），联网失败时回退。
+            // 这里只构造路径对象，磁盘读写都在仓库的抓取线程上；取不到目录就不缓存，行为与没有这层时一致。
+            val sponsorStore = runCatching { (authorizationContext.applicationContext ?: authorizationContext).filesDir }
+                .getOrNull()?.let { SponsorSegmentStore(it) }
             // 详情页与 Story 共用一个查询仓库：缓存与 429 退避状态只有一份，首次使用时才创建。
             val sponsorRepository = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-                SponsorSegmentRepository(SponsorBlockClient(com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.VERSION_NAME))
+                SponsorSegmentRepository(SponsorCachingSource(
+                    SponsorBlockClient(com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.VERSION_NAME), sponsorStore))
             }
             val sponsorEnabled = hookConfig.getBoolean(FeaturePreferences.SPONSORBLOCK_ENABLED, false)
+            // 关闭 → 重启后磁盘上不留任何商单缓存（与智能过滤的缓存同一做法，后台清理）。
+            if (!sponsorEnabled && sponsorStore != null) {
+                SemanticJudge.submitBackground(Runnable { HostThreadGuard.run("sponsor_disk_cleanup") { sponsorStore.purge() } })
+            }
             val sponsorAutomatic = hookConfig.getBoolean(FeaturePreferences.SPONSORBLOCK_AUTOMATIC, false)
             val sponsorInstaller = SponsorBlockFeatureInstaller(
                 enabled = sponsorEnabled,

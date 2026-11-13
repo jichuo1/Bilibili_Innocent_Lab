@@ -75,7 +75,9 @@ internal class SponsorPlaybackController(
                 is SponsorFetchResult.Available -> {
                     segments = result.segments
                     policy.load(segments)
-                    diagnostic("query.available", "accepted=${segments.size}")
+                    // src：空表示刚联网取到；disk / disk-stale 是本地缓存（后者是联网失败后的回退）。
+                    diagnostic("query.available", "accepted=${segments.size}" +
+                        (if (result.origin.isEmpty()) "" else " src=${result.origin}"))
                     result.summary?.let { summary ->
                         diagnostic("query.parsed", "total=${summary.total} accepted=${segments.size}")
                         if (summary.category > 0) diagnostic("filter.category", "count=${summary.category}")

@@ -39,7 +39,9 @@ internal data class SponsorSegment(val uuid: String, val startMs: Long, val endM
 }
 
 internal sealed interface SponsorFetchResult {
-    data class Available(val segments: List<SponsorSegment>, val summary: SponsorParseSummary? = null) : SponsorFetchResult
+    /** [origin] 为空表示刚从网络解析；`disk` 是未过期的本地缓存，`disk-stale` 是联网失败后退回的较旧缓存。 */
+    data class Available(val segments: List<SponsorSegment>, val summary: SponsorParseSummary? = null,
+        val origin: String = "") : SponsorFetchResult
     data class Unavailable(val reason: String, val retryAfterMs: Long = 0) : SponsorFetchResult
 }
 

@@ -304,6 +304,17 @@ class SponsorPlaybackControllerTest {
         assertFalse(h.execute())
     }
 
+    @Test fun queryAvailableNamesTheLocalCacheOriginOnlyWhenThereIsOne() {
+        val network = Harness(true); network.controller.start(); network.deliver()
+        assertEquals("accepted=1", network.detail["query.available"])
+        for (origin in listOf("disk", "disk-stale")) {
+            val h = Harness(true); h.controller.start()
+            h.result(SponsorFetchResult.Available(listOf(SponsorSegment("a", 10_000, 20_000, 100_000)), origin = origin)); h.drain()
+            assertEquals("accepted=1 src=$origin", h.detail["query.available"])
+            assertEquals(1, h.seeks.size) // 缓存里的区间照常自动跳过
+        }
+    }
+
     @Test fun stoppingRecordsTheSessionEndOnce() {
         val h = Harness(true); h.controller.start(); h.controller.stop(); h.controller.stop()
         assertEquals(1, h.diagnostics.count { it == "session.ended" })
