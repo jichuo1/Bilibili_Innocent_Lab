@@ -40,10 +40,11 @@ class NPatchAcceptanceMatrixTest {
         val lines = file.readLines()
         val expected = when (lines.first()) {
             preamble -> metadata
-            // Public checkouts still carry the v76 acceptance record. The full v77 matrix
-            // is maintained locally, while its complete template is generated above.
+            // Public checkouts still carry the v76 acceptance record. The full matrix for newer
+            // catalogs is maintained locally, while its complete template is generated above.
             "# settings=76; capabilities=38" -> {
-                assertEquals("# settings=77; capabilities=38", preamble)
+                assertTrue("The archived v76 record only applies to newer catalogs", SettingsCatalog.CATALOG_VERSION > 76)
+                assertEquals("# settings=${SettingsCatalog.CATALOG_VERSION}; capabilities=38", preamble)
                 val archivedIds = SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 76 }.map { it.id }.toSet()
                 metadata.mapNotNull { row ->
                     if (row[0] == "setting") row.takeIf { it[1] in archivedIds }

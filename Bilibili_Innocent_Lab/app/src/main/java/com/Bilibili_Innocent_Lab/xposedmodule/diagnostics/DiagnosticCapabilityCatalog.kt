@@ -25,7 +25,9 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("ai_insight", "ai_insight", R.string.ai_insight_title,
             setOf("compat.ai_insight.enabled", "compat.ai_insight.auto_chapters",
                 // v74：独立服务配置（协议/地址/模型）；API Key 是运行时凭据不进目录。
-                "ai_insight.protocol", "ai_insight.base_url", "ai_insight.model"), introducedCatalogVersion = 35),
+                "ai_insight.protocol", "ai_insight.base_url", "ai_insight.model",
+                // v78：端点「自动补全 /v1」开关，属同一服务配置。
+                "ai_insight.auto_v1"), introducedCatalogVersion = 35),
         DiagnosticCapabilityDefinition("guest_browsing", "guest_browsing", R.string.no_login_enabled,
             setOf("browsing.no_login.enabled"), introducedCatalogVersion = 37),
         DiagnosticCapabilityDefinition("incognito_privacy", "incognito_privacy", R.string.incognito_enabled,

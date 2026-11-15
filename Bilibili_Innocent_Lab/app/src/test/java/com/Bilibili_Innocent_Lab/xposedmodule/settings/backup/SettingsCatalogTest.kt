@@ -9,11 +9,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsCatalogTest {
+    @Test fun `catalog v78 adds the AI Insight auto v1 switch as a default on restorable setting`() {
+        // 旧快照逐字不变，只追加这一项；默认开启 = 沿用旧的 /v1 补全规则，旧备份缺该项时不改变行为。
+        val previous = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v77.txt"))
+            .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(previous, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 77 }.map { it.id }.sorted())
+        assertEquals(78, SettingsCatalog.CATALOG_VERSION)
+        val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 78 }
+        assertEquals("ai_insight.auto_v1", added.id)
+        assertEquals(SettingsCatalog.ID_AI_INSIGHT_AUTO_V1, added.id)
+        assertEquals(FeaturePreferences.AI_INSIGHT_AUTO_V1, added.storageKey)
+        assertEquals(SettingValueType.BOOLEAN, added.type)
+        assertEquals(SettingValue.Bool(true), added.defaultValue)
+        assertEquals(
+            SettingValue.Bool(com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig.DEFAULT_AUTO_V1),
+            added.defaultValue)
+        assertEquals(RestorePolicy.AUTOMATIC, added.restorePolicy)
+        assertTrue(ImportEffect.RESTART_BILIBILI in added.effects)
+        assertEquals(added, SettingsCatalog.byStorageKey[FeaturePreferences.AI_INSIGHT_AUTO_V1])
+    }
+
     @Test fun `catalog v77 adds strong mode as a default off opt-in`() {
         val previous = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v76.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(previous, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 76 }.map { it.id }.sorted())
-        assertEquals(77, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 77 }
         assertEquals("comments.fish_filter.strong_mode", added.id)
         assertEquals(FeaturePreferences.COMMENT_FISH_STRONG_MODE, added.storageKey)
@@ -541,11 +560,11 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog is a unique allowlist with 269 settings`() {
-        assertEquals(269, SettingsCatalog.specs.size)
-        assertEquals(269, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(269, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(263, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 270 settings`() {
+        assertEquals(270, SettingsCatalog.specs.size)
+        assertEquals(270, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(270, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(264, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(6, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -1074,7 +1093,7 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(164, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(165, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(24, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(81, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 

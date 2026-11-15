@@ -26,23 +26,46 @@ internal object InsightConfig {
     val TIMEOUT_RANGE: IntRange = 30_000..300_000
 
     /**
+     * 「自动补全 /v1」开关的默认值：开启，即沿用开关出现前的补全规则，已配置的用户升级后行为不变。
+     * 关闭后改为按所填端点逐字使用，只补协议最后一段，由用户自己写 /v1 或服务商指定的版本路径。
+     */
+    const val DEFAULT_AUTO_V1 = true
+
+    /**
      * 把四项专用配置解析成单一对话来源。
      *
-     * 「API 端点」按主流 LLM 接入方式填写：版本段（如 /v1）由用户提供的完整基址自带，
-     * 模块只按协议补最后一段（/chat/completions 或 /messages），**不自动追加 /v1**；
-     * 已经写到完整请求地址的，原样使用、不再二次拼接。
-     * 纯域名由 [SemanticBackend.parseUrl] 补 https，带 query 时路径段插到 query 之前。
-     * http 地址会被 [AgentModelSource] 的 HTTPS 约束拒掉，返回 null 由 UI 明确提示而非静默失效。
+     * 两种补全规则由 [autoV1] 选择；无论哪种，已经写到完整请求地址（以 `/chat/completions`
+     * 或 `/messages` 结尾）的都原样使用、不再二次拼接，带 query 时路径段插到 query 之前。
+     * - 开启（默认，旧规则）：只填域名时补 `/v1`；OpenAI 其余路径只补 `/chat/completions`，
+     *   Anthropic 路径不以 `/v1` 结尾时连 `/v1` 一起补成 `/v1/messages`。
+     * - 关闭：**不自动追加 /v1**，版本段由用户提供的端点自带，只按协议补最后一段。
+     *
+     * 纯域名由 [SemanticBackend.parseUrl] 补 https。http 地址会被 [AgentModelSource] 的
+     * HTTPS 约束拒掉，返回 null 由 UI 明确提示而非静默失效。
      */
-    fun resolve(protocol: String, baseUrl: String, apiKey: String, model: String): AgentModelSource? {
+    fun resolve(protocol: String, baseUrl: String, apiKey: String, model: String, autoV1: Boolean): AgentModelSource? {
         if (baseUrl.isBlank() || apiKey.isBlank() || model.isBlank()) return null
-        val normalized = SemanticBackend.parseUrl(baseUrl)?.first ?: return null
+        val (normalized, url) = SemanticBackend.parseUrl(baseUrl) ?: return null
         val agentProtocol = if (protocol == PROTOCOL_ANTHROPIC) AgentSourceProtocol.ANTHROPIC
             else AgentSourceProtocol.CHAT
-        val segment = if (agentProtocol == AgentSourceProtocol.ANTHROPIC) "messages" else "chat/completions"
-        val pathOnly = normalized.substringBefore('?').substringBefore('#')
-        val full = if (pathOnly.endsWith("/$segment")) normalized
-            else SemanticBackend.withPathSegment(normalized, segment)
+        val full = completeEndpoint(agentProtocol, normalized, url.path.trimEnd('/'), autoV1)
         return AgentModelSource.from(1, full, apiKey.trim(), model.trim(), agentProtocol)
+    }
+
+    /**
+     * 补成以协议段结尾的完整地址。[AgentModelSource] 见到已以 `/messages`、`/chat/completions`
+     * 结尾的路径不会再改，所以 /v1 的取舍只在这里决定，两种规则互不影响。
+     */
+    private fun completeEndpoint(protocol: AgentSourceProtocol, normalized: String, path: String, autoV1: Boolean): String {
+        val anthropic = protocol == AgentSourceProtocol.ANTHROPIC
+        val segment = if (anthropic) "messages" else "chat/completions"
+        if (path.endsWith("/$segment")) return normalized
+        val appended = when {
+            !autoV1 -> segment
+            path.isEmpty() -> "v1/$segment"
+            anthropic && !path.endsWith("/v1") -> "v1/$segment"
+            else -> segment
+        }
+        return SemanticBackend.withPathSegment(normalized, appended)
     }
 }

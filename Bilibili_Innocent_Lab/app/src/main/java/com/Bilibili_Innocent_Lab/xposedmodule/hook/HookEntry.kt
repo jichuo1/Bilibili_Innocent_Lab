@@ -2797,7 +2797,9 @@ class HookEntry : XposedModule() {
                     com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig.DEFAULT_PROTOCOL),
                 baseUrl = prefs.getString(FeaturePreferences.AI_INSIGHT_BASE_URL, ""),
                 apiKey = prefs.getString(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY, ""),
-                model = prefs.getString(FeaturePreferences.AI_INSIGHT_MODEL, "")
+                model = prefs.getString(FeaturePreferences.AI_INSIGHT_MODEL, ""),
+                autoV1 = prefs.getBoolean(FeaturePreferences.AI_INSIGHT_AUTO_V1,
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig.DEFAULT_AUTO_V1)
             )
             val insightInstaller = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.AiInsightFeatureInstaller(
                 enabled = prefs.getBoolean(FeaturePreferences.AI_INSIGHT_ENABLED, false),

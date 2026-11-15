@@ -232,20 +232,69 @@ class InsightRepositoryTest {
     }
     @Test fun `insight config is isolated from the semantic judge source table`() {
         // 独立配置解析只认专用四项；与判定来源（JEV/多来源）彻底解耦，未配好一律返回 null。
-        assertNull(InsightConfig.resolve("openai", "", "key", "model"))
-        assertNull(InsightConfig.resolve("openai", "https://example.test/v1", "", "model"))
-        assertNull(InsightConfig.resolve("openai", "https://example.test/v1", "key", ""))
-        assertNull(InsightConfig.resolve("openai", "not a url", "key", "model"))
-        val chat = InsightConfig.resolve("openai", "https://example.test/v1", "key", "chat-model")!!
-        assertEquals("https://example.test/v1/chat/completions", chat.resolvedEndpoint)
-        assertEquals("chat-model", chat.model)
-        val anthropic = InsightConfig.resolve("anthropic", "https://example.test/v1", "key", "claude-haiku")!!
-        assertEquals("https://example.test/v1/messages", anthropic.resolvedEndpoint)
-        assertEquals(AgentSourceProtocol.ANTHROPIC, anthropic.protocol)
+        for (autoV1 in listOf(true, false)) {
+            assertNull(InsightConfig.resolve("openai", "", "key", "model", autoV1))
+            assertNull(InsightConfig.resolve("openai", "https://example.test/v1", "", "model", autoV1))
+            assertNull(InsightConfig.resolve("openai", "https://example.test/v1", "key", "", autoV1))
+            assertNull(InsightConfig.resolve("openai", "not a url", "key", "model", autoV1))
+            val chat = InsightConfig.resolve("openai", "https://example.test/v1", "key", "chat-model", autoV1)!!
+            assertEquals("https://example.test/v1/chat/completions", chat.resolvedEndpoint)
+            assertEquals("chat-model", chat.model)
+            val anthropic = InsightConfig.resolve("anthropic", "https://example.test/v1", "key", "claude-haiku", autoV1)!!
+            assertEquals("https://example.test/v1/messages", anthropic.resolvedEndpoint)
+            assertEquals(AgentSourceProtocol.ANTHROPIC, anthropic.protocol)
+        }
     }
-    @Test fun `API endpoint leaves the version segment to the user and never appends v1`() {
+    @Test fun `auto v1 is on by default so existing configurations keep their previous behavior`() {
+        assertTrue(InsightConfig.DEFAULT_AUTO_V1)
+    }
+    @Test fun `with auto v1 on the endpoint keeps the previous completion rules`() {
         fun endpoint(protocol: String, raw: String) =
-            InsightConfig.resolve(protocol, raw, "key", "m")!!.resolvedEndpoint
+            InsightConfig.resolve(protocol, raw, "key", "m", autoV1 = true)!!.resolvedEndpoint
+        // 只填域名：补 /v1 再接协议段。
+        assertEquals("https://api.example.com/v1/chat/completions", endpoint("openai", "api.example.com"))
+        assertEquals("https://api.example.com/v1/chat/completions", endpoint("openai", "https://api.example.com/"))
+        assertEquals("https://api.example.com/v1/messages", endpoint("anthropic", "https://api.example.com"))
+        // OpenAI 兼容有路径时只补最后一段，不擅自加 /v1：非 /v1 的版本路径、自定义前缀都按所填使用。
+        assertEquals("https://api.example.com/v1/chat/completions", endpoint("openai", "https://api.example.com/v1"))
+        assertEquals("https://api.example.com/v4/chat/completions", endpoint("openai", "https://api.example.com/v4"))
+        assertEquals("https://api.example.com/openai/chat/completions", endpoint("openai", "https://api.example.com/openai"))
+        // Anthropic 路径不以 /v1 结尾时补 /v1；已以 /v1 结尾只补 /messages。
+        assertEquals("https://api.example.com/v1/messages", endpoint("anthropic", "https://api.example.com/v1"))
+        assertEquals("https://api.example.com/anthropic/v1/messages", endpoint("anthropic", "https://api.example.com/anthropic"))
+        assertEquals("https://api.example.com/anthropic/v1/messages", endpoint("anthropic", "https://api.example.com/anthropic/v1"))
+        // 已写全的接口地址原样使用；以 /messages 结尾也不再二次拼成 /messages/v1/messages。
+        assertEquals("https://api.example.com/v1/chat/completions",
+            endpoint("openai", "https://api.example.com/v1/chat/completions"))
+        assertEquals("https://api.example.com/v1/messages", endpoint("anthropic", "https://api.example.com/v1/messages"))
+        assertEquals("https://api.example.com/anthropic/messages",
+            endpoint("anthropic", "https://api.example.com/anthropic/messages"))
+        // query 始终留在路径之后。
+        assertEquals("https://api.example.com/v1/chat/completions?api-version=1",
+            endpoint("openai", "https://api.example.com?api-version=1"))
+        assertEquals("https://api.example.com/anthropic/v1/messages?x=1",
+            endpoint("anthropic", "https://api.example.com/anthropic?x=1"))
+    }
+    @Test fun `the two auto v1 modes only differ when the endpoint leaves the version out`() {
+        fun both(protocol: String, raw: String) = listOf(true, false).map {
+            InsightConfig.resolve(protocol, raw, "key", "m", autoV1 = it)!!.resolvedEndpoint
+        }
+        // 已带 /v1 或已写全：两种规则得到同一个请求地址。
+        for (raw in listOf("https://api.example.com/v1", "https://api.example.com/v1/chat/completions")) {
+            val (on, off) = both("openai", raw); assertEquals(on, off)
+        }
+        for (raw in listOf("https://api.example.com/v1", "https://api.example.com/v1/messages")) {
+            val (on, off) = both("anthropic", raw); assertEquals(on, off)
+        }
+        // 缺版本段：开启补 /v1，关闭逐字使用。
+        assertEquals(listOf("https://api.example.com/v1/chat/completions", "https://api.example.com/chat/completions"),
+            both("openai", "https://api.example.com"))
+        assertEquals(listOf("https://api.example.com/anthropic/v1/messages", "https://api.example.com/anthropic/messages"),
+            both("anthropic", "https://api.example.com/anthropic"))
+    }
+    @Test fun `API endpoint leaves the version segment to the user and never appends v1 when auto v1 is off`() {
+        fun endpoint(protocol: String, raw: String) =
+            InsightConfig.resolve(protocol, raw, "key", "m", autoV1 = false)!!.resolvedEndpoint
         // 纯域名 / 自定义前缀都不再自动补 /v1：版本段属于用户填写的 API 端点。
         assertEquals("https://api.example.com/chat/completions", endpoint("openai", "api.example.com"))
         assertEquals("https://api.example.com/messages", endpoint("anthropic", "https://api.example.com"))

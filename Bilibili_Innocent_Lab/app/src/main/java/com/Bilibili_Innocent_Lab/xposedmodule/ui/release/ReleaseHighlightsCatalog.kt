@@ -387,7 +387,11 @@ internal object ReleaseHighlightsCatalog {
                 "comments.fish_filter.whitelist",
                 "comments.fish_filter.protect_high_level",
                 SettingsCatalog.ID_COMMENT_FISH_STRONG_MODE)))
-    )))
+    )), ReleaseHighlightsBatch(42, listOf(
+        // 只在「新功能」列表里提示，不自动弹窗：默认开启即沿用旧规则，没有配置过 AI Insight 的人无需关心。
+        ReleaseHighlight("ai-insight-auto-v1", HighlightKind.NEW, R.string.ai_insight_auto_v1_tip,
+            HighlightDestination(SettingsCatalog.ID_AI_INSIGHT_AUTO_V1))
+    ), automatic = false))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }
         .mapNotNull { it.destination }.distinctBy { it.settingId }

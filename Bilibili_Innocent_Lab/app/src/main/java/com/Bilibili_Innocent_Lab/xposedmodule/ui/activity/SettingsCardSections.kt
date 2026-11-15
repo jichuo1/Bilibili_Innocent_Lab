@@ -1378,6 +1378,7 @@ internal fun MainActivity.experimentalFeaturesCard(
                             row = {
                                 settingsDestinations.bind(SettingsCatalog.ID_AI_INSIGHT_PROTOCOL, this)
                                 settingsDestinations.bind(SettingsCatalog.ID_AI_INSIGHT_BASE_URL, this)
+                                settingsDestinations.bind(SettingsCatalog.ID_AI_INSIGHT_AUTO_V1, this)
                                 settingsDestinations.bind(SettingsCatalog.ID_AI_INSIGHT_MODEL, this)
                             },
                             label = { insightSummaryView = this }

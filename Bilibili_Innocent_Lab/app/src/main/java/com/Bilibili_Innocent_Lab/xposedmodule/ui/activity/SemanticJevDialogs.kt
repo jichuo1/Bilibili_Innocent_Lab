@@ -633,7 +633,8 @@ internal fun MainActivity.aiInsightServiceSummary(): String {
         protocol,
         prefs.getString(FeaturePreferences.AI_INSIGHT_BASE_URL, "") ?: "",
         prefs.getString(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY, "") ?: "",
-        prefs.getString(FeaturePreferences.AI_INSIGHT_MODEL, "") ?: ""
+        prefs.getString(FeaturePreferences.AI_INSIGHT_MODEL, "") ?: "",
+        prefs.getBoolean(FeaturePreferences.AI_INSIGHT_AUTO_V1, InsightConfig.DEFAULT_AUTO_V1)
     ) ?: return getString(R.string.ai_insight_service_summary_unconfigured)
     val name = getString(if (protocol == InsightConfig.PROTOCOL_ANTHROPIC) R.string.ai_insight_protocol_anthropic
         else R.string.ai_insight_protocol_openai)
@@ -643,7 +644,8 @@ internal fun MainActivity.aiInsightServiceSummary(): String {
 /**
  * AI Insight 独立服务配置面板：协议 / API 端点 / API Key / 模型一次写入专用键，
  * 与智能判定的「来源 1–8」完全隔离。面板实时回显规范化后的真实请求地址（按协议补
- * /chat/completions 或 /messages，不自动追加 /v1），避免"测试通过但功能不能用"。
+ * /chat/completions 或 /messages；是否自动补 /v1 由「自动补全 /v1」开关决定，默认开启），
+ * 避免"测试通过但功能不能用"。
  * 「从判定来源导入」是一次性可见迁移，不自动继承、不静默复制。
  */
 internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSaved: () -> Unit) {
@@ -651,6 +653,7 @@ internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSave
     var protocol = prefs.getString(FeaturePreferences.AI_INSIGHT_PROTOCOL, InsightConfig.DEFAULT_PROTOCOL)
         ?.takeIf { it in InsightConfig.IDS } ?: InsightConfig.DEFAULT_PROTOCOL
     val protocolIds = listOf(InsightConfig.PROTOCOL_OPENAI, InsightConfig.PROTOCOL_ANTHROPIC)
+    var autoV1 = prefs.getBoolean(FeaturePreferences.AI_INSIGHT_AUTO_V1, InsightConfig.DEFAULT_AUTO_V1)
     lateinit var endpointField: NativeEditText
     lateinit var modelField: NativeEditText
     lateinit var keyField: NativeEditText
@@ -663,7 +666,7 @@ internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSave
     fun updateEffective() {
         if (!fieldsReady) return
         val source = InsightConfig.resolve(protocol,
-            endpointField.textToString().trim(), keyField.textToString().trim(), modelField.textToString().trim())
+            endpointField.textToString().trim(), keyField.textToString().trim(), modelField.textToString().trim(), autoV1)
         effectiveView.text = if (source == null) getString(R.string.ai_insight_service_summary_unconfigured)
         else getString(R.string.ai_insight_service_effective, source.resolvedEndpoint,
             getString(if (protocol == InsightConfig.PROTOCOL_ANTHROPIC) R.string.ai_insight_protocol_anthropic
@@ -695,6 +698,17 @@ internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSave
         endpointField = form.field(prefs.getString(FeaturePreferences.AI_INSIGHT_BASE_URL, "").orEmpty(),
             R.string.ai_insight_base_url_hint)
         form.help(getString(R.string.ai_insight_endpoint_help))
+
+        // 自动补全 /v1：开启沿用旧规则，关闭则逐字使用端点；切换立即反映在下方「实际请求地址」。
+        val autoV1Switch = com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch(this, null).apply {
+            text = getString(R.string.ai_insight_auto_v1)
+            textColor = getColor(R.color.colorTextDark)
+            textSize = 14f
+            isChecked = autoV1
+            setOnCheckedChangeListener { _, checked -> autoV1 = checked; updateEffective() }
+        }
+        form.body.addView(autoV1Switch, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = form.dp(10) })
+        form.help(getString(R.string.ai_insight_auto_v1_help), top = 2)
 
         form.label(R.string.ai_insight_model, 12)
         modelField = form.field(prefs.getString(FeaturePreferences.AI_INSIGHT_MODEL, "").orEmpty(),
@@ -761,7 +775,8 @@ internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSave
             protocol = { protocol },
             key = { keyField.textToString().trim() },
             endpoint = { endpointField.textToString().trim() },
-            model = { modelField.textToString().trim() }
+            model = { modelField.textToString().trim() },
+            autoV1 = { autoV1 }
         ), NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = form.dp(6) })
         form.help(getString(R.string.semantic_test_note), top = 2)
         fieldsReady = true
@@ -773,6 +788,7 @@ internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSave
                     prefs.edit {
                         putString(FeaturePreferences.AI_INSIGHT_PROTOCOL, InsightConfig.DEFAULT_PROTOCOL)
                         putString(FeaturePreferences.AI_INSIGHT_BASE_URL, "")
+                        putBoolean(FeaturePreferences.AI_INSIGHT_AUTO_V1, InsightConfig.DEFAULT_AUTO_V1)
                         putString(FeaturePreferences.AI_INSIGHT_MODEL, "")
                         putString(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY, "")
                         putInt(RemoteHookConfigContract.KEY_INSIGHT_OUTPUT_BUDGET, InsightConfig.DEFAULT_OUTPUT_BUDGET)
@@ -809,7 +825,7 @@ internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSave
             }
             // 允许全空（等于清除配置，卡片给出引导）；非空时必须能解析出合法来源。
             val filled = listOf(endpoint, model, key).any { it.isNotEmpty() }
-            if (filled && InsightConfig.resolve(protocol, endpoint, key, model) == null) {
+            if (filled && InsightConfig.resolve(protocol, endpoint, key, model, autoV1) == null) {
                 toast(getString(R.string.ai_insight_service_invalid))
                 return@save
             }
@@ -817,6 +833,7 @@ internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSave
                 prefs.edit {
                     putString(FeaturePreferences.AI_INSIGHT_PROTOCOL, protocol)
                     putString(FeaturePreferences.AI_INSIGHT_BASE_URL, endpoint)
+                    putBoolean(FeaturePreferences.AI_INSIGHT_AUTO_V1, autoV1)
                     putString(FeaturePreferences.AI_INSIGHT_MODEL, model)
                     putString(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY, key)
                     putInt(RemoteHookConfigContract.KEY_INSIGHT_OUTPUT_BUDGET, budget)
@@ -926,7 +943,8 @@ private fun MainActivity.createAiInsightConnectivityTester(
     protocol: () -> String,
     key: () -> String,
     endpoint: () -> String,
-    model: () -> String
+    model: () -> String,
+    autoV1: () -> Boolean
 ): View {
     val density = resources.displayMetrics.density
     val dark = ColorUtils.calculateLuminance(monetColors.surface) < 0.5
@@ -959,7 +977,7 @@ private fun MainActivity.createAiInsightConnectivityTester(
     }
     button.setOnClickListener {
         if (running) return@setOnClickListener
-        val source = InsightConfig.resolve(protocol(), endpoint(), key(), model())
+        val source = InsightConfig.resolve(protocol(), endpoint(), key(), model(), autoV1())
         if (source == null) {
             show(false, getString(R.string.semantic_test_fail_config))
             return@setOnClickListener
