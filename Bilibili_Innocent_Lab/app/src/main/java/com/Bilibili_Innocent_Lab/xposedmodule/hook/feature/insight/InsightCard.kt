@@ -374,9 +374,9 @@ internal class InsightCard(context: Context, private val repository: InsightRepo
             "Network request failed. $kept. Check the connection and retry.",
             "網路請求失敗，$kept。檢查網路後重試。")
         AgentModelException.Reason.HTTP, AgentModelException.Reason.REDIRECT -> insightText(context,
-            "模型接口拒绝请求（状态码 ${failure.status ?: 0}）。请检查 API Key、接口地址和模型名，$kept。",
-            "The API rejected the request (status ${failure.status ?: 0}). Check the API key, endpoint and model name. $kept.",
-            "模型介面拒絕請求（狀態碼 ${failure.status ?: 0}）。請檢查 API Key、介面位址與模型名稱，$kept。")
+            "模型接口拒绝请求（状态码 ${failure.status ?: 0}）。请检查 API Key、API 端点和模型名，$kept。",
+            "The API rejected the request (status ${failure.status ?: 0}). Check the API key, API endpoint and model name. $kept.",
+            "模型介面拒絕請求（狀態碼 ${failure.status ?: 0}）。請檢查 API Key、API 端點與模型名稱，$kept。")
         AgentModelException.Reason.INVALID_RESPONSE -> insightText(context,
             "模型返回格式无法识别，$kept。可更换模型或接口类型后重试。",
             "Unrecognized model response. $kept. Try another model or API type.",

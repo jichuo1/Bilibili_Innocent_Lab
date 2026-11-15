@@ -236,12 +236,31 @@ class InsightRepositoryTest {
         assertNull(InsightConfig.resolve("openai", "https://example.test/v1", "", "model"))
         assertNull(InsightConfig.resolve("openai", "https://example.test/v1", "key", ""))
         assertNull(InsightConfig.resolve("openai", "not a url", "key", "model"))
-        val chat = InsightConfig.resolve("openai", "api.example.com", "key", "chat-model")!!
-        assertEquals("https://api.example.com/v1/chat/completions", chat.resolvedEndpoint)
+        val chat = InsightConfig.resolve("openai", "https://example.test/v1", "key", "chat-model")!!
+        assertEquals("https://example.test/v1/chat/completions", chat.resolvedEndpoint)
         assertEquals("chat-model", chat.model)
-        val anthropic = InsightConfig.resolve("anthropic", "https://api.example.com", "key", "claude-haiku")!!
-        assertEquals("https://api.example.com/v1/messages", anthropic.resolvedEndpoint)
+        val anthropic = InsightConfig.resolve("anthropic", "https://example.test/v1", "key", "claude-haiku")!!
+        assertEquals("https://example.test/v1/messages", anthropic.resolvedEndpoint)
         assertEquals(AgentSourceProtocol.ANTHROPIC, anthropic.protocol)
+    }
+    @Test fun `API endpoint leaves the version segment to the user and never appends v1`() {
+        fun endpoint(protocol: String, raw: String) =
+            InsightConfig.resolve(protocol, raw, "key", "m")!!.resolvedEndpoint
+        // 纯域名 / 自定义前缀都不再自动补 /v1：版本段属于用户填写的 API 端点。
+        assertEquals("https://api.example.com/chat/completions", endpoint("openai", "api.example.com"))
+        assertEquals("https://api.example.com/messages", endpoint("anthropic", "https://api.example.com"))
+        assertEquals("https://api.example.com/anthropic/v1/messages",
+            endpoint("anthropic", "https://api.example.com/anthropic/v1"))
+        // 只按协议补最后一段；用户填到 /v1 时得到标准完整地址。
+        assertEquals("https://api.example.com/v1/chat/completions", endpoint("openai", "https://api.example.com/v1"))
+        assertEquals("https://api.example.com/v1/messages", endpoint("anthropic", "https://api.example.com/v1"))
+        // 已写全的接口地址原样使用，不二次拼接；query 插在路径之后。
+        assertEquals("https://api.example.com/v1/chat/completions",
+            endpoint("openai", "https://api.example.com/v1/chat/completions"))
+        assertEquals("https://api.example.com/v1/messages",
+            endpoint("anthropic", "https://api.example.com/v1/messages"))
+        assertEquals("https://api.example.com/v1/chat/completions?api-version=1",
+            endpoint("openai", "https://api.example.com/v1?api-version=1"))
     }
     @Test fun `cache key does not persist credentials embedded in an endpoint query`() {
         val configured = source.copy(endpoint = "https://example.test/v1?api_key=endpoint-token")

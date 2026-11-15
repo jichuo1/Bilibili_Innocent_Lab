@@ -54,10 +54,10 @@ internal data class AgentModelSource(
             val path = uri.rawPath.orEmpty().trimEnd('/')
             val resolved = when (protocol) {
                 AgentSourceProtocol.ANTHROPIC -> when {
-                    path.endsWith("/v1/messages") -> path
+                    // 用户已填到 /messages 的完整端点原样使用，不再按 /v1 形状猜测或二次拼接。
+                    path.endsWith("/messages") -> path
                     path.isEmpty() -> "/v1/messages"
-                    path.endsWith("/v1") -> "$path/messages"
-                    else -> "$path/v1/messages"
+                    else -> "$path/messages"
                 }
                 else -> when {
                     path.endsWith("/chat/completions") -> path

@@ -641,9 +641,9 @@ internal fun MainActivity.aiInsightServiceSummary(): String {
 }
 
 /**
- * AI Insight 独立服务配置面板：协议 / Base URL / API Key / 模型一次写入专用键，
- * 与智能判定的「来源 1–8」完全隔离。面板实时回显规范化后的真实请求地址（协议决定
- * /chat/completions 或 /v1/messages），避免"测试通过但功能不能用"。
+ * AI Insight 独立服务配置面板：协议 / API 端点 / API Key / 模型一次写入专用键，
+ * 与智能判定的「来源 1–8」完全隔离。面板实时回显规范化后的真实请求地址（按协议补
+ * /chat/completions 或 /messages，不自动追加 /v1），避免"测试通过但功能不能用"。
  * 「从判定来源导入」是一次性可见迁移，不自动继承、不静默复制。
  */
 internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSaved: () -> Unit) {
@@ -678,7 +678,7 @@ internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSave
     presentSemanticDialog(getString(R.string.ai_insight_service_title), anchor, info = {
         semanticInfo(
             R.string.ai_insight_protocol to getString(R.string.ai_insight_service_help),
-            R.string.ai_insight_base_url to getString(R.string.semantic_short_endpoint),
+            R.string.ai_insight_base_url to getString(R.string.ai_insight_endpoint_help),
             R.string.semantic_jev_api_key to getString(R.string.semantic_short_key)
         )
     }, form = { form ->
@@ -694,7 +694,7 @@ internal fun MainActivity.showAiInsightConfigDialog(anchor: View? = null, onSave
         form.label(R.string.ai_insight_base_url, 14)
         endpointField = form.field(prefs.getString(FeaturePreferences.AI_INSIGHT_BASE_URL, "").orEmpty(),
             R.string.ai_insight_base_url_hint)
-        form.help(getString(R.string.semantic_short_endpoint))
+        form.help(getString(R.string.ai_insight_endpoint_help))
 
         form.label(R.string.ai_insight_model, 12)
         modelField = form.field(prefs.getString(FeaturePreferences.AI_INSIGHT_MODEL, "").orEmpty(),

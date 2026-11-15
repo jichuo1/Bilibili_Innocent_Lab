@@ -28,8 +28,10 @@ internal object InsightConfig {
     /**
      * 把四项专用配置解析成单一对话来源。
      *
-     * 地址可为纯域名 / 域名+路径（按 https 补全，复用 [SemanticBackend.parseUrl]），
-     * 最终请求路径（/chat/completions 或 /v1/messages）由 [AgentModelSource] 按协议决定，只补一次。
+     * 「API 端点」按主流 LLM 接入方式填写：版本段（如 /v1）由用户提供的完整基址自带，
+     * 模块只按协议补最后一段（/chat/completions 或 /messages），**不自动追加 /v1**；
+     * 已经写到完整请求地址的，原样使用、不再二次拼接。
+     * 纯域名由 [SemanticBackend.parseUrl] 补 https，带 query 时路径段插到 query 之前。
      * http 地址会被 [AgentModelSource] 的 HTTPS 约束拒掉，返回 null 由 UI 明确提示而非静默失效。
      */
     fun resolve(protocol: String, baseUrl: String, apiKey: String, model: String): AgentModelSource? {
@@ -37,6 +39,10 @@ internal object InsightConfig {
         val normalized = SemanticBackend.parseUrl(baseUrl)?.first ?: return null
         val agentProtocol = if (protocol == PROTOCOL_ANTHROPIC) AgentSourceProtocol.ANTHROPIC
             else AgentSourceProtocol.CHAT
-        return AgentModelSource.from(1, normalized, apiKey.trim(), model.trim(), agentProtocol)
+        val segment = if (agentProtocol == AgentSourceProtocol.ANTHROPIC) "messages" else "chat/completions"
+        val pathOnly = normalized.substringBefore('?').substringBefore('#')
+        val full = if (pathOnly.endsWith("/$segment")) normalized
+            else SemanticBackend.withPathSegment(normalized, segment)
+        return AgentModelSource.from(1, full, apiKey.trim(), model.trim(), agentProtocol)
     }
 }
