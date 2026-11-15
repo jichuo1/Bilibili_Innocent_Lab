@@ -22,7 +22,8 @@ internal class HostBottomBarFxFeatureInstaller(
     private val appearance: HostChromeAppearance = HostChromeAppearance(renderer = HostGlassRenderer.SOFTWARE),
     chromePoints: Map<String, HookPoint> = emptyMap(),
     semanticsPoint: HomeChromeSemanticsPoint? = null,
-    private val mineGarbDim: Boolean = true
+    private val mineGarbDim: Boolean = true,
+    private val badgeAccent: Boolean = false
 ) : FeatureInstaller {
     override val id: String = ID
     private val firstHit = AtomicBoolean(false)
@@ -60,7 +61,7 @@ internal class HostBottomBarFxFeatureInstaller(
             }
         }
         val config = HostBottomBarFxConfig(liquidGlass, touchGlow, liquidGlass && compact, liquidGlass && iconOnly, appearance,
-            mineGarbDim = mineGarbDim)
+            mineGarbDim = mineGarbDim, badgeAccent = liquidGlass && badgeAccent)
         fun attach(host: ViewGroup) {
             observed()
             HostBottomBarFxController.attach(host, config, onApplied = ::applied, onMissing = {

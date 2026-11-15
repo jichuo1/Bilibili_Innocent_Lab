@@ -202,6 +202,8 @@ internal object FeaturePreferences {
     const val HOST_BOTTOM_BAR_COMPACT = "host_bottom_bar_compact"
     const val HOST_BOTTOM_BAR_ICON_ONLY = "host_bottom_bar_icon_only"
     const val HOST_MINE_GARB_DIM = "host_mine_garb_dim"
+    /** 默认关闭：浮动底栏下数量角标改用强调色；修改后重启宿主生效。 */
+    const val HOST_BOTTOM_BAR_BADGE_ACCENT = "host_bottom_bar_badge_accent"
     const val HOST_UI_POWER_SAVING = "host_ui_power_saving"
     const val HOST_BOTTOM_BAR_TOUCH_GLOW = "host_bottom_bar_touch_glow"
     const val HOST_VIDEO_CARDS = "host_video_cards"

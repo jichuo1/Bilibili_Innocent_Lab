@@ -62,6 +62,8 @@ internal class HostBottomBarDockLayer(
         HostThreadGuard.run("host.bottom.hero.layout") { hero.invalidate() }
     }
     private var materialColors = HostChromeColors(isDark, palette.primary)
+    /** 数量角标强调色；只在开关开启且浮动底栏接管时存在，随换肤值在 [refreshMaterial] 里更新。 */
+    private var badgeStyle: HostDockBadgeStyle? = null
     /** 窄屏适配可能压低胶囊；圆角跟随实际布局高度而不是档位标称高度。 */
     private val radiusDp: Float
         get() = (tabHost.layoutParams?.height?.takeIf { it > 0 }?.div(density) ?: config.heightDp) / 2f
@@ -130,6 +132,8 @@ internal class HostBottomBarDockLayer(
         // 宿主会在按压/切页/重建 tab 时重新挂上官方背景并重新布局：这里逐帧只做 O(items) 空判，
         // 命中才请求一次合并后的整树清理；不再每帧全树递归 + 资源名解析（快速切换掉帧的来源）。
         if (hostReappliedArtifacts()) requestSanitization()
+        // 角标由宿主按需创建、重设背景或文字色，这些都不一定触发整树清理：逐帧只做有界、无分配的核对。
+        badgeStyle?.let { container?.let { tabs -> HostBottomBarFxController.syncCountBadges(tabs, it) } }
         HostBottomBarFxController.alignTabContent(tabHost, container, density, inset.roundToInt(), config, materialColors)
         // 同步外部切页
         val detected = detectSelectedTab()
@@ -151,9 +155,10 @@ internal class HostBottomBarDockLayer(
         if (config.liquidGlass && (changed || backdrop?.owns(selectionView) != true)) {
             backdrop?.surface(selectionView, HostSurfaceStyle.selection(colors.dark))
         }
-        if (!changed) return
+        if (!changed && (badgeStyle != null || !config.badgeAccent || !config.liquidGlass)) return
         materialColors = colors
         glowView.recolor(colors.accent)
+        badgeStyle = if (config.liquidGlass && config.badgeAccent) HostDockBadgePolicy.style(colors.accent) else null
     }
     /** 直属于底栏的 tab 项是否被宿主重新挂上了官方背景/按压态（不带资源查询，O(items)）。 */
     private fun hostReappliedArtifacts(): Boolean {

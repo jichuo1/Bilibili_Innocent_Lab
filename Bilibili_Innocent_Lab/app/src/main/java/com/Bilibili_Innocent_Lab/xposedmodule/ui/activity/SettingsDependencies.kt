@@ -32,7 +32,8 @@ internal object SettingsDependencies {
             Requirement(FeaturePreferences.NO_LOGIN_ENABLED, alternatives = listOf(FeaturePreferences.INCOGNITO_ENABLED)))
         put("player.long_press_speed.percent", Requirement(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS, false))
         children(FeaturePreferences.HIDE_MINE_VIP, "mine.vip.space_kept")
-        children(FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS, "host.mine.garb_dim.enabled")
+        children(FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS, "host.mine.garb_dim.enabled",
+            "host.bottom_bar.badge_accent.enabled")
         children(HookEntry.PREF_LOG_ENABLED, "diagnostics.logging.level")
         children(FeaturePreferences.COMMENT_KEYWORD_FILTER_ENABLED, "comments.keyword_filter.keywords")
         children(FeaturePreferences.COMMENT_MIN_LEVEL_FILTER_ENABLED, "comments.minimum_level_filter.level")

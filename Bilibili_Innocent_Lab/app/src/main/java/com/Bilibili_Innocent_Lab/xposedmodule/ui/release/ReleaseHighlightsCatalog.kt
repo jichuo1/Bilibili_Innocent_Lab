@@ -391,6 +391,10 @@ internal object ReleaseHighlightsCatalog {
         // 只在「新功能」列表里提示，不自动弹窗：默认开启即沿用旧规则，没有配置过 AI Insight 的人无需关心。
         ReleaseHighlight("ai-insight-auto-v1", HighlightKind.NEW, R.string.ai_insight_auto_v1_tip,
             HighlightDestination(SettingsCatalog.ID_AI_INSIGHT_AUTO_V1))
+    ), automatic = false), ReleaseHighlightsBatch(43, listOf(
+        // 默认关闭、只影响开启了浮动底栏的用户，同样只列出、不自动弹窗。
+        ReleaseHighlight("bottom-bar-badge-accent", HighlightKind.NEW, R.string.host_bottom_bar_badge_accent_tip,
+            HighlightDestination(SettingsCatalog.ID_HOST_BOTTOM_BAR_BADGE_ACCENT))
     ), automatic = false))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

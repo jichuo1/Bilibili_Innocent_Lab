@@ -232,6 +232,8 @@
     <string name="host_bottom_bar_liquid_glass_tip">Turns Bilibili\'s bottom bar into a floating glass capsule with a specular top edge. Personalized theme colors blend into the glass, retaining character icons and animations with compact bar sizing. Slightly increases rendering load.</string>
     <string name="host_mine_garb_dim">Dim profile theme artwork</string>
     <string name="host_mine_garb_dim_tip">Requires the floating bottom bar. Darkens personalized theme artwork on the profile page to improve text contrast. Turn off to retain its original brightness and rounded corners. Restart Bilibili to apply.</string>
+    <string name="host_bottom_bar_badge_accent">Accent-colored tab badges</string>
+    <string name="host_bottom_bar_badge_accent_tip">Requires the floating bottom bar. The capsule clears the host\'s backgrounds, so the small count badge for messages or alerts loses its emphasis. Turn on to draw the badge in the accent color, with black or white digits for contrast. Restart Bilibili to apply.</string>
     <string name="host_ui_power_saving">Host UI power saving</string>
     <string name="host_ui_power_saving_tip">Reuses glass and card material while scrolling to save power. A frame may occasionally arrive late; turn it off if scrolling feels uneven. Restart Bilibili to apply.</string>
     <string name="host_bottom_bar_touch_glow">Bottom bar touch glow</string>

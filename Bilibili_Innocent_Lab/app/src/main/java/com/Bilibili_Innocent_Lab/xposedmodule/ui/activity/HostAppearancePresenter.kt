@@ -135,6 +135,32 @@ internal fun MainActivity.hostBottomBarAppearanceRows(
                 textSize = 12f
                 capsuleOptions.add(this)
             }
+            materialSwitch(key = "HostAppearancePresenter:badgeAccent",
+                lparams = params(widthMatchParent = true) {
+                    marginStart = 16.dp
+                    topMargin = 12.dp
+                    bottomMargin = 5.dp
+                }
+            ) {
+                capsuleOptions.add(this)
+                bindFavoriteSwitch(this, FeaturePreferences.HOST_BOTTOM_BAR_BADGE_ACCENT, directToggle = true)
+                bindSettingDestination(this, FeaturePreferences.HOST_BOTTOM_BAR_BADGE_ACCENT)
+                text = stringResource(R.string.host_bottom_bar_badge_accent)
+                isAllCaps = false
+                textColor = colorResource(R.color.colorTextGray)
+                textSize = 15f
+                isChecked = hostBottomBarBadgeAccent
+                setOnCheckedChangeListener { button, checked ->
+                applyModeledToggle(FeaturePreferences.HOST_BOTTOM_BAR_BADGE_ACCENT, checked, button)
+            }
+            }
+            textView(key = "HostAppearancePresenter:badgeAccentTip", lparams = params(widthMatchParent = true) { marginStart = 16.dp }) {
+                alpha = 0.6f
+                text = stringResource(R.string.host_bottom_bar_badge_accent_tip)
+                textColor = colorResource(R.color.colorTextDark)
+                textSize = 12f
+                capsuleOptions.add(this)
+            }
             capsuleOptions.refresh()
             materialSwitch(key = "HostAppearancePresenter:204",
                 lparams = params(widthMatchParent = true) {

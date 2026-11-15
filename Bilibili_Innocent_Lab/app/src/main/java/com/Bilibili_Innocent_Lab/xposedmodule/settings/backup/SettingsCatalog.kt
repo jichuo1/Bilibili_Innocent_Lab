@@ -36,7 +36,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 78
+    const val CATALOG_VERSION = 79
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_PLAYER_SPEED_MENU = "player.speed_menu.percents"
@@ -89,6 +89,7 @@ internal object SettingsCatalog {
     const val ID_AI_INSIGHT_PROTOCOL = "ai_insight.protocol"
     const val ID_AI_INSIGHT_BASE_URL = "ai_insight.base_url"
     const val ID_AI_INSIGHT_AUTO_V1 = "ai_insight.auto_v1"
+    const val ID_HOST_BOTTOM_BAR_BADGE_ACCENT = "host.bottom_bar.badge_accent.enabled"
     const val ID_AI_INSIGHT_MODEL = "ai_insight.model"
 
     /** 各过滤面的"判定来源 / 自定义类型"目录 id。 */
@@ -1155,7 +1156,10 @@ internal object SettingsCatalog {
             maxStringLength = SemanticBackend.MAX_MODEL_LENGTH, introducedCatalogVersion = 74),
         // v78：端点「自动补全 /v1」开关。默认开启 = 沿用旧规则，旧备份缺这一项时恢复为开启，不改变既有行为。
         bool(ID_AI_INSIGHT_AUTO_V1, FeaturePreferences.AI_INSIGHT_AUTO_V1, R.string.ai_insight_auto_v1,
-            default = InsightConfig.DEFAULT_AUTO_V1, introducedCatalogVersion = 78)
+            default = InsightConfig.DEFAULT_AUTO_V1, introducedCatalogVersion = 78),
+        // v79：浮动底栏下数量角标使用强调色。默认关闭，保持现有外观；改动需重启宿主。
+        bool(ID_HOST_BOTTOM_BAR_BADGE_ACCENT, FeaturePreferences.HOST_BOTTOM_BAR_BADGE_ACCENT,
+            R.string.host_bottom_bar_badge_accent, default = false, introducedCatalogVersion = 79)
     )
 
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
@@ -1170,7 +1174,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 270) { "Expected 270 catalog settings, found ${specs.size}" }
+        check(specs.size == 271) { "Expected 271 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

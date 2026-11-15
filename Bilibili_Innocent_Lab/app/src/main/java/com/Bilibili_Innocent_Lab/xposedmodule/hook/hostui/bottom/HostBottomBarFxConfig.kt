@@ -10,7 +10,9 @@ internal data class HostBottomBarFxConfig(
     val compact: Boolean = false,
     val iconOnly: Boolean = false,
     val appearance: HostChromeAppearance = HostChromeAppearance(renderer = HostGlassRenderer.SOFTWARE),
-    val mineGarbDim: Boolean = true
+    val mineGarbDim: Boolean = true,
+    /** 数量角标改用强调色；只在浮动底栏（会清掉宿主背景）下有意义，默认关闭。 */
+    val badgeAccent: Boolean = false
 ) {
     val heightDp: Float
         get() = when {

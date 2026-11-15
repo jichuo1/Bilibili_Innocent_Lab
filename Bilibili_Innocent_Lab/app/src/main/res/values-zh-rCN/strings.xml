@@ -255,6 +255,8 @@
     <string name="host_bottom_bar_liquid_glass_tip">将哔哩哔哩底栏改为悬浮胶囊，并以实时取样的玻璃材质透出下方内容，保留上缘高光。个性主题装扮自动融合配色，保留角色图标及动画，并适配小底栏；轻微提升渲染压力。</string>
     <string name="host_mine_garb_dim">装扮背景压暗</string>
     <string name="host_mine_garb_dim_tip">需开启底栏悬浮胶囊。压暗个性主题在「我的」页的立绘背景，提高文字对比度。关闭后保留原始亮度和圆角。重启哔哩哔哩后生效。</string>
+    <string name="host_bottom_bar_badge_accent">底栏角标使用强调色</string>
+    <string name="host_bottom_bar_badge_accent_tip">需开启底栏悬浮胶囊。悬浮胶囊会清掉宿主底栏里的背景，消息或提醒数量的小角标因此不再醒目。开启后角标改用强调色，数字自动选用黑或白以保证对比。重启哔哩哔哩后生效。</string>
     <string name="host_ui_power_saving">宿主界面省电模式</string>
     <string name="host_ui_power_saving_tip">滚动时复用玻璃与卡片材质以降低功耗，偶尔会晚一帧呈现，觉得不够顺滑可关闭。重启哔哩哔哩后生效。</string>
     <string name="host_bottom_bar_touch_glow">底栏触控光晕</string>

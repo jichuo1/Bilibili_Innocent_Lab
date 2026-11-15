@@ -165,6 +165,7 @@ internal object DiagnosticCapabilityCatalog {
             "host.bottom_bar.compact.enabled",
             "host.bottom_bar.icon_only.enabled",
             "host.mine.garb_dim.enabled",
+            "host.bottom_bar.badge_accent.enabled",
             "host.bottom_bar.touch_glow.enabled"
         )),
         DiagnosticCapabilityDefinition("player_default_quality", "player_default_quality", R.string.player_default_quality, setOf("player.default_quality.qn")),

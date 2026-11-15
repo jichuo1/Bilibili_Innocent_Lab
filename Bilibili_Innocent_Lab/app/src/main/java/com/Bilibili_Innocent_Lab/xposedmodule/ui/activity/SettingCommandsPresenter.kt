@@ -390,6 +390,20 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             }
             hostMineGarbDim
         }
+        FeaturePreferences.HOST_BOTTOM_BAR_BADGE_ACCENT -> {
+            val checked = requested
+            if (!hostBottomBarLiquidGlass) {
+
+                return hostBottomBarBadgeAccent
+            }
+            hostBottomBarBadgeAccent = checked
+            runCatching {
+                prefs().edit { putBoolean(FeaturePreferences.HOST_BOTTOM_BAR_BADGE_ACCENT, checked) }
+            }.onFailure { throwable ->
+                Log.e("BilibiliInnocentLab", "write host bottom bar badge accent prefs failed", throwable)
+            }
+            hostBottomBarBadgeAccent
+        }
         FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW -> {
             val checked = requested
             hostBottomBarTouchGlow = checked
@@ -1700,6 +1714,7 @@ internal val modeledToggleKeys = setOf(
     FeaturePreferences.HOST_BOTTOM_BAR_COMPACT,
     FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY,
     FeaturePreferences.HOST_MINE_GARB_DIM,
+    FeaturePreferences.HOST_BOTTOM_BAR_BADGE_ACCENT,
     FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW,
     FeaturePreferences.HOST_TOP_BAR_TOUCH_GLOW,
     FeaturePreferences.PURIFY_SHARE_CONTENT,
@@ -1827,6 +1842,7 @@ internal fun MainActivity.synchronizeSettingField(key: String, confirmed: Boolea
         FeaturePreferences.HOST_BOTTOM_BAR_COMPACT -> hostBottomBarCompact = confirmed
         FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY -> hostBottomBarIconOnly = confirmed
         FeaturePreferences.HOST_MINE_GARB_DIM -> hostMineGarbDim = confirmed
+        FeaturePreferences.HOST_BOTTOM_BAR_BADGE_ACCENT -> hostBottomBarBadgeAccent = confirmed
         FeaturePreferences.HOST_UI_POWER_SAVING -> hostUiPowerSaving = confirmed
         FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW -> hostBottomBarTouchGlow = confirmed
         FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS -> hostTopBarLiquidGlass = confirmed

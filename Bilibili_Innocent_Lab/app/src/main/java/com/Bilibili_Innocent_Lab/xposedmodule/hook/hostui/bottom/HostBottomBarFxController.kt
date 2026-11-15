@@ -104,8 +104,13 @@ internal object HostBottomBarFxController {
         val sanitizeRunnable = Runnable { HostThreadGuard.run("host.bottom.sanitize") {
             sanitizePosted = false
             if (!tabHost.isAttachedToWindow) return@Runnable
-            if (config.liquidGlass) stripAllHostArtifacts(tabHost, isRoot = true)
-            alignTabContent(tabHost, container, density, insetH, config, theme.read())
+            val chromeColors = theme.read()
+            if (config.liquidGlass) {
+                // 角标强调色跟随当前换肤值：日夜或装扮切换后下一次清理即重新着色。
+                val badge = if (config.badgeAccent) HostDockBadgePolicy.style(chromeColors.accent) else null
+                stripAllHostArtifacts(tabHost, isRoot = true, badge = badge)
+            }
+            alignTabContent(tabHost, container, density, insetH, config, chromeColors)
             // 冷启动时底栏还没有尺寸、找不到采样源；布局稳定后每次清理都顺手补一次定位（命中即 O(1)）。
             backdrop?.revalidate()
         } }
@@ -527,8 +532,27 @@ internal object HostBottomBarFxController {
             }
         }
     }
-    /** 彻底剥离宿主所有官方背景、分割线、并清除按压阴影残余 */
-    fun stripAllHostArtifacts(view: View, isRoot: Boolean = true) {
+    /**
+     * 逐帧核对数量角标：深度有界、不分配，只对尚未着色（或被宿主重设过）的角标写入。
+     * 宿主的 tab 项结构很浅，限定深度避免任何异常层级让这条逐帧路径变成整树递归。
+     */
+    internal fun syncCountBadges(group: ViewGroup, style: HostDockBadgeStyle, depth: Int = 0) {
+        for (i in 0 until group.childCount) {
+            val child = group.getChildAt(i)
+            if (child is TextView) {
+                if (HostDockBadgePolicy.isCountBadge(resourceName(child, child.id))) HostDockBadgeAppearance.apply(child, style)
+            } else if (child is ViewGroup && depth < MAX_BADGE_DEPTH) syncCountBadges(child, style, depth + 1)
+        }
+    }
+
+    private const val MAX_BADGE_DEPTH = 4
+
+    /**
+     * 彻底剥离宿主所有官方背景、分割线、并清除按压阴影残余。
+     *
+     * [badge] 非空（「角标使用强调色」已开启）时，数量角标不再被剥掉背景，而是染成强调色。
+     */
+    fun stripAllHostArtifacts(view: View, isRoot: Boolean = true, badge: HostDockBadgeStyle? = null) {
         if (view is HostBottomBarDockLayer || view is HostGlowView) return
 
         val resName = resourceName(view, view.id)
@@ -536,6 +560,10 @@ internal object HostBottomBarFxController {
         // 使用同一套原版换肤逻辑，不能只给普通加号重染或清掉它的 GradientDrawable。
         if (resName == "home_publish_icon" || resName == "publish_root" ||
             view.javaClass.simpleName == "HomeTabPublishView") return
+        if (badge != null && view is TextView && HostDockBadgePolicy.isCountBadge(resName)) {
+            HostDockBadgeAppearance.apply(view, badge)
+            return
+        }
 
         // 保留宿主 TabHost 的玻璃背景，清除其余子 View 的官方底色。
         if (!isRoot && view.background != null) {
@@ -565,7 +593,7 @@ internal object HostBottomBarFxController {
 
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
-                stripAllHostArtifacts(view.getChildAt(i), isRoot = false)
+                stripAllHostArtifacts(view.getChildAt(i), isRoot = false, badge = badge)
             }
         }
     }

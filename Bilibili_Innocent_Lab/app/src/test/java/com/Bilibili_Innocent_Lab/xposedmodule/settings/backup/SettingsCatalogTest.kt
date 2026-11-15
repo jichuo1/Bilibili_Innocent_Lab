@@ -9,12 +9,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsCatalogTest {
+    @Test fun `catalog v79 adds the bottom bar badge accent as a default off restorable switch that needs a host restart`() {
+        // 旧快照逐字不变，只追加这一项；默认关闭 = 现有外观不变。
+        val previous = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v78.txt"))
+            .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(previous, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 78 }.map { it.id }.sorted())
+        assertEquals(79, SettingsCatalog.CATALOG_VERSION)
+        val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 79 }
+        assertEquals("host.bottom_bar.badge_accent.enabled", added.id)
+        assertEquals(SettingsCatalog.ID_HOST_BOTTOM_BAR_BADGE_ACCENT, added.id)
+        assertEquals(FeaturePreferences.HOST_BOTTOM_BAR_BADGE_ACCENT, added.storageKey)
+        assertEquals(SettingValueType.BOOLEAN, added.type)
+        assertEquals(SettingValue.Bool(false), added.defaultValue)
+        assertEquals(RestorePolicy.AUTOMATIC, added.restorePolicy)
+        assertTrue(ImportEffect.RESTART_BILIBILI in added.effects)
+        assertEquals(added, SettingsCatalog.byStorageKey[FeaturePreferences.HOST_BOTTOM_BAR_BADGE_ACCENT])
+    }
+
     @Test fun `catalog v78 adds the AI Insight auto v1 switch as a default on restorable setting`() {
         // 旧快照逐字不变，只追加这一项；默认开启 = 沿用旧的 /v1 补全规则，旧备份缺该项时不改变行为。
         val previous = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v77.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(previous, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 77 }.map { it.id }.sorted())
-        assertEquals(78, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 78 }
         assertEquals("ai_insight.auto_v1", added.id)
         assertEquals(SettingsCatalog.ID_AI_INSIGHT_AUTO_V1, added.id)
@@ -560,11 +576,11 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog is a unique allowlist with 270 settings`() {
-        assertEquals(270, SettingsCatalog.specs.size)
-        assertEquals(270, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(270, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(264, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 271 settings`() {
+        assertEquals(271, SettingsCatalog.specs.size)
+        assertEquals(271, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(271, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(265, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(6, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -1093,7 +1109,7 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(165, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(166, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(24, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(81, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 
