@@ -1477,6 +1477,18 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             }
             freeCopyDescEnabled
         }
+        FeaturePreferences.FREE_COPY_TITLE_ENABLED -> {
+            // 标题开关只在宿主启动时读取，不进入评论/简介的权威镜像（FreeCopyConfigStore），直接写偏好即可。
+            val isChecked = requested
+            freeCopyTitleEnabled = isChecked
+            refreshCopyAppearanceOptions()
+            runCatching {
+                prefs().edit { putBoolean(FeaturePreferences.FREE_COPY_TITLE_ENABLED, isChecked) }
+            }.onFailure { t ->
+                Log.e("BilibiliInnocentLab", "write free copy title prefs failed", t)
+            }
+            freeCopyTitleEnabled
+        }
         FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR -> {
             val isChecked = requested
             transparentPlayerStatusBar = isChecked
@@ -1785,6 +1797,7 @@ internal val modeledToggleKeys = setOf(
     HookEntry.PREF_BANNER_ENABLED,
     HookEntry.PREF_FREE_COPY_ENABLED,
     HookEntry.PREF_FREE_COPY_DESC_ENABLED,
+    FeaturePreferences.FREE_COPY_TITLE_ENABLED,
     FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR,
     FeaturePreferences.BRAND_SPLASH_CUSTOM,
     FeaturePreferences.SPLASH_AUTO_NIGHT,
@@ -1916,6 +1929,7 @@ internal fun MainActivity.synchronizeSettingField(key: String, confirmed: Boolea
         HookEntry.PREF_BANNER_ENABLED -> bannerAdEnabled = confirmed
         HookEntry.PREF_FREE_COPY_ENABLED -> freeCopyEnabled = confirmed
         HookEntry.PREF_FREE_COPY_DESC_ENABLED -> freeCopyDescEnabled = confirmed
+        FeaturePreferences.FREE_COPY_TITLE_ENABLED -> freeCopyTitleEnabled = confirmed
         FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR -> transparentPlayerStatusBar = confirmed
         FeaturePreferences.BRAND_SPLASH_CUSTOM -> brandSplashCustom = confirmed
         FeaturePreferences.SPLASH_AUTO_NIGHT -> splashAutoNight = confirmed

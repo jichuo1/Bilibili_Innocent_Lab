@@ -543,6 +543,8 @@
     <string name="free_copy_tip">長按評論即可開啟自由複製面板（三點選單仍可使用）</string>
     <string name="free_copy_desc_enable">長按簡介以自由複製文字</string>
     <string name="free_copy_desc_tip">長按影片詳細頁的簡介即可開啟自由複製面板</string>
+    <string name="free_copy_video_title_enable">長按標題以自由複製文字</string>
+    <string name="free_copy_video_title_tip">長按影片詳細頁的標題即可開啟自由複製面板。重新啟動嗶哩嗶哩後生效。</string>
     <string name="free_copy_title">自由複製</string>
     <string name="free_copy_close">關閉自由複製</string>
     <string name="free_copy_hint">長按下方文字即可自由選取片段並複製</string>

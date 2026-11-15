@@ -20,7 +20,7 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 38
+    const val VERSION = 39
     val definitions = listOf(
         DiagnosticCapabilityDefinition("ai_insight", "ai_insight", R.string.ai_insight_title,
             setOf("compat.ai_insight.enabled", "compat.ai_insight.auto_chapters",
@@ -226,6 +226,9 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("bv_to_av", "bv_to_av", R.string.show_bv_as_av, setOf("numbers.bv_as_av.enabled")),
         DiagnosticCapabilityDefinition("free_copy_comment_enabled", "free_copy", R.string.free_copy_enable, setOf("free_copy.comment.enabled")),
         DiagnosticCapabilityDefinition("free_copy_description_enabled", "free_copy", R.string.free_copy_desc_enable, setOf("free_copy.description.enabled")),
+        // v39：标题长按自由复制。与评论、简介同属 free_copy 父项，各自一片叶子（各自的安装回执与运行证据）。
+        DiagnosticCapabilityDefinition("free_copy_title_enabled", "free_copy", R.string.free_copy_video_title_enable,
+            setOf("free_copy.title.enabled"), introducedCatalogVersion = 39),
         DiagnosticCapabilityDefinition("roaming_compat", "roaming_compat", R.string.roaming_compat_enable, setOf("compat.roaming.enabled")),
         DiagnosticCapabilityDefinition("home_recommend_duration_filter", "home_recommend_purify", R.string.diagnostics_capability_duration, setOf("recommend.video_duration.minimum_seconds", "recommend.video_duration.maximum_seconds")),
         DiagnosticCapabilityDefinition("video_related_duration_filter", "video_relate_filter", R.string.diagnostics_capability_duration, setOf("recommend.video_duration.minimum_seconds", "recommend.video_duration.maximum_seconds")),
@@ -338,7 +341,8 @@ internal object DiagnosticCapabilityCatalog {
         "player_buffer_preload",
         "block_component_library_download",
         "free_copy_comment_enabled",
-        "free_copy_description_enabled"
+        "free_copy_description_enabled",
+        "free_copy_title_enabled"
     )
     fun explicitRuntimeSupport(id: String): Int = when {
         id in verifiedRuntimeIds -> 2

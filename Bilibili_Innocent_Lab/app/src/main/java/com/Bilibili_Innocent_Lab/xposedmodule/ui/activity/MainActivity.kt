@@ -515,6 +515,7 @@ class MainActivity : SkinnedActivity() {
     internal var purifySplashAds = false
     internal var freeCopyEnabled = true
     internal var freeCopyDescEnabled = true
+    internal var freeCopyTitleEnabled = false
     internal var freeCopyLightMode = false
     internal var freeCopyAutoLight = false
     internal var refreshCopyAppearanceOptions: () -> Unit = {}
@@ -4843,6 +4844,7 @@ class MainActivity : SkinnedActivity() {
         merchAdEnabled = uiSettings.bool(HookEntry.PREF_MERCH_ENABLED)
         freeCopyEnabled = uiSettings.bool(HookEntry.PREF_FREE_COPY_ENABLED)
         freeCopyDescEnabled = uiSettings.bool(HookEntry.PREF_FREE_COPY_DESC_ENABLED)
+        freeCopyTitleEnabled = uiSettings.bool(FeaturePreferences.FREE_COPY_TITLE_ENABLED)
         // 跨进程权威镜像：避开 LSPosed API 93+ 对默认 SharedPreferences 的重定向。
         // 文件很小且只在模块 UI 启动/切换时写入，不进入 B 站启动或滚动热路径。
         runCatching {

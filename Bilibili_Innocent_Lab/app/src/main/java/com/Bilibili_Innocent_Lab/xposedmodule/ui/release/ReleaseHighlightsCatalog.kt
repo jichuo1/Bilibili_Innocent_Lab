@@ -395,6 +395,10 @@ internal object ReleaseHighlightsCatalog {
         // 默认关闭、只影响开启了浮动底栏的用户，同样只列出、不自动弹窗。
         ReleaseHighlight("bottom-bar-badge-accent", HighlightKind.NEW, R.string.host_bottom_bar_badge_accent_tip,
             HighlightDestination(SettingsCatalog.ID_HOST_BOTTOM_BAR_BADGE_ACCENT))
+    ), automatic = false), ReleaseHighlightsBatch(44, listOf(
+        // 默认关闭、只影响主动开启的人，同样只列出、不自动弹窗。
+        ReleaseHighlight("free-copy-video-title", HighlightKind.NEW, R.string.free_copy_video_title_tip,
+            HighlightDestination(SettingsCatalog.ID_FREE_COPY_TITLE))
     ), automatic = false))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

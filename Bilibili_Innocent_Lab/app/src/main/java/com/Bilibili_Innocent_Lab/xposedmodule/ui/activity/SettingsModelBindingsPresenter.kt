@@ -113,7 +113,8 @@ internal fun MainActivity.refreshSettingAvailability() {
             FeaturePreferences.HOST_BOTTOM_BAR_COMPACT, FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY ->
                 modelBoolean(FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS)
             HookEntry.PREF_FREE_COPY_AUTO_LIGHT, HookEntry.PREF_FREE_COPY_LIGHT_MODE ->
-                modelBoolean(HookEntry.PREF_FREE_COPY_ENABLED) || modelBoolean(HookEntry.PREF_FREE_COPY_DESC_ENABLED)
+                modelBoolean(HookEntry.PREF_FREE_COPY_ENABLED) || modelBoolean(HookEntry.PREF_FREE_COPY_DESC_ENABLED) ||
+                    modelBoolean(FeaturePreferences.FREE_COPY_TITLE_ENABLED)
             else -> if (descriptor.id in SettingsDependencies.requirements)
                 SettingsDependencies.available(descriptor.id, snapshot) else old.enabled
         }

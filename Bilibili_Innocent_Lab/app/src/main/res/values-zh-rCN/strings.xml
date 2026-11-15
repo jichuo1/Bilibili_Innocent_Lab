@@ -543,6 +543,8 @@
     <string name="free_copy_tip">开启后补全漫游失效的长按评论自由复制文本</string>
     <string name="free_copy_desc_enable">长按简介以自由复制文本</string>
     <string name="free_copy_desc_tip">开启后视频详情页简介支持长按自由复制</string>
+    <string name="free_copy_video_title_enable">长按标题以自由复制文本</string>
+    <string name="free_copy_video_title_tip">开启后视频详情页标题支持长按自由复制。重启哔哩哔哩后生效。</string>
     <string name="free_copy_title">自由复制</string>
     <string name="free_copy_close">关闭自由复制</string>
     <string name="free_copy_hint">长按下方文字自由选择片段复制</string>

@@ -69,8 +69,25 @@ class DiagnosticCapabilityCatalogTest {
         assertEquals(expected, DiagnosticCapabilityCatalog.byLocatorKey.keys)
     }
 
+    @Test fun videoTitleFreeCopyIsAnIndependentV39CapabilityBesideCommentAndDescription() {
+        assertTrue(DiagnosticCapabilityCatalog.VERSION >= 39)
+        val added = DiagnosticCapabilityCatalog.definitions.filter { it.introducedCatalogVersion == 39 }
+        assertEquals(setOf("free_copy_title_enabled"), added.map { it.id }.toSet())
+        val capability = added.single()
+        // 与评论、简介同属 free_copy 父项，各有各的安装回执和运行证据，所以是独立叶子。
+        assertEquals("free_copy", capability.parentId)
+        assertEquals("free_copy", DiagnosticCapabilityCatalog.byId.getValue("free_copy_comment_enabled").parentId)
+        assertEquals("free_copy", DiagnosticCapabilityCatalog.byId.getValue("free_copy_description_enabled").parentId)
+        assertEquals(setOf("free_copy.title.enabled"), capability.settingIds)
+        assertEquals(SettingsCatalog.byId.getValue("free_copy.title.enabled").labelRes, capability.labelRes)
+        // 口径与简介一致：宿主点命中后会上报运行证据（OBSERVED）。
+        assertEquals(2, DiagnosticCapabilityCatalog.runtimeSupport(capability.id))
+        assertEquals(DiagnosticCapabilityCatalog.runtimeSupport("free_copy_description_enabled"),
+            DiagnosticCapabilityCatalog.runtimeSupport(capability.id))
+    }
+
     @Test fun aiCommentFilterIsAnIndependentV38CapabilityUnderTheCommentFilter() {
-        assertEquals(38, DiagnosticCapabilityCatalog.VERSION)
+        assertTrue(DiagnosticCapabilityCatalog.VERSION >= 38)
         val added = DiagnosticCapabilityCatalog.definitions.filter { it.introducedCatalogVersion == 38 }
         assertEquals(setOf("comments_fish_filter_enabled"), added.map { it.id }.toSet())
         val capability = added.single()

@@ -9,12 +9,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsCatalogTest {
+    @Test fun `catalog v80 adds the video title free copy as a default off restorable switch that needs a host restart`() {
+        // 旧快照逐字不变，只追加这一项；默认关闭 = 现有长按行为不变。
+        val previous = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v79.txt"))
+            .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(previous, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 79 }.map { it.id }.sorted())
+        assertEquals(80, SettingsCatalog.CATALOG_VERSION)
+        val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 80 }
+        assertEquals("free_copy.title.enabled", added.id)
+        assertEquals(SettingsCatalog.ID_FREE_COPY_TITLE, added.id)
+        assertEquals(FeaturePreferences.FREE_COPY_TITLE_ENABLED, added.storageKey)
+        assertEquals(SettingValueType.BOOLEAN, added.type)
+        assertEquals(SettingValue.Bool(false), added.defaultValue)
+        assertEquals(RestorePolicy.AUTOMATIC, added.restorePolicy)
+        assertTrue(ImportEffect.RESTART_BILIBILI in added.effects)
+        assertEquals(added, SettingsCatalog.byStorageKey[FeaturePreferences.FREE_COPY_TITLE_ENABLED])
+        // 评论、简介两个老开关保持默认开启，标题是唯一默认关闭的自由复制开关。
+        assertEquals(SettingValue.Bool(true), SettingsCatalog.byId.getValue(SettingsCatalog.ID_FREE_COPY_COMMENT).defaultValue)
+        assertEquals(SettingValue.Bool(true), SettingsCatalog.byId.getValue(SettingsCatalog.ID_FREE_COPY_DESCRIPTION).defaultValue)
+    }
+
     @Test fun `catalog v79 adds the bottom bar badge accent as a default off restorable switch that needs a host restart`() {
         // 旧快照逐字不变，只追加这一项；默认关闭 = 现有外观不变。
         val previous = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v78.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(previous, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 78 }.map { it.id }.sorted())
-        assertEquals(79, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 79 }
         assertEquals("host.bottom_bar.badge_accent.enabled", added.id)
         assertEquals(SettingsCatalog.ID_HOST_BOTTOM_BAR_BADGE_ACCENT, added.id)
@@ -576,11 +595,11 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog is a unique allowlist with 271 settings`() {
-        assertEquals(271, SettingsCatalog.specs.size)
-        assertEquals(271, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(271, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(265, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 272 settings`() {
+        assertEquals(272, SettingsCatalog.specs.size)
+        assertEquals(272, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(272, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(266, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(6, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -1109,7 +1128,7 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(166, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(167, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(24, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(81, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 

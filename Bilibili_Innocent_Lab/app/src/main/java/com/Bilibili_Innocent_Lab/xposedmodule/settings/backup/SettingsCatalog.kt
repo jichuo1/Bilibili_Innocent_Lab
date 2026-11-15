@@ -36,12 +36,13 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 79
+    const val CATALOG_VERSION = 80
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_PLAYER_SPEED_MENU = "player.speed_menu.percents"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
     const val ID_FREE_COPY_DESCRIPTION = "free_copy.description.enabled"
+    const val ID_FREE_COPY_TITLE = "free_copy.title.enabled"
     const val ID_RECOMMEND_VIDEO_MIN_DURATION =
         "recommend.video_duration.minimum_seconds"
     const val ID_RECOMMEND_VIDEO_MAX_DURATION =
@@ -1159,7 +1160,10 @@ internal object SettingsCatalog {
             default = InsightConfig.DEFAULT_AUTO_V1, introducedCatalogVersion = 78),
         // v79：浮动底栏下数量角标使用强调色。默认关闭，保持现有外观；改动需重启宿主。
         bool(ID_HOST_BOTTOM_BAR_BADGE_ACCENT, FeaturePreferences.HOST_BOTTOM_BAR_BADGE_ACCENT,
-            R.string.host_bottom_bar_badge_accent, default = false, introducedCatalogVersion = 79)
+            R.string.host_bottom_bar_badge_accent, default = false, introducedCatalogVersion = 79),
+        // v80：视频详情页标题长按自由复制。默认关闭，现有行为不变；改动需重启宿主。
+        bool(ID_FREE_COPY_TITLE, FeaturePreferences.FREE_COPY_TITLE_ENABLED,
+            R.string.free_copy_video_title_enable, default = false, introducedCatalogVersion = 80)
     )
 
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
@@ -1174,7 +1178,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 271) { "Expected 271 catalog settings, found ${specs.size}" }
+        check(specs.size == 272) { "Expected 272 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

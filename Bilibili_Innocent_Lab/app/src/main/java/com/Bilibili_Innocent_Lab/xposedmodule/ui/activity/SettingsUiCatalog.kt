@@ -117,6 +117,7 @@ internal object SettingsUiCatalog {
         add(HookEntry.PREF_BANNER_ENABLED, R.string.banner_ad_enable, 1, "PURIFICATION", true)
         add(HookEntry.PREF_FREE_COPY_ENABLED, R.string.free_copy_enable, 2, "ENHANCEMENT", true)
         add(HookEntry.PREF_FREE_COPY_DESC_ENABLED, R.string.free_copy_desc_enable, 2, "ENHANCEMENT", true)
+        add(FeaturePreferences.FREE_COPY_TITLE_ENABLED, R.string.free_copy_video_title_enable, 2, "ENHANCEMENT", true)
         add(FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR, R.string.transparent_player_status_bar, 3, "BEAUTIFICATION", true)
         add(FeaturePreferences.BRAND_SPLASH_CUSTOM, R.string.brand_splash_custom, 3, "BEAUTIFICATION", true)
         add(FeaturePreferences.SPLASH_AUTO_NIGHT, R.string.splash_auto_night, 3, "BEAUTIFICATION", true)

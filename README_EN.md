@@ -349,7 +349,7 @@ Every category is judged precisely from the public structured type in the adapte
 
 Classic comments can be restored under Enhancement → Advanced enhancement settings → Comment reading and interaction. When a comment has replies but no preview, the option fetches up to three replies through Bilibili’s detail API and shows them below the parent comment. Tap to view more replies. Only the first detail page is requested, with at most four concurrent requests and a 2.5-second wait budget for the entire comment page. Timeouts or failures preserve the original reply entry. Fetching may increase loading time. The option is off by default and requires restarting Bilibili.
 
-### 📋 Free copy for comments and descriptions
+### 📋 Free copy for comments, descriptions and titles
 
 #### Free copy in the comment section
 
@@ -364,6 +364,10 @@ Once enabled, long-pressing a comment body pops up a copy bubble with selectable
 #### Free copy for video descriptions
 
 Long-pressing the description on a video detail page gives you the same copy bubble to select part of the text. For expandable descriptions the module reads the full original text where possible, normalises line breaks, trims trailing whitespace and deals with placeholder content produced by icons or special spans, while keeping the paragraph structure of the body.
+
+#### Free copy for video titles
+
+Long-pressing the title on a video detail page pops up the same copy bubble. Title free copy is off by default; turn it on separately in the free copy group of the Enhancement page, and restart Bilibili to apply. While a long title is collapsed, the screen shows only its first lines, so the module reads the full original text kept by the widget where possible and drops the placeholder characters for the badge image in front of the title; only when the original cannot be read does it copy the text you see on screen. Titles and descriptions share the same long-press judgement and bubble: scrolling or multi-finger gestures do not trigger it, and the official tap-to-expand or collapse behaviour of the title is unaffected.
 
 #### Copy bubble appearance
 
@@ -503,7 +507,7 @@ On a first install, verifying in the following order is recommended:
 2. Enable only one UI cleanup feature;
 3. Restart Bilibili and check the detail page or the home page;
 4. Test free copy in the comment section;
-5. Test free copy for video descriptions;
+5. Test free copy for video descriptions and titles;
 6. Choose the manual light bubble or auto follow according to your theme;
 7. Once the basic features are stable, try the experimental features;
 8. Enable the BiliRoaming extension only if BiliRoaming is installed and you actually need the compatibility.

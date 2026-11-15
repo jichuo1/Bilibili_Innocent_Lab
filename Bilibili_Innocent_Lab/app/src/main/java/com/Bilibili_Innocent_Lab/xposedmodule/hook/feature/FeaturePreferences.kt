@@ -18,6 +18,9 @@ internal object FeaturePreferences {
     const val INCOGNITO_ENABLED = "incognito_enabled"
     const val SKIP_GUEST_ONBOARDING = "skip_guest_onboarding"
 
+    /** 默认关闭：视频详情页标题长按自由复制，与评论、简介共用同一气泡；修改后重启宿主生效。 */
+    const val FREE_COPY_TITLE_ENABLED = "free_copy_title_enabled"
+
     const val HIDE_VIDEO_DETAIL_APP_PROMOTION = "hide_video_detail_app_promotion"
     const val HIDE_LIVE_HOME_PROMOTION = "hide_live_home_promotion"
     const val HIDE_HOME_GAME_MENU = "hide_home_game_menu"

@@ -544,6 +544,8 @@
     <string name="free_copy_tip">Long-press a comment to open a free-copy sheet (the three-dot menu still works)</string>
     <string name="free_copy_desc_enable">Long-press the video description to free-copy text</string>
     <string name="free_copy_desc_tip">Long-press the description on the video detail page to open the free-copy sheet</string>
+    <string name="free_copy_video_title_enable">Long-press the video title to free-copy text</string>
+    <string name="free_copy_video_title_tip">Long-press the title on the video detail page to open the free-copy sheet. Restart Bilibili to apply.</string>
     <string name="free_copy_title">Free copy</string>
     <string name="free_copy_close">Close free copy</string>
     <string name="free_copy_hint">Long-press the text below to select and copy</string>

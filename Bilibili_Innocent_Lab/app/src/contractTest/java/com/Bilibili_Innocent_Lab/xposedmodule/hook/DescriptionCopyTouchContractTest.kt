@@ -39,7 +39,7 @@ class DescriptionCopyTouchContractTest {
         assertTrue(timer.contains("!descCopyGesture.isPending"))
         assertTrue(timer.contains("sharedFreeCopyListener.onLongClick(v)"))
         val dispatch = source().after("// 简介触摸长按检测：").before("// 拦截官方「复制简介全文」实现")
-        assertTrue(dispatch.indexOf("observeDescTouch(ev)") < dispatch.indexOf("if (!runtimeDescriptionFreeCopyEnabled ||"))
+        assertTrue(dispatch.indexOf("observeDescTouch(ev)") < dispatch.indexOf("if (!isDescLikeTarget) {"))
         val description = dispatch.after("descCopyGesture.begin(")
         assertTrue(description.contains("scaledTouchSlop.toFloat()"))
         assertTrue(description.contains("descCopyGesture.isPending && !handled"))

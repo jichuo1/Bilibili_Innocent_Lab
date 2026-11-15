@@ -526,6 +526,34 @@ internal fun MainActivity.enhancementSettingsCard(
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
+        // 标题长按自由复制（与评论、简介并列，共用同一气泡样式；默认关闭，重启宿主生效）
+        materialSwitch(key = "SettingsCardSections:freeCopyTitle",
+            lparams = params(widthMatchParent = true) {
+                topMargin = 5.dp
+                bottomMargin = 5.dp
+            }
+        ) {
+            bindFavoriteSwitch(this, FeaturePreferences.FREE_COPY_TITLE_ENABLED, directToggle = true)
+            text = stringResource(R.string.free_copy_video_title_enable)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = freeCopyTitleEnabled
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.FREE_COPY_TITLE_ENABLED, checked, button)
+        }
+        }
+        textView(key = "SettingsCardSections:freeCopyTitleTip",
+            lparams = params(widthMatchParent = true) {
+                topMargin = 0.dp
+            }
+        ) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.free_copy_video_title_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
         linearLayout(key = "SettingsCardSections:594",
             lparams = params(widthMatchParent = true) {
                 topMargin = 14.dp
@@ -729,10 +757,10 @@ internal fun MainActivity.beautificationSettingsCard(scope: LinearSettingsScope)
         }
         // 步骤：复制气泡外观
         deferStep {
-            // Either copy feature can display the shared bubble.
-            val copyOptions = DependentAppearanceOptions { freeCopyEnabled || freeCopyDescEnabled }
+            // Any copy feature (comment, description or title) can display the shared bubble.
+            val copyOptions = DependentAppearanceOptions { freeCopyEnabled || freeCopyDescEnabled || freeCopyTitleEnabled }
             refreshCopyAppearanceOptions = copyOptions::refresh
-            // 复制气泡外观同时控制评论与简介。
+            // 复制气泡外观同时控制评论、简介与标题。
             textView(key = "SettingsCardSections:794",
                 lparams = params(widthMatchParent = true) {
                     topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp

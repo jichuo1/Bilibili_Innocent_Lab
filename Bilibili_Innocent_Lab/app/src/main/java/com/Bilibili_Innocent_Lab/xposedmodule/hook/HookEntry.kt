@@ -160,6 +160,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor.SponsorCachin
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor.SponsorSegmentRepository
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor.SponsorSegmentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TeenagersModeFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TitleFreeCopyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoRelateFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigDecodeResult
@@ -320,6 +321,35 @@ class HookEntry : XposedModule() {
 
         @Volatile
         private var runtimeDescriptionFreeCopyEnabled = true
+
+        /**
+         * 标题长按自由复制：默认关闭，只在启动时读取一次（设置项声明为重启宿主生效，不参与 NPatch
+         * 热应用）。与简介共用同一套触摸会话和气泡，所以下面凡是“简介或标题”的判断都走
+         * [descLikeFreeCopyEnabled]。
+         */
+        @Volatile
+        private var runtimeTitleFreeCopyEnabled = false
+
+        private val descLikeFreeCopyEnabled: Boolean
+            get() = runtimeDescriptionFreeCopyEnabled || runtimeTitleFreeCopyEnabled
+
+        /** 标题 View id（按资源名 "title" 解析）与同布局里的 "arrow" id；解析失败 3 次后放弃。 */
+        @Volatile
+        private var titleViewId = View.NO_ID
+
+        @Volatile
+        private var titleArrowId = View.NO_ID
+
+        @Volatile
+        private var titleIdResolveAttempts = 0
+
+        /**
+         * 已确认的标题 View 弱集合。`id/title` 在宿主里极常见，触摸/长按监听这类全局热路径
+         * 只在 id 命中后才查这个集合；登记发生在 ExpandableTextView.setText 之后，由
+         * [TitleFreeCopyPolicy.isTitleWidget] 判定（类 + id + arrow 兄弟三者缺一不可）。
+         * 弱 key 不持有 View，页面销毁后自然消失。
+         */
+        private val titleViews = java.util.Collections.synchronizedMap(java.util.WeakHashMap<View, Boolean>())
 
         /**
          * B 站当前是否为亮色主题的缓存（仅自动跟随开启时使用）。
@@ -665,8 +695,12 @@ class HookEntry : XposedModule() {
          * - 防双重弹窗（触摸层 runnable/UP/监听器三源互斥）与消费语义与原实现一致。
          */
         private val sharedFreeCopyListener = View.OnLongClickListener { view ->
-            val isDesc = descViewId != View.NO_ID && view.id == descViewId
-            if (isDesc && !runtimeDescriptionFreeCopyEnabled) return@OnLongClickListener false
+            val isDescOnly = descViewId != View.NO_ID && view.id == descViewId
+            // 标题与简介共用同一套触摸会话（同一时刻只有一个手势），所以下面的会话判断统一用 isDesc。
+            val isTitle = !isDescOnly && isTitleView(view)
+            val isDesc = isDescOnly || isTitle
+            if (isDescOnly && !runtimeDescriptionFreeCopyEnabled) return@OnLongClickListener false
+            if (isTitle && !runtimeTitleFreeCopyEnabled) return@OnLongClickListener false
             if (!isDesc && !runtimeCommentFreeCopyEnabled) return@OnLongClickListener false
             if (isDesc && (!view.isAttachedToWindow || !view.isShown ||
                     view.windowVisibility != View.VISIBLE)
@@ -681,7 +715,9 @@ class HookEntry : XposedModule() {
             if (isDesc && descCopyGesture.isTracking &&
                 (descTouchedView !== view || !descCopyGesture.isPending)
             ) return@OnLongClickListener false
-            val resolved = if (isDesc) {
+            val resolved = if (isTitle) {
+                FreeCopyContent(extractTitleText(view))
+            } else if (isDesc) {
                 FreeCopyContent(extractDescText(view))
             } else {
                 resolveCommentTextAtInteraction(view)
@@ -692,7 +728,8 @@ class HookEntry : XposedModule() {
             ) return@OnLongClickListener false
             HostRuntimeDiagnosticsBridge.record("free_copy", FeatureRuntimeStage.OBSERVED)
             HostRuntimeDiagnosticsBridge.record(
-                if (isDesc) "free_copy_description_enabled" else "free_copy_comment_enabled",
+                if (isTitle) "free_copy_title_enabled"
+                else if (isDesc) "free_copy_description_enabled" else "free_copy_comment_enabled",
                 FeatureRuntimeStage.OBSERVED
             )
             // 文本与身份均已确认后才武装 handled；无效复用节点不能污染下一次手势。
@@ -1541,6 +1578,129 @@ class HookEntry : XposedModule() {
             }
         }
 
+        /**
+         * 详情页文本控件 setText 之后的统一入口：先让标题登记（只在标题开启时），再走原有的简介绑定。
+         * 简介部分与原实现逐行等价；标题分支被 runCatching 隔离，不可能影响简介的绑定。
+         */
+        private fun onDetailTextSet(v: View) {
+            if (runtimeTitleFreeCopyEnabled) runCatching { onTitleCandidateTextSet(v) }
+            if (!runtimeDescriptionFreeCopyEnabled) return
+            if (descViewId == View.NO_ID) {
+                resolveDescViewId(v.context)
+                if (descViewId == View.NO_ID) return
+            }
+            if (v.id != descViewId) return
+            descCachedViewRef = java.lang.ref.WeakReference(v)
+            v.post {
+                HostThreadGuard.run("free_copy.desc_apply") {
+                    applyFreeCopyListener(v, null, false)
+                }
+            }
+        }
+
+        /**
+         * 解析标题与 arrow 的 view id（按资源名，版本无关）。必须两个都解析到才启用：标题的识别
+         * 依赖「同父容器里有 arrow 兄弟」，缺一就宁可不启用也不去猜。用触发回调的 View 的 context
+         * 解析（同简介：YukiHook 回调里 currentApplication() 恒为 null）。
+         */
+        private fun resolveTitleViewIds(viewContext: Context?) {
+            if (titleViewId != View.NO_ID || titleIdResolveAttempts >= 3) return
+            val ctx = viewContext ?: return
+            titleIdResolveAttempts++
+            val resources = ctx.resources
+            val title = runCatching {
+                resources.getIdentifier(TitleFreeCopyPolicy.VIEW_ID_NAME, "id", TARGET_PACKAGE)
+            }.getOrDefault(0)
+            val arrow = runCatching {
+                resources.getIdentifier(TitleFreeCopyPolicy.ARROW_ID_NAME, "id", TARGET_PACKAGE)
+            }.getOrDefault(0)
+            if (title != 0 && arrow != 0) {
+                titleArrowId = arrow // 先写 arrow：读到 titleViewId 的线程必然也读得到它
+                titleViewId = title
+                logInfo("free_copy_title_id", "[BIL] 已解析标题 view id: 0x${Integer.toHexString(title)}")
+            } else if (titleIdResolveAttempts >= 3) {
+                logError("free_copy_title_id_err", "[BIL] 标题 view id 解析失败（当前版本无 id/title 或 id/arrow，标题复制不可用）")
+            }
+        }
+
+        /** 触摸/长按这类全局热路径用：id 不匹配就立刻返回，只有 id 命中才查弱集合。 */
+        private fun isTitleView(v: View): Boolean {
+            val id = titleViewId
+            return id != View.NO_ID && v.id == id && titleViews.containsKey(v)
+        }
+
+        /**
+         * 在 ExpandableTextView.setText 之后调用：id 命中且满足 [TitleFreeCopyPolicy.isTitleWidget]
+         * 才登记并装上共享长按监听器。已登记的 View 直接返回，不重复投递（setText 在测量时会反复调用）。
+         */
+        private fun onTitleCandidateTextSet(v: View) {
+            if (!runtimeTitleFreeCopyEnabled) return
+            if (titleViewId == View.NO_ID) {
+                resolveTitleViewIds(v.context)
+                if (titleViewId == View.NO_ID) return
+            }
+            if (v.id != titleViewId) return
+            if (titleViews.containsKey(v)) return
+            val classChain = ArrayList<String>(4)
+            var cls: Class<*>? = v.javaClass
+            while (cls != null && cls != Any::class.java && classChain.size < 8) {
+                classChain.add(cls.name)
+                cls = cls.superclass
+            }
+            val hasArrowSibling = (v.parent as? android.view.ViewGroup)
+                ?.findViewById<View>(titleArrowId) != null
+            if (!TitleFreeCopyPolicy.isTitleWidget(true, classChain, hasArrowSibling)) return
+            titleViews[v] = true
+            v.post {
+                HostThreadGuard.run("free_copy.title_apply") { applyTitleFreeCopyListener(v) }
+            }
+        }
+
+        /** 标题没有评论那样的子树遍历：就是这一个 TextView，直接挂共享监听器。 */
+        private fun applyTitleFreeCopyListener(v: View) {
+            if (!runtimeTitleFreeCopyEnabled || !isTitleView(v)) return
+            setLongClickListenerNoHook(v, sharedFreeCopyListener)
+        }
+
+        /** ExpandableTextView 里保存标题原文的 CharSequence 字段（按类缓存；null 代表该类没有可用字段）。 */
+        private val titleOriginFieldByClass =
+            java.util.concurrent.ConcurrentHashMap<Class<*>, java.util.Optional<java.lang.reflect.Field>>()
+
+        private fun titleOriginField(viewClass: Class<*>): java.lang.reflect.Field? =
+            titleOriginFieldByClass.getOrPut(viewClass) {
+                var found: java.lang.reflect.Field? = null
+                var cls: Class<*>? = viewClass
+                while (found == null && cls != null && cls != classOf<android.widget.TextView>() &&
+                    cls != Any::class.java
+                ) {
+                    val charSequenceFields = cls.declaredFields.filter {
+                        !java.lang.reflect.Modifier.isStatic(it.modifiers) &&
+                            it.type == classOf<CharSequence>()
+                    }
+                    val index = TitleFreeCopyPolicy.originFieldIndex(charSequenceFields.map { it.name })
+                    if (index != null) {
+                        found = charSequenceFields[index].also { it.isAccessible = true }
+                    }
+                    cls = cls.superclass
+                }
+                java.util.Optional.ofNullable(found)
+            }.orElse(null)
+
+        /**
+         * 标题文本提取。ExpandableTextView 收起时 TextView.getText() 是「截断 + 展开提示」的派生文本，
+         * 长标题会被切掉，所以优先取保存原文的字段；字段缺失、读取失败或为空时才回退 getText()。
+         * 与简介一样先剔除 ReplacementSpan 占位字符（宿主在标题前放了角标图片占位），再整理空白。
+         */
+        private fun extractTitleText(v: View): String {
+            val visible = (v as? android.widget.TextView)?.text
+                ?.let { TitleFreeCopyPolicy.normalize(stripSpanPlaceholderChars(it)) }.orEmpty()
+            val origin = runCatching {
+                (titleOriginField(v.javaClass)?.get(v) as? CharSequence)
+                    ?.let { TitleFreeCopyPolicy.normalize(stripSpanPlaceholderChars(it)) }
+            }.getOrNull().orEmpty()
+            return TitleFreeCopyPolicy.choose(origin, visible)
+        }
+
         /** 按类名递归匹配评论正文 TextView（ExpandableTextView/RichTextView/CommentTextView） */
         private fun findCommentBody(v: View, depth: Int = 0): CharSequence? {
             if (depth > 12) return null
@@ -1829,6 +1989,7 @@ class HookEntry : XposedModule() {
             val copyCapability = when {
                 runtimeDescriptionFreeCopyEnabled && descViewId != View.NO_ID && anchor.id == descViewId ->
                     "free_copy_description_enabled"
+                runtimeTitleFreeCopyEnabled && isTitleView(anchor) -> "free_copy_title_enabled"
                 runtimeCommentFreeCopyEnabled && isRegisteredCommentTreeMember(anchor) ->
                     "free_copy_comment_enabled"
                 else -> null
@@ -2641,6 +2802,8 @@ class HookEntry : XposedModule() {
                 hookConfig.getBoolean(PREF_FREE_COPY_DESC_ENABLED, true)
             runtimeCommentFreeCopyEnabled = initialCommentFreeCopyEnabled
             runtimeDescriptionFreeCopyEnabled = initialDescriptionFreeCopyEnabled
+            // 标题开关只在启动时读取一次（重启宿主生效），不参与上面的权威镜像同步和 NPatch 热应用。
+            runtimeTitleFreeCopyEnabled = hookConfig.getBoolean(FeaturePreferences.FREE_COPY_TITLE_ENABLED, false)
 
             // 自由复制配置同步必须先于可选功能注册建立：即使后续某个广告/状态上报
             // 初始化异常，也不能让评论与简介自由复制永远失去 attach 后的权威配置同步。
@@ -4316,27 +4479,14 @@ class HookEntry : XposedModule() {
                     // 不存在/未声明时回退全局 TextView.setText（未知版本兼容）。
                     val descTextHook = object : ModernMethodHook() {
                         override fun afterHookedMethod(param: ModernHookParam) {
-                            if (!runtimeDescriptionFreeCopyEnabled) return
-                            if (descViewId == View.NO_ID) {
-                                val v0 = param.thisObject as? View ?: return
-                                resolveDescViewId(v0.context)
-                                if (descViewId == View.NO_ID) return
-                            }
+                            if (!descLikeFreeCopyEnabled) return
                             val v = param.thisObject as? View ?: return
-                            if (v.id != descViewId) return
-                            descCachedViewRef = java.lang.ref.WeakReference(v)
-                            v.post {
-                                HostThreadGuard.run("free_copy.desc_apply") {
-                                    applyFreeCopyListener(v, null, false)
-                                }
-                            }
+                            onDetailTextSet(v)
                         }
                     }
                     var narrowed = false
-                    for (cn in listOf(
-                        "tv.danmaku.bili.videopage.common.widget.view.ExpandableTextView",
-                        "com.mall.videodetail.vd.videopage.common.widget.view.ExpandableTextView"
-                        )) {
+                    // 类名清单与标题判据共用 TitleFreeCopyPolicy.WIDGET_CLASS_NAMES（同样两个类）。
+                    for (cn in TitleFreeCopyPolicy.WIDGET_CLASS_NAMES) {
                         runCatching {
                             val owner = KavaMemberLookup.classOrNull(biliClassLoader, cn)
                                 ?: return@runCatching
@@ -4363,20 +4513,9 @@ class HookEntry : XposedModule() {
                             classOf<TextView.BufferType>()
                         ) {
                             after {
-                                if (!runtimeDescriptionFreeCopyEnabled) return@after
-                                if (descViewId == View.NO_ID) {
-                                    val v0 = instance as? View ?: return@after
-                                    resolveDescViewId(v0.context)
-                                    if (descViewId == View.NO_ID) return@after
-                                }
+                                if (!descLikeFreeCopyEnabled) return@after
                                 val v = instance as? View ?: return@after
-                                if (v.id != descViewId) return@after
-                                descCachedViewRef = java.lang.ref.WeakReference(v)
-                                v.post {
-                                    HostThreadGuard.run("free_copy.desc_apply") {
-                                        applyFreeCopyListener(v, null, false)
-                                    }
-                                }
+                                onDetailTextSet(v)
                             }
                         }
                     }
@@ -4390,13 +4529,19 @@ class HookEntry : XposedModule() {
                         classOf<View.OnLongClickListener>()
                     ) {
                             after {
-                                if (!runtimeDescriptionFreeCopyEnabled &&
+                                if (!descLikeFreeCopyEnabled &&
                                     !runtimeCommentFreeCopyEnabled
                                 ) return@after
                                 // 简介与评论两条夺回链路彼此独立：简介 id 解析失败不能让评论
                                 // 分支提前返回（旧逻辑会使部分版本整个评论兜底失效）。
                                 if (descStealInProgress) return@after
                                 val v = instance as? View ?: return@after
+                                // 标题夺回：宿主若给已登记的标题重设长按监听，立即换回共享监听器。
+                                // 只写 ListenerInfo 字段、不会再进入本 hook，没有递归风险。
+                                if (runtimeTitleFreeCopyEnabled && isTitleView(v)) {
+                                    applyTitleFreeCopyListener(v)
+                                    return@after
+                                }
                                 if (descViewId == View.NO_ID) resolveDescViewId(v.context)
                                 if (runtimeDescriptionFreeCopyEnabled &&
                                     descViewId != View.NO_ID && v.id == descViewId
@@ -4485,13 +4630,13 @@ class HookEntry : XposedModule() {
                             classOf<android.view.MotionEvent>()
                         ) {
                                 before {
-                                    if (!runtimeDescriptionFreeCopyEnabled &&
+                                    if (!descLikeFreeCopyEnabled &&
                                         !runtimeCommentFreeCopyEnabled
                                     ) return@before
                                     val v = instance as? View ?: return@before
                                     val ev = argOrNull(0) as? android.view.MotionEvent ?: return@before
                                     val action = ev.actionMasked
-                                    if (runtimeDescriptionFreeCopyEnabled) observeDescTouch(ev)
+                                    if (descLikeFreeCopyEnabled) observeDescTouch(ev)
                                     // more_button 属于宿主独立点击控件，不属于评论正文自由复制范围。
                                     // 父 View 的 dispatch 会先建立评论会话；按钮本身到达 beforeHook
                                     // 时撤销它，并让同一 downTime 的全部后续节点/UP 直接交还宿主。
@@ -4509,9 +4654,13 @@ class HookEntry : XposedModule() {
                                         }
                                         return@before
                                     }
-                                    if (!runtimeDescriptionFreeCopyEnabled ||
-                                        descViewId == View.NO_ID || v.id != descViewId
-                                    ) {
+                                    // 简介和标题共用同一个触摸会话（同一时刻只有一个手势）：命中任一个已启用
+                                    // 的目标才进入下面的会话分支；其余 View 走评论/清理分支。
+                                    val isDescLikeTarget =
+                                        (runtimeDescriptionFreeCopyEnabled &&
+                                            descViewId != View.NO_ID && v.id == descViewId) ||
+                                            (runtimeTitleFreeCopyEnabled && isTitleView(v))
+                                    if (!isDescLikeTarget) {
                                         if (action == android.view.MotionEvent.ACTION_DOWN) {
                                             // 新手势落在非简介 View 时终止旧简介会话。desc 自身的
                                             // dispatch 之前也会经过祖先 View，此清理不会影响随后
@@ -4816,7 +4965,7 @@ class HookEntry : XposedModule() {
                                             if ((runtimeCommentFreeCopyEnabled &&
                                                     (commentTouchedView != null ||
                                                         (commentLongPressHandled && isOfficialSuppressionActive()))) ||
-                                                (runtimeDescriptionFreeCopyEnabled &&
+                                                (descLikeFreeCopyEnabled &&
                                                     (descTouchedView != null ||
                                                         (descLongPressHandled && isOfficialSuppressionActive())))
                                             ) {
@@ -4963,15 +5112,24 @@ class HookEntry : XposedModule() {
                         else FeatureInstallResult.Skipped("registration-failed"), null
                     ))
                 }
+                // 标题与简介共用同一组 setText/触摸/长按基础 hook；标题 id 在首次 setText 时才能按名解析，
+                // 所以安装回执只证明共用 hook 已就位，是否真正命中由运行期 OBSERVED 证明。
+                if (runtimeTitleFreeCopyEnabled) {
+                    HostRuntimeDiagnosticsBridge.recordInstallation(FeatureInstallRecord(
+                        "free_copy_title_enabled",
+                        if (common) FeatureInstallResult.Installed(1)
+                        else FeatureInstallResult.Skipped("registration-failed"), null
+                    ))
+                }
             }
             freeCopyHookRetryOnAdapt.set {
                 if (runtimeCommentFreeCopyEnabled) StartupTrace.measure("legacy.comment") { installCommentFreeCopyHooks() }
-                if (runtimeCommentFreeCopyEnabled || runtimeDescriptionFreeCopyEnabled) {
+                if (runtimeCommentFreeCopyEnabled || descLikeFreeCopyEnabled) {
                     StartupTrace.measure("legacy.description") { installDescriptionFreeCopyHooks() }
                 }
                 publishFreeCopyCapabilities()
             }
-            if (runtimeCommentFreeCopyEnabled || runtimeDescriptionFreeCopyEnabled) {
+            if (runtimeCommentFreeCopyEnabled || descLikeFreeCopyEnabled) {
                 StartupTrace.measure("legacy.description") { installDescriptionFreeCopyHooks() }
             }
             if (processName == TARGET_PACKAGE) {
@@ -4979,11 +5137,11 @@ class HookEntry : XposedModule() {
                     (if (commentFreeCopyHooksInstalled.get()) 1 else 0) +
                         (if (descriptionFreeCopyHooksInstalled.get()) 1 else 0)
                 val result = when {
-                    !runtimeCommentFreeCopyEnabled && !runtimeDescriptionFreeCopyEnabled ->
+                    !runtimeCommentFreeCopyEnabled && !descLikeFreeCopyEnabled ->
                         FeatureInstallResult.Skipped("disabled")
                     installedCount > 0 -> FeatureInstallResult.Installed(installedCount,
                         complete = (!runtimeCommentFreeCopyEnabled || commentFamilies.isComplete()) &&
-                            (!runtimeDescriptionFreeCopyEnabled || descriptionFreeCopyHooksInstalled.get()))
+                            (!descLikeFreeCopyEnabled || descriptionFreeCopyHooksInstalled.get()))
                     else -> FeatureInstallResult.Skipped("registration-failed")
                 }
                 HostRuntimeDiagnosticsBridge.recordInstallation(
