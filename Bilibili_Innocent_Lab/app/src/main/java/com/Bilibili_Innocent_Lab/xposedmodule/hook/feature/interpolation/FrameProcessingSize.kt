@@ -37,19 +37,24 @@ internal object FrameProcessingSize {
         val short = minOf(sourceWidth, sourceHeight).toDouble()
         var scale = min(1.0, sqrt(maxPixels.toDouble() / (long * short)))
         if (displayLong > 0 && displayShort > 0) scale = min(scale, min(displayLong / long, displayShort / short))
-        var width = even(sourceWidth * scale)
-        var height = even(sourceHeight * scale)
+        val widthLimit = if (displayLong > 0 && displayShort > 0)
+            min(sourceWidth, if (sourceWidth >= sourceHeight) displayLong else displayShort) else sourceWidth
+        val heightLimit = if (displayLong > 0 && displayShort > 0)
+            min(sourceHeight, if (sourceWidth >= sourceHeight) displayShort else displayLong) else sourceHeight
+        var width = even(sourceWidth * scale, widthLimit)
+        var height = even(sourceHeight * scale, heightLimit)
         // 取偶数可能向上取整超出预算：按比例逐步收缩直到满足。
         while (width.toLong() * height > maxPixels && width > 2 && height > 2) {
             scale *= 0.99
-            width = even(sourceWidth * scale)
-            height = even(sourceHeight * scale)
+            width = even(sourceWidth * scale, widthLimit)
+            height = even(sourceHeight * scale, heightLimit)
         }
         if (width < MIN_DIMENSION || height < MIN_DIMENSION) return null
         return Size(width, height)
     }
 
-    private fun even(value: Double): Int = (Math.round(value / 2.0) * 2).toInt().coerceAtLeast(2)
+    private fun even(value: Double, limit: Int): Int =
+        (Math.round(value / 2.0) * 2).coerceAtLeast(2L).coerceAtMost((limit.toLong() / 2) * 2).toInt()
 
     private const val MIN_DIMENSION = 64
 }

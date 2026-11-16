@@ -55,4 +55,36 @@ class FrameProcessingSizeTest {
             assertEquals(w.toDouble() / h, size.width.toDouble() / size.height, 0.01)
         }
     }
+
+    @Test fun `odd source dimensions never round up beyond the source`() {
+        assertEquals(Size(64, 64), FrameProcessingSize.fit(65, 65, Long.MAX_VALUE, 0, 0))
+        assertEquals(Size(1918, 1080), FrameProcessingSize.fit(1919, 1081, Long.MAX_VALUE, 0, 0))
+        val large = FrameProcessingSize.fit(Int.MAX_VALUE, Int.MAX_VALUE, Long.MAX_VALUE, 0, 0)!!
+        assertEquals(Int.MAX_VALUE - 1, large.width)
+        assertEquals(Int.MAX_VALUE - 1, large.height)
+    }
+
+    @Test fun `rounding never exceeds odd display edges in either orientation`() {
+        val landscape = FrameProcessingSize.fit(1920, 1080, Long.MAX_VALUE, 1441, 811)!!
+        assertTrue("$landscape", landscape.width <= 1441 && landscape.height <= 811)
+        val portrait = FrameProcessingSize.fit(1080, 1920, Long.MAX_VALUE, 1441, 811)!!
+        assertTrue("$portrait", portrait.width <= 811 && portrait.height <= 1441)
+    }
+
+    @Test fun `valid results stay within source display and pixel bounds`() {
+        val random = java.util.Random(0x6d656775L)
+        repeat(1000) {
+            val w = 64 + random.nextInt(4096)
+            val h = 64 + random.nextInt(4096)
+            val long = 64 + random.nextInt(4096)
+            val short = 64 + random.nextInt(long - 63)
+            val budget = 4096L + random.nextInt(8_000_000)
+            val result = FrameProcessingSize.fit(w, h, budget, long, short) ?: return@repeat
+            val widthLimit = if (w >= h) long else short
+            val heightLimit = if (w >= h) short else long
+            assertTrue("$w x $h -> $result", result.width in 64..minOf(w, widthLimit))
+            assertTrue("$w x $h -> $result", result.height in 64..minOf(h, heightLimit))
+            assertTrue("$result", result.width % 2 == 0 && result.height % 2 == 0 && result.pixels <= budget)
+        }
+    }
 }
