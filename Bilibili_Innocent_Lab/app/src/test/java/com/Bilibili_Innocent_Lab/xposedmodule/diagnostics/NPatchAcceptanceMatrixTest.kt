@@ -44,10 +44,15 @@ class NPatchAcceptanceMatrixTest {
             // catalogs is maintained locally, while its complete template is generated above.
             "# settings=76; capabilities=38" -> {
                 assertTrue("The archived v76 record only applies to newer catalogs", SettingsCatalog.CATALOG_VERSION > 76)
-                assertEquals("# settings=${SettingsCatalog.CATALOG_VERSION}; capabilities=38", preamble)
+                assertTrue("The archived record was taken at diagnostics catalog 38", catalog.VERSION >= 38)
                 val archivedIds = SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 76 }.map { it.id }.toSet()
+                // Capabilities introduced after the archive (diagnostics catalog > 38) are covered by the locally
+                // maintained matrix, exactly like the settings above; bumping the diagnostics catalog must not
+                // invalidate the public record.
+                val archivedCapabilities = catalog.definitions.filter { it.introducedCatalogVersion <= 38 }.map { it.id }.toSet()
                 metadata.mapNotNull { row ->
                     if (row[0] == "setting") row.takeIf { it[1] in archivedIds }
+                    else if (row[1] !in archivedCapabilities) null
                     else row.toMutableList().apply {
                         this[3] = this[3].split(',').filter { it in archivedIds }.joinToString(",")
                     }
