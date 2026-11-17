@@ -544,7 +544,7 @@
     <string name="free_copy_desc_enable">长按简介以自由复制文本</string>
     <string name="free_copy_desc_tip">开启后视频详情页简介支持长按自由复制</string>
     <string name="free_copy_video_title_enable">长按标题以自由复制文本</string>
-    <string name="free_copy_video_title_tip">开启后视频详情页标题支持长按自由复制。重启哔哩哔哩后生效。</string>
+    <string name="free_copy_video_title_tip">开启后视频详情页标题支持长按自由复制</string>
     <string name="free_copy_title">自由复制</string>
     <string name="free_copy_close">关闭自由复制</string>
     <string name="free_copy_hint">长按下方文字自由选择片段复制</string>
@@ -727,6 +727,7 @@
     <string name="settings_backup_preview_keep_count">保持当前：%1$d 项</string>
     <string name="settings_backup_preview_attention_count">需要注意：%1$d 项</string>
     <string name="settings_backup_group_restore">将恢复</string>
+    <string name="settings_backup_group_count">%1$d 项</string>
     <string name="settings_backup_group_keep">保持当前</string>
     <string name="settings_backup_group_attention">需要注意</string>
     <string name="settings_backup_status_exact">可直接兼容</string>

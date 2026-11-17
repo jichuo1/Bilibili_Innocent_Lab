@@ -22,6 +22,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.PathInterpolator
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Button
 import android.widget.ProgressBar
@@ -105,6 +106,9 @@ class SettingsBackupActivity : SkinnedActivity(),
     private var allowLaunchOriginForExit = true
     private lateinit var motionController: ContainerMorphController
     private var pageStretchViewport: View? = null
+
+    /** 确认页条目分组的手风琴驱动器；随页面重绘/销毁统一撤销，见 [releaseEntrySections]。 */
+    private val sectionExpansionControllers = HashMap<View, SectionExpansionController>()
 
     private val createDocumentLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -205,6 +209,7 @@ class SettingsBackupActivity : SkinnedActivity(),
     }
 
     override fun onDestroy() {
+        releaseEntrySections()
         finishPageStretch()
         pageStretchViewport = null
         if (::motionController.isInitialized) motionController.onDestroy()
@@ -676,6 +681,11 @@ class SettingsBackupActivity : SkinnedActivity(),
         }
     }
 
+    /**
+     * 条目分组手风琴：条目多时整组默认收起，确认/取消按钮不必翻过长列表就能露出。
+     * 结构与设置页折叠分类一致（header + 箭头 + content），动画复用引擎的
+     * [SectionExpansionController]；各组独立切换，互不联动。
+     */
     private fun addEntryGroup(
         content: LinearLayout,
         titleRes: Int,
@@ -684,12 +694,69 @@ class SettingsBackupActivity : SkinnedActivity(),
     ) {
         if (entries.isEmpty()) return
         content.addView(verticalSpace(12))
-        content.addView(card().apply {
-            addView(titleText(getString(titleRes)))
-            entries.forEachIndexed { index, entry ->
-                addView(entryView(entry, showChanges).withTopMargin(if (index == 0) 10 else 7))
+        val title = getString(titleRes)
+        lateinit var header: LinearLayout
+        lateinit var chevron: ImageView
+        lateinit var body: LinearLayout
+        val card = card().apply {
+            setPadding(0, 0, 0, 0)
+            header = LinearLayout(this@SettingsBackupActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = dp(48)
+                setPadding(dp(16), dp(11), dp(16), dp(11))
+                foreground = ripple(Color.TRANSPARENT, 15f)
+                isClickable = true
+                isFocusable = true
+                contentDescription = title
             }
-        })
+            header.addView(titleText(title), LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+            ))
+            header.addView(bodyText(getString(
+                R.string.settings_backup_group_count, entries.size
+            )).apply { alpha = 0.68f })
+            chevron = ImageView(this@SettingsBackupActivity).apply {
+                setImageResource(R.drawable.ic_chevron_down)
+                imageTintList = ColorStateList.valueOf(getColor(R.color.colorTextGray))
+                alpha = 0.82f
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            header.addView(chevron, LinearLayout.LayoutParams(dp(18), dp(18)).apply {
+                marginStart = dp(8)
+            })
+            addView(header)
+            body = LinearLayout(this@SettingsBackupActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = View.GONE
+                setPadding(dp(16), 0, dp(16), dp(16))
+            }
+            entries.forEachIndexed { index, entry ->
+                body.addView(entryView(entry, showChanges).withTopMargin(if (index == 0) 0 else 7))
+            }
+            addView(body)
+        }
+        val controller = SectionExpansionController(
+            card = card,
+            content = body,
+            chevron = chevron,
+            density = resources.displayMetrics.density,
+            cornerRadiusDp = 15f,
+            notifyPositionChanged = ::notifyPreparedSkinPositionChanged
+        )
+        sectionExpansionControllers[body] = controller
+        header.setOnClickListener {
+            val expanded = !controller.expanded
+            header.isActivated = expanded
+            controller.setExpanded(expanded)
+        }
+        content.addView(card)
+    }
+
+    /** 页面重绘/销毁时撤销旧分组的手风琴驱动，避免残留补偿挂在被替换的视图树上。 */
+    private fun releaseEntrySections() {
+        sectionExpansionControllers.values.forEach { it.cancel() }
+        sectionExpansionControllers.clear()
     }
 
     private fun entryView(entry: ImportPlanEntry, showChanges: Boolean): View {
@@ -780,6 +847,7 @@ class SettingsBackupActivity : SkinnedActivity(),
 
     private fun setScaffold(title: String, populate: (LinearLayout) -> Unit) {
         if (motionController.isClosingOrFinished || isFinishing || isDestroyed) return
+        releaseEntrySections()
         finishPageStretch()
         if (!motionController.isExpanded) motionController.showExpanded()
         val root = LinearLayout(this).apply {
