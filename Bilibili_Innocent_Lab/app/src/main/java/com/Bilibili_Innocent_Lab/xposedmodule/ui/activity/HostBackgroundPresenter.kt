@@ -27,6 +27,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgro
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundDrawable
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundImages
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundImportFailure
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import io.github.jichuo1.meguviz.android.extensions.textColor
 
@@ -246,8 +247,16 @@ internal class HostBackgroundEditor(private val activity: MainActivity, private 
                     importedAsset = asset
                     draft = draft.copy(preset = HostBackgroundPreset.CUSTOM, asset = asset)
                     refresh(); renderImage()
-                }.onFailure {
-                    if (active && !closing) { Toast.makeText(activity, R.string.host_background_import_failed, Toast.LENGTH_LONG).show(); refresh() }
+                }.onFailure { failure ->
+                    if (active && !closing) {
+                        // 与模块皮肤同源的失败分类：超限/损坏给可行动的具体原因。
+                        val message = when (failure.message) {
+                            LiquidBackgroundImportFailure.DIMENSIONS_TOO_LARGE.name -> R.string.liquid_background_dimensions_too_large
+                            LiquidBackgroundImportFailure.UNSUPPORTED_IMAGE.name -> R.string.liquid_background_unsupported
+                            else -> R.string.host_background_import_failed
+                        }
+                        Toast.makeText(activity, message, Toast.LENGTH_LONG).show(); refresh()
+                    }
                 }
             }
         }

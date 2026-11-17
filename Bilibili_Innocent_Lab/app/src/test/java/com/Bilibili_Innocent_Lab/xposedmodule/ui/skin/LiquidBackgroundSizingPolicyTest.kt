@@ -77,6 +77,19 @@ class LiquidBackgroundSizingPolicyTest {
     @Test
     fun `declared image bomb is rejected before decode`() {
         assertTrue(!LiquidBackgroundSizingPolicy.isSupportedDeclaredSize(16_384, 16_384))
-        assertTrue(!LiquidBackgroundSizingPolicy.isSupportedDeclaredSize(20_000, 100))
+        assertTrue(!LiquidBackgroundSizingPolicy.isSupportedDeclaredSize(40_000, 100))
+    }
+
+    @Test
+    fun `panorama and high resolution photos stay within the widened declared limits`() {
+        // 长边全景与高像素方图现在可导入，规范化后仍落在资产边界内。
+        assertTrue(LiquidBackgroundSizingPolicy.isSupportedDeclaredSize(20_000, 100))
+        assertTrue(LiquidBackgroundSizingPolicy.isSupportedDeclaredSize(8000, 8000))
+        val panorama = LiquidBackgroundSizingPolicy.resolveNormalizedSize(20_000, 100)
+        assertEquals(LiquidBackgroundSizingPolicy.MAX_EDGE, panorama.width)
+        assertTrue(panorama.height >= 1)
+        val square = LiquidBackgroundSizingPolicy.resolveNormalizedSize(8000, 8000)
+        assertTrue(square.width.toLong() * square.height <=
+            LiquidBackgroundSizingPolicy.MAX_NORMALIZED_PIXELS)
     }
 }

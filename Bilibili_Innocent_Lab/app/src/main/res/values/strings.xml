@@ -613,7 +613,7 @@
     <string name="liquid_background_access_denied">Could not read the selected image: access was revoked or denied. Please pick it again.</string>
     <string name="liquid_background_picker_unavailable">No usable image picker on this device.</string>
     <string name="liquid_background_gallery_permission_denied">Image access was not granted, so the file picker is used instead.</string>
-    <string name="liquid_background_file_too_large">The selected file is too large. Choose an image smaller than 32 MiB.</string>
+    <string name="liquid_background_file_too_large">The selected file is too large. Choose an image smaller than 64 MiB.</string>
     <string name="liquid_background_unsupported">The selected file is not a supported static image or is damaged.</string>
     <string name="liquid_background_dimensions_too_large">The image dimensions are too large to process safely.</string>
     <string name="liquid_background_encode_failed">The image could not be converted into a safe internal background.</string>

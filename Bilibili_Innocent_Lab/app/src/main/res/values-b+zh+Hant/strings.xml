@@ -613,7 +613,7 @@
     <string name="liquid_background_access_denied">無法讀取所選圖片：存取授權已失效或被拒絕，請重新選擇。</string>
     <string name="liquid_background_picker_unavailable">裝置上沒有可用的圖片選擇器。</string>
     <string name="liquid_background_gallery_permission_denied">未授予讀取圖片權限，已改用檔案選擇器。</string>
-    <string name="liquid_background_file_too_large">所選檔案過大，請選擇小於 32 MiB 的圖片。</string>
+    <string name="liquid_background_file_too_large">所選檔案過大，請選擇小於 64 MiB 的圖片。</string>
     <string name="liquid_background_unsupported">所選檔案不是支援的靜態圖片，或圖片已經損壞。</string>
     <string name="liquid_background_dimensions_too_large">圖片尺寸過大，無法安全處理。</string>
     <string name="liquid_background_encode_failed">無法將圖片轉換為安全的內部背景格式。</string>

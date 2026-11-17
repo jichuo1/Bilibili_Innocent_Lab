@@ -21,7 +21,7 @@
     <string name="host_background_preview_card">Video card preview</string>
     <string name="host_background_night_theme_tip">Starry Sky, Nebula, and Meteor Shower automatically use Bilibili’s dark theme. Other backgrounds restore your theme preference after restarting Bilibili.</string>
     <string name="host_background_missing">Image unavailable. Choose an image; Bilibili will use Aurora meanwhile.</string>
-    <string name="host_background_import_failed">Could not import the image. Choose a supported image under 32 MB.</string>
+    <string name="host_background_import_failed">Could not import the image. Choose a supported image under 64 MB.</string>
     <string name="host_background_saved">Background saved. Restart Bilibili to apply.</string>
     <string name="host_background_save_failed">Could not save the background. Your previous settings are kept.</string>
 </resources>

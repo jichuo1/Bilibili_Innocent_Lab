@@ -166,14 +166,15 @@ internal data class LiquidCenterCropTransform(
 
 /** 导入和运行时共享的纯尺寸策略；源图再大也不会突破规范化资产边界。 */
 internal object LiquidBackgroundSizingPolicy {
-    // 保留 12MP 照片中心裁剪后足够覆盖手机屏幕的细节；旧资产配置仍兼容。
+    // 保留高像素照片中心裁剪后足够覆盖手机屏幕的细节；旧资产配置仍兼容。
     const val MAX_EDGE = 4096
-    const val MAX_NORMALIZED_PIXELS = 12_000_000L
-    const val MAX_INPUT_BYTES = 32L * 1024L * 1024L
-    // 无损编码的最坏情况约为 12MP × 4 字节，另留编码开销。
-    const val MAX_ASSET_BYTES = 64L * 1024L * 1024L
-    const val MAX_DECLARED_EDGE = 16_384
-    const val MAX_DECLARED_PIXELS = 64L * 1024L * 1024L
+    const val MAX_NORMALIZED_PIXELS = 16_000_000L
+    const val MAX_INPUT_BYTES = 64L * 1024L * 1024L
+    // 无损编码的最坏情况约为 16MP × 4 字节，另留编码开销。
+    const val MAX_ASSET_BYTES = 96L * 1024L * 1024L
+    // 全景/高像素照片可以更长；真正兜底的是像素总量与规范化后的有界解码。
+    const val MAX_DECLARED_EDGE = 32_768
+    const val MAX_DECLARED_PIXELS = 128L * 1024L * 1024L
 
     fun resolveNormalizedSize(width: Int, height: Int): LiquidNormalizedImageSize {
         require(isSupportedDeclaredSize(width, height)) { "Image dimensions are not supported" }

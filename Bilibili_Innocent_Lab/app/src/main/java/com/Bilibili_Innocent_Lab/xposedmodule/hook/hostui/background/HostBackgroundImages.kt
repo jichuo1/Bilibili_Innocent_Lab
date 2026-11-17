@@ -9,9 +9,13 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.net.Uri
+import android.os.Build
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundImportFailure
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundSizingPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundStore
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidImageDecoderApi28
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.material.ModernBackdropBlur
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
@@ -46,7 +50,9 @@ internal object HostBackgroundImages {
                     }
                 }
             } ?: error("Unreadable image")
-            bitmap = LiquidBackgroundStore.normalizedBitmap(raw) ?: error("Unsupported image")
+            // 与模块皮肤同一导入解码入口；失败原因原样上抛，UI 据此区分超限/损坏文案。
+            val normalized = LiquidBackgroundStore.normalizeForImport(raw)
+            bitmap = normalized.bitmap ?: error(normalized.failure ?: LiquidBackgroundImportFailure.UNSUPPORTED_IMAGE)
             FileOutputStream(target).use {
                 check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
                 it.fd.sync()
@@ -79,25 +85,40 @@ internal object HostBackgroundImages {
             }
     }
 
+    /**
+     * 与模块皮肤同源的有界加载：边界校验用共享尺寸策略（导入产出多大就能读多大，
+     * 不再另设 2048 硬门禁），采样按显示需求算 2 的幂；API 28+ 复用同一个 ImageDecoder
+     * 入口（支持 HEIF/WebP 等 BitmapFactory 不认的资产编码），API 27 走 BitmapFactory
+     * 并共用 EXIF 纠正。仅后台线程调用（模块预览 worker 与宿主 host-background 线程）。
+     */
     fun load(context: Context, config: HostBackgroundConfig): Bitmap? {
         if (!HostBackgroundConfig.validAsset(config.asset)) return null
         return runCatching {
-            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri(config.asset))?.use { BitmapFactory.decodeStream(it, null, options) }
-            check(options.outWidth in 1..2048 && options.outHeight in 1..2048)
-            val sample = BitmapFactory.Options().apply {
-                inSampleSize = if (maxOf(options.outWidth, options.outHeight) > 960) 2 else 1
-                inPreferredConfig = Bitmap.Config.ARGB_8888
+            val file = file(context, config.asset)
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, bounds)
+            if (!LiquidBackgroundSizingPolicy.isSupportedDeclaredSize(bounds.outWidth, bounds.outHeight)) {
+                return@runCatching null
             }
-            val source = context.contentResolver.openInputStream(uri(config.asset))?.use { BitmapFactory.decodeStream(it, null, sample) }
-                ?: return@runCatching null
+            val source = if (Build.VERSION.SDK_INT >= 28) {
+                LiquidImageDecoderApi28.decode(file, PREVIEW_MAX_EDGE)
+            } else {
+                val options = BitmapFactory.Options().apply {
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                    inSampleSize = LiquidBackgroundSizingPolicy.decodeSampleSize(
+                        bounds.outWidth, bounds.outHeight, PREVIEW_MAX_EDGE, PREVIEW_MAX_EDGE
+                    )
+                }
+                BitmapFactory.decodeFile(file.absolutePath, options)
+                    ?.let { LiquidBackgroundStore.applyExifOrientation(it, file) }
+            } ?: return@runCatching null
             try { process(source, config) } finally { source.recycle() }
         }.getOrNull()
     }
 
     /** 有界位图上的三遍 box blur，API 27 也支持，始终在后台执行。 */
     internal fun process(source: Bitmap, config: HostBackgroundConfig): Bitmap {
-        val scale = minOf(1f, 960f / maxOf(source.width, source.height))
+        val scale = minOf(1f, PREVIEW_MAX_EDGE.toFloat() / maxOf(source.width, source.height))
         val width = (source.width * scale).roundToInt().coerceAtLeast(1)
         val height = (source.height * scale).roundToInt().coerceAtLeast(1)
         val target = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
@@ -105,18 +126,40 @@ internal object HostBackgroundImages {
             colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(config.saturation / 100f) })
         }
         Canvas(target).drawBitmap(source, null, android.graphics.Rect(0, 0, width, height), paint)
+        // 模糊复用皮肤家族同源的 ModernBackdropBlur（同为三遍双向盒式、边缘复制，
+        // 输出逐位一致）；其半径上限 32，超出时先按比例降采样再模糊，观感等效。
         val radius = (config.blur * width / 360f / 2f).roundToInt()
         var processedPixels: IntArray? = null
         if (radius > 0) {
-            var pixels = IntArray(width * height)
-            var buffer = IntArray(pixels.size)
-            target.getPixels(pixels, 0, width, 0, 0, width, height)
-            repeat(3) {
-                box(pixels, buffer, width, height, radius)
-                box(buffer, pixels, height, width, radius)
+            if (radius <= MAX_BLUR_RADIUS) {
+                // 直接像素通路：不经过 Bitmap 预乘往返，透明像素的模糊语义与旧实现一致。
+                val pixels = IntArray(width * height)
+                target.getPixels(pixels, 0, width, 0, 0, width, height)
+                val result = ModernBackdropBlur.blurInto(pixels, IntArray(pixels.size), width, height, radius)
+                target.setPixels(result, 0, width, 0, 0, width, height)
+                processedPixels = result
+            } else {
+                val blurScale = MAX_BLUR_RADIUS.toFloat() / radius
+                val blurWidth = (width * blurScale).roundToInt().coerceAtLeast(1)
+                val blurHeight = (height * blurScale).roundToInt().coerceAtLeast(1)
+                val blurred = Bitmap.createBitmap(blurWidth, blurHeight, Bitmap.Config.ARGB_8888)
+                try {
+                    Canvas(blurred).drawBitmap(target, null, android.graphics.Rect(0, 0, blurWidth, blurHeight),
+                        Paint(Paint.FILTER_BITMAP_FLAG))
+                    val pixels = IntArray(blurWidth * blurHeight)
+                    blurred.getPixels(pixels, 0, blurWidth, 0, 0, blurWidth, blurHeight)
+                    val result = ModernBackdropBlur.blurInto(pixels, IntArray(pixels.size), blurWidth, blurHeight,
+                        (radius * blurScale).roundToInt().coerceIn(1, MAX_BLUR_RADIUS))
+                    blurred.setPixels(result, 0, blurWidth, 0, 0, blurWidth, blurHeight)
+                    Canvas(target).drawBitmap(blurred, null, android.graphics.Rect(0, 0, width, height),
+                        Paint(Paint.FILTER_BITMAP_FLAG))
+                } finally {
+                    blurred.recycle()
+                }
+                processedPixels = IntArray(width * height).also {
+                    target.getPixels(it, 0, width, 0, 0, width, height)
+                }
             }
-            target.setPixels(pixels, 0, width, 0, 0, width, height)
-            processedPixels = pixels
         }
         // PNG 可能带 alpha 通道但每个像素都不透明；只在后台确认一次，后续可省掉底色和重复遮罩。
         if (!source.hasAlpha()) target.setHasAlpha(false)
@@ -130,22 +173,9 @@ internal object HostBackgroundImages {
         return target
     }
 
-    /** 水平滑窗求平均并转置，边缘复制，避免暗边。 */
-    private fun box(input: IntArray, output: IntArray, width: Int, height: Int, radius: Int) {
-        val divisor = radius * 2 + 1
-        for (y in 0 until height) {
-            val row = y * width
-            var a = 0; var r = 0; var g = 0; var b = 0
-            fun add(pixel: Int, sign: Int) {
-                a += (pixel ushr 24) * sign; r += ((pixel ushr 16) and 255) * sign
-                g += ((pixel ushr 8) and 255) * sign; b += (pixel and 255) * sign
-            }
-            for (x in -radius..radius) add(input[row + x.coerceIn(0, width - 1)], 1)
-            for (x in 0 until width) {
-                output[x * height + y] = ((a / divisor) shl 24) or ((r / divisor) shl 16) or ((g / divisor) shl 8) or (b / divisor)
-                add(input[row + (x - radius).coerceIn(0, width - 1)], -1)
-                add(input[row + (x + radius + 1).coerceIn(0, width - 1)], 1)
-            }
-        }
-    }
+    /** 预览/壁纸工作副本的最长边；与旧实现的 960 口径一致。 */
+    private const val PREVIEW_MAX_EDGE = 960
+
+    /** ModernBackdropBlur 的半径上限。 */
+    private const val MAX_BLUR_RADIUS = 32
 }

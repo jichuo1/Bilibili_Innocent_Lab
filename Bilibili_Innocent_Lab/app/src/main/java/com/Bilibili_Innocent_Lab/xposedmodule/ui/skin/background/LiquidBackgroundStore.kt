@@ -221,7 +221,7 @@ internal object LiquidBackgroundStore {
         }
     }
 
-    private data class NormalizeResult(
+    internal data class NormalizeResult(
         val bitmap: Bitmap?,
         val failure: LiquidBackgroundImportFailure?
     )
@@ -267,8 +267,12 @@ internal object LiquidBackgroundStore {
         }.getOrElse { if (it is SecurityException) CopyResult.ACCESS_DENIED else CopyResult.FAILED }
     }
 
-    /** 宿主背景复用同样的尺寸上限与 EXIF 纠正，不复用模块皮肤的存储或配置。 */
-    internal fun normalizedBitmap(file: File): Bitmap? = decodeAndNormalize(file).bitmap
+    /**
+     * 宿主背景与模块皮肤共用的导入解码入口：同一套格式支持、尺寸上限与 EXIF 纠正，
+     * 失败原因也同源（宿主据此区分超限/损坏文案）。不复用模块皮肤的存储或配置。
+     * 仅后台线程调用；返回位图由调用方接管。
+     */
+    internal fun normalizeForImport(file: File): NormalizeResult = decodeAndNormalize(file)
 
     private fun decodeAndNormalize(file: File): NormalizeResult {
         val bounds = decodeBounds(file)
@@ -318,6 +322,35 @@ internal object LiquidBackgroundStore {
             )
         }
         val decoded = BitmapFactory.decodeFile(file.absolutePath, options) ?: return null
+        return applyExifOrientation(decoded, file)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun encodeNormalized(bitmap: Bitmap, destination: File): Boolean = runCatching {
+        FileOutputStream(destination).use { output ->
+            // 重编码去除外部元数据，但不再对不透明照片额外施加有损压缩。
+            val format = if (Build.VERSION.SDK_INT >= 30) Bitmap.CompressFormat.WEBP_LOSSLESS
+                else Bitmap.CompressFormat.PNG
+            if (!bitmap.compress(format, 100, output)) return@runCatching false
+            output.fd.sync()
+        }
+        true
+    }.getOrDefault(false)
+
+    private fun decodeBounds(file: File): Pair<Int, Int>? {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, options)
+        return if (options.outWidth > 0 && options.outHeight > 0) {
+            options.outWidth to options.outHeight
+        } else null
+    }
+
+    /**
+     * API 27 的 BitmapFactory 不应用 EXIF；宿主与模块共用的纠正入口。
+     * 成功时返回纠正后的位图（可能与入参同一对象），失败回收入参并返回 null。
+     */
+    @Suppress("DEPRECATION")
+    internal fun applyExifOrientation(decoded: Bitmap, file: File): Bitmap? {
         val orientation = runCatching {
             ExifInterface(file.absolutePath).getAttributeInt(
                 ExifInterface.TAG_ORIENTATION,
@@ -348,26 +381,6 @@ internal object LiquidBackgroundStore {
             decoded.recycle()
             null
         }
-    }
-
-    @Suppress("DEPRECATION")
-    private fun encodeNormalized(bitmap: Bitmap, destination: File): Boolean = runCatching {
-        FileOutputStream(destination).use { output ->
-            // 重编码去除外部元数据，但不再对不透明照片额外施加有损压缩。
-            val format = if (Build.VERSION.SDK_INT >= 30) Bitmap.CompressFormat.WEBP_LOSSLESS
-                else Bitmap.CompressFormat.PNG
-            if (!bitmap.compress(format, 100, output)) return@runCatching false
-            output.fd.sync()
-        }
-        true
-    }.getOrDefault(false)
-
-    private fun decodeBounds(file: File): Pair<Int, Int>? {
-        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.absolutePath, options)
-        return if (options.outWidth > 0 && options.outHeight > 0) {
-            options.outWidth to options.outHeight
-        } else null
     }
 
     private fun hash(file: File): String? = runCatching {

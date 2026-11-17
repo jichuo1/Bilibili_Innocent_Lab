@@ -21,7 +21,7 @@
     <string name="host_background_preview_card">视频卡片预览</string>
     <string name="host_background_night_theme_tip">星空、星云和流星自动使用哔哩哔哩深色主题；换回其他背景或关闭背景后，重启哔哩哔哩会恢复原主题。</string>
     <string name="host_background_missing">图片不可用，请重新选择；宿主暂用极光柔色。</string>
-    <string name="host_background_import_failed">图片导入失败，请选择 32 MB 以内的受支持图片。</string>
+    <string name="host_background_import_failed">图片导入失败，请选择 64 MB 以内的受支持图片。</string>
     <string name="host_background_saved">背景已保存，重启哔哩哔哩后生效。</string>
     <string name="host_background_save_failed">背景保存失败，原设置已保留。</string>
 </resources>

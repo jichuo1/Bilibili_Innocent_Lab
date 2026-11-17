@@ -21,7 +21,7 @@
     <string name="host_background_preview_card">影片卡片預覽</string>
     <string name="host_background_night_theme_tip">星空、星雲和流星自動使用嗶哩嗶哩深色主題；換回其他背景或關閉背景後，重新啟動嗶哩嗶哩會恢復原主題。</string>
     <string name="host_background_missing">圖片無法使用，請重新選擇；宿主暫用極光柔色。</string>
-    <string name="host_background_import_failed">圖片匯入失敗，請選擇 32 MB 以內的受支援圖片。</string>
+    <string name="host_background_import_failed">圖片匯入失敗，請選擇 64 MB 以內的受支援圖片。</string>
     <string name="host_background_saved">背景已儲存，重新啟動嗶哩嗶哩後生效。</string>
     <string name="host_background_save_failed">背景儲存失敗，原設定已保留。</string>
 </resources>
