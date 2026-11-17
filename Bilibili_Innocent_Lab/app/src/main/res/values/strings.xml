@@ -728,6 +728,7 @@
     <string name="settings_backup_preview_attention_count">Needs attention: %1$d</string>
     <string name="settings_backup_group_restore">Will restore</string>
     <string name="settings_backup_group_count">%1$d</string>
+    <string name="settings_backup_group_header_description">%1$s, %2$s</string>
     <string name="settings_backup_group_keep">Will keep current</string>
     <string name="settings_backup_group_attention">Needs attention</string>
     <string name="settings_backup_status_exact">Compatible</string>

@@ -728,6 +728,7 @@
     <string name="settings_backup_preview_attention_count">需要注意：%1$d 项</string>
     <string name="settings_backup_group_restore">将恢复</string>
     <string name="settings_backup_group_count">%1$d 项</string>
+    <string name="settings_backup_group_header_description">%1$s，%2$s</string>
     <string name="settings_backup_group_keep">保持当前</string>
     <string name="settings_backup_group_attention">需要注意</string>
     <string name="settings_backup_status_exact">可直接兼容</string>

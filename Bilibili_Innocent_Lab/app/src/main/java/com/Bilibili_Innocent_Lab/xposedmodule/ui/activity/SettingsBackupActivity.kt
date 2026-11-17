@@ -695,6 +695,7 @@ class SettingsBackupActivity : SkinnedActivity(),
         if (entries.isEmpty()) return
         content.addView(verticalSpace(12))
         val title = getString(titleRes)
+        val countLabel = getString(R.string.settings_backup_group_count, entries.size)
         lateinit var header: LinearLayout
         lateinit var chevron: ImageView
         lateinit var body: LinearLayout
@@ -708,14 +709,15 @@ class SettingsBackupActivity : SkinnedActivity(),
                 foreground = ripple(Color.TRANSPARENT, 15f)
                 isClickable = true
                 isFocusable = true
-                contentDescription = title
+                // 可点击容器会整体朗读描述，条目数也要带上，读屏不丢数量信息。
+                contentDescription = getString(
+                    R.string.settings_backup_group_header_description, title, countLabel
+                )
             }
             header.addView(titleText(title), LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
             ))
-            header.addView(bodyText(getString(
-                R.string.settings_backup_group_count, entries.size
-            )).apply { alpha = 0.68f })
+            header.addView(bodyText(countLabel).apply { alpha = 0.68f })
             chevron = ImageView(this@SettingsBackupActivity).apply {
                 setImageResource(R.drawable.ic_chevron_down)
                 imageTintList = ColorStateList.valueOf(getColor(R.color.colorTextGray))
