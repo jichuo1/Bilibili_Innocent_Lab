@@ -53,17 +53,17 @@ class TitleFreeCopyWiringContractTest {
         assertTrue(ids.indexOf("titleArrowId = arrow") < ids.indexOf("titleViewId = title"))
     }
 
-    @Test fun titleSharesTheDescriptionGestureAndBubbleChain() {
+    @Test fun titleSharesTheUnifiedGestureAndBubbleChain() {
         val listener = source().after("private val sharedFreeCopyListener =").before("private fun hapticFeedback(")
         assertTrue(listener.contains("val isTitle = !isDescOnly && isTitleView(view)"))
         assertTrue(listener.contains("val isDesc = isDescOnly || isTitle"))
         assertTrue(listener.contains("if (isTitle && !runtimeTitleFreeCopyEnabled) return@OnLongClickListener false"))
         assertTrue(listener.contains("FreeCopyContent(extractTitleText(view))"))
-        assertTrue(listener.contains("descCopyGesture.claim("))
+        assertTrue(listener.contains("freeCopyGesture.claim("))
         assertTrue(listener.contains("\"free_copy_title_enabled\""))
         val dispatch = source().after("// 简介触摸长按检测：").before("// 拦截官方「复制简介全文」实现")
         assertTrue(dispatch.contains("(runtimeTitleFreeCopyEnabled && isTitleView(v))"))
-        assertTrue(dispatch.contains("if (descLikeFreeCopyEnabled) observeDescTouch(ev)"))
+        assertTrue(dispatch.contains("observeFreeCopyTouch(ev)"))
         val steal = source().after("\"setOnLongClickListener\",").before("// 简介触摸长按检测：")
         assertTrue(steal.contains("if (runtimeTitleFreeCopyEnabled && isTitleView(v))"))
         assertTrue(steal.contains("applyTitleFreeCopyListener(v)"))

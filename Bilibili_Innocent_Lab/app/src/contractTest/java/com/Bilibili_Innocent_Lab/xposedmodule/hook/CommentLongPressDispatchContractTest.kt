@@ -8,7 +8,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 性能报告 P2-04：评论手势的空根快路与单次长按调度。不得恢复被撤回的全局 hook 自解除或版本硬门控方案。 */
+/** 性能报告 P2-04：评论手势的空根快路与单次长按调度。不得恢复被撤回的全局 hook 自解除或版本硬门控方案。
+ * 手势判定统一走 freeCopyGesture（与标题/简介共用）；评论特有的目标/根校验与 more_button 直通保留。 */
 class CommentLongPressDispatchContractTest {
     private val source = SourceContract.read("hook/HookEntry.kt")
 
@@ -32,29 +33,29 @@ class CommentLongPressDispatchContractTest {
 
     @Test fun retargetingNeverReschedulesTheSameSessionDirectly() {
         val retarget = source.after("private fun beginOrRetargetCommentTouch(").before("private fun activeCommentTouchTarget(")
-        assertTrue(retarget.contains("commentLongPressTimer.schedule(activeCommentTouchSessionId, delay, commentLongPressPoster(handler))"))
-        assertFalse("no per-level removeCallbacks/postDelayed of the comment runnable", retarget.contains("removeCallbacks("))
+        assertTrue(retarget.contains("freeCopyGesture.schedule(freeCopyGesture.sessionId, delay, freeCopyPoster(handler))"))
+        assertFalse("no per-level removeCallbacks/postDelayed of the long-press runnable", retarget.contains("removeCallbacks("))
         assertFalse(retarget.contains("postDelayed("))
         // 目标与根引用仍逐层更新：最深层触摸 View 才是气泡锚点。
         assertTrue(retarget.contains("commentTouchTargetRef = java.lang.ref.WeakReference(v)"))
         assertTrue(retarget.contains("commentTouchRootRef = java.lang.ref.WeakReference(root)"))
         // 到期时刻仍由会话起点固定。
-        assertTrue(retarget.contains("val dueAt = commentTouchObservedAtMs + 400L"))
+        assertTrue(retarget.contains("val dueAt = freeCopyGesture.observedAtMs + freeCopyGesture.thresholdMs"))
     }
 
-    @Test fun everyEndOfTheSessionCancelsThroughTheTimerAndFiringResetsIt() {
+    @Test fun everyEndOfTheSessionCancelsThroughTheDetectorAndFiringResetsIt() {
         val clear = source.after("private fun clearCommentTouchSession(").before("/** DOWN 在 dispatch 链上会依次经过祖先与子 View")
-        assertTrue(clear.contains("commentLongPressTimer.cancel("))
+        assertTrue(clear.contains("freeCopyGesture.cancelSchedule("))
         assertFalse(clear.contains("removeCallbacks(commentLongPressRunnable)"))
-        val runnable = source.after("private val commentLongPressRunnable: Runnable =").before("private val commentLongPressTimer")
-        assertTrue(runnable.indexOf("commentLongPressTimer.onFired()") in 0 until runnable.indexOf("val sessionId = activeCommentTouchSessionId"))
-        assertEquals("the comment runnable is only ever posted by the timer", 0,
-            Regex("""postDelayed\(commentLongPressRunnable""").findAll(source).count())
+        val runnable = source.after("private val freeCopyLongPressRunnable: Runnable =").before("private fun freeCopyPoster(")
+        assertTrue(runnable.indexOf("freeCopyGesture.onFired()") in 0 until runnable.indexOf("val sessionId = freeCopyGesture.sessionId"))
+        assertEquals("the long-press runnable is only ever posted by the detector scheduler", 0,
+            Regex("""postDelayed\(freeCopyLongPressRunnable""").findAll(source).count())
     }
 
-    @Test fun timerMarksTheSessionOnlyAfterTheMessageIsReallyQueued() {
-        val timer = SourceContract.read("hook/feature/CommentLongPressTimer.kt")
-        val schedule = timer.after("fun schedule(").before("/** 取消")
+    @Test fun detectorMarksTheSessionOnlyAfterTheMessageIsReallyQueued() {
+        val detector = SourceContract.read("hook/feature/FreeCopyGestureDetector.kt")
+        val schedule = detector.after("fun schedule(").before("/** 取消")
         assertTrue(schedule.indexOf("if (!poster.post(") in 0 until schedule.indexOf("scheduledSessionId = sessionId"))
     }
 }
