@@ -83,6 +83,8 @@ class AdaptPlanWiringContractTest {
         // 直接调用定位器必须经过执行器：quickLocate 里不得再有裸调用。
         for (locator in wiring.values.map { it.locator })
             assertEquals(locator, 1, Regex("""\b$locator\(""").findAll(quick).count())
+        // 同步路径的诊断同样必须带版本码（quickLocatePlanned 透传 hostVersionCode）。
+        assertTrue(quick.contains("commentTopologyOutcome?.failureDetail.orEmpty(), hostVersionCode"))
     }
 
     @Test fun `adapt applies the same plan and carries only covered families`() {
@@ -99,7 +101,8 @@ class AdaptPlanWiringContractTest {
         assertEquals(assist, calls.filter { it.third == null }.map { it.first }.toSet())
         assertTrue(adapt.contains("locators.locateOrCarry(family, prior, previousCoverage, found, block)"))
         assertTrue(adapt.contains("coverage = coverageOf(located, locators, plan, previous?.coverage)"))
-        assertTrue(adapt.contains("buildDiagnostics(loader, plan, previous, located,"))
+        // 诊断必须拿到本轮版本码：已验真 owner 的候选存在性按构建判定，漏传会把适配失败误记 NOT_APPLICABLE。
+        assertTrue(adapt.contains("buildDiagnostics(loader, plan, previous, located, commentTopologyOutcome.failureDetail, vc)"))
         assertTrue(adapt.contains("protocolFingerprint.toDiagnostic(plan)"))
         // 带 DEX 兜底的显式开关优先：计划比开关小时以多要为准。
         val ensure = adapter.after("internal fun ensureAdapted(").before("fun quickLocate(loader: ClassLoader)")
@@ -129,7 +132,13 @@ class AdaptPlanWiringContractTest {
         assertEquals(1, Regex("""AdaptPlanner\.build\(""").findAll(entry).count())
         assertTrue(install.contains("val adaptPlan = AdaptPlanner.build(hookConfig)"))
         assertTrue("先于任何定位", install.indexOf("val adaptPlan = ") < install.indexOf("val startupCache by lazy"))
-        assertEquals(2, Regex("""VersionAdapter\.quickLocate\(biliClassLoader, adaptPlan(?:, locateTimings, hostVersionCode)?\)""").findAll(entry).count())
+        // 两处同步定位都必须带版本码：9.18+ 的媒体 owner 只有按构建查 VERIFIED_MEDIA_OWNERS 才能命中，
+        // 漏传会静默退化成候选表，丢掉已验真实现并让诊断误分类。精确锁住两种形态，禁止传 null 绕过。
+        val quickCalls = Regex("""VersionAdapter\.quickLocate\(biliClassLoader, adaptPlan[^)]*\)""")
+            .findAll(entry).map { it.value }.toList()
+        assertEquals(2, quickCalls.size)
+        assertTrue(quickCalls.toString(), quickCalls.any { it.contains("adaptPlan, locateTimings, hostVersionCode)") })
+        assertTrue(quickCalls.toString(), quickCalls.any { it.contains("adaptPlan, hostVersionCode = startupCache.identity.versionCode)") })
         assertTrue(install.contains("val hostVersionCode = startupCache.identity.versionCode"))
         // 计时观察点只在 debug 构建创建，release 的同步路径不计时。
         assertTrue(entry.contains("if (com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG) LocateTimings() else null"))

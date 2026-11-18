@@ -4115,8 +4115,10 @@ class HookEntry : XposedModule() {
                 // （同步结构定位），避免「首次启动评论 hook 用失效签名」。
                 // 注：quickLocate 结果不持久化（AdaptResult 无真实 vc，写文件会被
                 // loadCached 拒绝）；attach 阶段 ensureAdapted 会重跑适配线程写正确缓存
+                // 版本码必须带上：9.18+ 的媒体 owner 只有按构建查 VERIFIED_MEDIA_OWNERS 才能命中，
+                // 漏传会退化成候选表，丢掉已验真实现并让诊断把适配失败误记成「无此结构」。
                 val adaptResult = hostAdaptResult
-                    ?: VersionAdapter.quickLocate(biliClassLoader, adaptPlan)
+                    ?: VersionAdapter.quickLocate(biliClassLoader, adaptPlan, hostVersionCode = startupCache.identity.versionCode)
                 // 性能：全局维护「列表滚动中」标志——快速滑动/惯性滚动期间暂缓评论绑定，
                 // 滑停（SCROLL_STATE_IDLE）后由 drainCommentBinds 统一批量绑定可见评论，
                 // 避免滚动中逐条全树绑定的卡顿（滚动状态回调本身低频，开销可忽略）。

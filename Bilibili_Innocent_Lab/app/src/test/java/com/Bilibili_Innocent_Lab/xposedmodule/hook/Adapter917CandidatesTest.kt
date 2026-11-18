@@ -1,6 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook
 
 import android.content.Context
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.AdaptState
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlan
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PointFamily
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -98,5 +101,52 @@ class Adapter917CandidatesTest {
         assertEquals(Network::class.java.name, VersionAdapter.locateBlockUpdate(crossLoader, 9200100)?.className)
         assertEquals(Quality::class.java.name,
             VersionAdapter.locateDefaultVideoQuality(crossLoader, hostVersionCode = 9200100)?.defaultQualityMethod?.className)
+    }
+
+    /**
+     * 9.20 走已验真分支：owner 只按登记名查一次，类缺失或签名不符都直接返回 null、不回候选表。
+     * 两种失败都必须记 MISSING，不能因为旧候选表里没有这些短名就记成「宿主无此结构」。
+     */
+    @Test fun `verified owner failure is reported missing not not applicable`() {
+        val plan = AdaptPlan(1L, setOf(PointFamily.BLOCK_UPDATE, PointFamily.PLAYER_QUALITY), emptySet())
+        val located = VersionAdapterTest().result().copy(blockUpdate = null, playerQuality = null)
+        // 类在但 ABI 漂移，和 owner 短名整体漂移（类都加载不到）都要算适配失败。
+        val drifted = listOf(
+            VerifiedOnlyLoader(mapOf("lr72" to WrongNetwork::class.java, "mg12" to WrongQuality::class.java)),
+            VerifiedOnlyLoader(emptyMap())
+        )
+        for (loader in drifted) {
+            val withVersion = VersionAdapter.buildDiagnostics(loader, plan, null, located, "", 9200100)
+                .associateBy { it.id }
+            assertEquals(AdaptState.MISSING, withVersion.getValue("update.block").state)
+            assertEquals(AdaptState.MISSING, withVersion.getValue("player.default_quality").state)
+
+            // 反证：不带版本码时看不到已验真 owner，旧候选表也没有这些短名——那正是被修复的误判。
+            val withoutVersion = VersionAdapter.buildDiagnostics(loader, plan, null, located, "")
+                .associateBy { it.id }
+            assertEquals(AdaptState.NOT_APPLICABLE, withoutVersion.getValue("update.block").state)
+            assertEquals(AdaptState.NOT_APPLICABLE, withoutVersion.getValue("player.default_quality").state)
+            assertNull(VersionAdapter.locateBlockUpdate(loader, 9200100))
+            assertNull(VersionAdapter.locateDefaultVideoQuality(loader, hostVersionCode = 9200100)?.defaultQualityMethod)
+        }
+    }
+}
+
+/** 只解析指定 owner、隐藏旧候选表夹具的宿主：模拟 9.20 上旧混淆短名已随 R8 消失。 */
+private class VerifiedOnlyLoader(private val owners: Map<String, Class<*>>) :
+    ClassLoader(Adapter917CandidatesTest::class.java.classLoader) {
+    override fun loadClass(name: String, resolve: Boolean): Class<*> {
+        owners[name]?.let { return it }
+        if (LEGACY_OWNER_PACKAGES.any(name::startsWith)) throw ClassNotFoundException(name)
+        return super.loadClass(name, resolve)
+    }
+
+    private companion object {
+        /** 测试源集里真实存在夹具的旧候选 owner 包；末项是画质候选表末尾的稳定包装层。 */
+        val LEGACY_OWNER_PACKAGES = listOf(
+            "Dr1.", "ar1.", "gr1.", "qq1.", "mq1.", "vd6.", "Ip1.", "rs1.",
+            "ut1.", "Rs1.", "Xs1.", "is1.", "es1.", "Ar1.", "Jq1.", "gh6.",
+            "com.bilibili.playerbizcommon.utils."
+        )
     }
 }

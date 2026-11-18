@@ -22,13 +22,18 @@ internal object PauseRequestCoverage {
     private val apiRequest = requestPrefix + "boolean" + requestSuffix + CONTINUATION_IMPL
     private val videoDetailRequest = requestPrefix + requestSuffix + CONTINUATION
 
+    /** 逐构建验真的请求入口 owner；未登记版本返回 null（covered 据此 fail-closed）。 */
+    internal fun apiOwnerName(hostVersionCode: Int?): String? = when (hostVersionCode) {
+        9180100, 9180200, 9180300 -> AD_API + "a"
+        // 9.20 三构建远端 dexq 验真：请求入口仍是 b#c(16 参)Object（430 指令），
+        // AdPausedPageApi 内部类、KViewMoss.playPause 与 KPlayPauseReply.getBar/getData 结构同 9.19。
+        9190200, 9190400, 9200100, 9200200, 9200300 -> AD_API + "b"
+        else -> null
+    }
+
     fun covered(loader: ClassLoader, hostVersionCode: Int?, families: Set<String>, kotlinInstalled: Boolean): Set<String> {
         if (!kotlinInstalled || families.none { it == "ad-api" || it == "theseus" }) return emptySet()
-        val apiOwner = when (hostVersionCode) {
-            9180100, 9180200, 9180300 -> AD_API + "a"
-            9190200, 9190400 -> AD_API + "b"
-            else -> return emptySet()
-        }
+        val apiOwner = apiOwnerName(hostVersionCode) ?: return emptySet()
         // The two request carriers enter the same API; its receive lambda calls the typed suspend
         // playPause, which delegates to the installed Kotlin callback before bar/ad UI dispatch.
         fun type(name: String) = Lookup.classOrNull(loader, name)

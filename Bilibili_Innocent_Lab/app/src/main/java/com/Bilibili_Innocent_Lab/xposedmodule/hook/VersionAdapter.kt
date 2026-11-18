@@ -3732,7 +3732,7 @@ object VersionAdapter {
         )
         return located.copy(
             diagnostics = buildDiagnostics(
-                loader, plan, null, located, commentTopologyOutcome?.failureDetail.orEmpty()
+                loader, plan, null, located, commentTopologyOutcome?.failureDetail.orEmpty(), hostVersionCode
             ) + protocolFingerprint.toDiagnostic(plan) + listOf(
                 AdaptDiagnostic(
                     id = DEX_ASSIST_BLOCK_UPDATE_ID,
@@ -4215,7 +4215,7 @@ object VersionAdapter {
             homeChrome = chrome,
             homeChromeSemantics = chromeSemantics
         )
-        val diagnostics = buildDiagnostics(loader, plan, previous, located, commentTopologyOutcome.failureDetail) +
+        val diagnostics = buildDiagnostics(loader, plan, previous, located, commentTopologyOutcome.failureDetail, vc) +
             protocolFingerprint.toDiagnostic(plan) + blockUpdateAssist.diagnostic +
             topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic + pageDiagnostics + chromeDiagnostics + semanticsDiagnostic
         return located.copy(
@@ -4451,13 +4451,21 @@ object VersionAdapter {
      * 每个逻辑 Hook 点的定位诊断。计划外（[plan] 没有要求）的家族不探测候选类，直接记为
      * 「未请求」：沿用 [previous] 里已有的诊断（此前真的尝试过），否则写 `NOT_APPLICABLE` + [PLAN_NOT_REQUESTED]。
      * 未请求不是缺失，也不为了凑齐诊断去重新探测关闭的功能。
+     *
+     * [hostVersionCode] 决定候选存在性是否把当前构建的已验真 owner（[VERIFIED_MEDIA_OWNERS]）算进去。
+     * 已验真分支（[locateBlockUpdate] / [locateDefaultVideoQuality]）只按 owner 名字查一次，
+     * 类缺失或签名不符都直接返回 null，不再回候选表；不并进来就会把这两种真实的适配失败
+     * 误记成 `NOT_APPLICABLE`（宿主没有该结构），掩盖问题。登记了 owner 即按「结构存在」处理，
+     * 因为验真证据来自该构建的真实 dex，而不是「现在按名字还能不能加载到」。
+     * 为 null 时维持只看候选表的旧口径。
      */
     internal fun buildDiagnostics(
         loader: ClassLoader,
         plan: AdaptPlan,
         previous: AdaptResult?,
         r: AdaptResult,
-        commentTopologyFailureDetail: String
+        commentTopologyFailureDetail: String,
+        hostVersionCode: Int? = null
     ): List<AdaptDiagnostic> {
         val low = r.commentLow
         val high = r.commentHigh
@@ -4499,6 +4507,9 @@ object VersionAdapter {
         } else {
             emptyMap()
         }
+        // 当前构建已验真的媒体 owner；候选存在性必须并进来，否则已验真分支失败会被记成「无此结构」。
+        val verifiedBlockUpdateOwner = hostVersionCode?.let { VERIFIED_MEDIA_OWNERS[it]?.first }
+        val verifiedQualityOwner = hostVersionCode?.let { VERIFIED_MEDIA_OWNERS[it]?.second }
 
         /** 计划内才求值状态与详情；计划外直接写未请求（或沿用此前真实尝试过的诊断）。 */
         fun item(family: PointFamily, id: String, state: () -> AdaptState, detail: () -> String): AdaptDiagnostic =
@@ -4521,7 +4532,10 @@ object VersionAdapter {
             mineCandidateExists && KavaMemberLookup.hasClass(loader, MINE_VIP_MANAGER_CLASS)
         }
         val blockUpdateCandidateExists by lazy {
-            BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            // 已验真 owner 按登记算存在：验真证据来自该构建真实 dex，类名漂移/签名不符都是适配失败，
+            // 不能因为「现在按名字加载不到」就退回「宿主无此结构」。
+            verifiedBlockUpdateOwner != null ||
+                BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val dynamicTabsCandidateExists by lazy {
             KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS) &&
@@ -4562,7 +4576,8 @@ object VersionAdapter {
             BOTTOM_TAB_HOST_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val playerQualityCandidateExists by lazy {
-            PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            verifiedQualityOwner != null ||
+                PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val teenagersModeCandidateExists by lazy {
             TEENAGERS_MODE_ACTIVITY_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
