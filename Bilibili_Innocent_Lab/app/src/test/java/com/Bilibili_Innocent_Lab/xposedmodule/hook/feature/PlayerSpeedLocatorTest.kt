@@ -168,4 +168,66 @@ class PlayerSpeedLocatorTest {
         assertEquals(listOf(false, false, true, false, false), adapter.c.map { it.b })
 
     }
+
+    // 长按倍速计算器夹具：模拟 R8 重打包 owner（静态 final (playable,Float)F）与 playable 接口。
+    interface CalcPlayable
+    object CalcOwnerI { @JvmStatic fun i(playable: CalcPlayable, pace: Float?): Float = 3f }
+    object CalcOwnerH { @JvmStatic fun h(playable: CalcPlayable, pace: Float?): Float = 3f }
+    object CalcOwnerE { @JvmStatic fun e(playable: CalcPlayable, pace: Float?): Float = 3f }
+    object CalcOwnerA { @JvmStatic fun a(playable: CalcPlayable, pace: Float?): Float = 3f }
+    class CalcOwnerNonStatic { fun i(playable: CalcPlayable, pace: Float?): Float = 3f }
+    class CalcPlayableClass // 非接口，playable 门禁应拒绝
+
+    private class CalcLoader(private val owner: Class<*>, private val playable: Class<*>) :
+        ClassLoader(PlayerSpeedLocatorTest::class.java.classLoader) {
+        override fun loadClass(name: String, resolve: Boolean): Class<*> = when (name) {
+            "tyg1", "h7h1", "jy0", "rv71", "UC0.a" -> owner
+            "mmq2", "apq2", "rpq2", "gcg2",
+            "com.bilibili.ship.theseus2.keel.player.m", "com.bilibili.ship.theseus2.keel.player.n" -> playable
+            else -> super.loadClass(name, resolve)
+        }
+    }
+
+    @Test fun `theseus2 calculator resolves per verified build and never leaks across builds`() {
+        // 远端 dexq 逐构建验真：9.20 三构建计算器 owner/方法名/playable 接口各异，start port 结构同 9.19。
+        val builds = listOf(
+            Triple(9200100, CalcOwnerI::class.java, "i"),
+            Triple(9200200, CalcOwnerH::class.java, "h"),
+            Triple(9200300, CalcOwnerE::class.java, "e"),
+        )
+        for ((version, owner, methodName) in builds) {
+            val loader = CalcLoader(owner, CalcPlayable::class.java)
+            val method = PlayerSpeedLocator.theseus2LongPressCalculator(loader, version)
+            assertNotNull("构建 $version 应解析出计算器", method)
+            assertEquals(methodName, method!!.name)
+            assertEquals(owner, method.declaringClass)
+            // 反向：同一 owner 喂给方法名不符的其它 9.20 构建必须 fail-closed，不跨构建泄漏。
+            for ((other, _, otherMethod) in builds) {
+                if (other == version || otherMethod == methodName) continue
+                assertNull("构建 $version 的 owner 不得满足构建 $other",
+                    PlayerSpeedLocator.theseus2LongPressCalculator(loader, other))
+            }
+        }
+        // 未登记构建保持关闭。
+        val loader = CalcLoader(CalcOwnerI::class.java, CalcPlayable::class.java)
+        assertNull(PlayerSpeedLocator.theseus2LongPressCalculator(loader, 9190500))
+        assertNull(PlayerSpeedLocator.theseus2LongPressCalculator(loader, 9200400))
+    }
+
+    @Test fun `theseus2 calculator refuses non-interface playable and non-static owner`() {
+        assertNull("playable 必须是接口", PlayerSpeedLocator.theseus2LongPressCalculator(
+            CalcLoader(CalcOwnerI::class.java, CalcPlayableClass::class.java), 9200100))
+        assertNull("计算器必须是静态方法", PlayerSpeedLocator.theseus2LongPressCalculator(
+            CalcLoader(CalcOwnerNonStatic::class.java, CalcPlayable::class.java), 9200100))
+    }
+
+    @Test fun `theseus2 calculator keeps legacy 918 and 919 builds resolving method a`() {
+        // 版本表 Pair→Triple 重构后，9.18/9.19 旧条目（方法名 a）行为须逐字不变。
+        for (version in listOf(9180100, 9180200, 9180300, 9190200, 9190400)) {
+            val method = PlayerSpeedLocator.theseus2LongPressCalculator(
+                CalcLoader(CalcOwnerA::class.java, CalcPlayable::class.java), version)
+            assertNotNull("旧构建 $version 应解析出计算器", method)
+            assertEquals("a", method!!.name)
+        }
+    }
 }

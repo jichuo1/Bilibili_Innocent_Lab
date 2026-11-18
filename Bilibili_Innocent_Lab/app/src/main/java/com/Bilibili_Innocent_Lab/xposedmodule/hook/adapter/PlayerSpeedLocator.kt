@@ -97,15 +97,28 @@ internal object PlayerSpeedLocator {
 
     /** Exact APK builds where the start port passes this single result to both playback and UI. */
     fun theseus2LongPressCalculator(loader: ClassLoader, hostVersionCode: Int): Method? {
-        val (ownerName, playableName) = when (hostVersionCode) {
-            9180100, 9180300 -> "UC0.a" to "com.bilibili.ship.theseus2.keel.player.m"
-            9180200 -> "UC0.a" to "com.bilibili.ship.theseus2.keel.player.n"
-            9190200, 9190400 -> "rv71" to "gcg2"
+        val (ownerName, methodName, playableName) = when (hostVersionCode) {
+            // 9.18 计算器类是包 UC0 下的 a（二进制名 UC0.a，dexq LUC0/a;->a(playable,Float)F），
+            // 类名含点本身合法；9.19 起混淆改为根包短名（rv71）。owner 与 method 始终分开登记。
+            9180100, 9180300 -> Triple("UC0.a", "a", "com.bilibili.ship.theseus2.keel.player.m")
+            9180200 -> Triple("UC0.a", "a", "com.bilibili.ship.theseus2.keel.player.n")
+            9190200, 9190400 -> Triple("rv71", "a", "gcg2")
+            // 9.20 三构建远端 dexq 验真：start port（TripleSpeedService$a.a()Float）与 beginTemporarySpeed$1
+            // 协程结构同 9.19 不变，仅计算器 R8 重打包换 owner/方法名/playable 接口；
+            // 签名 (playable,Float)F 静态方法全 APK 唯一，语义为 getScriptPace + LongPressSpeedExperiment。
+            9200100 -> Triple("tyg1", "i", "mmq2")
+            9200200 -> Triple("h7h1", "h", "apq2")
+            9200300 -> Triple("jy0", "e", "rpq2")
             else -> return null
         }
+        return theseus2LongPressCalculator(loader, ownerName, methodName, playableName)
+    }
+
+    internal fun theseus2LongPressCalculator(loader: ClassLoader, ownerName: String, methodName: String,
+                                             playableName: String): Method? {
         val owner = KavaMemberLookup.classOrNull(loader, ownerName) ?: return null
         val playable = KavaMemberLookup.classOrNull(loader, playableName)?.takeIf { it.isInterface } ?: return null
-        return KavaMemberLookup.methodOrNull(owner, "a", playable, Float::class.javaObjectType)?.takeIf {
+        return KavaMemberLookup.methodOrNull(owner, methodName, playable, Float::class.javaObjectType)?.takeIf {
             it.declaringClass === owner && it.isStatic && Modifier.isFinal(it.modifiers) &&
                 !it.isSynthetic && !it.isBridge && it.returnType == classOf<Float>()
         }
