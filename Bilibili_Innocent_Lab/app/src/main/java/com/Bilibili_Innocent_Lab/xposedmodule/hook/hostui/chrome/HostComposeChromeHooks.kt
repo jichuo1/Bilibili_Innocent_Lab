@@ -30,9 +30,6 @@ internal object HostComposeChromeHooks {
         bucket.add(Decorated(WeakReference(modifier), WeakReference(painter)))
     }
 
-    private fun painter(modifier: Any): HostComposeChromePainter? =
-        decorated[System.identityHashCode(modifier)]?.firstOrNull { it.modifier.get() === modifier }?.painter?.get()
-
     private val scopes = HostChromeCompositionScope<Invocation>()
     private data class BackdropInvocation(val painter: HostComposeChromePainter,
                                           val gate: HostChromeBackdropGate = HostChromeBackdropGate())
@@ -67,12 +64,16 @@ internal object HostComposeChromeHooks {
             requireNotNull(topBackdrop).declaringClass, topBackdrop.name, topBackdrop.parameterTypes.map { it.name }
         ) else AtomicBoolean(true)
         return runCatching {
-            environment.registrar.exact("host_chrome.compose.modifier", api.updater.declaringClass,
-                api.updater.name, *api.updater.parameterTypes) {
+            // setModifier 是 ComposeUiNode 的稳定接口方法：Updater.set-impl 值类化后
+            // 签名随代次漂移（issue #44），改在 Modifier 真正落到 LayoutNode 的必经点拦截。
+            // before 装饰、after 记账；scope 判定与旧 Updater 拦截完全一致。
+            val modifierKey = "host_chrome.compose.modifier"
+            environment.registrar.exact(modifierKey, api.applyModifier.declaringClass,
+                api.applyModifier.name, *api.applyModifier.parameterTypes) {
                 before {
                     // Do not inspect or copy arguments on unrelated Compose updates.
                     if (scopes.current() == null) return@before
-                    if (argOrNull(2) !== api.setter || !api.modifier.isInstance(argOrNull(1))) return@before
+                    if (!api.modifier.isInstance(argOrNull(0))) return@before
                     val current = scopes.current() ?: return@before
                     val invocation = if (current.layer == HostChromeLayer.BOTTOM_ROW && current.row?.selected != true) {
                         // Older content may execute synchronously inside its outer container.
@@ -82,18 +83,21 @@ internal object HostComposeChromeHooks {
                         it.layer == HostChromeLayer.SURFACE && it.painter === current.painter
                     } else scopes.claim()
                     invocation ?: return@before
-                    val original = argOrNull(1) ?: return@before
+                    val original = argOrNull(0) ?: return@before
                     runCatching { invocation.painter.modifier(original, invocation.layer) }
-                        .onSuccess { args[1] = it }.onFailure(invocation.painter::failure)
+                        .onSuccess {
+                            args[0] = it
+                            setObjectExtra(modifierKey, it to invocation.painter)
+                        }.onFailure(invocation.painter::failure)
                 }
-            }
-            environment.registrar.exact("host_chrome.compose.native_modifier", api.setterInvoke.declaringClass,
-                api.setterInvoke.name, *api.setterInvoke.parameterTypes) {
                 after {
-                    if (hasThrowable || instance !== api.setter || decorated.size() == 0) return@after
-                    val modifier = argOrNull(1) ?: return@after
-                    val painter = painter(modifier) ?: return@after
-                    argOrNull(0)?.let { painter.nativeApplied(it, modifier) }
+                    @Suppress("UNCHECKED_CAST")
+                    val applied = getObjectExtra(modifierKey) as? Pair<Any, HostComposeChromePainter> ?: return@after
+                    setObjectExtra(modifierKey, null)
+                    if (hasThrowable || decorated.size() == 0) return@after
+                    val modifier = argOrNull(0) ?: return@after
+                    if (modifier !== applied.first) return@after
+                    instance?.let { applied.second.nativeApplied(it, modifier) }
                 }
             }
             val touchReady = !touchGlow || runCatching { installTouch(environment) }.onFailure(onError).getOrDefault(false)

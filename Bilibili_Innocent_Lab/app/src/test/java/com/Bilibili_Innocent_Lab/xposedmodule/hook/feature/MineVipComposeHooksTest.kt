@@ -4,6 +4,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.*
+import androidx.compose.ui.unit.Constraints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import tv.danmaku.bili.ui.main2.mineV2.ui.VipFixtureManager
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostComposeHiddenLayout
@@ -21,7 +22,7 @@ class MineVipComposeHooksTest {
             override fun layout(width: Int, height: Int, lines: Map<Any, Any>, placement: (Any) -> Unit): MeasureResult =
                 error("failed measure must not create a layout")
         }
-        assertSame(failure, runCatching { hidden.measure(scope, child, 1L) }.exceptionOrNull())
+        assertSame(failure, runCatching { hidden.measure(scope, child, Constraints(1L)) }.exceptionOrNull())
         assertEquals(0, applied)
     }
     private class Harness {
@@ -62,7 +63,8 @@ class MineVipComposeHooksTest {
             override fun layout(width: Int, height: Int, lines: Map<Any, Any>, placement: (Any) -> Unit) =
                 MeasureResult(width, height, placement)
         }
-        val result = hidden.measure(scope, child, 123L)
+        // 真机 layout 元素传的是装箱 Constraints（issue #44：旧 `as Long` 在此必炸）。
+        val result = hidden.measure(scope, child, Constraints(123L))
         assertEquals(1, measured); assertEquals(300, result.width); assertEquals(108, result.height)
         assertEquals(listOf(FeatureRuntimeStage.OBSERVED, FeatureRuntimeStage.APPLIED), h.evidence)
         result.placement(Any()) // There is no child placement, hence no paint, hit target or semantics node.

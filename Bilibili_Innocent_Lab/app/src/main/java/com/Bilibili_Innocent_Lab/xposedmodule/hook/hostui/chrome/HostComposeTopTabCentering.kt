@@ -64,12 +64,13 @@ internal object HostComposeTopTabCentering {
                 }
             }
         }
-        environment.registrar.exact("home.top.centering.position", access.updater.declaringClass,
-            access.updater.name, *access.updater.parameterTypes) {
+        // 与 chrome 主链同一拦截点：setModifier 稳定接口，不再依赖 Updater.set-impl。
+        environment.registrar.exact("home.top.centering.position", access.applyModifier.declaringClass,
+            access.applyModifier.name, *access.applyModifier.parameterTypes) {
             before {
-                if (roots.current() == null || argOrNull(2) !== access.setter || !access.modifier.isInstance(argOrNull(1))) return@before
+                if (roots.current() == null || !access.modifier.isInstance(argOrNull(0))) return@before
                 val root = roots.claim() ?: return@before
-                val original = argOrNull(1) ?: return@before
+                val original = argOrNull(0) ?: return@before
                 runCatching {
                     val sized = if (root.role == Role.TABS) root.state.modifier(original) else original
                     val faded = if (root.role == Role.TABS && fade != null) {
@@ -77,7 +78,7 @@ internal object HostComposeTopTabCentering {
                     } else sized
                     access.observe(faded, onError) { root.state.observe(root.role, it) }
                 }
-                    .onSuccess { args[1] = it }.onFailure(onError)
+                    .onSuccess { args[0] = it }.onFailure(onError)
             }
         }
         // The tab row remembers its ScrollState inside the TABS root invocation (9.16.11 topbar/g).
@@ -219,7 +220,7 @@ internal object HostComposeTopTabCentering {
 
     private class Access(val modifier: Class<*>, val alignment: Class<*>, val function2: Class<*>, val scope: Class<*>,
                          val subcompose: Method, val align: Method, val invoke: Method, val wraps: List<Method>, val fillWidth: Method, val layout: Method,
-                         val updater: Method, val setter: Any, val positioned: Method,
+                         val applyModifier: Method, val positioned: Method,
                          val function1: Class<*>, val unit: Any, val attached: Method, val parent: Method,
                          val size: Method, val local: Method, val position: HostComposeCardPositionAccess) {
         fun isAttached(value: Any?): Boolean = value != null && attached.invoke(value) == true
@@ -310,8 +311,7 @@ internal object HostComposeTopTabCentering {
                 val long = Long::class.javaPrimitiveType!!
                 val int = Int::class.javaPrimitiveType!!
                 val bool = Boolean::class.javaPrimitiveType!!
-                val node = type("androidx.compose.ui.node.ComposeUiNode\$Companion")
-                val nodeCompanion = requireNotNull(Lookup.fieldOrNull(type("androidx.compose.ui.node.ComposeUiNode"), "Companion")).get(null)
+                val node = type("androidx.compose.ui.node.ComposeUiNode")
                 Access(mod, alignment, f2, scope,
                     method(scope, "subcompose", List::class.java, Any::class.java, f2),
                     method(alignment, "align-", long, long, long, type("androidx.compose.ui.unit.LayoutDirection")),
@@ -327,8 +327,11 @@ internal object HostComposeTopTabCentering {
                                 it.name == "fillMaxWidth\$default" && it.parameterTypes.contentEquals(arrayOf(mod, Float::class.javaPrimitiveType!!, int, Any::class.java)))
                     }.minByOrNull { it.parameterCount } ?: error("Missing local fillMaxWidth"),
                     method(type("androidx.compose.ui.layout.SubcomposeLayoutKt"), "SubcomposeLayout", Void.TYPE, mod, f2, composer, int, int),
-                    method(type("androidx.compose.runtime.Updater"), "set-", Void.TYPE, composer, Any::class.java, f2),
-                    requireNotNull(method(node, "getSetModifier", f2).invoke(nodeCompanion)),
+                    // setModifier 是 ComposeUiNode 的稳定接口方法；Updater.set-impl 值类化后
+                    // 签名随代次漂移（issue #44），不再作为拦截点。
+                    Lookup.methods(node, includeSuperclasses = true, makeAccessible = true).single {
+                        it.name == "setModifier" && it.returnType == Void.TYPE && it.parameterTypes.contentEquals(arrayOf(mod))
+                    },
                     method(type("androidx.compose.ui.layout.OnGloballyPositionedModifierKt"), "onGloballyPositioned", mod, mod, f1),
                     f1, requireNotNull(Lookup.fieldOrNull(type("kotlin.Unit"), "INSTANCE")).get(null)!!,
                     method(coordinates, "isAttached", bool), method(coordinates, "getParentLayoutCoordinates", coordinates),

@@ -43,6 +43,14 @@ internal class HostComposeHiddenLayout private constructor(
                 it.name.startsWith("measure-") && it.returnType == placeable &&
                     it.parameterTypes.contentEquals(arrayOf(Long::class.javaPrimitiveType))
             }
+            // 宿主 layout 元素把 Constraints 装箱后交给 Function3（9.18/9.19 真机实证：
+            // `invoke(scope, measurable, Constraints.box-impl(j))`）；裸 long 只出现在
+            // Measurable.measure 一侧。旧实现直接 `as Long` 在真机必抛 ClassCastException。
+            val constraints = type("androidx.compose.ui.unit.Constraints")
+            val unbox = Lookup.methods(constraints, includeSuperclasses = false, makeAccessible = true).single {
+                it.name.startsWith("unbox-") && it.returnType == Long::class.javaPrimitiveType &&
+                    it.parameterCount == 0
+            }
             val layout = scope.getMethod("layout", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType,
                 Map::class.java, f1).also { check(it.returnType == result) }
             val width = placeable.getMethod("getWidth")
@@ -52,9 +60,12 @@ internal class HostComposeHiddenLayout private constructor(
             val block = function(f3, "MineVipMeasure") { args ->
                 val receiver = requireNotNull(args?.getOrNull(0)).also { check(scope.isInstance(it)) }
                 val child = requireNotNull(args?.getOrNull(1)).also { check(measurable.isInstance(it)) }
-                val constraints = args?.getOrNull(2) as Long
+                val packed = when (val raw = args?.getOrNull(2)) {
+                    is Long -> raw
+                    else -> unbox.invoke(requireNotNull(raw).also { check(constraints.isInstance(it)) }) as Long
+                }
                 nativeCall {
-                    val measured = requireNotNull(measure.invoke(child, constraints))
+                    val measured = requireNotNull(measure.invoke(child, packed))
                     requireNotNull(layout.invoke(receiver, width.invoke(measured), height.invoke(measured),
                         emptyMap<Any, Any>(), placement))
                 }.also { runCatching(onApplied) }

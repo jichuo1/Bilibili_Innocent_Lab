@@ -36,12 +36,13 @@ internal object HostComposeBottomLabels {
                     it.parameterTypes.any { p -> p.name == "androidx.compose.runtime.Composer" }
             }
             check(texts.isNotEmpty())
-            environment.registrar.exact("host_chrome.compose.item_semantics", api.updater.declaringClass,
-                api.updater.name, *api.updater.parameterTypes) {
+            // 与 chrome 主链同一拦截点：setModifier 稳定接口，不再依赖 Updater.set-impl。
+            environment.registrar.exact("host_chrome.compose.item_semantics", api.applyModifier.declaringClass,
+                api.applyModifier.name, *api.applyModifier.parameterTypes) {
                 before {
-                    if (rootScopes.current() == null || argOrNull(2) !== api.setter || !modifier.isInstance(argOrNull(1))) return@before
+                    if (rootScopes.current() == null || !modifier.isInstance(argOrNull(0))) return@before
                     val label = rootScopes.claim() ?: return@before
-                    val supplied = argOrNull(1) ?: return@before
+                    val supplied = argOrNull(0) ?: return@before
                     runCatching {
                         val properties = Proxy.newProxyInstance(f1.classLoader, arrayOf(f1)) { proxy, method, arguments ->
                             when (method.name) {
@@ -60,7 +61,7 @@ internal object HostComposeBottomLabels {
                         semantics.invoke(null, supplied, true, properties)!!
                     }.mapCatching {
                         check(modifier.isInstance(it))
-                        label.attachSemantics { args[1] = it }
+                        label.attachSemantics { args[0] = it }
                     }.onFailure(onError)
                 }
             }

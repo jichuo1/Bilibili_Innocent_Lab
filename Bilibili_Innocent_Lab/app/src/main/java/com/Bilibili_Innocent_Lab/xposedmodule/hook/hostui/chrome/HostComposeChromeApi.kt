@@ -10,7 +10,7 @@ import java.lang.reflect.Proxy
 
 /** Host-loader public Compose ABI only. No module Compose object crosses this boundary. */
 internal class HostComposeChromeApi private constructor(
-    val modifier: Class<*>, val updater: Method, val setter: Any, val setterInvoke: Method, private val getModifier: Method,
+    val modifier: Class<*>, val applyModifier: Method, private val getModifier: Method,
     private val empty: Any, private val fold: Method, private val then: Method, private val fill: HostChromeRootFill,
     private val wholeArea: Any?,
     val backdropLeaves: List<BackdropLeaf>, val backdropImagesReady: Boolean,
@@ -77,7 +77,7 @@ internal class HostComposeChromeApi private constructor(
     fun signal() = position.signal()
 
     fun restore(node: Any, expected: Any, original: Any) {
-        if (getModifier.invoke(node) === expected) setterInvoke.invoke(setter, node, original)
+        if (getModifier.invoke(node) === expected) applyModifier.invoke(node, original)
     }
 
     private fun function(type: Class<*>, label: String, invoke: (Array<out Any?>?) -> Any?): Any =
@@ -103,8 +103,11 @@ internal class HostComposeChromeApi private constructor(
             val f1 = type("kotlin.jvm.functions.Function1")
             val empty = requireNotNull(Lookup.fieldOrNull(modifier, "Companion")).get(null)!!
             val shape = type("androidx.compose.ui.graphics.Shape")
+            // 颜色背景工厂带值类哈希后缀（9.18/9.19 实证为 background-bw27NRU），
+            // 裸 "background-" 前缀在重打包宿主上落空；后缀随 Compose 代次可能变化，
+            // 只认前缀 + 精确参数面，$default 变体由 exact 排除。
             val fill = HostChromeRootFill(modifier, type("androidx.compose.ui.graphics.Brush"),
-                shape, f1, empty, exact(type("androidx.compose.foundation.BackgroundKt"), "background-", modifier, modifier, Long::class.javaPrimitiveType!!, shape))
+                shape, f1, empty, exact(type("androidx.compose.foundation.BackgroundKt"), "background", modifier, modifier, Long::class.javaPrimitiveType!!, shape))
             val f2 = type("kotlin.jvm.functions.Function2")
             val composer = type("androidx.compose.runtime.Composer")
             val obj = Any::class.java
@@ -114,11 +117,14 @@ internal class HostComposeChromeApi private constructor(
                         Float::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!, obj) }
                 ?.invoke(null, empty, 0f, 1, null)
             val node = type("androidx.compose.ui.node.ComposeUiNode")
-            val companion = requireNotNull(Lookup.fieldOrNull(node, "Companion")).get(null)!!
-            val setter = exact(type("androidx.compose.ui.node.ComposeUiNode\$Companion"), "getSetModifier", f2).invoke(companion)!!
-            val setterInvoke = Lookup.methods(setter.javaClass, includeSuperclasses = true, makeAccessible = true).first {
-                it.name == "invoke" && it.parameterTypes.contentEquals(arrayOf(obj, obj))
-            }
+            // Modifier 应用拦截点：setModifier 是 ComposeUiNode 的稳定接口方法，
+            // Companion 的 setModifier lambda 必然经它落到 LayoutNode（9.18/9.19 实证）。
+            // 不再解析 Updater.set-impl——值类化后其签名随代次漂移，且泛型/特化重载
+            // 在 R8 合并后可能只剩一份，精确匹配不可靠。
+            val applyModifier = Lookup.methods(node, includeSuperclasses = true, makeAccessible = true).singleOrNull {
+                it.name == "setModifier" && it.returnType == Void.TYPE &&
+                    it.parameterTypes.contentEquals(arrayOf(modifier))
+            } ?: error("Missing host Compose ABI ${node.name}.setModifier")
             val drawScope = type("androidx.compose.ui.graphics.drawscope.DrawScope")
             val drawContext = type("androidx.compose.ui.graphics.drawscope.DrawContext")
             val hostCanvas = type("androidx.compose.ui.graphics.Canvas")
@@ -132,8 +138,7 @@ internal class HostComposeChromeApi private constructor(
                             f2.name, "kotlin.jvm.functions.Function4", composer.name, "int", "int")
                 }.singleOrNull()?.let { method -> BackdropLeaf(method, 1) }
             }
-            HostComposeChromeApi(modifier,
-                exact(type("androidx.compose.runtime.Updater"), "set-impl", Void.TYPE, composer, obj, f2).also { check(Modifier.isStatic(it.modifiers)) }, setter, setterInvoke, exact(node, "getModifier", modifier),
+            HostComposeChromeApi(modifier, applyModifier, exact(node, "getModifier", modifier),
                 empty,
                 exact(modifier, "foldIn", obj, obj, f2), exact(modifier, "then", modifier, modifier), fill, wholeArea,
                 listOf("BoxKt" to "Box", "SpacerKt" to "Spacer").mapNotNull { (owner, name) ->
