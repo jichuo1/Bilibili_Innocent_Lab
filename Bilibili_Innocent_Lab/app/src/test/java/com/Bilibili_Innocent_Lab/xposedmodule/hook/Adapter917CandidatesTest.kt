@@ -12,6 +12,8 @@ class Adapter917CandidatesTest {
     class WrongNetwork { fun a(context: Context?): String = "" }
     class Quality { companion object { @JvmStatic fun a(): Int = 32 } }
     class WrongQuality { companion object { @JvmStatic fun a(): String = "" } }
+    class Network919 { fun a(context: Context?): BiliUpgradeInfo? = null }
+    class Quality919 { companion object { @JvmStatic fun a(): Int = 32 } }
     class AmbiguousQuality { companion object {
         @JvmStatic fun a(): Int = 32
         @JvmStatic fun c(): Int = 64
@@ -69,5 +71,32 @@ class Adapter917CandidatesTest {
         }
         assertNull(VersionAdapter.locateBlockUpdate(loader, 9180300))
         assertNull(VersionAdapter.locateDefaultVideoQuality(loader, hostVersionCode = 9180300)?.defaultQualityMethod)
+    }
+
+    @Test fun `920 verified media owners resolve per build and never leak across builds`() {
+        // 远端 dexq 逐构建验真：block update=*72#a(Context)BiliUpgradeInfo，默认画质=*12#a()I。
+        val builds = mapOf(
+            9200100 to ("lr72" to "mg12"),
+            9200200 to ("rt72" to "oh12"),
+            9200300 to ("jv72" to "wj12"),
+        )
+        builds.forEach { (version, owners) ->
+            val loader = HostLoader(WrongNetwork::class.java, WrongQuality::class.java,
+                mapOf(owners.first to Network::class.java, owners.second to Quality::class.java))
+            assertEquals(Network::class.java.name, VersionAdapter.locateBlockUpdate(loader, version)?.className)
+            assertEquals(Quality::class.java.name,
+                VersionAdapter.locateDefaultVideoQuality(loader, hostVersionCode = version)?.defaultQualityMethod?.className)
+        }
+        // 双向不串：同一 loader 同时持有 9.19 与 9.20 的短名（各接独立正确夹具），
+        // 各版本必须只选自己的 owner——若 9.20 误用 9.19 名字会解析到 Network919 而断言失败。
+        val crossLoader = HostLoader(WrongNetwork::class.java, WrongQuality::class.java,
+            mapOf("gwx1" to Network919::class.java, "rnr1" to Quality919::class.java,
+                "lr72" to Network::class.java, "mg12" to Quality::class.java))
+        assertEquals(Network919::class.java.name, VersionAdapter.locateBlockUpdate(crossLoader, 9190400)?.className)
+        assertEquals(Quality919::class.java.name,
+            VersionAdapter.locateDefaultVideoQuality(crossLoader, hostVersionCode = 9190400)?.defaultQualityMethod?.className)
+        assertEquals(Network::class.java.name, VersionAdapter.locateBlockUpdate(crossLoader, 9200100)?.className)
+        assertEquals(Quality::class.java.name,
+            VersionAdapter.locateDefaultVideoQuality(crossLoader, hostVersionCode = 9200100)?.defaultQualityMethod?.className)
     }
 }

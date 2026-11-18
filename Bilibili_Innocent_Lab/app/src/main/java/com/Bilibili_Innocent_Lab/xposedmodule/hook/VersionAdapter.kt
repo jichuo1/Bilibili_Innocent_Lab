@@ -2481,13 +2481,19 @@ object VersionAdapter {
         "com.bilibili.bplus.followinglist.home.mediator.MediatorFragment"
     private const val DYNAMIC_MEDIATOR_TAB_CLASS =
         "com.bilibili.bplus.followinglist.home.mediator.MediatorTabLayout"
-    // 已按包装层、真实调用与方法体逐构建验真；9.19 的根包短名只在对应版本上使用。
+    // 已按包装层、真实调用与方法体逐构建验真；9.19/9.20 的根包短名只在对应版本上使用。
     private val VERIFIED_MEDIA_OWNERS = mapOf(
         9180100 to ("zy1.c" to "qA1.g"),
         9180200 to ("yy1.c" to "pA1.h"),
         9180300 to ("zy1.c" to "qA1.h"),
         9190200 to ("gwx1" to "rnr1"),
         9190400 to ("gwx1" to "rnr1"),
+        // 9.20.0：block update 真实网络实现为 *72#a(Context)BiliUpgradeInfo（152 条指令，
+        // virtual），同签名的 *811/b911（30/33 条）仍是缓存/回退包装层，不选；默认画质
+        // *12#a()I 方法体含 'quality settings:' 日志（远端 dexq 字符串引用唯一命中）。
+        9200100 to ("lr72" to "mg12"),
+        9200200 to ("rt72" to "oh12"),
+        9200300 to ("jv72" to "wj12"),
     )
 
     private val BLOCK_UPDATE_OWNER_CANDIDATES = listOf(

@@ -77,7 +77,9 @@ internal object VersionAdapterContract {
     /** 81 → 82：合并 NPatch 原版 DEX 来源、相关推荐结构链与 Story 接入；两侧旧缓存均需重新验证。 */
     /** 82 → 83：切换后台 DEX 引擎，按新引擎重新校验同宿主缓存中的旧候选和旧缺失结论。 */
     /** 83 → 84：刷新 9.18/9.19 重新打包后的反射入口、页边界和 DEX 候选。 */
-    const val RULE_VERSION = 84
+    /** 84 → 85：新增 9.20.0 三构建的已验真媒体 owner（block update / 默认画质）；只加不改 JSON 形状，
+     *  不抬 SCHEMA。抬 RULE 让旧设备快路径指纹变化后重定位拿到新落点。 */
+    const val RULE_VERSION = 85
 
     /**
      * 51 → 52（2026-09-11，9.11.0(9110400) 适配）：
