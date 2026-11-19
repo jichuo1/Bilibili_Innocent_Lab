@@ -81,7 +81,9 @@ internal object VersionAdapterContract {
      *  不抬 SCHEMA。抬 RULE 让旧设备快路径指纹变化后重定位拿到新落点。 */
     /** 85 → 86：倍速会话新增可选缓存键 player_speed_session 并接入既有 Sponsor run/wrapper 查询兜底；
      *  只加不改 JSON 形状，不抬 SCHEMA。 */
-    const val RULE_VERSION = 86
+    /** 86 → 87：SEARCH_HOME_DELIVERY 查询去掉 DISCOVER 包限制（云端枚举证每版声明至多 7 个），
+     *  根包扁平 owner 改由 delivery() 全图验真准入；旧缺失结论须重查，只加不改 JSON 形状。 */
+    const val RULE_VERSION = 87
 
     /**
      * 51 → 52（2026-09-11，9.11.0(9110400) 适配）：

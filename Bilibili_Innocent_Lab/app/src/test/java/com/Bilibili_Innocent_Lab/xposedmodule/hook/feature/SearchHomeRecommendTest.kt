@@ -10,6 +10,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SearchHomeRecommendTest {
+    @Test fun flattenedRootDeliveryOwnersAreAcceptedByShapeNotName() {
+        // 9.19 起投递 owner 扁平到根包且逐构建改名；准入只看包形态，唯一性由 delivery() 全图验真决定。
+        assertTrue(SearchHomeRecommendLocator.acceptsDeliveryOwner("pl22"))
+        assertTrue(SearchHomeRecommendLocator.acceptsDeliveryOwner("fnc2"))
+        assertTrue(SearchHomeRecommendLocator.acceptsDeliveryOwner("com.bilibili.search2.discover.r"))
+        assertFalse(SearchHomeRecommendLocator.acceptsDeliveryOwner("com.bilibili.live.room.History"))
+        assertFalse(SearchHomeRecommendLocator.acceptsDeliveryOwner(""))
+    }
+
     private class Harness(enabled: Boolean = true, val registrar: PlayerPortTestRegistrar = PlayerPortTestRegistrar(),
         loader: ClassLoader = defaultLocateLoader()) {
         val stages = mutableListOf<FeatureRuntimeStage>()

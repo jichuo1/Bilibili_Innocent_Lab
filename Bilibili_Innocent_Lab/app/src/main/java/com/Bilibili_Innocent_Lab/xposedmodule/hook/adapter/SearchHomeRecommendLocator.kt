@@ -25,7 +25,10 @@ internal object SearchHomeRecommendLocator {
     private const val RELOCATED_CACHE_OWNER = "${DISCOVER}c"
     private const val RELOCATED_CACHE_PAYLOAD = "zbm0"
 
-    fun acceptsDeliveryOwner(name: String): Boolean = name == RELOCATED_DELIVERY || name.startsWith(DISCOVER)
+    // 9.19 起投递 owner 扁平到根包且逐构建改名（pl22/fnc2/yrc2 等），逐版登记类名不可持续；
+    // 根包（无点号）类名一律放行到 delivery() 全图验真 + singleOrNull，名称本身不作准入依据。
+    fun acceptsDeliveryOwner(name: String): Boolean =
+        name.startsWith(DISCOVER) || ('.' !in name && name.isNotEmpty())
     fun acceptsStateOwner(name: String): Boolean = name == RELOCATED_STATE || name.startsWith(STATE)
 
     /** 一级候选：宿主 discover 包的稳定短名（R8 混淆池 a-z + 未混淆的 ViewModel 名）。 */
@@ -110,7 +113,7 @@ internal object SearchHomeRecommendLocator {
         }.mapNotNull { field -> squareField(field.type)?.let { field to it } }
         val carrier = carriers.singleOrNull() ?: return null
         val ownerType = carrier.first.type
-        val allowRelocatedCache = owner.name == RELOCATED_DELIVERY && ownerType.name == RELOCATED_CACHE_OWNER
+        val allowRelocatedCache = acceptsDeliveryOwner(owner.name) && ownerType.name == RELOCATED_CACHE_OWNER
         Delivery(receive, refresh, carrier.first, carrier.second, discoveryCache(ownerType, allowRelocatedCache))
     }.getOrNull()
 

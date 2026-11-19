@@ -100,7 +100,9 @@ internal object DexMeguvizQueries {
                 params("android.graphics.Canvas", "androidx.recyclerview.widget.RecyclerView", "androidx.recyclerview.widget.RecyclerView\$State")
             }
             DexAssistQuery.SEARCH_HOME_DELIVERY -> {
-                within(SearchHomeRecommendLocator.DISCOVER)
+                // 不限包：云端 dexq 对 12 个宿主样本（8.84–9.20）枚举 getHistoryList 声明每版至多 7 个
+                //（直播 proto 与 LiveRoom 占 4 个），远低于 MAX_MATCHES；9.19 起投递 owner 扁平到根包，
+                // within DISCOVER 会整版漏检。唯一性由运行时 delivery() 全图验真 + singleOrNull 保证。
                 name = "getHistoryList"
                 paramCount(0)
                 returnType = "java.util.List"
