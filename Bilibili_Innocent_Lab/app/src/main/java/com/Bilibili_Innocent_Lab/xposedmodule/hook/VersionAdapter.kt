@@ -3934,7 +3934,10 @@ object VersionAdapter {
                     classicMissing.forEach { add(it.query) }
                     popupPlanned.forEach { add(it.query) }
                     if (brandPlanned) add(BrandSplashDecoderAdapter.query)
-                    if (followPlanned) add(DexAssistQuery.FOLLOW_FEED_STYLE)
+                    if (followPlanned) {
+                        add(DexAssistQuery.FOLLOW_FEED_STYLE)
+                        add(DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS)
+                    }
                     if (speedMenuPlanned) add(PlayerSpeedMenuAdapter.query)
                 }
             )

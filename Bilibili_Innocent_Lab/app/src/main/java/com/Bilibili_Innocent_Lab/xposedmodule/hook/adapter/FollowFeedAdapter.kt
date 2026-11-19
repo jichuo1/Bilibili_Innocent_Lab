@@ -54,9 +54,27 @@ internal object FollowFeedAdapter {
         direct(loader)?.let { return it }
         resolve(loader, cached)?.let { return it.points }
         if (!planned) return null
-        val candidates = (session?.result(com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery.FOLLOW_FEED_STYLE)
-            as? com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult.Candidates)?.methods.orEmpty()
-        return assisted(loader, candidates)
+        val style = session?.result(com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery.FOLLOW_FEED_STYLE)
+            as? com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult.Candidates
+        val constructors = session?.result(com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS)
+            as? com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult.Candidates
+        return assisted(loader, style?.methods.orEmpty(), discovered(constructors))
+    }
+
+    /** DEX 构造边发现的装饰类，按构造来源 Fragment 分组；角色最终由 fromOwner 的形状验真决定。 */
+    internal data class DiscoveredDecorations(val home: Set<Class<*>> = emptySet(), val personalPage: Set<Class<*>> = emptySet())
+
+    internal fun discovered(constructors: com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult.Candidates?): DiscoveredDecorations {
+        if (constructors == null || constructors.methods.size > 32) return DiscoveredDecorations()
+        val home = linkedSetOf<Class<*>>()
+        val personalPage = linkedSetOf<Class<*>>()
+        for ((caller, constructed) in constructors.relatedClasses) {
+            when (caller.declaringClass.name) {
+                FRAGMENT -> home += constructed
+                PERSONAL_PAGE -> personalPage += constructed
+            }
+        }
+        return DiscoveredDecorations(home, personalPage)
     }
 
     const val DIAGNOSTIC = "dex.assist.follow_feed_style"
@@ -120,7 +138,10 @@ internal object FollowFeedAdapter {
         Lookup.classOrNull(loader, it)?.let { owner -> fromOwner(loader, owner) }
     }.distinct().singleOrNull()
 
-    fun assisted(loader: ClassLoader, candidates: Collection<Method>): FollowFeedPoints? {
+    fun assisted(loader: ClassLoader, candidates: Collection<Method>): FollowFeedPoints? =
+        assisted(loader, candidates, DiscoveredDecorations())
+
+    internal fun assisted(loader: ClassLoader, candidates: Collection<Method>, discovered: DiscoveredDecorations): FollowFeedPoints? {
         if (candidates.size > 32) return null
         val recycler = Lookup.classOrNull(loader, RECYCLER) ?: return null
         val state = Lookup.classOrNull(loader, STATE) ?: return null
@@ -129,7 +150,7 @@ internal object FollowFeedAdapter {
                 it.parameterTypes.contentEquals(arrayOf(android.graphics.Rect::class.java, View::class.java, recycler, state))
         }.map(Method::getDeclaringClass).distinct()
         val owner = owners.singleOrNull() ?: return null
-        return fromOwner(loader, owner)
+        return fromOwner(loader, owner, discovered)
     }
 
     fun resolve(loader: ClassLoader, points: FollowFeedPoints?): Resolved? = points?.let { cached -> runCatching {
@@ -142,18 +163,19 @@ internal object FollowFeedAdapter {
         val paint = Lookup.declaredMethods(owner, true) {
             it.name == cached.painterMethod && paintAbi(it, recycler, module)
         }.singleOrNull() ?: return@runCatching null
+        // 缓存恢复只认形状：home/personal 必须是已验 painter 的直接子类，separator 必须过 onDrawOver 形状；
+        // 类名列表只用于首次发现，逐构建改名的根包类不能靠名单复验。
         val home = Lookup.classOrNull(loader, cached.homeDecorationClass)?.takeIf {
-            it.name in homeCandidates(owner.name) && it.superclass == owner
+            it.superclass == owner
         } ?: return@runCatching null
         val profile = profile(owner.name, home.name)
         val personalNames = personalCandidates(profile)
         val personal = cached.personalDecorationClass?.let { Lookup.classOrNull(loader, it) }
-            ?.takeIf { it.name in personalNames && it.superclass == owner ||
+            ?.takeIf { it.superclass == owner ||
                 it == owner && legacyPersonal(loader, owner) != null }
             ?: personal(loader, owner, personalNames)
         val separatorNames = separatorCandidates(owner.name, profile)
-        val separator = cached.personalSeparatorClass?.takeIf { it in separatorNames }
-            ?.let { separator(loader, it) }
+        val separator = cached.personalSeparatorClass?.let { separator(loader, it) }
             ?: separatorNames.mapNotNull { separator(loader, it) }.singleOrNull()
         val header = cached.headerMethod?.let { name -> header(loader)?.takeIf { it.name == name } }
         // 旧缓存的首页入口有效，不代表当时缺失的 UP 主页描述可以永久跳过。
@@ -162,7 +184,10 @@ internal object FollowFeedAdapter {
         Resolved(refreshed, host, paint, home, personal, separator, header)
     }.getOrNull() }
 
-    private fun fromOwner(loader: ClassLoader, owner: Class<*>): FollowFeedPoints? = runCatching {
+    private fun fromOwner(loader: ClassLoader, owner: Class<*>): FollowFeedPoints? =
+        fromOwner(loader, owner, DiscoveredDecorations())
+
+    internal fun fromOwner(loader: ClassLoader, owner: Class<*>, discovered: DiscoveredDecorations): FollowFeedPoints? = runCatching {
         if (owner.superclass?.name != DECORATION) return@runCatching null
         val recycler = Lookup.classOrNull(loader, RECYCLER) ?: return@runCatching null
         val paints = Lookup.declaredMethods(owner, true) { method ->
@@ -179,14 +204,19 @@ internal object FollowFeedAdapter {
         }
         val (paint, item, family) = paints.singleOrNull() ?: return@runCatching null
         val homeNames = homeCandidates(owner.name)
-        val home = homeNames.mapNotNull { Lookup.classOrNull(loader, it) }
-            .filter { it.superclass == owner }.singleOrNull() ?: return@runCatching null
+        val home = (homeNames.mapNotNull { Lookup.classOrNull(loader, it) } + discovered.home)
+            .distinct().filter { it.superclass == owner }.singleOrNull() ?: return@runCatching null
         val profile = profile(owner.name, home.name)
-        val personal = personal(loader, owner, personalCandidates(profile))
+        // DEX 构造边发现的个人页装饰与名表候选合并后仍须全局唯一，不跨来源拼接。
+        val discoveredPersonal = discovered.personalPage.filter { it.superclass == owner }
+        val personal = (listOfNotNull(personal(loader, owner, personalCandidates(profile))) + discoveredPersonal)
+            .distinct().singleOrNull()
         // T also names an older decoration. Admit the new role only for
         // the exact painter generation verified with its actual personal-page consumer.
         val separatorNames = separatorCandidates(owner.name, profile)
-        val separator = separatorNames.mapNotNull { separator(loader, it) }.singleOrNull()
+        val discoveredSeparators = discovered.personalPage.mapNotNull { separator(loader, it.name) }
+        val separator = (separatorNames.mapNotNull { separator(loader, it) } + discoveredSeparators)
+            .distinct().singleOrNull()
         FollowFeedPoints(owner.name, paint.name, paint.parameterTypes[3].name, item.name, home.name, family,
             personal?.name, separator?.declaringClass?.name, header(loader)?.name)
     }.getOrNull()

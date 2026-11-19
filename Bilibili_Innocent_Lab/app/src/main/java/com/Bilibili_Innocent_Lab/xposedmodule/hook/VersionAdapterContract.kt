@@ -87,7 +87,9 @@ internal object VersionAdapterContract {
      *  只加不改 JSON 形状，不抬 SCHEMA。 */
     /** 88 → 89：微信分享新增可选缓存键 wechat_share 与 createWXAPI 候选发现查询（候选仍须全量验真）；
      *  只加不改 JSON 形状，不抬 SCHEMA。 */
-    const val RULE_VERSION = 89
+    /** 89 → 90：关注流装饰新增构造边发现查询，缓存恢复改按父类/形状复验而非类名名单；
+     *  只加不改 JSON 形状，不抬 SCHEMA。 */
+    const val RULE_VERSION = 90
 
     /**
      * 51 → 52（2026-09-11，9.11.0(9110400) 适配）：

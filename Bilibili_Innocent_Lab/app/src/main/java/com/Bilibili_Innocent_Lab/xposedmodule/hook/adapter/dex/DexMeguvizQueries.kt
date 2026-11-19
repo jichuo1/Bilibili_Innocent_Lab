@@ -29,6 +29,17 @@ internal object DexMeguvizQueries {
                     "com.tencent.mm.opensdk.openapi.IWXAPI") { paramCount(count) }
             }
         }
+        DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS -> listOf(
+            "com.bilibili.bplus.followinglist.home.mediator.MediatorFragment",
+            "com.bilibili.bplus.followinglist.quick.consume.VideoQuickConsumeFragment"
+        ).map { fragment ->
+            rule {
+                owner = fragment
+                addInvoke("androidx.recyclerview.widget.RecyclerView", "addItemDecoration") {
+                    params("androidx.recyclerview.widget.RecyclerView\$ItemDecoration")
+                }
+            }
+        }
         DexAssistQuery.STORY_QUALITY_DEFAULT -> listOf(
             // 老宿主可能只含 key 或只调用 helper。保留两个分支的候选及各自的上限检查。
             rule {
@@ -219,7 +230,8 @@ internal object DexMeguvizQueries {
                 addInvoke(name = "getScriptPace", returnType = "float") { paramCount(0) }
             }
             DexAssistQuery.PLAYER_SPEED_MENU, DexAssistQuery.STORY_QUALITY_DEFAULT,
-            DexAssistQuery.WECHAT_SHARE_WRAPPER_DISCOVERY -> error("Expected a multi-rule query")
+            DexAssistQuery.WECHAT_SHARE_WRAPPER_DISCOVERY,
+            DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS -> error("Expected a multi-rule query")
         }
     }
 

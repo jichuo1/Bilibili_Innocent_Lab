@@ -27,7 +27,7 @@ class DexMeguvizQueriesTest {
                 assertTrue("$query#$index where must not be empty", where.length() > 0)
             }
         }
-        assertEquals("catalog size is pinned so additions update this guard deliberately", 35, DexAssistQuery.entries.size)
+        assertEquals("catalog size is pinned so additions update this guard deliberately", 36, DexAssistQuery.entries.size)
     }
 
     @Test fun `multi-rule queries keep their fan-out rules`() {
@@ -35,6 +35,7 @@ class DexMeguvizQueriesTest {
         assertTrue(DexMeguvizQueries.rules(DexAssistQuery.STORY_QUALITY_DEFAULT).size > 1)
         assertTrue(DexMeguvizQueries.rules(DexAssistQuery.COMMENT_REPLY_MAPPER).size > 1)
         assertEquals(3, DexMeguvizQueries.rules(DexAssistQuery.WECHAT_SHARE_WRAPPER_DISCOVERY).size)
+        assertEquals(2, DexMeguvizQueries.rules(DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS).size)
     }
 
     @Test fun `owner member and declaration rules address exact descriptors`() {

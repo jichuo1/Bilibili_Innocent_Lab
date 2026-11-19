@@ -82,6 +82,13 @@ internal enum class DexAssistQuery {
      */
     WECHAT_SHARE_WRAPPER_DISCOVERY,
 
+    /**
+     * 关注流装饰构造边：MediatorFragment / VideoQuickConsumeFragment 内调用 addItemDecoration 的方法。
+     * 引擎把同调用者构造出的 ItemDecoration 子类关联回该方法；角色（home/personal/separator）
+     * 由运行时按 Fragment 来源 + 父类/onDrawOver 形状区分，云端 dexq 已证两 Fragment 每版各构造两类。
+     */
+    FOLLOW_FEED_DECORATION_CONSTRUCTORS,
+
     /** Page callback with history read plus typed square-list delivery; full owner graph revalidated. */
     SEARCH_HOME_DELIVERY,
     /** Typed search landing-page List constructor, never global observable publication. */

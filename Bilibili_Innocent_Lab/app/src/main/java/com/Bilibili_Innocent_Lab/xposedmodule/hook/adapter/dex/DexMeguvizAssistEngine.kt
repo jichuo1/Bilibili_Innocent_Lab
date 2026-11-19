@@ -199,6 +199,10 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
                 collectClassic(query, data, outcome)
                 return
             }
+            if (query == DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS) {
+                collectDecorationConstructors(data, outcome)
+                return
+            }
             if (query == DexAssistQuery.SPONSOR_CONTAINER_SCOPE || query == DexAssistQuery.SEARCH_HOME_STATE) {
                 val constructor = RuntimeMemberBinder.bindConstructor(loader, generation, data).constructor
                     ?: throw Rejected(Reason.QUERY_FAILED)
@@ -256,6 +260,25 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
         private fun declaresFields(owner: Class<*>, first: String, second: String): Boolean {
             val types = owner.declaredFields.mapTo(hashSetOf()) { it.type.name }
             return first in types && second in types
+        }
+
+        // Fragment 方法本身不是安装点；把同调用者构造出的 ItemDecoration 子类关联回该方法，
+        // 角色区分与完整 ABI 验真留给 FollowFeedAdapter（父类链含 ItemDecoration 才保留）。
+        private fun collectDecorationConstructors(data: NativeEngine.MethodCandidate, outcome: Outcome) {
+            val caller = RuntimeMethodBinder.bindDescriptor(loader, generation, data.owner, data.name, data.prototype)
+                .method?.takeIf { it.makeAccessible() } ?: return
+            outcome.methods += caller
+            for (row in invokes(data)) {
+                if (row.name != "<init>") continue
+                val constructed = resolveConstructor(row)?.declaringClass ?: continue
+                var type: Class<*>? = constructed.superclass
+                var isDecoration = false
+                while (type != null) {
+                    if (type.name == "androidx.recyclerview.widget.RecyclerView\$ItemDecoration") { isDecoration = true; break }
+                    type = type.superclass
+                }
+                if (isDecoration) outcome.relate(caller, constructed)
+            }
         }
 
         private fun collectClassic(query: DexAssistQuery, data: NativeEngine.MethodCandidate, outcome: Outcome) {
@@ -374,7 +397,8 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
 
     private val factsOnly = setOf(
         DexAssistQuery.COMMENT_CLASSIC_NATIVE, DexAssistQuery.COMMENT_CLASSIC_KOTLIN,
-        DexAssistQuery.SPONSOR_CONTAINER_SCOPE, DexAssistQuery.SEARCH_HOME_STATE, DexAssistQuery.HOME_CHROME_SEMANTICS
+        DexAssistQuery.SPONSOR_CONTAINER_SCOPE, DexAssistQuery.SEARCH_HOME_STATE, DexAssistQuery.HOME_CHROME_SEMANTICS,
+        DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS
     )
 
     private fun ensureNativeLoaded(): Boolean {

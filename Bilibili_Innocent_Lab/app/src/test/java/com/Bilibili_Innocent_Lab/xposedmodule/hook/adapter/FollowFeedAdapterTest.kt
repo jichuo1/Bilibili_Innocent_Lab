@@ -63,6 +63,30 @@ class FollowFeedAdapterTest {
         assertEquals(cached, assisted)
     }
 
+    @Test fun discoveredDecorationsResolveDriftedSubclassesByShapeAndStayFailClosedOnAmbiguity() {
+        // 隐藏名表命中的 z0，模拟逐构建改名后名表整体失效、只能靠构造边发现的宿主。
+        val loader = object : ClassLoader(javaClass.classLoader!!) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if (name == "com.bilibili.bplus.followinglist.home.z0") throw ClassNotFoundException(name)
+                return super.loadClass(name, resolve)
+            }
+        }
+        val discovered = FollowFeedAdapter.DiscoveredDecorations(
+            home = setOf(renamed.follow.DriftDecorations.Home::class.java),
+            personalPage = setOf(renamed.follow.DriftDecorations.Personal::class.java,
+                renamed.follow.DriftDecorations.Separator::class.java))
+        val assisted = FollowFeedAdapter.assisted(loader,
+            listOf(offsets(renamed.follow.DriftPainter::class.java)), discovered)
+        assertEquals(renamed.follow.DriftDecorations.Home::class.java.name, assisted?.homeDecorationClass)
+        assertEquals(renamed.follow.DriftDecorations.Personal::class.java.name, assisted?.personalDecorationClass)
+        // 缓存恢复只认父类形状：漂移后的根包类名不在任何名表里也必须能复验。
+        assertNotNull(FollowFeedAdapter.resolve(loader, assisted))
+        // 同角色再多一个同父类候选即歧义，personal 必须缺失而不是猜一个。
+        val ambiguous = FollowFeedAdapter.assisted(loader, listOf(offsets(renamed.follow.DriftPainter::class.java)),
+            discovered.copy(personalPage = discovered.personalPage + renamed.follow.DriftDecorations.SecondPersonal::class.java))
+        assertNull(ambiguous?.personalDecorationClass)
+    }
+
     @Test fun multipleOwnersWrongQueryAbiAndForeignHomeAreRejected() {
         val loader = loader()
         assertNull(FollowFeedAdapter.assisted(loader,
