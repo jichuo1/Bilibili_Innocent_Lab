@@ -1758,4 +1758,14 @@
     <string name="player_frame_thermal_confirm_message">Interpolation will continue at high temperatures, which may increase heat and power use.</string>
     <string name="player_frame_thermal_confirm_accept">Disable anyway</string>
     <string name="highlights_player_frame_thermal_control">Added optional interpolation thermal control. Disabling it requires confirmation.</string>
+    <string name="player_audio_rescue">Audio rescue (experimental)</string>
+    <string name="player_audio_current">%1$d options enabled · restart Bilibili after changing</string>
+    <string name="player_audio_scope">Processes video audio; off by default. Multichannel and passthrough audio are not supported.</string>
+    <string name="player_audio_peak_guard">Sudden peak guard</string>
+    <string name="player_audio_peak_guard_tip">Immediately attenuates sudden rises and limits sample peaks to −6 dBFS, with a smooth release. This is separate from overall loudness normalization; it cannot guarantee a safe headphone volume.</string>
+    <string name="player_audio_channels">Channel repair</string>
+    <string name="player_audio_original">Original stereo</string>
+    <string name="player_audio_mono">Mix to mono</string>
+    <string name="player_audio_auto">Automatically fill a missing channel</string>
+    <string name="player_audio_channels_tip">Mono mixes both channels into both ears (opposite phases may cancel). Auto fills a persistently missing or nearly inaudible ear; ordinary stereo level differences are preserved.</string>
 </resources>

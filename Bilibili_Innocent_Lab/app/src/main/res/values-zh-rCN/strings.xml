@@ -1758,4 +1758,14 @@
     <string name="player_frame_thermal_confirm_message">高温时也会继续插帧，可能增加发热和耗电。</string>
     <string name="player_frame_thermal_confirm_accept">仍要关闭</string>
     <string name="highlights_player_frame_thermal_control">新增关闭插帧温控选项，开启前需二次确认。</string>
+    <string name="player_audio_rescue">音频拯救（实验）</string>
+    <string name="player_audio_current">已开启 %1$d 项 · 修改后重启哔哩哔哩生效</string>
+    <string name="player_audio_scope">处理当前视频的声音，默认关闭。多声道和音频直通暂不支持。</string>
+    <string name="player_audio_peak_guard">关音菩萨 · 防突发炸耳</string>
+    <string name="player_audio_peak_guard_tip">声音突然暴涨时立即压制，并把采样峰值限制在 −6 dBFS，随后平滑恢复。独立于整体响度均衡；实际耳机音量仍需自行控制。</string>
+    <string name="player_audio_channels">治好左右耳 · 声道修复</string>
+    <string name="player_audio_original">保留原声道</string>
+    <string name="player_audio_mono">左右混合为单声道</string>
+    <string name="player_audio_auto">自动补齐缺失声道</string>
+    <string name="player_audio_channels_tip">单声道将左右混合后送到双耳（反相声音可能抵消）。自动模式在持续只有一边响，或另一边几乎听不到时补声；一般左右音量差不会自动拉平。</string>
 </resources>

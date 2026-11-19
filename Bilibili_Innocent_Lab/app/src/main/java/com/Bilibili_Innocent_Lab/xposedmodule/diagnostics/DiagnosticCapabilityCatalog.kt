@@ -20,7 +20,7 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 39
+    const val VERSION = 40
     val definitions = listOf(
         DiagnosticCapabilityDefinition("ai_insight", "ai_insight", R.string.ai_insight_title,
             setOf("compat.ai_insight.enabled", "compat.ai_insight.auto_chapters",
@@ -32,6 +32,9 @@ internal object DiagnosticCapabilityCatalog {
             setOf("browsing.no_login.enabled"), introducedCatalogVersion = 37),
         DiagnosticCapabilityDefinition("incognito_privacy", "incognito_privacy", R.string.incognito_enabled,
             setOf("privacy.incognito.enabled"), introducedCatalogVersion = 37),
+        DiagnosticCapabilityDefinition("player_audio_rescue", "player_audio_rescue", R.string.player_audio_rescue,
+            setOf("player.audio.peak_guard", "player.audio.channels"),
+            introducedCatalogVersion = 40),
         DiagnosticCapabilityDefinition("player_buffer_strategy", "player_buffer", R.string.player_buffer_mode,
             setOf("player.buffer.mode", "player.buffer.seconds", "player.buffer.memory_mb"),
             introducedCatalogVersion = 22),

@@ -399,6 +399,11 @@ internal object ReleaseHighlightsCatalog {
         // 默认关闭、只影响主动开启的人，同样只列出、不自动弹窗。
         ReleaseHighlight("free-copy-video-title", HighlightKind.NEW, R.string.free_copy_video_title_tip,
             HighlightDestination(SettingsCatalog.ID_FREE_COPY_TITLE))
+    ), automatic = false), ReleaseHighlightsBatch(45, listOf(
+        ReleaseHighlight("player-audio-rescue", HighlightKind.NEW, R.string.player_audio_scope,
+            HighlightDestination("player.audio.peak_guard", alsoCovers = setOf(
+                "player.audio.channels")),
+            standaloneTitleRes = R.string.player_audio_rescue)
     ), automatic = false))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

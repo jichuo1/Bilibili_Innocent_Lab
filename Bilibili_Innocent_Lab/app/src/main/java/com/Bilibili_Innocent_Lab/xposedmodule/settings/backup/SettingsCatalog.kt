@@ -36,7 +36,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 80
+    const val CATALOG_VERSION = 81
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_PLAYER_SPEED_MENU = "player.speed_menu.percents"
@@ -862,6 +862,10 @@ internal object SettingsCatalog {
             R.string.player_ai_subtitle, introducedCatalogVersion = 62),
         bool("player.frame_interpolation.enabled", FeaturePreferences.PLAYER_FRAME_INTERPOLATION,
             R.string.player_frame_interpolation, introducedCatalogVersion = 58),
+        bool("player.audio.peak_guard", FeaturePreferences.PLAYER_AUDIO_PEAK_GUARD,
+            R.string.player_audio_peak_guard, introducedCatalogVersion = 81),
+        integer("player.audio.channels", FeaturePreferences.PLAYER_AUDIO_CHANNELS,
+            R.string.player_audio_channels, default = 0, allowed = setOf(0, 1, 2), introducedCatalogVersion = 81),
         integer("player.frame_interpolation.max_fps", FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MAX_FPS,
             R.string.player_frame_max_fps, default = 60, allowed = setOf(60, 90, 120, 144, 165, 185), introducedCatalogVersion = 59),
         bool("player.frame_interpolation.status_toast", FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST,
@@ -1178,7 +1182,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 272) { "Expected 272 catalog settings, found ${specs.size}" }
+        check(specs.size == 274) { "Expected 274 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

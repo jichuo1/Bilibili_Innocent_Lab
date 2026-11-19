@@ -11,6 +11,8 @@ internal object FeaturePreferences {
     /** 默认开启：沿用旧的 /v1 补全规则；关闭后端点逐字使用，只补协议最后一段。 */
     const val AI_INSIGHT_AUTO_V1 = "ai_insight_auto_v1"
     const val AI_INSIGHT_MODEL = "ai_insight_model"
+    const val PLAYER_AUDIO_PEAK_GUARD = "player_audio_peak_guard"
+    const val PLAYER_AUDIO_CHANNELS = "player_audio_channels"
     const val PLAYER_SUBTITLE_STYLE = "player_subtitle_style"
     const val PLAYER_AI_SUBTITLE = "player_ai_subtitle"
     /** 独立、默认关闭；修改后重启宿主生效。 */
