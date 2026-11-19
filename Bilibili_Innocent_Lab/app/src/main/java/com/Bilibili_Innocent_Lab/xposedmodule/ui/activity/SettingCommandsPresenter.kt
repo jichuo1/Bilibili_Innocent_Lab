@@ -1409,6 +1409,15 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             }
             hideVideoDetailAppPromotion
         }
+        FeaturePreferences.HIDE_FOLLOW_UP_RECOMMEND -> {
+            hideFollowUpRecommend = requested
+            runCatching {
+                prefs().edit { putBoolean(FeaturePreferences.HIDE_FOLLOW_UP_RECOMMEND, requested) }
+            }.onFailure { t ->
+                Log.e("BilibiliInnocentLab", "write follow up recommend prefs failed", t)
+            }
+            hideFollowUpRecommend
+        }
         HookEntry.PREF_MERCH_ENABLED -> {
             val isChecked = requested
             merchAdEnabled = isChecked
@@ -1792,6 +1801,7 @@ internal val modeledToggleKeys = setOf(
     FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_ENABLED,
     HookEntry.PREF_GAMECARD_ENABLED,
     FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION,
+    FeaturePreferences.HIDE_FOLLOW_UP_RECOMMEND,
     HookEntry.PREF_MERCH_ENABLED,
     HookEntry.PREF_ENABLED,
     HookEntry.PREF_BANNER_ENABLED,
@@ -1924,6 +1934,7 @@ internal fun MainActivity.synchronizeSettingField(key: String, confirmed: Boolea
         FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_ENABLED -> homeRecommendTitleFilterEnabled = confirmed
         HookEntry.PREF_GAMECARD_ENABLED -> gamecardAdEnabled = confirmed
         FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION -> hideVideoDetailAppPromotion = confirmed
+        FeaturePreferences.HIDE_FOLLOW_UP_RECOMMEND -> hideFollowUpRecommend = confirmed
         HookEntry.PREF_MERCH_ENABLED -> merchAdEnabled = confirmed
         HookEntry.PREF_ENABLED -> adskipEnabled = confirmed
         HookEntry.PREF_BANNER_ENABLED -> bannerAdEnabled = confirmed

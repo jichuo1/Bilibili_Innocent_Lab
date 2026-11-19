@@ -108,6 +108,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeRecommendPurifyFe
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SectionPickFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeTabFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeComponentFilterFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FollowUpRecommendFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.LiveHomePromotionFeatureInstaller
@@ -3052,6 +3053,14 @@ class HookEntry : XposedModule() {
                                 false
                             )
                         )
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    FollowUpRecommendFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.HIDE_FOLLOW_UP_RECOMMEND, false)
                     )
                 )
             )

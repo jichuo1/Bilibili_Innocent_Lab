@@ -234,6 +234,32 @@ internal fun MainActivity.purifySettingsCard(scope: LinearSettingsScope) = with(
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
+        // 关注 UP 主后弹出的“你可能感兴趣”推荐 UP 卡（视频详情页推广，归入详情页广告下）
+        materialSwitch(key = "SettingsCardSections:followUpRecommend",
+            lparams = params(widthMatchParent = true) {
+                topMargin = 12.dp
+                bottomMargin = 5.dp
+            }
+        ) {
+            bindFavoriteSwitch(this, FeaturePreferences.HIDE_FOLLOW_UP_RECOMMEND, directToggle = true)
+            text = stringResource(R.string.hide_follow_up_recommend)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = hideFollowUpRecommend
+            setOnCheckedChangeListener { button, checked ->
+                applyModeledToggle(FeaturePreferences.HIDE_FOLLOW_UP_RECOMMEND, checked, button)
+            }
+        }
+        textView(key = "SettingsCardSections:followUpRecommendTip",
+            lparams = params(widthMatchParent = true)
+        ) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.hide_follow_up_recommend_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
         // 隐藏 UP主分享好物推广（简介区商品广告——归类到视频详细页广告下）
         materialSwitch(key = "SettingsCardSections:260",
             lparams = params(widthMatchParent = true) {

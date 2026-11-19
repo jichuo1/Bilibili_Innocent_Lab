@@ -125,6 +125,8 @@
     <string name="gamecard_ad_tip">Cleans up the \"Video mentioned\" ads under videos with game tags</string>
     <string name="hide_video_detail_app_promotion">Hide topic promotions on video detail pages</string>
     <string name="hide_video_detail_app_promotion_tip">Hides topic, campaign, and similar promotions shown below the video player.</string>
+    <string name="hide_follow_up_recommend">Hide \"You may be interested\" uploaders after following</string>
+    <string name="hide_follow_up_recommend_tip">After you follow an uploader on a video detail page, the \"You may be interested\" uploader recommendations no longer pop up and leave no empty space. The recommendation request is stopped before it is sent; restart bilibili to apply.</string>
     <string name="banner_ad_settings">Home banner carousel</string>
     <string name="banner_ad_enable">Hide home banner carousel</string>
     <string name="banner_ad_tip">Cleans up the home banner carousel that BiliRoaming can no longer handle</string>
@@ -1153,6 +1155,8 @@
     <string name="diag_cap_detail_promotion_nest">Under-player promotion: nested view</string>
     <string name="diag_cap_detail_promotion_list">Under-player promotion: list view</string>
     <string name="diag_cap_detail_promotion_hd">Under-player promotion: HD view</string>
+    <string name="diag_cap_follow_up_recommend_request">Follow recommendations: request entry</string>
+    <string name="diag_cap_follow_up_recommend_network">Follow recommendations: network layer</string>
     <string name="diag_cap_detail_promotion_related_ad">Detail promotion: related ad view</string>
     <string name="diag_cap_detail_promotion_related_game">Detail promotion: related game component</string>
     <string name="diag_cap_home_banner_view">Home banner: view collapse</string>

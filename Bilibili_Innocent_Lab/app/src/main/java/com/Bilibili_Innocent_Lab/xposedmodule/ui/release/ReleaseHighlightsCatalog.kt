@@ -404,6 +404,10 @@ internal object ReleaseHighlightsCatalog {
             HighlightDestination("player.audio.peak_guard", alsoCovers = setOf(
                 "player.audio.channels", "player.audio.noise_reduction", "player.audio.voice_focus")),
             standaloneTitleRes = R.string.player_audio_rescue)
+    ), automatic = false), ReleaseHighlightsBatch(46, listOf(
+        // 默认关闭、只影响主动开启的人，同样只列出、不自动弹窗。
+        ReleaseHighlight("follow-up-recommend", HighlightKind.NEW, R.string.hide_follow_up_recommend_tip,
+            HighlightDestination("ads.video_detail.follow_recommend.hidden"))
     ), automatic = false))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

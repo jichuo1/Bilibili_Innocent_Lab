@@ -9,12 +9,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsCatalogTest {
+    @Test fun `catalog v83 adds the follow recommendation purge as a default off restorable switch that needs a host restart`() {
+        // 旧快照逐字不变，只追加这一项；默认关闭 = 关注后的推荐 UP 卡保持宿主原样。
+        val previous = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v82.txt"))
+            .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(previous, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 82 }.map { it.id }.sorted())
+        assertEquals(83, SettingsCatalog.CATALOG_VERSION)
+        val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 83 }
+        assertEquals("ads.video_detail.follow_recommend.hidden", added.id)
+        assertEquals(FeaturePreferences.HIDE_FOLLOW_UP_RECOMMEND, added.storageKey)
+        assertEquals(SettingValueType.BOOLEAN, added.type)
+        assertEquals(SettingValue.Bool(false), added.defaultValue)
+        assertEquals(RestorePolicy.AUTOMATIC, added.restorePolicy)
+        assertTrue(ImportEffect.RESTART_BILIBILI in added.effects)
+        assertEquals(added, SettingsCatalog.byStorageKey[FeaturePreferences.HIDE_FOLLOW_UP_RECOMMEND])
+    }
+
     @Test fun `catalog v80 adds the video title free copy as a default off restorable switch that needs a host restart`() {
         // 旧快照逐字不变，只追加这一项；默认关闭 = 现有长按行为不变。
         val previous = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v79.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(previous, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 79 }.map { it.id }.sorted())
-        assertEquals(82, SettingsCatalog.CATALOG_VERSION)
+        assertEquals(83, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 80 }
         assertEquals("free_copy.title.enabled", added.id)
         assertEquals(SettingsCatalog.ID_FREE_COPY_TITLE, added.id)
@@ -595,11 +611,11 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog is a unique allowlist with 276 settings`() {
-        assertEquals(276, SettingsCatalog.specs.size)
-        assertEquals(276, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(276, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(270, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 277 settings`() {
+        assertEquals(277, SettingsCatalog.specs.size)
+        assertEquals(277, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(277, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(271, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(6, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -1128,7 +1144,7 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(170, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(171, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(25, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(81, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 

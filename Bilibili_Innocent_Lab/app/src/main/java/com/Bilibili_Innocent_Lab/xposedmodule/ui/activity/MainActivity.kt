@@ -341,6 +341,7 @@ class MainActivity : SkinnedActivity() {
     internal var adskipEnabled = true
     internal var gamecardAdEnabled = true
     internal var hideVideoDetailAppPromotion = false
+    internal var hideFollowUpRecommend = false
     internal var bannerAdEnabled = true
     internal var merchAdEnabled = true
     internal var hideLiveHomePromotion = false
@@ -4650,6 +4651,7 @@ class MainActivity : SkinnedActivity() {
         adskipEnabled = uiSettings.bool(HookEntry.PREF_ENABLED)
         gamecardAdEnabled = uiSettings.bool(HookEntry.PREF_GAMECARD_ENABLED)
         hideVideoDetailAppPromotion = uiSettings.bool(FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION)
+        hideFollowUpRecommend = uiSettings.bool(FeaturePreferences.HIDE_FOLLOW_UP_RECOMMEND)
         bannerAdEnabled = uiSettings.bool(HookEntry.PREF_BANNER_ENABLED)
         hideLiveHomePromotion = uiSettings.bool(FeaturePreferences.HIDE_LIVE_HOME_PROMOTION)
         hideHomeGameMenu = uiSettings.bool(FeaturePreferences.HIDE_HOME_GAME_MENU)

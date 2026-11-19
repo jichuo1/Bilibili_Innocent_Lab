@@ -20,7 +20,7 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 40
+    const val VERSION = 41
     val definitions = listOf(
         DiagnosticCapabilityDefinition("ai_insight", "ai_insight", R.string.ai_insight_title,
             setOf("compat.ai_insight.enabled", "compat.ai_insight.auto_chapters",
@@ -75,6 +75,10 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("detail_promotion_hd", "detail_app_promotion", R.string.diag_cap_detail_promotion_hd, setOf("ads.video_detail.app_promotion.hidden")),
         DiagnosticCapabilityDefinition("detail_promotion_related_ad", "detail_app_promotion", R.string.diag_cap_detail_promotion_related_ad, setOf("ads.video_detail.app_promotion.hidden", "video.related.matching_enhancement.enabled", "video.related.strong_mode.enabled")),
         DiagnosticCapabilityDefinition("detail_promotion_related_game", "detail_app_promotion", R.string.diag_cap_detail_promotion_related_game, setOf("ads.video_detail.app_promotion.hidden", "video.related.matching_enhancement.enabled", "video.related.strong_mode.enabled")),
+        DiagnosticCapabilityDefinition("follow_up_recommend_request", "follow_up_recommend", R.string.diag_cap_follow_up_recommend_request,
+            setOf("ads.video_detail.follow_recommend.hidden"), introducedCatalogVersion = 41),
+        DiagnosticCapabilityDefinition("follow_up_recommend_network", "follow_up_recommend", R.string.diag_cap_follow_up_recommend_network,
+            setOf("ads.video_detail.follow_recommend.hidden"), introducedCatalogVersion = 41),
         DiagnosticCapabilityDefinition("live_home_promotion", "live_home_promotion", R.string.hide_live_home_promotion, setOf("home.live.promotion.hidden"), introducedCatalogVersion = 31),
         DiagnosticCapabilityDefinition("home_banner_view", "home_banner", R.string.diag_cap_home_banner_view, setOf("ads.home_banner.hidden")),
         DiagnosticCapabilityDefinition("home_banner_feed", "home_banner", R.string.diag_cap_home_banner_feed, setOf("ads.home_banner.hidden")),

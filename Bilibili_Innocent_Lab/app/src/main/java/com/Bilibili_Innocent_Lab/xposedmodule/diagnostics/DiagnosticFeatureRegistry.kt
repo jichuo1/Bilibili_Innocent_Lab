@@ -40,6 +40,7 @@ internal object DiagnosticFeatureRegistry {
             DiagnosticFeatureCategory.ADVERTISING,
             runtimeEvidenceExpected = true
         ),
+        DiagnosticFeatureDescriptor("follow_up_recommend", DiagnosticFeatureCategory.ADVERTISING, runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("live_home_promotion", DiagnosticFeatureCategory.HOME_AND_DYNAMIC, runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("home_banner", DiagnosticFeatureCategory.ADVERTISING),
         DiagnosticFeatureDescriptor("merchandise", DiagnosticFeatureCategory.ADVERTISING),

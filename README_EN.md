@@ -280,6 +280,7 @@ The sections below describe capabilities by feature topic. Developer-facing cate
 | --- | --- |
 | Hide game ads in the video mention area | Filters recognised game promotion cards in areas such as "video mentions" under videos with game tags; normal video information, tags and detail content are kept |
 | Hide UP shopping recommendations | Hides recognised product promotion areas such as "products shared by the UP" on the video detail page; ordinary descriptions, collections, tags and comments are unaffected |
+| Hide "You may be interested" uploaders after following | After you follow an uploader on a video detail page, the "You may be interested" uploader recommendation card no longer pops up and leaves no gap; the recommendation request is stopped before it is sent, with an extra network-layer guard on the new detail page. Off by default; restart Bilibili after changing it |
 | Filter related recommendations | Filters commercial promotions, game recommendations, live recommendations, course recommendations and special recommendations separately, judged by the explicit types in the host's public data |
 
 #### Player

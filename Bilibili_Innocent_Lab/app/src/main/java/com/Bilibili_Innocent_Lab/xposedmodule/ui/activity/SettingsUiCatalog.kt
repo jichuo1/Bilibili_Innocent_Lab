@@ -112,6 +112,7 @@ internal object SettingsUiCatalog {
         add(FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_ENABLED, R.string.home_recommend_title_filter, 1, "PURIFICATION_ADVANCED", true)
         add(HookEntry.PREF_GAMECARD_ENABLED, R.string.gamecard_ad_enable, 1, "PURIFICATION", true)
         add(FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION, R.string.hide_video_detail_app_promotion, 1, "PURIFICATION", true)
+        add(FeaturePreferences.HIDE_FOLLOW_UP_RECOMMEND, R.string.hide_follow_up_recommend, 1, "PURIFICATION", true)
         add(HookEntry.PREF_MERCH_ENABLED, R.string.merch_ad_enable, 1, "PURIFICATION", true)
         add(HookEntry.PREF_ENABLED, R.string.paused_page_ad_enable, 1, "PURIFICATION", true)
         add(HookEntry.PREF_BANNER_ENABLED, R.string.banner_ad_enable, 1, "PURIFICATION", true)

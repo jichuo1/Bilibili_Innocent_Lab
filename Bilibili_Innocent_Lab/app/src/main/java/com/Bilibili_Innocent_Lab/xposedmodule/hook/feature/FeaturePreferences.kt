@@ -26,6 +26,8 @@ internal object FeaturePreferences {
     const val FREE_COPY_TITLE_ENABLED = "free_copy_title_enabled"
 
     const val HIDE_VIDEO_DETAIL_APP_PROMOTION = "hide_video_detail_app_promotion"
+    /** 默认关闭：屏蔽视频详情页关注 UP 主后弹出的“你可能感兴趣”推荐 UP 卡；修改后重启宿主生效。 */
+    const val HIDE_FOLLOW_UP_RECOMMEND = "hide_follow_up_recommend"
     const val HIDE_LIVE_HOME_PROMOTION = "hide_live_home_promotion"
     const val HIDE_HOME_GAME_MENU = "hide_home_game_menu"
     const val HIDE_HOME_SEARCH_DEFAULT_WORD = "hide_home_search_default_word"

@@ -1028,6 +1028,7 @@ class DiagnosticsActivity : SkinnedActivity(),
             "paused_ad" -> R.string.paused_page_ad_enable
             "game_mentioned_promotion" -> R.string.gamecard_ad_enable
             "detail_app_promotion" -> R.string.hide_video_detail_app_promotion
+            "follow_up_recommend" -> R.string.hide_follow_up_recommend
             "live_home_promotion" -> R.string.hide_live_home_promotion
             "home_banner" -> R.string.banner_ad_enable
             "merchandise" -> R.string.merch_ad_enable
