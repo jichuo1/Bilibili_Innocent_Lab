@@ -9,7 +9,7 @@ import org.junit.Test
 class KotlinDefaultWordsDexWiringContractTest {
     @Test fun queryUsesSemanticInvokeAndRunsOnlyInSharedBackgroundPlan() {
         val engine = SourceContract.read("hook/adapter/dex/DexMeguvizQueries.kt")
-        val query = engine.after("DexAssistQuery.SEARCH_DEFAULT_WORDS_KOTLIN ->").before("DexAssistQuery.PLAYER_SPEED_MENU, DexAssistQuery.STORY_QUALITY_DEFAULT -> error")
+        val query = engine.after("DexAssistQuery.SEARCH_DEFAULT_WORDS_KOTLIN ->").before("DexAssistQuery.PLAYER_SPEED_LONG_PRESS_CALCULATOR ->")
         assertTrue(query.contains("returnType = \"void\""))
         assertTrue(query.contains("paramCount(5)"))
         assertTrue(query.contains("addInvoke"))
