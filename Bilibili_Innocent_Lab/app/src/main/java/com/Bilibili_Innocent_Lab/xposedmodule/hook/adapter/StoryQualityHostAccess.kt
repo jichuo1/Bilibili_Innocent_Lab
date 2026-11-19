@@ -123,7 +123,6 @@ internal class StoryQualityHostAccess private constructor(
         const val PARAMS = "tv.danmaku.biliplayerv2.service.Video\$PlayableParams"
         const val RESOLVE = "com.bilibili.video.story.player.datasource.PlayableProvider\$resolve\$1"
         const val TASK = "tv.danmaku.biliplayerv2.service.resolve.AbsMediaResourceResolveTask"
-        private const val FLATTENED_REPARSE_LISTENER = "v5r0"
         private val INT = Int::class.javaPrimitiveType!!
         private val BOOL = Boolean::class.javaPrimitiveType!!
 
@@ -161,7 +160,7 @@ internal class StoryQualityHostAccess private constructor(
             }
             // 9.19.0 两样本的默认参数桥与手动画质均调用 h(index, null) 读取当前来源。
             // 同签名的 i 直接以传入字符串查表，不能用 null 读取当前来源。
-            val at = if (request.parameterTypes.last().name == FLATTENED_REPARSE_LISTENER) accessors.singleOrNull {
+            val at = if (flattenedPolicy && flattenedReparseListener(request.parameterTypes.last(), resource)) accessors.singleOrNull {
                 it.name == "h" && it.parameterTypes.contentEquals(arrayOf(INT, String::class.java))
             } else accessors.singleOrNull()
             at ?: return null
@@ -266,8 +265,10 @@ internal class StoryQualityHostAccess private constructor(
         }.getOrNull()
 
         private fun concrete(method: Method) = !Modifier.isStatic(method.modifiers) && !Modifier.isAbstract(method.modifiers) && !method.isBridge
+        // 扁平重打包把监听器改到根包单字母名（曾见 v5r0）；只认接口形状，不再比对类名，
+        // 否则每次重打包改名都要逐版补名。调用点仍叠加 flattenedPolicy 与七参 request 形状门控。
         private fun flattenedReparseListener(type: Class<*>, resource: Class<*>): Boolean =
-            type.name == FLATTENED_REPARSE_LISTENER && type.isInterface && type.methods.let { methods ->
+            type.isInterface && type.methods.let { methods ->
                 methods.count { !Modifier.isStatic(it.modifiers) && it.returnType == Void.TYPE &&
                     it.parameterTypes.contentEquals(arrayOf(resource)) } == 1 &&
                     methods.count { !Modifier.isStatic(it.modifiers) && it.name == "onError" &&

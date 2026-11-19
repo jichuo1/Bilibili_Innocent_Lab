@@ -4989,9 +4989,11 @@ object VersionAdapter {
         val builds = if (moduleInstance) {
             if (!allowModuleInstance) return@runCatching null
             // 9.19.0 (9190200/9190400): ug reads sectionListV2, rebuilds a1, and refreshes Z0.
-            val build = KavaMemberLookup.methodOrNull(fragment, "ug", accountMine)?.takeIf {
-                it.isPublic && it.isFinal && !it.isStatic && !it.isSynthetic && it.returnType == Void.TYPE
-            } ?: return@runCatching null
+            // 方法名随混淆漂移，只认唯一的非 static (AccountMine)->void 公开终局方法；不唯一仍缺失。
+            val build = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
+                it.isPublic && it.isFinal && !it.isStatic && !it.isSynthetic && it.returnType == Void.TYPE &&
+                    it.parameterTypes.contentEquals(arrayOf(accountMine))
+            }.singleOrNull() ?: return@runCatching null
             listOf(build)
         } else staticBuilds
 
