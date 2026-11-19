@@ -75,6 +75,13 @@ internal enum class DexAssistQuery {
      */
     PLAYER_SPEED_LONG_PRESS_CALCULATOR,
 
+    /**
+     * 微信分享包装候选发现：枚举全部 createWXAPI 调用者（两/三/四参重载）。
+     * DEX 只作候选发现；候选必须再过分享专属全量结构验真，登录/支付同边调用不得命中。
+     * 云端 dexq 对 12 个宿主样本枚举证实每版调用者 11–15 个，分享包装恒在其中且可由结构区分。
+     */
+    WECHAT_SHARE_WRAPPER_DISCOVERY,
+
     /** Page callback with history read plus typed square-list delivery; full owner graph revalidated. */
     SEARCH_HOME_DELIVERY,
     /** Typed search landing-page List constructor, never global observable publication. */

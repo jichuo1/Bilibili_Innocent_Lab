@@ -59,7 +59,7 @@ class AdaptPlanWiringContractTest {
     /** 不在同步定位计划里的字段：各自有按功能开关与历史门控的后台流程（DexKit 兜底家族）。 */
     private val outsidePlan = setOf(
         "homeChrome", "homeChromeSemantics", "pageBoundaries", "followFeedStyle", "playerSpeedMenu",
-        "brandSplashDecoder", "sponsorPlayer", "playerSpeedSession", "playerSpeedCalculator", "commentClassicStyle", "playerPopupPromotion"
+        "brandSplashDecoder", "sponsorPlayer", "playerSpeedSession", "playerSpeedCalculator", "weChatShare", "commentClassicStyle", "playerPopupPromotion"
     )
 
     private fun locatorCalls(text: String): List<Triple<PointFamily, String, String?>> {

@@ -4,10 +4,13 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 internal data class WeChatShareVersionProfile(
     val legacyOwner: String,
     val modernOwner: String?,
-    val usesLegacyConstructors: Boolean
+    val usesLegacyConstructors: Boolean,
+    /** DEX 候选发现反推的 initialize 名；版本表命中时为 null，仍按构造代次派生。 */
+    val legacyInitializeOverride: String? = null,
+    val modernInitializeOverride: String? = null
 ) {
-    val legacyInitialize: String get() = if (usesLegacyConstructors) "t" else "l"
-    val modernInitialize: String get() = if (usesLegacyConstructors) "j" else "b"
+    val legacyInitialize: String get() = legacyInitializeOverride ?: if (usesLegacyConstructors) "t" else "l"
+    val modernInitialize: String get() = modernInitializeOverride ?: if (usesLegacyConstructors) "j" else "b"
     val expectedWrappers: Int get() = if (modernOwner == null) 1 else 2
 
     companion object {

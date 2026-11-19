@@ -3964,6 +3964,7 @@ class HookEntry : XposedModule() {
                 listOf(
                     WeChatShareCompatFeatureInstaller(
                         enabled = prefs.getBoolean(FeaturePreferences.WECHAT_SHARE_COMPAT, false),
+                        cachedClasses = hostAdaptResult?.weChatShare,
                         hostVersionCode = { VersionAdapter.biliVersionCode(authorizationContext) }
                     ),
                     SharePurifyFeatureInstaller(
@@ -5312,6 +5313,7 @@ class HookEntry : XposedModule() {
                             com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig.effectiveLongPressPercent(
                                 prefs.getBoolean(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS, false),
                                 prefs.getInt(FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT, 0))) != null,
+                        weChatShareEnabled = prefs.getBoolean(FeaturePreferences.WECHAT_SHARE_COMPAT, false),
                         blockUpdateEnabled = prefs.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false),
                         commentTopologyEnabled = prefs.getBoolean(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, false),
                         plan = adaptPlan

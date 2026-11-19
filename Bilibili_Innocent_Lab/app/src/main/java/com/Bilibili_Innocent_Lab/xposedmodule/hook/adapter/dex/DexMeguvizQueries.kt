@@ -23,6 +23,12 @@ internal object DexMeguvizQueries {
 
     fun rules(query: DexAssistQuery): List<ByteArray> = when (query) {
         DexAssistQuery.PLAYER_SPEED_MENU -> speedMenuRules()
+        DexAssistQuery.WECHAT_SHARE_WRAPPER_DISCOVERY -> listOf(2, 3, 4).map { count ->
+            rule {
+                addInvoke("com.tencent.mm.opensdk.openapi.WXAPIFactory", "createWXAPI",
+                    "com.tencent.mm.opensdk.openapi.IWXAPI") { paramCount(count) }
+            }
+        }
         DexAssistQuery.STORY_QUALITY_DEFAULT -> listOf(
             // 老宿主可能只含 key 或只调用 helper。保留两个分支的候选及各自的上限检查。
             rule {
@@ -212,7 +218,8 @@ internal object DexMeguvizQueries {
                 paramCount(2)
                 addInvoke(name = "getScriptPace", returnType = "float") { paramCount(0) }
             }
-            DexAssistQuery.PLAYER_SPEED_MENU, DexAssistQuery.STORY_QUALITY_DEFAULT -> error("Expected a multi-rule query")
+            DexAssistQuery.PLAYER_SPEED_MENU, DexAssistQuery.STORY_QUALITY_DEFAULT,
+            DexAssistQuery.WECHAT_SHARE_WRAPPER_DISCOVERY -> error("Expected a multi-rule query")
         }
     }
 

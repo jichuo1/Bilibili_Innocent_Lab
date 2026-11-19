@@ -85,7 +85,9 @@ internal object VersionAdapterContract {
      *  根包扁平 owner 改由 delivery() 全图验真准入；旧缺失结论须重查，只加不改 JSON 形状。 */
     /** 87 → 88：长按倍速计算器新增可选缓存键 player_speed_calculator 与 getScriptPace 调用边兜底查询；
      *  只加不改 JSON 形状，不抬 SCHEMA。 */
-    const val RULE_VERSION = 88
+    /** 88 → 89：微信分享新增可选缓存键 wechat_share 与 createWXAPI 候选发现查询（候选仍须全量验真）；
+     *  只加不改 JSON 形状，不抬 SCHEMA。 */
+    const val RULE_VERSION = 89
 
     /**
      * 51 → 52（2026-09-11，9.11.0(9110400) 适配）：

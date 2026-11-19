@@ -1,11 +1,13 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareClasses
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareCompatAccess
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** 只给已审计的分享包装创建/持有的 SDK 实例关闭接收方证书比较；从不伪造 SDK 返回值。 */
 internal class WeChatShareCompatFeatureInstaller(
     private val enabled: Boolean,
+    private val cachedClasses: WeChatShareClasses? = null,
     private val hostVersionCode: () -> Int
 ) : FeatureInstaller {
     override val id = ID
@@ -15,7 +17,7 @@ internal class WeChatShareCompatFeatureInstaller(
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!enabled) return FeatureInstallResult.Skipped("disabled")
         if (environment.processName != "tv.danmaku.bili") return FeatureInstallResult.Skipped("non-main-process")
-        val access = WeChatShareCompatAccess.locate(environment.classLoader, hostVersionCode())
+        val access = WeChatShareCompatAccess.locate(environment.classLoader, hostVersionCode(), cachedClasses)
             ?: return FeatureInstallResult.Skipped("missing-verified-share-structure")
         val factory = access.factory
         // 先注册工厂。若注册失败，不允许包装进入创建作用域。

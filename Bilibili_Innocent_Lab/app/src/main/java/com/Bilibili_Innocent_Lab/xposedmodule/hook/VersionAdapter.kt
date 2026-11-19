@@ -20,6 +20,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionClasses
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareClasses
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareCompatAccess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareVersionProfile
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LongPressCalculatorPoint
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStyleLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStylePoints
@@ -1880,6 +1883,7 @@ object VersionAdapter {
         val sponsorPlayer: SponsorPlayerClasses? = null,
         val playerSpeedSession: PlayerSpeedSessionClasses? = null,
         val playerSpeedCalculator: LongPressCalculatorPoint? = null,
+        val weChatShare: WeChatShareClasses? = null,
         val commentClassicStyle: CommentClassicStylePoints? = null,
         val playerPopupPromotion: PlayerPopupPromotionPoints? = null,
         val brandSplashDecoder: HookPoint? = null,
@@ -1968,6 +1972,7 @@ object VersionAdapter {
             sponsorPlayer?.let { put("sponsor_player", it.toJson()) }
             playerSpeedSession?.let { put("player_speed_session", it.toJson()) }
             playerSpeedCalculator?.let { put("player_speed_calculator", it.toJson()) }
+            weChatShare?.let { put("wechat_share", it.toJson()) }
             commentClassicStyle?.let { put("comment_classic", it.toJson()) }
             playerPopupPromotion?.let { put("player_popup_promotion", it.toJson()) }
             brandSplashDecoder?.let { put("brand_splash_decoder", it.toJson()) }
@@ -2373,6 +2378,8 @@ object VersionAdapter {
                         PlayerSpeedSessionClasses.fromJson(o.getJSONObject("player_speed_session")) ?: return null else null,
                     playerSpeedCalculator = if (o.has("player_speed_calculator"))
                         LongPressCalculatorPoint.fromJson(o.getJSONObject("player_speed_calculator")) ?: return null else null,
+                    weChatShare = if (o.has("wechat_share"))
+                        WeChatShareClasses.fromJson(o.getJSONObject("wechat_share")) ?: return null else null,
                     commentClassicStyle = if (o.has("comment_classic"))
                         CommentClassicStylePoints.fromJson(o.getJSONObject("comment_classic")) ?: return null else null,
                     playerPopupPromotion = if (o.has("player_popup_promotion"))
@@ -3194,6 +3201,7 @@ object VersionAdapter {
             sponsorPlayer = runtime.sponsorPlayer ?: cached.sponsorPlayer,
             playerSpeedSession = runtime.playerSpeedSession ?: cached.playerSpeedSession,
             playerSpeedCalculator = runtime.playerSpeedCalculator ?: cached.playerSpeedCalculator,
+            weChatShare = runtime.weChatShare ?: cached.weChatShare,
             commentClassicStyle = CommentClassicStyleLocator.merge(runtime.commentClassicStyle, cached.commentClassicStyle),
             playerPopupPromotion = PlayerPopupPromotionAdapter.merge(runtime.playerPopupPromotion, cached.playerPopupPromotion),
             brandSplashDecoder = runtime.brandSplashDecoder ?: cached.brandSplashDecoder,
@@ -3349,6 +3357,7 @@ object VersionAdapter {
         playerSpeedMenuEnabled: Boolean = false,
         playerSpeedSessionEnabled: Boolean = false,
         playerSpeedCalculatorEnabled: Boolean = false,
+        weChatShareEnabled: Boolean = false,
         searchHomeRecommendEnabled: Boolean = false,
         playerEndPageRecommendEnabled: Boolean = false,
         homeChromeEnabled: Boolean = false,
@@ -3357,7 +3366,7 @@ object VersionAdapter {
         blockUpdateEnabled: Boolean = false,
         commentTopologyEnabled: Boolean = false
     ) = ensureAdapted(
-        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, playerSpeedSessionEnabled, playerSpeedCalculatorEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled, homeChromeEnabled, homeChromeIconOnly, homeTopTabCenteringEnabled, blockUpdateEnabled, commentTopologyEnabled
+        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, playerSpeedSessionEnabled, playerSpeedCalculatorEnabled, weChatShareEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled, homeChromeEnabled, homeChromeIconOnly, homeTopTabCenteringEnabled, blockUpdateEnabled, commentTopologyEnabled
     )
 
     internal fun ensureAdapted(
@@ -3376,6 +3385,7 @@ object VersionAdapter {
         playerSpeedMenuEnabled: Boolean = false,
         playerSpeedSessionEnabled: Boolean = false,
         playerSpeedCalculatorEnabled: Boolean = false,
+        weChatShareEnabled: Boolean = false,
         searchHomeRecommendEnabled: Boolean = false,
         playerEndPageRecommendEnabled: Boolean = false,
         homeChromeEnabled: Boolean = false,
@@ -3438,6 +3448,10 @@ object VersionAdapter {
         val speedCalculatorAttempted = popupHistory?.diagnostics.orEmpty().any {
             it.id == PlayerSpeedLocator.CALCULATOR_DIAGNOSTIC && it.state == AdaptState.MISSING
         }
+        val previousWeChatShare = popupHistory?.weChatShare
+        val weChatShareAttempted = popupHistory?.diagnostics.orEmpty().any {
+            it.id == WeChatShareCompatAccess.DIAGNOSTIC && it.state == AdaptState.MISSING
+        }
         val previousStoryQuality = popupHistory?.playerQuality?.story
         val previouslyMissingStoryQuality = popupHistory?.diagnostics.orEmpty().any {
             it.id == StoryQualityLocator.DIAGNOSTIC && it.state == AdaptState.MISSING
@@ -3481,6 +3495,11 @@ object VersionAdapter {
                 PlayerSpeedLocator.theseus2LongPressCalculator(classLoader, vc) != null,
                 value.playerSpeedCalculator?.let { PlayerSpeedLocator.resolveCalculator(classLoader, it) } != null,
                 value.diagnostics.any { it.id == PlayerSpeedLocator.CALCULATOR_DIAGNOSTIC && it.state == AdaptState.MISSING })
+            val weChatShareRefresh = WeChatShareCompatAccess.refreshCache(weChatShareEnabled,
+                WeChatShareCompatAccess.applicable(classLoader),
+                WeChatShareCompatAccess.locate(classLoader, vc) != null,
+                value.weChatShare?.let { WeChatShareCompatAccess.resolve(classLoader, it) } != null,
+                value.diagnostics.any { it.id == WeChatShareCompatAccess.DIAGNOSTIC && it.state == AdaptState.MISSING })
             return PlayerSpeedMenuAdapter.needsQuery(classLoader, value.playerSpeedMenu, playerSpeedMenuEnabled,
                 value.diagnostics.any { it.id == PlayerSpeedMenuAdapter.DIAGNOSTIC && it.state in setOf(AdaptState.FOUND, AdaptState.MISSING) }) ||
             StoryQualityLocator.planned(classLoader, value.playerQuality?.story, playerQualityEnabled,
@@ -3492,7 +3511,7 @@ object VersionAdapter {
                 HomeChromeAdapter.planned(classLoader, value.homeChrome, homeChromeEnabled, chromeAttempted, homeChromeIconOnly, homeTopTabCenteringEnabled).isNotEmpty() ||
                 HomeChromeAdapter.semanticsNeedsQuery(classLoader, value.homeChromeSemantics, homeChromeEnabled, semanticsAttempted, homeChromeIconOnly) ||
                 assistRefreshNeeded(classLoader, value, blockUpdateEnabled, playerQualityEnabled, commentTopologyEnabled) ||
-                pageRefresh || popupRefresh || classicRefresh || sponsorRefresh || speedSessionRefresh || speedCalculatorRefresh || kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache(
+                pageRefresh || popupRefresh || classicRefresh || sponsorRefresh || speedSessionRefresh || speedCalculatorRefresh || weChatShareRefresh || kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache(
                 enabled = true,
                 applicable = KotlinDefaultWordsLocator.applicable(classLoader),
                 directFound = KotlinDefaultWordsLocator.direct(classLoader) != null,
@@ -3555,6 +3574,7 @@ object VersionAdapter {
                         playerSpeedMenuEnabled, previousSpeedMenu, speedMenuAttempted,
                         playerSpeedSessionEnabled, previousSpeedSession, speedSessionAttempted,
                         playerSpeedCalculatorEnabled, previousSpeedCalculator, speedCalculatorAttempted,
+                        weChatShareEnabled, previousWeChatShare, weChatShareAttempted,
                         searchHomeRecommendEnabled, playerEndPageRecommendEnabled, previousPages, pageAttempted,
                         homeChromeEnabled, previousChrome, chromeAttempted, homeChromeIconOnly,
                         previousChromeSemantics, semanticsAttempted, homeTopTabCenteringEnabled,
@@ -3815,6 +3835,7 @@ object VersionAdapter {
                       playerSpeedMenuEnabled: Boolean, previousSpeedMenu: PlayerSpeedMenuPoints?, speedMenuAttempted: Boolean,
                       playerSpeedSessionEnabled: Boolean, previousSpeedSession: PlayerSpeedSessionClasses?, speedSessionAttempted: Boolean,
                       playerSpeedCalculatorEnabled: Boolean, previousSpeedCalculator: LongPressCalculatorPoint?, speedCalculatorAttempted: Boolean,
+                      weChatShareEnabled: Boolean, previousWeChatShare: WeChatShareClasses?, weChatShareAttempted: Boolean,
                       searchHomeRecommendEnabled: Boolean, playerEndPageRecommendEnabled: Boolean,
                       previousPages: PageBoundaryPoints?, pageAttempted: Set<DexAssistQuery>,
                       homeChromeEnabled: Boolean, previousChrome: Map<String, HookPoint>,
@@ -3853,6 +3874,10 @@ object VersionAdapter {
         val speedCalculatorPlanned = PlayerSpeedLocator.calculatorRefreshCache(playerSpeedCalculatorEnabled,
             PlayerSpeedLocator.calculatorApplicable(loader), directSpeedCalculator != null,
             previousSpeedCalculator?.let { PlayerSpeedLocator.resolveCalculator(loader, it) } != null, speedCalculatorAttempted)
+        val directWeChatShare = if (weChatShareEnabled) WeChatShareCompatAccess.locate(loader, vc) else null
+        val weChatSharePlanned = WeChatShareCompatAccess.refreshCache(weChatShareEnabled,
+            WeChatShareCompatAccess.applicable(loader), directWeChatShare != null,
+            previousWeChatShare?.let { WeChatShareCompatAccess.resolve(loader, it) } != null, weChatShareAttempted)
         val classicMissing = if (commentClassicStyleEnabled) CommentClassicStyleLocator.missing(loader) else emptySet()
         val followPlanned = FollowFeedAdapter.needsQuery(loader, previousFollow, followFeedStyleEnabled, previouslyMissingFollow)
         val pagePlanned = PageBoundaryAdapter.planned(loader, previousPages, searchHomeRecommendEnabled,
@@ -3905,6 +3930,7 @@ object VersionAdapter {
                     if (sponsorNeedsAssist) addAll(SponsorPlayerLocator.queries)
                     if (speedSessionPlanned) addAll(PlayerSpeedSessionLocator.queries)
                     if (speedCalculatorPlanned) addAll(PlayerSpeedLocator.calculatorQueries)
+                    if (weChatSharePlanned) addAll(WeChatShareCompatAccess.queries)
                     classicMissing.forEach { add(it.query) }
                     popupPlanned.forEach { add(it.query) }
                     if (brandPlanned) add(BrandSplashDecoderAdapter.query)
@@ -4014,6 +4040,29 @@ object VersionAdapter {
             speedCalculatorReady -> "verified-long-press-calculator"
             !playerSpeedCalculatorEnabled -> "feature-disabled"
             speedCalculatorPlanned -> when (val outcome = dexAssist?.result(DexAssistQuery.PLAYER_SPEED_LONG_PRESS_CALCULATOR)) {
+                is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                else -> "missing-or-ambiguous-structure"
+            }
+            else -> "cached-attempt"
+        })
+        val weChatShare = when {
+            !weChatShareEnabled -> previousWeChatShare
+            directWeChatShare != null -> WeChatShareVersionProfile.forVersion(vc)?.let(WeChatShareClasses::fromProfile)
+            previousWeChatShare?.let { WeChatShareCompatAccess.resolve(loader, it) } != null -> previousWeChatShare
+            weChatSharePlanned -> WeChatShareCompatAccess.assisted(loader, dexAssist)
+            else -> previousWeChatShare
+        }
+        val weChatShareReady = weChatShareEnabled && (directWeChatShare != null ||
+            weChatShare?.let { WeChatShareCompatAccess.resolve(loader, it) } != null)
+        val weChatShareDiagnostic = AdaptDiagnostic(WeChatShareCompatAccess.DIAGNOSTIC, when {
+            !weChatShareEnabled || !WeChatShareCompatAccess.applicable(loader) -> AdaptState.NOT_APPLICABLE
+            weChatShareReady -> AdaptState.FOUND
+            weChatSharePlanned || weChatShareAttempted -> AdaptState.MISSING
+            else -> AdaptState.NOT_APPLICABLE
+        }, when {
+            weChatShareReady -> "verified-wechat-share-wrappers"
+            !weChatShareEnabled -> "feature-disabled"
+            weChatSharePlanned -> when (val outcome = dexAssist?.result(DexAssistQuery.WECHAT_SHARE_WRAPPER_DISCOVERY)) {
                 is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
                 else -> "missing-or-ambiguous-structure"
             }
@@ -4308,6 +4357,7 @@ object VersionAdapter {
             sponsorPlayer = sponsor?.classes,
             playerSpeedSession = speedSession,
             playerSpeedCalculator = speedCalculator,
+            weChatShare = weChatShare,
             commentClassicStyle = classic,
             playerPopupPromotion = popup,
             brandSplashDecoder = brand,
@@ -4319,7 +4369,7 @@ object VersionAdapter {
         )
         val diagnostics = buildDiagnostics(loader, plan, previous, located, commentTopologyOutcome.failureDetail, vc) +
             protocolFingerprint.toDiagnostic(plan) + blockUpdateAssist.diagnostic +
-            topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + speedSessionDiagnostic + speedCalculatorDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic + pageDiagnostics + chromeDiagnostics + semanticsDiagnostic
+            topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + speedSessionDiagnostic + speedCalculatorDiagnostic + weChatShareDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic + pageDiagnostics + chromeDiagnostics + semanticsDiagnostic
         return located.copy(
             diagnostics = diagnostics,
             coverage = coverageOf(located, locators, plan, previous?.coverage)
