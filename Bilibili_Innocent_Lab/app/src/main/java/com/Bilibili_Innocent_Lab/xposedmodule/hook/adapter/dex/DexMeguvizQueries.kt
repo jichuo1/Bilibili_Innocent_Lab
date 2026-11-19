@@ -63,7 +63,9 @@ internal object DexMeguvizQueries {
     }
 
     private fun MethodRule.configure(query: DexAssistQuery) {
-        when (query) {
+        // 表达式 when 强制编译期穷尽：新增 DexAssistQuery 枚举而漏写分支会直接编译失败，
+        // 而不是静默产出空规则（空规则与无命中无法区分，会伪装成缺失）。
+        val exhaustive: Unit = when (query) {
             DexAssistQuery.OGV_TRENDING_CARD, DexAssistQuery.OGV_DOUBLE_CARD, DexAssistQuery.OGV_UPCOMING_CARD -> {
                 modifiers(Modifier.STATIC)
                 returnType = "void"
