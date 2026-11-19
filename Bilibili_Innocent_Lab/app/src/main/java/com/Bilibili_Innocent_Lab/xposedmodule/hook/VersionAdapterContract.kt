@@ -79,7 +79,9 @@ internal object VersionAdapterContract {
     /** 83 → 84：刷新 9.18/9.19 重新打包后的反射入口、页边界和 DEX 候选。 */
     /** 84 → 85：新增 9.20.0 三构建的已验真媒体 owner（block update / 默认画质）；只加不改 JSON 形状，
      *  不抬 SCHEMA。抬 RULE 让旧设备快路径指纹变化后重定位拿到新落点。 */
-    const val RULE_VERSION = 85
+    /** 85 → 86：倍速会话新增可选缓存键 player_speed_session 并接入既有 Sponsor run/wrapper 查询兜底；
+     *  只加不改 JSON 形状，不抬 SCHEMA。 */
+    const val RULE_VERSION = 86
 
     /**
      * 51 → 52（2026-09-11，9.11.0(9110400) 适配）：

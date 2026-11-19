@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionClasses
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuPoints
 import java.lang.reflect.Constructor
@@ -15,6 +16,7 @@ internal class PlayerSpeedFeatureInstaller(
     defaultPercent: Int,
     speedMenuSpec: String = "",
     private val cachedMenuPoints: PlayerSpeedMenuPoints? = null,
+    private val cachedSessionClasses: PlayerSpeedSessionClasses? = null,
     private val hostVersionCode: Int = 0
 ) : FeatureInstaller {
     override val id = ID
@@ -146,7 +148,7 @@ internal class PlayerSpeedFeatureInstaller(
         } }
         if (defaultSpeed != null && sessions != null) {
             attempt("default-session") {
-                val point = PlayerSpeedSessionLocator.modern(loader) ?: return@attempt false
+                val point = PlayerSpeedSessionLocator.modern(loader, cachedSessionClasses) ?: return@attempt false
                 val speed = defaultPoint ?: return@attempt false
                 sessions.installModern(environment, point, speed)
                 point.wrapper != null

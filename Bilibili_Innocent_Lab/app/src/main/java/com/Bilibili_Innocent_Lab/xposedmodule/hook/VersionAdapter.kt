@@ -17,6 +17,8 @@ import android.widget.TextView
 import android.widget.Toast
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerClasses
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionClasses
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStyleLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStylePoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptAssistGate
@@ -1874,6 +1876,7 @@ object VersionAdapter {
         /** 宿主全部 classes*.dex 的中央目录内容指纹；不包含安装路径。 */
         val dexSourceFingerprint: String = DEX_SOURCE_UNAVAILABLE,
         val sponsorPlayer: SponsorPlayerClasses? = null,
+        val playerSpeedSession: PlayerSpeedSessionClasses? = null,
         val commentClassicStyle: CommentClassicStylePoints? = null,
         val playerPopupPromotion: PlayerPopupPromotionPoints? = null,
         val brandSplashDecoder: HookPoint? = null,
@@ -1960,6 +1963,7 @@ object VersionAdapter {
             commentSection?.let { put("comment_section", it.toJson()) }
             splashAds?.let { put("splash_ads", it.toJson()) }
             sponsorPlayer?.let { put("sponsor_player", it.toJson()) }
+            playerSpeedSession?.let { put("player_speed_session", it.toJson()) }
             commentClassicStyle?.let { put("comment_classic", it.toJson()) }
             playerPopupPromotion?.let { put("player_popup_promotion", it.toJson()) }
             brandSplashDecoder?.let { put("brand_splash_decoder", it.toJson()) }
@@ -2361,6 +2365,8 @@ object VersionAdapter {
                     diagnostics = diagnostics,
                     dexSourceFingerprint = o.getString("dex_fp"),
                     sponsorPlayer = o.optJSONObject("sponsor_player")?.let(SponsorPlayerClasses::fromJson),
+                    playerSpeedSession = if (o.has("player_speed_session"))
+                        PlayerSpeedSessionClasses.fromJson(o.getJSONObject("player_speed_session")) ?: return null else null,
                     commentClassicStyle = if (o.has("comment_classic"))
                         CommentClassicStylePoints.fromJson(o.getJSONObject("comment_classic")) ?: return null else null,
                     playerPopupPromotion = if (o.has("player_popup_promotion"))
@@ -3180,6 +3186,7 @@ object VersionAdapter {
             diagnostics = mergedDiagnostics,
             dexSourceFingerprint = cached.dexSourceFingerprint,
             sponsorPlayer = runtime.sponsorPlayer ?: cached.sponsorPlayer,
+            playerSpeedSession = runtime.playerSpeedSession ?: cached.playerSpeedSession,
             commentClassicStyle = CommentClassicStyleLocator.merge(runtime.commentClassicStyle, cached.commentClassicStyle),
             playerPopupPromotion = PlayerPopupPromotionAdapter.merge(runtime.playerPopupPromotion, cached.playerPopupPromotion),
             brandSplashDecoder = runtime.brandSplashDecoder ?: cached.brandSplashDecoder,
@@ -3333,6 +3340,7 @@ object VersionAdapter {
         followFeedStyleEnabled: Boolean = false,
         playerQualityEnabled: Boolean = false,
         playerSpeedMenuEnabled: Boolean = false,
+        playerSpeedSessionEnabled: Boolean = false,
         searchHomeRecommendEnabled: Boolean = false,
         playerEndPageRecommendEnabled: Boolean = false,
         homeChromeEnabled: Boolean = false,
@@ -3341,7 +3349,7 @@ object VersionAdapter {
         blockUpdateEnabled: Boolean = false,
         commentTopologyEnabled: Boolean = false
     ) = ensureAdapted(
-        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled, homeChromeEnabled, homeChromeIconOnly, homeTopTabCenteringEnabled, blockUpdateEnabled, commentTopologyEnabled
+        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, playerSpeedSessionEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled, homeChromeEnabled, homeChromeIconOnly, homeTopTabCenteringEnabled, blockUpdateEnabled, commentTopologyEnabled
     )
 
     internal fun ensureAdapted(
@@ -3358,6 +3366,7 @@ object VersionAdapter {
         followFeedStyleEnabled: Boolean = false,
         playerQualityEnabled: Boolean = false,
         playerSpeedMenuEnabled: Boolean = false,
+        playerSpeedSessionEnabled: Boolean = false,
         searchHomeRecommendEnabled: Boolean = false,
         playerEndPageRecommendEnabled: Boolean = false,
         homeChromeEnabled: Boolean = false,
@@ -3412,6 +3421,10 @@ object VersionAdapter {
         val speedMenuAttempted = popupHistory?.diagnostics.orEmpty().any {
             it.id == PlayerSpeedMenuAdapter.DIAGNOSTIC && it.state in setOf(AdaptState.FOUND, AdaptState.MISSING)
         }
+        val previousSpeedSession = popupHistory?.playerSpeedSession
+        val speedSessionAttempted = popupHistory?.diagnostics.orEmpty().any {
+            it.id == PlayerSpeedSessionLocator.DIAGNOSTIC && it.state == AdaptState.MISSING
+        }
         val previousStoryQuality = popupHistory?.playerQuality?.story
         val previouslyMissingStoryQuality = popupHistory?.diagnostics.orEmpty().any {
             it.id == StoryQualityLocator.DIAGNOSTIC && it.state == AdaptState.MISSING
@@ -3445,6 +3458,11 @@ object VersionAdapter {
                 SponsorPlayerLocator.direct(classLoader) != null,
                 value.sponsorPlayer?.let { SponsorPlayerLocator.resolve(classLoader, it) } != null,
                 value.diagnostics.any { it.id == SponsorPlayerLocator.DIAGNOSTIC && it.state == AdaptState.MISSING })
+            val speedSessionRefresh = PlayerSpeedSessionLocator.refreshCache(playerSpeedSessionEnabled,
+                PlayerSpeedSessionLocator.applicable(classLoader),
+                PlayerSpeedSessionLocator.modern(classLoader) != null,
+                value.playerSpeedSession?.let { PlayerSpeedSessionLocator.resolve(classLoader, it) } != null,
+                value.diagnostics.any { it.id == PlayerSpeedSessionLocator.DIAGNOSTIC && it.state == AdaptState.MISSING })
             return PlayerSpeedMenuAdapter.needsQuery(classLoader, value.playerSpeedMenu, playerSpeedMenuEnabled,
                 value.diagnostics.any { it.id == PlayerSpeedMenuAdapter.DIAGNOSTIC && it.state in setOf(AdaptState.FOUND, AdaptState.MISSING) }) ||
             StoryQualityLocator.planned(classLoader, value.playerQuality?.story, playerQualityEnabled,
@@ -3456,7 +3474,7 @@ object VersionAdapter {
                 HomeChromeAdapter.planned(classLoader, value.homeChrome, homeChromeEnabled, chromeAttempted, homeChromeIconOnly, homeTopTabCenteringEnabled).isNotEmpty() ||
                 HomeChromeAdapter.semanticsNeedsQuery(classLoader, value.homeChromeSemantics, homeChromeEnabled, semanticsAttempted, homeChromeIconOnly) ||
                 assistRefreshNeeded(classLoader, value, blockUpdateEnabled, playerQualityEnabled, commentTopologyEnabled) ||
-                pageRefresh || popupRefresh || classicRefresh || sponsorRefresh || kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache(
+                pageRefresh || popupRefresh || classicRefresh || sponsorRefresh || speedSessionRefresh || kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache(
                 enabled = true,
                 applicable = KotlinDefaultWordsLocator.applicable(classLoader),
                 directFound = KotlinDefaultWordsLocator.direct(classLoader) != null,
@@ -3517,6 +3535,7 @@ object VersionAdapter {
                         followFeedStyleEnabled, previousFollow, previouslyMissingFollow,
                         playerQualityEnabled, previousStoryQuality, previouslyMissingStoryQuality,
                         playerSpeedMenuEnabled, previousSpeedMenu, speedMenuAttempted,
+                        playerSpeedSessionEnabled, previousSpeedSession, speedSessionAttempted,
                         searchHomeRecommendEnabled, playerEndPageRecommendEnabled, previousPages, pageAttempted,
                         homeChromeEnabled, previousChrome, chromeAttempted, homeChromeIconOnly,
                         previousChromeSemantics, semanticsAttempted, homeTopTabCenteringEnabled,
@@ -3775,6 +3794,7 @@ object VersionAdapter {
                       followFeedStyleEnabled: Boolean, previousFollow: FollowFeedPoints?, previouslyMissingFollow: Boolean,
                       playerQualityEnabled: Boolean, previousStoryQuality: StoryQualityPoints?, previouslyMissingStoryQuality: Boolean,
                       playerSpeedMenuEnabled: Boolean, previousSpeedMenu: PlayerSpeedMenuPoints?, speedMenuAttempted: Boolean,
+                      playerSpeedSessionEnabled: Boolean, previousSpeedSession: PlayerSpeedSessionClasses?, speedSessionAttempted: Boolean,
                       searchHomeRecommendEnabled: Boolean, playerEndPageRecommendEnabled: Boolean,
                       previousPages: PageBoundaryPoints?, pageAttempted: Set<DexAssistQuery>,
                       homeChromeEnabled: Boolean, previousChrome: Map<String, HookPoint>,
@@ -3804,6 +3824,10 @@ object VersionAdapter {
             KotlinDefaultWordsLocator.applicable(loader), homeTopBar?.kotlinDefaultWords != null)
         val directSponsor = if (sponsorBlockEnabled) SponsorPlayerLocator.direct(loader) else null
         val sponsorNeedsAssist = sponsorBlockEnabled && SponsorPlayerLocator.needsQuery(sponsorBlockEnabled, SponsorPlayerLocator.applicable(loader), directSponsor != null)
+        val directSpeedSession = if (playerSpeedSessionEnabled) PlayerSpeedSessionLocator.modern(loader) else null
+        val speedSessionPlanned = PlayerSpeedSessionLocator.refreshCache(playerSpeedSessionEnabled,
+            PlayerSpeedSessionLocator.applicable(loader), directSpeedSession != null,
+            previousSpeedSession?.let { PlayerSpeedSessionLocator.resolve(loader, it) } != null, speedSessionAttempted)
         val classicMissing = if (commentClassicStyleEnabled) CommentClassicStyleLocator.missing(loader) else emptySet()
         val followPlanned = FollowFeedAdapter.needsQuery(loader, previousFollow, followFeedStyleEnabled, previouslyMissingFollow)
         val pagePlanned = PageBoundaryAdapter.planned(loader, previousPages, searchHomeRecommendEnabled,
@@ -3854,6 +3878,7 @@ object VersionAdapter {
                     if (topologyPlanned) add(DexAssistQuery.COMMENT_REPLY_MAPPER)
                     if (defaultWordsNeedsAssist) add(DexAssistQuery.SEARCH_DEFAULT_WORDS_KOTLIN)
                     if (sponsorNeedsAssist) addAll(SponsorPlayerLocator.queries)
+                    if (speedSessionPlanned) addAll(PlayerSpeedSessionLocator.queries)
                     classicMissing.forEach { add(it.query) }
                     popupPlanned.forEach { add(it.query) }
                     if (brandPlanned) add(BrandSplashDecoderAdapter.query)
@@ -3919,6 +3944,30 @@ object VersionAdapter {
             })
         }
         val sponsor = directSponsor ?: if (sponsorNeedsAssist) SponsorPlayerLocator.assisted(loader, dexAssist) else null
+        val speedSession = when {
+            !playerSpeedSessionEnabled -> previousSpeedSession
+            directSpeedSession != null -> PlayerSpeedSessionClasses(
+                directSpeedSession.run.declaringClass.name, directSpeedSession.wrapper?.declaringClass?.name)
+            previousSpeedSession?.let { PlayerSpeedSessionLocator.resolve(loader, it) } != null -> previousSpeedSession
+            speedSessionPlanned -> PlayerSpeedSessionLocator.assisted(loader, dexAssist)
+            else -> previousSpeedSession
+        }
+        val speedSessionReady = playerSpeedSessionEnabled && (directSpeedSession != null ||
+            speedSession?.let { PlayerSpeedSessionLocator.resolve(loader, it) } != null)
+        val speedSessionDiagnostic = AdaptDiagnostic(PlayerSpeedSessionLocator.DIAGNOSTIC, when {
+            !playerSpeedSessionEnabled || !PlayerSpeedSessionLocator.applicable(loader) -> AdaptState.NOT_APPLICABLE
+            speedSessionReady -> AdaptState.FOUND
+            speedSessionPlanned || speedSessionAttempted -> AdaptState.MISSING
+            else -> AdaptState.NOT_APPLICABLE
+        }, when {
+            speedSessionReady -> "verified-speed-session-owner"
+            !playerSpeedSessionEnabled -> "feature-disabled"
+            speedSessionPlanned -> when (val outcome = dexAssist?.result(DexAssistQuery.SPONSOR_RUN_PLAYABLE)) {
+                is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                else -> "missing-or-ambiguous-structure"
+            }
+            else -> "cached-attempt"
+        })
         val speedMenu = PlayerSpeedMenuAdapter.locate(loader, dexAssist, previousSpeedMenu, playerSpeedMenuEnabled, speedMenuPlanned)
         val speedMenuComplete = playerSpeedMenuEnabled && PlayerSpeedMenuAdapter.complete(loader, PlayerSpeedMenuAdapter.resolve(loader, speedMenu))
         val speedMenuDiagnostic = AdaptDiagnostic(PlayerSpeedMenuAdapter.DIAGNOSTIC,
@@ -4206,6 +4255,7 @@ object VersionAdapter {
             diagnostics = emptyList(),
             dexSourceFingerprint = dexSource?.value ?: DEX_SOURCE_UNAVAILABLE,
             sponsorPlayer = sponsor?.classes,
+            playerSpeedSession = speedSession,
             commentClassicStyle = classic,
             playerPopupPromotion = popup,
             brandSplashDecoder = brand,
@@ -4217,7 +4267,7 @@ object VersionAdapter {
         )
         val diagnostics = buildDiagnostics(loader, plan, previous, located, commentTopologyOutcome.failureDetail, vc) +
             protocolFingerprint.toDiagnostic(plan) + blockUpdateAssist.diagnostic +
-            topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic + pageDiagnostics + chromeDiagnostics + semanticsDiagnostic
+            topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + speedSessionDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic + pageDiagnostics + chromeDiagnostics + semanticsDiagnostic
         return located.copy(
             diagnostics = diagnostics,
             coverage = coverageOf(located, locators, plan, previous?.coverage)

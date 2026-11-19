@@ -4000,6 +4000,7 @@ class HookEntry : XposedModule() {
                         defaultPercent = prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT, 0),
                         speedMenuSpec = prefs.getString(FeaturePreferences.PLAYER_SPEED_MENU_PERCENTS, "").orEmpty(),
                         cachedMenuPoints = hostAdaptResult?.playerSpeedMenu,
+                        cachedSessionClasses = hostAdaptResult?.playerSpeedSession,
                         hostVersionCode = startupCache.identity.versionCode
                     ),
                     sponsorInstaller,
@@ -5304,6 +5305,8 @@ class HookEntry : XposedModule() {
                             prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT, 0),
                             prefs.getString(FeaturePreferences.PLAYER_SPEED_MENU_PERCENTS, "")
                         ).isNotEmpty(),
+                        playerSpeedSessionEnabled = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig.multiplier(
+                            prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT, 0)) != null,
                         blockUpdateEnabled = prefs.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false),
                         commentTopologyEnabled = prefs.getBoolean(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, false),
                         plan = adaptPlan
