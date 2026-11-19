@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LongPressCalculatorPoint
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionClasses
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuPoints
@@ -17,6 +18,7 @@ internal class PlayerSpeedFeatureInstaller(
     speedMenuSpec: String = "",
     private val cachedMenuPoints: PlayerSpeedMenuPoints? = null,
     private val cachedSessionClasses: PlayerSpeedSessionClasses? = null,
+    private val cachedCalculatorPoint: LongPressCalculatorPoint? = null,
     private val hostVersionCode: Int = 0
 ) : FeatureInstaller {
     override val id = ID
@@ -111,7 +113,8 @@ internal class PlayerSpeedFeatureInstaller(
         pressSpeed?.let { requested -> PlayerSpeedLocator.theseus2LongPressService(loader)?.let { service ->
             attempt("long-press-speed-theseus2") {
                 val start = PlayerSpeedLocator.theseus2LongPress(loader, service) ?: return@attempt false
-                val calculator = PlayerSpeedLocator.theseus2LongPressCalculator(loader, hostVersionCode) ?: return@attempt false
+                val calculator = PlayerSpeedLocator.theseus2LongPressCalculator(loader, hostVersionCode)
+                    ?: cachedCalculatorPoint?.let { PlayerSpeedLocator.resolveCalculator(loader, it) } ?: return@attempt false
                 installTheseus2LongPressSpeed(environment, start, calculator, requested)
                 true
             }

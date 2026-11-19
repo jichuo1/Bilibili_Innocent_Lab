@@ -206,6 +206,12 @@ internal object DexMeguvizQueries {
                 paramCount(5)
                 addInvoke(name = KotlinDefaultWordsLocator.DESCRIPTOR_GETTER) { paramCount(0) }
             }
+            DexAssistQuery.PLAYER_SPEED_LONG_PRESS_CALCULATOR -> {
+                modifiers(Modifier.STATIC)
+                returnType = "float"
+                paramCount(2)
+                addInvoke(name = "getScriptPace", returnType = "float") { paramCount(0) }
+            }
             DexAssistQuery.PLAYER_SPEED_MENU, DexAssistQuery.STORY_QUALITY_DEFAULT -> error("Expected a multi-rule query")
         }
     }

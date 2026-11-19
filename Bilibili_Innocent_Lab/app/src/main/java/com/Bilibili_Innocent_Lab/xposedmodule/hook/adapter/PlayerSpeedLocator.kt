@@ -2,7 +2,11 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 
 import android.view.MotionEvent
 import android.view.View
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistSession
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import org.json.JSONObject
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
@@ -11,6 +15,21 @@ import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import java.lang.reflect.ParameterizedType
+
+/** 精确构建表外的长按计算器落点：只存类名，恢复时以完整 ABI 复验。 */
+data class LongPressCalculatorPoint(val owner: String, val method: String, val playable: String) {
+    fun toJson() = JSONObject().put("owner", owner).put("method", method).put("playable", playable)
+
+    companion object {
+        fun fromJson(value: JSONObject): LongPressCalculatorPoint? {
+            fun name(key: String) = value.optString(key).takeIf {
+                it.length in 1..512 && it.all { c -> c.isLetterOrDigit() || c in "._$" }
+            }
+            return LongPressCalculatorPoint(name("owner") ?: return null, name("method") ?: return null,
+                name("playable") ?: return null)
+        }
+    }
+}
 
 /** 安装期只解析稳定业务类及其结构；混淆的服务 owner、字段名不进入候选常量。 */
 internal object PlayerSpeedLocator {
@@ -28,6 +47,36 @@ internal object PlayerSpeedLocator {
     const val SPEED_WIDGET_PKG = "com.bilibili.playerbizcommonv2.widget.speed"
     const val SPEED_UTILS_PKG = "com.bilibili.playerbizcommonv2.utils"
     const val THESEUS_SPEED_PKG = "com.bilibili.ship.theseus.united.page.speed"
+
+    const val CALCULATOR_DIAGNOSTIC = "dex.assist.player_speed_calculator"
+    private const val MAX_CALCULATOR_CANDIDATES = 32
+    val calculatorQueries = setOf(DexAssistQuery.PLAYER_SPEED_LONG_PRESS_CALCULATOR)
+
+    fun calculatorApplicable(loader: ClassLoader): Boolean = KavaMemberLookup.hasClass(loader, THESEUS2_SPEED_SERVICE)
+    fun calculatorNeedsQuery(enabled: Boolean, applicable: Boolean, directFound: Boolean) =
+        enabled && applicable && !directFound
+    fun calculatorRefreshCache(enabled: Boolean, applicable: Boolean, directFound: Boolean,
+        cachedFound: Boolean, attempted: Boolean) =
+        calculatorNeedsQuery(enabled, applicable, directFound) && !cachedFound && !attempted
+
+    fun resolveCalculator(loader: ClassLoader, point: LongPressCalculatorPoint): Method? =
+        theseus2LongPressCalculator(loader, point.owner, point.method, point.playable)
+
+    fun assistedCalculator(loader: ClassLoader, session: DexAssistSession?): LongPressCalculatorPoint? {
+        val candidates = session?.result(DexAssistQuery.PLAYER_SPEED_LONG_PRESS_CALCULATOR)
+            as? DexAssistResult.Candidates ?: return null
+        return selectCalculator(loader, candidates)
+    }
+
+    /** 每个候选都过精确构建同款全 ABI 验真；全局只能剩一个 (owner, method, playable)。 */
+    fun selectCalculator(loader: ClassLoader, candidates: DexAssistResult.Candidates): LongPressCalculatorPoint? {
+        if (candidates.methods.size > MAX_CALCULATOR_CANDIDATES) return null
+        return candidates.methods.mapNotNull { method ->
+            val playable = method.parameterTypes.getOrNull(0) ?: return@mapNotNull null
+            val point = LongPressCalculatorPoint(method.declaringClass.name, method.name, playable.name)
+            point.takeIf { resolveCalculator(loader, it) == method }
+        }.distinct().singleOrNull()
+    }
 
     data class LongPressSpeedPoint(val constructor: Constructor<*>, val speedIndex: Int, val speedField: Field)
     data class DefaultSpeedPoint(

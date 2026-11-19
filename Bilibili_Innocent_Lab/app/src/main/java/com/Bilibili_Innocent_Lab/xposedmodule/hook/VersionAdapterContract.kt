@@ -83,7 +83,9 @@ internal object VersionAdapterContract {
      *  只加不改 JSON 形状，不抬 SCHEMA。 */
     /** 86 → 87：SEARCH_HOME_DELIVERY 查询去掉 DISCOVER 包限制（云端枚举证每版声明至多 7 个），
      *  根包扁平 owner 改由 delivery() 全图验真准入；旧缺失结论须重查，只加不改 JSON 形状。 */
-    const val RULE_VERSION = 87
+    /** 87 → 88：长按倍速计算器新增可选缓存键 player_speed_calculator 与 getScriptPace 调用边兜底查询；
+     *  只加不改 JSON 形状，不抬 SCHEMA。 */
+    const val RULE_VERSION = 88
 
     /**
      * 51 → 52（2026-09-11，9.11.0(9110400) 适配）：

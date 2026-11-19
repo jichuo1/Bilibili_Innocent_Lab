@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import android.view.View
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LongPressCalculatorPoint
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -219,6 +220,34 @@ class PlayerSpeedLocatorTest {
             CalcLoader(CalcOwnerI::class.java, CalcPlayableClass::class.java), 9200100))
         assertNull("计算器必须是静态方法", PlayerSpeedLocator.theseus2LongPressCalculator(
             CalcLoader(CalcOwnerNonStatic::class.java, CalcPlayable::class.java), 9200100))
+    }
+
+    @Test fun `dex calculator selection revalidates fully and cache round-trips`() {
+        val loader = javaClass.classLoader!!
+        val methodI = CalcOwnerI::class.java.getMethod("i", CalcPlayable::class.java, Float::class.javaObjectType)
+        val selected = requireNotNull(PlayerSpeedLocator.selectCalculator(loader,
+            com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult.Candidates(listOf(methodI))))
+        assertEquals(CalcOwnerI::class.java.name, selected.owner)
+        assertEquals("i", selected.method)
+        val decoded = requireNotNull(LongPressCalculatorPoint.fromJson(selected.toJson()))
+        assertEquals(selected, decoded)
+        assertEquals(methodI, PlayerSpeedLocator.resolveCalculator(loader, decoded))
+        // 两个不同 owner 同时通过全 ABI 验真是歧义，必须缺失而不是猜一个。
+        val methodH = CalcOwnerH::class.java.getMethod("h", CalcPlayable::class.java, Float::class.javaObjectType)
+        assertNull(PlayerSpeedLocator.selectCalculator(loader,
+            com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult.Candidates(listOf(methodI, methodH))))
+        assertNull(PlayerSpeedLocator.selectCalculator(loader,
+            com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult.Candidates(List(33) { methodI })))
+    }
+
+    @Test fun `calculator gates never scan when disabled direct or already attempted`() {
+        assertFalse(PlayerSpeedLocator.calculatorNeedsQuery(false, true, false))
+        assertFalse(PlayerSpeedLocator.calculatorNeedsQuery(true, false, false))
+        assertFalse(PlayerSpeedLocator.calculatorNeedsQuery(true, true, true))
+        assertTrue(PlayerSpeedLocator.calculatorNeedsQuery(true, true, false))
+        assertTrue(PlayerSpeedLocator.calculatorRefreshCache(true, true, false, false, false))
+        assertFalse(PlayerSpeedLocator.calculatorRefreshCache(true, true, false, false, true))
+        assertFalse(PlayerSpeedLocator.calculatorRefreshCache(true, true, false, true, false))
     }
 
     @Test fun `theseus2 calculator keeps legacy 918 and 919 builds resolving method a`() {

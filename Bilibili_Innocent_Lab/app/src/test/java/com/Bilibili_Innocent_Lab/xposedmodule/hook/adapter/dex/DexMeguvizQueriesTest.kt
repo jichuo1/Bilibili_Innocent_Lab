@@ -27,7 +27,7 @@ class DexMeguvizQueriesTest {
                 assertTrue("$query#$index where must not be empty", where.length() > 0)
             }
         }
-        assertEquals("catalog size is pinned so additions update this guard deliberately", 33, DexAssistQuery.entries.size)
+        assertEquals("catalog size is pinned so additions update this guard deliberately", 34, DexAssistQuery.entries.size)
     }
 
     @Test fun `multi-rule queries keep their fan-out rules`() {

@@ -68,6 +68,13 @@ internal enum class DexAssistQuery {
     /** 倍速列表填充（clear + abs）、选项工厂 ABI 与专用打开事件；运行时复核全部模型结构。 */
     PLAYER_SPEED_MENU,
 
+    /**
+     * theseus2 长按倍速计算器：静态 (playable, Float) -> float 且方法体调用 getScriptPace。
+     * 云端 dexq 对 12 个宿主样本枚举证实：9.1 起每版恰一个非 proto 调用者命中该形状，
+     * owner/方法名/playable 接口逐构建重打包漂移，精确构建表外只能靠此兜底。
+     */
+    PLAYER_SPEED_LONG_PRESS_CALCULATOR,
+
     /** Page callback with history read plus typed square-list delivery; full owner graph revalidated. */
     SEARCH_HOME_DELIVERY,
     /** Typed search landing-page List constructor, never global observable publication. */
