@@ -1,0 +1,74 @@
+[
+  {
+    "name": "gtcrn.onnx",
+    "url": "https://raw.githubusercontent.com/Xiaobin-Rong/gtcrn/502ebfab64da7c4a9af78dcb9c6ceef1ebb01c73/stream/onnx_models/gtcrn_simple.onnx",
+    "license": "MIT",
+    "role": "candidate model, DNS3 pretrained",
+    "bytes": 535190,
+    "sha256": "b4718df6228e7bdf1a8a435cf98f838636eb2fd331acabf86ba87c5192ebcb87"
+  },
+  {
+    "name": "gtcrn-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/Xiaobin-Rong/gtcrn/502ebfab64da7c4a9af78dcb9c6ceef1ebb01c73/LICENSE",
+    "license": "MIT",
+    "role": "model and code license",
+    "bytes": 1069,
+    "sha256": "c467165e5860b4a7494ef4a6e2788e4115d95b5b8989bb5f86287089adddf794"
+  },
+  {
+    "name": "dns-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/microsoft/DNS-Challenge/70f19285c36cca4df2338f9248775ddc50980c6b/LICENSE",
+    "license": "upstream dataset terms",
+    "role": "speech source license",
+    "bytes": 19047,
+    "sha256": "d6239afa918961b465b07bf7411cbe34ff6685854f58553db7966f4881a0211f"
+  },
+  {
+    "name": "speech-0.wav",
+    "url": "https://media.githubusercontent.com/media/microsoft/DNS-Challenge/70f19285c36cca4df2338f9248775ddc50980c6b/datasets/test_set/synthetic/no_reverb/clean/clean_fileid_0.wav",
+    "license": "see dns-LICENSE.txt",
+    "role": "real held-out clean speech",
+    "bytes": 320044,
+    "sha256": "777bf587dcf6b2b6a2c2cc38f0048b9eecd4a0d8fa8b8549ca3697dd68f3eea8"
+  },
+  {
+    "name": "speech-101.wav",
+    "url": "https://media.githubusercontent.com/media/microsoft/DNS-Challenge/70f19285c36cca4df2338f9248775ddc50980c6b/datasets/test_set/synthetic/no_reverb/clean/clean_fileid_101.wav",
+    "license": "see dns-LICENSE.txt",
+    "role": "real held-out clean speech",
+    "bytes": 320044,
+    "sha256": "da12f98bef6bd19b6c3c76f380e67ca8da99ce340da52fd7b61a89d474dfa31b"
+  },
+  {
+    "name": "speech-102.wav",
+    "url": "https://media.githubusercontent.com/media/microsoft/DNS-Challenge/70f19285c36cca4df2338f9248775ddc50980c6b/datasets/test_set/synthetic/no_reverb/clean/clean_fileid_102.wav",
+    "license": "see dns-LICENSE.txt",
+    "role": "real held-out clean speech",
+    "bytes": 320044,
+    "sha256": "810b1c9c88112cef34b23ab843ca523c3fec3960fa8afd2ff52795476e520fdc"
+  },
+  {
+    "name": "speech-zh.wav",
+    "url": "https://raw.githubusercontent.com/wenet-e2e/wenet/3b977aeabcd90f95e0a862babba88abae159f94a/test/resources/aishell-BAC009S0724W0121.wav",
+    "license": "AISHELL-1 / WeNet Apache 2.0; see source notices",
+    "role": "real Mandarin clean speech",
+    "bytes": 137036,
+    "sha256": "2f9fc9c912bb71c85fb286cb88b599c81efb8f727c727a5ea8f6d1c89c55ac13"
+  },
+  {
+    "name": "wenet-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/wenet-e2e/wenet/3b977aeabcd90f95e0a862babba88abae159f94a/LICENSE",
+    "license": "Apache 2.0",
+    "role": "Mandarin fixture repository license",
+    "bytes": 11357,
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  },
+  {
+    "name": "music.ogg",
+    "url": "https://librosa.org/data/audio/Kevin_MacLeod_-_Vibe_Ace.ogg",
+    "license": "CC BY 3.0, Kevin MacLeod, Vibe Ace",
+    "role": "instrumental BGM",
+    "bytes": 380332,
+    "sha256": "6c23aed3dd5aa57f2b1652ecab68d15d9b82ad257f54e639eb2880ca09bc118a"
+  }
+]

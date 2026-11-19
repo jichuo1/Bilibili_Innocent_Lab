@@ -1,0 +1,14 @@
+[project]
+name = "innocent-audio-benchmark"
+version = "0.1.0"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "numpy>=2.2,<3",
+    "scipy>=1.15,<2",
+    "soundfile>=0.13,<1",
+    "onnxruntime>=1.22,<2",
+    "pystoi>=0.4,<1",
+]
+
+[tool.uv]
+package = false

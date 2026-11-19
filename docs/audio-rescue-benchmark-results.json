@@ -1,0 +1,2926 @@
+{
+  "date": "2026-10-24",
+  "baseline_commit": "c1c91b50",
+  "rate": 48000,
+  "seed": 20261024,
+  "device": {
+    "serial": "13a7a291",
+    "rom_model": "OnePlus PJZ110",
+    "soc": "MSM8998",
+    "android_api": 36,
+    "host": "tv.danmaku.bili 9.13.0 (9130500)",
+    "framework": "JingMatrix LSPatch 1.2 (487), API 102"
+  },
+  "sources": [
+    {
+      "name": "gtcrn.onnx",
+      "url": "https://raw.githubusercontent.com/Xiaobin-Rong/gtcrn/502ebfab64da7c4a9af78dcb9c6ceef1ebb01c73/stream/onnx_models/gtcrn_simple.onnx",
+      "license": "MIT",
+      "role": "candidate model, DNS3 pretrained",
+      "bytes": 535190,
+      "sha256": "b4718df6228e7bdf1a8a435cf98f838636eb2fd331acabf86ba87c5192ebcb87"
+    },
+    {
+      "name": "gtcrn-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/Xiaobin-Rong/gtcrn/502ebfab64da7c4a9af78dcb9c6ceef1ebb01c73/LICENSE",
+      "license": "MIT",
+      "role": "model and code license",
+      "bytes": 1069,
+      "sha256": "c467165e5860b4a7494ef4a6e2788e4115d95b5b8989bb5f86287089adddf794"
+    },
+    {
+      "name": "dns-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/microsoft/DNS-Challenge/70f19285c36cca4df2338f9248775ddc50980c6b/LICENSE",
+      "license": "upstream dataset terms",
+      "role": "speech source license",
+      "bytes": 19047,
+      "sha256": "d6239afa918961b465b07bf7411cbe34ff6685854f58553db7966f4881a0211f"
+    },
+    {
+      "name": "speech-0.wav",
+      "url": "https://media.githubusercontent.com/media/microsoft/DNS-Challenge/70f19285c36cca4df2338f9248775ddc50980c6b/datasets/test_set/synthetic/no_reverb/clean/clean_fileid_0.wav",
+      "license": "see dns-LICENSE.txt",
+      "role": "real held-out clean speech",
+      "bytes": 320044,
+      "sha256": "777bf587dcf6b2b6a2c2cc38f0048b9eecd4a0d8fa8b8549ca3697dd68f3eea8"
+    },
+    {
+      "name": "speech-101.wav",
+      "url": "https://media.githubusercontent.com/media/microsoft/DNS-Challenge/70f19285c36cca4df2338f9248775ddc50980c6b/datasets/test_set/synthetic/no_reverb/clean/clean_fileid_101.wav",
+      "license": "see dns-LICENSE.txt",
+      "role": "real held-out clean speech",
+      "bytes": 320044,
+      "sha256": "da12f98bef6bd19b6c3c76f380e67ca8da99ce340da52fd7b61a89d474dfa31b"
+    },
+    {
+      "name": "speech-102.wav",
+      "url": "https://media.githubusercontent.com/media/microsoft/DNS-Challenge/70f19285c36cca4df2338f9248775ddc50980c6b/datasets/test_set/synthetic/no_reverb/clean/clean_fileid_102.wav",
+      "license": "see dns-LICENSE.txt",
+      "role": "real held-out clean speech",
+      "bytes": 320044,
+      "sha256": "810b1c9c88112cef34b23ab843ca523c3fec3960fa8afd2ff52795476e520fdc"
+    },
+    {
+      "name": "speech-zh.wav",
+      "url": "https://raw.githubusercontent.com/wenet-e2e/wenet/3b977aeabcd90f95e0a862babba88abae159f94a/test/resources/aishell-BAC009S0724W0121.wav",
+      "license": "AISHELL-1 / WeNet Apache 2.0; see source notices",
+      "role": "real Mandarin clean speech",
+      "bytes": 137036,
+      "sha256": "2f9fc9c912bb71c85fb286cb88b599c81efb8f727c727a5ea8f6d1c89c55ac13"
+    },
+    {
+      "name": "wenet-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/wenet-e2e/wenet/3b977aeabcd90f95e0a862babba88abae159f94a/LICENSE",
+      "license": "Apache 2.0",
+      "role": "Mandarin fixture repository license",
+      "bytes": 11357,
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    },
+    {
+      "name": "music.ogg",
+      "url": "https://librosa.org/data/audio/Kevin_MacLeod_-_Vibe_Ace.ogg",
+      "license": "CC BY 3.0, Kevin MacLeod, Vibe Ace",
+      "role": "instrumental BGM",
+      "bytes": 380332,
+      "sha256": "6c23aed3dd5aa57f2b1652ecab68d15d9b82ad257f54e639eb2880ca09bc118a"
+    }
+  ],
+  "cases": [
+    {
+      "name": "clean-0",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "clean speech: do not damage",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "8651f902573244a51ff12e8abce695ce7ff24b11ad3e8aad6ef9edf9488f4239",
+      "measurements": {
+        "baseline": {
+          "name": "clean-0",
+          "input_peak": 0.5395447611808777,
+          "output_peak": 0.5658252239227295,
+          "in_si_sdr": 232.88525827496494,
+          "out_si_sdr": 3.124929744685901,
+          "rms_gain_db": -1.634629792958848,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.9947287202244581
+        },
+        "revised": {
+          "name": "clean-0",
+          "input_peak": 0.5395447611808777,
+          "output_peak": 0.5384778380393982,
+          "in_si_sdr": 232.88525827496494,
+          "out_si_sdr": 25.340552353221998,
+          "rms_gain_db": -0.12394071539954188,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.9938414475544822
+        },
+        "device": {
+          "name": "clean-0",
+          "input_peak": 0.5395447611808777,
+          "output_peak": 0.538482666015625,
+          "in_si_sdr": 232.88525827496494,
+          "out_si_sdr": 25.341093817127987,
+          "rms_gain_db": -0.1239370760226012,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.9938437736968502
+        }
+      },
+      "device_runtime": {
+        "name": "clean-0",
+        "mean_ms": "11.764800949999996",
+        "p99_ms": "28.199791",
+        "max_ms": "30.663333",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "clean-guard-0",
+      "config": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "note": "normal speech through guard only: preserve natural syllable crests",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "8651f902573244a51ff12e8abce695ce7ff24b11ad3e8aad6ef9edf9488f4239",
+      "measurements": {
+        "baseline": {
+          "name": "clean-guard-0",
+          "input_peak": 0.5395447611808777,
+          "output_peak": 0.14069728553295135,
+          "in_si_sdr": 232.8869611119096,
+          "out_si_sdr": 7.428650724250284,
+          "rms_gain_db": -5.66976852512083,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.9072969424476576
+        },
+        "revised": {
+          "name": "clean-guard-0",
+          "input_peak": 0.5395447611808777,
+          "output_peak": 0.31476423144340515,
+          "in_si_sdr": 232.8869611119096,
+          "out_si_sdr": 13.51121867860184,
+          "rms_gain_db": -1.8365376875340473,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.9800510338192437
+        },
+        "device": {
+          "name": "clean-guard-0",
+          "input_peak": 0.5395447611808777,
+          "output_peak": 0.31475830078125,
+          "in_si_sdr": 232.8869611119096,
+          "out_si_sdr": 13.511102377059448,
+          "rms_gain_db": -1.8365236693301776,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.9800505639567384
+        }
+      },
+      "device_runtime": {
+        "name": "clean-guard-0",
+        "mean_ms": "0.925338734",
+        "p99_ms": "2.255416",
+        "max_ms": "6.638958",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "center-bgm-0-+5dB",
+      "config": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "note": "fully centered instrumental BGM and centered speech",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "9b9bf049d4887cfbaa2fe770155bc5312e158d6eb8dd7e775b964f61a808fe34",
+      "measurements": {
+        "baseline": {
+          "name": "center-bgm-0-+5dB",
+          "input_peak": 0.5599516034126282,
+          "output_peak": 0.14004388451576233,
+          "in_si_sdr": 5.067685560647205,
+          "out_si_sdr": -0.5585023783841291,
+          "rms_gain_db": -7.839491664316144,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9476601048981079,
+          "out_stoi": 0.8437934883965106
+        },
+        "revised": {
+          "name": "center-bgm-0-+5dB",
+          "input_peak": 0.5599516034126282,
+          "output_peak": 0.30423954129219055,
+          "in_si_sdr": 5.067685560647205,
+          "out_si_sdr": 6.468292303211679,
+          "rms_gain_db": -2.833568550223468,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9476601048981079,
+          "out_stoi": 0.9353867886439189
+        },
+        "device": {
+          "name": "center-bgm-0-+5dB",
+          "input_peak": 0.5599516034126282,
+          "output_peak": 0.304229736328125,
+          "in_si_sdr": 5.067685560647205,
+          "out_si_sdr": 6.468250885863327,
+          "rms_gain_db": -2.8335461692342396,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9476601048981079,
+          "out_stoi": 0.9353884315699802
+        }
+      },
+      "device_runtime": {
+        "name": "center-bgm-0-+5dB",
+        "mean_ms": "10.119537601999996",
+        "p99_ms": "28.412239",
+        "max_ms": "32.164792",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "voice-only-center-0-+5dB",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "isolate model from peak guard; same centered BGM mixture",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "9b9bf049d4887cfbaa2fe770155bc5312e158d6eb8dd7e775b964f61a808fe34",
+      "measurements": {
+        "baseline": {
+          "name": "voice-only-center-0-+5dB",
+          "input_peak": 0.5599516034126282,
+          "output_peak": 0.567107081413269,
+          "in_si_sdr": 5.067685560647205,
+          "out_si_sdr": 1.945643118862845,
+          "rms_gain_db": -2.409298883801453,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9476601048981079,
+          "out_stoi": 0.9452266343841798
+        },
+        "revised": {
+          "name": "voice-only-center-0-+5dB",
+          "input_peak": 0.5599516034126282,
+          "output_peak": 0.5285868644714355,
+          "in_si_sdr": 5.067685560647205,
+          "out_si_sdr": 8.303926883485335,
+          "rms_gain_db": -1.185934355949385,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9476601048981079,
+          "out_stoi": 0.9515746044862756
+        },
+        "device": {
+          "name": "voice-only-center-0-+5dB",
+          "input_peak": 0.5599516034126282,
+          "output_peak": 0.528594970703125,
+          "in_si_sdr": 5.067685560647205,
+          "out_si_sdr": 8.303849304664393,
+          "rms_gain_db": -1.1858983148891964,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9476601048981079,
+          "out_stoi": 0.9515752909333168
+        }
+      },
+      "device_runtime": {
+        "name": "voice-only-center-0-+5dB",
+        "mean_ms": "9.233110404000007",
+        "p99_ms": "16.690208",
+        "max_ms": "21.740468",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "center-bgm-0-+0dB",
+      "config": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "note": "fully centered instrumental BGM and centered speech",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "a3b7038945ab2d5234c9bad819cc9dc036b6b9db9649a3face70870f2a41a373",
+      "measurements": {
+        "baseline": {
+          "name": "center-bgm-0-+0dB",
+          "input_peak": 0.590980589389801,
+          "output_peak": 0.14004388451576233,
+          "in_si_sdr": 0.08220281343676625,
+          "out_si_sdr": -2.2696965156153976,
+          "rms_gain_db": -8.810821248979224,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8973409102545141,
+          "out_stoi": 0.799583551676172
+        },
+        "revised": {
+          "name": "center-bgm-0-+0dB",
+          "input_peak": 0.590980589389801,
+          "output_peak": 0.3040567934513092,
+          "in_si_sdr": 0.08220281343676625,
+          "out_si_sdr": 3.4118449490127873,
+          "rms_gain_db": -4.41074860839991,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8973409102545141,
+          "out_stoi": 0.9020274091572777
+        },
+        "device": {
+          "name": "center-bgm-0-+0dB",
+          "input_peak": 0.590980589389801,
+          "output_peak": 0.304046630859375,
+          "in_si_sdr": 0.08220281343676625,
+          "out_si_sdr": 3.4115737234302426,
+          "rms_gain_db": -4.410586090182349,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8973409102545141,
+          "out_stoi": 0.9020214224164294
+        }
+      },
+      "device_runtime": {
+        "name": "center-bgm-0-+0dB",
+        "mean_ms": "9.142920327999997",
+        "p99_ms": "15.989375",
+        "max_ms": "21.073282",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "voice-only-center-0-+0dB",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "isolate model from peak guard; same centered BGM mixture",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "a3b7038945ab2d5234c9bad819cc9dc036b6b9db9649a3face70870f2a41a373",
+      "measurements": {
+        "baseline": {
+          "name": "voice-only-center-0-+0dB",
+          "input_peak": 0.590980589389801,
+          "output_peak": 0.5681047439575195,
+          "in_si_sdr": 0.08220281343676625,
+          "out_si_sdr": 0.141467826084982,
+          "rms_gain_db": -3.4264489258088786,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8973409102545141,
+          "out_stoi": 0.8973625046059999
+        },
+        "revised": {
+          "name": "voice-only-center-0-+0dB",
+          "input_peak": 0.590980589389801,
+          "output_peak": 0.4952711760997772,
+          "in_si_sdr": 0.08220281343676625,
+          "out_si_sdr": 4.555019068069932,
+          "rms_gain_db": -3.00347526841716,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8973409102545141,
+          "out_stoi": 0.9152479848084641
+        },
+        "device": {
+          "name": "voice-only-center-0-+0dB",
+          "input_peak": 0.590980589389801,
+          "output_peak": 0.49530029296875,
+          "in_si_sdr": 0.08220281343676625,
+          "out_si_sdr": 4.554834496226866,
+          "rms_gain_db": -3.003296064012702,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8973409102545141,
+          "out_stoi": 0.9152455888594061
+        }
+      },
+      "device_runtime": {
+        "name": "voice-only-center-0-+0dB",
+        "mean_ms": "8.704640446000006",
+        "p99_ms": "16.087708",
+        "max_ms": "20.088906",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "center-bgm-0--5dB",
+      "config": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "note": "fully centered instrumental BGM and centered speech",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "8f96b3f34b5165af390b7038aa749138ec52cfa7d4991d553755f3aa3e95a801",
+      "measurements": {
+        "baseline": {
+          "name": "center-bgm-0--5dB",
+          "input_peak": 0.6461588144302368,
+          "output_peak": 0.14004388451576233,
+          "in_si_sdr": -4.89204150147398,
+          "out_si_sdr": -4.544063573584914,
+          "rms_gain_db": -10.658780780532437,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8290934324044377,
+          "out_stoi": 0.7368007672985182
+        },
+        "revised": {
+          "name": "center-bgm-0--5dB",
+          "input_peak": 0.6461588144302368,
+          "output_peak": 0.30411496758461,
+          "in_si_sdr": -4.89204150147398,
+          "out_si_sdr": 0.5296682457600116,
+          "rms_gain_db": -7.572870909022436,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8290934324044377,
+          "out_stoi": 0.8586278676650796
+        },
+        "device": {
+          "name": "center-bgm-0--5dB",
+          "input_peak": 0.6461588144302368,
+          "output_peak": 0.304107666015625,
+          "in_si_sdr": -4.89204150147398,
+          "out_si_sdr": 0.5294793770735702,
+          "rms_gain_db": -7.5727026806437685,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8290934324044377,
+          "out_stoi": 0.8586048048450212
+        }
+      },
+      "device_runtime": {
+        "name": "center-bgm-0--5dB",
+        "mean_ms": "9.555054281999992",
+        "p99_ms": "17.245365",
+        "max_ms": "20.459115",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "voice-only-center-0--5dB",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "isolate model from peak guard; same centered BGM mixture",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "8f96b3f34b5165af390b7038aa749138ec52cfa7d4991d553755f3aa3e95a801",
+      "measurements": {
+        "baseline": {
+          "name": "voice-only-center-0--5dB",
+          "input_peak": 0.6461588144302368,
+          "output_peak": 0.5829483270645142,
+          "in_si_sdr": -4.89204150147398,
+          "out_si_sdr": -3.0247794189833415,
+          "rms_gain_db": -4.753963133916356,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8290934324044377,
+          "out_stoi": 0.8312011918126254
+        },
+        "revised": {
+          "name": "voice-only-center-0--5dB",
+          "input_peak": 0.6461588144302368,
+          "output_peak": 0.45719051361083984,
+          "in_si_sdr": -4.89204150147398,
+          "out_si_sdr": 1.0441436380917186,
+          "rms_gain_db": -6.442880220045577,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8290934324044377,
+          "out_stoi": 0.8658077152102577
+        },
+        "device": {
+          "name": "voice-only-center-0--5dB",
+          "input_peak": 0.6461588144302368,
+          "output_peak": 0.4571533203125,
+          "in_si_sdr": -4.89204150147398,
+          "out_si_sdr": 1.0439132682222307,
+          "rms_gain_db": -6.442664619577098,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8290934324044377,
+          "out_stoi": 0.8657838933591147
+        }
+      },
+      "device_runtime": {
+        "name": "voice-only-center-0--5dB",
+        "mean_ms": "10.846298107999996",
+        "p99_ms": "27.26599",
+        "max_ms": "33.346771",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "wide-bgm-0",
+      "config": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "note": "constructed stereo BGM; same source and level as centered 0 dB",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "bdcd3b4eff271b53e290373737d73fcf71e1a4da51ae106e71dafcd3f8840616",
+      "measurements": {
+        "baseline": {
+          "name": "wide-bgm-0",
+          "input_peak": 0.590980589389801,
+          "output_peak": 0.14080022275447845,
+          "in_si_sdr": 0.0359095777524711,
+          "out_si_sdr": -1.8482674220212572,
+          "rms_gain_db": -9.140029321445947,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9005640897705972,
+          "out_stoi": 0.8169176835785021
+        },
+        "revised": {
+          "name": "wide-bgm-0",
+          "input_peak": 0.590980589389801,
+          "output_peak": 0.3039446473121643,
+          "in_si_sdr": 0.0359095777524711,
+          "out_si_sdr": 3.315744810211797,
+          "rms_gain_db": -4.491755208308253,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9005640897705972,
+          "out_stoi": 0.9003071239492182
+        },
+        "device": {
+          "name": "wide-bgm-0",
+          "input_peak": 0.590980589389801,
+          "output_peak": 0.303924560546875,
+          "in_si_sdr": 0.0359095777524711,
+          "out_si_sdr": 3.3156789233313693,
+          "rms_gain_db": -4.491819627345524,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9005640897705972,
+          "out_stoi": 0.9002774076422893
+        }
+      },
+      "device_runtime": {
+        "name": "wide-bgm-0",
+        "mean_ms": "9.587136685999997",
+        "p99_ms": "20.888646",
+        "max_ms": "26.141094",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "voice-only-wide-0",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "isolate model from peak guard; same stereo BGM mixture",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "bdcd3b4eff271b53e290373737d73fcf71e1a4da51ae106e71dafcd3f8840616",
+      "measurements": {
+        "baseline": {
+          "name": "voice-only-wide-0",
+          "input_peak": 0.590980589389801,
+          "output_peak": 0.5746342539787292,
+          "in_si_sdr": 0.0359095777524711,
+          "out_si_sdr": 0.7535017501617993,
+          "rms_gain_db": -3.7203894802067463,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9005640897705972,
+          "out_stoi": 0.9167847667089415
+        },
+        "revised": {
+          "name": "voice-only-wide-0",
+          "input_peak": 0.590980589389801,
+          "output_peak": 0.5023894309997559,
+          "in_si_sdr": 0.0359095777524711,
+          "out_si_sdr": 4.480536714891357,
+          "rms_gain_db": -3.056367494841342,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9005640897705972,
+          "out_stoi": 0.9148624585053491
+        },
+        "device": {
+          "name": "voice-only-wide-0",
+          "input_peak": 0.590980589389801,
+          "output_peak": 0.50238037109375,
+          "in_si_sdr": 0.0359095777524711,
+          "out_si_sdr": 4.4807924730921105,
+          "rms_gain_db": -3.056665893177748,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9005640897705972,
+          "out_stoi": 0.9148355772399139
+        }
+      },
+      "device_runtime": {
+        "name": "voice-only-wide-0",
+        "mean_ms": "8.742164059999995",
+        "p99_ms": "16.416355",
+        "max_ms": "20.020677",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "panned-voice-center-bgm",
+      "config": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "note": "speaker panned left; centered BGM",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "2c78cf9d4ed166ca4f0bb8d9f501280701c77ef50fc8e612b0d46e66c8a9c526",
+      "measurements": {
+        "baseline": {
+          "name": "panned-voice-center-bgm",
+          "input_peak": 0.590980589389801,
+          "output_peak": 0.1324971467256546,
+          "in_si_sdr": -2.6589776236352747,
+          "out_si_sdr": -3.800934546714241,
+          "rms_gain_db": -9.020423864762794,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8009323591880488,
+          "out_stoi": 0.7526310748803118
+        },
+        "revised": {
+          "name": "panned-voice-center-bgm",
+          "input_peak": 0.590980589389801,
+          "output_peak": 0.30170366168022156,
+          "in_si_sdr": -2.6589776236352747,
+          "out_si_sdr": 1.593271602397813,
+          "rms_gain_db": -6.027236796674188,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8009323591880488,
+          "out_stoi": 0.8378600213663918
+        },
+        "device": {
+          "name": "panned-voice-center-bgm",
+          "input_peak": 0.590980589389801,
+          "output_peak": 0.30169677734375,
+          "in_si_sdr": -2.6589776236352747,
+          "out_si_sdr": 1.5942631329135362,
+          "rms_gain_db": -6.02747449009998,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8009323591880488,
+          "out_stoi": 0.8379083345147015
+        }
+      },
+      "device_runtime": {
+        "name": "panned-voice-center-bgm",
+        "mean_ms": "9.669723215999998",
+        "p99_ms": "25.779323",
+        "max_ms": "28.933229",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "antiphase-voice",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "phase-inverted speech must not disappear",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "50e188fb9bec7e0958afec118ceacdbd0dede01cc6638167edda923b1ccd3f3d",
+      "measurements": {
+        "baseline": {
+          "name": "antiphase-voice",
+          "input_peak": 0.5395447611808777,
+          "output_peak": 0.3223308324813843,
+          "in_si_sdr": 232.88526024436277,
+          "out_si_sdr": 7.539178694967733,
+          "rms_gain_db": -6.197181561801814,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.9981361910931394
+        },
+        "revised": {
+          "name": "antiphase-voice",
+          "input_peak": 0.5395447611808777,
+          "output_peak": 0.5384778380393982,
+          "in_si_sdr": 232.88526024436277,
+          "out_si_sdr": 25.3405407266607,
+          "rms_gain_db": -0.12394071539954188,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.9938414475544822
+        },
+        "device": {
+          "name": "antiphase-voice",
+          "input_peak": 0.5395447611808777,
+          "output_peak": 0.538482666015625,
+          "in_si_sdr": 232.88526024436277,
+          "out_si_sdr": 25.3285565733782,
+          "rms_gain_db": -0.12430041685122545,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.9938038908636024
+        }
+      },
+      "device_runtime": {
+        "name": "antiphase-voice",
+        "mean_ms": "9.763578872",
+        "p99_ms": "21.154792",
+        "max_ms": "30.51026",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "missing-left",
+      "config": [
+        0,
+        2,
+        0,
+        0
+      ],
+      "note": "auto repair: remaining good ear named in filename",
+      "kind": "channel",
+      "frames": 480000,
+      "input_sha256": "b99523c2e803ade26d28003e2289ed15c4afd0647110fdd623a3abc9db14da4d",
+      "measurements": {
+        "baseline": {
+          "name": "missing-left",
+          "input_peak": 0.5395447611808777,
+          "output_peak": 0.5395447611808777,
+          "in_si_sdr": -1.9424190793768497e-06,
+          "out_si_sdr": 13.534500262752164,
+          "rms_gain_db": 2.7542167282491037,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "ear_difference_rms": 0.011726006162619707
+        },
+        "revised": {
+          "name": "missing-left",
+          "input_peak": 0.5395447611808777,
+          "output_peak": 0.5395447611808777,
+          "in_si_sdr": -1.9424190793768497e-06,
+          "out_si_sdr": 19.182579267781904,
+          "rms_gain_db": 2.930666321175706,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "ear_difference_rms": 1e-10
+        },
+        "device": {
+          "name": "missing-left",
+          "input_peak": 0.5395447611808777,
+          "output_peak": 0.53955078125,
+          "in_si_sdr": -1.9424190793768497e-06,
+          "out_si_sdr": 19.182568507652928,
+          "rms_gain_db": 2.930670701278059,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "ear_difference_rms": 1e-10
+        }
+      },
+      "device_runtime": {
+        "name": "missing-left",
+        "mean_ms": "0.6727037540000002",
+        "p99_ms": "2.447917",
+        "max_ms": "3.800468",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "missing-right",
+      "config": [
+        0,
+        2,
+        0,
+        0
+      ],
+      "note": "auto repair: remaining good ear named in filename",
+      "kind": "channel",
+      "frames": 480000,
+      "input_sha256": "4b2795103e47686a7ecc40fc8a67ea0f286032731bb650ad7c9f8205e57b32e0",
+      "measurements": {
+        "baseline": {
+          "name": "missing-right",
+          "input_peak": 0.5395447611808777,
+          "output_peak": 0.5395447611808777,
+          "in_si_sdr": -1.9424190793768497e-06,
+          "out_si_sdr": 13.534500262752164,
+          "rms_gain_db": 2.7542167282491037,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "ear_difference_rms": 0.011726006162619707
+        },
+        "revised": {
+          "name": "missing-right",
+          "input_peak": 0.5395447611808777,
+          "output_peak": 0.5395447611808777,
+          "in_si_sdr": -1.9424190793768497e-06,
+          "out_si_sdr": 19.182579267781904,
+          "rms_gain_db": 2.930666321175706,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "ear_difference_rms": 1e-10
+        },
+        "device": {
+          "name": "missing-right",
+          "input_peak": 0.5395447611808777,
+          "output_peak": 0.53955078125,
+          "in_si_sdr": -1.9424190793768497e-06,
+          "out_si_sdr": 19.182568507652928,
+          "rms_gain_db": 2.930670701278059,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "ear_difference_rms": 1e-10
+        }
+      },
+      "device_runtime": {
+        "name": "missing-right",
+        "mean_ms": "0.7280939160000002",
+        "p99_ms": "1.528334",
+        "max_ms": "2.501406",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "mains-hum",
+      "config": [
+        0,
+        0,
+        1,
+        0
+      ],
+      "note": "50/60/100/120 Hz mains interference",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "9bf5bbf1efbf1a86b9a6560eb882d7e9f70c2178c4a986970cb078c5d60054d0",
+      "measurements": {
+        "baseline": {
+          "name": "mains-hum",
+          "input_peak": 0.5645641684532166,
+          "output_peak": 0.6048963069915771,
+          "in_si_sdr": 5.154371285546498,
+          "out_si_sdr": 3.6009239248795133,
+          "rms_gain_db": -1.582598817480554,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9822297692436387,
+          "out_stoi": 0.9933401798402357
+        },
+        "revised": {
+          "name": "mains-hum",
+          "input_peak": 0.5645641684532166,
+          "output_peak": 0.5451571941375732,
+          "in_si_sdr": 5.154371285546498,
+          "out_si_sdr": 10.4859795390651,
+          "rms_gain_db": -1.314635765987383,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9822297692436387,
+          "out_stoi": 0.9847299976942435
+        },
+        "device": {
+          "name": "mains-hum",
+          "input_peak": 0.5645641684532166,
+          "output_peak": 0.545166015625,
+          "in_si_sdr": 5.154371285546498,
+          "out_si_sdr": 10.485895553166735,
+          "rms_gain_db": -1.3146173881369787,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9822297692436387,
+          "out_stoi": 0.9847288627892964
+        }
+      },
+      "device_runtime": {
+        "name": "mains-hum",
+        "mean_ms": "11.38659001200001",
+        "p99_ms": "28.489427",
+        "max_ms": "31.785573",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "broadband-hiss",
+      "config": [
+        0,
+        0,
+        1,
+        0
+      ],
+      "note": "stationary broadband noise at +5 dB speech/noise ratio",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "f4eb19cbdfd2ad5b100069031c6b8e2e8c36a91a81ed7dcec1db48c0fb52cfdf",
+      "measurements": {
+        "baseline": {
+          "name": "broadband-hiss",
+          "input_peak": 0.5782525539398193,
+          "output_peak": 0.6412643194198608,
+          "in_si_sdr": 5.0055561632661085,
+          "out_si_sdr": 0.30327419303037517,
+          "rms_gain_db": -0.2999305850710196,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9355515167185454,
+          "out_stoi": 0.9289035558144864
+        },
+        "revised": {
+          "name": "broadband-hiss",
+          "input_peak": 0.5782525539398193,
+          "output_peak": 0.5258501172065735,
+          "in_si_sdr": 5.0055561632661085,
+          "out_si_sdr": 15.519987285075242,
+          "rms_gain_db": -1.3552319877383532,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9355515167185454,
+          "out_stoi": 0.9519602580319821
+        },
+        "device": {
+          "name": "broadband-hiss",
+          "input_peak": 0.5782525539398193,
+          "output_peak": 0.525848388671875,
+          "in_si_sdr": 5.0055561632661085,
+          "out_si_sdr": 15.519920473887998,
+          "rms_gain_db": -1.3552042236701816,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9355515167185454,
+          "out_stoi": 0.9519555542496247
+        }
+      },
+      "device_runtime": {
+        "name": "broadband-hiss",
+        "mean_ms": "11.232974792",
+        "p99_ms": "27.324948",
+        "max_ms": "33.549792",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "noise-in-pause",
+      "config": [
+        0,
+        0,
+        1,
+        0
+      ],
+      "note": "one-second pause with continuing noise",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "ef021d1ccc0ba6362b84bbb0a48798d5005ab44aa0044188df4f17bbfd02deef",
+      "measurements": {
+        "baseline": {
+          "name": "noise-in-pause",
+          "input_peak": 0.5619552135467529,
+          "output_peak": 0.6172854900360107,
+          "in_si_sdr": 10.20876224674976,
+          "out_si_sdr": 3.136925090333049,
+          "rms_gain_db": -0.5833266675671436,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9849226315213699,
+          "out_stoi": 0.9825451220768076
+        },
+        "revised": {
+          "name": "noise-in-pause",
+          "input_peak": 0.5619552135467529,
+          "output_peak": 0.5397272109985352,
+          "in_si_sdr": 10.20876224674976,
+          "out_si_sdr": 14.751201146293305,
+          "rms_gain_db": -0.5023785565087715,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9849226315213699,
+          "out_stoi": 0.9836395214948741
+        },
+        "device": {
+          "name": "noise-in-pause",
+          "input_peak": 0.5619552135467529,
+          "output_peak": 0.53973388671875,
+          "in_si_sdr": 10.20876224674976,
+          "out_si_sdr": 14.751676931502043,
+          "rms_gain_db": -0.5024388968329327,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9849226315213699,
+          "out_stoi": 0.9836139147764771
+        }
+      },
+      "device_runtime": {
+        "name": "noise-in-pause",
+        "mean_ms": "10.471544467999994",
+        "p99_ms": "23.674896",
+        "max_ms": "29.740209",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "sudden-burst-short",
+      "config": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "note": "fixed 4 s abrupt burst; compare attack, ceiling, recovery",
+      "kind": "peak",
+      "frames": 480000,
+      "input_sha256": "787ee1049ae467063ab705fb50cbdfc46e1fe5cc1682e4c95fdfe75cbd1fe866",
+      "measurements": {
+        "baseline": {
+          "name": "sudden-burst-short",
+          "input_peak": 0.8892074227333069,
+          "output_peak": 0.14069728553295135,
+          "in_si_sdr": 4.579841320128332,
+          "out_si_sdr": 6.690561148501262,
+          "rms_gain_db": -6.904967545722602,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "burst_reduction_db": -17.100823671203006,
+          "pre_burst_error_rms": 0.025908610227347993
+        },
+        "revised": {
+          "name": "sudden-burst-short",
+          "input_peak": 0.8892074227333069,
+          "output_peak": 0.31476423144340515,
+          "in_si_sdr": 4.579841320128332,
+          "out_si_sdr": 10.265092590807381,
+          "rms_gain_db": -3.011492301162524,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "burst_reduction_db": -10.725711677508823,
+          "pre_burst_error_rms": 0.011176703626261685
+        },
+        "device": {
+          "name": "sudden-burst-short",
+          "input_peak": 0.8892074227333069,
+          "output_peak": 0.31475830078125,
+          "in_si_sdr": 4.579841320128332,
+          "out_si_sdr": 10.265062594142993,
+          "rms_gain_db": -3.01148290475847,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "burst_reduction_db": -10.725739432424328,
+          "pre_burst_error_rms": 0.011176644533660638
+        }
+      },
+      "device_runtime": {
+        "name": "sudden-burst-short",
+        "mean_ms": "0.7661990939999996",
+        "p99_ms": "1.218958",
+        "max_ms": "4.689427",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "sudden-burst-long",
+      "config": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "note": "fixed 4 s abrupt burst; compare attack, ceiling, recovery",
+      "kind": "peak",
+      "frames": 480000,
+      "input_sha256": "a59f49dd59bc5b5401349deed342c3faf9d53ae859e31bec30d4bde6e34e5c78",
+      "measurements": {
+        "baseline": {
+          "name": "sudden-burst-long",
+          "input_peak": 0.949999988079071,
+          "output_peak": 0.137067511677742,
+          "in_si_sdr": -8.509807372428664,
+          "out_si_sdr": 1.100992265772318,
+          "rms_gain_db": -12.160295033570641,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "burst_reduction_db": -15.421708537222202,
+          "pre_burst_error_rms": 0.018806717085352347
+        },
+        "revised": {
+          "name": "sudden-burst-long",
+          "input_peak": 0.949999988079071,
+          "output_peak": 0.3089858591556549,
+          "in_si_sdr": -8.509807372428664,
+          "out_si_sdr": -0.3371477589493616,
+          "rms_gain_db": -7.588198583913005,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "burst_reduction_db": -9.047765274573855,
+          "pre_burst_error_rms": 0.006059349692064636
+        },
+        "device": {
+          "name": "sudden-burst-long",
+          "input_peak": 0.949999988079071,
+          "output_peak": 0.308990478515625,
+          "in_si_sdr": -8.509807372428664,
+          "out_si_sdr": -0.3371655765716235,
+          "rms_gain_db": -7.588187587993276,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "burst_reduction_db": -9.047779821034984,
+          "pre_burst_error_rms": 0.006059604346250036
+        }
+      },
+      "device_runtime": {
+        "name": "sudden-burst-long",
+        "mean_ms": "0.7933403139999988",
+        "p99_ms": "2.637552",
+        "max_ms": "5.114115",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "clean-101",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "clean speech: do not damage",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "84c1ae8a3595b1b0cf4d8f7c149a4b7bfb7d59ae3f49e744f71e7918c108b90b",
+      "measurements": {
+        "baseline": {
+          "name": "clean-101",
+          "input_peak": 0.39348363876342773,
+          "output_peak": 0.40998685359954834,
+          "in_si_sdr": 232.886950153572,
+          "out_si_sdr": 1.187394964597435,
+          "rms_gain_db": -2.1261833642059274,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.9989089560432118
+        },
+        "revised": {
+          "name": "clean-101",
+          "input_peak": 0.39348363876342773,
+          "output_peak": 0.39252808690071106,
+          "in_si_sdr": 232.886950153572,
+          "out_si_sdr": 25.3848321991537,
+          "rms_gain_db": -0.09843904299151918,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.9901191181164454
+        },
+        "device": {
+          "name": "clean-101",
+          "input_peak": 0.39348363876342773,
+          "output_peak": 0.39251708984375,
+          "in_si_sdr": 232.886950153572,
+          "out_si_sdr": 25.390652042686945,
+          "rms_gain_db": -0.09833049012957631,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.9901266479982821
+        }
+      },
+      "device_runtime": {
+        "name": "clean-101",
+        "mean_ms": "10.890789058000005",
+        "p99_ms": "27.288385",
+        "max_ms": "34.798697",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "clean-guard-101",
+      "config": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "note": "normal speech through guard only: preserve natural syllable crests",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "84c1ae8a3595b1b0cf4d8f7c149a4b7bfb7d59ae3f49e744f71e7918c108b90b",
+      "measurements": {
+        "baseline": {
+          "name": "clean-guard-101",
+          "input_peak": 0.39348363876342773,
+          "output_peak": 0.13322702050209045,
+          "in_si_sdr": 232.8869543598431,
+          "out_si_sdr": 10.966362950007632,
+          "rms_gain_db": -2.6367703970177114,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "in_stoi": 0.9999999999999996,
+          "out_stoi": 0.9800995621594801
+        },
+        "revised": {
+          "name": "clean-guard-101",
+          "input_peak": 0.39348363876342773,
+          "output_peak": 0.25,
+          "in_si_sdr": 232.8869543598431,
+          "out_si_sdr": 19.176890054986437,
+          "rms_gain_db": -0.41085400587683174,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "in_stoi": 0.9999999999999996,
+          "out_stoi": 0.9980248678457685
+        },
+        "device": {
+          "name": "clean-guard-101",
+          "input_peak": 0.39348363876342773,
+          "output_peak": 0.25,
+          "in_si_sdr": 232.8869543598431,
+          "out_si_sdr": 19.17641193491168,
+          "rms_gain_db": -0.4108217920871431,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "in_stoi": 0.9999999999999996,
+          "out_stoi": 0.9980246063551306
+        }
+      },
+      "device_runtime": {
+        "name": "clean-guard-101",
+        "mean_ms": "0.762006752",
+        "p99_ms": "1.206927",
+        "max_ms": "3.272552",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "center-bgm-101-+5dB",
+      "config": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "note": "fully centered instrumental BGM and centered speech",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "57f6f12977f6da4d5c8c9596b37471e8db5fd190f07831dedba19d1102c3f322",
+      "measurements": {
+        "baseline": {
+          "name": "center-bgm-101-+5dB",
+          "input_peak": 0.4248519539833069,
+          "output_peak": 0.1309681087732315,
+          "in_si_sdr": 5.062021143576704,
+          "out_si_sdr": -0.8628830402964692,
+          "rms_gain_db": -5.532453682338925,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9374479654657025,
+          "out_stoi": 0.9133736479313694
+        },
+        "revised": {
+          "name": "center-bgm-101-+5dB",
+          "input_peak": 0.4248519539833069,
+          "output_peak": 0.25,
+          "in_si_sdr": 5.062021143576704,
+          "out_si_sdr": 13.057716129927616,
+          "rms_gain_db": -1.9637225416248392,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9374479654657025,
+          "out_stoi": 0.9542947851110742
+        },
+        "device": {
+          "name": "center-bgm-101-+5dB",
+          "input_peak": 0.4248519539833069,
+          "output_peak": 0.25,
+          "in_si_sdr": 5.062021143576704,
+          "out_si_sdr": 13.057685943080537,
+          "rms_gain_db": -1.9637833020836921,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9374479654657025,
+          "out_stoi": 0.9542920337678831
+        }
+      },
+      "device_runtime": {
+        "name": "center-bgm-101-+5dB",
+        "mean_ms": "11.548845530000008",
+        "p99_ms": "29.834948",
+        "max_ms": "40.002604",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "voice-only-center-101-+5dB",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "isolate model from peak guard; same centered BGM mixture",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "57f6f12977f6da4d5c8c9596b37471e8db5fd190f07831dedba19d1102c3f322",
+      "measurements": {
+        "baseline": {
+          "name": "voice-only-center-101-+5dB",
+          "input_peak": 0.4248519539833069,
+          "output_peak": 0.41216474771499634,
+          "in_si_sdr": 5.062021143576704,
+          "out_si_sdr": 0.2792640400276136,
+          "rms_gain_db": -2.888128151734835,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9374479654657025,
+          "out_stoi": 0.9385705671048181
+        },
+        "revised": {
+          "name": "voice-only-center-101-+5dB",
+          "input_peak": 0.4248519539833069,
+          "output_peak": 0.38456717133522034,
+          "in_si_sdr": 5.062021143576704,
+          "out_si_sdr": 14.162248750195438,
+          "rms_gain_db": -1.5718748531055815,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9374479654657025,
+          "out_stoi": 0.9560158871845249
+        },
+        "device": {
+          "name": "voice-only-center-101-+5dB",
+          "input_peak": 0.4248519539833069,
+          "output_peak": 0.38458251953125,
+          "in_si_sdr": 5.062021143576704,
+          "out_si_sdr": 14.162171133731867,
+          "rms_gain_db": -1.571947758958293,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9374479654657025,
+          "out_stoi": 0.956013261042871
+        }
+      },
+      "device_runtime": {
+        "name": "voice-only-center-101-+5dB",
+        "mean_ms": "11.505985958000005",
+        "p99_ms": "31.810104",
+        "max_ms": "33.094115",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "center-bgm-101-+0dB",
+      "config": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "note": "fully centered instrumental BGM and centered speech",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "5cead568066439ece433e141fb24b53f59e8d8e32f3ee6e184f1c3ec25e55ce0",
+      "measurements": {
+        "baseline": {
+          "name": "center-bgm-101-+0dB",
+          "input_peak": 0.4492652416229248,
+          "output_peak": 0.13617831468582153,
+          "in_si_sdr": 0.060639343361594066,
+          "out_si_sdr": -2.4551030870411057,
+          "rms_gain_db": -6.663288004763074,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.874790956582782,
+          "out_stoi": 0.8531636089568033
+        },
+        "revised": {
+          "name": "center-bgm-101-+0dB",
+          "input_peak": 0.4492652416229248,
+          "output_peak": 0.25,
+          "in_si_sdr": 0.060639343361594066,
+          "out_si_sdr": 9.354780486686533,
+          "rms_gain_db": -5.074286176170107,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.874790956582782,
+          "out_stoi": 0.923506286679639
+        },
+        "device": {
+          "name": "center-bgm-101-+0dB",
+          "input_peak": 0.4492652416229248,
+          "output_peak": 0.25,
+          "in_si_sdr": 0.060639343361594066,
+          "out_si_sdr": 9.354624753885417,
+          "rms_gain_db": -5.074638613789214,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.874790956582782,
+          "out_stoi": 0.9235044798281178
+        }
+      },
+      "device_runtime": {
+        "name": "center-bgm-101-+0dB",
+        "mean_ms": "12.000579379999989",
+        "p99_ms": "30.278281",
+        "max_ms": "33.821406",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "voice-only-center-101-+0dB",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "isolate model from peak guard; same centered BGM mixture",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "5cead568066439ece433e141fb24b53f59e8d8e32f3ee6e184f1c3ec25e55ce0",
+      "measurements": {
+        "baseline": {
+          "name": "voice-only-center-101-+0dB",
+          "input_peak": 0.4492652416229248,
+          "output_peak": 0.4139968454837799,
+          "in_si_sdr": 0.060639343361594066,
+          "out_si_sdr": -1.2168254050468732,
+          "rms_gain_db": -3.9031640389068123,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.874790956582782,
+          "out_stoi": 0.878696691899611
+        },
+        "revised": {
+          "name": "voice-only-center-101-+0dB",
+          "input_peak": 0.4492652416229248,
+          "output_peak": 0.31118127703666687,
+          "in_si_sdr": 0.060639343361594066,
+          "out_si_sdr": 9.507323736213957,
+          "rms_gain_db": -4.928402998125716,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.874790956582782,
+          "out_stoi": 0.923730818490247
+        },
+        "device": {
+          "name": "voice-only-center-101-+0dB",
+          "input_peak": 0.4492652416229248,
+          "output_peak": 0.311187744140625,
+          "in_si_sdr": 0.060639343361594066,
+          "out_si_sdr": 9.507155537072599,
+          "rms_gain_db": -4.92875984805933,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.874790956582782,
+          "out_stoi": 0.9237287172026635
+        }
+      },
+      "device_runtime": {
+        "name": "voice-only-center-101-+0dB",
+        "mean_ms": "11.384968313999998",
+        "p99_ms": "30.014479",
+        "max_ms": "38.969531",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "center-bgm-101--5dB",
+      "config": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "note": "fully centered instrumental BGM and centered speech",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "e80e7bcfd13648b366ce86b7dd83f1ea77eb376d30d46e4873b77d87d436e46a",
+      "measurements": {
+        "baseline": {
+          "name": "center-bgm-101--5dB",
+          "input_peak": 0.4926789104938507,
+          "output_peak": 0.13864055275917053,
+          "in_si_sdr": -4.941818691940625,
+          "out_si_sdr": -4.724219352698533,
+          "rms_gain_db": -8.695563527019164,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.7825869384735613,
+          "out_stoi": 0.7706031607472181
+        },
+        "revised": {
+          "name": "center-bgm-101--5dB",
+          "input_peak": 0.4926789104938507,
+          "output_peak": 0.2069995105266571,
+          "in_si_sdr": -4.941818691940625,
+          "out_si_sdr": 2.7097181826623196,
+          "rms_gain_db": -11.830231793892413,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.7825869384735613,
+          "out_stoi": 0.8471413008248767
+        },
+        "device": {
+          "name": "center-bgm-101--5dB",
+          "input_peak": 0.4926789104938507,
+          "output_peak": 0.207000732421875,
+          "in_si_sdr": -4.941818691940625,
+          "out_si_sdr": 2.709720778394187,
+          "rms_gain_db": -11.830044834378135,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.7825869384735613,
+          "out_stoi": 0.8471513505244933
+        }
+      },
+      "device_runtime": {
+        "name": "center-bgm-101--5dB",
+        "mean_ms": "11.700956939999998",
+        "p99_ms": "28.8125",
+        "max_ms": "31.283438",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "voice-only-center-101--5dB",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "isolate model from peak guard; same centered BGM mixture",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "e80e7bcfd13648b366ce86b7dd83f1ea77eb376d30d46e4873b77d87d436e46a",
+      "measurements": {
+        "baseline": {
+          "name": "voice-only-center-101--5dB",
+          "input_peak": 0.4926789104938507,
+          "output_peak": 0.42021945118904114,
+          "in_si_sdr": -4.941818691940625,
+          "out_si_sdr": -4.049882293370172,
+          "rms_gain_db": -5.232843378150182,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.7825869384735613,
+          "out_stoi": 0.7889185974479246
+        },
+        "revised": {
+          "name": "voice-only-center-101--5dB",
+          "input_peak": 0.4926789104938507,
+          "output_peak": 0.2069995105266571,
+          "in_si_sdr": -4.941818691940625,
+          "out_si_sdr": 2.7097181826623196,
+          "rms_gain_db": -11.830231793892413,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.7825869384735613,
+          "out_stoi": 0.8471413008248767
+        },
+        "device": {
+          "name": "voice-only-center-101--5dB",
+          "input_peak": 0.4926789104938507,
+          "output_peak": 0.207000732421875,
+          "in_si_sdr": -4.941818691940625,
+          "out_si_sdr": 2.709720778394187,
+          "rms_gain_db": -11.830044834378135,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.7825869384735613,
+          "out_stoi": 0.8471513505244933
+        }
+      },
+      "device_runtime": {
+        "name": "voice-only-center-101--5dB",
+        "mean_ms": "11.371810076000003",
+        "p99_ms": "28.251354",
+        "max_ms": "31.47276",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "wide-bgm-101",
+      "config": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "note": "constructed stereo BGM; same source and level as centered 0 dB",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "17dd85185ee0c52c9596f35baaacd0177312d29758b0a67f96547fb3480610e3",
+      "measurements": {
+        "baseline": {
+          "name": "wide-bgm-101",
+          "input_peak": 0.45125362277030945,
+          "output_peak": 0.13920436799526215,
+          "in_si_sdr": 0.025111453217947284,
+          "out_si_sdr": -2.1519616961487404,
+          "rms_gain_db": -6.939091022688281,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.870271111722762,
+          "out_stoi": 0.8658980361248043
+        },
+        "revised": {
+          "name": "wide-bgm-101",
+          "input_peak": 0.45125362277030945,
+          "output_peak": 0.25,
+          "in_si_sdr": 0.025111453217947284,
+          "out_si_sdr": 9.455990867662736,
+          "rms_gain_db": -4.764647796306273,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.870271111722762,
+          "out_stoi": 0.9247306089212969
+        },
+        "device": {
+          "name": "wide-bgm-101",
+          "input_peak": 0.45125362277030945,
+          "output_peak": 0.25,
+          "in_si_sdr": 0.025111453217947284,
+          "out_si_sdr": 9.454391558134002,
+          "rms_gain_db": -4.766767141794393,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.870271111722762,
+          "out_stoi": 0.924700436969015
+        }
+      },
+      "device_runtime": {
+        "name": "wide-bgm-101",
+        "mean_ms": "11.00380781400001",
+        "p99_ms": "25.406927",
+        "max_ms": "33.678281",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "voice-only-wide-101",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "isolate model from peak guard; same stereo BGM mixture",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "17dd85185ee0c52c9596f35baaacd0177312d29758b0a67f96547fb3480610e3",
+      "measurements": {
+        "baseline": {
+          "name": "voice-only-wide-101",
+          "input_peak": 0.45125362277030945,
+          "output_peak": 0.4217596650123596,
+          "in_si_sdr": 0.025111453217947284,
+          "out_si_sdr": -0.7819196872157772,
+          "rms_gain_db": -4.156651544560711,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.870271111722762,
+          "out_stoi": 0.8956680318833361
+        },
+        "revised": {
+          "name": "voice-only-wide-101",
+          "input_peak": 0.45125362277030945,
+          "output_peak": 0.3334559202194214,
+          "in_si_sdr": 0.025111453217947284,
+          "out_si_sdr": 9.708465266165572,
+          "rms_gain_db": -4.580566442236569,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.870271111722762,
+          "out_stoi": 0.9252873689465932
+        },
+        "device": {
+          "name": "voice-only-wide-101",
+          "input_peak": 0.45125362277030945,
+          "output_peak": 0.333404541015625,
+          "in_si_sdr": 0.025111453217947284,
+          "out_si_sdr": 9.706581898923138,
+          "rms_gain_db": -4.582766245809992,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.870271111722762,
+          "out_stoi": 0.9252566069106088
+        }
+      },
+      "device_runtime": {
+        "name": "voice-only-wide-101",
+        "mean_ms": "11.444746231999995",
+        "p99_ms": "29.560052",
+        "max_ms": "33.936771",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "clean-102",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "clean speech: do not damage",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "40e86546623d63e01a3ccf12039a7ef0da56d75c4a814f0cbaf7f57f46d1dfa8",
+      "measurements": {
+        "baseline": {
+          "name": "clean-102",
+          "input_peak": 0.48261478543281555,
+          "output_peak": 0.5241317749023438,
+          "in_si_sdr": 232.87144764011342,
+          "out_si_sdr": 4.812758567851504,
+          "rms_gain_db": -1.085928031882646,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.9979638125504878
+        },
+        "revised": {
+          "name": "clean-102",
+          "input_peak": 0.48261478543281555,
+          "output_peak": 0.4797794818878174,
+          "in_si_sdr": 232.87144764011342,
+          "out_si_sdr": 22.019016148453375,
+          "rms_gain_db": -0.2419179013595657,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.9847288137331317
+        },
+        "device": {
+          "name": "clean-102",
+          "input_peak": 0.48261478543281555,
+          "output_peak": 0.479766845703125,
+          "in_si_sdr": 232.87144764011342,
+          "out_si_sdr": 22.020302016019436,
+          "rms_gain_db": -0.24195926918627542,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.984739558556983
+        }
+      },
+      "device_runtime": {
+        "name": "clean-102",
+        "mean_ms": "12.438270212",
+        "p99_ms": "32.915625",
+        "max_ms": "37.420312",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "clean-guard-102",
+      "config": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "note": "normal speech through guard only: preserve natural syllable crests",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "40e86546623d63e01a3ccf12039a7ef0da56d75c4a814f0cbaf7f57f46d1dfa8",
+      "measurements": {
+        "baseline": {
+          "name": "clean-guard-102",
+          "input_peak": 0.48261478543281555,
+          "output_peak": 0.1404445320367813,
+          "in_si_sdr": 232.88694651757618,
+          "out_si_sdr": 8.404231170649107,
+          "rms_gain_db": -5.113028003635112,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.932645616437543
+        },
+        "revised": {
+          "name": "clean-guard-102",
+          "input_peak": 0.48261478543281555,
+          "output_peak": 0.3210160732269287,
+          "in_si_sdr": 232.88694651757618,
+          "out_si_sdr": 14.07341376987067,
+          "rms_gain_db": -1.3452795941959448,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.9867362707636796
+        },
+        "device": {
+          "name": "clean-guard-102",
+          "input_peak": 0.48261478543281555,
+          "output_peak": 0.321014404296875,
+          "in_si_sdr": 232.88694651757618,
+          "out_si_sdr": 14.073459497294598,
+          "rms_gain_db": -1.3452451460044408,
+          "alignment_frames": 0,
+          "evaluated_frames": 480000,
+          "in_stoi": 0.9999999999999998,
+          "out_stoi": 0.9867357916597934
+        }
+      },
+      "device_runtime": {
+        "name": "clean-guard-102",
+        "mean_ms": "0.7893908239999997",
+        "p99_ms": "1.728073",
+        "max_ms": "4.783855",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "center-bgm-102-+5dB",
+      "config": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "note": "fully centered instrumental BGM and centered speech",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "44d9ff4104203d28445708dec259b9bd80f78f17841d54b6869e986218dbd0db",
+      "measurements": {
+        "baseline": {
+          "name": "center-bgm-102-+5dB",
+          "input_peak": 0.5005598068237305,
+          "output_peak": 0.14020825922489166,
+          "in_si_sdr": 5.021271003602643,
+          "out_si_sdr": 1.3477782120855242,
+          "rms_gain_db": -7.26735853910447,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9650069538862318,
+          "out_stoi": 0.8787922076650365
+        },
+        "revised": {
+          "name": "center-bgm-102-+5dB",
+          "input_peak": 0.5005598068237305,
+          "output_peak": 0.28372320532798767,
+          "in_si_sdr": 5.021271003602643,
+          "out_si_sdr": 10.52513919847917,
+          "rms_gain_db": -2.976090253920889,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9650069538862318,
+          "out_stoi": 0.9468580424305006
+        },
+        "device": {
+          "name": "center-bgm-102-+5dB",
+          "input_peak": 0.5005598068237305,
+          "output_peak": 0.283721923828125,
+          "in_si_sdr": 5.021271003602643,
+          "out_si_sdr": 10.525107176953085,
+          "rms_gain_db": -2.976032816043592,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9650069538862318,
+          "out_stoi": 0.9468642626510566
+        }
+      },
+      "device_runtime": {
+        "name": "center-bgm-102-+5dB",
+        "mean_ms": "11.53746070799999",
+        "p99_ms": "28.1025",
+        "max_ms": "32.918073",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "voice-only-center-102-+5dB",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "isolate model from peak guard; same centered BGM mixture",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "44d9ff4104203d28445708dec259b9bd80f78f17841d54b6869e986218dbd0db",
+      "measurements": {
+        "baseline": {
+          "name": "voice-only-center-102-+5dB",
+          "input_peak": 0.5005598068237305,
+          "output_peak": 0.527928352355957,
+          "in_si_sdr": 5.021271003602643,
+          "out_si_sdr": 3.908831466010008,
+          "rms_gain_db": -2.0494405325633474,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9650069538862318,
+          "out_stoi": 0.9656833957272978
+        },
+        "revised": {
+          "name": "voice-only-center-102-+5dB",
+          "input_peak": 0.5005598068237305,
+          "output_peak": 0.48358258605003357,
+          "in_si_sdr": 5.021271003602643,
+          "out_si_sdr": 12.539373648542245,
+          "rms_gain_db": -1.8599562587214264,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9650069538862318,
+          "out_stoi": 0.9563634288127871
+        },
+        "device": {
+          "name": "voice-only-center-102-+5dB",
+          "input_peak": 0.5005598068237305,
+          "output_peak": 0.48358154296875,
+          "in_si_sdr": 5.021271003602643,
+          "out_si_sdr": 12.539384359683545,
+          "rms_gain_db": -1.8599398839864212,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9650069538862318,
+          "out_stoi": 0.9563702162398038
+        }
+      },
+      "device_runtime": {
+        "name": "voice-only-center-102-+5dB",
+        "mean_ms": "11.456140323999996",
+        "p99_ms": "27.960938",
+        "max_ms": "33.852084",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "center-bgm-102-+0dB",
+      "config": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "note": "fully centered instrumental BGM and centered speech",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "5b6a320fa78e75d35eaeb8f81acf863b9606be15fe744a1967c73ab15f2216db",
+      "measurements": {
+        "baseline": {
+          "name": "center-bgm-102-+0dB",
+          "input_peak": 0.5214886665344238,
+          "output_peak": 0.14020834863185883,
+          "in_si_sdr": 0.048968361576114776,
+          "out_si_sdr": -0.3317862527882117,
+          "rms_gain_db": -8.434454092512674,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.914303590737546,
+          "out_stoi": 0.823788796983774
+        },
+        "revised": {
+          "name": "center-bgm-102-+0dB",
+          "input_peak": 0.5214886665344238,
+          "output_peak": 0.2730557918548584,
+          "in_si_sdr": 0.048968361576114776,
+          "out_si_sdr": 7.818424803965919,
+          "rms_gain_db": -5.4276556683573185,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.914303590737546,
+          "out_stoi": 0.9148598118974111
+        },
+        "device": {
+          "name": "center-bgm-102-+0dB",
+          "input_peak": 0.5214886665344238,
+          "output_peak": 0.2730712890625,
+          "in_si_sdr": 0.048968361576114776,
+          "out_si_sdr": 7.8184454442498295,
+          "rms_gain_db": -5.427588203226613,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.914303590737546,
+          "out_stoi": 0.9148601067469497
+        }
+      },
+      "device_runtime": {
+        "name": "center-bgm-102-+0dB",
+        "mean_ms": "11.20570104000001",
+        "p99_ms": "24.511615",
+        "max_ms": "30.924063",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "voice-only-center-102-+0dB",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "isolate model from peak guard; same centered BGM mixture",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "5b6a320fa78e75d35eaeb8f81acf863b9606be15fe744a1967c73ab15f2216db",
+      "measurements": {
+        "baseline": {
+          "name": "voice-only-center-102-+0dB",
+          "input_peak": 0.5214886665344238,
+          "output_peak": 0.5308831334114075,
+          "in_si_sdr": 0.048968361576114776,
+          "out_si_sdr": 2.421013050056429,
+          "rms_gain_db": -3.3758881014217423,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.914303590737546,
+          "out_stoi": 0.916360389846915
+        },
+        "revised": {
+          "name": "voice-only-center-102-+0dB",
+          "input_peak": 0.5214886665344238,
+          "output_peak": 0.4683283269405365,
+          "in_si_sdr": 0.048968361576114776,
+          "out_si_sdr": 8.5839364313198,
+          "rms_gain_db": -4.447172687712558,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.914303590737546,
+          "out_stoi": 0.9219281501235622
+        },
+        "device": {
+          "name": "voice-only-center-102-+0dB",
+          "input_peak": 0.5214886665344238,
+          "output_peak": 0.46832275390625,
+          "in_si_sdr": 0.048968361576114776,
+          "out_si_sdr": 8.584014933891842,
+          "rms_gain_db": -4.447068609379063,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.914303590737546,
+          "out_stoi": 0.9219297531040996
+        }
+      },
+      "device_runtime": {
+        "name": "voice-only-center-102-+0dB",
+        "mean_ms": "10.850015633999996",
+        "p99_ms": "25.635781",
+        "max_ms": "35.043489",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "center-bgm-102--5dB",
+      "config": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "note": "fully centered instrumental BGM and centered speech",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "f73ec1e22be96bf155ab8bf780bee2d72a578ed39b257ed9c6903c599ca102f9",
+      "measurements": {
+        "baseline": {
+          "name": "center-bgm-102--5dB",
+          "input_peak": 0.604346752166748,
+          "output_peak": 0.1402389258146286,
+          "in_si_sdr": -4.901995390377002,
+          "out_si_sdr": -3.2958650116492545,
+          "rms_gain_db": -10.132776449156275,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8270185592960235,
+          "out_stoi": 0.7323717140789955
+        },
+        "revised": {
+          "name": "center-bgm-102--5dB",
+          "input_peak": 0.604346752166748,
+          "output_peak": 0.2545376121997833,
+          "in_si_sdr": -4.901995390377002,
+          "out_si_sdr": 4.004509177455268,
+          "rms_gain_db": -9.92163736899315,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8270185592960235,
+          "out_stoi": 0.8717427942220901
+        },
+        "device": {
+          "name": "center-bgm-102--5dB",
+          "input_peak": 0.604346752166748,
+          "output_peak": 0.254547119140625,
+          "in_si_sdr": -4.901995390377002,
+          "out_si_sdr": 4.004691872848569,
+          "rms_gain_db": -9.921463629156397,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8270185592960235,
+          "out_stoi": 0.871750631575153
+        }
+      },
+      "device_runtime": {
+        "name": "center-bgm-102--5dB",
+        "mean_ms": "12.160113120000005",
+        "p99_ms": "31.72625",
+        "max_ms": "32.703698",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "voice-only-center-102--5dB",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "isolate model from peak guard; same centered BGM mixture",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "f73ec1e22be96bf155ab8bf780bee2d72a578ed39b257ed9c6903c599ca102f9",
+      "measurements": {
+        "baseline": {
+          "name": "voice-only-center-102--5dB",
+          "input_peak": 0.604346752166748,
+          "output_peak": 0.5361375212669373,
+          "in_si_sdr": -4.901995390377002,
+          "out_si_sdr": -0.3988713600558913,
+          "rms_gain_db": -5.2884564673539405,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8270185592960235,
+          "out_stoi": 0.8296520382918623
+        },
+        "revised": {
+          "name": "voice-only-center-102--5dB",
+          "input_peak": 0.604346752166748,
+          "output_peak": 0.3723325729370117,
+          "in_si_sdr": -4.901995390377002,
+          "out_si_sdr": 4.172289461504926,
+          "rms_gain_db": -9.450866349085072,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8270185592960235,
+          "out_stoi": 0.8746998670967373
+        },
+        "device": {
+          "name": "voice-only-center-102--5dB",
+          "input_peak": 0.604346752166748,
+          "output_peak": 0.372344970703125,
+          "in_si_sdr": -4.901995390377002,
+          "out_si_sdr": 4.172493867364928,
+          "rms_gain_db": -9.45050978341514,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.8270185592960235,
+          "out_stoi": 0.8747097427037855
+        }
+      },
+      "device_runtime": {
+        "name": "voice-only-center-102--5dB",
+        "mean_ms": "11.108130934000004",
+        "p99_ms": "28.857865",
+        "max_ms": "40.476354",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "wide-bgm-102",
+      "config": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "note": "constructed stereo BGM; same source and level as centered 0 dB",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "ee703d7737c1e9534c75cc879e2569d9d212bfc3b5fea738af2e8456c2fab337",
+      "measurements": {
+        "baseline": {
+          "name": "wide-bgm-102",
+          "input_peak": 0.5336610674858093,
+          "output_peak": 0.14032675325870514,
+          "in_si_sdr": -0.0015994845728512846,
+          "out_si_sdr": -0.024088215600476234,
+          "rms_gain_db": -8.675144302796019,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9165310631063837,
+          "out_stoi": 0.846778522943106
+        },
+        "revised": {
+          "name": "wide-bgm-102",
+          "input_peak": 0.5336610674858093,
+          "output_peak": 0.2913036048412323,
+          "in_si_sdr": -0.0015994845728512846,
+          "out_si_sdr": 8.003969684497832,
+          "rms_gain_db": -5.318828949807248,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9165310631063837,
+          "out_stoi": 0.9196390303108961
+        },
+        "device": {
+          "name": "wide-bgm-102",
+          "input_peak": 0.5336610674858093,
+          "output_peak": 0.29132080078125,
+          "in_si_sdr": -0.0015994845728512846,
+          "out_si_sdr": 8.003597916730842,
+          "rms_gain_db": -5.319461529728791,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9165310631063837,
+          "out_stoi": 0.9196117851460734
+        }
+      },
+      "device_runtime": {
+        "name": "wide-bgm-102",
+        "mean_ms": "12.081547608000003",
+        "p99_ms": "29.845625",
+        "max_ms": "36.110729",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "voice-only-wide-102",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "isolate model from peak guard; same stereo BGM mixture",
+      "kind": "speech",
+      "frames": 480000,
+      "input_sha256": "ee703d7737c1e9534c75cc879e2569d9d212bfc3b5fea738af2e8456c2fab337",
+      "measurements": {
+        "baseline": {
+          "name": "voice-only-wide-102",
+          "input_peak": 0.5336610674858093,
+          "output_peak": 0.5328183174133301,
+          "in_si_sdr": -0.0015994845728512846,
+          "out_si_sdr": 2.7390029856619225,
+          "rms_gain_db": -3.4969862836070686,
+          "alignment_frames": 0,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9165310631063837,
+          "out_stoi": 0.9388029267462783
+        },
+        "revised": {
+          "name": "voice-only-wide-102",
+          "input_peak": 0.5336610674858093,
+          "output_peak": 0.47498443722724915,
+          "in_si_sdr": -0.0015994845728512846,
+          "out_si_sdr": 8.884972478808441,
+          "rms_gain_db": -4.235603431281051,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9165310631063837,
+          "out_stoi": 0.9273404208423205
+        },
+        "device": {
+          "name": "voice-only-wide-102",
+          "input_peak": 0.5336610674858093,
+          "output_peak": 0.474945068359375,
+          "in_si_sdr": -0.0015994845728512846,
+          "out_si_sdr": 8.88402107863805,
+          "rms_gain_db": -4.236449361308485,
+          "alignment_frames": 1582,
+          "evaluated_frames": 478418,
+          "in_stoi": 0.9165310631063837,
+          "out_stoi": 0.9273114494599336
+        }
+      },
+      "device_runtime": {
+        "name": "voice-only-wide-102",
+        "mean_ms": "11.606959698000004",
+        "p99_ms": "27.78151",
+        "max_ms": "32.766927",
+        "frames": "480000"
+      }
+    },
+    {
+      "name": "clean-zh",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "clean speech: do not damage",
+      "kind": "speech",
+      "frames": 205488,
+      "input_sha256": "833eef912eba615e6a347ccf3fd78c9b5a91bb749564b119daf55c3c8e53f1bc",
+      "measurements": {
+        "baseline": {
+          "name": "clean-zh",
+          "input_peak": 0.2945414185523987,
+          "output_peak": 0.24044853448867798,
+          "in_si_sdr": 229.20188192779375,
+          "out_si_sdr": 0.8534553460164146,
+          "rms_gain_db": -2.272337378001634,
+          "alignment_frames": 0,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.9999999999999971,
+          "out_stoi": 0.9967134607363762
+        },
+        "revised": {
+          "name": "clean-zh",
+          "input_peak": 0.2945414185523987,
+          "output_peak": 0.28840434551239014,
+          "in_si_sdr": 229.20188192779375,
+          "out_si_sdr": 22.86901002308355,
+          "rms_gain_db": -0.2215867932307904,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.9999999999999971,
+          "out_stoi": 0.9886925973232648
+        },
+        "device": {
+          "name": "clean-zh",
+          "input_peak": 0.2945414185523987,
+          "output_peak": 0.28839111328125,
+          "in_si_sdr": 229.20188192779375,
+          "out_si_sdr": 22.86945237591873,
+          "rms_gain_db": -0.22170502480405943,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.9999999999999971,
+          "out_stoi": 0.9878915342671183
+        }
+      },
+      "device_runtime": {
+        "name": "clean-zh",
+        "mean_ms": "11.500688516279068",
+        "p99_ms": "27.643178",
+        "max_ms": "31.144271",
+        "frames": "205488"
+      }
+    },
+    {
+      "name": "clean-guard-zh",
+      "config": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "note": "normal speech through guard only: preserve natural syllable crests",
+      "kind": "speech",
+      "frames": 205488,
+      "input_sha256": "833eef912eba615e6a347ccf3fd78c9b5a91bb749564b119daf55c3c8e53f1bc",
+      "measurements": {
+        "baseline": {
+          "name": "clean-guard-zh",
+          "input_peak": 0.2945414185523987,
+          "output_peak": 0.11999999731779099,
+          "in_si_sdr": 229.2024149284143,
+          "out_si_sdr": 13.542883469776664,
+          "rms_gain_db": -4.8011876863065615,
+          "alignment_frames": 0,
+          "evaluated_frames": 205488,
+          "in_stoi": 0.9999999999999967,
+          "out_stoi": 0.980245347859295
+        },
+        "revised": {
+          "name": "clean-guard-zh",
+          "input_peak": 0.2945414185523987,
+          "output_peak": 0.25,
+          "in_si_sdr": 229.2024149284143,
+          "out_si_sdr": 24.747645584535288,
+          "rms_gain_db": -0.34988308903413096,
+          "alignment_frames": 0,
+          "evaluated_frames": 205488,
+          "in_stoi": 0.9999999999999967,
+          "out_stoi": 0.9995923062852029
+        },
+        "device": {
+          "name": "clean-guard-zh",
+          "input_peak": 0.2945414185523987,
+          "output_peak": 0.25,
+          "in_si_sdr": 229.2024149284143,
+          "out_si_sdr": 24.744470377631608,
+          "rms_gain_db": -0.3498958795702392,
+          "alignment_frames": 0,
+          "evaluated_frames": 205488,
+          "in_stoi": 0.9999999999999967,
+          "out_stoi": 0.9995431150501952
+        }
+      },
+      "device_runtime": {
+        "name": "clean-guard-zh",
+        "mean_ms": "0.7654261069767443",
+        "p99_ms": "1.248959",
+        "max_ms": "3.406041",
+        "frames": "205488"
+      }
+    },
+    {
+      "name": "center-bgm-zh-+5dB",
+      "config": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "note": "fully centered instrumental BGM and centered speech",
+      "kind": "speech",
+      "frames": 205488,
+      "input_sha256": "174e580a82020e001b85d60169c85c51d60f27ab642d32cadefc97525c4bda78",
+      "measurements": {
+        "baseline": {
+          "name": "center-bgm-zh-+5dB",
+          "input_peak": 0.3289124071598053,
+          "output_peak": 0.11999999731779099,
+          "in_si_sdr": 5.046609354109814,
+          "out_si_sdr": -0.5926979013711999,
+          "rms_gain_db": -6.333638290935257,
+          "alignment_frames": 0,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.8316413661113079,
+          "out_stoi": 0.8042955007008578
+        },
+        "revised": {
+          "name": "center-bgm-zh-+5dB",
+          "input_peak": 0.3289124071598053,
+          "output_peak": 0.25,
+          "in_si_sdr": 5.046609354109814,
+          "out_si_sdr": 9.775095905656713,
+          "rms_gain_db": -1.939557372415218,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.8316413661113079,
+          "out_stoi": 0.8743862130022066
+        },
+        "device": {
+          "name": "center-bgm-zh-+5dB",
+          "input_peak": 0.3289124071598053,
+          "output_peak": 0.25,
+          "in_si_sdr": 5.046609354109814,
+          "out_si_sdr": 9.774921719567818,
+          "rms_gain_db": -1.939638466476505,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.8316413661113079,
+          "out_stoi": 0.8743811581655531
+        }
+      },
+      "device_runtime": {
+        "name": "center-bgm-zh-+5dB",
+        "mean_ms": "12.120574623255813",
+        "p99_ms": "29.394791",
+        "max_ms": "31.149844",
+        "frames": "205488"
+      }
+    },
+    {
+      "name": "voice-only-center-zh-+5dB",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "isolate model from peak guard; same centered BGM mixture",
+      "kind": "speech",
+      "frames": 205488,
+      "input_sha256": "174e580a82020e001b85d60169c85c51d60f27ab642d32cadefc97525c4bda78",
+      "measurements": {
+        "baseline": {
+          "name": "voice-only-center-zh-+5dB",
+          "input_peak": 0.3289124071598053,
+          "output_peak": 0.23879824578762054,
+          "in_si_sdr": 5.046609354109814,
+          "out_si_sdr": 0.06863243053648736,
+          "rms_gain_db": -3.1151324601096158,
+          "alignment_frames": 0,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.8316413661113079,
+          "out_stoi": 0.8323239667612786
+        },
+        "revised": {
+          "name": "voice-only-center-zh-+5dB",
+          "input_peak": 0.3289124071598053,
+          "output_peak": 0.2767813801765442,
+          "in_si_sdr": 5.046609354109814,
+          "out_si_sdr": 9.903537402988984,
+          "rms_gain_db": -1.72460971986225,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.8316413661113079,
+          "out_stoi": 0.8744542466128677
+        },
+        "device": {
+          "name": "voice-only-center-zh-+5dB",
+          "input_peak": 0.3289124071598053,
+          "output_peak": 0.276763916015625,
+          "in_si_sdr": 5.046609354109814,
+          "out_si_sdr": 9.903318868210356,
+          "rms_gain_db": -1.7247603517108008,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.8316413661113079,
+          "out_stoi": 0.8744473686085271
+        }
+      },
+      "device_runtime": {
+        "name": "voice-only-center-zh-+5dB",
+        "mean_ms": "10.61523346976744",
+        "p99_ms": "23.281562",
+        "max_ms": "26.090833",
+        "frames": "205488"
+      }
+    },
+    {
+      "name": "center-bgm-zh-+0dB",
+      "config": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "note": "fully centered instrumental BGM and centered speech",
+      "kind": "speech",
+      "frames": 205488,
+      "input_sha256": "79ae3722871005006b07f2cc878e9dad76ab6266c7946cf27c2c45850d017354",
+      "measurements": {
+        "baseline": {
+          "name": "center-bgm-zh-+0dB",
+          "input_peak": 0.4089031219482422,
+          "output_peak": 0.11999999731779099,
+          "in_si_sdr": 0.05783872183641538,
+          "out_si_sdr": -2.4023640722651005,
+          "rms_gain_db": -7.387346492331984,
+          "alignment_frames": 0,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.7633298407523716,
+          "out_stoi": 0.7280569445542185
+        },
+        "revised": {
+          "name": "center-bgm-zh-+0dB",
+          "input_peak": 0.4089031219482422,
+          "output_peak": 0.25,
+          "in_si_sdr": 0.05783872183641538,
+          "out_si_sdr": 5.582063379644964,
+          "rms_gain_db": -4.095627499949966,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.7633298407523716,
+          "out_stoi": 0.8310497362129032
+        },
+        "device": {
+          "name": "center-bgm-zh-+0dB",
+          "input_peak": 0.4089031219482422,
+          "output_peak": 0.25,
+          "in_si_sdr": 0.05783872183641538,
+          "out_si_sdr": 5.582739986539135,
+          "rms_gain_db": -4.0959391179367195,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.7633298407523716,
+          "out_stoi": 0.831043018338708
+        }
+      },
+      "device_runtime": {
+        "name": "center-bgm-zh-+0dB",
+        "mean_ms": "12.614420976744182",
+        "p99_ms": "28.897969",
+        "max_ms": "30.32776",
+        "frames": "205488"
+      }
+    },
+    {
+      "name": "voice-only-center-zh-+0dB",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "isolate model from peak guard; same centered BGM mixture",
+      "kind": "speech",
+      "frames": 205488,
+      "input_sha256": "79ae3722871005006b07f2cc878e9dad76ab6266c7946cf27c2c45850d017354",
+      "measurements": {
+        "baseline": {
+          "name": "voice-only-center-zh-+0dB",
+          "input_peak": 0.4089031219482422,
+          "output_peak": 0.247239887714386,
+          "in_si_sdr": 0.05783872183641538,
+          "out_si_sdr": -1.2284322531506666,
+          "rms_gain_db": -4.2487187385265965,
+          "alignment_frames": 0,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.7633298407523716,
+          "out_stoi": 0.7669778404007843
+        },
+        "revised": {
+          "name": "voice-only-center-zh-+0dB",
+          "input_peak": 0.4089031219482422,
+          "output_peak": 0.26847776770591736,
+          "in_si_sdr": 0.05783872183641538,
+          "out_si_sdr": 5.660866515949881,
+          "rms_gain_db": -3.9502203143181736,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.7633298407523716,
+          "out_stoi": 0.8310146068891001
+        },
+        "device": {
+          "name": "voice-only-center-zh-+0dB",
+          "input_peak": 0.4089031219482422,
+          "output_peak": 0.268463134765625,
+          "in_si_sdr": 0.05783872183641538,
+          "out_si_sdr": 5.661440199243387,
+          "rms_gain_db": -3.9506712897246703,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.7633298407523716,
+          "out_stoi": 0.8310075315595856
+        }
+      },
+      "device_runtime": {
+        "name": "voice-only-center-zh-+0dB",
+        "mean_ms": "11.355021520930231",
+        "p99_ms": "26.089427",
+        "max_ms": "30.161197",
+        "frames": "205488"
+      }
+    },
+    {
+      "name": "center-bgm-zh--5dB",
+      "config": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "note": "fully centered instrumental BGM and centered speech",
+      "kind": "speech",
+      "frames": 205488,
+      "input_sha256": "f8835c37abad2d45cd67c2238823995ceac2364d9d34754692c4d5298a5c233b",
+      "measurements": {
+        "baseline": {
+          "name": "center-bgm-zh--5dB",
+          "input_peak": 0.5511490106582642,
+          "output_peak": 0.13030372560024261,
+          "in_si_sdr": -4.922228384925178,
+          "out_si_sdr": -5.645795616924999,
+          "rms_gain_db": -9.029889166432648,
+          "alignment_frames": 0,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.6696202949141438,
+          "out_stoi": 0.6177921850870958
+        },
+        "revised": {
+          "name": "center-bgm-zh--5dB",
+          "input_peak": 0.5511490106582642,
+          "output_peak": 0.25,
+          "in_si_sdr": -4.922228384925178,
+          "out_si_sdr": 1.3554634254990452,
+          "rms_gain_db": -8.171689685809344,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.6696202949141438,
+          "out_stoi": 0.7734621148084516
+        },
+        "device": {
+          "name": "center-bgm-zh--5dB",
+          "input_peak": 0.5511490106582642,
+          "output_peak": 0.25,
+          "in_si_sdr": -4.922228384925178,
+          "out_si_sdr": 1.3553237914190142,
+          "rms_gain_db": -8.171380745780382,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.6696202949141438,
+          "out_stoi": 0.7734624576406908
+        }
+      },
+      "device_runtime": {
+        "name": "center-bgm-zh--5dB",
+        "mean_ms": "11.88394066511628",
+        "p99_ms": "26.171198",
+        "max_ms": "30.356875",
+        "frames": "205488"
+      }
+    },
+    {
+      "name": "voice-only-center-zh--5dB",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "isolate model from peak guard; same centered BGM mixture",
+      "kind": "speech",
+      "frames": 205488,
+      "input_sha256": "f8835c37abad2d45cd67c2238823995ceac2364d9d34754692c4d5298a5c233b",
+      "measurements": {
+        "baseline": {
+          "name": "voice-only-center-zh--5dB",
+          "input_peak": 0.5511490106582642,
+          "output_peak": 0.2762832045555115,
+          "in_si_sdr": -4.922228384925178,
+          "out_si_sdr": -3.8149648099866935,
+          "rms_gain_db": -5.785059351109987,
+          "alignment_frames": 0,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.6696202949141438,
+          "out_stoi": 0.675408389763259
+        },
+        "revised": {
+          "name": "voice-only-center-zh--5dB",
+          "input_peak": 0.5511490106582642,
+          "output_peak": 0.3223692774772644,
+          "in_si_sdr": -4.922228384925178,
+          "out_si_sdr": 1.4929041568557815,
+          "rms_gain_db": -7.648424726566491,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.6696202949141438,
+          "out_stoi": 0.7742620515070698
+        },
+        "device": {
+          "name": "voice-only-center-zh--5dB",
+          "input_peak": 0.5511490106582642,
+          "output_peak": 0.3223876953125,
+          "in_si_sdr": -4.922228384925178,
+          "out_si_sdr": 1.4927967670506856,
+          "rms_gain_db": -7.648083811670698,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.6696202949141438,
+          "out_stoi": 0.7742613572638265
+        }
+      },
+      "device_runtime": {
+        "name": "voice-only-center-zh--5dB",
+        "mean_ms": "11.462404065116283",
+        "p99_ms": "28.188594",
+        "max_ms": "39.082656",
+        "frames": "205488"
+      }
+    },
+    {
+      "name": "wide-bgm-zh",
+      "config": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "note": "constructed stereo BGM; same source and level as centered 0 dB",
+      "kind": "speech",
+      "frames": 205488,
+      "input_sha256": "ca03b9a8b1558000bca2681da3a5f373aa864ba04ed3dca532f35bc95caba14d",
+      "measurements": {
+        "baseline": {
+          "name": "wide-bgm-zh",
+          "input_peak": 0.4354251027107239,
+          "output_peak": 0.128335639834404,
+          "in_si_sdr": 0.04256821850698744,
+          "out_si_sdr": -1.890361201156815,
+          "rms_gain_db": -7.753279128539777,
+          "alignment_frames": 0,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.7629574853028761,
+          "out_stoi": 0.7565759008421655
+        },
+        "revised": {
+          "name": "wide-bgm-zh",
+          "input_peak": 0.4354251027107239,
+          "output_peak": 0.25,
+          "in_si_sdr": 0.04256821850698744,
+          "out_si_sdr": 5.428470053040989,
+          "rms_gain_db": -4.294049656157885,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.7629574853028761,
+          "out_stoi": 0.8276675172522194
+        },
+        "device": {
+          "name": "wide-bgm-zh",
+          "input_peak": 0.4354251027107239,
+          "output_peak": 0.25,
+          "in_si_sdr": 0.04256821850698744,
+          "out_si_sdr": 5.428012632132941,
+          "rms_gain_db": -4.293533907219314,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.7629574853028761,
+          "out_stoi": 0.8276588409898833
+        }
+      },
+      "device_runtime": {
+        "name": "wide-bgm-zh",
+        "mean_ms": "12.492315893023257",
+        "p99_ms": "30.190052",
+        "max_ms": "31.262083",
+        "frames": "205488"
+      }
+    },
+    {
+      "name": "voice-only-wide-zh",
+      "config": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "note": "isolate model from peak guard; same stereo BGM mixture",
+      "kind": "speech",
+      "frames": 205488,
+      "input_sha256": "ca03b9a8b1558000bca2681da3a5f373aa864ba04ed3dca532f35bc95caba14d",
+      "measurements": {
+        "baseline": {
+          "name": "voice-only-wide-zh",
+          "input_peak": 0.4354251027107239,
+          "output_peak": 0.24551227688789368,
+          "in_si_sdr": 0.04256821850698744,
+          "out_si_sdr": -0.9392678824183415,
+          "rms_gain_db": -4.457083579603668,
+          "alignment_frames": 0,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.7629574853028761,
+          "out_stoi": 0.791662916896978
+        },
+        "revised": {
+          "name": "voice-only-wide-zh",
+          "input_peak": 0.4354251027107239,
+          "output_peak": 0.2594599425792694,
+          "in_si_sdr": 0.04256821850698744,
+          "out_si_sdr": 5.477714114294596,
+          "rms_gain_db": -4.226500323278338,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.7629574853028761,
+          "out_stoi": 0.8276039728240084
+        },
+        "device": {
+          "name": "voice-only-wide-zh",
+          "input_peak": 0.4354251027107239,
+          "output_peak": 0.259765625,
+          "in_si_sdr": 0.04256821850698744,
+          "out_si_sdr": 5.4787554571112835,
+          "rms_gain_db": -4.223911698071726,
+          "alignment_frames": 1582,
+          "evaluated_frames": 203906,
+          "in_stoi": 0.7629574853028761,
+          "out_stoi": 0.8275953120610116
+        }
+      },
+      "device_runtime": {
+        "name": "voice-only-wide-zh",
+        "mean_ms": "10.80513929302325",
+        "p99_ms": "22.594583",
+        "max_ms": "30.693437",
+        "frames": "205488"
+      }
+    }
+  ]
+}
