@@ -11,6 +11,7 @@ import java.util.WeakHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
+import java.io.File
 
 /** Older ijk backends render in ijkservice; Bilibili 9.13.0 also renders video PCM in main.
  * Scope follows these two media-producing processes and STREAM_MUSIC, never system audio.
@@ -19,17 +20,26 @@ import java.util.concurrent.locks.ReentrantLock
  */
 internal class AudioRescueFeatureInstaller(
     private val config: AudioRescueConfig,
-    private val debugTrace: Boolean = false
+    private val debugTrace: Boolean = false,
+    private val moduleApk: File? = null,
+    private val hostCodeCache: File? = null,
+    private val remoteFile: ((String) -> java.io.InputStream?)? = null
 ) : FeatureInstaller {
     override val id = "player_audio_rescue"
     private class Session(val rate: Int, val channels: Int, val encoding: Int, val config: AudioRescueConfig) {
         val lock = ReentrantLock()
         val generation = AtomicInteger()
         var appliedGeneration = 0
-        var writer = newWriter()
+        var speechReady = false
+        private fun processor(): AudioRescueProcessor {
+            val model = if (config.noiseReduction || config.voiceFocus) AudioRescueModel.current() else null
+            val speech = model?.takeIf { rate >= 16000 }?.let { AudioSpeechEnhancer(rate, channels, it, if (config.voiceFocus) AudioSpeechEnhancer.VOICE_WET else AudioSpeechEnhancer.NOISE_WET, preserveTreble = config.voiceFocus) }
+            speechReady = speech != null
+            return AudioRescueProcessor(rate, channels, config, speech)
+        }
+        var writer = AudioRescueWrite(processor(), encoding)
         var evidenceCaptured = false
-        fun reset() { writer = newWriter() }
-        private fun newWriter() = AudioRescueWrite(AudioRescueProcessor(rate, channels, config), encoding)
+        fun reset() { writer = AudioRescueWrite(processor(), encoding) }
     }
     private data class InFlight(val session: Session, val writer: AudioRescueWrite, val pending: AudioRescueWrite.Pending, val generation: Int, val entry: Int)
     private val tracks = Collections.synchronizedMap(WeakHashMap<AudioTrack, Session>())
@@ -41,6 +51,8 @@ internal class AudioRescueFeatureInstaller(
         if (!config.enabled) return FeatureInstallResult.Skipped("disabled")
         if (environment.processName != MAIN_PROCESS && environment.processName != PLAYER_PROCESS)
             return FeatureInstallResult.Skipped("non-main-process")
+        if ((config.noiseReduction || config.voiceFocus) && moduleApk != null && hostCodeCache != null && remoteFile != null)
+            AudioRescueModel.prepare(moduleApk, hostCodeCache, remoteFile, environment.logInfo)
         val int = Int::class.javaPrimitiveType!!
         val long = Long::class.javaPrimitiveType!!
         // Every public PCM write entry of AudioTrack. The timestamped ByteBuffer overload that
@@ -70,7 +82,8 @@ internal class AudioRescueFeatureInstaller(
                         session.lock.lock()
                         try {
                             val generation = session.generation.get()
-                            if (session.appliedGeneration != generation) {
+                            if (session.appliedGeneration != generation || (!session.speechReady && session.rate >= 16000 &&
+                                    (config.noiseReduction || config.voiceFocus) && AudioRescueModel.current() != null)) {
                                 session.reset(); session.appliedGeneration = generation
                             }
                             val buffer = argOrNull(0) is ByteBuffer
@@ -98,7 +111,7 @@ internal class AudioRescueFeatureInstaller(
                                 // One aggregate per process via logInfo's existing once-key; no waveform,
                                 // content identifier or PCM buffer is recorded. Diagnostics cannot fail a write.
                                 runCatching { environment.logInfo("$id.pcm", "[BIL] audio_rescue PCM " +
-                                    "entry=${transaction.entry} rate=${transaction.session.rate} channels=${transaction.session.channels} encoding=${transaction.session.encoding} frames=${evidence.frames} " +
+                                    "entry=${transaction.entry} rate=${transaction.session.rate} channels=${transaction.session.channels} encoding=${transaction.session.encoding} frames=${evidence.frames} neural=${transaction.session.speechReady} " +
                                     "inPeakPpm=${(evidence.inputPeak * 1_000_000).toInt()} outPeakPpm=${(evidence.outputPeak * 1_000_000).toInt()} " +
                                     "inStereoPpm=${(evidence.inputStereoDifference * 1_000_000).toInt()} outStereoPpm=${(evidence.outputStereoDifference * 1_000_000).toInt()} " +
                                     "inRmsPpm=${(evidence.inputRms * 1_000_000).toInt()} outRmsPpm=${(evidence.outputRms * 1_000_000).toInt()}") }

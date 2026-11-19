@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="player_audio_assets_description">語音增強需要額外檔案（首次下載約 56 MB），防爆音和聲道修復無需下載。點擊後才會連線；也可匯入原版 GTCRN .onnx 與 ONNX Runtime 1.31.0 .aar 兩個檔案。</string>
+    <string name="player_audio_assets_download">下載 / 繼續下載</string>
+    <string name="player_audio_assets_import">匯入離線檔案</string>
+    <string name="player_audio_assets_links">複製離線下載網址</string>
+    <string name="player_audio_assets_retry">檢查 / 重試發佈</string>
+    <string name="player_audio_assets_cancel">取消本次操作</string>
+    <string name="player_audio_assets_diagnostics">複製準備過程診斷</string>
+    <string name="player_audio_assets_copied">已複製</string>
+    <string name="player_audio_assets_checking">正在檢查檔案與框架連線…</string>
+    <string name="player_audio_assets_progress">正在下載%1$s · %2$d%%</string>
+    <string name="player_audio_assets_model">模型</string>
+    <string name="player_audio_assets_runtime">推理元件</string>
+    <string name="player_audio_assets_verifying">正在校驗並準備檔案…</string>
+    <string name="player_audio_assets_publishing">正在將校驗通過的檔案發佈給框架…</string>
+    <string name="player_audio_assets_ready">檔案已校驗並發佈。儲存設定後重新啟動嗶哩嗶哩；此狀態尚不代表宿主已經成功載入。</string>
+    <string name="player_audio_assets_missing">檔案尚未齊全，請下載或匯入。就緒前人聲增強保留原聲，降噪使用基礎處理。</string>
+    <string name="player_audio_assets_framework_pending">正在等待框架連線。已校驗檔案會保留，重連後會補發佈。可先開啟框架管理器，再返回這裡重試。</string>
+    <string name="player_audio_assets_unsupported">目前框架未提供所需的遠端檔案能力，可複製診斷進一步排查。</string>
+    <string name="player_audio_assets_remote_failed">框架檔案發佈或回讀校驗失敗，本機檔案已保留。請重試發佈；若仍失敗，可複製診斷。</string>
+    <string name="player_audio_assets_cancelled">已取消，已校驗檔案與可續傳的下載進度已保留。</string>
+    <string name="player_audio_assets_storage_failed">儲存空間不可用或不足。請至少留出 180 MiB 可用空間後重試，可複製診斷查看原因。</string>
+    <string name="player_audio_assets_verify_failed">檔案完整性校驗失敗，未載入該檔案。請重試下載，或匯入指定版本的兩個原版檔案。</string>
+    <string name="player_audio_assets_busy">已有準備工作正在執行，請稍後重試。</string>
+    <string name="player_audio_assets_network_failed">下載失敗或逾時。可以繼續下載，或改用離線匯入；複製診斷可查看失敗階段與下載來源。</string>
+    <string name="player_audio_assets_import_failed">請選擇一個或兩個原版 .onnx / .aar 檔案，並確認檔案提供方可讀取它們。</string>
+    <string name="player_audio_assets_picker_failed">無法開啟檔案選擇器。</string>
+    <string name="player_audio_assets_stalled">框架或檔案提供方長時間未回應，檔案已保留。請先複製診斷，再重新啟動模組與框架管理器後重試。</string>
+</resources>

@@ -150,6 +150,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerBufferFeatureIn
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerBufferConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.readAudioRescueConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.AudioRescueFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCapabilityFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCapabilityOptions
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedFeatureInstaller
@@ -3770,7 +3771,22 @@ class HookEntry : XposedModule() {
                         wifiOnly = prefs.getBoolean(FeaturePreferences.PLAYER_BUFFER_WIFI_ONLY, PlayerBufferConfig.DEFAULT_WIFI_ONLY)
                     ),
                     AudioRescueFeatureInstaller(
-                        readAudioRescueConfig(prefs), debugTrace = BuildConfig.DEBUG
+                        readAudioRescueConfig(prefs), debugTrace = BuildConfig.DEBUG,
+                        moduleApk = runCatching { java.io.File(moduleApplicationInfo.sourceDir) }.getOrNull(),
+                        hostCodeCache = attachedContext.codeCacheDir,
+                        // Framework Remote first; module provider fallback for LSPatch, which does not
+                        // expose that service. Only fixed, verified assets are served by the provider.
+                        remoteFile = { name ->
+                            runCatching { openRemoteFile(name) }.getOrNull()?.let {
+                                android.os.ParcelFileDescriptor.AutoCloseInputStream(it)
+                            } ?: runCatching {
+                                val uri = RoamingCompatProvider.AUDIO_ASSET_URI
+                                    .buildUpon()
+                                    .appendQueryParameter(RoamingCompatProvider.AUDIO_ASSET_NAME, name)
+                                    .build()
+                                attachedContext.contentResolver.openInputStream(uri)
+                            }.getOrNull()
+                        }
                     ),
                     PlayerCodecForceFeatureInstaller(
                         codecPreferenceValue = prefs.getInt(

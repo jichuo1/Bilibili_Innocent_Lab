@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio
 
 import kotlin.math.*
+import kotlin.random.Random
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -92,8 +93,32 @@ class AudioRescueProcessorTest {
         assertArrayEquals(expected.takeLast(1000).toFloatArray(), stereo.takeLast(1000).toFloatArray(), 1e-6f)
     }
 
+    @Test fun `noise filters suppress mains fundamentals and harmonics but preserve speech`() {
+        val config = AudioRescueConfig(noiseReduction = true)
+        for (hz in listOf(50.0, 60.0, 100.0, 120.0)) {
+            val input = tone(hz, seconds = 2.0)
+            assertTrue("hum $hz", rms(run(config, input)) < rms(input) * .12)
+        }
+        val input = tone(1000.0)
+        assertTrue(rms(run(config, input)) > rms(input) * .9)
+    }
+
+    @Test fun `noise expansion attenuates quiet broadband hiss without unstable output`() {
+        val random = Random(7)
+        val input = FloatArray(rate * 4) { random.nextFloat() * .001f - .0005f }
+        val output = run(AudioRescueConfig(noiseReduction = true), input)
+        assertTrue(rms(output) < rms(input) * .3)
+        assertTrue(output.all { it.isFinite() })
+    }
+
+    @Test fun `unavailable voice model preserves centered panned and antiphase speech`() {
+        val config = AudioRescueConfig(voiceFocus = true)
+        for (input in listOf(tone(1000.0), tone(1000.0, opposite = true), tone(60.0)))
+            assertArrayEquals(input, run(config, input), 0f)
+    }
+
     @Test fun `processing is invariant to write partition and checkpoint replay`() {
-        val config = AudioRescueConfig(true, 2)
+        val config = AudioRescueConfig(true, 2, true, true)
         val input = tone(323.0)
         val expected = run(config, input)
         val processor = AudioRescueProcessor(rate, 2, config)
@@ -114,9 +139,9 @@ class AudioRescueProcessorTest {
 
     @Test fun `all combinations keep finite bounded output across supported rates and channels`() {
         for (sampleRate in listOf(8000, 44100, 48000, 192000)) for (channels in 1..2) {
-            for (mask in 0..3) {
+            for (mask in 0..15) {
                 val processor = AudioRescueProcessor(sampleRate, channels,
-                    AudioRescueConfig(mask and 1 != 0, if (mask and 2 != 0) 2 else 0))
+                    AudioRescueConfig(mask and 1 != 0, if (mask and 2 != 0) 2 else 0, mask and 4 != 0, mask and 8 != 0))
                 val data = FloatArray(4000 * channels) { if (it % 3 == 0) 1f else -1f }
                 processor.process(data)
                 assertTrue(data.all { it.isFinite() && abs(it) <= 1f })

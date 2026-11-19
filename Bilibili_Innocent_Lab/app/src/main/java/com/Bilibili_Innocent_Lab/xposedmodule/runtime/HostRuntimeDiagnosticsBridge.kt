@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.os.Build
 import androidx.core.content.ContextCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.AudioRescueModel
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallRecord
@@ -356,7 +357,8 @@ internal object HostRuntimeDiagnosticsBridge {
                 capturedAtEpochMs = capturedAtEpochMs.coerceAtLeast(1L),
                 processName = HostRuntimeDiagnosticsCodec.TARGET_PACKAGE,
                 features = evidence.values.toList(),
-                bootstrap = bootstrap
+                bootstrap = bootstrap,
+                audioModelState = AudioRescueModel.status()
             )
         }
     }

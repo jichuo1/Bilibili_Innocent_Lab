@@ -67,6 +67,7 @@ import androidx.core.view.updatePadding
 import androidx.lifecycle.Lifecycle
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.R
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.audio.AudioAssetCoordinator
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseHighlightsCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseHighlightsPolicy
@@ -270,6 +271,13 @@ class MainActivity : SkinnedActivity() {
             intent?.removeExtra(com.Bilibili_Innocent_Lab.xposedmodule.runtime.RoamingSettingsLauncher.EXTRA_MODULE_SETUP)
             prefs().edit { putInt("npatch_setup_seen", 1) }
             showNPatchSetupDialog()
+        }
+    }
+
+    internal val audioAssetsPicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) {
+            AudioAssetCoordinator.initialize(applicationContext)
+            AudioAssetCoordinator.importFiles(uris)
         }
     }
 

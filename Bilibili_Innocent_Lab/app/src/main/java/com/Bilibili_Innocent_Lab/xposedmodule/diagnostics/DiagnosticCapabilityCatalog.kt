@@ -33,7 +33,7 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("incognito_privacy", "incognito_privacy", R.string.incognito_enabled,
             setOf("privacy.incognito.enabled"), introducedCatalogVersion = 37),
         DiagnosticCapabilityDefinition("player_audio_rescue", "player_audio_rescue", R.string.player_audio_rescue,
-            setOf("player.audio.peak_guard", "player.audio.channels"),
+            setOf("player.audio.peak_guard", "player.audio.channels", "player.audio.noise_reduction", "player.audio.voice_focus"),
             introducedCatalogVersion = 40),
         DiagnosticCapabilityDefinition("player_buffer_strategy", "player_buffer", R.string.player_buffer_mode,
             setOf("player.buffer.mode", "player.buffer.seconds", "player.buffer.memory_mb"),

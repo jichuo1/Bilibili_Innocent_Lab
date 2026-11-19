@@ -27,6 +27,7 @@ json = "20260814"
 androidx-baselineprofile = "1.5.0"
 androidx-benchmark-macro = "1.5.0"
 shizuku = "13.1.5"
+onnxruntime = "1.31.0"
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
@@ -73,3 +74,4 @@ androidx-test-espresso-core = { group = "androidx.test.espresso", name = "espres
 test-org-json = { group = "org.json", name = "json", version.ref = "json" }
 androidx-baselineprofile-plugin = { group = "androidx.baselineprofile", name = "androidx.baselineprofile.gradle.plugin", version.ref = "androidx-baselineprofile" }
 androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "androidx-benchmark-macro" }
+onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }

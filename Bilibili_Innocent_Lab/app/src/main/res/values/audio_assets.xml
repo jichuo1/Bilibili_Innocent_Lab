@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="player_audio_assets_description">Speech enhancement needs optional files (about 56 MB). Peak protection and channel repair work without them. Download only starts when tapped. Offline import accepts the original GTCRN .onnx and ONNX Runtime 1.31.0 .aar files.</string>
+    <string name="player_audio_assets_download">Download / resume</string>
+    <string name="player_audio_assets_import">Import offline files</string>
+    <string name="player_audio_assets_links">Copy offline download links</string>
+    <string name="player_audio_assets_retry">Check / retry delivery</string>
+    <string name="player_audio_assets_cancel">Cancel this operation</string>
+    <string name="player_audio_assets_diagnostics">Copy preparation diagnostics</string>
+    <string name="player_audio_assets_copied">Copied</string>
+    <string name="player_audio_assets_checking">Checking files and framework connection…</string>
+    <string name="player_audio_assets_progress">Downloading %1$s · %2$d%%</string>
+    <string name="player_audio_assets_model">model</string>
+    <string name="player_audio_assets_runtime">runtime</string>
+    <string name="player_audio_assets_verifying">Verifying and preparing files…</string>
+    <string name="player_audio_assets_publishing">Delivering verified files to the framework…</string>
+    <string name="player_audio_assets_ready">Files verified and delivered. Restart Bilibili after saving. This does not confirm that the host has loaded them.</string>
+    <string name="player_audio_assets_missing">Files are incomplete. Download or import them. Until ready, voice enhancement passes through and noise reduction uses its basic fallback.</string>
+    <string name="player_audio_assets_framework_pending">Waiting for the framework connection. Verified local files are retained; delivery resumes after reconnection. Open the framework manager, return here and retry.</string>
+    <string name="player_audio_assets_unsupported">This framework does not provide the required remote-file capability. Copy diagnostics to investigate.</string>
+    <string name="player_audio_assets_remote_failed">Framework file delivery or read-back verification failed. Local files are retained. Retry delivery; copy diagnostics if it persists.</string>
+    <string name="player_audio_assets_cancelled">Cancelled. Verified files and resumable downloads were retained.</string>
+    <string name="player_audio_assets_storage_failed">Storage is unavailable or too low. Allow at least 180 MiB free space, then retry. Copy diagnostics for details.</string>
+    <string name="player_audio_assets_verify_failed">File identity verification failed; it will not be loaded. Retry downloading or import the two exact upstream files.</string>
+    <string name="player_audio_assets_busy">Another preparation is running. Please retry shortly.</string>
+    <string name="player_audio_assets_network_failed">Download failed or timed out. Tap resume to retry, or import offline files. Copy diagnostics for the failed stage and source.</string>
+    <string name="player_audio_assets_import_failed">Select one or both original .onnx / .aar files. Ensure the document provider can read them.</string>
+    <string name="player_audio_assets_picker_failed">Unable to open the file picker.</string>
+    <string name="player_audio_assets_stalled">The framework or file provider stopped responding. Files are retained. Restart the module and framework manager, then retry. Copy diagnostics before restarting.</string>
+</resources>

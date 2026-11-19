@@ -8,10 +8,13 @@ import android.database.MatrixCursor
 import android.net.Uri
 import android.os.Binder
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.os.Process
 import androidx.core.net.toUri
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.assets.AudioAssetSpec
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.assets.AudioAssetStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
@@ -44,6 +47,8 @@ class RoamingCompatProvider : ContentProvider() {
         const val PATH_UI_LOCALE = InjectedUiLocale.PROVIDER_PATH
         const val PATH_HOOK_AUTHORIZATION = "hook_authorization"
         const val PATH_NO_ROOT_CONFIG = "no_root_config"
+        const val PATH_AUDIO_ASSET = "audio_asset"
+        const val AUDIO_ASSET_NAME = "name"
         const val COLUMN_HOOK_AUTHORIZED = "authorized"
         const val COLUMN_NO_ROOT_VALID = "valid"
         const val COLUMN_NO_ROOT_ENABLED = "enabled"
@@ -65,6 +70,7 @@ class RoamingCompatProvider : ContentProvider() {
         val HOOK_AUTHORIZATION_URI: Uri =
             "content://$AUTHORITY/$PATH_HOOK_AUTHORIZATION".toUri()
         val NO_ROOT_CONFIG_URI: Uri = "content://$AUTHORITY/$PATH_NO_ROOT_CONFIG".toUri()
+        val AUDIO_ASSET_URI: Uri = "content://$AUTHORITY/$PATH_AUDIO_ASSET".toUri()
     }
 
     override fun onCreate(): Boolean = true
@@ -142,9 +148,27 @@ class RoamingCompatProvider : ContentProvider() {
                     uri.pathSegments == listOf(PATH_FREE_COPY_CONFIG) ||
                     uri.pathSegments == listOf(PATH_UI_LOCALE) ||
                     uri.pathSegments == listOf(PATH_HOOK_AUTHORIZATION) ||
-                    uri.pathSegments == listOf(PATH_NO_ROOT_CONFIG)
+                    uri.pathSegments == listOf(PATH_NO_ROOT_CONFIG) ||
+                    uri.pathSegments == listOf(PATH_AUDIO_ASSET)
                 )
         ) "text/plain" else null
+
+    /**
+     * Read-only fallback for verified audio assets when the framework Remote service is absent
+     * (for example LSPatch manager mode). Only fixed, already verified files are exposed to the
+     * target host; other callers are rejected by [enforceTrustedCaller].
+     */
+    override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
+        if (uri.authority != AUTHORITY || uri.pathSegments != listOf(PATH_AUDIO_ASSET)) return null
+        enforceTrustedCaller()
+        if (mode != "r") throw SecurityException("Audio assets are read-only")
+        val name = uri.getQueryParameter(AUDIO_ASSET_NAME) ?: return null
+        val part = AudioAssetSpec.allParts.firstOrNull { it.remoteName == name } ?: return null
+        val providerContext = context ?: return null
+        val store = AudioAssetStore(providerContext.noBackupFilesDir, null)
+        if (!store.valid(part)) return null
+        return ParcelFileDescriptor.open(store.file(part), ParcelFileDescriptor.MODE_READ_ONLY)
+    }
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
         return when (method) {

@@ -13,6 +13,8 @@ internal object FeaturePreferences {
     const val AI_INSIGHT_MODEL = "ai_insight_model"
     const val PLAYER_AUDIO_PEAK_GUARD = "player_audio_peak_guard"
     const val PLAYER_AUDIO_CHANNELS = "player_audio_channels"
+    const val PLAYER_AUDIO_NOISE_REDUCTION = "player_audio_noise_reduction"
+    const val PLAYER_AUDIO_VOICE_FOCUS = "player_audio_voice_focus"
     const val PLAYER_SUBTITLE_STYLE = "player_subtitle_style"
     const val PLAYER_AI_SUBTITLE = "player_ai_subtitle"
     /** 独立、默认关闭；修改后重启宿主生效。 */

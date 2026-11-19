@@ -1760,7 +1760,7 @@
     <string name="highlights_player_frame_thermal_control">Added optional interpolation thermal control. Disabling it requires confirmation.</string>
     <string name="player_audio_rescue">Audio rescue (experimental)</string>
     <string name="player_audio_current">%1$d options enabled · restart Bilibili after changing</string>
-    <string name="player_audio_scope">Processes video audio; off by default. Multichannel and passthrough audio are not supported.</string>
+    <string name="player_audio_scope">Processes video audio; off by default. Speech denoising or voice focus adds about 33 ms of delay. Multichannel and passthrough audio are not supported.</string>
     <string name="player_audio_peak_guard">Sudden peak guard</string>
     <string name="player_audio_peak_guard_tip">Immediately attenuates sudden rises and limits sample peaks to −6 dBFS, with a smooth release. This is separate from overall loudness normalization; it cannot guarantee a safe headphone volume.</string>
     <string name="player_audio_channels">Channel repair</string>
@@ -1768,4 +1768,9 @@
     <string name="player_audio_mono">Mix to mono</string>
     <string name="player_audio_auto">Automatically fill a missing channel</string>
     <string name="player_audio_channels_tip">Mono mixes both channels into both ears (opposite phases may cancel). Auto fills a persistently missing or nearly inaudible ear; ordinary stereo level differences are preserved.</string>
+    <string name="player_audio_noise_reduction">Speech denoising</string>
+    <string name="player_audio_noise_tip">Reduces noise in spoken videos while retaining more original detail. Timbre may change; leave off for music.</string>
+    <string name="player_audio_voice_focus">Voice clarity</string>
+    <string name="player_audio_voice_tip">Reduces music masking speech while retaining more original detail; includes denoising. Use for speech buried in BGM. Leave off for already clear speech or music; timbre may still change.</string>
+    <string name="player_audio_optional_tip">Advance warnings and silence skipping are not enabled in this experiment. They require a verified look-ahead source and synchronized player control; real-time PCM alone cannot predict audio several seconds ahead.</string>
 </resources>

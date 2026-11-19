@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.runtime
 
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticFeatureRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureRuntimeStage
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.AudioModelStatus
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureSkipReason
 import org.json.JSONArray
 import org.json.JSONObject
@@ -70,7 +71,8 @@ internal data class HostRuntimeDiagnosticsSnapshot(
     val capturedAtEpochMs: Long,
     val processName: String,
     val features: List<HostRuntimeFeatureEvidence>,
-    val bootstrap: HostRuntimeBootstrapEvidence = HostRuntimeBootstrapEvidence()
+    val bootstrap: HostRuntimeBootstrapEvidence = HostRuntimeBootstrapEvidence(),
+    val audioModelState: String? = null
 ) {
     val adaptedFeatureCount: Int
         get() = features.count { !DiagnosticFeatureRegistry.isAggregate(it.featureId) && it.adaptedCount > 0L }
@@ -140,6 +142,7 @@ internal object HostRuntimeDiagnosticsCodec {
         .put("captured_at", snapshot.capturedAtEpochMs.coerceAtLeast(1L))
         .put("process", TARGET_PACKAGE)
         .put("bootstrap", snapshot.bootstrap.sanitized().toJson())
+        .put("audio_model", snapshot.audioModelState?.takeIf { it in AudioModelStatus.allowed } ?: JSONObject.NULL)
         .put("features", JSONArray().apply {
             require(snapshot.features.size <= MAX_FEATURE_COUNT) { "Diagnostic capability overflow" }
             snapshot.features
@@ -185,7 +188,13 @@ internal object HostRuntimeDiagnosticsCodec {
             if (!evidence.isValid()) return@runCatching null
             features += evidence
         }
-        HostRuntimeDiagnosticsSnapshot(capturedAt, TARGET_PACKAGE, features, bootstrap)
+        // Optional extension: old schema-3 receipts remain readable. Unknown/non-string codes are rejected.
+        val audioModel = if (!root.has("audio_model") || root.isNull("audio_model")) null else {
+            val value = root.opt("audio_model") as? String ?: return@runCatching null
+            if (value !in AudioModelStatus.allowed) return@runCatching null
+            value
+        }
+        HostRuntimeDiagnosticsSnapshot(capturedAt, TARGET_PACKAGE, features, bootstrap, audioModel)
     }.getOrNull()
 
     fun increment(

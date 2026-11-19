@@ -1760,7 +1760,7 @@
     <string name="highlights_player_frame_thermal_control">新增关闭插帧温控选项，开启前需二次确认。</string>
     <string name="player_audio_rescue">音频拯救（实验）</string>
     <string name="player_audio_current">已开启 %1$d 项 · 修改后重启哔哩哔哩生效</string>
-    <string name="player_audio_scope">处理当前视频的声音，默认关闭。多声道和音频直通暂不支持。</string>
+    <string name="player_audio_scope">处理当前视频的声音，默认关闭。语音降噪或人声增强会增加约 33 毫秒延迟；多声道和音频直通暂不支持。</string>
     <string name="player_audio_peak_guard">关音菩萨 · 防突发炸耳</string>
     <string name="player_audio_peak_guard_tip">声音突然暴涨时立即压制，并把采样峰值限制在 −6 dBFS，随后平滑恢复。独立于整体响度均衡；实际耳机音量仍需自行控制。</string>
     <string name="player_audio_channels">治好左右耳 · 声道修复</string>
@@ -1768,4 +1768,9 @@
     <string name="player_audio_mono">左右混合为单声道</string>
     <string name="player_audio_auto">自动补齐缺失声道</string>
     <string name="player_audio_channels_tip">单声道将左右混合后送到双耳（反相声音可能抵消）。自动模式在持续只有一边响，或另一边几乎听不到时补声；一般左右音量差不会自动拉平。</string>
+    <string name="player_audio_noise_reduction">语音降噪</string>
+    <string name="player_audio_noise_tip">减轻讲话视频的底噪和环境干扰，保留更多原声细节。可能改变音色；以音乐为主的视频建议关闭。</string>
+    <string name="player_audio_voice_focus">人声清晰度增强</string>
+    <string name="player_audio_voice_tip">减轻背景音乐对讲话的遮盖，保留更多原声细节，已包含降噪。适合 BGM 过大的讲话视频；本来清楚或以音乐为主的视频建议关闭，仍可能改变音色。</string>
+    <string name="player_audio_optional_tip">本实验暂未开启提前预警和跳过空白停顿；两者需要验证过的前瞻音频源与同步播放器控制，实时 PCM 无法预测数秒后的声音。</string>
 </resources>

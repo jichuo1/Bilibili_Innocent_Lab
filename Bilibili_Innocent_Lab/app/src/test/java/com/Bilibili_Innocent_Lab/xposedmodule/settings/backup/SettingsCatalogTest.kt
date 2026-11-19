@@ -14,7 +14,7 @@ class SettingsCatalogTest {
         val previous = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v79.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(previous, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 79 }.map { it.id }.sorted())
-        assertEquals(81, SettingsCatalog.CATALOG_VERSION)
+        assertEquals(82, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 80 }
         assertEquals("free_copy.title.enabled", added.id)
         assertEquals(SettingsCatalog.ID_FREE_COPY_TITLE, added.id)
@@ -595,11 +595,11 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog is a unique allowlist with 274 settings`() {
-        assertEquals(274, SettingsCatalog.specs.size)
-        assertEquals(274, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(274, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(268, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 276 settings`() {
+        assertEquals(276, SettingsCatalog.specs.size)
+        assertEquals(276, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(276, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(270, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(6, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -1128,7 +1128,7 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(168, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(170, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(25, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(81, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 

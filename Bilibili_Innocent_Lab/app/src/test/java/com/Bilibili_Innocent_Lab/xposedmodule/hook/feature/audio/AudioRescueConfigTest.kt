@@ -16,14 +16,19 @@ class AudioRescueConfigTest {
         }
     }
     @Test fun `each control activates independently`() {
-        assertTrue(readAudioRescueConfig(SnapshotHookConfigSource(mapOf(FeaturePreferences.PLAYER_AUDIO_PEAK_GUARD to true))).enabled)
+        for (key in listOf(FeaturePreferences.PLAYER_AUDIO_PEAK_GUARD, FeaturePreferences.PLAYER_AUDIO_NOISE_REDUCTION, FeaturePreferences.PLAYER_AUDIO_VOICE_FOCUS)) {
+            assertTrue(readAudioRescueConfig(SnapshotHookConfigSource(mapOf(key to true))).enabled)
+        }
         for (mode in 1..2) assertTrue(AudioRescueConfig(channels = mode).enabled)
     }
     @Test fun `audio settings are typed backed up and delivered through catalog`() {
         val specs = SettingsCatalog.specs.filter { it.id.startsWith("player.audio.") }
-        assertEquals(2, specs.size)
-        assertTrue(specs.all { it.introducedCatalogVersion == 81 })
-        assertEquals(1, specs.count { it.defaultValue == SettingValue.Bool(false) })
+        assertEquals(4, specs.size)
+        // Peak guard and channels landed first (v81); speech controls followed with the model (v82).
+        assertEquals(setOf(81, 82), specs.map { it.introducedCatalogVersion }.toSet())
+        assertEquals(81, specs.single { it.id == "player.audio.peak_guard" }.introducedCatalogVersion)
+        assertEquals(82, specs.single { it.id == "player.audio.voice_focus" }.introducedCatalogVersion)
+        assertEquals(3, specs.count { it.defaultValue == SettingValue.Bool(false) })
         assertEquals(SettingValue.IntValue(0), specs.single { it.id == "player.audio.channels" }.defaultValue)
     }
 }

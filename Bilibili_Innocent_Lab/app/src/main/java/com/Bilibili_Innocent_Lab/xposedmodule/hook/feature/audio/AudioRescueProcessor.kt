@@ -3,12 +3,14 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio
 import kotlin.math.*
 
 /** Causal PCM DSP: no frame insertion/removal, playback clock changes or platform audio effects.
+ * Optional speech inference uses a bounded analysis window and fixed ~33 ms delay.
  * One instance per track. The write adapter serializes access and commits only accepted frames.
  */
 internal class AudioRescueProcessor(
     val sampleRate: Int,
     val channelCount: Int,
-    private val config: AudioRescueConfig
+    private val config: AudioRescueConfig,
+    private val speech: AudioSpeechEnhancer? = null
 ) {
     init {
         require(sampleRate in 8000..192000)
@@ -16,15 +18,23 @@ internal class AudioRescueProcessor(
     }
 
     // Persistent state is flat so a partial/failed AudioTrack.write can be rolled back exactly.
-    private val state = DoubleArray(STATE_SIZE).apply { this[GAIN] = 1.0; this[BASELINE] = .04 }
+    private val state = DoubleArray(40).apply { this[GAIN] = 1.0; this[BASELINE] = .04 }
     private val energyRate = 1 - exp(-1.0 / (.08 * sampleRate))
     private val baselineRate = 1 - exp(-1.0 / (1.5 * sampleRate))
     private val releaseRate = 1 - exp(-1.0 / (.18 * sampleRate))
     private val mixRate = 1 - exp(-1.0 / (.02 * sampleRate))
+    private val filters = listOf(
+        Biquad.highPass(sampleRate, 80.0),
+        Biquad.notch(sampleRate, 50.0), Biquad.notch(sampleRate, 60.0),
+        Biquad.notch(sampleRate, 100.0), Biquad.notch(sampleRate, 120.0),
+        Biquad.highPass(sampleRate, 180.0), Biquad.lowPass(sampleRate, min(3800.0, sampleRate * .4))
+    )
 
-    fun checkpoint(): DoubleArray = state.copyOf()
+    fun checkpoint(): DoubleArray = DoubleArray(state.size + (speech?.stateSize ?: 0)).also {
+        state.copyInto(it); speech?.save(it, state.size)
+    }
     fun restore(checkpoint: DoubleArray) {
-        checkpoint.copyInto(state, 0, 0, state.size)
+        checkpoint.copyInto(state, 0, 0, state.size); speech?.restore(checkpoint, state.size)
     }
 
     /** Interleaved normalized floats. Calls may be split at any complete PCM frame. */
@@ -64,6 +74,27 @@ internal class AudioRescueProcessor(
                 }
             }
 
+            if (speech != null && (config.noiseReduction || config.voiceFocus)) {
+                speech.process(left, right)
+                left = speech.left; right = speech.right
+            }
+
+            if (config.noiseReduction && speech == null) {
+                for (index in 0..4) {
+                    left = filter(index, 0, left)
+                    right = filter(index, 1, right)
+                }
+                val energy = max(state[LEFT_ENERGY], state[RIGHT_ENERGY])
+                // Gentle linked downward expansion, not speech/source separation. Steady loud
+                // environmental sound cannot be removed by this lightweight filter.
+                val target = (.15 + .85 * sqrt(energy) / .006).coerceIn(.15, 1.0)
+                state[NOISE_GAIN] += (if (target > state[NOISE_GAIN]) energyRate * 8 else energyRate) * (target - state[NOISE_GAIN])
+                left *= state[NOISE_GAIN]; right *= state[NOISE_GAIN]
+            }
+
+            // If the model is unavailable, voice focus preserves the original signal instead
+            // of the old centre/band filter, which damaged centred-BGM and panned-speech fixtures.
+
             if (config.peakGuard) {
                 val peak = max(abs(left), abs(right))
                 // A fixed -6 dBFS sample ceiling plus a relative rise threshold. Attack is
@@ -88,12 +119,38 @@ internal class AudioRescueProcessor(
     }
 
     private fun finite(value: Float) = if (value.isFinite()) value.toDouble().coerceIn(-1.0, 1.0) else 0.0
+    private fun filter(index: Int, channel: Int, value: Double): Double {
+        val at = FILTERS + index * 4 + channel * 2
+        val f = filters[index]
+        val output = f.b0 * value + state[at]
+        state[at] = f.b1 * value - f.a1 * output + state[at + 1]
+        state[at + 1] = f.b2 * value - f.a2 * output
+        return output
+    }
+
+    private data class Biquad(val b0: Double, val b1: Double, val b2: Double, val a1: Double, val a2: Double) {
+        companion object {
+            private fun make(rate: Int, frequency: Double, q: Double, kind: Int): Biquad {
+                val w = 2 * PI * frequency / rate
+                val c = cos(w); val alpha = sin(w) / (2 * q); val a0 = 1 + alpha
+                val b = when (kind) {
+                    0 -> doubleArrayOf((1 + c) / 2, -(1 + c), (1 + c) / 2)
+                    1 -> doubleArrayOf((1 - c) / 2, 1 - c, (1 - c) / 2)
+                    else -> doubleArrayOf(1.0, -2 * c, 1.0)
+                }
+                return Biquad(b[0] / a0, b[1] / a0, b[2] / a0, -2 * c / a0, (1 - alpha) / a0)
+            }
+            fun highPass(rate: Int, frequency: Double) = make(rate, frequency, sqrt(.5), 0)
+            fun lowPass(rate: Int, frequency: Double) = make(rate, frequency, sqrt(.5), 1)
+            fun notch(rate: Int, frequency: Double) = make(rate, frequency, 12.0, 2)
+        }
+    }
 
     private companion object {
         const val GAIN = 0; const val BASELINE = 1; const val HOLD = 2
         const val LEFT_ENERGY = 3; const val RIGHT_ENERGY = 4
         const val LEFT_WAIT = 5; const val RIGHT_WAIT = 6
-        const val LEFT_MIX = 7; const val RIGHT_MIX = 8
-        const val STATE_SIZE = 9
+        const val LEFT_MIX = 7; const val RIGHT_MIX = 8; const val NOISE_GAIN = 9
+        const val FILTERS = 10
     }
 }

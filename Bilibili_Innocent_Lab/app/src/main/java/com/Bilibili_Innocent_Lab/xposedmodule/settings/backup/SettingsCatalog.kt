@@ -36,7 +36,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 81
+    const val CATALOG_VERSION = 82
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_PLAYER_SPEED_MENU = "player.speed_menu.percents"
@@ -866,6 +866,10 @@ internal object SettingsCatalog {
             R.string.player_audio_peak_guard, introducedCatalogVersion = 81),
         integer("player.audio.channels", FeaturePreferences.PLAYER_AUDIO_CHANNELS,
             R.string.player_audio_channels, default = 0, allowed = setOf(0, 1, 2), introducedCatalogVersion = 81),
+        bool("player.audio.noise_reduction", FeaturePreferences.PLAYER_AUDIO_NOISE_REDUCTION,
+            R.string.player_audio_noise_reduction, introducedCatalogVersion = 82),
+        bool("player.audio.voice_focus", FeaturePreferences.PLAYER_AUDIO_VOICE_FOCUS,
+            R.string.player_audio_voice_focus, introducedCatalogVersion = 82),
         integer("player.frame_interpolation.max_fps", FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MAX_FPS,
             R.string.player_frame_max_fps, default = 60, allowed = setOf(60, 90, 120, 144, 165, 185), introducedCatalogVersion = 59),
         bool("player.frame_interpolation.status_toast", FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST,
@@ -1182,7 +1186,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 274) { "Expected 274 catalog settings, found ${specs.size}" }
+        check(specs.size == 276) { "Expected 276 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

@@ -1760,7 +1760,7 @@
     <string name="highlights_player_frame_thermal_control">新增關閉插幀溫控選項，開啟前需再次確認。</string>
     <string name="player_audio_rescue">音訊拯救（實驗）</string>
     <string name="player_audio_current">已開啟 %1$d 項 · 修改後重新啟動嗶哩嗶哩生效</string>
-    <string name="player_audio_scope">處理目前影片的聲音，預設關閉。多聲道與音訊直通暫不支援。</string>
+    <string name="player_audio_scope">處理目前影片的聲音，預設關閉。語音降噪或人聲增強會增加約 33 毫秒延遲；多聲道與音訊直通暫不支援。</string>
     <string name="player_audio_peak_guard">關音菩薩 · 防突發爆音</string>
     <string name="player_audio_peak_guard_tip">聲音突然暴漲時立即壓制，將取樣峰值限制在 −6 dBFS，隨後平滑恢復。獨立於整體響度均衡；實際耳機音量仍需自行控制。</string>
     <string name="player_audio_channels">治好左右耳 · 聲道修復</string>
@@ -1768,4 +1768,9 @@
     <string name="player_audio_mono">左右混合為單聲道</string>
     <string name="player_audio_auto">自動補齊缺失聲道</string>
     <string name="player_audio_channels_tip">單聲道將左右混合後送到雙耳（反相聲音可能抵消）。自動模式在持續只有一邊響，或另一邊幾乎聽不到時補聲；一般左右音量差不會自動拉平。</string>
+    <string name="player_audio_noise_reduction">語音降噪</string>
+    <string name="player_audio_noise_tip">減輕說話影片的底噪和環境干擾，保留更多原聲細節。可能改變音色；以音樂為主的影片建議關閉。</string>
+    <string name="player_audio_voice_focus">人聲清晰度增強</string>
+    <string name="player_audio_voice_tip">減輕背景音樂對說話的遮蓋，保留更多原聲細節，已包含降噪。適合 BGM 過大的說話影片；本來清楚或以音樂為主的影片建議關閉，仍可能改變音色。</string>
+    <string name="player_audio_optional_tip">本實驗暫未開啟提前預警和跳過空白停頓；兩者需要驗證過的前瞻音訊源與同步播放器控制，即時 PCM 無法預測數秒後的聲音。</string>
 </resources>

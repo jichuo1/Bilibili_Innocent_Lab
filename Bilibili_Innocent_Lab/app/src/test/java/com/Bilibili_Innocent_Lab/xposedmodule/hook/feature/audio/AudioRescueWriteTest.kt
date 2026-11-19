@@ -45,7 +45,7 @@ class AudioRescueWriteTest {
         assertNotNull(writer.metrics(pending, 2))
         assertArrayEquals(checkpoint, p.checkpoint(), 0.0)
     }
-    private fun processor(channels: Int = 2) = AudioRescueProcessor(48000, channels, AudioRescueConfig(true, 1))
+    private fun processor(channels: Int = 2) = AudioRescueProcessor(48000, channels, AudioRescueConfig(true, 1, true, true))
     private fun bytes(vararg samples: Short): ByteArray = ByteBuffer.allocate(samples.size * 2)
         .order(ByteOrder.nativeOrder()).also { b -> samples.forEach { b.putShort(it) } }.array()
 
