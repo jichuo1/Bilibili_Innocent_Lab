@@ -48,7 +48,7 @@ class DescriptionCopyTouchContractTest {
         assertTrue(dispatch.indexOf("observeFreeCopyTouch(ev)") < dispatch.indexOf("if (!isDescLikeTarget) {"))
         val description = dispatch.after("freeCopyGesture.begin(")
         assertTrue(description.contains("scaledTouchSlop.toFloat()"))
-        assertTrue(description.contains("freeCopyGesture.claim(ev.downTime, ev.eventTime)"))
+        assertTrue(description.contains("freeCopyGesture.claimAtUp(ev.downTime, ev.eventTime)"))
         assertFalse(description.contains("60f"))
         assertFalse(description.contains("requestDisallowInterceptTouchEvent"))
     }
@@ -69,7 +69,7 @@ class DescriptionCopyTouchContractTest {
         assertTrue("仅终止事件走 desc 清理", descTerminal.contains("ACTION_UP") && descTerminal.contains("ACTION_CANCEL"))
         // 短按安全网：UP 事件时长不足阈值时撤销已误弹气泡并交还宿主（两表面均接入）。
         assertTrue("短按安全网函数存在", source().contains("private fun revokePrematurePopupIfShortTap("))
-        assertEquals("简介/标题与评论 UP 均接入短按安全网", 2,
+        assertEquals("简介/标题、评论与祖先 UP 均接入短按安全网", 3,
             Regex("""revokePrematurePopupIfShortTap\(ev\)""").findAll(dispatch).count())
         val revoke = source().after("private fun revokePrematurePopupIfShortTap(").before("private fun isOfficialSuppressionActive(")
         assertTrue("事件时长不足阈值才撤销", revoke.contains("ev.eventTime - ev.downTime >= freeCopyGesture.thresholdMs"))
@@ -85,14 +85,16 @@ class DescriptionCopyTouchContractTest {
     @Test fun longPressAuthorityIsEventClockAndShortTapUpReturnsToHost() {
         // 事件时钟为唯一长按判据：UP 用 ev.eventTime - ev.downTime 复核，短按不认领。
         val dispatch = source().after("// 简介触摸长按检测：").before("// 拦截官方「复制简介全文」实现")
-        assertTrue("简介/标题 UP 事件时钟复核", dispatch.contains("freeCopyGesture.claim(ev.downTime, ev.eventTime)"))
-        assertTrue("评论 UP 事件时钟复核", dispatch.contains("freeCopyGesture.claim(ev.downTime, ev.eventTime)"))
+        assertTrue("简介/标题 UP 事件时钟复核（带临界余量）", dispatch.contains("freeCopyGesture.claimAtUp(ev.downTime, ev.eventTime)"))
+        assertTrue("评论 UP 事件时钟复核（带临界余量）", dispatch.contains("freeCopyGesture.claimAtUp(ev.downTime, ev.eventTime)"))
+        assertTrue("标题阈值在系统线上加余量", dispatch.contains("FreeCopyGestureDetector.TITLE_THRESHOLD_EXTRA_MS"))
         // 三表面共用同一个后端实例与单一到期 Runnable。
         assertEquals(1, Regex("""private val freeCopyGesture[:\s]""").findAll(source()).count())
         assertEquals(1, Regex("""private val freeCopyLongPressRunnable""").findAll(source()).count())
-        // 后端 claim 以事件时钟判定（eventTime - downTime >= thresholdMs）。
+        // 后端 claim 以事件时钟判定（eventTime - downTime >= requiredMs）；UP 认领另加临界余量。
         val detector = SourceContract.read("hook/feature/FreeCopyGestureDetector.kt")
         val claim = detector.after("fun claim(").before("fun reset()")
-        assertTrue(claim.contains("eventTime - downTime < thresholdMs"))
+        assertTrue(claim.contains("eventTime - downTime < requiredMs"))
+        assertTrue(claim.contains("thresholdMs + UP_CLAIM_MARGIN_MS"))
     }
 }

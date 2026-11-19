@@ -4675,10 +4675,11 @@ class HookEntry : XposedModule() {
                                     }
                                     // 简介和标题共用同一个触摸会话（同一时刻只有一个手势）：命中任一个已启用
                                     // 的目标才进入下面的会话分支；其余 View 走评论/清理分支。
+                                    val isTitleTarget = runtimeTitleFreeCopyEnabled && isTitleView(v)
                                     val isDescLikeTarget =
                                         (runtimeDescriptionFreeCopyEnabled &&
                                             descViewId != View.NO_ID && v.id == descViewId) ||
-                                            (runtimeTitleFreeCopyEnabled && isTitleView(v))
+                                            isTitleTarget
                                     if (!isDescLikeTarget) {
                                         if (action == android.view.MotionEvent.ACTION_DOWN) {
                                             // 新手势落在非简介 View 时终止旧简介会话。desc 自身的
@@ -4733,6 +4734,10 @@ class HookEntry : XposedModule() {
                                             (action == android.view.MotionEvent.ACTION_UP ||
                                                 action == android.view.MotionEvent.ACTION_CANCEL)
                                         ) {
+                                            // UP 落在祖先/气泡窗口时同样先走短按安全网撤销误弹，再清理会话。
+                                            if (action == android.view.MotionEvent.ACTION_UP) {
+                                                revokePrematurePopupIfShortTap(ev)
+                                            }
                                             clearDescTouchSession(resetHandled = !descLongPressHandled)
                                         }
                                         if (!runtimeCommentFreeCopyEnabled) return@before
@@ -4756,7 +4761,7 @@ class HookEntry : XposedModule() {
                                                 // 后面；以 MotionEvent 真实按住时长判定，短按 UP 一律
                                                 // 交还宿主（三点/展开），不会被延误判成长按。
                                                 if (action == android.view.MotionEvent.ACTION_UP && !handled &&
-                                                    freeCopyGesture.claim(ev.downTime, ev.eventTime)
+                                                    freeCopyGesture.claimAtUp(ev.downTime, ev.eventTime)
                                                 ) {
                                                     handled = tryHandleActiveCommentLongPress(sessionId)
                                                 }
@@ -4778,11 +4783,14 @@ class HookEntry : XposedModule() {
                                                 clearCommentTouchSession(resetHandled = true)
                                             }
                                             clearDescTouchSession(resetHandled = true)
+                                            // 标题没有宿主长按可抢：阈值在系统长按线上加余量，点按展开优先；
+                                            // 简介须与宿主官方长按同步，仍取系统线。
                                             freeCopyGesture.begin(ev.downTime, android.os.SystemClock.uptimeMillis(),
                                                 ev.getPointerId(0), ev.rawX, ev.rawY,
                                                 android.view.ViewConfiguration.get(v.context)
                                                     .scaledTouchSlop.toFloat(),
-                                                freeCopyLongPressThreshold())
+                                                freeCopyLongPressThreshold() +
+                                                    if (isTitleTarget) FreeCopyGestureDetector.TITLE_THRESHOLD_EXTRA_MS else 0L)
                                             descLongPressHandled = false
                                             descTouchedView = v
                                             // 按住不动的即时反馈：到期 Runnable 仍须通过事件时钟复核才弹泡。
@@ -4816,7 +4824,7 @@ class HookEntry : XposedModule() {
                                             // UP 分支的长按复制）；短按 UP 一律交还宿主（标题展开/收起、简介
                                             // 链接 span 点击），主线程拥塞也不会把短按误判成长按。
                                             if (action == android.view.MotionEvent.ACTION_UP && !handled &&
-                                                freeCopyGesture.claim(ev.downTime, ev.eventTime)
+                                                freeCopyGesture.claimAtUp(ev.downTime, ev.eventTime)
                                             ) {
                                                 handled = sharedFreeCopyListener.onLongClick(v)
                                             }

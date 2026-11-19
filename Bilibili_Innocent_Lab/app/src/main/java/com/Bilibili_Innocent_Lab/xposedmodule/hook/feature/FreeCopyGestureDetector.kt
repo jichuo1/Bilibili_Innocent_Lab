@@ -93,9 +93,20 @@ internal class FreeCopyGestureDetector(
      * 事件时钟复核：仅当本次手势仍 PENDING 且真实按住时长（[eventTime] - downTime）达到阈值才认领。
      * [eventTime] 必须来自 MotionEvent（UP 的 eventTime 或到期时刻的 uptime），不是 DOWN 观测墙钟。
      */
-    fun claim(downTime: Long, eventTime: Long): Boolean {
+    fun claim(downTime: Long, eventTime: Long): Boolean = claimWith(downTime, eventTime, thresholdMs)
+
+    /**
+     * UP 时刻的认领比按住中的认领再严一档：手指已经抬起时，刚越过阈值的按压更可能是
+     * 用户瞄准小目标的慢点按而非长按意图。要求时长达到阈值 + [UP_CLAIM_MARGIN_MS] 才认领，
+     * 临界区一律交还宿主点击（标题展开/简介 span/评论三点）。按住中由到期 Runnable 与宿主
+     * 监听器走 [claim] 即时反馈，不受此余量影响。
+     */
+    fun claimAtUp(downTime: Long, eventTime: Long): Boolean =
+        claimWith(downTime, eventTime, thresholdMs + UP_CLAIM_MARGIN_MS)
+
+    private fun claimWith(downTime: Long, eventTime: Long, requiredMs: Long): Boolean {
         if (!matches(downTime) || !isPending || eventTime < downTime ||
-            eventTime - downTime < thresholdMs
+            eventTime - downTime < requiredMs
         ) return false
         phase = Phase.HANDLED
         return true
@@ -165,5 +176,9 @@ internal class FreeCopyGestureDetector(
     companion object {
         const val DEFAULT_THRESHOLD_MS = 400L
         const val ARM_MILLIS = 300L
+        /** UP 时刻认领的额外余量：临界区按压优先判为点按，见 [claimAtUp]。 */
+        const val UP_CLAIM_MARGIN_MS = 150L
+        /** 标题没有宿主长按可抢，阈值在系统长按线上再加此余量，优先保证点按展开。 */
+        const val TITLE_THRESHOLD_EXTRA_MS = 300L
     }
 }

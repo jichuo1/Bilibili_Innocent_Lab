@@ -29,6 +29,22 @@ class FreeCopyGestureDetectorTest {
         assertTrue(g.claim(1_000L, 1_500L))
     }
 
+    @Test fun upClaimRequiresMarginBeyondThresholdSoBorderlineTapsStayWithHost() {
+        // 刚越线就抬手多半是瞄准小目标的慢点按：UP 认领要求阈值+余量，临界区交还宿主点击。
+        val g = gesture()
+        assertFalse(g.claimAtUp(1_000L, 1_400L))
+        assertFalse(g.claimAtUp(1_000L, 1_549L))
+        assertTrue(g.isPending)
+        assertTrue(g.claimAtUp(1_000L, 1_550L))
+        assertFalse(g.claimAtUp(1_000L, 1_600L))
+    }
+
+    @Test fun heldPressStillClaimsAtPlainThresholdWhileFingerIsDown() {
+        // 按住中（到期 Runnable/宿主监听器）走 claim，不受 UP 余量影响，即时反馈不延迟。
+        val g = gesture()
+        assertTrue(g.claim(1_000L, 1_400L))
+    }
+
     @Test fun shortTapAndSmallJitterStayWithHost() {
         val g = gesture()
         assertFalse(g.sample(1_000L, 7, 1, 103f, 204f))
