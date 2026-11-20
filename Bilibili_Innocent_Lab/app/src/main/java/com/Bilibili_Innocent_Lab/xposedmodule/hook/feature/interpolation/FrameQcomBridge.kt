@@ -31,7 +31,7 @@ internal class FrameQcomBridge private constructor(
     private var playback: Playback?
 ) : FramePlaybackBridge {
     private class Playback(val display: Surface, val host: FrameCaptureBridge.Host, val isCurrent: () -> Boolean,
-                           val attach: (Surface) -> Boolean, val onBackendFailed: () -> Unit) {
+                           val attach: (Surface) -> Boolean, val onBackendFailed: (String, Boolean) -> Unit) {
         val rate = host.playbackRateReader(display)
     }
     private val display get() = checkNotNull(playback).display
@@ -82,6 +82,7 @@ internal class FrameQcomBridge private constructor(
     private var inputArrived = false
     private var stopping = false
     private var fallback = false
+    private var failureReason = ""
     private var restored = false
     private var allowNextBackend = false
     private var afterRetirement: (() -> Unit)? = null
@@ -471,6 +472,7 @@ internal class FrameQcomBridge private constructor(
         output.revoke()
         host.log("$logName.fallback", reason)
         fallback = true
+        failureReason = reason
         allowNextBackend = nativeReason == null
         if (nativeReason != null) host.onStatus(FrameStatus.Inactive(nativeReason))
         // Let the active capture/draw callback return its local frame references first.
@@ -504,7 +506,9 @@ internal class FrameQcomBridge private constructor(
                 if (allowNextBackend && !closed.get() && route.isCurrent()) {
                     val current = route.isCurrent
                     val next = route.onBackendFailed
-                    afterRetirement = { if (!closed.get() && current()) next() }
+                    val reason = failureReason
+                    val hadMidpoint = midpoints > 0L
+                    afterRetirement = { if (!closed.get() && current()) next(reason, hadMidpoint) }
                 }
                 // A late GPU fence needs its EGL owner, but no longer needs the player's
                 // surface, rate reader, activity callbacks or audio/thermal context.
@@ -588,7 +592,8 @@ internal class FrameQcomBridge private constructor(
 
         fun create(codec: MediaCodec, display: Surface, width: Int, height: Int, sourceFps: Float,
                    targetFps: Int, source: FrameHostMediaSignals.Values, host: FrameCaptureBridge.Host,
-                   isCurrent: () -> Boolean, attach: (Surface) -> Boolean, onBackendFailed: () -> Unit): FrameQcomBridge? {
+                   isCurrent: () -> Boolean, attach: (Surface) -> Boolean,
+                   onBackendFailed: (String, Boolean) -> Unit): FrameQcomBridge? {
             if (!validExtent(width, height) || !display.isValid || !sourceFps.isFinite() || targetFps !in 24..240 ||
                 abs(sourceFps * 2 - targetFps) > 2.1 || source.colorStandard != MediaFormat.COLOR_STANDARD_BT709 ||
                 !ownersReady()) return null
@@ -600,7 +605,8 @@ internal class FrameQcomBridge private constructor(
         fun createRife(codec: MediaCodec, display: Surface, width: Int, height: Int, sourceFps: Float,
                        targetFps: Int, source: FrameHostMediaSignals.Values, host: FrameCaptureBridge.Host,
                        isCurrent: () -> Boolean, attach: (Surface) -> Boolean,
-                       openBackend: (Int, Int) -> WindowBackend?, onBackendFailed: () -> Unit): FrameQcomBridge? {
+                       openBackend: (Int, Int) -> WindowBackend?,
+                       onBackendFailed: (String, Boolean) -> Unit): FrameQcomBridge? {
             if (!validExtent(width, height) || !display.isValid || !sourceFps.isFinite() || targetFps !in 24..240 ||
                 abs(sourceFps * 2 - targetFps) > 2.1 || !ownersReady()) return null
             val bridge = FrameQcomBridge(codec, width, height, sourceFps, targetFps, source, FrameStatus.Backend.RIFE,

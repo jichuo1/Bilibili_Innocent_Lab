@@ -12,6 +12,24 @@ class FramePendingTakeoversTest {
         assertTrue(FramePlaybackRoutes.Attempt().claimRifeAhb(true))
     }
 
+    @Test fun qcomWindowResizeKeepsQcomEligibleWithABoundedZeroMidpointCap() {
+        val attempt = FramePlaybackRoutes.Attempt()
+        assertTrue(attempt.retireQcom("window_size", hadMidpoint = false))
+        assertFalse(attempt.rifeOnly)
+        assertTrue(attempt.retireQcom("window_size", hadMidpoint = true))
+        assertFalse(attempt.rifeOnly)
+        // A successful midpoint resets the zero-midpoint resize budget so fullscreen toggles keep QCOM.
+        assertTrue(attempt.retireQcom("window_size", hadMidpoint = false))
+        assertTrue(attempt.retireQcom("window_size", hadMidpoint = false))
+        assertFalse(attempt.rifeOnly)
+        assertFalse(attempt.retireQcom("window_size", hadMidpoint = false))
+        assertTrue(attempt.rifeOnly)
+
+        val nonResize = FramePlaybackRoutes.Attempt()
+        assertFalse(nonResize.retireQcom("speed", hadMidpoint = true))
+        assertTrue(nonResize.rifeOnly)
+    }
+
     @Test fun delayedMediaKeepsAdmissionOpenWithCappedProbesOnlyForMissingEvidence() {
         val attempt = FramePlaybackRoutes.Attempt()
         val delays = List(32) {

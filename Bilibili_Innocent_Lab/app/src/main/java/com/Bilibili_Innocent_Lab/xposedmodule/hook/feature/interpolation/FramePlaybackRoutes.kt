@@ -21,6 +21,7 @@ internal class FramePlaybackRoutes(val rife: FrameInterpolationEngineHolder) {
             internal set
         @Volatile var rifeAhbTried = false
             private set
+        private var consecutiveQcomResizes = 0
         var mediaRetryDelayMs = 0L
             private set
 
@@ -29,6 +30,19 @@ internal class FramePlaybackRoutes(val rife: FrameInterpolationEngineHolder) {
             // Preloaded or paused decoders can expose their first output/PCM track much later.
             mediaRetryDelayMs = (mediaRetryDelayMs * 2).coerceIn(150L, 3_000L)
             return true
+        }
+
+        /**
+         * A portrait/fullscreen resize invalidates the EGL window extent but does not mean QCOM is broken.
+         * Allow QCOM to reattach at the new extent, capping consecutive zero-midpoint resizes to bound loops.
+         */
+        @Synchronized fun retireQcom(reason: String, hadMidpoint: Boolean): Boolean {
+            if (reason == "window_size") {
+                consecutiveQcomResizes = if (hadMidpoint) 0 else consecutiveQcomResizes + 1
+                if (consecutiveQcomResizes <= MAX_ZERO_MIDPOINT_RESIZES) return true
+            }
+            rifeOnly = true
+            return false
         }
 
         /** The attach worker is the sole claimant. A restored codec keeps this attempt on retarget. */
@@ -75,9 +89,7 @@ internal class FramePlaybackRoutes(val rife: FrameInterpolationEngineHolder) {
             return Result.Original
         }
 
-        val rawFps = FrameCaptureBridge.sourceFpsHint(format) ?: 30f
-        // ijk may write the integer operating rate 29 for 29.97 fps. The window checks actual PTS cadence.
-        val fps = if (rawFps == 29f && !format.containsKey(MediaFormat.KEY_FRAME_RATE)) 30f else rawFps
+        val fps = FrameCaptureBridge.sourceFpsHint(format) ?: 30f
         val target = if (kotlin.math.abs(host.playbackRateReader(display)() - 1.0) <= 0.01)
             FrameRateTarget.midpoint(fps, requestedTargetFps ?: host.maxFps(),
                 FrameCaptureBridge.displayModes(host.context()), host.displayLimitHz()) else null
@@ -85,9 +97,9 @@ internal class FramePlaybackRoutes(val rife: FrameInterpolationEngineHolder) {
             if (target != null && signal.standard == FrameMediaPolicy.Standard.BT709 &&
                 decodedSignal.standard == FrameMediaPolicy.Standard.BT709 && isCurrent()) {
                 val qcom = FrameQcomBridge.create(codec, display, width, height, fps, target, merged, host, isCurrent,
-                    attach) {
-                    attempt.rifeOnly = true
-                    onWindowFailed("qcom")
+                    attach) { reason, hadMidpoint ->
+                    val retryQcom = attempt.retireQcom(reason, hadMidpoint)
+                    onWindowFailed(if (retryQcom) "qcom-resize" else "qcom")
                 }
                 if (qcom != null) {
                     host.log("route.selected", "qcom ${width}x${height} target=$target")
@@ -107,7 +119,7 @@ internal class FramePlaybackRoutes(val rife: FrameInterpolationEngineHolder) {
                     host, isCurrent, attach, { outputWidth, outputHeight ->
                         FrameRifeAhbBackend.open(rife, width, height, outputWidth, outputHeight, fps, target, signal.standard,
                             isCurrent, androidColorStandard = merged.colorStandard ?: decoded.colorStandard)
-                    }) { onWindowFailed("rife-ahb") }
+                    }) { _, _ -> onWindowFailed("rife-ahb") }
                 if (window != null) {
                     if (window.awaitingRetirement) {
                         host.log("route.retiring", "rife-ahb")
@@ -143,6 +155,7 @@ internal class FramePlaybackRoutes(val rife: FrameInterpolationEngineHolder) {
         (rife.state == FrameInterpolationEngineHolder.State.FAILED && !rife.recoveryPending())
 
     companion object {
+        private const val MAX_ZERO_MIDPOINT_RESIZES = 2
         private val RIFE_WINDOW_STANDARDS = setOf(FrameMediaPolicy.Standard.BT601, FrameMediaPolicy.Standard.BT709)
         private val WAITABLE = setOf(FrameMediaPolicy.Reason.UNKNOWN_COLOR, FrameMediaPolicy.Reason.UNKNOWN_BIT_DEPTH,
             FrameMediaPolicy.Reason.UNKNOWN_AUDIO_PATH)

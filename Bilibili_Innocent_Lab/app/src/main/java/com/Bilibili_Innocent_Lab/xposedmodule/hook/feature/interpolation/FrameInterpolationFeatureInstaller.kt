@@ -55,6 +55,7 @@ internal class FrameInterpolationFeatureInstaller(
     private val audioTracks = Collections.synchronizedMap(WeakHashMap<AudioTrack, FrameAudioDelay>())
     private val inMainDisplay = FrameCallScope()
     private val inMainOp = FrameCallScope()
+    private val inConfigure = FrameCallScope()
     private val changingOutput = FrameCallScope()
     private val decoderGeneration = FrameDecoderGeneration<MediaCodec>()
     private val activationScheduled = java.util.concurrent.atomic.AtomicBoolean()
@@ -275,41 +276,57 @@ internal class FrameInterpolationFeatureInstaller(
             check(shapes.isNotEmpty())
             registrar.all("$ID.configure", MediaCodec::class.java.name, "configure") {
                 before {
+                    // Public MediaCodec.configure(...) delegates to a private 5-arg configure(...) overload on
+                    // the same codec. Ignore nested calls so they cannot detach the outer registration.
+                    if (inConfigure.active) return@before
                     val codec = instance as? MediaCodec ?: return@before
-                    // A reconfigure may move a previously owned codec to an ineligible display or encoder.
-                    if (configured.containsKey(codec)) detachDecoder(codec)?.close()
-                    log("configure.seen", "observed")
-                    val cryptoIndex = (method as? java.lang.reflect.Method)?.let { shapes[it] }
-                        ?: run { log("configure.skip.abi", "unsupported"); return@before }
-                    val flags = (argOrNull(if (cryptoIndex == 2) 3 else 2) as? Int) ?: return@before
-                    if (flags and MediaCodec.CONFIGURE_FLAG_ENCODE != 0) {
-                        log("configure.skip.encoder", "encoder"); return@before
+                    inConfigure.enter()
+                    setObjectExtra(CONFIGURE_SCOPE, java.lang.Boolean.TRUE)
+                    try {
+                        // A reconfigure may move a previously owned codec to an ineligible display or encoder.
+                        if (configured.containsKey(codec)) detachDecoder(codec)?.close()
+                        log("configure.seen", "observed")
+                        val cryptoIndex = (method as? java.lang.reflect.Method)?.let { shapes[it] }
+                            ?: run { log("configure.skip.abi", "unsupported"); return@before }
+                        val flags = (argOrNull(if (cryptoIndex == 2) 3 else 2) as? Int) ?: return@before
+                        if (flags and MediaCodec.CONFIGURE_FLAG_ENCODE != 0) {
+                            log("configure.skip.encoder", "encoder"); return@before
+                        }
+                        val display = argOrNull(1) as? Surface ?: run { log("configure.skip.surface", "missing"); return@before }
+                        val format = argOrNull(0) as? MediaFormat ?: run { log("configure.skip.format", "missing"); return@before }
+                        if (nativeOnly) return@before
+                        if (!playerProcess && !mainSurfaces.contains(display)) {
+                            log("configure.skip.owner", "unowned_surface"); return@before
+                        }
+                        val mime = runCatching { format.getString(MediaFormat.KEY_MIME) }.getOrNull()
+                            ?: run { log("configure.skip.mime", "missing"); return@before }
+                        if (!mime.startsWith("video/")) { log("configure.skip.mime", "non_video"); return@before }
+                        if (!activate(apk)) return@before
+                        log("configure.owned", "video_decoder")
+                        var previous: FramePlaybackBridge? = null
+                        val ticket = decoderGeneration.begin(codec) {
+                            previous = bridges.remove(codec); pending.remove(codec); configured.remove(codec)
+                        }
+                        previous?.let { audioDelayUs = 0L; it.close() }
+                        setObjectExtra(CONFIGURE_TICKET, ticket)
+                        val decoder = PendingDecoder(format, display, argOrNull(cryptoIndex), ticket)
+                        decoderGeneration.commit(codec, ticket) { configured[codec] = decoder }
+                    } catch (failure: Throwable) {
+                        inConfigure.leave()
+                        setObjectExtra(CONFIGURE_SCOPE, null)
+                        throw failure
                     }
-                    val display = argOrNull(1) as? Surface ?: run { log("configure.skip.surface", "missing"); return@before }
-                    val format = argOrNull(0) as? MediaFormat ?: run { log("configure.skip.format", "missing"); return@before }
-                    if (nativeOnly) return@before
-                    if (!playerProcess && !mainSurfaces.contains(display)) {
-                        log("configure.skip.owner", "unowned_surface"); return@before
-                    }
-                    val mime = runCatching { format.getString(MediaFormat.KEY_MIME) }.getOrNull()
-                        ?: run { log("configure.skip.mime", "missing"); return@before }
-                    if (!mime.startsWith("video/")) { log("configure.skip.mime", "non_video"); return@before }
-                    if (!activate(apk)) return@before
-                    log("configure.owned", "video_decoder")
-                    var previous: FramePlaybackBridge? = null
-                    val ticket = decoderGeneration.begin(codec) {
-                        previous = bridges.remove(codec); pending.remove(codec); configured.remove(codec)
-                    }
-                    previous?.let { audioDelayUs = 0L; it.close() }
-                    setObjectExtra(CONFIGURE_TICKET, ticket)
-                    val decoder = PendingDecoder(format, display, argOrNull(cryptoIndex), ticket)
-                    decoderGeneration.commit(codec, ticket) { configured[codec] = decoder }
                 }
                 after {
-                    // configure 失败时宿主会放弃这个解码器：立刻拆除，避免持有显示 Surface。
-                    val ticket = getObjectExtra(CONFIGURE_TICKET) as? FrameDecoderGeneration.Ticket ?: return@after
-                    if (hasThrowable) (instance as? MediaCodec)?.let {
-                        detachDecoder(it, ticket)?.close()
+                    if (getObjectExtra(CONFIGURE_SCOPE) != java.lang.Boolean.TRUE) return@after
+                    try {
+                        // configure 失败时宿主会放弃这个解码器：立刻拆除，避免持有显示 Surface。
+                        val ticket = getObjectExtra(CONFIGURE_TICKET) as? FrameDecoderGeneration.Ticket ?: return@after
+                        if (hasThrowable) (instance as? MediaCodec)?.let {
+                            detachDecoder(it, ticket)?.close()
+                        }
+                    } finally {
+                        inConfigure.leave()
                     }
                 }
             }
@@ -806,6 +823,7 @@ internal class FrameInterpolationFeatureInstaller(
         private const val CLIENT = "tv.danmaku.ijk.media.player.services.IjkMediaPlayerClient"
         private const val VERIFY_TAG = "InnocentFrame"
         private const val CONFIGURE_TICKET = "innocent.frame.configure.ticket"
+        private const val CONFIGURE_SCOPE = "innocent.frame.configure.scope"
         private const val HOST_OUTPUT_CHANGE = "innocent.frame.host-output-change"
         private const val HOST_OUTPUT_BORROW = "innocent.frame.host-output-borrow"
         private const val STOP_BRIDGE = "innocent.frame.stop.bridge"

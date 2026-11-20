@@ -16,6 +16,18 @@ class FrameRateTargetTest {
         assertNull(FrameRateTarget.midpoint(60f, 60, ltpo, null))
     }
 
+    @Test fun truncatedIntegerOperatingRatesMapToNtscNominalRatesOnlyWithoutExplicitFrameRate() {
+        assertEquals(30f, FrameRateTarget.adjustOperatingRateHint(29f, hasExplicitFrameRate = false), 0f)
+        assertEquals(24f, FrameRateTarget.adjustOperatingRateHint(23f, hasExplicitFrameRate = false), 0f)
+        assertEquals(29f, FrameRateTarget.adjustOperatingRateHint(29f, hasExplicitFrameRate = true), 0f)
+        assertEquals(23f, FrameRateTarget.adjustOperatingRateHint(23f, hasExplicitFrameRate = true), 0f)
+        assertEquals(25f, FrameRateTarget.adjustOperatingRateHint(25f, hasExplicitFrameRate = false), 0f)
+        assertEquals(48, FrameRateTarget.midpoint(
+            FrameRateTarget.adjustOperatingRateHint(23f, hasExplicitFrameRate = false), 120, ltpo, null))
+        assertEquals(60, choose(
+            FrameRateTarget.adjustOperatingRateHint(29f, hasExplicitFrameRate = false), 60))
+    }
+
     @Test fun `default ceiling keeps the validated 60 and 50 fps behaviour`() {
         assertEquals(60, choose(30f, 60))
         assertEquals(60, choose(29.97f, 60))

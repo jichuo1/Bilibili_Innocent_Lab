@@ -120,6 +120,44 @@ class FrameTakeoverPolicyTest {
         assertNull(FrameCodecConfigureShape.cryptoIndex(prefix + listOf("android.media.MediaCrypto", "int", "int")))
     }
 
+    @Test fun nestedPrivateConfigureDelegationPreservesOuterRegistrationWhileTopLevelReconfigureDetaches() {
+        val inConfigure = FrameCallScope()
+        val generation = FrameDecoderGeneration<Any>()
+        val configured = HashMap<Any, FrameDecoderGeneration.Ticket>()
+        val codec = Any()
+        val publicFourArg = listOf("android.media.MediaFormat", "android.view.Surface", "android.media.MediaCrypto", "int")
+        val privateFiveArg = listOf("android.media.MediaFormat", "android.view.Surface", "android.media.MediaCrypto", "android.os.IHwBinder", "int")
+
+        fun simulateConfigure(params: List<String>, body: () -> Unit = {}) {
+            if (inConfigure.active) return
+            inConfigure.enter()
+            try {
+                if (configured.containsKey(codec)) generation.end(codec) { configured.remove(codec) }
+                val crypto = FrameCodecConfigureShape.cryptoIndex(params)
+                if (crypto != null) {
+                    val ticket = generation.begin(codec) { configured.remove(codec) }
+                    generation.commit(codec, ticket) { configured[codec] = ticket }
+                }
+                body()
+            } finally {
+                inConfigure.leave()
+            }
+        }
+
+        // Public 4-arg configure calls private 5-arg configure internally: registration must survive for start().
+        simulateConfigure(publicFourArg) { simulateConfigure(privateFiveArg) }
+        val registered = configured[codec]
+        assertNotNull(registered)
+        assertTrue(registered!!.isActive())
+        assertFalse(inConfigure.active)
+
+        // A genuine top-level reconfigure via an unsupported overload detaches the previously owned decoder.
+        simulateConfigure(privateFiveArg)
+        assertNull(configured[codec])
+        assertFalse(registered.isActive())
+        assertFalse(inConfigure.active)
+    }
+
     @Test fun optionalHooksCannotMaskAMissingConfigureOrSurfaceRole() {
         val required = setOf("display", "op", "surface", "surface.holder", "surface.release", "speed",
             "configure", "start", "output.surface", "flush", "stop", "reset", "release", "audio.ctor")

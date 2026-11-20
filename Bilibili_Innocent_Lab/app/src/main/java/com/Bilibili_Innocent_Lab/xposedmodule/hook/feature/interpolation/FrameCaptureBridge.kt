@@ -526,14 +526,16 @@ internal class FrameCaptureBridge private constructor(
             width to height
         }.getOrDefault(0 to 0)
 
-        /** ijk 在 configure 格式里给出 operating-rate（真机：29.97 fps 源为 29、30 fps 源为 30），也可能给 frame-rate。 */
+        /** ijk 在 configure 格式里给出 operating-rate（真机：29.97 fps 源为 29、23.976 fps 源为 23、30 fps 源为 30），也可能给 frame-rate。 */
         internal fun sourceFpsHint(format: MediaFormat): Float? {
             for (key in listOf(MediaFormat.KEY_FRAME_RATE, MediaFormat.KEY_OPERATING_RATE)) {
                 val value = runCatching {
                     if (!format.containsKey(key)) null
                     else runCatching { format.getFloat(key) }.getOrNull() ?: format.getInteger(key).toFloat()
                 }.getOrNull()
-                if (value != null && value.isFinite() && value > 0f) return value
+                if (value != null && value.isFinite() && value > 0f) {
+                    return FrameRateTarget.adjustOperatingRateHint(value, key == MediaFormat.KEY_FRAME_RATE)
+                }
             }
             return null
         }

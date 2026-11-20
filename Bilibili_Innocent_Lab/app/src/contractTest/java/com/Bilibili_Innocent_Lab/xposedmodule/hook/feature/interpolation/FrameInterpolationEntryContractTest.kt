@@ -127,6 +127,16 @@ class FrameInterpolationEntryContractTest {
         assertTrue(configure.contains("FrameCodecConfigureShape.cryptoIndex(method.parameterTypes.map { it.name })"))
         assertTrue(configure.contains("decoderGeneration.commit(codec, ticket)"))
         assertTrue(configure.contains("argOrNull(cryptoIndex)"))
+        val configureBefore = configure.after("before {").before("after {")
+        val guardNested = configureBefore.indexOf("if (inConfigure.active) return@before")
+        val detachExisting = configureBefore.indexOf("if (configured.containsKey(codec)) detachDecoder(codec)?.close()")
+        assertTrue("nested MediaCodec.configure delegation must be ignored before detaching an outer registration",
+            guardNested in 0 until detachExisting)
+        assertTrue(configureBefore.contains("inConfigure.enter()"))
+        assertTrue(configureBefore.contains("setObjectExtra(CONFIGURE_SCOPE, java.lang.Boolean.TRUE)"))
+        val configureAfter = configure.after("after {").before("hook(\"start\")")
+        assertTrue(configureAfter.contains("if (getObjectExtra(CONFIGURE_SCOPE) != java.lang.Boolean.TRUE) return@after"))
+        assertTrue(configureAfter.after("finally {").contains("inConfigure.leave()"))
     }
 
     @Test fun `native dependency ships only as the compressed on demand archive`() {

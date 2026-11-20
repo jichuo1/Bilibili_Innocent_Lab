@@ -62,6 +62,14 @@ internal object FrameRateTarget {
         return null
     }
 
+    /** ijk truncates NTSC rates when writing integer operating-rate (29.97 → 29, 23.976 → 23). */
+    fun adjustOperatingRateHint(fps: Float, hasExplicitFrameRate: Boolean): Float = when {
+        hasExplicitFrameRate -> fps
+        fps == 29f -> 30f
+        fps == 23f -> 24f
+        else -> fps
+    }
+
     /** 29.97 → 30、23.976 → 24、25 → 25；其他源帧率不在支持范围。 */
     fun normalizeSource(fps: Float): Int? = listOf(24, 25, 30).firstOrNull { abs(fps - it) / it <= 0.02f }
 
