@@ -16,7 +16,7 @@ class LiquidMotionMappingContractTest {
         assertTrue(main.contains("LumenSlidingSelection("))
         assertTrue(main.contains("notifyPreparedSkinPositionChanged()"))
         val choice = SourceContract.read("ui/activity/SemanticJevDialogs.kt")
-            .after("private fun MainActivity.createSlidingChoice(").before("/** 各过滤面的开关键")
+            .after("fun MainActivity.createSlidingChoice(").before("/** 各过滤面的开关键")
         assertTrue(choice.contains("createSkinSlidingSelection()"))
         assertTrue(choice.contains("frame.onSelect = onSelected"))
         assertFalse(choice.contains("ValueAnimator") || choice.contains("translationY ="))

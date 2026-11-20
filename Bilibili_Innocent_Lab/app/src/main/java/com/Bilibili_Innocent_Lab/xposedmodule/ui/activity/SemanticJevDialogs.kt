@@ -1048,7 +1048,7 @@ internal fun MainActivity.showSemanticRouteDialog(surface: SemanticSurface, anch
  * 单选列表，选中框是一块独立的皮肤选中面：点新选项时它从旧位置连续滑到新位置（位置与高度一起插值），
  * 标题颜色同步渐变。首帧布局完成前不做动画，直接落在初始选中项上；动画可被下一次点击打断并从当前位置接续。
  */
-private fun MainActivity.createSlidingChoice(
+internal fun MainActivity.createSlidingChoice(
     labels: List<String>,
     selectedIndex: Int,
     onSelected: (Int) -> Unit
