@@ -46,9 +46,6 @@ Bilibili Innocent Lab is an Xposed / LSPosed module for the Android Bilibili cli
 
 The module is loaded into the official client through runtime hooks and only modifies adapted screens and interaction entry points; your account, player, recommendations and comment section remain the official ones. Almost every feature has its own switch and is off by default, so enable only what you need; turn a switch off and restart Bilibili to restore the original behaviour, and settings can be exported as a backup.
 
-> [!NOTE]
-> Hook-based modules cannot guarantee compatibility with future versions. Please read the release notes before use, and report problems as described in [Reporting issues](#reporting-issues).
-
 ### Capability overview
 
 | Area | Representative features |
@@ -63,7 +60,7 @@ The module is loaded into the official client through runtime hooks and only mod
 | 📦 **Root-free** | Loaded through NPatch / LSPatch local (Manager) mode |
 
 > [!IMPORTANT]
-> Please read [Notices and disclaimers](#notices-and-disclaimers) in full before downloading, installing, compiling, distributing or using this project. If you disagree with any part of it, stop using the project.
+> Please read [Notices and disclaimers](#notices-and-disclaimers) in full before downloading, installing, compiling, distributing or using this project; if you disagree with any part of it, stop using the project. Hook-based modules cannot guarantee compatibility with future versions, so read the release notes before use and report problems as described in [Reporting issues](#reporting-issues).
 
 ---
 
@@ -78,32 +75,21 @@ The module is loaded into the official client through runtime hooks and only mod
 | **Target app** | The official Android Bilibili client, package `tv.danmaku.bili` |
 | **Cloning** | Only system multi-user / app twin / work profile setups **whose package name is still `tv.danmaku.bili`** are supported; renamed clones and VirtualApp-style containers are unsupported, see [Cloning and multi-user](#cloning-and-multi-user) |
 | **Adapted clients** | 8.84.0 to 9.20.0. The cloud archive holds 47 exact APKs (different builds of the same version are compared separately) and each feature is audited per build; class / interface, member signature, generic and R8 differences are in the [9.16.0 adaptation notes](docs/host-9.16.0-adaptation.md), and the incremental audit of 9.17.0 (9170100 → 9170300) is in the [adaptation notes](docs/host-9.17.0-9170300-adaptation.md) |
+| **On-device testing and other versions** | On-device testing is mostly done on sampled versions, and results may differ by device, system theme, account experiment group and minor client version. Clients between the audited versions should work in theory, but complete feature coverage is not guaranteed; if a feature fails and you want the project to adapt to it, follow [Reporting issues](#reporting-issues) |
 | **BiliRoaming extension** | Requires a compatible BiliRoaming version installed and enabled separately |
-| **Predictive back** | A switch is provided on Android 14–15; on Android 16 and later the system forces it on and the switch is no longer shown in the settings |
-
-> "Adapted" means the structure has been audited per build and the matching entry points are provided; on-device testing is mostly done on sampled versions, and results may differ by device, system theme, account experiment group and minor client version. Clients between the audited versions should work in theory, but complete feature coverage is not guaranteed; if a feature fails and you want the project to adapt to it, follow [Reporting issues](#reporting-issues).
 
 ### Installation
 
 | Step | Action |
 | :---: | --- |
-| **1** | Download the APK from [GitHub Releases](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases) and install or overwrite-install the module |
+| **1** | Download the APK from [GitHub Releases](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases) and install or overwrite-install the module (the version in the LSPosed repository may lag behind). Overwrite-installing normally does not require clearing Bilibili's data; wipe client data, module configuration or the BiliRoaming cache only when the release notes explicitly ask for it |
 | **2** | Open the LSPosed manager and enable `Bilibili Innocent Lab` |
 | **3** | Add the official Bilibili client `tv.danmaku.bili` to the module scope |
-| **4** | Force-stop Bilibili, then start it again |
+| **4** | Force-stop Bilibili, then start it again. If the host cold-starts very slowly after enabling the module, or the module cannot communicate with the host, try turning off host hiding in HMA-OSS |
 | **5** | Open the module settings and confirm the page shows "**module activated**" |
-| **6** | Enable the options you need under Cleanup, Enhancements, Beautify or Experimental features |
+| **6** | Enable the options you need under Cleanup, Enhancements, Beautify or Experimental features; when using the "advanced settings", turn off duplicated features in other modules |
 | **7** | If a setting does not take effect immediately, use "restart Bilibili" inside the module, or force-stop the target app manually |
-| **8** | With the BiliRoaming extension: after the first build or a rebuild, check the cache result first; restart as the page guides once it is ready, and skip the extra restart when the cache was reused |
-
-> [!TIP]
-> - Works alongside BiliRoaming, and also provides compatibility settings for newer host versions. When using this module's "advanced settings", turn off duplicated features in other modules.
-> - This module does not and will not provide any server-side parsing; look elsewhere if you need that.
-> - The version in the LSPosed repository may lag behind.
-> - **If the host cold-starts very slowly after enabling the module, or the module cannot communicate with the host, try turning off host hiding in HMA-OSS.**
-
-> [!NOTE]
-> Overwrite-installing the module normally does not require clearing Bilibili's data. Wipe client data, module configuration or the BiliRoaming cache only when the release notes explicitly ask for it.
+| **8** | With BiliRoaming (this module also provides compatibility settings for newer host versions): after the first build or a rebuild, check the cache result first; restart as the page guides once it is ready, and skip the extra restart when the cache was reused |
 
 ### A note on ROOT permission
 
@@ -112,7 +98,7 @@ Where possible, grant this module ROOT permission, which enables:
 - Confirming and restarting Bilibili after saving settings.
 - Unifying part of the local diagnostics in the Diagnostics Center.
 
-> This note is updated with each version so ROOT usage always stays transparent. The project promises never to abuse ROOT permission in any way that harms the host device. See the latest open-source code for details.
+This note is updated with each version so ROOT usage always stays transparent. The project promises never to abuse ROOT permission in any way that harms the host device. See the latest open-source code for details.
 
 ### Recommended testing order
 
@@ -137,8 +123,7 @@ The module can be loaded into a **locally patched** Bilibili client through a pa
 | **Embedded mode** | ❌ Not supported for now | ❌ Not supported for now |
 | **Switch in settings** | Select "Root-free support" | No NPatch switch or Communication Compatibility Mode needed |
 
-> [!WARNING]
-> **This version does not support embedded (`--embed`) mode**: it is temporarily disabled to discourage resale of hosts with the module bundled inside; the implementation is retained, and NPatch and LSPatch share the same disabled flag. The floors above are minimum requirements; actual support is limited to the verified combinations.
+**This version does not support embedded (`--embed`) mode**: it is temporarily disabled to discourage resale of hosts with the module bundled inside; the implementation is retained, and NPatch and LSPatch share the same disabled flag. The floors above are minimum requirements; actual support is limited to the verified combinations.
 
 ### NPatch
 
@@ -168,7 +153,7 @@ The conflict between the old NPatch intent and the LSPatch configuration channel
 - Build 833's Manager loading failure when Manager is unavailable requires the tool's Java loader fix. See the [patching guide](scripts/npatch/README.md) for patching, your own signing and same-certificate upgrades.
 - Full scope, recovery and untested combinations: [NPatch support notes](docs/npatch-release-support.md); per-category compatibility and historical round-trip / recovery evidence: [implementation roadmap](docs/npatch-implementation-roadmap.md); LSPatch artifacts, recovery steps and the historical test boundary: [stage 9 record](docs/lspatch-stage9.md). Embedded mode is not available at present; its records are kept for historical reference.
 
-> NPatch support is still experimental. Its stability is affected by the Android version, ROM, NPatch Manager version, Bilibili version and other injected modules, and it cannot fully replace a Root/LSPosed setup. Back up your configuration first and keep the ability to restore the unmodified app. Other systems, ABIs, host versions, signature levels and module coexistence combinations are unverified, and generic business items still to be verified in the catalogue matrix are not counted as passed. Your own certificates are covered by the artifact and same-certificate upgrade checks; their third-party share SDKs and long-term account risk control need separate verification.
+NPatch support is still experimental. Its stability is affected by the Android version, ROM, NPatch Manager version, Bilibili version and other injected modules, and it cannot fully replace a Root/LSPosed setup. Back up your configuration first and keep the ability to restore the unmodified app. Other systems, ABIs, host versions, signature levels and module coexistence combinations are unverified, and generic business items still to be verified in the catalogue matrix are not counted as passed. Your own certificates are covered by the artifact and same-certificate upgrade checks; their third-party share SDKs and long-term account risk control need separate verification.
 
 </details>
 
@@ -193,12 +178,12 @@ The module works by **package name**: a cloned client is supported only if it ke
 3. Open the module settings once under that user so the configuration is published;
 4. Force-stop and restart Bilibili under that user.
 
+The messages on the settings page mean the following (the "framework service" item in the Diagnostics Center gives the same evidence):
+
 | Message on the settings page | Meaning |
 | --- | --- |
 | "There is no framework service under the current Android user N" | Step 2 was not completed under that user |
 | "The module is in user A while Bilibili is in user B" | The module and the client are installed under different users and the configuration cannot be delivered |
-
-The "framework service" item in the Diagnostics Center gives the same evidence.
 
 ---
 
@@ -214,8 +199,9 @@ Every feature has its own switch, organised as below in the settings; favorites 
 | **Beautify** | Module and host visuals, materials, backgrounds and other appearance options |
 | **Module** | Activation, diagnostics, updates and module management, plus the experimental compatibility and task assistant entries |
 
-> [!NOTE]
-> **Legend**: `On by default` means enabled on a fresh install; anything not marked is off by default. `Experimental` means still being validated, with results that vary by device and client version. Unless stated otherwise, **restart Bilibili** after changing a setting. When the current client has no reliable adaptation entry point, the feature is skipped and the official behaviour is kept.
+**Legend**: `On by default` means enabled on a fresh install; anything not marked is off by default. `Experimental` means still being validated, with results that vary by device and client version. Unless stated otherwise, **restart Bilibili** after changing a setting. When the current client has no reliable adaptation entry point, the feature is skipped and the official behaviour is kept.
+
+**Quick jump**: [Home and navigation](#-home-and-navigation) · [Dynamics, search and "My"](#-dynamics-search-and-my) · [Video detail pages](#-video-detail-pages-and-recommendations) · [Player](#-player) · [Danmaku and live](#-danmaku-live-rooms-and-the-portrait-feed) · [Comments](#-comments) · [Free copy](#-free-copy) · [Smart filtering and AI](#-smart-filtering-and-ai-features-experimental) · [Appearance](#-appearance-and-beautify) · [Privacy](#-privacy-and-browsing) · [System and remote flags](#-system-and-remote-flags) · [BiliRoaming extension](#-biliroaming-version-support-extension) · [Module management](#-module-management-and-maintenance)
 
 ### 🏠 Home and navigation
 
@@ -254,6 +240,8 @@ Every feature has its own switch, organised as below in the settings; favorites 
 
 #### Dynamics
 
+The combined page and the video page share the same rules, so configuring once covers both. Filtering may shorten the current page; pagination is unaffected.
+
 | Feature | Description |
 | --- | --- |
 | Hide the "City" / "Campus" tabs | Removes each from the Dynamics tabs separately |
@@ -265,8 +253,6 @@ Every feature has its own switch, organised as below in the settings; favorites 
 | Filter dynamics by author | Each rule entry is one UID or username (usernames must match exactly); Dynamics from a matching author, including reposts, are hidden; Dynamics whose author cannot be identified are kept |
 | Hide shopping and recommendation cards | Judged by the attachment card type Bilibili delivers |
 | Hide locked charge-only dynamics | Unlocked ones and ones whose permission state cannot be read are kept |
-
-> The combined page and the video page share the same rules, so configuring once covers both. Filtering may shorten the current page; pagination is unaffected.
 
 #### Search
 
@@ -284,7 +270,7 @@ Every feature has its own switch, organised as below in the settings; favorites 
 | Keep the VIP card position | Works with the option above: hides the content but keeps its placeholder, avoiding layout jumps |
 | Customize Mine-page components | Scan and tick, or write rules by menu name, to trim entries such as the creation centre, courses and the game center |
 
-### ▶️ Video detail pages and recommendations
+### 📺 Video detail pages and recommendations
 
 | Feature | Description |
 | --- | --- |
@@ -356,23 +342,21 @@ Speech denoising and voice clarity need optional files (about 56 MB on first dow
 
 | Feature | Description |
 | --- | --- |
-| Sponsor segment prompts | Prompts community-marked sponsor segments on ordinary video detail pages. Queries the community service `www.bsbsb.top` using a video ID hash prefix; no submissions, votes or account data are sent |
+| Sponsor segment prompts | Prompts community-marked sponsor segments on ordinary video detail pages (markings may be inaccurate). Queries the community service `www.bsbsb.top` using a video ID hash prefix; no submissions, votes or account data are sent |
 | Automatically skip sponsor segments | Requires prompts to be enabled; pause and manual scrubbing take priority, and a confirmed skip can be undone for 6 seconds |
 | Also skip sponsor segments in short videos | Short (portrait) videos get prompts or skipping too; one query per short video you linger on (at most 12 per minute); only markings on ordinary uploads, never ads, and coverage is small |
-
-Community markings may be inaccurate.
 
 ### 💬 Danmaku, live rooms and the portrait feed
 
 #### Danmaku
+
+Danmaku filtering is independent of "Hide player interactive overlays"; the two can be enabled separately.
 
 | Feature | Description |
 | --- | --- |
 | Filter danmaku by weight | The server assigns each danmaku a weight from 1 to 10 (higher is better); after setting a minimum kept weight, danmaku below it are removed before playback. When Bilibili delivers no weights, the whole danmaku set is kept as is |
 | Hide premium gradient danmaku | Removes the gradient colouring; the danmaku themselves still show in ordinary colours |
 | Smart danmaku filter (AI) `Experimental` | See [Smart filtering](#-smart-filtering-and-ai-features-experimental) |
-
-> Danmaku filtering is independent of "Hide player interactive overlays"; the two can be enabled separately.
 
 #### Live rooms
 
@@ -407,6 +391,8 @@ Categories are judged by explicit structured types; anything that does not match
 
 #### Content filtering
 
+Filtering covers top-level comments, pinned comments and nested reply lists, and is independent of free copy; the two can be enabled separately.
+
 | Feature | Description |
 | --- | --- |
 | Filter comments by keyword | Up to 64 keywords, separated by commas, full-width commas, semicolons or newlines; a comment or reply is hidden when its body contains any keyword, ignoring letter case |
@@ -415,8 +401,6 @@ Categories are judged by explicit structured types; anything that does not match
 | Filter comments by author | Each rule entry is one UID or username (usernames must match exactly); when the author cannot be identified the comment is kept |
 | Hide AI comments and replies | Scores nickname, level, text features, how closely a reply repeats its root comment and already-loaded public profile data offline, hiding comments and replies from suspected AI spam accounts; three sensitivity levels, custom nickname words, comment words and an allow list, accounts at Lv5 and above protected by default, plus a strong mode; everything is computed on the device, and a comment is kept when its nickname, level or text cannot be read. Rules and weights are ported from dafeiyu-cleaner (MIT); see [docs/comment-ai-filter.md](docs/comment-ai-filter.md) |
 | Smart comment filter (AI) `Experimental` | See [Smart filtering](#-smart-filtering-and-ai-features-experimental) |
-
-> Filtering covers top-level comments, pinned comments and nested reply lists, and is independent of free copy; the two can be enabled separately.
 
 #### Reading and layout
 
@@ -427,7 +411,7 @@ Categories are judged by explicit structured types; anything that does not match
 
 ### 📋 Free copy
 
-Once enabled, long-pressing text pops up a copy bubble. Keep long-pressing and drag the system selection handles to select just the fragment you need, then copy it through the system floating toolbar — no need to copy the whole text.
+Once enabled, long-pressing text pops up a copy bubble (tap outside it to close). Keep long-pressing and drag the system selection handles to select just the fragment you need, then copy it through the system floating toolbar — no need to copy the whole text.
 
 | Surface | Description | Default |
 | --- | --- | :---: |
@@ -445,8 +429,6 @@ Once enabled, long-pressing text pops up a copy bubble. Keep long-pressing and d
 | Default dark | The default colour scheme; no configuration needed |
 | Manual light | White background with black text, for light themes |
 | Auto follow | Follows the Bilibili light/dark theme; enabling it overrides the manual light setting |
-
-Tap outside the bubble to close it.
 
 ### 🤖 Smart filtering and AI features (experimental)
 
@@ -541,7 +523,7 @@ Visual materials and motion are provided by [Lumen Coacervation Engine](https://
 
 ### 🌍 BiliRoaming version support extension
 
-Works together with an installed and enabled BiliRoaming module, and provides no accounts, parsing servers, access keys or network proxy services of its own.
+Works together with an installed and enabled BiliRoaming module, and provides no accounts, access keys or network proxy services of its own. It does not and will not provide any server-side parsing; look elsewhere if you need that.
 
 When a newer Bilibili client changes its internal structure, an older BiliRoaming may fail to analyse it. Once the extension is enabled, this module repairs known problems and helps BiliRoaming rebuild a complete cache, so that its settings entry, page customisation and related features keep working on adapted versions:
 
@@ -551,9 +533,9 @@ When a newer Bilibili client changes its internal structure, an older BiliRoamin
 - Handles app visibility and background launch restrictions in some MIUI/HyperOS environments;
 - Restores native behaviour once the feature is turned off.
 
-> Under NPatch 833, when the APK contents, versions and manual rebuild generation of the host and BiliRoaming all match, a verified analysis cache is reused or restored, and an installation-time change caused only by re-patching needs no new full analysis; the first build, changed contents, a damaged cache or a manual rebuild still need analysis. First use "Check NPatch BiliRoaming cache" in the compatibility settings, and continue through the existing restart guide once a ready receipt arrives. A ready cache only means the analysis is done; it does not mean every BiliRoaming feature is in effect.
+**Under NPatch 833**, when the APK contents, versions and manual rebuild generation of the host and BiliRoaming all match, a verified analysis cache is reused or restored, and an installation-time change caused only by re-patching needs no new full analysis; the first build, changed contents, a damaged cache or a manual rebuild still need analysis. First use "Check NPatch BiliRoaming cache" in the compatibility settings, and continue through the existing restart guide once a ready receipt arrives. A ready cache only means the analysis is done; it does not mean every BiliRoaming feature is in effect.
 
-### ⚙️ Module management and maintenance
+### 🔧 Module management and maintenance
 
 | Feature | Description |
 | --- | --- |
@@ -599,8 +581,7 @@ Automatic adaptation only covers client versions with a similar structure; after
 - **Alpha** is published to GitHub Releases through a workflow once the developer confirms it.
 - **Canary** is built automatically after a push to `main` and can also be triggered manually; artifacts are kept in Actions.
 - The **Telegram release channel** syncs the latest Canary that passed its checks every day at 22:00 Beijing time; it is skipped when a manual run happened that day, one was already delivered that day, or the build is identical to the last release, and the developer can also pick a successful build to sync manually at any time. Scheduled runs may queue, so the channel version can lag behind the newest Actions build.
-
-> **Version numbering**: Alpha and Canary both use the next patch version after the current stable one as their prefix. For example, while stable is `1.2.0`, Alpha uses `1.2.1-alpha.N` and Canary uses `1.2.1-canary.N` (Canary's `N` is the build sequence number). After `1.2.1` is released, development versions move on to the `1.2.2` prefix.
+- **Version numbering**: Alpha and Canary both use the next patch version after the current stable one as their prefix. For example, while stable is `1.2.0`, Alpha uses `1.2.1-alpha.N` and Canary uses `1.2.1-canary.N` (Canary's `N` is the build sequence number). After `1.2.1` is released, development versions move on to the `1.2.2` prefix.
 
 ---
 
@@ -609,6 +590,7 @@ Automatic adaptation only covers client versions with a similar structure; after
 | Question | How to troubleshoot |
 | --- | --- |
 | The module shows as not activated | Make sure LSPosed has this module enabled and the scope includes the official Bilibili client; after changing the scope, restart the target app and reboot the device if needed |
+| The host cold-starts very slowly, or the module cannot communicate with it | Try turning off host hiding in HMA-OSS |
 | The libxposed service is not detected in a twin app | The framework delivers the service per Android user: install the module and enable it for the user running the twin client in the manager as well, then open the module settings once. Renamed clones and VirtualApp-style containers are out of scope, see [Cloning and multi-user](#cloning-and-multi-user) |
 | A switch is on but the feature does not work | Force-stop and restart Bilibili first; right after a client upgrade try "re-adapt to the current version"; after the BiliRoaming extension's first analysis, check the cache status first and then restart as the ready prompt says |
 | Long-pressing a comment does not show the free copy bubble | Make sure the comment free copy switch is on and the current page is an adapted official comment section; if only a few comments fail, note the comment type, whether it has images, whether it is in a reply list, and the client version |
@@ -622,7 +604,7 @@ Automatic adaptation only covers client versions with a similar structure; after
 
 ## Reporting issues
 
-Before filing an issue, please carry out the following checks where possible:
+Before filing an issue, please carry out the following checks where possible; clear, reproducible steps are far easier to act on than a bare "it does not work":
 
 1. Use the latest stable version, or state which Alpha / Canary version you are running with the matching release or build link;
 2. Confirm the problem still reproduces with only this module enabled;
@@ -632,8 +614,6 @@ Before filing an issue, please carry out the following checks where possible:
 6. Attach screenshots, screen recordings or LSPosed logs where necessary;
 7. For crashes, provide the full stack trace from the crash buffer where possible;
 8. **Do not publicly upload accounts, cookies, access keys or other personal sensitive data.**
-
-> Clear, reproducible steps are far easier to act on than a bare "it does not work".
 
 ---
 
