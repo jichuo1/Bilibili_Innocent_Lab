@@ -92,24 +92,41 @@ internal class FreeCopyGestureDetector(
     /**
      * 事件时钟复核：仅当本次手势仍 PENDING 且真实按住时长（[eventTime] - downTime）达到阈值才认领。
      * [eventTime] 必须来自 MotionEvent（UP 的 eventTime 或到期时刻的 uptime），不是 DOWN 观测墙钟。
+     *
+     * 按住中（到期 Runnable / 宿主监听器）与 UP 时刻共用这同一条线，不再给 UP 单独加余量：
+     * 气泡在阈值时刻就已出现并伴随震动，用户能看见“这是长按”；UP 时再把 [阈值, 阈值+150ms) 的按压
+     * 改判成点按，只会让同样的按住时长出现“有时弹泡、有时展开”的随机结果（旧 claimAtUp 余量的副作用）。
      */
-    fun claim(downTime: Long, eventTime: Long): Boolean = claimWith(downTime, eventTime, thresholdMs)
-
-    /**
-     * UP 时刻的认领比按住中的认领再严一档：手指已经抬起时，刚越过阈值的按压更可能是
-     * 用户瞄准小目标的慢点按而非长按意图。要求时长达到阈值 + [UP_CLAIM_MARGIN_MS] 才认领，
-     * 临界区一律交还宿主点击（标题展开/简介 span/评论三点）。按住中由到期 Runnable 与宿主
-     * 监听器走 [claim] 即时反馈，不受此余量影响。
-     */
-    fun claimAtUp(downTime: Long, eventTime: Long): Boolean =
-        claimWith(downTime, eventTime, thresholdMs + UP_CLAIM_MARGIN_MS)
-
-    private fun claimWith(downTime: Long, eventTime: Long, requiredMs: Long): Boolean {
+    fun claim(downTime: Long, eventTime: Long): Boolean {
         if (!matches(downTime) || !isPending || eventTime < downTime ||
-            eventTime - downTime < requiredMs
+            eventTime - downTime < thresholdMs
         ) return false
         phase = Phase.HANDLED
         return true
+    }
+
+    /** 终止事件（UP/CANCEL）对一次手势的裁决，供三表面共用；见 [resolveTerminal]。 */
+    enum class Terminal {
+        /** 交还宿主：本模块不消费事件，宿主自己的点击/展开/滚动照常发生。 */
+        HAND_TO_HOST,
+
+        /** UP 恰好在阈值之后到达且还没弹泡（到期 Runnable 迟到）：认领并消费这次 UP。 */
+        CLAIM_AND_CONSUME,
+
+        /** 气泡已因这次按住弹出：消费 UP，阻止宿主点击/官方复制。 */
+        CONSUME
+    }
+
+    /**
+     * 裁决规则（全部以事件时钟为准）：
+     * - 气泡已弹（[alreadyHandled]）：UP 消费、CANCEL 交还宿主做清理；
+     * - 仍 PENDING 且 UP 的真实按住时长达到阈值：认领并消费（只在到期 Runnable 迟到时才会走到）；
+     * - 其余一律交还宿主——短按、移动超坡度、多指、父容器 CANCEL、会话不匹配都不消费任何事件。
+     */
+    fun resolveTerminal(downTime: Long, eventTime: Long, isUp: Boolean, alreadyHandled: Boolean): Terminal {
+        if (alreadyHandled) return if (isUp) Terminal.CONSUME else Terminal.HAND_TO_HOST
+        if (isUp && claim(downTime, eventTime)) return Terminal.CLAIM_AND_CONSUME
+        return Terminal.HAND_TO_HOST
     }
 
     fun reset() {
@@ -176,9 +193,5 @@ internal class FreeCopyGestureDetector(
     companion object {
         const val DEFAULT_THRESHOLD_MS = 400L
         const val ARM_MILLIS = 300L
-        /** UP 时刻认领的额外余量：临界区按压优先判为点按，见 [claimAtUp]。 */
-        const val UP_CLAIM_MARGIN_MS = 150L
-        /** 标题没有宿主长按可抢，阈值在系统长按线上再加此余量，优先保证点按展开。 */
-        const val TITLE_THRESHOLD_EXTRA_MS = 300L
     }
 }

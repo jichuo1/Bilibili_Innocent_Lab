@@ -18,6 +18,12 @@ class TitleFreeCopyWiringContractTest {
 
     private fun occurrences(text: String, needle: String): Int = text.split(needle).size - 1
 
+    /** 去掉整行注释（// 与 KDoc 行），契约只钉代码不钉说明文字。 */
+    private fun codeOnly(text: String): String = text.lineSequence().filterNot {
+        val t = it.trimStart()
+        t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")
+    }.joinToString("\n")
+
     @Test fun titleSwitchIsStartupOnlyAndDefaultsOff() {
         val init = source().after("val initialDescriptionFreeCopyEnabled =").before("val commentFreeCopyInstallerRef =")
         assertTrue(init.contains("runtimeTitleFreeCopyEnabled = hookConfig.getBoolean(FeaturePreferences.FREE_COPY_TITLE_ENABLED, false)"))
@@ -44,6 +50,12 @@ class TitleFreeCopyWiringContractTest {
         assertTrue(register.contains("findViewById<View>(titleArrowId)"))
         assertTrue(register.contains("TitleFreeCopyPolicy.isTitleWidget(true, classChain, hasArrowSibling)"))
         assertTrue(register.contains("titleViews[v] = true"))
+        // 登记不得再把标题改成可长按控件：isLongClickable=true 会让标题消费整个触摸流，宿主容器的点击展开收不到手势。
+        val registerCode = codeOnly(register)
+        assertFalse(registerCode.contains("applyTitleFreeCopyListener("))
+        assertFalse(registerCode.contains("setLongClickListenerNoHook"))
+        assertFalse(registerCode.contains("isLongClickable"))
+        assertFalse(registerCode.contains(".post {"))
         // 全局热路径：id 不命中立刻返回，只有 id 命中才查弱集合。
         val gate = source().after("private fun isTitleView(").before("private fun onTitleCandidateTextSet(")
         assertTrue(gate.indexOf("v.id == id") < gate.indexOf("titleViews.containsKey(v)"))
@@ -63,11 +75,15 @@ class TitleFreeCopyWiringContractTest {
         assertTrue(listener.contains("\"free_copy_title_enabled\""))
         val dispatch = source().after("// 简介触摸长按检测：").before("// 拦截官方「复制简介全文」实现")
         assertTrue(dispatch.contains("val isTitleTarget = runtimeTitleFreeCopyEnabled && isTitleView(v)"))
-        assertTrue(dispatch.contains("FreeCopyGestureDetector.TITLE_THRESHOLD_EXTRA_MS"))
+        // 标题与简介/评论共用同一条判定线，不再单独加长阈值。
+        assertFalse(dispatch.contains("TITLE_THRESHOLD_EXTRA_MS"))
+        assertTrue(dispatch.after("freeCopyGesture.begin(").contains("freeCopyLongPressThreshold()"))
         assertTrue(dispatch.contains("observeFreeCopyTouch(ev)"))
         val steal = source().after("\"setOnLongClickListener\",").before("// 简介触摸长按检测：")
         assertTrue(steal.contains("if (runtimeTitleFreeCopyEnabled && isTitleView(v))"))
         assertTrue(steal.contains("applyTitleFreeCopyListener(v)"))
+        // 夺回只替换宿主已经设置的监听器：applyTitleFreeCopyListener 只有这一处调用方。
+        assertEquals(1, Regex("""applyTitleFreeCopyListener\(v\)""").findAll(codeOnly(source())).count())
     }
 
     @Test fun commonHooksInstallForTitleAloneAndCapabilityIsPublished() {

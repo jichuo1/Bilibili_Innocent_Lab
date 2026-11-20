@@ -24,6 +24,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindBudget
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindProbe
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindQueue
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FreeCopyGestureDetector
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FreeCopyPressPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationEntryGate
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameRateTarget
@@ -517,11 +518,16 @@ class HookEntry : XposedModule() {
                 descTouchedViewRef = value?.let { java.lang.ref.WeakReference(it) }
             }
 
+        /**
+         * 清理简介/标题触摸会话。**不能**在这里调 View.cancelLongPress()：它会连带 removeTapCallback()，
+         * 清掉 View 的 PFLAG_PREPRESSED（AOSP View.java removeTapCallback / onTouchEvent ACTION_UP）。
+         * 滚动容器里的控件按下后先处于 PREPRESSED，约 100ms（ViewConfiguration.getTapTimeout）后才变 PRESSED；
+         * UP 的 before 钩子在这段时间内调它，UP 时 prepressed=false 且未 PRESSED，宿主的点击/展开
+         * 就被静默丢弃——快点按（<100ms）失灵、慢点按正常，正是“标题展开时灵时不灵”。
+         * 终止事件（UP/CANCEL）宿主与框架自己会收尾所有计时器，模块只需撤销自家 Runnable。
+         */
         private fun clearDescTouchSession(resetHandled: Boolean = true) {
             freeCopyGesture.cancelSchedule(mainHandlerRef?.let { freeCopyPoster(it) })
-            if (resetHandled) {
-                descTouchedView?.let { view -> runCatching { view.cancelLongPress() } }
-            }
             descTouchedView = null
             if (resetHandled) {
                 descLongPressHandled = false
@@ -529,10 +535,16 @@ class HookEntry : XposedModule() {
             }
         }
 
-        /** 让出给滑动时同时取消模块、系统和宿主自实现长按，保留本次取消身份到终止事件。 */
+        /**
+         * 让出给滑动时取消模块长按，并让简介的宿主自实现长按（DescTagSpan 的 Runnable，由宿主基类
+         * 重写的 cancelLongPress 撤销）一并停止；保留本次取消身份到终止事件。
+         * 标题没有宿主长按可停，也不能碰 View 的 PREPRESSED（见 [clearDescTouchSession]），所以不调用。
+         */
         private fun cancelDescLongPressCandidate() {
             freeCopyGesture.cancelSchedule(mainHandlerRef?.let { freeCopyPoster(it) })
-            descTouchedView?.let { view -> runCatching { view.cancelLongPress() } }
+            descTouchedView?.let { view ->
+                if (!isTitleView(view)) runCatching { view.cancelLongPress() }
+            }
             descTouchedView = null
         }
 
@@ -612,10 +624,20 @@ class HookEntry : XposedModule() {
             override fun post(runnable: Runnable, delayMillis: Long): Boolean = handler.postDelayed(runnable, delayMillis)
         }
 
-        /** 长按阈值取宿主系统长按线（与宿主 CheckForLongPress 同步）；读取失败回退默认。 */
-        private fun freeCopyLongPressThreshold(): Long = runCatching {
-            android.view.ViewConfiguration.getLongPressTimeout().toLong()
-        }.getOrNull()?.takeIf { it > 0L } ?: FreeCopyGestureDetector.DEFAULT_THRESHOLD_MS
+        /** 长按阈值取宿主系统长按线（与宿主 CheckForLongPress 同步）；三表面相同，见 [FreeCopyPressPolicy]。 */
+        private fun freeCopyLongPressThreshold(): Long = FreeCopyPressPolicy.thresholdMs(
+            runCatching { android.view.ViewConfiguration.getLongPressTimeout().toLong() }.getOrDefault(0L)
+        )
+
+        /** 按住期间的漂移容忍：设备触摸坡度略放宽，见 [FreeCopyPressPolicy.LONG_PRESS_SLOP_FACTOR]。 */
+        private fun freeCopyHoldSlop(v: View): Float =
+            FreeCopyPressPolicy.holdSlop(android.view.ViewConfiguration.get(v.context).scaledTouchSlop.toFloat())
+
+        /** 当前会话的到期 Runnable 还要等多久：输入延迟小时按事件时间起算，拥塞时按观测时间。 */
+        private fun freeCopyDueDelayMs(): Long = FreeCopyPressPolicy.dueDelayMs(
+            freeCopyGesture.downTime, freeCopyGesture.observedAtMs,
+            android.os.SystemClock.uptimeMillis(), freeCopyGesture.thresholdMs
+        )
 
         /**
          * 短按安全网：到期 Runnable 用墙钟（uptime）claim，主线程拥塞时可能先于短按 UP 派发而误弹泡。
@@ -633,6 +655,38 @@ class HookEntry : XposedModule() {
             descLongPressHandled = false
             commentLongPressHandled = false
             freeCopyGesture.finishHandled()
+        }
+
+        /**
+         * 简介/标题手势的终止事件（UP/CANCEL）统一裁决，目标分支与祖先分支共用。
+         * [hitView] 是收到事件的标题/简介 View；终止事件落在祖先/容器上时传 null（不做目标比对）。
+         * 返回 true 表示这次 UP 属于已认领的长按，调用方必须消费它（阻止官方复制与宿主点击展开）。
+         *
+         * 交还宿主的条件（返回 false，什么都不消费）：UP 的事件时长不足长按线；会话已被取消
+         * （滑动超坡度、多指、父容器 CANCEL、换页）；CANCEL；会话与本触摸流不匹配。
+         */
+        private fun finishDescLikeTouch(ev: android.view.MotionEvent, hitView: View?): Boolean {
+            val isUp = ev.actionMasked == android.view.MotionEvent.ACTION_UP
+            freeCopyGesture.cancelSchedule(mainHandlerRef?.let { freeCopyPoster(it) })
+            // 短按安全网：拥塞时到期 Runnable 可能已先于本 UP 误弹泡；
+            // 事件时长不足阈值即撤销气泡、复位 handled，交还宿主点击。
+            if (isUp) revokePrematurePopupIfShortTap(ev)
+            var handled = descLongPressHandled
+            val target = descTouchedView
+            // MOVE 超坡度/页面切换已清掉会话时，后续 UP 必须直接放行；否则会把任意松手误判为超长按。
+            if (!handled &&
+                (!freeCopyGesture.matches(ev.downTime) || (hitView != null && target !== hitView))
+            ) {
+                clearDescTouchSession(resetHandled = true)
+                return false
+            }
+            if (freeCopyGesture.resolveTerminal(ev.downTime, ev.eventTime, isUp, handled) ==
+                FreeCopyGestureDetector.Terminal.CLAIM_AND_CONSUME && target != null
+            ) {
+                handled = sharedFreeCopyListener.onLongClick(target)
+            }
+            clearDescTouchSession(resetHandled = !handled)
+            return handled && isUp
         }
 
         /**
@@ -919,8 +973,7 @@ class HookEntry : XposedModule() {
                 // 回调中与最深子 View 的 DOWN 坐标错位，产生假的“移动超阈值”。
                 freeCopyGesture.begin(ev.downTime, android.os.SystemClock.uptimeMillis(),
                     ev.getPointerId(0), ev.rawX, ev.rawY,
-                    android.view.ViewConfiguration.get(v.context).scaledTouchSlop.toFloat(),
-                    freeCopyLongPressThreshold())
+                    freeCopyHoldSlop(v), freeCopyLongPressThreshold())
                 commentLongPressHandled = false
             }
             commentTouchTargetRef = java.lang.ref.WeakReference(v)
@@ -929,12 +982,11 @@ class HookEntry : XposedModule() {
             // session/root/target 会保留到真正的 UP/CANCEL，以便可靠消费终止事件。
             commentTouchedView = v
             val handler = mainHandlerOrNull() ?: return
-            // Handler 延时从模块真正看到 DOWN 的时刻计算；若输入事件已在主线程积压，
-            // 短点的 UP 会先得到处理并撤销任务，不会被 delay=0 的旧事件时间误弹气泡。
-            val dueAt = freeCopyGesture.observedAtMs + freeCopyGesture.thresholdMs
-            val delay = (dueAt - android.os.SystemClock.uptimeMillis()).coerceAtLeast(0L)
+            // Handler 延时：输入延迟很小时按 DOWN 事件时间起算（气泡在手指真实落下后 T 毫秒出现）；
+            // 主线程拥塞（延迟 > MAX_INPUT_LAG_CREDIT_MS）时退回模块真正看到 DOWN 的时刻，输入积压的
+            // 短点 UP 会先得到处理并撤销任务，不会被 delay=0 的旧事件时间误弹气泡。
             // 同一会话只投递一次：到期时刻由会话起点固定，后续分发层只更新上面的目标与根引用。
-            freeCopyGesture.schedule(freeCopyGesture.sessionId, delay, freeCopyPoster(handler))
+            freeCopyGesture.schedule(freeCopyGesture.sessionId, freeCopyDueDelayMs(), freeCopyPoster(handler))
         }
 
         private fun activeCommentTouchTarget(sessionId: Long): View? {
@@ -1647,13 +1699,17 @@ class HookEntry : XposedModule() {
             val hasArrowSibling = (v.parent as? android.view.ViewGroup)
                 ?.findViewById<View>(titleArrowId) != null
             if (!TitleFreeCopyPolicy.isTitleWidget(true, classChain, hasArrowSibling)) return
+            // 只登记，不挂长按监听：给原本不可点击的标题装 OnLongClickListener 会让 setLongClickListenerNoHook
+            // 把它变成可长按控件（isLongClickable=true），View.onTouchEvent 因此消费整个触摸流，宿主
+            // “点标题所在容器展开/收起”的点击（9.19：容器 setOnClickListener，标题 setEnableTouchToggle(false)）
+            // 收不到手势。长按识别完全由 dispatchTouchEvent 钩子 + 到期 Runnable 承担，不需要监听器。
             titleViews[v] = true
-            v.post {
-                HostThreadGuard.run("free_copy.title_apply") { applyTitleFreeCopyListener(v) }
-            }
         }
 
-        /** 标题没有评论那样的子树遍历：就是这一个 TextView，直接挂共享监听器。 */
+        /**
+         * 仅用于宿主自己给已登记标题设置了长按监听的版本（官方 setOnLongClickListener 钩子里夺回）：
+         * 此时标题本来就可长按，换成共享监听器不改变触摸消费语义。未被宿主设置时绝不主动挂。
+         */
         private fun applyTitleFreeCopyListener(v: View) {
             if (!runtimeTitleFreeCopyEnabled || !isTitleView(v)) return
             setLongClickListenerNoHook(v, sharedFreeCopyListener)
@@ -4735,19 +4791,19 @@ class HookEntry : XposedModule() {
                                         }
 
                                         // 三表面共用 detector 后，matches 对评论会话同样为真；必须按
-                                        // descTouchedView 判会话归属，只有 desc/标题会话的终止事件才走
-                                        // desc 清理（含 UP 落在祖先 View 的合法路径）。评论会话的终止
-                                        // 事件交还下方评论分支，否则会被 reset 截断、UP 兜底与消费不可达。
-                                        if (descTouchedView != null &&
+                                        // descTouchedView / descLongPressHandled 判会话归属，只有 desc/标题会话的
+                                        // 终止事件才走 desc 裁决。评论会话的终止事件交还下方评论分支，否则会被
+                                        // reset 截断、UP 兜底与消费不可达。
+                                        // 标题不再被模块改成可长按控件（见 onTitleCandidateTextSet），宿主若让
+                                        // 容器自己做点击目标，UP 会落在容器而不是标题：这里与目标分支同一套裁决，
+                                        // 气泡已弹时同样消费 UP，避免“弹泡的同时展开标题”。
+                                        if ((descTouchedView != null || descLongPressHandled) &&
                                             freeCopyGesture.matches(ev.downTime) &&
                                             (action == android.view.MotionEvent.ACTION_UP ||
                                                 action == android.view.MotionEvent.ACTION_CANCEL)
                                         ) {
-                                            // UP 落在祖先/气泡窗口时同样先走短按安全网撤销误弹，再清理会话。
-                                            if (action == android.view.MotionEvent.ACTION_UP) {
-                                                revokePrematurePopupIfShortTap(ev)
-                                            }
-                                            clearDescTouchSession(resetHandled = !descLongPressHandled)
+                                            if (finishDescLikeTouch(ev, null)) this.result = true
+                                            return@before
                                         }
                                         if (!runtimeCommentFreeCopyEnabled) return@before
                                         // 没有活动会话时 MOVE/UP/CANCEL 仍是纯 O(1) 早退；有会话时
@@ -4769,8 +4825,10 @@ class HookEntry : XposedModule() {
                                                 // 事件时钟权威：主线程拥堵时到期 Runnable 可能排在 UP
                                                 // 后面；以 MotionEvent 真实按住时长判定，短按 UP 一律
                                                 // 交还宿主（三点/展开），不会被延误判成长按。
-                                                if (action == android.view.MotionEvent.ACTION_UP && !handled &&
-                                                    freeCopyGesture.claimAtUp(ev.downTime, ev.eventTime)
+                                                if (freeCopyGesture.resolveTerminal(
+                                                        ev.downTime, ev.eventTime,
+                                                        action == android.view.MotionEvent.ACTION_UP, handled
+                                                    ) == FreeCopyGestureDetector.Terminal.CLAIM_AND_CONSUME
                                                 ) {
                                                     handled = tryHandleActiveCommentLongPress(sessionId)
                                                 }
@@ -4792,54 +4850,29 @@ class HookEntry : XposedModule() {
                                                 clearCommentTouchSession(resetHandled = true)
                                             }
                                             clearDescTouchSession(resetHandled = true)
-                                            // 标题没有宿主长按可抢：阈值在系统长按线上加余量，点按展开优先；
-                                            // 简介须与宿主官方长按同步，仍取系统线。
+                                            // 标题/简介/评论共用同一条判定线（系统长按线），不给标题加额外延时：
+                                            // 点击误判的根因是模块改动了宿主触摸链，不是时间窗，见 FreeCopyPressPolicy。
                                             freeCopyGesture.begin(ev.downTime, android.os.SystemClock.uptimeMillis(),
                                                 ev.getPointerId(0), ev.rawX, ev.rawY,
-                                                android.view.ViewConfiguration.get(v.context)
-                                                    .scaledTouchSlop.toFloat(),
-                                                freeCopyLongPressThreshold() +
-                                                    if (isTitleTarget) FreeCopyGestureDetector.TITLE_THRESHOLD_EXTRA_MS else 0L)
+                                                freeCopyHoldSlop(v), freeCopyLongPressThreshold())
                                             descLongPressHandled = false
                                             descTouchedView = v
                                             // 按住不动的即时反馈：到期 Runnable 仍须通过事件时钟复核才弹泡。
                                             val handler = mainHandlerOrNull()
                                             if (handler != null) {
-                                                val delay = (freeCopyGesture.observedAtMs +
-                                                    freeCopyGesture.thresholdMs -
-                                                    android.os.SystemClock.uptimeMillis()).coerceAtLeast(0L)
-                                                freeCopyGesture.schedule(freeCopyGesture.sessionId, delay, freeCopyPoster(handler))
+                                                freeCopyGesture.schedule(
+                                                    freeCopyGesture.sessionId, freeCopyDueDelayMs(), freeCopyPoster(handler)
+                                                )
                                             }
                                         }
                                         // MOVE/多指统一由 observeFreeCopyTouch 观察，宿主事件始终放行。
                                         android.view.MotionEvent.ACTION_UP,
                                         android.view.MotionEvent.ACTION_CANCEL -> {
-                                            freeCopyGesture.cancelSchedule(mainHandlerRef?.let { freeCopyPoster(it) })
-                                            // 短按安全网：拥塞时到期 Runnable 可能已先于本 UP 误弹泡；
-                                            // 事件时长不足阈值即撤销气泡、复位 handled，交还宿主点击。
-                                            if (action == android.view.MotionEvent.ACTION_UP) {
-                                                revokePrematurePopupIfShortTap(ev)
-                                            }
-                                            var handled = descLongPressHandled
-                                            // MOVE 超阈值/页面切换已清掉会话时，后续 UP 必须直接
-                                            // 放行；否则会把任意松手误判为超长按。
-                                            if (!handled &&
-                                                (!freeCopyGesture.matches(ev.downTime) || descTouchedView !== v)
-                                            ) {
-                                                clearDescTouchSession(resetHandled = true)
-                                        return@before
-                                            }
-                                            // 事件时钟权威：真实按住时长达到阈值才弹泡并消费 UP（阻止官方
-                                            // UP 分支的长按复制）；短按 UP 一律交还宿主（标题展开/收起、简介
-                                            // 链接 span 点击），主线程拥塞也不会把短按误判成长按。
-                                            if (action == android.view.MotionEvent.ACTION_UP && !handled &&
-                                                freeCopyGesture.claimAtUp(ev.downTime, ev.eventTime)
-                                            ) {
-                                                handled = sharedFreeCopyListener.onLongClick(v)
-                                            }
-                                            clearDescTouchSession(resetHandled = !handled)
-                                            if (handled && action == android.view.MotionEvent.ACTION_UP) {
-                                                this.result = true // 阻止官方复制全文
+                                            // 事件时钟权威（finishDescLikeTouch）：真实按住时长达到阈值才弹泡并消费 UP
+                                            // （阻止官方 UP 分支的长按复制）；短按/移动取消/CANCEL 一律交还宿主
+                                            // （标题展开/收起、简介链接 span 点击），主线程拥塞也不会把短按误判成长按。
+                                            if (finishDescLikeTouch(ev, v)) {
+                                                this.result = true // 阻止官方复制全文与标题点击展开
                                             }
                                         }
                                     }

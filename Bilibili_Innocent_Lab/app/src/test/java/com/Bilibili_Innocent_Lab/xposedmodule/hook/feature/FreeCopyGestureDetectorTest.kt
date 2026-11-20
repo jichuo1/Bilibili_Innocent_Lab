@@ -29,18 +29,53 @@ class FreeCopyGestureDetectorTest {
         assertTrue(g.claim(1_000L, 1_500L))
     }
 
-    @Test fun upClaimRequiresMarginBeyondThresholdSoBorderlineTapsStayWithHost() {
-        // 刚越线就抬手多半是瞄准小目标的慢点按：UP 认领要求阈值+余量，临界区交还宿主点击。
+    @Test fun upClaimUsesTheSameLineAsHeldClaimWithNoExtraMargin() {
+        // 按住中与 UP 共用同一条线：阈值时刻气泡已弹，UP 不再把 [T, T+150ms) 改判成点按。
         val g = gesture()
-        assertFalse(g.claimAtUp(1_000L, 1_400L))
-        assertFalse(g.claimAtUp(1_000L, 1_549L))
+        assertFalse(g.resolveTerminal(1_000L, 1_399L, isUp = true, alreadyHandled = false) ==
+            FreeCopyGestureDetector.Terminal.CLAIM_AND_CONSUME)
         assertTrue(g.isPending)
-        assertTrue(g.claimAtUp(1_000L, 1_550L))
-        assertFalse(g.claimAtUp(1_000L, 1_600L))
+        assertEquals(FreeCopyGestureDetector.Terminal.CLAIM_AND_CONSUME,
+            g.resolveTerminal(1_000L, 1_400L, isUp = true, alreadyHandled = false))
+        assertTrue(g.isHandled)
+    }
+
+    @Test fun resolveTerminalHandsEverythingExceptALongHoldBackToTheHost() {
+        val host = FreeCopyGestureDetector.Terminal.HAND_TO_HOST
+        // 短按（含 60ms 快点按与刚好差 1ms）：不认领、不消费，会话保持 PENDING 等宿主清理。
+        for (held in listOf(30L, 60L, 120L, 399L)) {
+            val g = gesture()
+            assertEquals("held=$held", host, g.resolveTerminal(1_000L, 1_000L + held, true, false))
+            assertTrue(g.isPending)
+        }
+        // CANCEL 永不消费：即使按住已超线也一样（父容器拦截/系统取消不能被当成长按）。
+        val cancel = gesture()
+        assertEquals(host, cancel.resolveTerminal(1_000L, 2_000L, isUp = false, alreadyHandled = false))
+        assertTrue(cancel.isPending)
+        // 会话已取消（滑动超坡度/多指）：UP 超线也交还宿主。
+        val moved = gesture()
+        assertTrue(moved.sample(1_000L, 7, 1, 100f, 230f))
+        assertEquals(host, moved.resolveTerminal(1_000L, 2_000L, isUp = true, alreadyHandled = false))
+        // 另一条触摸流的 UP 不匹配当前会话：不认领。
+        val other = gesture()
+        assertEquals(host, other.resolveTerminal(999L, 2_000L, isUp = true, alreadyHandled = false))
+        assertTrue(other.isPending)
+        // 事件时间早于按下时间（乱序/伪造）不认领。
+        val skew = gesture()
+        assertEquals(host, skew.resolveTerminal(1_000L, 900L, isUp = true, alreadyHandled = false))
+    }
+
+    @Test fun alreadyShownBubbleConsumesOnlyTheUpAndLetsCancelThrough() {
+        val g = gesture()
+        assertTrue(g.claim(1_000L, 1_400L))
+        assertEquals(FreeCopyGestureDetector.Terminal.CONSUME,
+            g.resolveTerminal(1_000L, 1_500L, isUp = true, alreadyHandled = true))
+        assertEquals(FreeCopyGestureDetector.Terminal.HAND_TO_HOST,
+            g.resolveTerminal(1_000L, 1_500L, isUp = false, alreadyHandled = true))
     }
 
     @Test fun heldPressStillClaimsAtPlainThresholdWhileFingerIsDown() {
-        // 按住中（到期 Runnable/宿主监听器）走 claim，不受 UP 余量影响，即时反馈不延迟。
+        // 按住中（到期 Runnable/宿主监听器）走 claim，即时反馈不延迟。
         val g = gesture()
         assertTrue(g.claim(1_000L, 1_400L))
     }

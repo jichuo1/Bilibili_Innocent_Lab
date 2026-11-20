@@ -33,14 +33,16 @@ class CommentLongPressDispatchContractTest {
 
     @Test fun retargetingNeverReschedulesTheSameSessionDirectly() {
         val retarget = source.after("private fun beginOrRetargetCommentTouch(").before("private fun activeCommentTouchTarget(")
-        assertTrue(retarget.contains("freeCopyGesture.schedule(freeCopyGesture.sessionId, delay, freeCopyPoster(handler))"))
+        assertTrue(retarget.contains("freeCopyGesture.schedule(freeCopyGesture.sessionId, freeCopyDueDelayMs(), freeCopyPoster(handler))"))
         assertFalse("no per-level removeCallbacks/postDelayed of the long-press runnable", retarget.contains("removeCallbacks("))
         assertFalse(retarget.contains("postDelayed("))
         // 目标与根引用仍逐层更新：最深层触摸 View 才是气泡锚点。
         assertTrue(retarget.contains("commentTouchTargetRef = java.lang.ref.WeakReference(v)"))
         assertTrue(retarget.contains("commentTouchRootRef = java.lang.ref.WeakReference(root)"))
-        // 到期时刻仍由会话起点固定。
-        assertTrue(retarget.contains("val dueAt = freeCopyGesture.observedAtMs + freeCopyGesture.thresholdMs"))
+        // 到期时刻仍由会话起点固定：经 FreeCopyPressPolicy.dueDelayMs（事件时间/观测时间二选一）计算一次。
+        val due = source.after("private fun freeCopyDueDelayMs()").before("短按安全网：到期 Runnable")
+        assertTrue(due.contains("FreeCopyPressPolicy.dueDelayMs("))
+        assertTrue(due.contains("freeCopyGesture.downTime, freeCopyGesture.observedAtMs"))
     }
 
     @Test fun everyEndOfTheSessionCancelsThroughTheDetectorAndFiringResetsIt() {
